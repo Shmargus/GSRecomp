@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "overlay_id": "rom_77dd1c",
+  "decompressed_sha256": "816f58ccf280eefa788030ad58c4ebeea42f1561da6427490402f9a9c6c4dcc7",
+  "entries": [
+    {
+      "addr": "0x02008104",
+      "mode": "thumb",
+      "evidence": "GS-011 5,400-frame input-driven strict-static aborted on an unknown transient identity at 0x02008104; the live EWRAM window matched pinned rom_77dd1c byte for byte over the whole 0x4000 dump, and 0x02008105 is that build's exact ELF OvlFunc_104 THUMB entry ($t mapping symbol at 0x02008104)"
+    },
+    {
+      "addr": "0x0200C306",
+      "mode": "thumb",
+      "resume": true,
+      "evidence": "Mt. Aleph sages' psynergy scene, reproduced headlessly from a player save state plus recorded input. The runtime reported 'verified transient image overlay_rom_77dd1c has no AOT entry for 0x0200C306' - identity matched, entry missing. The pinned decompressed build's overlay.elf places a $t mapping symbol at 0x0200c304 and OvlFunc_4304 (STT_FUNC, 72 bytes, thumb bit set) at 0x0200c305, so 0x0200C306 is an interior THUMB entry at OvlFunc_4304+0x2. Trace #12812475 dispatches it with CPSR.T set, agreeing with the ELF"
+    },
+    {
+      "addr": "0x0200C51C",
+      "mode": "thumb",
+      "resume": true,
+      "evidence": "Same reproduced Mt. Aleph scene, reached after 0x0200C306 was seeded: 'verified transient image overlay_rom_77dd1c has no AOT entry for 0x0200C51C'. The imported overlay corpus places OvlFunc_441c at 0x0200c41c with size 0x134 (extent 0x0200c41c..0x0200c550, mode thumb), so 0x0200C51C is an interior THUMB resume at OvlFunc_441c+0x100. The runtime dispatches it with CPSR.T set, agreeing with the corpus mode"
+    }
+  ]
+}

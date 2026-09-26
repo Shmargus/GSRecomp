@@ -1,0 +1,85 @@
+# GS-011 POSITION-INDEPENDENT AOT image for Func_9bb8, CODE-ONLY extent.
+#
+# ROOT CAUSE OF THE MT. ALEPH CRASH.
+#
+# The game relocates Func_9bb8 into a bump-allocated IWRAM block and then
+# PATCHES the copy in place: it writes runtime values into the routine's own
+# trailing literal pool. Verified against a live dump captured from a replayed
+# player session (save state + recorded input, reproduced headlessly):
+#
+#   extent 0x1d8 (code only)  -> matches ROM byte for byte
+#   extent 0x1e4 (short copy) -> differs
+#   extent 0x2c4 (full ELF)   -> differs
+#
+# All 224 differing bytes lie at or after offset 0x1d8, which is exactly where
+# goldensun.elf ends the code ($d at 0x08009d90) and the literal pool begins.
+# The code itself is never modified.
+#
+# So NO identity taken over an extent that includes the literal pool can ever
+# match, and the runtime aborted with "unknown transient code identity" on a
+# perfectly healthy image. This is the third instance of the same defect class
+# in this project - after hashing an overlay's mutable `.data`, and after
+# assuming one routine has a single copy length - and it is the sharpest:
+# an image can be self-modifying in its data while its code stays immutable.
+#
+# The identity must therefore cover only bytes the game does not write.
+#
+# Generated with `gba_recompile --relocatable-image 0x03003b9c:0x1d8`.
+# 0x03003b9c is the generation ORIGIN only; the block is bump-allocated and
+# its address varies, which is why this is position-independent.
+#
+# ELF: Func_9bb8 at 0x08009bb8, full STT_FUNC size 708 (0x2c4), mode arm.
+# Code-only image SHA-1 36f6cde400bd706d9418bf212705dcfda0a02d94.
+
+[program]
+name = "Golden Sun relocatable Func_9bb8 RAM image (code-only 0x1d8)"
+id = "golden_sun_usa_transient_func_9bb8_code_relocatable"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03003b9c
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03003b9c
+source_start = 0x08009bb8
+size = 0x000001d8
+name = "relocatable_Func_9bb8_code_image"
+note = "flash-driver routine, code-only extent; the game patches the trailing literal pool after copying, so only [0, 0x1d8) is a stable identity; image SHA-1 36f6cde400bd706d9418bf212705dcfda0a02d94"
+
+[[extra_func]]
+addr = 0x03003b9c
+mode = "arm"
+name = "Func_9bb8_code_relocatable_image"
+note = "ELF STT_FUNC entry Func_9bb8 installed at the observed bump-allocated destination"
+
+[[resume_range]]
+start = 0x03003b9c
+end = 0x03003c70
+mode = "arm"
+note = "Func_9bb8 code run, ROM 0x08009bb8..0x08009c8c"
+
+[[data_range]]
+start = 0x03003c70
+end = 0x03003c74
+note = "ELF $d run inside Func_9bb8, ROM 0x08009c8c..0x08009c90"
+
+[[resume_range]]
+start = 0x03003c74
+end = 0x03003cc0
+mode = "arm"
+note = "Func_9bb8 code run, ROM 0x08009c90..0x08009cdc"
+
+[[data_range]]
+start = 0x03003cc0
+end = 0x03003ce0
+note = "ELF $d run inside Func_9bb8, ROM 0x08009cdc..0x08009cfc"
+
+[[resume_range]]
+start = 0x03003ce0
+end = 0x03003d74
+mode = "arm"
+note = "Func_9bb8 code run, ROM 0x08009cfc..0x08009d90 (code ends here; the literal pool beyond is patched at runtime and deliberately excluded)"

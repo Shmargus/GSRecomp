@@ -1,0 +1,1602 @@
+# Generated evidence proposal for GS-011. Do not hand-edit addresses.
+# decompressed overlay SHA-256: f8f0d804554f3a3c5e4bff3f9c73a0edfc3dc0317319942857fbc449b13b071e
+
+[program]
+name = "Golden Sun overlay rom_7d4af4"
+id = "golden_sun_overlay_rom_7d4af4"
+load_address = 0x02008000
+size = 0x00001d48
+entry_pc = 0x02008000
+speculative_literal_harvest = false
+codegen_shards = 4
+
+[identity]
+sha1 = "c2a86bfa5edc444230c0d3e60d519cb236c50ef6"
+
+[[data_range]]
+start = 0x02008004
+end = 0x02008008
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x0200800c
+end = 0x02008010
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008014
+end = 0x02008018
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x0200801c
+end = 0x02008020
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008024
+end = 0x02008028
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x0200802c
+end = 0x02008030
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008078
+end = 0x0200807c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008168
+end = 0x02008170
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008200
+end = 0x02008208
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x0200820c
+end = 0x02008210
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008218
+end = 0x0200821c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008220
+end = 0x02008224
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x020082ce
+end = 0x020082d4
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x020082ea
+end = 0x020082f0
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008336
+end = 0x02008344
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x020083b6
+end = 0x020083d0
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008416
+end = 0x02008424
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008496
+end = 0x020084b0
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x020084d6
+end = 0x020084e8
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008504
+end = 0x02008508
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008524
+end = 0x02008528
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008564
+end = 0x02008568
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008598
+end = 0x0200859c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x020085b8
+end = 0x020085bc
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x020085d8
+end = 0x020085dc
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008638
+end = 0x02008644
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x020086de
+end = 0x020086e8
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008726
+end = 0x02008728
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008872
+end = 0x02008894
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008946
+end = 0x02008954
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x0200897c
+end = 0x02008980
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008c8e
+end = 0x02008ca8
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008cf8
+end = 0x02008cfc
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d00
+end = 0x02008d04
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d08
+end = 0x02008d0c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d10
+end = 0x02008d14
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d18
+end = 0x02008d1c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d20
+end = 0x02008d24
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d28
+end = 0x02008d2c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d30
+end = 0x02008d34
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d38
+end = 0x02008d3c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d40
+end = 0x02008d44
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d48
+end = 0x02008d4c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d50
+end = 0x02008d54
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d58
+end = 0x02008d5c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d60
+end = 0x02008d64
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d68
+end = 0x02008d6c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d70
+end = 0x02008d74
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d78
+end = 0x02008d7c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d80
+end = 0x02008d84
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d88
+end = 0x02008d8c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d90
+end = 0x02008d94
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008d98
+end = 0x02008d9c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008da0
+end = 0x02008da4
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008da8
+end = 0x02008dac
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008db0
+end = 0x02008db4
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008db8
+end = 0x02008dbc
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008dc0
+end = 0x02008dc4
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008dc8
+end = 0x02008dcc
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008dd0
+end = 0x02008dd4
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008dd8
+end = 0x02008ddc
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008de0
+end = 0x02008de4
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008de8
+end = 0x02008dec
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008df0
+end = 0x02008df4
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008df8
+end = 0x02008dfc
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008e00
+end = 0x02008e04
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008e08
+end = 0x02008e0c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008e10
+end = 0x02008e14
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008e18
+end = 0x02008e1c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008e20
+end = 0x02008e24
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008e28
+end = 0x02008e2c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008e30
+end = 0x02008e34
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008e38
+end = 0x02008e3c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008e40
+end = 0x02008e44
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008e48
+end = 0x02008e4c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008e50
+end = 0x02008e54
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008e58
+end = 0x02008e5c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008e60
+end = 0x02008e64
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008e68
+end = 0x02008e6c
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[data_range]]
+start = 0x02008ea8
+end = 0x02009d48
+note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
+
+[[extra_func]]
+addr = 0x02008000
+mode = "thumb"
+name = "_OvlFunc_728"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008008
+mode = "thumb"
+name = "_OvlFunc_208"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008010
+mode = "thumb"
+name = "_OvlFunc_214"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008018
+mode = "thumb"
+name = "_OvlFunc_21c"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008020
+mode = "thumb"
+name = "_OvlFunc_4b0"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008028
+mode = "thumb"
+name = "_OvlFunc_210"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008030
+mode = "thumb"
+name = "OvlFunc_30"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x02008040
+mode = "thumb"
+name = "OvlFunc_40"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x0200807c
+mode = "thumb"
+name = "OvlFunc_7c"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008170
+mode = "thumb"
+name = "OvlFunc_170"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008208
+mode = "thumb"
+name = "OvlFunc_208"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008210
+mode = "thumb"
+name = "OvlFunc_210"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x02008214
+mode = "thumb"
+name = "OvlFunc_214"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x0200821c
+mode = "thumb"
+name = "OvlFunc_21c"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008224
+mode = "thumb"
+name = "OvlFunc_224"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x02008260
+mode = "thumb"
+name = "OvlFunc_260"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x0200828c
+mode = "thumb"
+name = "OvlFunc_28c"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x020082b8
+mode = "thumb"
+name = "OvlFunc_2b8"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x020082d4
+mode = "thumb"
+name = "OvlFunc_2d4"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x020082f0
+mode = "thumb"
+name = "OvlFunc_2f0"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x020083d0
+mode = "thumb"
+name = "OvlFunc_3d0"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x020084b0
+mode = "thumb"
+name = "OvlFunc_4b0"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x020084e8
+mode = "thumb"
+name = "OvlFunc_4e8"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008508
+mode = "thumb"
+name = "OvlFunc_508"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008528
+mode = "thumb"
+name = "OvlFunc_528"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008568
+mode = "thumb"
+name = "OvlFunc_568"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x0200859c
+mode = "thumb"
+name = "OvlFunc_59c"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x020085bc
+mode = "thumb"
+name = "OvlFunc_5bc"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x020085dc
+mode = "thumb"
+name = "OvlFunc_5dc"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008644
+mode = "thumb"
+name = "OvlFunc_644"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x020086e8
+mode = "thumb"
+name = "OvlFunc_6e8"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008728
+mode = "thumb"
+name = "OvlFunc_728"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008894
+mode = "thumb"
+name = "OvlFunc_894"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008954
+mode = "thumb"
+name = "OvlFunc_954"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x02008964
+mode = "thumb"
+name = "OvlFunc_964"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008980
+mode = "thumb"
+name = "OvlFunc_980"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008ca8
+mode = "thumb"
+name = "OvlFunc_ca8"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008cfc
+mode = "thumb"
+name = "__Func_30f8"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d04
+mode = "thumb"
+name = "__Func_44d0"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d0c
+mode = "thumb"
+name = "__Func_c300"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d14
+mode = "thumb"
+name = "__Func_10560"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d1c
+mode = "thumb"
+name = "__Func_10704"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d24
+mode = "thumb"
+name = "__Func_c528"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d2c
+mode = "thumb"
+name = "__Func_12078"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d34
+mode = "thumb"
+name = "__Func_17658"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d3c
+mode = "thumb"
+name = "__Func_19da8"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d44
+mode = "thumb"
+name = "__Func_79338"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d4c
+mode = "thumb"
+name = "__Func_79358"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d54
+mode = "thumb"
+name = "__Func_9163c"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d5c
+mode = "thumb"
+name = "__Func_916b0"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d64
+mode = "thumb"
+name = "__Func_91750"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d6c
+mode = "thumb"
+name = "__Func_91a58"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d74
+mode = "thumb"
+name = "__Func_91c7c"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d7c
+mode = "thumb"
+name = "__Func_92054"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d84
+mode = "thumb"
+name = "__Func_92064"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d8c
+mode = "thumb"
+name = "__Func_9207c"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d94
+mode = "thumb"
+name = "__Func_9218c"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008d9c
+mode = "thumb"
+name = "__Func_921c4"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008da4
+mode = "thumb"
+name = "__Func_92208"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008dac
+mode = "thumb"
+name = "__Func_923c4"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008db4
+mode = "thumb"
+name = "__Func_923e4"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008dbc
+mode = "thumb"
+name = "__Func_924d4"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008dc4
+mode = "thumb"
+name = "__Func_92548"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008dcc
+mode = "thumb"
+name = "__Func_9259c"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008dd4
+mode = "thumb"
+name = "__Func_925cc"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008ddc
+mode = "thumb"
+name = "__Func_9280c"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008de4
+mode = "thumb"
+name = "__Func_92848"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008dec
+mode = "thumb"
+name = "__Func_92950"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008df4
+mode = "thumb"
+name = "__Func_92b94"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008dfc
+mode = "thumb"
+name = "__Func_92c40"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008e04
+mode = "thumb"
+name = "__Func_92f84"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008e0c
+mode = "thumb"
+name = "__Func_93040"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008e14
+mode = "thumb"
+name = "__Func_93054"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008e1c
+mode = "thumb"
+name = "__Func_92adc"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008e24
+mode = "thumb"
+name = "__Func_93874"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008e2c
+mode = "thumb"
+name = "__Func_933f8"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008e34
+mode = "thumb"
+name = "__Func_91e9c"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008e3c
+mode = "thumb"
+name = "__Func_91df4"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008e44
+mode = "thumb"
+name = "__Func_91e20"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008e4c
+mode = "thumb"
+name = "__Func_8f1c0"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008e54
+mode = "thumb"
+name = "__Func_8edac"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008e5c
+mode = "thumb"
+name = "__Func_955b0"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008e64
+mode = "thumb"
+name = "__Func_f9080"
+note = "overlay STT_FUNC entry and mapping-symbol mode; corpus withholds it only for interior mapping transitions"
+
+[[extra_func]]
+addr = 0x02008e6c
+mode = "thumb"
+name = "_call_via_r0"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x02008e70
+mode = "thumb"
+name = "_call_via_r1"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x02008e74
+mode = "thumb"
+name = "_call_via_r2"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x02008e78
+mode = "thumb"
+name = "_call_via_r3"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x02008e7c
+mode = "thumb"
+name = "_call_via_r4"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x02008e80
+mode = "thumb"
+name = "_call_via_r5"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x02008e84
+mode = "thumb"
+name = "_call_via_r6"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x02008e88
+mode = "thumb"
+name = "_call_via_r7"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x02008e8c
+mode = "thumb"
+name = "_call_via_r8"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x02008e90
+mode = "thumb"
+name = "_call_via_r9"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x02008e94
+mode = "thumb"
+name = "_call_via_r10"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x02008e98
+mode = "thumb"
+name = "_call_via_r11"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x02008e9c
+mode = "thumb"
+name = "_call_via_r12"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x02008ea0
+mode = "thumb"
+name = "_call_via_sp"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[extra_func]]
+addr = 0x02008ea4
+mode = "thumb"
+name = "_call_via_lr"
+note = "proven overlay STT_FUNC entry and mapping-symbol mode"
+
+[[resume_range]]
+start = 0x02008000
+end = 0x02008004
+mode = "thumb"
+note = "code run inside _OvlFunc_728"
+
+[[resume_range]]
+start = 0x02008008
+end = 0x0200800c
+mode = "thumb"
+note = "code run inside _OvlFunc_208"
+
+[[resume_range]]
+start = 0x02008010
+end = 0x02008014
+mode = "thumb"
+note = "code run inside _OvlFunc_214"
+
+[[resume_range]]
+start = 0x02008018
+end = 0x0200801c
+mode = "thumb"
+note = "code run inside _OvlFunc_21c"
+
+[[resume_range]]
+start = 0x02008020
+end = 0x02008024
+mode = "thumb"
+note = "code run inside _OvlFunc_4b0"
+
+[[resume_range]]
+start = 0x02008028
+end = 0x0200802c
+mode = "thumb"
+note = "code run inside _OvlFunc_210"
+
+[[resume_range]]
+start = 0x02008030
+end = 0x02008040
+mode = "thumb"
+note = "code run inside OvlFunc_30"
+
+[[resume_range]]
+start = 0x02008040
+end = 0x02008078
+mode = "thumb"
+note = "code run inside OvlFunc_40"
+
+[[resume_range]]
+start = 0x0200807c
+end = 0x02008168
+mode = "thumb"
+note = "code run inside OvlFunc_7c"
+
+[[resume_range]]
+start = 0x02008170
+end = 0x02008200
+mode = "thumb"
+note = "code run inside OvlFunc_170"
+
+[[resume_range]]
+start = 0x02008208
+end = 0x0200820c
+mode = "thumb"
+note = "code run inside OvlFunc_208"
+
+[[resume_range]]
+start = 0x02008210
+end = 0x02008214
+mode = "thumb"
+note = "code run inside OvlFunc_210"
+
+[[resume_range]]
+start = 0x02008214
+end = 0x02008218
+mode = "thumb"
+note = "code run inside OvlFunc_214"
+
+[[resume_range]]
+start = 0x0200821c
+end = 0x02008220
+mode = "thumb"
+note = "code run inside OvlFunc_21c"
+
+[[resume_range]]
+start = 0x02008224
+end = 0x02008260
+mode = "thumb"
+note = "code run inside OvlFunc_224"
+
+[[resume_range]]
+start = 0x02008260
+end = 0x0200828c
+mode = "thumb"
+note = "code run inside OvlFunc_260"
+
+[[resume_range]]
+start = 0x0200828c
+end = 0x020082b8
+mode = "thumb"
+note = "code run inside OvlFunc_28c"
+
+[[resume_range]]
+start = 0x020082b8
+end = 0x020082ce
+mode = "thumb"
+note = "code run inside OvlFunc_2b8"
+
+[[resume_range]]
+start = 0x020082d4
+end = 0x020082ea
+mode = "thumb"
+note = "code run inside OvlFunc_2d4"
+
+[[resume_range]]
+start = 0x020082f0
+end = 0x02008336
+mode = "thumb"
+note = "code run inside OvlFunc_2f0"
+
+[[resume_range]]
+start = 0x02008344
+end = 0x020083b6
+mode = "thumb"
+note = "code run inside OvlFunc_2f0"
+
+[[resume_range]]
+start = 0x020083d0
+end = 0x02008416
+mode = "thumb"
+note = "code run inside OvlFunc_3d0"
+
+[[resume_range]]
+start = 0x02008424
+end = 0x02008496
+mode = "thumb"
+note = "code run inside OvlFunc_3d0"
+
+[[resume_range]]
+start = 0x020084b0
+end = 0x020084d6
+mode = "thumb"
+note = "code run inside OvlFunc_4b0"
+
+[[resume_range]]
+start = 0x020084e8
+end = 0x02008504
+mode = "thumb"
+note = "code run inside OvlFunc_4e8"
+
+[[resume_range]]
+start = 0x02008508
+end = 0x02008524
+mode = "thumb"
+note = "code run inside OvlFunc_508"
+
+[[resume_range]]
+start = 0x02008528
+end = 0x02008564
+mode = "thumb"
+note = "code run inside OvlFunc_528"
+
+[[resume_range]]
+start = 0x02008568
+end = 0x02008598
+mode = "thumb"
+note = "code run inside OvlFunc_568"
+
+[[resume_range]]
+start = 0x0200859c
+end = 0x020085b8
+mode = "thumb"
+note = "code run inside OvlFunc_59c"
+
+[[resume_range]]
+start = 0x020085bc
+end = 0x020085d8
+mode = "thumb"
+note = "code run inside OvlFunc_5bc"
+
+[[resume_range]]
+start = 0x020085dc
+end = 0x02008638
+mode = "thumb"
+note = "code run inside OvlFunc_5dc"
+
+[[resume_range]]
+start = 0x02008644
+end = 0x020086de
+mode = "thumb"
+note = "code run inside OvlFunc_644"
+
+[[resume_range]]
+start = 0x020086e8
+end = 0x02008726
+mode = "thumb"
+note = "code run inside OvlFunc_6e8"
+
+[[resume_range]]
+start = 0x02008728
+end = 0x02008872
+mode = "thumb"
+note = "code run inside OvlFunc_728"
+
+[[resume_range]]
+start = 0x02008894
+end = 0x02008946
+mode = "thumb"
+note = "code run inside OvlFunc_894"
+
+[[resume_range]]
+start = 0x02008954
+end = 0x02008964
+mode = "thumb"
+note = "code run inside OvlFunc_954"
+
+[[resume_range]]
+start = 0x02008964
+end = 0x0200897c
+mode = "thumb"
+note = "code run inside OvlFunc_964"
+
+[[resume_range]]
+start = 0x02008980
+end = 0x02008c8e
+mode = "thumb"
+note = "code run inside OvlFunc_980"
+
+[[resume_range]]
+start = 0x02008ca8
+end = 0x02008cf8
+mode = "thumb"
+note = "code run inside OvlFunc_ca8"
+
+[[resume_range]]
+start = 0x02008cfc
+end = 0x02008d00
+mode = "thumb"
+note = "code run inside __Func_30f8"
+
+[[resume_range]]
+start = 0x02008d04
+end = 0x02008d08
+mode = "thumb"
+note = "code run inside __Func_44d0"
+
+[[resume_range]]
+start = 0x02008d0c
+end = 0x02008d10
+mode = "thumb"
+note = "code run inside __Func_c300"
+
+[[resume_range]]
+start = 0x02008d14
+end = 0x02008d18
+mode = "thumb"
+note = "code run inside __Func_10560"
+
+[[resume_range]]
+start = 0x02008d1c
+end = 0x02008d20
+mode = "thumb"
+note = "code run inside __Func_10704"
+
+[[resume_range]]
+start = 0x02008d24
+end = 0x02008d28
+mode = "thumb"
+note = "code run inside __Func_c528"
+
+[[resume_range]]
+start = 0x02008d2c
+end = 0x02008d30
+mode = "thumb"
+note = "code run inside __Func_12078"
+
+[[resume_range]]
+start = 0x02008d34
+end = 0x02008d38
+mode = "thumb"
+note = "code run inside __Func_17658"
+
+[[resume_range]]
+start = 0x02008d3c
+end = 0x02008d40
+mode = "thumb"
+note = "code run inside __Func_19da8"
+
+[[resume_range]]
+start = 0x02008d44
+end = 0x02008d48
+mode = "thumb"
+note = "code run inside __Func_79338"
+
+[[resume_range]]
+start = 0x02008d4c
+end = 0x02008d50
+mode = "thumb"
+note = "code run inside __Func_79358"
+
+[[resume_range]]
+start = 0x02008d54
+end = 0x02008d58
+mode = "thumb"
+note = "code run inside __Func_9163c"
+
+[[resume_range]]
+start = 0x02008d5c
+end = 0x02008d60
+mode = "thumb"
+note = "code run inside __Func_916b0"
+
+[[resume_range]]
+start = 0x02008d64
+end = 0x02008d68
+mode = "thumb"
+note = "code run inside __Func_91750"
+
+[[resume_range]]
+start = 0x02008d6c
+end = 0x02008d70
+mode = "thumb"
+note = "code run inside __Func_91a58"
+
+[[resume_range]]
+start = 0x02008d74
+end = 0x02008d78
+mode = "thumb"
+note = "code run inside __Func_91c7c"
+
+[[resume_range]]
+start = 0x02008d7c
+end = 0x02008d80
+mode = "thumb"
+note = "code run inside __Func_92054"
+
+[[resume_range]]
+start = 0x02008d84
+end = 0x02008d88
+mode = "thumb"
+note = "code run inside __Func_92064"
+
+[[resume_range]]
+start = 0x02008d8c
+end = 0x02008d90
+mode = "thumb"
+note = "code run inside __Func_9207c"
+
+[[resume_range]]
+start = 0x02008d94
+end = 0x02008d98
+mode = "thumb"
+note = "code run inside __Func_9218c"
+
+[[resume_range]]
+start = 0x02008d9c
+end = 0x02008da0
+mode = "thumb"
+note = "code run inside __Func_921c4"
+
+[[resume_range]]
+start = 0x02008da4
+end = 0x02008da8
+mode = "thumb"
+note = "code run inside __Func_92208"
+
+[[resume_range]]
+start = 0x02008dac
+end = 0x02008db0
+mode = "thumb"
+note = "code run inside __Func_923c4"
+
+[[resume_range]]
+start = 0x02008db4
+end = 0x02008db8
+mode = "thumb"
+note = "code run inside __Func_923e4"
+
+[[resume_range]]
+start = 0x02008dbc
+end = 0x02008dc0
+mode = "thumb"
+note = "code run inside __Func_924d4"
+
+[[resume_range]]
+start = 0x02008dc4
+end = 0x02008dc8
+mode = "thumb"
+note = "code run inside __Func_92548"
+
+[[resume_range]]
+start = 0x02008dcc
+end = 0x02008dd0
+mode = "thumb"
+note = "code run inside __Func_9259c"
+
+[[resume_range]]
+start = 0x02008dd4
+end = 0x02008dd8
+mode = "thumb"
+note = "code run inside __Func_925cc"
+
+[[resume_range]]
+start = 0x02008ddc
+end = 0x02008de0
+mode = "thumb"
+note = "code run inside __Func_9280c"
+
+[[resume_range]]
+start = 0x02008de4
+end = 0x02008de8
+mode = "thumb"
+note = "code run inside __Func_92848"
+
+[[resume_range]]
+start = 0x02008dec
+end = 0x02008df0
+mode = "thumb"
+note = "code run inside __Func_92950"
+
+[[resume_range]]
+start = 0x02008df4
+end = 0x02008df8
+mode = "thumb"
+note = "code run inside __Func_92b94"
+
+[[resume_range]]
+start = 0x02008dfc
+end = 0x02008e00
+mode = "thumb"
+note = "code run inside __Func_92c40"
+
+[[resume_range]]
+start = 0x02008e04
+end = 0x02008e08
+mode = "thumb"
+note = "code run inside __Func_92f84"
+
+[[resume_range]]
+start = 0x02008e0c
+end = 0x02008e10
+mode = "thumb"
+note = "code run inside __Func_93040"
+
+[[resume_range]]
+start = 0x02008e14
+end = 0x02008e18
+mode = "thumb"
+note = "code run inside __Func_93054"
+
+[[resume_range]]
+start = 0x02008e1c
+end = 0x02008e20
+mode = "thumb"
+note = "code run inside __Func_92adc"
+
+[[resume_range]]
+start = 0x02008e24
+end = 0x02008e28
+mode = "thumb"
+note = "code run inside __Func_93874"
+
+[[resume_range]]
+start = 0x02008e2c
+end = 0x02008e30
+mode = "thumb"
+note = "code run inside __Func_933f8"
+
+[[resume_range]]
+start = 0x02008e34
+end = 0x02008e38
+mode = "thumb"
+note = "code run inside __Func_91e9c"
+
+[[resume_range]]
+start = 0x02008e3c
+end = 0x02008e40
+mode = "thumb"
+note = "code run inside __Func_91df4"
+
+[[resume_range]]
+start = 0x02008e44
+end = 0x02008e48
+mode = "thumb"
+note = "code run inside __Func_91e20"
+
+[[resume_range]]
+start = 0x02008e4c
+end = 0x02008e50
+mode = "thumb"
+note = "code run inside __Func_8f1c0"
+
+[[resume_range]]
+start = 0x02008e54
+end = 0x02008e58
+mode = "thumb"
+note = "code run inside __Func_8edac"
+
+[[resume_range]]
+start = 0x02008e5c
+end = 0x02008e60
+mode = "thumb"
+note = "code run inside __Func_955b0"
+
+[[resume_range]]
+start = 0x02008e64
+end = 0x02008e68
+mode = "thumb"
+note = "code run inside __Func_f9080"
+
+[[resume_range]]
+start = 0x02008e6c
+end = 0x02008e70
+mode = "thumb"
+note = "code run inside _call_via_r0"
+
+[[resume_range]]
+start = 0x02008e70
+end = 0x02008e74
+mode = "thumb"
+note = "code run inside _call_via_r1"
+
+[[resume_range]]
+start = 0x02008e74
+end = 0x02008e78
+mode = "thumb"
+note = "code run inside _call_via_r2"
+
+[[resume_range]]
+start = 0x02008e78
+end = 0x02008e7c
+mode = "thumb"
+note = "code run inside _call_via_r3"
+
+[[resume_range]]
+start = 0x02008e7c
+end = 0x02008e80
+mode = "thumb"
+note = "code run inside _call_via_r4"
+
+[[resume_range]]
+start = 0x02008e80
+end = 0x02008e84
+mode = "thumb"
+note = "code run inside _call_via_r5"
+
+[[resume_range]]
+start = 0x02008e84
+end = 0x02008e88
+mode = "thumb"
+note = "code run inside _call_via_r6"
+
+[[resume_range]]
+start = 0x02008e88
+end = 0x02008e8c
+mode = "thumb"
+note = "code run inside _call_via_r7"
+
+[[resume_range]]
+start = 0x02008e8c
+end = 0x02008e90
+mode = "thumb"
+note = "code run inside _call_via_r8"
+
+[[resume_range]]
+start = 0x02008e90
+end = 0x02008e94
+mode = "thumb"
+note = "code run inside _call_via_r9"
+
+[[resume_range]]
+start = 0x02008e94
+end = 0x02008e98
+mode = "thumb"
+note = "code run inside _call_via_r10"
+
+[[resume_range]]
+start = 0x02008e98
+end = 0x02008e9c
+mode = "thumb"
+note = "code run inside _call_via_r11"
+
+[[resume_range]]
+start = 0x02008e9c
+end = 0x02008ea0
+mode = "thumb"
+note = "code run inside _call_via_r12"
+
+[[resume_range]]
+start = 0x02008ea0
+end = 0x02008ea4
+mode = "thumb"
+note = "code run inside _call_via_sp"
+
+[[resume_range]]
+start = 0x02008ea4
+end = 0x02008ea8
+mode = "thumb"
+note = "code run inside _call_via_lr"

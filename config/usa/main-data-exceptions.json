@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "rom_sha1": "5c4695205413df7db52b9a184815a07783999971",
+  "evidence_revision": "84a80693003439acdbb78dd84538b0532461ad4b",
+  "exceptions": [
+    {
+      "start": "0x0800449a",
+      "end": "0x0800449c",
+      "mode": "thumb",
+      "evidence": "direct sequential control flow and forced-THUMB disassembly"
+    },
+    {
+      "start": "0x0800505e",
+      "end": "0x08005060",
+      "mode": "thumb",
+      "evidence": "direct sequential control flow and forced-THUMB disassembly"
+    },
+    {
+      "start": "0x080052a6",
+      "end": "0x080052a8",
+      "mode": "thumb",
+      "evidence": "direct sequential control flow and forced-THUMB disassembly"
+    },
+    {
+      "start": "0x0800cc1e",
+      "end": "0x0800cc20",
+      "mode": "thumb",
+      "evidence": "Func_cacc callers 0x0800cbe8 and 0x0800cbf2 reach this halfword sequentially; ROM and ELF bytes 0000 decode as THUMB MOVS r0,r0 before MOV ip,pc; BX r8"
+    },
+    {
+      "start": "0x0800cc8e",
+      "end": "0x0800cc90",
+      "mode": "thumb",
+      "evidence": "Func_cacc caller 0x0800cc7c reaches this halfword sequentially; ROM and ELF bytes 0000 decode as THUMB MOVS r0,r0 before MOV ip,pc; BX r7"
+    },
+    {
+      "start": "0x0800cdae",
+      "end": "0x0800cdb0",
+      "mode": "thumb",
+      "evidence": "Func_cacc callers 0x0800cd9c and 0x0800cda6 reach this halfword sequentially; ROM and ELF bytes 0000 decode as THUMB MOVS r0,r0 before MOV ip,pc; BX r7"
+    },
+    {
+      "start": "0x0800cede",
+      "end": "0x0800cee0",
+      "mode": "thumb",
+      "evidence": "Func_cacc callers 0x0800ce74, 0x0800ce8e, 0x0800cea2, 0x0800cea8, and 0x0800ceb6 reach this halfword sequentially; ROM and ELF bytes 0000 decode as THUMB MOVS r0,r0 before MOV ip,pc; BX r10"
+    },
+    {
+      "start": "0x0800cf6e",
+      "end": "0x0800cf70",
+      "mode": "thumb",
+      "evidence": "Func_cacc caller 0x0800cf60 reaches this halfword sequentially; ROM and ELF bytes 0000 decode as THUMB MOVS r0,r0 before MOV ip,pc; BX r3"
+    },
+    {
+      "start": "0x0800d1c2",
+      "end": "0x0800d1c4",
+      "mode": "thumb",
+      "evidence": "direct sequential control flow and forced-THUMB disassembly"
+    },
+    {
+      "start": "0x0800dbfa",
+      "end": "0x0800dbfc",
+      "mode": "thumb",
+      "evidence": "Func_daf0 callers 0x0800db9c, 0x0800dbac, 0x0800dbc0 and 0x0800dbd4 reach this halfword sequentially; ROM and ELF bytes 0000 decode as THUMB MOVS r0,r0 before MOV ip,pc; BX r4"
+    },
+    {
+      "start": "0x0800dc52",
+      "end": "0x0800dc54",
+      "mode": "thumb",
+      "evidence": "Func_daf0 callers 0x0800dc3e and 0x0800dc4e reach this halfword sequentially; ROM and ELF bytes 0000 decode as THUMB MOVS r0,r0 before MOV ip,pc; BX r3"
+    },
+    {
+      "start": "0x0800dfa6",
+      "end": "0x0800dfa8",
+      "mode": "thumb",
+      "evidence": "Func_df04 callers 0x0800df9e and 0x0800dfa2 reach this halfword sequentially; ROM and ELF bytes 0000 decode as THUMB MOVS r0,r0 before MOV ip,pc; BX r3"
+    },
+    {
+      "start": "0x0800fc9a",
+      "end": "0x0800fc9c",
+      "mode": "thumb",
+      "evidence": "direct sequential control flow and forced-THUMB disassembly"
+    },
+    {
+      "start": "0x0800fcaa",
+      "end": "0x0800fcac",
+      "mode": "thumb",
+      "evidence": "GS-011 strict-static continuation at 0x0800fca0 reaches raw THUMB LSL r0,r0,#0 before the second Func_888 interworking call"
+    },
+    {
+      "start": "0x080100e2",
+      "end": "0x080100e4",
+      "mode": "thumb",
+      "evidence": "direct sequential control flow and forced-THUMB disassembly"
+    },
+    {
+      "start": "0x080102d2",
+      "end": "0x080102d4",
+      "mode": "thumb",
+      "evidence": "GS-011 observed entry 0x080102c8 reaches this raw THUMB MOVS r0,r0 sequentially; forced-THUMB ELF disassembly confirms the instruction"
+    },
+    {
+      "start": "0x0801242a",
+      "end": "0x0801242c",
+      "mode": "thumb",
+      "evidence": "direct sequential control flow and forced-THUMB disassembly"
+    },
+    {
+      "start": "0x0801cc5e",
+      "end": "0x0801cc60",
+      "mode": "thumb",
+      "evidence": "direct sequential control flow and forced-THUMB disassembly"
+    },
+    {
+      "start": "0x0801cc6e",
+      "end": "0x0801cc70",
+      "mode": "thumb",
+      "evidence": "GS-011 mGBA instruction stepping executes this LSL before the interworking call at 0x0801cc72"
+    },
+    {
+      "start": "0x0801cc7e",
+      "end": "0x0801cc80",
+      "mode": "thumb",
+      "evidence": "GS-011 mGBA instruction stepping executes this LSL before the interworking call at 0x0801cc82"
+    },
+    {
+      "start": "0x0808af7e",
+      "end": "0x0808af80",
+      "mode": "thumb",
+      "evidence": "direct sequential control flow and forced-THUMB disassembly"
+    },
+    {
+      "start": "0x0808b5da",
+      "end": "0x0808b5dc",
+      "mode": "thumb",
+      "evidence": "direct sequential control flow and forced-THUMB disassembly"
+    },
+    {
+      "start": "0x0808c072",
+      "end": "0x0808c074",
+      "mode": "thumb",
+      "evidence": "direct sequential control flow and forced-THUMB disassembly"
+    },
+    {
+      "start": "0x08093dc6",
+      "end": "0x08093dc8",
+      "mode": "thumb",
+      "evidence": "direct sequential control flow and forced-THUMB disassembly"
+    },
+    {
+      "start": "0x0809b892",
+      "end": "0x0809b894",
+      "mode": "thumb",
+      "evidence": "direct sequential control flow and forced-THUMB disassembly"
+    },
+    {
+      "start": "0x0809b95a",
+      "end": "0x0809b95c",
+      "mode": "thumb",
+      "evidence": "direct sequential control flow and forced-THUMB disassembly"
+    },
+    {
+      "start": "0x080b7c62",
+      "end": "0x080b7c64",
+      "mode": "thumb",
+      "evidence": "direct sequential control flow and forced-THUMB disassembly"
+    },
+    {
+      "start": "0x080b7cd2",
+      "end": "0x080b7cd4",
+      "mode": "thumb",
+      "evidence": "direct sequential control flow and forced-THUMB disassembly"
+    },
+    {
+      "start": "0x080b7f56",
+      "end": "0x080b7f58",
+      "mode": "thumb",
+      "evidence": "direct sequential control flow and forced-THUMB disassembly"
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+# GS-011 POSITION-INDEPENDENT AOT image for Func_9e7c.
+#
+# Session 20260923_114927 compiled 18 pieces at 0x03005AE0..0x03005D5C at
+# runtime; every one is byte-identical to ROM 0x08009e7c + (pc - 0x03005ae0),
+# and goldensun.elf sizes Func_9e7c at 0x27c bytes, ARM ($a at the entry, no
+# $d inside). Image SHA-1 of ROM 0x08009e7c..0x0800a0f8 is
+# befbca336a97e12e686a9ce42c10793388f837c2. Generated with
+# `gba_recompile --relocatable-image 0x03005ae0:0x27c`, so it dispatches at
+# any base whose live bytes hash to that identity.
+
+[program]
+name = "Golden Sun relocatable Func_9e7c RAM image"
+id = "golden_sun_usa_transient_func_9e7c_relocatable"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03005ae0
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03005ae0
+source_start = 0x08009e7c
+size = 0x0000027c
+name = "relocatable_Func_9e7c_image"
+note = "18 runtime-compiled pieces in session 20260923_114927 equal ROM 0x08009e7c + offset; ELF Func_9e7c is 0x27c bytes of ARM"
+
+[[extra_func]]
+addr = 0x03005ae0
+mode = "arm"
+name = "Func_9e7c_relocatable_image"
+note = "ELF STT_FUNC entry Func_9e7c at its observed copy destination"
+
+[[resume_range]]
+start = 0x03005ae0
+end = 0x03005d5c
+mode = "arm"
+note = "Func_9e7c code run, ROM 0x08009e7c..0x0800a0f8; every instruction is an entry"

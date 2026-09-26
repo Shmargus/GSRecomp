@@ -1,0 +1,86 @@
+# GS-011 identity-verified AOT variant for the Func_15430 / Func_15570 flash
+# driver pair when it is installed at 0x0300347c instead of 0x03002000.
+#
+# The pair is already registered at 0x03002000 / 0x03002140, where main.toml
+# owns the static bodies. It cannot be seeded there a second time: 0x0300347c
+# is already an [[extra_func]] for the Func_2544 copy, and one runtime address
+# cannot carry two ROM sources in one corpus. That is exactly the case the
+# prefixed transient-image mechanism exists for (D-005 in DECISIONS.md).
+#
+# Strict-static evidence (1800-frame run, trace events #4623904..#4623927):
+#   - #4623904 PC 0x080196fe programs DMA3 SAD=0x08015430 DAD=0x0300347c
+#     CNT=0x84000050 — 0x50 words = 0x140 bytes.
+#   - #4623921..#4623923 PC 0x08019bd0 programs DMA3 SAD=0x08015570
+#     DAD=0x030035bc CNT=0x84000018 — 0x18 words = 0x60 bytes. The two images
+#     land contiguously: 0x0300347c + 0x140 = 0x030035bc.
+#   - #4623924..#4623927 call through _call_via_r6 and exchange to 0x030035bc
+#     with CPSR.T clear (cpsr=0x2000001f), so the entry executes in ARM.
+#
+# goldensun.elf .symtab agrees on both extents:
+#   Func_15430 at 0x08015430 size 320 (0x140), Func_15570 at 0x08015570
+#   size 96 (0x60), both ARM in section rom_15000. Each ends in one `$d`
+#   literal word (0x0801556c and 0x080155cc), excluded below.
+#
+# Hash-verified ROM bytes give image SHA-1s d49cef2181ce6f9fee635daa0ba3b072
+# d336109a and 20f9190c9b7aac90e091beff5f7e54a46ba833eb — byte identical to
+# the images already registered at 0x03002000 and 0x03002140.
+
+[program]
+name = "Golden Sun transient Func_15430/Func_15570 pair at 0x0300347c"
+id = "golden_sun_usa_transient_func_15430_0300347c"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x030035bc
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x0300347c
+source_start = 0x08015430
+size = 0x00000140
+name = "transient_Func_15430_at_0300347c"
+note = "GS-011 DMA3 trace #4623904 proves source, destination and 0x50-word extent; image SHA-1 d49cef2181ce6f9fee635daa0ba3b072d336109a"
+
+[[code_copy]]
+runtime_start = 0x030035bc
+source_start = 0x08015570
+size = 0x00000060
+name = "transient_Func_15570_at_030035bc"
+note = "GS-011 DMA3 trace #4623921..23 proves source, destination and 0x18-word extent; image SHA-1 20f9190c9b7aac90e091beff5f7e54a46ba833eb"
+
+[[extra_func]]
+addr = 0x0300347c
+mode = "arm"
+name = "Func_15430_at_0300347c"
+note = "ELF STT_FUNC/$a entry Func_15430, installed at the observed DMA destination"
+
+[[extra_func]]
+addr = 0x030035bc
+mode = "arm"
+name = "Func_15570_at_030035bc"
+note = "Observed _call_via_r6 target with CPSR.T clear; ELF STT_FUNC/$a entry Func_15570"
+
+[[resume_range]]
+start = 0x0300347c
+end = 0x030035b8
+mode = "arm"
+note = "Func_15430 code extent; the ELF $d literal word at ROM 0x0801556c is excluded"
+
+[[resume_range]]
+start = 0x030035bc
+end = 0x03003618
+mode = "arm"
+note = "Func_15570 code extent; the ELF $d literal word at ROM 0x080155cc is excluded"
+
+[[data_range]]
+start = 0x030035b8
+end = 0x030035bc
+note = "ELF $d literal word at ROM 0x0801556c, tail of Func_15430"
+
+[[data_range]]
+start = 0x03003618
+end = 0x0300361c
+note = "ELF $d literal word at ROM 0x080155cc, tail of Func_15570"

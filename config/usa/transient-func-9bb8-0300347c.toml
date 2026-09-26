@@ -1,0 +1,87 @@
+# GS-011 identity-verified AOT variant for Func_9bb8, DMA-copied into the
+# 0x0300347c staging slot.
+#
+# This is the fourth routine observed at 0x0300347c, after Func_2544,
+# Func_15430 and (adjacent) Func_15570. A DMA3 watch on the address over one
+# 3,600-frame campaign run records the three sources in proportion:
+#
+#     147 x src=0x08009bb8  177 words (0x2c4)
+#       8 x src=0x08015430   80 words (0x140)
+#       4 x src=0x08002544  177 words (0x2c4)
+#
+# so Func_9bb8 is in fact the slot's dominant occupant during gameplay; the
+# previously registered images are the boot-time ones. Address is emphatically
+# not a dispatch key here.
+#
+# Evidence:
+#   - DMA3 watch on 0x0300347c: src=0x08009bb8, 177 words = 0x2c4 bytes, ch 3.
+#   - The live window captured at the strict-static abort matches ROM
+#     0x08009bb8 byte for byte for exactly 0x2c4 bytes.
+#   - goldensun.elf .symtab: Func_9bb8 at 0x08009bb8, size 708 (0x2c4),
+#     section rom_9000, `$a` at the entry; the next function Func_9e7c begins
+#     at exactly 0x08009e7c.
+#
+# Func_9bb8 carries three interior `$d` literal pools, which map through the
+# verbatim copy bias to runtime 0x03003550..0x03003554, 0x030035a0..0x030035c0
+# and 0x03003654..0x03003740. They are excluded so no resume alias decodes a
+# literal as an instruction.
+#
+# Image SHA-1 38da8bb7176c71ef1e86ce50346af1d72174529c.
+
+[program]
+name = "Golden Sun transient Func_9bb8 image at 0x0300347c"
+id = "golden_sun_usa_transient_func_9bb8_0300347c"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x0300347c
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x0300347c
+source_start = 0x08009bb8
+size = 0x000002c4
+name = "transient_Func_9bb8_at_0300347c"
+note = "GS-011 DMA3 watch proves source, destination and 0xb1-word extent; image SHA-1 38da8bb7176c71ef1e86ce50346af1d72174529c"
+
+[[extra_func]]
+addr = 0x0300347c
+mode = "arm"
+name = "Func_9bb8_at_0300347c"
+note = "ELF STT_FUNC/$a entry Func_9bb8 installed at the observed DMA destination"
+
+[[resume_range]]
+start = 0x0300347c
+end = 0x03003550
+mode = "arm"
+note = "Func_9bb8 code before its first $d pool at ROM 0x08009c8c"
+
+[[resume_range]]
+start = 0x03003554
+end = 0x030035a0
+mode = "arm"
+note = "Func_9bb8 code between the $d pools at ROM 0x08009c90..0x08009cdc"
+
+[[resume_range]]
+start = 0x030035c0
+end = 0x03003654
+mode = "arm"
+note = "Func_9bb8 code between the $d pools at ROM 0x08009cfc..0x08009d90"
+
+[[data_range]]
+start = 0x03003550
+end = 0x03003554
+note = "ELF $d literal pool at ROM 0x08009c8c inside Func_9bb8"
+
+[[data_range]]
+start = 0x030035a0
+end = 0x030035c0
+note = "ELF $d literal pool at ROM 0x08009cdc inside Func_9bb8"
+
+[[data_range]]
+start = 0x03003654
+end = 0x03003740
+note = "ELF $d trailing pool at ROM 0x08009d90, tail of Func_9bb8"

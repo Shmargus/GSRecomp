@@ -1,0 +1,1409 @@
+// gba_recompile — read a GBA ROM or BIOS image, discover functions
+// reachable from the entry point + seeded symbols, lower their
+// ARM/THUMB bodies through the armv4t IR into C++ source, and write
+// the result to a per-game `generated/` directory (or, for BIOS, to
+// `gbarecomp/src/runtime/generated_bios/`).
+//
+// Two modes:
+//   --rom  <rom.gba>      cartridge recompilation (rom_base=0x08000000)
+//   --bios <bios.bin>     BIOS recompilation (rom_base=0x00000000),
+//                         seeds reset/SWI/IRQ vectors at 0x00/0x08/0x18.
+//
+// CLI:
+//   gba_recompile --rom <rom.gba>
+//                 --entry 0x080000C0
+//                 [--symbols <imported_symbols.tsv>]
+//                 [--out <out_dir>]
+//                 [--rom-base 0x08000000]
+//                 [--max-functions 4096]
+//
+//   gba_recompile --bios <bios.bin>
+//                 [--out <out_dir>]
+//                 [--max-functions 256]
+//
+// Cart output (default --out = "generated"):
+//   <out_dir>/recompiled.cpp        function bodies
+//   <out_dir>/recompiled.h          forward declarations
+//   <out_dir>/dispatch_table.cpp    kDispatchTable / kDispatchTableLen
+//
+// BIOS output (default --out = "src/runtime/generated_bios"):
+//   <out_dir>/bios_recompiled.cpp   function bodies
+//   <out_dir>/bios_recompiled.h     forward declarations
+//   <out_dir>/bios_dispatch_table.cpp  kBiosDispatchTable[] /
+//                                       kBiosDispatchTableLen
+
+#include <algorithm>
+#include <cstdarg>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include "config.h"
+#include "function_finder.h"
+#include "arm_decode.h"    // armv4t::ArmDecoder
+#include "thumb_decode.h"  // armv4t::ThumbDecoder
+#include "arm_ir.h"        // armv4t::Instr, ir_op_name
+#include "emit_function.h"
+#include "arm_codegen.h"
+#include "arm_decode.h"
+#include "thumb_decode.h"
+#include "arm_ir.h"
+
+using gbarecomp::Config;
+using gbarecomp::CpuMode;
+using gbarecomp::Function;
+using gbarecomp::FunctionFinder;
+using gbarecomp::FunctionSeed;
+
+namespace {
+
+struct Cli {
+    std::string rom_path;       // --rom (cart mode)
+    std::string bios_path;      // --bios (BIOS mode); mutually exclusive
+    std::string symbols_path;
+    std::string config_path;    // --config <path> (optional, per-binary TOML)
+    std::string out_dir;
+    std::string symbol_prefix;  // --symbol-prefix <identifier>
+    uint32_t entry = 0x080000C0u;
+    uint32_t rom_base = 0x08000000u;
+    std::size_t max_functions = 4096;
+    bool ok = true;
+    bool bios_mode = false;     // set when --bios is parsed
+    bool emit_symbol_map = true; // --no-symbol-map opts out (debug aid)
+    // --relocatable-image ORIGIN:SIZE. Generates a POSITION-INDEPENDENT
+    // corpus for a routine the game copies into RAM at a base its allocator
+    // chooses: guest addresses are emitted relative to g_runtime_image_base
+    // instead of ORIGIN, so one corpus serves every base. ORIGIN stays the
+    // address the dispatch table, labels and resume tokens are expressed in.
+    bool relocatable_image = false;
+    uint32_t image_origin = 0;
+    uint32_t image_size = 0;
+};
+
+void print_usage() {
+    std::printf(
+        "gba_recompile --rom <path> [--entry HEX] [--symbols TSV]\n"
+        "              [--config TOML] [--out DIR] [--rom-base HEX]\n"
+        "              [--max-functions N] [--symbol-prefix IDENT]\n"
+        "\n"
+        "  Cart-recompile mode. Discovers functions reachable from\n"
+        "  --entry + --symbols seeds and writes <out>/recompiled.{cpp,h}\n"
+        "  + dispatch_table.cpp.\n"
+        "\n"
+        "gba_recompile --bios <path>\n"
+        "              [--config TOML] [--out DIR] [--max-functions N]\n"
+        "\n"
+        "  BIOS-recompile mode. rom_base=0x00000000, default --out is\n"
+        "  src/runtime/generated_bios. Seeds reset (0x00 ARM),\n"
+        "  SWI (0x08 ARM), IRQ (0x18 ARM). Output is\n"
+        "  bios_recompiled.{cpp,h} + bios_dispatch_table.cpp.\n"
+        "\n"
+        "  --config <TOML>  Per-binary configuration (manual function\n"
+        "                   seeds, data-range exclusions, jump tables,\n"
+        "                   identity hash). See docs/TOML_SCHEMA.md.\n"
+        "  --symbol-prefix  Prefix generated cart function and dispatch-table\n"
+        "                   symbols so separately generated RAM-code variants\n"
+        "                   can coexist in one host binary.\n"
+        "  --relocatable-image ORIGIN:SIZE\n"
+        "                   Emit a POSITION-INDEPENDENT RAM code image. Every\n"
+        "                   guest address the image derives from its own PC is\n"
+        "                   lowered as g_runtime_image_base + (addr - ORIGIN),\n"
+        "                   so ONE corpus dispatches at every base the game\n"
+        "                   copies the routine to. The dispatch table, goto\n"
+        "                   labels and resume tokens stay expressed in ORIGIN;\n"
+        "                   the runtime registry subtracts the verified base.\n"
+        "                   Both values hex, e.g. 0x03007ba4:0x68.\n");
+}
+
+bool parse_hex(const char* s, uint32_t& out) {
+    if (!s) return false;
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) s += 2;
+    char* end = nullptr;
+    unsigned long v = std::strtoul(s, &end, 16);
+    if (end == s) return false;
+    out = static_cast<uint32_t>(v);
+    return true;
+}
+
+Cli parse_cli(int argc, char** argv) {
+    Cli c;
+    for (int i = 1; i < argc; ++i) {
+        std::string a = argv[i];
+        auto next = [&]() -> const char* {
+            return (i + 1 < argc) ? argv[++i] : nullptr;
+        };
+        if (a == "--rom")               c.rom_path     = next() ? argv[i] : "";
+        else if (a == "--bios") {
+            c.bios_path = next() ? argv[i] : "";
+            c.bios_mode = true;
+        }
+        else if (a == "--entry")        parse_hex(next(), c.entry);
+        else if (a == "--symbols")      c.symbols_path = next() ? argv[i] : "";
+        else if (a == "--config")       c.config_path  = next() ? argv[i] : "";
+        else if (a == "--out")          c.out_dir      = next() ? argv[i] : "";
+        else if (a == "--symbol-prefix") c.symbol_prefix = next() ? argv[i] : "";
+        else if (a == "--rom-base")     parse_hex(next(), c.rom_base);
+        else if (a == "--relocatable-image") {
+            const char* spec = next() ? argv[i] : nullptr;
+            const char* colon = spec ? std::strchr(spec, ':') : nullptr;
+            if (!colon) {
+                std::fprintf(stderr,
+                    "--relocatable-image needs ORIGIN:SIZE (hex), "
+                    "e.g. 0x03007ba4:0x68\n");
+                c.ok = false;
+            } else {
+                std::string origin(spec, colon);
+                if (!parse_hex(origin.c_str(), c.image_origin) ||
+                    !parse_hex(colon + 1, c.image_size) ||
+                    c.image_size == 0u) {
+                    std::fprintf(stderr,
+                        "--relocatable-image ORIGIN:SIZE must be two nonzero-"
+                        "size hex values\n");
+                    c.ok = false;
+                } else {
+                    c.relocatable_image = true;
+                }
+            }
+        }
+        else if (a == "--no-symbol-map") c.emit_symbol_map = false;
+        else if (a == "--symbol-map")    c.emit_symbol_map = true;
+        else if (a == "--max-functions") {
+            const char* v = next();
+            if (v) c.max_functions =
+                static_cast<std::size_t>(std::strtoul(v, nullptr, 10));
+        } else if (a == "--help" || a == "-h") {
+            print_usage();
+            c.ok = false;
+            return c;
+        } else {
+            std::fprintf(stderr, "unknown arg: %s\n", a.c_str());
+            c.ok = false;
+            return c;
+        }
+    }
+    if (c.bios_mode) {
+        if (!c.rom_path.empty()) {
+            std::fprintf(stderr,
+                "--bios and --rom are mutually exclusive\n");
+            c.ok = false;
+            return c;
+        }
+        if (c.bios_path.empty()) {
+            std::fprintf(stderr, "--bios needs a path argument\n");
+            c.ok = false;
+            return c;
+        }
+        // BIOS mode defaults: rom_base=0, out_dir=src/runtime/generated_bios.
+        c.rom_base = 0x00000000u;
+        if (c.out_dir.empty()) c.out_dir = "src/runtime/generated_bios";
+    } else {
+        if (c.rom_path.empty()) {
+            std::fprintf(stderr, "missing --rom (or --bios for BIOS mode)\n");
+            c.ok = false;
+        }
+        if (c.out_dir.empty()) c.out_dir = "generated";
+    }
+    return c;
+}
+
+std::vector<uint8_t> read_file(const std::string& path,
+                                std::string* err) {
+    std::vector<uint8_t> out;
+    std::FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) { *err = "open failed: " + path; return out; }
+    std::fseek(f, 0, SEEK_END);
+    long sz = std::ftell(f);
+    std::fseek(f, 0, SEEK_SET);
+    if (sz <= 0) { std::fclose(f); *err = "empty or unseekable"; return out; }
+    out.resize(static_cast<std::size_t>(sz));
+    std::size_t got = std::fread(out.data(), 1, out.size(), f);
+    std::fclose(f);
+    if (got != out.size()) {
+        *err = "short read";
+        out.clear();
+    }
+    return out;
+}
+
+// Parse the importer's TSV:
+//   # comments...
+//   0x080000C0\tarm\tname_or_blank
+std::vector<FunctionSeed> load_symbols(const std::string& path) {
+    std::vector<FunctionSeed> out;
+    if (path.empty()) return out;
+    std::ifstream in(path);
+    if (!in) {
+        std::fprintf(stderr, "warn: symbols file not readable: %s\n",
+                     path.c_str());
+        return out;
+    }
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        std::stringstream ss(line);
+        std::string addr_s, mode_s, name_s;
+        if (!std::getline(ss, addr_s, '\t')) continue;
+        if (!std::getline(ss, mode_s, '\t')) continue;
+        std::getline(ss, name_s, '\t');
+        uint32_t addr = 0;
+        if (addr_s.size() > 2 && addr_s[0] == '0' &&
+            (addr_s[1] == 'x' || addr_s[1] == 'X')) {
+            addr = static_cast<uint32_t>(
+                std::strtoul(addr_s.c_str() + 2, nullptr, 16));
+        } else {
+            continue;
+        }
+        CpuMode m = (mode_s == "arm") ? CpuMode::Arm : CpuMode::Thumb;
+        out.push_back(FunctionSeed{addr, m, name_s});
+    }
+    return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Emitter — the per-function lowering now lives in
+// src/recompile/emit_function.{h,cpp} (gbarecomp::emit_function_body),
+// shared with the Stage-2 runtime self-healing recompiler. write_body()
+// below calls it via the FILE* wrapper.
+// ─────────────────────────────────────────────────────────────────────
+
+// Output naming: cart mode uses recompiled.{cpp,h} + dispatch_table.cpp
+// with kDispatchTable. BIOS mode uses bios_recompiled.{cpp,h} +
+// bios_dispatch_table.cpp with kBiosDispatchTable. The runtime
+// consults kBiosDispatchTable first for PC < 0x4000 and falls
+// through to kDispatchTable otherwise.
+struct OutputNames {
+    const char* header;
+    const char* body;
+    const char* dispatch;
+    const char* table_symbol;
+    const char* table_len_symbol;
+    const char* description;
+};
+
+OutputNames names_for_mode(bool bios_mode) {
+    if (bios_mode) {
+        return {
+            "bios_recompiled.h",
+            "bios_recompiled.cpp",
+            "bios_dispatch_table.cpp",
+            "kBiosDispatchTable",
+            "kBiosDispatchTableLen",
+            "recompiled GBA BIOS",
+        };
+    }
+    return {
+        "recompiled.h",
+        "recompiled.cpp",
+        "dispatch_table.cpp",
+        "kDispatchTable",
+        "kDispatchTableLen",
+        "recompiled cart code",
+    };
+}
+
+// ── C++ identifier sanitization ──────────────────────────────────────
+//
+// Each guest function is emitted as `void <name>(void)`, and that same
+// <name> is referenced from the header decl, the dispatch table, and
+// inter-function call sites in the bodies. The name comes from the decomp
+// seed where known (readable codegen) — but a seed name is just a symbol-
+// table string and can be a C++ keyword, the std namespace ("std" is a real
+// libc routine in pokefirered at 0x081E8108), or a duplicate of another
+// local symbol. Any of those breaks the C++ compile. We KEEP the readable
+// name wherever it is already a unique, valid, non-reserved identifier and
+// only disambiguate the offenders by appending the (unique) guest address,
+// so the generated diff stays minimal and the debug symbol map still
+// matches the emitted code one-for-one.
+bool is_cxx_reserved_name(const std::string& s) {
+    static const std::unordered_set<std::string> kReserved = {
+        // C++ keywords and alternative tokens
+        "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand",
+        "bitor", "bool", "break", "case", "catch", "char", "char8_t",
+        "char16_t", "char32_t", "class", "compl", "concept", "const",
+        "consteval", "constexpr", "constinit", "const_cast", "continue",
+        "co_await", "co_return", "co_yield", "decltype", "default", "delete",
+        "do", "double", "dynamic_cast", "else", "enum", "explicit", "export",
+        "extern", "false", "float", "for", "friend", "goto", "if", "inline",
+        "int", "long", "mutable", "namespace", "new", "noexcept", "not",
+        "not_eq", "nullptr", "operator", "or", "or_eq", "private", "protected",
+        "public", "register", "reinterpret_cast", "requires", "return",
+        "short", "signed", "sizeof", "static", "static_assert", "static_cast",
+        "struct", "switch", "template", "this", "thread_local", "throw",
+        "true", "try", "typedef", "typeid", "typename", "union", "unsigned",
+        "using", "virtual", "void", "volatile", "wchar_t", "while", "xor",
+        "xor_eq",
+        // The standard namespace + macros the generated body pulls into scope.
+        "std", "NULL",
+    };
+    return kReserved.count(s) != 0;
+}
+
+bool is_valid_c_identifier(const std::string& s) {
+    if (s.empty()) return false;
+    auto is_ident_start = [](char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
+    };
+    auto is_ident_cont = [&](char c) {
+        return is_ident_start(c) || (c >= '0' && c <= '9');
+    };
+    if (!is_ident_start(s[0])) return false;
+    for (char c : s) {
+        if (!is_ident_cont(c)) return false;
+    }
+    return true;
+}
+
+// Rewrite funcs[].name so every name is a valid, unique C++ identifier that
+// cannot collide with a host symbol. Deterministic: processes in vector
+// order, uses the guest address (unique per function) as the disambiguating
+// suffix. Mutates in place.
+//
+// Cart functions are emitted `extern "C"` into the SAME global symbol
+// namespace as the host program — libc, the GCC builtins, and the gbarecomp
+// runtime API. pokefirered's AGB libc contributes real symbols named
+// `memcpy`, `memset`, `_exit`, `strcpy`, `abort`, `fflush`, … and a guest
+// function emitted under one of those names would HIJACK the host's symbol
+// at link: every host `memcpy`/`memset` call — including the C-runtime
+// startup that runs *before* our constructors — would jump into guest code
+// operating on an uninitialised g_cpu, which is exactly the pre-main hang
+// FireRed showed. (Minish Cap never tripped this: its symbol set contains no
+// libc names.) A reserved `gf_` prefix the host never uses makes the
+// collision impossible by construction, and subsumes C++ keyword / `std`
+// namespace collisions for free. BIOS functions are NOT prefixed — they
+// dispatch through a separate table and their seed names (reset/swi/irq)
+// don't collide — but still get keyword/duplicate hardening.
+void sanitize_function_identifiers(std::vector<Function>& funcs,
+                                   bool prefix_guest,
+                                   const std::string& symbol_prefix) {
+    std::unordered_set<std::string> used;
+    used.reserve(funcs.size() * 2);
+    int renamed = 0;
+    for (auto& fn : funcs) {
+        std::string ident = fn.name;
+        // Coerce to syntactically valid identifier chars. Seed names are
+        // normally already valid; this is defensive against odd symbol-table
+        // strings.
+        if (!is_valid_c_identifier(ident)) {
+            std::string fixed;
+            fixed.reserve(ident.size() + 1);
+            for (char c : ident) {
+                bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                          (c >= '0' && c <= '9') || c == '_';
+                fixed.push_back(ok ? c : '_');
+            }
+            if (fixed.empty() ||
+                !((fixed[0] >= 'A' && fixed[0] <= 'Z') ||
+                  (fixed[0] >= 'a' && fixed[0] <= 'z') || fixed[0] == '_')) {
+                fixed.insert(fixed.begin(), '_');
+            }
+            ident = fixed;
+        }
+        if (prefix_guest) {
+            // Host-collision-proof by construction (also neutralises keywords
+            // and the std namespace).
+            ident = symbol_prefix + "gf_" + ident;
+        } else if (is_cxx_reserved_name(ident)) {
+            // BIOS path: keep the name but disambiguate a reserved word.
+            char suffix[16];
+            std::snprintf(suffix, sizeof(suffix), "_%08X", fn.addr);
+            ident += suffix;
+        }
+        // Guarantee uniqueness against any earlier function (duplicate local
+        // symbols, or a prefixed name that coincides with another) by
+        // appending the unique guest address.
+        if (used.count(ident)) {
+            char suffix[16];
+            std::snprintf(suffix, sizeof(suffix), "_%08X", fn.addr);
+            ident += suffix;
+            // Residual-collision guard (e.g. ARM + THUMB at one address).
+            while (used.count(ident)) ident += "_";
+        }
+        if (ident != fn.name) ++renamed;
+        used.insert(ident);
+        fn.name = std::move(ident);
+    }
+    if (renamed) {
+        std::printf("  sanitized %d function name(s) -> collision-proof C++ "
+                    "identifiers%s\n", renamed,
+                    prefix_guest ? " (gf_ prefix)" : " (reserved/duplicate)");
+    }
+}
+
+// Stable C identifier for a host's per-alias dispatch wrapper. Derived from
+// the (already collision-proofed) host name + the alias PC, so it inherits the
+// host's gf_ prefix / sanitization and is unique across the corpus.
+std::string alias_wrapper_name(const Function& fn, uint32_t alias_addr) {
+    char suffix[24];
+    std::snprintf(suffix, sizeof(suffix), "__alias_%08X", alias_addr);
+    return fn.name + suffix;
+}
+
+// Write-if-changed: commits `temp` onto `path` only when its bytes differ
+// from what's already there, so an unmodified corpus leaves `path`'s mtime
+// completely untouched (build systems key incremental recompilation off
+// mtime, and this file may be #included by every generated body shard).
+// Defined here (ahead of its first use) so every single-file emitter below
+// can route through it, not just write_body's per-shard loop.
+bool files_equal(const std::string& a, const std::string& b);
+void commit_generated_file(const std::string& temp, const std::string& path);
+
+void write_header(const std::string& dir,
+                   const std::vector<Function>& funcs,
+                   const OutputNames& names) {
+    std::string path = dir + "/" + names.header;
+    std::string temp = path + ".tmp";
+    std::FILE* f = std::fopen(temp.c_str(), "wb");
+    if (!f) {
+        std::fprintf(stderr, "cannot write %s\n", temp.c_str());
+        return;
+    }
+    std::fprintf(f,
+        "// AUTO-GENERATED by gba_recompile. DO NOT EDIT.\n"
+        "// Forward declarations for the %s.\n"
+        "//\n"
+        "// Total functions: %zu\n"
+        "\n"
+        "#pragma once\n\n"
+        "extern \"C\" {\n",
+        names.description, funcs.size());
+    for (const auto& fn : funcs) {
+        std::fprintf(f, "void %s(void);  /* 0x%08X %s */\n",
+                     fn.name.c_str(), fn.addr,
+                     fn.mode == CpuMode::Thumb ? "thumb" : "arm");
+        for (uint32_t a : fn.alias_entries) {
+            std::string wn = alias_wrapper_name(fn, a);
+            std::fprintf(f, "void %s(void);  /* alias 0x%08X */\n",
+                         wn.c_str(), a);
+        }
+    }
+    std::fprintf(f, "}  /* extern \"C\" */\n");
+    std::fclose(f);
+    commit_generated_file(temp, path);
+}
+
+void write_dispatch_table(const std::string& dir,
+                           const std::vector<Function>& funcs,
+                           const OutputNames& names,
+                           const std::string& symbol_prefix,
+                           const gbarecomp::RelocatableImage* image) {
+    std::string path = dir + "/" + names.dispatch;
+    std::string temp = path + ".tmp";
+    std::FILE* f = std::fopen(temp.c_str(), "wb");
+    if (!f) return;
+    const std::string table_symbol = symbol_prefix + names.table_symbol;
+    const std::string table_len_symbol = symbol_prefix + names.table_len_symbol;
+    std::fprintf(f,
+        "// AUTO-GENERATED by gba_recompile. DO NOT EDIT.\n"
+        "// Dispatch table: maps recompiled function addresses to\n"
+        "// the corresponding generated C function pointer. The\n"
+        "// runtime calls runtime_dispatch(addr) which binary-searches\n"
+        "// this table by address and current CPSR.T mode.\n\n"
+        "#include <cstdint>\n"
+        "#include \"%s\"\n\n"
+        "struct DispatchEntry { uint32_t addr; uint8_t thumb; void (*fn)(void); };\n"
+        "extern \"C\" const DispatchEntry %s[] = {\n",
+        names.header, table_symbol.c_str());
+    // funcs is sorted by addr; each host's alias entries are interior to it
+    // (host.addr < alias < next_host.addr), so emitting [host, its sorted
+    // aliases] per host keeps the whole table sorted for the binary search.
+    std::size_t total = 0;
+    for (const auto& fn : funcs) {
+        std::fprintf(f, "    {0x%08Xu, %uu, %s},\n",
+                     fn.addr,
+                     fn.mode == CpuMode::Thumb ? 1u : 0u,
+                     fn.name.c_str());
+        ++total;
+        for (uint32_t a : fn.alias_entries) {
+            std::string wn = alias_wrapper_name(fn, a);
+            std::fprintf(f, "    {0x%08Xu, %uu, %s},\n",
+                         a, fn.mode == CpuMode::Thumb ? 1u : 0u, wn.c_str());
+            ++total;
+        }
+    }
+    std::fprintf(f,
+        "};\n"
+        "extern \"C\" const unsigned %s = %zu;\n",
+        table_len_symbol.c_str(), total);
+    if (image != nullptr && image->size != 0u) {
+        // A relocatable image's table addresses are expressed in the origin
+        // it was generated at. The runtime registry translates a live PC by
+        // subtracting the verified base and adding this origin, so publish
+        // both rather than making every registration restate them.
+        std::fprintf(f,
+            "\n"
+            "// Position-independent RAM image: the addresses above are in\n"
+            "// generation-origin space. The runtime dispatches at any base\n"
+            "// whose live bytes hash to the registered identity; guest\n"
+            "// addresses inside the bodies come from g_runtime_image_base.\n"
+            "extern \"C\" const uint32_t %skImageOrigin = 0x%08Xu;\n"
+            "extern \"C\" const uint32_t %skImageSize = 0x%08Xu;\n",
+            symbol_prefix.c_str(), image->origin,
+            symbol_prefix.c_str(), image->size);
+    }
+    std::fclose(f);
+    commit_generated_file(temp, path);
+}
+
+// Emit a sorted address->name map for the runtime debugger. This is what
+// turns raw `pc=0x08004260` in trace dumps / dispatch-miss reports / TCP
+// into `pc=0x08004260 <UpdateAnimationVariableFrames+0x10>`. Names come
+// from the decomp seeds where known, else the generated tfunc_/afunc_.
+// The runtime links these via WEAK externs (src/armv4t/symbol_lookup.cpp),
+// so a binary without a generated map degrades gracefully to no names.
+// Cart mode emits symbol_map.cpp/kGbaSymbolMap; BIOS mode emits
+// bios_symbol_map.cpp/kGbaBiosSymbolMap.
+void write_symbol_map(const std::string& dir,
+                      const std::vector<Function>& funcs,
+                      bool bios_mode) {
+    const char* file = bios_mode ? "bios_symbol_map.cpp" : "symbol_map.cpp";
+    const char* tab  = bios_mode ? "kGbaBiosSymbolMap" : "kGbaSymbolMap";
+    const char* cnt  = bios_mode ? "kGbaBiosSymbolMapCount" : "kGbaSymbolMapCount";
+    std::string path = dir + "/" + file;
+    std::string temp = path + ".tmp";
+    std::FILE* f = std::fopen(temp.c_str(), "wb");
+    if (!f) {
+        std::fprintf(stderr, "cannot write %s\n", temp.c_str());
+        return;
+    }
+    // Sort by address (ascending) so the runtime can binary-search for the
+    // nearest function entry <= pc. Functions may collide at one address in
+    // different modes; either name is fine for a PC->name annotation.
+    std::vector<const Function*> sorted;
+    sorted.reserve(funcs.size());
+    for (const auto& fn : funcs) sorted.push_back(&fn);
+    std::sort(sorted.begin(), sorted.end(),
+              [](const Function* a, const Function* b) {
+                  return a->addr < b->addr;
+              });
+    const char* reg = bios_mode ? "gba_symbol_register_bios"
+                                 : "gba_symbol_register_cart";
+    std::fprintf(f,
+        "// AUTO-GENERATED by gba_recompile. DO NOT EDIT.\n"
+        "// Address -> function-name map for the runtime debugger\n"
+        "// (trace dumps, dispatch-miss reports, TCP `symbol`). Sorted by\n"
+        "// address; the runtime binary-searches for the nearest entry <= pc.\n"
+        "// A static initializer registers this table with the resolver in\n"
+        "// src/armv4t/symbol_lookup.cpp (registration, not weak externs,\n"
+        "// because MinGW PE-COFF weak symbols are unreliable from archives).\n\n"
+        "#include <cstdint>\n\n"
+        "struct GbaSymbol { uint32_t addr; const char* name; };\n"
+        "extern \"C\" void %s(const GbaSymbol* tab, unsigned count);\n\n"
+        "static const GbaSymbol %s[] = {\n",
+        reg, tab);
+    for (const Function* fn : sorted) {
+        std::fprintf(f, "    {0x%08Xu, \"%s\"},\n", fn->addr, fn->name.c_str());
+    }
+    std::fprintf(f,
+        "};\n"
+        "static const unsigned %s = %zu;\n\n"
+        "namespace {\n"
+        "struct GbaSymbolMapInstaller {\n"
+        "    GbaSymbolMapInstaller() { %s(%s, %s); }\n"
+        "};\n"
+        "static GbaSymbolMapInstaller g_gba_symbol_map_installer;\n"
+        "}  // namespace\n",
+        cnt, sorted.size(), reg, tab, cnt);
+    std::fclose(f);
+    commit_generated_file(temp, path);
+}
+
+uint64_t stable_shard_hash(const Function& fn) {
+    uint64_t x = (static_cast<uint64_t>(fn.addr) << 1u) |
+        (fn.mode == CpuMode::Thumb ? 1u : 0u);
+    x ^= x >> 30u;
+    x *= 0xBF58476D1CE4E5B9ull;
+    x ^= x >> 27u;
+    x *= 0x94D049BB133111EBull;
+    return x ^ (x >> 31u);
+}
+
+bool files_equal(const std::string& a, const std::string& b) {
+    std::error_code ec;
+    if (!std::filesystem::exists(a, ec) ||
+        std::filesystem::file_size(a, ec) !=
+            std::filesystem::file_size(b, ec)) {
+        return false;
+    }
+    std::ifstream fa(a, std::ios::binary), fb(b, std::ios::binary);
+    char ba[64 * 1024], bb[64 * 1024];
+    while (fa && fb) {
+        fa.read(ba, sizeof(ba));
+        fb.read(bb, sizeof(bb));
+        const auto na = fa.gcount();
+        const auto nb = fb.gcount();
+        if (na != nb || std::memcmp(ba, bb, static_cast<std::size_t>(na)) != 0)
+            return false;
+    }
+    return true;
+}
+
+void commit_generated_file(const std::string& temp,
+                           const std::string& path) {
+    std::error_code ec;
+    if (files_equal(temp, path)) {
+        std::filesystem::remove(temp, ec);
+        return;
+    }
+    std::filesystem::remove(path, ec);
+    ec.clear();
+    std::filesystem::rename(temp, path, ec);
+    if (ec) {
+        std::fprintf(stderr, "cannot replace %s: %s\n",
+                     path.c_str(), ec.message().c_str());
+    }
+}
+
+void write_body(const std::string& dir,
+                const std::vector<Function>& funcs,
+                const uint8_t* rom, std::size_t rom_size,
+                uint32_t rom_base,
+                const OutputNames& names,
+                uint32_t shard_count,
+                 const std::unordered_set<uint32_t>*
+                     alu_immediate_override_pcs,
+                 const gbarecomp::RelocatableImage* image,
+                 const std::unordered_set<uint32_t>* literal_override_pcs,
+                 const std::unordered_set<uint32_t>*
+                     conditional_branch_override_pcs) {
+    std::unordered_map<uint64_t, std::string> name_by_key;
+    for (const auto& fn : funcs) {
+        uint64_t key = (static_cast<uint64_t>(fn.addr) << 1u) |
+            (fn.mode == CpuMode::Thumb ? 1u : 0u);
+        name_by_key[key] = fn.name;
+    }
+
+    const std::string body_name = names.body;
+    const std::string suffix = ".cpp";
+    const std::string stem = body_name.size() > suffix.size() &&
+            body_name.compare(body_name.size() - suffix.size(), suffix.size(),
+                              suffix) == 0
+        ? body_name.substr(0, body_name.size() - suffix.size())
+        : body_name;
+
+    std::unordered_set<std::string> expected;
+    for (uint32_t shard = 0; shard < shard_count; ++shard) {
+        char filename[128];
+        if (shard_count == 1) {
+            std::snprintf(filename, sizeof(filename), "%s", names.body);
+        } else {
+            std::snprintf(filename, sizeof(filename), "%s_%03u.cpp",
+                          stem.c_str(), shard);
+        }
+        expected.insert(filename);
+        const std::string path = dir + "/" + filename;
+        const std::string temp = path + ".tmp";
+        std::FILE* f = std::fopen(temp.c_str(), "wb");
+        if (!f) {
+            std::fprintf(stderr, "cannot write %s\n", temp.c_str());
+            continue;
+        }
+        std::fprintf(f,
+        "// AUTO-GENERATED by gba_recompile. DO NOT EDIT.\n"
+        "// Deterministic guest-code shard %u of %u.\n"
+        "//\n"
+        "// Each guest function is lowered to a void C function whose\n"
+        "// body operates on g_cpu, bus_*, arm_shift_*, arm_set_*, and\n"
+        "// runtime_dispatch (see src/armv4t/runtime_arm.h). A dispatch\n"
+        "// MISS self-heals (interpreter bridge + on-the-fly recompile +\n"
+        "// loud log); an IrOp the codegen can't yet lower is a codegen\n"
+        "// gap (NOT a miss) and aborts via runtime_unimplemented_op.\n"
+        "// See PRINCIPLES.md \"Honest self-healing\" + \"Coverage\n"
+        "// honesty is load-bearing\".\n\n"
+        "#include \"runtime_arm.h\"\n"
+        "#include \"%s\"\n\n",
+        shard, shard_count, names.header);
+        for (const auto& fn : funcs) {
+            if (shard_count > 1 &&
+                stable_shard_hash(fn) % shard_count != shard) {
+                continue;
+            }
+        std::fprintf(f,
+            "/* 0x%08X  mode=%s  end=0x%08X  branches=%zu%s */\n"
+            "void %s(void) {\n",
+            fn.addr,
+            fn.mode == CpuMode::Thumb ? "thumb" : "arm",
+            fn.end_addr,
+            fn.direct_branch_targets.size(),
+            fn.has_indirect_transfer ? "  indirect" : "",
+            fn.name.c_str());
+        emit_function_body(f, fn, rom, rom_size, rom_base, name_by_key,
+                           alu_immediate_override_pcs, image,
+                           literal_override_pcs,
+                           conditional_branch_override_pcs);
+        std::fprintf(f, "}\n\n");
+        // Thin per-alias dispatch wrappers: set the resume PC and tail-call
+        // the host. Each is a separate dispatch-table entry so an interior
+        // (IRQ/SWI-return) PC re-enters the WHOLE host function at the right
+        // label instead of fragmenting it. (Mid-function aliasing.)
+        for (uint32_t a : fn.alias_entries) {
+            std::string wn = alias_wrapper_name(fn, a);
+            std::fprintf(f,
+                "/* alias 0x%08X -> %s */\n"
+                "void %s(void) { g_runtime_resume_pc = 0x%08Xu; %s(); }\n\n",
+                a, fn.name.c_str(), wn.c_str(), a, fn.name.c_str());
+        }
+        }
+        std::fclose(f);
+        commit_generated_file(temp, path);
+    }
+
+    // Remove legacy/stale body units so a CMake glob cannot link duplicate
+    // definitions after changing shard counts.
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+        if (!entry.is_regular_file()) continue;
+        const std::string filename = entry.path().filename().string();
+        const bool legacy = filename == body_name;
+        const bool shard = filename.size() > stem.size() + 5 &&
+            filename.compare(0, stem.size() + 1, stem + "_") == 0 &&
+            entry.path().extension() == ".cpp";
+        if ((legacy || shard) && expected.count(filename) == 0) {
+            std::filesystem::remove(entry.path(), ec);
+            ec.clear();
+        }
+    }
+}
+
+bool validate_thumb_alu_immediate_override_sites(
+        const Config& cfg, const std::vector<Function>& funcs,
+        const uint8_t* rom, std::size_t rom_size, uint32_t rom_base) {
+    auto is_data_processing = [](armv4t::IrOp op) {
+        switch (op) {
+            case armv4t::IrOp::AND: case armv4t::IrOp::EOR:
+            case armv4t::IrOp::SUB: case armv4t::IrOp::RSB:
+            case armv4t::IrOp::ADD: case armv4t::IrOp::ADC:
+            case armv4t::IrOp::SBC: case armv4t::IrOp::RSC:
+            case armv4t::IrOp::TST: case armv4t::IrOp::TEQ:
+            case armv4t::IrOp::CMP: case armv4t::IrOp::CMN:
+            case armv4t::IrOp::ORR: case armv4t::IrOp::MOV:
+            case armv4t::IrOp::BIC: case armv4t::IrOp::MVN:
+                return true;
+            default:
+                return false;
+        }
+    };
+
+    for (const auto& entry : cfg.thumb_alu_immediate_overrides) {
+        const Function* owner = nullptr;
+        for (const auto& fn : funcs) {
+            if (fn.mode == CpuMode::Thumb && entry.addr >= fn.addr &&
+                entry.addr < fn.end_addr) {
+                owner = &fn;
+                break;
+            }
+        }
+        if (!owner) {
+            std::fprintf(stderr,
+                "ERROR: [[thumb_alu_immediate_override]] 0x%08X is not "
+                "present in a statically emitted THUMB function\n",
+                entry.addr);
+            return false;
+        }
+
+        const uint32_t source_start = owner->source_addr
+            ? owner->source_addr : owner->addr;
+        const int64_t source_pc = static_cast<int64_t>(source_start) +
+            (static_cast<int64_t>(entry.addr) - owner->addr);
+        if (source_pc < static_cast<int64_t>(rom_base) ||
+            static_cast<uint64_t>(source_pc - rom_base) + 2u > rom_size) {
+            std::fprintf(stderr,
+                "ERROR: [[thumb_alu_immediate_override]] 0x%08X has no "
+                "immutable source bytes in its static host function\n",
+                entry.addr);
+            return false;
+        }
+        const std::size_t off =
+            static_cast<std::size_t>(source_pc - rom_base);
+        const uint16_t hw = static_cast<uint16_t>(rom[off]) |
+            (static_cast<uint16_t>(rom[off + 1]) << 8);
+        const armv4t::Instr ins =
+            armv4t::ThumbDecoder::decode(hw, entry.addr);
+        if (ins.is_undefined || !is_data_processing(ins.op) ||
+            ins.op2.kind != armv4t::Op2::Kind::Imm) {
+            std::fprintf(stderr,
+                "ERROR: [[thumb_alu_immediate_override]] 0x%08X does not "
+                "decode as a THUMB ALU-immediate instruction (%s)\n",
+                entry.addr, armv4t::format_ir(ins).c_str());
+            return false;
+        }
+    }
+    return true;
+}
+
+bool validate_thumb_literal_override_sites(
+        const Config& cfg, const std::vector<Function>& funcs,
+        const uint8_t* rom, std::size_t rom_size, uint32_t rom_base) {
+    for (const auto& entry : cfg.thumb_literal_overrides) {
+        const Function* owner = nullptr;
+        for (const auto& fn : funcs) {
+            if (fn.mode == CpuMode::Thumb && entry.addr >= fn.addr &&
+                entry.addr < fn.end_addr) {
+                owner = &fn;
+                break;
+            }
+        }
+        if (!owner) {
+            std::fprintf(stderr,
+                "ERROR: [[thumb_literal_override]] 0x%08X is not "
+                "present in a statically emitted THUMB function\n",
+                entry.addr);
+            return false;
+        }
+        const uint32_t source_start = owner->source_addr
+            ? owner->source_addr : owner->addr;
+        const int64_t source_pc = static_cast<int64_t>(source_start) +
+            (static_cast<int64_t>(entry.addr) - owner->addr);
+        if (source_pc < static_cast<int64_t>(rom_base) ||
+            static_cast<uint64_t>(source_pc - rom_base) + 2u > rom_size) {
+            std::fprintf(stderr,
+                "ERROR: [[thumb_literal_override]] 0x%08X has no "
+                "immutable source bytes in its static host function\n",
+                entry.addr);
+            return false;
+        }
+        const std::size_t off =
+            static_cast<std::size_t>(source_pc - rom_base);
+        const uint16_t hw = static_cast<uint16_t>(rom[off]) |
+            (static_cast<uint16_t>(rom[off + 1]) << 8);
+        const armv4t::Instr ins =
+            armv4t::ThumbDecoder::decode(hw, entry.addr);
+        if (ins.is_undefined || ins.op != armv4t::IrOp::LDR ||
+            ins.mem.rn != 15 || ins.mem.by_register ||
+            !ins.mem.pre_indexed || !ins.mem.add) {
+            std::fprintf(stderr,
+                "ERROR: [[thumb_literal_override]] 0x%08X does not decode "
+                "as a THUMB PC-relative literal LDR (%s)\n",
+                entry.addr, armv4t::format_ir(ins).c_str());
+            return false;
+        }
+    }
+    return true;
+}
+
+bool validate_alu_immediate_override_sites(
+        const Config& cfg, const std::vector<Function>& funcs,
+        const uint8_t* rom, std::size_t rom_size, uint32_t rom_base) {
+    auto is_data_processing = [](armv4t::IrOp op) {
+        switch (op) {
+            case armv4t::IrOp::AND: case armv4t::IrOp::EOR:
+            case armv4t::IrOp::SUB: case armv4t::IrOp::RSB:
+            case armv4t::IrOp::ADD: case armv4t::IrOp::ADC:
+            case armv4t::IrOp::SBC: case armv4t::IrOp::RSC:
+            case armv4t::IrOp::TST: case armv4t::IrOp::TEQ:
+            case armv4t::IrOp::CMP: case armv4t::IrOp::CMN:
+            case armv4t::IrOp::ORR: case armv4t::IrOp::MOV:
+            case armv4t::IrOp::BIC: case armv4t::IrOp::MVN:
+                return true;
+            default:
+                return false;
+        }
+    };
+
+    for (const auto& entry : cfg.alu_immediate_overrides) {
+        const Function* owner = nullptr;
+        for (const auto& fn : funcs) {
+            const uint32_t step = fn.mode == CpuMode::Thumb ? 2u : 4u;
+            if (entry.addr >= fn.addr && entry.addr < fn.end_addr &&
+                (entry.addr % step) == 0) {
+                owner = &fn;
+                break;
+            }
+        }
+        if (!owner) {
+            std::fprintf(stderr,
+                "ERROR: [[alu_immediate_override]] 0x%08X is not present "
+                "in a statically emitted function\n", entry.addr);
+            return false;
+        }
+
+        const uint32_t source_start = owner->source_addr
+            ? owner->source_addr : owner->addr;
+        const int64_t source_pc = static_cast<int64_t>(source_start) +
+            (static_cast<int64_t>(entry.addr) - owner->addr);
+        const uint32_t width = owner->mode == CpuMode::Thumb ? 2u : 4u;
+        if (source_pc < static_cast<int64_t>(rom_base) ||
+            static_cast<uint64_t>(source_pc - rom_base) + width > rom_size) {
+            std::fprintf(stderr,
+                "ERROR: [[alu_immediate_override]] 0x%08X has no immutable "
+                "source bytes in its static host function\n", entry.addr);
+            return false;
+        }
+        const std::size_t off =
+            static_cast<std::size_t>(source_pc - rom_base);
+        armv4t::Instr ins;
+        if (owner->mode == CpuMode::Thumb) {
+            const uint16_t hw = static_cast<uint16_t>(rom[off]) |
+                (static_cast<uint16_t>(rom[off + 1]) << 8);
+            ins = armv4t::ThumbDecoder::decode(hw, entry.addr);
+        } else {
+            const uint32_t word = static_cast<uint32_t>(rom[off]) |
+                (static_cast<uint32_t>(rom[off + 1]) << 8) |
+                (static_cast<uint32_t>(rom[off + 2]) << 16) |
+                (static_cast<uint32_t>(rom[off + 3]) << 24);
+            ins = armv4t::ArmDecoder::decode(word, entry.addr);
+        }
+        if (ins.is_undefined || !is_data_processing(ins.op) ||
+            ins.op2.kind != armv4t::Op2::Kind::Imm) {
+            std::fprintf(stderr,
+                "ERROR: [[alu_immediate_override]] 0x%08X does not decode "
+                "as an ALU-immediate instruction (%s)\n",
+                entry.addr, armv4t::format_ir(ins).c_str());
+            return false;
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    Cli cli = parse_cli(argc, argv);
+    if (!cli.ok) {
+        print_usage();
+        return (cli.rom_path.empty() && cli.bios_path.empty()) ? 2 : 0;
+    }
+    if (!cli.symbol_prefix.empty() &&
+        (!is_valid_c_identifier(cli.symbol_prefix) ||
+         cli.symbol_prefix.back() != '_')) {
+        std::fprintf(stderr,
+            "--symbol-prefix must be a C identifier ending in '_'\n");
+        return 2;
+    }
+
+    std::string err;
+    const std::string& input_path = cli.bios_mode ? cli.bios_path
+                                                  : cli.rom_path;
+    auto rom = read_file(input_path, &err);
+    if (rom.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+
+    // ── Optional TOML config ───────────────────────────────────────
+    // Per-binary configuration: manual function seeds, data-range
+    // exclusions, jump tables, identity hash. See
+    // docs/TOML_SCHEMA.md. When present, the binary's SHA-1 is
+    // verified against [identity].sha1 before any discovery runs.
+    //
+    // When present, [program].load_address and [program].entry_pc
+    // become the discovery base/entry. CLI --rom-base/--entry remain
+    // the no-config path and quick-spike overrides.
+    Config cfg;
+    bool have_cfg = false;
+    if (!cli.config_path.empty()) {
+        if (!gbarecomp::load_config(cli.config_path, cfg)) {
+            return 1;
+        }
+        if (!gbarecomp::verify_identity(cfg, rom.data(), rom.size())) {
+            return 1;
+        }
+        gbarecomp::print_config_summary(cfg);
+        have_cfg = true;
+    }
+
+    const uint32_t effective_rom_base =
+        have_cfg ? cfg.program.load_address : cli.rom_base;
+    const uint32_t effective_entry =
+        have_cfg ? cfg.program.entry_pc : cli.entry;
+
+    FunctionFinder finder(rom.data(), rom.size(), effective_rom_base);
+    if (have_cfg) {
+        finder.set_speculative_literal_harvest(
+            cfg.program.speculative_literal_harvest);
+    }
+
+    // ── Apply TOML config to the finder ──────────────────────────
+    // Order: data_ranges + excludes first (so seed validation can
+    // run against them), then jump_table expansion (which adds
+    // both auto-data-ranges for the table bytes AND extra seeds),
+    // then extra_func seeds.
+    std::size_t jump_table_expanded_seeds = 0;
+    if (have_cfg) {
+        for (const auto& dr : cfg.data_ranges) {
+            finder.add_data_range(dr.start, dr.end, dr.note);
+        }
+        for (const auto& entry : cfg.runtime_code_entries) {
+            finder.add_runtime_code_entry(entry.addr, entry.mode, entry.note);
+        }
+        for (const auto& cc : cfg.code_copies) {
+            finder.add_code_copy(cc.runtime_start, cc.source_start,
+                                 cc.size, cc.note);
+        }
+        for (const auto& ex : cfg.exclude_funcs) {
+            finder.add_exclude(ex.addr, ex.reason);
+        }
+        for (const auto& jt : cfg.jump_tables) {
+            // Auto-exclude the table's bytes from code decoding.
+            const uint32_t table_bytes = jt.count * jt.stride;
+            const uint32_t table_end = jt.addr + table_bytes;
+            std::string note = "jump_table bytes";
+            if (!jt.name.empty()) {
+                note += " (" + jt.name + ")";
+            }
+            finder.add_data_range(jt.addr, table_end, note);
+
+            // Decode each entry, expand to a seed.
+            for (uint32_t i = 0; i < jt.count; ++i) {
+                const uint32_t entry_pos = jt.addr + i * jt.stride;
+                uint32_t target_addr = 0;
+                gbarecomp::CpuMode target_mode = gbarecomp::CpuMode::Arm;
+                if (jt.format == gbarecomp::JumpTableFormat::Abs32 ||
+                    jt.format == gbarecomp::JumpTableFormat::PcrelArm ||
+                    jt.format == gbarecomp::JumpTableFormat::PcrelThumb) {
+                    const uint32_t raw = finder.read_u32_public(entry_pos);
+                    switch (jt.format) {
+                    case gbarecomp::JumpTableFormat::Abs32:
+                        if (jt.entries_mode ==
+                            gbarecomp::JumpTableEntriesMode::Auto) {
+                            target_addr = raw & ~uint32_t{1};
+                            target_mode = (raw & 1u)
+                                ? gbarecomp::CpuMode::Thumb
+                                : gbarecomp::CpuMode::Arm;
+                        } else {
+                            target_addr = raw;
+                            target_mode = (jt.entries_mode ==
+                                gbarecomp::JumpTableEntriesMode::Thumb)
+                                ? gbarecomp::CpuMode::Thumb
+                                : gbarecomp::CpuMode::Arm;
+                        }
+                        break;
+                    case gbarecomp::JumpTableFormat::PcrelArm:
+                        target_addr = entry_pos +
+                            static_cast<int32_t>(raw);
+                        target_mode = gbarecomp::CpuMode::Arm;
+                        break;
+                    case gbarecomp::JumpTableFormat::PcrelThumb:
+                        target_addr = entry_pos +
+                            static_cast<int32_t>(raw);
+                        target_mode = gbarecomp::CpuMode::Thumb;
+                        break;
+                    default: break;
+                    }
+                } else if (jt.format == gbarecomp::JumpTableFormat::Abs16) {
+                    if (entry_pos + 2u > effective_rom_base + rom.size() ||
+                        entry_pos < effective_rom_base) continue;
+                    std::size_t off = entry_pos - effective_rom_base;
+                    uint16_t v = static_cast<uint16_t>(rom[off])
+                        | (static_cast<uint16_t>(rom[off + 1]) << 8);
+                    target_addr = v;
+                    target_mode = (jt.entries_mode ==
+                        gbarecomp::JumpTableEntriesMode::Thumb)
+                        ? gbarecomp::CpuMode::Thumb
+                        : gbarecomp::CpuMode::Arm;
+                }
+                // Skip null/empty entries (some tables pad with zeros).
+                if (target_addr == 0) continue;
+
+                char buf[96];
+                if (!jt.name.empty()) {
+                    std::snprintf(buf, sizeof(buf), "%s_%02u",
+                                  jt.name.c_str(), i);
+                } else {
+                    std::snprintf(buf, sizeof(buf),
+                                  "jumptab_%08X_%02u", jt.addr, i);
+                }
+                finder.add_seed(FunctionSeed{
+                    target_addr, target_mode, std::string(buf)});
+                ++jump_table_expanded_seeds;
+            }
+        }
+        for (const auto& ef : cfg.extra_funcs) {
+            FunctionSeed seed{ef.addr, ef.mode, ef.name};
+            seed.source_addr = ef.source_addr;
+            seed.alias_candidate = ef.resume;  // interior/resume seed -> alias
+            finder.add_seed(seed);
+        }
+        for (const auto& rr : cfg.resume_ranges) {
+            const uint32_t step = rr.mode == CpuMode::Thumb ? 2u : 4u;
+            finder.add_seed(FunctionSeed{rr.start, rr.mode, {}});
+            for (uint32_t pc = rr.start + step; pc < rr.end; pc += step) {
+                FunctionSeed seed{pc, rr.mode, {}};
+                seed.alias_candidate = true;
+                finder.add_seed(seed);
+            }
+        }
+    }
+
+    if (cli.bios_mode) {
+        // GBA BIOS exception vector layout (ARM ARM A2.6):
+        //   0x00 reset       — power-on entry
+        //   0x04 undef       — undefined-instruction trap (skipped)
+        //   0x08 SWI         — software interrupt
+        //   0x0C prefetch    — prefetch abort (skipped)
+        //   0x10 data        — data abort (skipped)
+        //   0x14 reserved    — (skipped)
+        //   0x18 IRQ         — IRQ entry
+        //   0x1C FIQ         — FIQ entry (skipped — GBA doesn't use FIQ)
+        // All vectors are ARM-state. Each is a single B instruction
+        // whose target the function-finder follows, so we don't need
+        // to seed the actual handler bodies.
+        finder.add_seed(FunctionSeed{0x00000000u, CpuMode::Arm,
+                                      "bios_reset_vector"});
+        finder.add_seed(FunctionSeed{0x00000008u, CpuMode::Arm,
+                                      "bios_swi_vector"});
+        finder.add_seed(FunctionSeed{0x00000018u, CpuMode::Arm,
+                                      "bios_irq_vector"});
+        std::printf("==> BIOS mode: rom_base=0x00000000 size=%zu seeds=3\n",
+                    rom.size());
+    } else {
+        auto seeds = load_symbols(cli.symbols_path);
+        std::printf("==> loaded %zu seed symbols from %s\n",
+                    seeds.size(),
+                    cli.symbols_path.empty() ? "(none)"
+                                              : cli.symbols_path.c_str());
+        CpuMode entry_mode = CpuMode::Arm;
+        std::string entry_name = "start_vector";
+        if (have_cfg) {
+            for (const auto& ef : cfg.extra_funcs) {
+                if (ef.addr != effective_entry) continue;
+                entry_mode = ef.mode;
+                if (!ef.name.empty()) entry_name = ef.name;
+                break;
+            }
+        }
+        finder.add_seed(FunctionSeed{effective_entry, entry_mode, entry_name});
+        for (const auto& s : seeds) finder.add_seed(s);
+    }
+    finder.run(cli.max_functions);
+
+    // Control-flow into a data_range. Two very different cases:
+    //
+    //  * AUTHORITATIVE range (readelf [[data_range]] or a manual
+    //    [[jump_table]] hint): the operator asserted these bytes are data,
+    //    so flow into them is a genuine contradiction — HARD ERROR, and the
+    //    human must resolve it (shrink the range / exclude the caller).
+    //
+    //  * AUTO jump_table (the finder's own speculative abs32-table guess):
+    //    real code can never branch *into* a true code-pointer table, so a
+    //    collision here is proof the guess mis-modeled some packed/offset
+    //    THUMB switch (e.g. LeafGreen rev1 @ 0x0801A8E8 — 48 case handlers
+    //    that each branch to a shared address inside the table bytes, which
+    //    readelf confirms ARE data). The data_range itself is correct; only
+    //    the decoded branches are artifacts. Downgrade to a WARNING: keep
+    //    the bytes as data and let the residual indirect branches resolve
+    //    through the runtime's honest self-heal path. Never a build failure.
+    const auto& cols = finder.collisions();
+    std::size_t fatal = 0, auto_jt = 0;
+    for (const auto& c : cols) {
+        if (c.range_note == "auto jump_table") ++auto_jt; else ++fatal;
+    }
+    if (auto_jt > 0) {
+        std::fprintf(stderr,
+            "WARNING: %zu control-flow entries into an auto-detected "
+            "jump_table (mis-modeled switch; bytes kept as data, residual "
+            "branches self-heal at runtime). Sample:\n", auto_jt);
+        std::size_t shown = 0;
+        for (const auto& c : cols) {
+            if (c.range_note != "auto jump_table") continue;
+            if (shown++ >= 3) break;
+            std::fprintf(stderr,
+                "  [0x%08X,0x%08X) auto jump_table <- 0x%08X via %s",
+                c.range_start, c.range_end, c.flow_target_addr,
+                c.flow_origin_kind.c_str());
+            if (c.flow_origin_addr != 0)
+                std::fprintf(stderr, " in fn 0x%08X", c.flow_origin_addr);
+            std::fprintf(stderr, "\n");
+        }
+    }
+    if (fatal > 0) {
+        std::fprintf(stderr,
+            "ERROR: %zu control-flow entries into [[data_range]]\n", fatal);
+        for (const auto& c : cols) {
+            if (c.range_note == "auto jump_table") continue;
+            std::fprintf(stderr,
+                "  data_range [0x%08X, 0x%08X)%s%s\n"
+                "    entered at 0x%08X via %s",
+                c.range_start, c.range_end,
+                c.range_note.empty() ? "" : "  ",
+                c.range_note.c_str(),
+                c.flow_target_addr, c.flow_origin_kind.c_str());
+            if (!c.flow_origin_name.empty()) {
+                std::fprintf(stderr, " \"%s\"", c.flow_origin_name.c_str());
+            }
+            if (c.flow_origin_addr != 0) {
+                std::fprintf(stderr, " in function at 0x%08X",
+                             c.flow_origin_addr);
+            }
+            std::fprintf(stderr, "\n");
+        }
+        std::fprintf(stderr,
+            "Resolve by either:\n"
+            "  - shrinking/removing the [[data_range]] covering the "
+            "target, or\n"
+            "  - marking the offending caller with "
+            "[[exclude_func]] if it's a false-positive function.\n");
+        return 1;
+    }
+
+    const auto& funcs = finder.functions();
+    const auto& stats = finder.stats();
+    if (have_cfg && !validate_thumb_alu_immediate_override_sites(
+            cfg, funcs, rom.data(), rom.size(), effective_rom_base)) {
+        return 1;
+    }
+    if (have_cfg && !validate_thumb_literal_override_sites(
+            cfg, funcs, rom.data(), rom.size(), effective_rom_base)) {
+        return 1;
+    }
+    if (have_cfg && !validate_alu_immediate_override_sites(
+            cfg, funcs, rom.data(), rom.size(), effective_rom_base)) {
+        return 1;
+    }
+    std::printf("==> discovered %zu functions "
+                "(arm=%zu thumb=%zu indirect=%zu undefined=%zu "
+                "branch_targets=%zu)\n",
+                stats.functions_total, stats.functions_arm,
+                stats.functions_thumb, stats.indirect_transfer_count,
+                stats.undefined_instr_count,
+                stats.branch_targets_discovered);
+
+    if (have_cfg) {
+        std::printf("[gba_recompile discovery summary]\n");
+        std::printf("  discovered_by_walk:    %zu  finder-only\n",
+                    stats.discovered_by_walk_only);
+        std::printf("  redundant_manual:      %zu  in both — "
+                    "TOML carries documentation value\n",
+                    stats.redundant_manual);
+        std::printf("  manual_seeds_only:     %zu  "
+                    "would be lost without TOML\n",
+                    stats.manual_seeds_only);
+        std::printf("  jump_table_expanded:   %zu  "
+                    "seeds from [[jump_table]] decode\n",
+                    jump_table_expanded_seeds);
+        std::printf("  auto_jump_tables:      %zu  (%zu targets) "
+                    "auto-detected, no hint\n",
+                    stats.auto_jump_tables,
+                    stats.auto_jump_table_targets);
+        std::printf("  jt_confirm_events:     %zu  (%zu distinct: emitted %zu, "
+                    "overlap %zu, rejected %zu unsized + %zu bound-mismatch)\n",
+                    stats.jt_confirmations,
+                    stats.auto_jump_tables + stats.jt_overlap_suppressed +
+                        stats.jt_rejected_unsized +
+                        stats.jt_rejected_bound_mismatch,
+                    stats.auto_jump_tables,
+                    stats.jt_overlap_suppressed,
+                    stats.jt_rejected_unsized,
+                    stats.jt_rejected_bound_mismatch);
+        std::printf("  literal_pool_seeds:    %zu kept / %zu PC-rel "
+                    "literals (speculative code-pointer harvest)\n",
+                    stats.literal_pool_seeds_kept,
+                    stats.literal_pool_words_seen);
+        std::printf("  data_ranges_honored:   %zu\n",
+                    cfg.data_ranges.size() + cfg.jump_tables.size());
+        std::printf("  runtime_code_entries:  %zu\n",
+                    cfg.runtime_code_entries.size());
+        std::printf("  code_copies:           %zu\n",
+                    cfg.code_copies.size());
+        std::printf("  midfn_aliases:         %zu entries -> %zu hosts "
+                    "(rolled-up interior resume points)\n",
+                    stats.alias_entries_total, stats.alias_hosts_total);
+        std::printf("  excluded:              %zu\n",
+                    stats.excluded_count);
+        std::printf("  long_branch_calls:     %zu  BL long-branches "
+                    "(continuation in data_range)\n",
+                    stats.long_branch_calls);
+        std::printf("  alias_seeds_dropped:   %zu  alias-candidate seeds "
+                    "on a BL_suffix halfword (not a legal entry point)\n",
+                    stats.alias_seeds_dropped_bl_suffix);
+        std::printf("  alias_seeds_dropped_dr: %zu  alias-candidate seeds "
+                    "whose walk entered a declared data_range (unreachable "
+                    "by construction)\n",
+                    stats.alias_seeds_dropped_data_range);
+        std::printf("  alias_seeds_kept:      %zu  alias-candidate "
+                    "BL_suffix seeds kept as genuine post-IRQ resume "
+                    "entries\n",
+                    stats.alias_seeds_kept_bl_suffix);
+        std::printf("  TOTAL emitted:         %zu\n",
+                    stats.functions_total);
+        // Per-table dump so the auto-detected bases can be diffed
+        // against the manual ground-truth set (MC-HP-000 validation).
+        for (const auto& jt : finder.auto_jump_tables()) {
+            std::printf("  auto_jt 0x%08X count=%u stride=%u site=0x%08X "
+                        "%s %s\n",
+                        jt.base, jt.count, jt.stride, jt.site_pc,
+                        jt.interworking ? "BX" : "MOVpc",
+                        jt.bounded ? "bounded" : "walked");
+        }
+    }
+    // Flush the discovery summary now so it's observable before the
+    // (much slower) codegen pass — lets a measurement run read the
+    // numbers without waiting for full generation.
+    std::fflush(stdout);
+
+    // Make sure the output dir exists.
+#ifdef _WIN32
+    std::string mkdir_cmd = "cmd /c mkdir \"" + cli.out_dir + "\" 2>nul";
+#else
+    std::string mkdir_cmd = "mkdir -p \"" + cli.out_dir + "\"";
+#endif
+    std::system(mkdir_cmd.c_str());
+
+    // Sanitize function names to valid, unique, non-reserved C++ identifiers
+    // before emission. Work on a copy so the finder's canonical vector (and
+    // anything that consults it by reference) is untouched. The SAME sanitized
+    // vector feeds every emitter, so the header decl, body def, dispatch table,
+    // inter-function calls, and debug symbol map all agree on each name.
+    std::vector<Function> emit_funcs = funcs;
+    sanitize_function_identifiers(emit_funcs, /*prefix_guest=*/!cli.bios_mode,
+                                  cli.symbol_prefix);
+
+    OutputNames names = names_for_mode(cli.bios_mode);
+    if (cli.emit_symbol_map) write_symbol_map(cli.out_dir, emit_funcs, cli.bios_mode);
+    write_header(cli.out_dir, emit_funcs, names);
+    uint32_t codegen_shards = have_cfg ? cfg.program.codegen_shards : 1u;
+    if (cli.bios_mode && codegen_shards != 1u) {
+        std::fprintf(stderr,
+            "warn: BIOS output currently requires codegen_shards=1; using 1\n");
+        codegen_shards = 1u;
+    }
+    std::unordered_set<uint32_t> alu_immediate_override_pcs;
+    std::unordered_set<uint32_t> literal_override_pcs;
+    std::unordered_set<uint32_t> conditional_branch_override_pcs;
+    if (have_cfg) {
+        for (const auto& entry : cfg.thumb_alu_immediate_overrides) {
+            alu_immediate_override_pcs.insert(entry.addr);
+        }
+        for (const auto& entry : cfg.alu_immediate_overrides) {
+            alu_immediate_override_pcs.insert(entry.addr);
+        }
+        for (const auto& entry : cfg.thumb_literal_overrides) {
+            literal_override_pcs.insert(entry.addr);
+        }
+        for (const auto& entry : cfg.conditional_branch_overrides) {
+            conditional_branch_override_pcs.insert(entry.addr);
+        }
+    }
+    gbarecomp::RelocatableImage image;
+    if (cli.relocatable_image) {
+        image.origin = cli.image_origin;
+        image.size = cli.image_size;
+        std::printf("  relocatable image: origin=0x%08X size=0x%X "
+                    "(guest addresses emitted base-relative)\n",
+                    image.origin, image.size);
+    }
+    write_body(cli.out_dir, emit_funcs, rom.data(), rom.size(), effective_rom_base,
+               names, codegen_shards,
+               alu_immediate_override_pcs.empty()
+                   ? nullptr : &alu_immediate_override_pcs,
+                cli.relocatable_image ? &image : nullptr,
+                literal_override_pcs.empty() ? nullptr : &literal_override_pcs,
+                conditional_branch_override_pcs.empty()
+                    ? nullptr : &conditional_branch_override_pcs);
+    write_dispatch_table(cli.out_dir, emit_funcs, names, cli.symbol_prefix,
+                         cli.relocatable_image ? &image : nullptr);
+    std::printf("==> wrote %s/{%s, %s%s, %s}\n",
+                cli.out_dir.c_str(),
+                names.header, codegen_shards == 1u ? names.body : "shards=",
+                codegen_shards == 1u ? "" : std::to_string(codegen_shards).c_str(),
+                names.dispatch);
+
+    return 0;
+}

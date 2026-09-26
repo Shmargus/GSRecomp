@@ -1,0 +1,94 @@
+# GS-011 POSITION-INDEPENDENT AOT image for Func_9bb8, SHORT COPY VARIANT.
+#
+# The flash driver copies Func_9bb8 at TWO different lengths. A DMA3 watch on
+# 0x03003eec across one 10,800-frame campaign run records both from the same
+# source address:
+#
+#   ch=3 dad=0x03003EEC src=0x08009BB8 word=0/177   (177 words = 0x2c4)
+#   ch=3 dad=0x03003EEC src=0x08009BB8 word=0/121   (121 words = 0x1e4)
+#
+# 0x2c4 is the full ELF STT_FUNC extent and is what
+# transient-func_9bb8-relocatable.toml registers. This file is the 0x1e4 copy.
+#
+# WHY TWO IMAGES AND NOT A WRONG EXTENT: goldensun.elf places a trailing `$d`
+# literal pool at 0x08009d90 that runs to the next function, Func_9e7c, at
+# 0x08009e7c. The short copy ends at 0x08009d9c - every instruction (the code
+# ends at 0x08009d90) plus the first three literal words, and nothing more. So
+# the short copy installs all of the routine's CODE and only part of its literal
+# pool. Both are legitimate, complete-for-their-purpose images; they simply have
+# different identities, because a SHA-1 over the full 0x2c4 extent covers 224
+# bytes of RAM the short copy never wrote.
+#
+# This is the same class of defect as hashing an overlay's mutable `.data`
+# section: an identity must cover the bytes the writer actually wrote, not the
+# bytes a symbol table says the routine spans. See docs/GS011_TRANSIENT_IMAGES.md.
+#
+# Generated with `gba_recompile --relocatable-image 0x03003eec:0x1e4`.
+# 0x03003eec is the generation ORIGIN only.
+#
+# The resume/data split below is Func_9bb8's own ELF mapping symbols
+# ($a 0x08009bb8, $d 0x08009c8c, $a 0x08009c90, $d 0x08009cdc, $a 0x08009cfc,
+# $d 0x08009d90) translated through the copy bias and truncated at the observed
+# 0x1e4 extent - not hand arithmetic on the instruction stream.
+#
+# ELF: Func_9bb8 at 0x08009bb8, full size 708 (0x2c4), mode arm.
+# Short-copy image SHA-1 49496bc9fb68cacac07613ccb2ead86bc0583ffc
+# (full-extent image SHA-1 38da8bb7176c71ef1e86ce50346af1d72174529c).
+
+[program]
+name = "Golden Sun relocatable Func_9bb8 RAM image (short 0x1e4 copy)"
+id = "golden_sun_usa_transient_func_9bb8_short_relocatable"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03003eec
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03003eec
+source_start = 0x08009bb8
+size = 0x000001e4
+name = "relocatable_Func_9bb8_short_image"
+note = "flash-driver routine, 121-word copy variant observed at 0x03003eec; image SHA-1 49496bc9fb68cacac07613ccb2ead86bc0583ffc"
+
+[[extra_func]]
+addr = 0x03003eec
+mode = "arm"
+name = "Func_9bb8_short_relocatable_image"
+note = "ELF STT_FUNC entry Func_9bb8 installed at the observed copy destination"
+
+[[resume_range]]
+start = 0x03003eec
+end = 0x03003fc0
+mode = "arm"
+note = "Func_9bb8 code run, ROM 0x08009bb8..0x08009c8c"
+
+[[data_range]]
+start = 0x03003fc0
+end = 0x03003fc4
+note = "ELF $d run inside Func_9bb8, ROM 0x08009c8c..0x08009c90"
+
+[[resume_range]]
+start = 0x03003fc4
+end = 0x03004010
+mode = "arm"
+note = "Func_9bb8 code run, ROM 0x08009c90..0x08009cdc"
+
+[[data_range]]
+start = 0x03004010
+end = 0x03004030
+note = "ELF $d run inside Func_9bb8, ROM 0x08009cdc..0x08009cfc"
+
+[[resume_range]]
+start = 0x03004030
+end = 0x030040c4
+mode = "arm"
+note = "Func_9bb8 code run, ROM 0x08009cfc..0x08009d90"
+
+[[data_range]]
+start = 0x030040c4
+end = 0x030040d0
+note = "ELF $d run inside Func_9bb8, truncated at the observed 0x1e4 copy extent, ROM 0x08009d90..0x08009d9c"

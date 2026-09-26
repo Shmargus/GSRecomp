@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "overlay_id": "rom_787e04",
+  "decompressed_sha256": "07f68c9ea54ca7125771dbe308dce53c35d0d538354079f9f0e86192a9169c4e",
+  "entries": [
+    { "addr": "0x02008160", "mode": "thumb", "evidence": "GS-011 input-driven strict-static reached this exact ELF-bounded OvlFunc_160 entry after the live EWRAM .text uniquely matched rom_787e04" }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "overlay_id": "rom_784360",
+  "decompressed_sha256": "3817c92cd3eb7b1824729d9e2195c9b4ed9e6f84a092bda2e3858b72f53c3e7d",
+  "entries": [
+    {
+      "addr": "0x02008BBC",
+      "mode": "thumb",
+      "evidence": "Sixth EWRAM overlay, found in live play during the plaza cutscene near the psynergy stone (2026-08-08). The session froze; reproduced headlessly from savestate 5 plus the recorded input, where it aborts with 'SELF-HEAL bridge for 0x02008BBC exceeded 200000000 instructions without returning to stop_pc=0x0808D88C'. Identified by dumping the live window via GBARECOMP_TRANSIENT_DUMP (0x02008000..0x0200C8BC) and matching it against the pinned decompressed overlay set: it is rom_784360 byte for byte, all 16084 bytes from offset 0. overlay.elf places a $t mapping symbol at 0x02008bbc and OvlFunc_bbc (STT_FUNC, thumb bit set) at exactly that address, so this is an exact THUMB function entry, not an interior resume point"
+    },
+    {
+      "addr": "0x02008158",
+      "mode": "thumb",
+      "evidence": "Same overlay and same play session; reported by the runtime as 'unknown transient code identity at 0x02008158' with every registered overlay mismatching. overlay.elf: $t mapping symbol at 0x02008158 and OvlFunc_158 (STT_FUNC, thumb bit set) at exactly that address"
+    },
+    {
+      "addr": "0x02008088",
+      "mode": "thumb",
+      "evidence": "Same overlay and session. overlay.elf: $t mapping symbol at 0x02008088 and OvlFunc_88 (STT_FUNC, thumb bit set) at exactly that address"
+    },
+    {
+      "addr": "0x020080B8",
+      "mode": "thumb",
+      "evidence": "Same overlay and session. overlay.elf: $t mapping symbol at 0x020080b8 and OvlFunc_b8 (STT_FUNC, thumb bit set) at exactly that address"
+    },
+    {
+      "addr": "0x02008940",
+      "mode": "thumb",
+      "evidence": "Same overlay and session. overlay.elf: $t mapping symbol at 0x02008940 and OvlFunc_940 (STT_FUNC, thumb bit set) at exactly that address"
+    },
+    {
+      "addr": "0x02008090",
+      "mode": "thumb",
+      "evidence": "Same overlay and session. overlay.elf: $t mapping symbol at 0x02008090 and OvlFunc_90 (STT_FUNC, thumb bit set) at exactly that address"
+    }
+  ]
+}

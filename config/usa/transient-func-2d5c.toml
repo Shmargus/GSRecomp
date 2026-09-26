@@ -1,0 +1,28 @@
+# GS-011 identity-verified AOT variant for the transient Func_2d5c image.
+# Func_2fb0 allocates 0x7c bytes, DMA3-copies this exact ROM span to the
+# returned IWRAM address, calls it in ARM mode, then frees it.
+
+[program]
+name = "Golden Sun transient Func_2d5c image"
+id = "golden_sun_usa_transient_func_2d5c"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03002000
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03002000
+source_start = 0x08002d5c
+size = 0x0000007c
+name = "transient_Func_2d5c"
+note = "GS-011 disassembly-proven DMA image; complete bytes SHA-1 a0e2414cc0e339ec6f61fbd387eb6325a8eabe84"
+
+[[resume_range]]
+start = 0x03002000
+end = 0x0300207c
+mode = "arm"
+note = "ELF-bounded all-code Func_2d5c; strict-static scheduler yield observed at 0x03002028"

@@ -1,0 +1,37 @@
+# GS-011 POSITION-INDEPENDENT AOT image for Func_6b84.
+#
+# Session 20260923_114927 compiled 0x03007B64 at runtime; its bytes equal ROM 0x08006b84, goldensun.elf Func_6b84 (THUMB, 0x24 bytes, the last halfword a $d pad). A byte-copy loop, copied onto the stack.
+# Image SHA-1 of ROM 0x08006b84..0x08006ba6 is
+# bb05c02ca568f1e3ec93e421166ceb083b0a47de. Generated with
+# `gba_recompile --relocatable-image 0x03007b64:0x22`.
+
+[program]
+name = "Golden Sun relocatable Func_6b84 RAM image"
+id = "golden_sun_usa_transient_func_6b84_relocatable"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03007b64
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03007b64
+source_start = 0x08006b84
+size = 0x00000022
+name = "relocatable_Func_6b84_image"
+note = "stack copy observed at 0x03007b64; the emitted code is base-relative"
+
+[[extra_func]]
+addr = 0x03007b64
+mode = "thumb"
+name = "Func_6b84_relocatable_image"
+note = "routine entry at its observed copy destination"
+
+[[resume_range]]
+start = 0x03007b64
+end = 0x03007b86
+mode = "thumb"
+note = "whole routine; every instruction is an entry"

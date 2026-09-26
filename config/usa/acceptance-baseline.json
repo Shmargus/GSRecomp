@@ -1,0 +1,123 @@
+{
+  "_comment": [
+    "Semantic fingerprints for the strict-static acceptance tracks, used by",
+    "scripts/gs.ps1 to decide whether a change regressed anything.",
+    "",
+    "Every field here except trace_events is architectural state and must not",
+    "move. trace_events legitimately changes when interior resume aliases are",
+    "added, so it is recorded for reference but never gates.",
+    "",
+    "A FULLY_STATIC headline alone does NOT establish 'no regression' - these",
+    "invariants are what does. See docs/GS011_TRANSIENT_IMAGES.md,",
+    "'Verifying no regression properly'.",
+    "",
+    "Measured 2026-08-07 on a non-LTO build (141,778,857 bytes), after the",
+    "recompiler learned to resume into a THUMB BL_suffix (717 entries) and",
+    "after seeding Func_2df0 and the RAM-space Func_8d4.",
+    "",
+    "Both 5,400-frame tracks AND the 21,600-frame campaign track are now",
+    "FULLY_STATIC. Coverage is frame-bounded and track-bounded: 'campaign' is",
+    "ONE deterministic route, and another route will find its own gaps.",
+    "",
+    "trace_events fell ~303k on both 5,400-frame tracks in this revision while",
+    "every semantic invariant stayed byte-identical. The likely cause is the",
+    "Func_8d4 resume alias: it sits in the constantly-running boot/IRQ IWRAM",
+    "block, so the runtime resumes inline instead of emitting a dispatch record",
+    "each time. That is a PLAUSIBLE mechanism, not a verified one - it has not",
+    "been confirmed, and it is recorded here so the drop is not mistaken for a",
+    "regression or waved through as noise."
+  ],
+
+  "campaign-5400": {
+    "cycles": 1042707251,
+    "steps": 20362,
+    "final_pc": "0x000001b4",
+    "ppu_frames": 5400,
+    "ppu_vcount": 49,
+    "pal_nonzero": "931/1024",
+    "vram_nonzero": "58877/98304",
+    "oam_nonzero": "542/1024",
+    "unmapped": 0,
+    "io_unhandled": 0,
+    "trace_events": 35995144,
+    "coverage": "FULLY_STATIC"
+  },
+
+  "noinput-5400": {
+    "cycles": 1040556882,
+    "steps": 21071,
+    "final_pc": "0x000001b4",
+    "ppu_frames": 5400,
+    "ppu_vcount": 214,
+    "pal_nonzero": "937/1024",
+    "vram_nonzero": "50205/98304",
+    "oam_nonzero": "515/1024",
+    "unmapped": 0,
+    "io_unhandled": 0,
+    "trace_events": 33607186,
+    "coverage": "FULLY_STATIC"
+  },
+
+  "_campaign-10800": {
+    "_status": [
+      "RETIRED as a gate, deliberately - not deleted, so nobody re-adds it",
+      "assuming it was forgotten. The 21,600-frame campaign track below is the",
+      "same deterministic route run longer, so it strictly supersedes this one.",
+      "",
+      "Its last measured figures were cycles=1897809555 steps=39917",
+      "ppu_frames=10800 ppu_vcount=171 pal=959/1024 vram=59741/98304",
+      "oam=535/1024 trace_events=84942401. They are NOT carried forward as a",
+      "gate because this track was not re-run after the BL_suffix work, and",
+      "trace_events demonstrably moved on every other track in that revision.",
+      "Re-measure before ever trusting these numbers again."
+    ]
+  },
+
+  "campaign-21600": {
+    "_status": [
+      "The frontier track, and now FULLY_STATIC. This is the headline result:",
+      "21,600 frames (~6 minutes) of the 'campaign' route with zero dispatch",
+      "misses, zero interpreted instructions and no self-heal.",
+      "",
+      "It became static once the recompiler learned to resume into a THUMB",
+      "BL_suffix - the old wall at 0x08094944 was the second halfword of a",
+      "4-byte BL reached by a genuine post-IRQ resume, which no main.toml",
+      "metadata could ever have fixed."
+    ],
+    "_cycles_note": [
+      "cycles and steps were re-baselined after the eight ELF-proven ROM",
+      "sections were seeded (coverage 87.69% -> 94.96%). The previous values",
+      "were cycles=3803922175 steps=79790 trace_events=159591793.",
+      "",
+      "This was NOT accepted as noise. It was bisected: a 10,800-frame run of",
+      "the same route after the change is BIT-IDENTICAL to the baseline",
+      "measured before any of it (cycles=1897809555 steps=39917",
+      "ppu_vcount=171). So nothing changed through 10,800 frames; the ~1%",
+      "cycle drift appears only between 10,800 and 21,600. Final visual state",
+      "is unchanged (pal 959/1024, vram 59741/98304, oam 535/1024) and the",
+      "track is still FULLY_STATIC with zero misses.",
+      "",
+      "OPEN QUESTION, not resolved: the likely mechanism is that seeding",
+      "changed host function partitioning, and IRQ recognition happens at host",
+      "function boundaries rather than at every guest instruction as real",
+      "hardware does. If that is right, emulated interrupt timing is sensitive",
+      "to how we partition translations - which would matter for audio and",
+      "timing-sensitive effects, and is related to the still-open GS-010",
+      "DISPSTAT cycle-drift item. This has NOT been confirmed; it is written",
+      "down so the next person starts from the evidence rather than from the",
+      "assumption that a re-baseline meant nothing happened."
+    ],
+    "cycles": 3766167255,
+    "steps": 81287,
+    "final_pc": "0x000001b4",
+    "ppu_frames": 21600,
+    "ppu_vcount": 173,
+    "pal_nonzero": "959/1024",
+    "vram_nonzero": "59741/98304",
+    "oam_nonzero": "535/1024",
+    "unmapped": 0,
+    "io_unhandled": 0,
+    "trace_events": 159598603,
+    "coverage": "FULLY_STATIC"
+  }
+}

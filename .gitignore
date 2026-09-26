@@ -1,0 +1,212 @@
+# Build outputs
+build/
+out/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+*.obj
+*.o
+*.a
+*.lib
+*.dll
+*.exe
+*.pdb
+
+# Generated recompilation output and caches
+generated/*
+!generated/README.md
+recomp_cache/
+recomp_coverage*
+recomp_master_misses*
+recomp_seed_proposals*
+*.toml.frag
+
+# ROM, BIOS, saves, states, traces, dumps, extracted assets
+*.gba
+*.bin
+*.rom
+*.sav
+*.srm
+*.ss?
+*.state
+*.trace
+*.dump
+*.raw
+*.pcm
+*.wav
+*.mid
+*.sf2
+*.png
+*.bmp
+*.tga
+*.gif
+roms/*
+!roms/README.md
+private/
+traces/
+snapshots/
+extract/
+extracted/
+
+# Local upstream builds/inventories that may contain protected data
+local/
+upstream-build/
+goldensun-disasm-build/
+game.toml
+bios.cfg
+rom.cfg
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# IDE/OS
+.vs/
+.vscode/settings.json
+.idea/
+.DS_Store
+Thumbs.db
+*.user
+
+# Private machine paths for scripts/gs.ps1 (ROM/BIOS/ELF locations).
+config/local.json
+
+# Session debug artifacts (local only)
+hang_trace.csv
+hang_dump.log
+delay_sweep.out
+delay_sweep.err
+localcanon_state5_run.out.log
+localcanon_state5_run.err.log
+
+# GoldenSunLauncher per-session stdout/stderr capture (local only, never
+# committed — see src/launcher_main.cpp SessionLogWriter).
+logs/
+
+# Splash artwork: excluded pending provenance confirmation (see LEGAL.md)
+gssplash.jpg
+
+# Stray build logs
+lto_build.log
+*_build.log
+
+# Runtime debug artifacts from ad-hoc probe scripts (local only)
+battle_log_*.txt
+battle_probe_*.txt
+crash_err.txt
+crash_out.txt
+run_state.txt
+
+# Ad-hoc disassembly/symbol dumps from debugging sessions (local only,
+# regenerable from the built exe with objdump/nm)
+dis_*.txt
+text_syms*.txt
+syms*.txt
+err*.txt
+e[0-9].txt
+
+# Local convenience scripts that hardcode private ROM/BIOS/savestate paths.
+# Kept on disk, never committed — see SECURITY.md.
+CATCH BATTLE LOG.ps1
+RUN BATTLE PROBE.ps1
+
+# Local trace launcher (see WIDE-05); regenerable, not committed
+TRACE MAP.ps1
+logs/mmio_map_*.csv
+
+# Local Claude Code settings carry absolute paths; never commit them.
+.claude/settings.local.json
+
+# Superseded working notes: handoffs, old status files and closed issues.
+# Kept on disk, out of the repo -- the live documentation is README.md,
+# AGENTS.md, ARCHITECTURE.md, ROADMAP.md, FACTS.md and docs/.
+docs/OLD/
+
+# The engine lives in this repo (see README). Its own .gitignore keeps its
+# build output and generated code out; these are the parts of the upstream
+# checkout that are nothing to do with the engine's working.
+gbarecomp/.claude/
+gbarecomp/.github/
+gbarecomp/oracle/
+
+# Not part of the source repository (kept on disk, never committed):
+# captures, archives, blog drafts and editor/agent settings.
+old/
+BLOG_POST*.html
+*.jpg
+*.jpeg
+*.mp4
+*.elf
+*.debug
+*.zip
+*.7z
+*.log
+.claude/
+.opencode/
+.vscode/
+
+# More binaries, dumps and scratch output.
+*.gb
+*.gbc
+*.dmp
+*.mdmp
+*.bak
+*.tmp
+*.orig
+*.csv
+.cache/
+
+# Local development material. The public repository holds only what is
+# needed to build and run the program; these stay on disk, uncommitted.
+/AGENTS.md
+/CLAUDE.md
+/ARCHITECTURE.md
+/BIOS_REMOVAL_PLAN.md
+/FACTS.md
+/PERFORMANCE.md
+/ROADMAP.md
+/WIDE_SPRITE_CLIPPING.md
+/Browse Maps.bat
+/game.toml.example
+/.editorconfig
+/.github/
+/docs/
+/symbols/
+/assets/
+/generated/
+/roms/
+/tests/*
+!/tests/cpp/
+/scripts/*
+!/scripts/build_lto.ps1
+!/scripts/gs.ps1
+/tools/*
+!/tools/build_main_toml.py
+!/tools/import_main_symbols.py
+!/tools/validate_symbol_corpus.py
+!/tools/import_overlay_inventory.py
+!/tools/validate_overlay_manifest.py
+!/tools/build_all_overlays.py
+!/tools/build_overlay_toml.py
+!/tools/build_synthesized_dc8_variant.py
+!/tools/build_synthesized_dc8_slot2_variant.py
+!/tools/build_synthesized_dc8_slot3_variant.py
+!/tools/build_stamp_variants.py
+!/tools/emulate_stamp_builder.py
+/config/usa-main-scan.toml
+/config/usa.toml.example
+/config/usa/overlay-observed-entries.json
+/gbarecomp/*.md
+!/gbarecomp/THIRD_PARTY_ATTRIBUTION.md
+/gbarecomp/docs/
+/gbarecomp/bios/
+/gbarecomp/third_party/
+/gbarecomp/tools/*
+!/gbarecomp/tools/bios_smoke/
+!/gbarecomp/tools/gba_recompile/
+!/gbarecomp/tools/gba_scan/
+!/gbarecomp/tools/symbol_import/
+!/gbarecomp/tools/test_rom_runner/

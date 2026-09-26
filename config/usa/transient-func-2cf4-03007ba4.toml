@@ -1,0 +1,47 @@
+# GS-011 identity-verified AOT variant for the ARM image DMA-copied onto the
+# stack at 0x03007ba4.
+#
+# Evidence:
+#   - Strict-static trace event #3756279..#3756281: Func_3a7c at PC 0x08003aaa
+#     writes DMA3 SAD=0x08002cf4, DAD=0x03007ba4, CNT=0x8400001a, i.e. 26 words
+#     (0x68 bytes) enabled on channel 3.
+#   - Event #3756283 calls through _call_via_sp with sp=0x03007ba4 and
+#     event #3756284 exchanges to 0x03007ba4 with CPSR.T clear, so the copied
+#     image executes in ARM mode from the same stack address.
+#   - goldensun.elf independently bounds Func_2cf4 at 0x08002cf4 with size 0x68
+#     and ARM mapping symbols; the DMA word count and the ELF extent agree
+#     exactly.
+#   - Image SHA-1 of ROM 0x08002cf4..0x08002d5c is
+#     87b609455a1aa6cd4f6251a73f8e15f4b6bc9c05, so stale stack bytes cannot
+#     select this code.
+
+[program]
+name = "Golden Sun transient Func_2cf4 stack image at 0x03007ba4"
+id = "golden_sun_usa_transient_func_2cf4_03007ba4"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03007ba4
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03007ba4
+source_start = 0x08002cf4
+size = 0x00000068
+name = "transient_Func_2cf4_stack_image"
+note = "DMA3 trace and goldensun.elf agree on source, destination, size and ARM mode; image SHA-1 87b609455a1aa6cd4f6251a73f8e15f4b6bc9c05"
+
+[[extra_func]]
+addr = 0x03007ba4
+mode = "arm"
+name = "Func_2cf4_stack_image"
+note = "Observed _call_via_sp target with CPSR.T clear; ELF source Func_2cf4 is ARM"
+
+[[resume_range]]
+start = 0x03007ba4
+end = 0x03007c0c
+mode = "arm"
+note = "Complete ELF-bounded Func_2cf4 copied into the active stack frame"

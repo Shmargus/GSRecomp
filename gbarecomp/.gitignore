@@ -1,0 +1,80 @@
+# BIOS image (copyrighted; user provides their own dump). The .toml /
+# .md / .sym files in bios/ ARE tracked.
+bios/*.bin
+bios/*.BIN
+
+# Build output
+build/
+build-*/
+
+# Generated code (derivative of copyrighted BIOS / ROM; regenerate locally)
+**/generated/*.c
+**/generated/*.cpp
+**/generated/*.h
+**/generated/*.json
+
+# Editor / OS noise
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Per-frame debug captures from bios_smoke / ppu probes. These are
+# diagnostic artifacts, not source; regenerate as needed.
+*.bmp
+*.png
+*.ppm
+*.rgb
+*.log
+
+# Python bytecode caches.
+**/__pycache__/
+
+# Local Ghidra project artifacts. The real Ghidra project for
+# the BIOS + Minish Cap lives at MinishCapRecomp/ghidra/ (outside
+# this inner repo). Anything that lands here is incidental.
+ghidra/
+
+# Vendored oracle dependency (mGBA upstream source). Cloned locally
+# at a pinned tag; never committed back to gbarecomp's history. The
+# license obligations live with the produced oracle binary.
+third_party/mgba/
+
+# camthesaxman/gba_bios — disassembly of Nintendo's GBA BIOS.
+# Our tooling imports labels + addresses (metadata), never source
+# text. The clone stays local; only the importer's output enters
+# this tree (gbarecomp/bios/gba_bios.toml).
+third_party/gba_bios_disasm/
+
+# toml++ single-header library. Vendored shallow clone; we only
+# need toml.hpp at the top level. License is MIT; full source
+# tree stays out of version control to keep diffs small.
+third_party/tomlpp/
+
+# jsmolka/gba-suite test ROMs (correctness benchmark). Cloned
+# locally; pre-built .gba files are the test fixtures. Sources
+# stay out of version control — re-clone to update.
+third_party/gba_suite/
+
+# Release packaging output. The build-release dir + the final
+# standalone exe land at the repo root for upload to GH releases.
+build-release/
+release-stage/
+gba.exe
+gbarecomp-v*-windows-x64.zip
+gbarecomp-v*-windows-x64.exe
+
+# Sidecar caches written by the asset picker (bios.cfg, rom.cfg).
+# These are per-user runtime state.
+bios.cfg
+rom.cfg
+
+# Scratch dump dir for oracle probes (fingerprint-ring .bin dumps, etc.).
+oracle/trace_out/
+
+# Self-heal coverage/miss artifacts written on every run (now per-game-tagged).
+recomp_coverage*.json
+recomp_master_misses*.toml.frag
+hang_trace.csv
+recomp_cache/

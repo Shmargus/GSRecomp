@@ -1,0 +1,30 @@
+License not yet selected.
+
+All rights are reserved for original material in this repository -- src/,
+tools/, tests/, config/, scripts/ and the documentation -- until the project
+owner selects and adds an explicit license.
+
+Third-party components remain under their own licenses, and one of them binds
+this whole project:
+
+  The emulation and recompilation engine in gbarecomp/ is copyright Matthew
+  Stan and is licensed under the PolyForm Noncommercial License 1.0.0. Its
+  text is at gbarecomp/LICENSE and must stay with any copy. It permits use,
+  modification and redistribution for noncommercial purposes only. Nothing
+  here runs without that engine, so THIS PROJECT IS NONCOMMERCIAL, and any
+  license later chosen for the original material cannot escape that while the
+  engine is part of the build.
+
+  Portions of the engine are derived from mGBA (MPL-2.0) and from
+  JRickey/gba-recomp (MIT OR Apache-2.0); see
+  gbarecomp/THIRD_PARTY_ATTRIBUTION.md and gbarecomp/MODIFICATIONS.md.
+
+  Dear ImGui (MIT), toml++ (MIT) and SDL2 (zlib) are fetched or installed at
+  build time and are not stored in this repository.
+
+No Golden Sun ROM, BIOS, save or extracted asset is in this repository, and
+none may be added; that material belongs to Nintendo and Camelot Software
+Planning.
+
+See ATTRIBUTION.md for who owns what, and docs/LEGAL.md before publishing,
+distributing, or relicensing this project.

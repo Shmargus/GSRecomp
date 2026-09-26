@@ -1,0 +1,51 @@
+# GS-011 identity-verified AOT variant for Func_a418, DMA-copied into IWRAM at
+# 0x03003400.
+#
+# 0x03003400 sits immediately below the 0x0300347c staging slot, so the flash
+# driver's working area is a contiguous run of separately-installed routines
+# rather than one image.
+#
+# Input-driven strict-static evidence (3,600-frame campaign run):
+#   - DMA3 watch on 0x03003400 records three copies, all identical:
+#     src=0x0800a418, 31 words = 0x7c bytes, channel 3.
+#   - #6129266/#6129267 call through _call_via_r4 with r4 = 0x03003400 and
+#     exchange to it with CPSR.T clear (cpsr=0x0000001f), so the entry runs ARM.
+#
+# goldensun.elf .symtab agrees: Func_a418 at 0x0800a418, size 124 (0x7c),
+# section rom_9000, `$a` at the entry and the next `$a` at exactly 0x0800a494 —
+# the end of the extent — so the image is all ARM code with no interior or
+# trailing data.
+#
+# Hash-verified ROM bytes give image SHA-1
+# d3261b6f7b57ba4e7da8e44cf555d009c7cc27d1.
+
+[program]
+name = "Golden Sun transient Func_a418 image at 0x03003400"
+id = "golden_sun_usa_transient_func_a418_03003400"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03003400
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03003400
+source_start = 0x0800a418
+size = 0x0000007c
+name = "transient_Func_a418_at_03003400"
+note = "GS-011 DMA3 watch proves source, destination and 0x1f-word extent; image SHA-1 d3261b6f7b57ba4e7da8e44cf555d009c7cc27d1"
+
+[[extra_func]]
+addr = 0x03003400
+mode = "arm"
+name = "Func_a418_at_03003400"
+note = "Observed _call_via_r4 target with CPSR.T clear; ELF STT_FUNC/$a entry Func_a418"
+
+[[resume_range]]
+start = 0x03003400
+end = 0x0300347c
+mode = "arm"
+note = "Complete ELF-bounded Func_a418; no interior $d transition"

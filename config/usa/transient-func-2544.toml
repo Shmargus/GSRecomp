@@ -1,0 +1,28 @@
+# GS-011 identity-verified AOT variant for the transient Func_2544 image.
+# The supported ROM's Func_5340 allocates 0x2c4 bytes, DMA3-copies this exact
+# ROM span to the returned IWRAM address, calls it in ARM mode, then frees it.
+
+[program]
+name = "Golden Sun transient Func_2544 image"
+id = "golden_sun_usa_transient_func_2544"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03002000
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03002000
+source_start = 0x08002544
+size = 0x000002c4
+name = "transient_Func_2544"
+note = "GS-011 oracle-proven DMA image; complete bytes SHA-1 b8967c9f00835f22da02cce31595588bb05496e6"
+
+[[resume_range]]
+start = 0x03002000
+end = 0x030022c4
+mode = "arm"
+note = "ELF-bounded all-code Func_2544; strict-static scheduler yield observed at 0x0300229c"

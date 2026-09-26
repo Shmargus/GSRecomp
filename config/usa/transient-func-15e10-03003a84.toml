@@ -1,0 +1,58 @@
+# GS-011 identity-verified AOT variant for Func_15e10, DMA-copied over the same
+# IWRAM slot that transient-func-15afc-03003a84.toml describes.
+#
+# 0x03003a84 is a reusable staging slot for the flash driver: the game copies
+# whichever routine it needs next into it. Address alone is therefore not a
+# dispatch key here, which is why each identity gets its own prefixed corpus
+# and the runner selects between them by live SHA-1 (D-005 in DECISIONS.md).
+#
+# Strict-static evidence (1800-frame run, trace events #4699483..#4699487):
+#   - #4699483 PC 0x0801a614 programs DMA3 SAD=0x08015e10 DAD=0x03003a84
+#     CNT=0x8400001f — 0x1f words = 0x7c bytes, overwriting the Func_15afc
+#     image previously installed at the same address.
+#   - #4699484..#4699487 call through _call_via_r4 with r4 = 0x03003a84 and
+#     exchange to it with CPSR.T clear (cpsr=0x0000001f), so the entry runs ARM.
+#
+# goldensun.elf .symtab agrees: Func_15e10 at 0x08015e10, size 124 (0x7c),
+# section rom_15000, `$a` at the entry. The DMA extent and the ELF extent are
+# the same bytes. The trailing `$d` literal pool at 0x08015e80..0x08015e8c maps
+# to runtime 0x03003af4..0x03003b00 and is excluded below.
+#
+# Hash-verified ROM bytes give image SHA-1
+# 50cf8d2eaf6ba74b7ae74a97458d04214a00af57.
+
+[program]
+name = "Golden Sun transient Func_15e10 image at 0x03003a84"
+id = "golden_sun_usa_transient_func_15e10_03003a84"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03003a84
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03003a84
+source_start = 0x08015e10
+size = 0x0000007c
+name = "transient_Func_15e10_at_03003a84"
+note = "GS-011 DMA3 trace #4699483 proves source, destination and 0x1f-word extent; image SHA-1 50cf8d2eaf6ba74b7ae74a97458d04214a00af57"
+
+[[extra_func]]
+addr = 0x03003a84
+mode = "arm"
+name = "Func_15e10_at_03003a84"
+note = "Observed _call_via_r4 target with CPSR.T clear; ELF STT_FUNC/$a entry Func_15e10"
+
+[[resume_range]]
+start = 0x03003a84
+end = 0x03003af4
+mode = "arm"
+note = "Func_15e10 code extent; the ELF $d literal pool at ROM 0x08015e80 is excluded"
+
+[[data_range]]
+start = 0x03003af4
+end = 0x03003b00
+note = "ELF $d literal pool at ROM 0x08015e80..0x08015e8c, tail of Func_15e10"

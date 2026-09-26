@@ -1,0 +1,65 @@
+# GS-011 identity-verified AOT variant for Func_15afc, DMA-copied into IWRAM at
+# 0x03003a84.
+#
+# Strict-static evidence (1800-frame run, trace events #4697284..#4697295):
+#   - #4697284/#4697285 PC 0x080048e2 publishes the image bounds into the
+#     descriptor at 0x03001e50: end 0x03003cfc and start 0x03003a84.
+#   - #4697289..#4697291 PC 0x0801a5c8 programs DMA3 SAD=0x08015afc
+#     DAD=0x03003a84 CNT=0x8400009e — 0x9e words = 0x278 bytes. 0x03003a84 +
+#     0x278 = 0x03003cfc, which matches the descriptor exactly.
+#   - #4697292..#4697295 call through _call_via_r3 with r3 = 0x03003a84 and
+#     exchange to it with CPSR.T clear (cpsr=0x0000001f), so the entry runs ARM.
+#
+# goldensun.elf .symtab agrees: Func_15afc at 0x08015afc, size 632 (0x278),
+# section rom_15000, with an `$a` mapping symbol at the entry and the next
+# function Func_15d74 beginning at exactly 0x08015d74. The DMA extent and the
+# ELF extent are the same bytes.
+#
+# The only interior mapping transition is the `$d` literal pool at
+# 0x08015b30..0x08015b38, which maps to runtime 0x03003ab8..0x03003ac0 and is
+# excluded below so no resume alias decodes it as an instruction.
+#
+# Hash-verified ROM bytes give image SHA-1
+# f6ab01b56876f8d1b72a4bf5239bd5cbac620cb0.
+
+[program]
+name = "Golden Sun transient Func_15afc image at 0x03003a84"
+id = "golden_sun_usa_transient_func_15afc_03003a84"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03003a84
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03003a84
+source_start = 0x08015afc
+size = 0x00000278
+name = "transient_Func_15afc_at_03003a84"
+note = "GS-011 DMA3 trace #4697289..91 proves source, destination and 0x9e-word extent; image SHA-1 f6ab01b56876f8d1b72a4bf5239bd5cbac620cb0"
+
+[[extra_func]]
+addr = 0x03003a84
+mode = "arm"
+name = "Func_15afc_at_03003a84"
+note = "Observed _call_via_r3 target with CPSR.T clear; ELF STT_FUNC/$a entry Func_15afc"
+
+[[resume_range]]
+start = 0x03003a84
+end = 0x03003ab8
+mode = "arm"
+note = "Func_15afc code before its ELF $d literal pool at ROM 0x08015b30"
+
+[[resume_range]]
+start = 0x03003ac0
+end = 0x03003cfc
+mode = "arm"
+note = "Func_15afc code after its ELF $d literal pool at ROM 0x08015b38"
+
+[[data_range]]
+start = 0x03003ab8
+end = 0x03003ac0
+note = "ELF $d literal pool at ROM 0x08015b30..0x08015b38 inside Func_15afc"

@@ -1,0 +1,74 @@
+# GS-011 POSITION-INDEPENDENT AOT image for Func_2098.
+#
+# NEW sibling of transient-func_1ea8-/1ef8-/1f38-/1fb8-/203c-relocatable.toml,
+# found while re-checking those wrappers' pool evidence (2026-09-23
+# correction). A whole-ROM scan for word triples (byte-count, 0x040000D4,
+# source) found a sixth pool at 0x080056C0: 0x0000005C, 0x040000D4,
+# 0x08002098 (read directly from the verified ROM). Its wrapper,
+# disassembled directly from the ROM at 0x0800567C, is the same shape as
+# the accepted wrappers, including 0x0800562C's own Func_203c wrapper:
+# `push {r5,r6,r7,lr}; mov r7,r8; push {r7}; mov ip,r2; ldr r2,[pc,#0x38];
+# lsrs r2,r2,#2; lsls r3,r2,#2; ...; bl 0x08007318`, right-shifting the pool
+# word by 2 to get a DMA3 word count (0x5C>>2 = 0x17, DMA CNT = 0x84000017,
+# bytes = 0x17*4 = 0x5C), so the pool's byte count is proven, not assumed.
+#
+# ROM 0x08002098..0x080020f4 disassembles as one coherent ARM routine
+# (push {r5,r6}; add; mov/orr; ldm/stm loop with `andne`/`strne`; pop
+# {r5,r6}; bx lr; no interior $d), matching goldensun.elf's single STT_FUNC
+# entry Func_2098, size 0x5C — immediately following Func_203c in ROM
+# (0x0800203C + 0x5C = 0x08002098) and sharing its first 20 bytes (`push
+# {r5,r6}; add r2,r2,r0; mov ip,#0x3f00; add ip,ip,#0x3f; orr
+# ip,ip,ip,lsl #16`, crc32 0x3B88AD7A both, verified by disassembling both
+# and comparing) but differing afterward: Func_203c's loop body uses
+# `adds r3,r3,r3,lsl #1` (multiply-by-3-then-shift, "scale" shape) where
+# Func_2098's uses `cmp r3,#0; andne r3,ip,r3,lsr #1` (conditional mask,
+# "quantize" shape) — a distinct routine, not a duplicate registration.
+#
+# NOT directly confirmed at a runtime base: every session-log crc32 match
+# for this routine's shared 20-byte prologue (0x3B88AD7A) is also an exact
+# match for Func_1ea8's, Func_1ef8's and Func_203c's own first 20 bytes, and
+# every one of the four log occurrences of that crc (0x03007C7C, twice;
+# 0x03007C14; 0x03007CE0) is now explained by a longer, uniquely-matching
+# fragment belonging to Func_1ea8 or Func_1ef8 (see those images' headers)
+# except 0x03007CE0 (session 20260923_202001, self-healed alone with no
+# following fragment to disambiguate it). entry_pc/runtime_start below uses
+# that still-unexplained address as a plausible generation origin — it is
+# consistent with an observed ambiguous match, not proof this routine
+# landed there (same caveat as transient-func_203c-relocatable.toml's
+# origin). The dispatcher verifies this image's SHA-1 at whatever base a
+# failing PC derives, so the choice of origin here does not affect
+# correctness, only the code-generation labels.
+# Image SHA-1 of ROM 0x08002098..0x080020f4 is
+# 92f07a6eb708e30d86f375fd841dac38bf6dc905. Generated with
+# `gba_recompile --relocatable-image 0x03007ce0:0x5c`.
+
+[program]
+name = "Golden Sun relocatable Func_2098 RAM image"
+id = "golden_sun_usa_transient_func_2098_relocatable"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03007ce0
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03007ce0
+source_start = 0x08002098
+size = 0x0000005c
+name = "relocatable_Func_2098_image"
+note = "DMA3 stack-copy wrapper at ROM 0x0800567C; pool at 0x080056C0 holds byte-count 0x5C, DMA3 SAD reg 0x040000D4, source 0x08002098"
+
+[[extra_func]]
+addr = 0x03007ce0
+mode = "arm"
+name = "Func_2098_relocatable_image"
+note = "origin chosen for generation labels only, not a confirmed single instance; see header"
+
+[[resume_range]]
+start = 0x03007ce0
+end = 0x03007d3c
+mode = "arm"
+note = "whole routine; every instruction is an entry"

@@ -1,0 +1,77 @@
+# GS-011 identity-verified AOT variant for Func_158e8 in the 0x0300347c staging
+# slot — the fifth routine observed at that address.
+#
+# Input-driven strict-static evidence (3,600-frame campaign run). A DMA3 watch
+# on 0x0300347c over the whole run counts:
+#
+#     219 x src=0x08009bb8  177 words (0x2c4)   Func_9bb8
+#      12 x src=0x08015430   80 words (0x140)   Func_15430
+#       4 x src=0x08002544  177 words (0x2c4)   Func_2544
+#       1 x src=0x080158e8  133 words (0x214)   Func_158e8  <- this image
+#
+# The single Func_158e8 copy is what the strict-static run aborts on, and its
+# 133-word DMA extent matches the ELF STT_FUNC size exactly.
+#
+# goldensun.elf .symtab: Func_158e8 at 0x080158e8, size 532 (0x214), section
+# rom_15000, `$a` at the entry. It ends at 0x08015afc, immediately before
+# Func_15afc — the routine already registered at 0x03003a84 — so the whole
+# flash-driver cluster is drawn from one contiguous ROM region.
+#
+# Two interior `$d` literal pools at 0x08015948..0x08015998 and
+# 0x08015a0c..0x08015a60 map through the verbatim copy bias to runtime
+# 0x030034dc..0x0300352c and 0x030035a0..0x030035f4, and are excluded below.
+#
+# Image SHA-1 03e57ceee902e248334bb546cd32716edf90fca3.
+
+[program]
+name = "Golden Sun transient Func_158e8 image at 0x0300347c"
+id = "golden_sun_usa_transient_func_158e8_0300347c"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x0300347c
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x0300347c
+source_start = 0x080158e8
+size = 0x00000214
+name = "transient_Func_158e8_at_0300347c"
+note = "GS-011 DMA3 watch proves source, destination and 0x85-word extent; image SHA-1 03e57ceee902e248334bb546cd32716edf90fca3"
+
+[[extra_func]]
+addr = 0x0300347c
+mode = "arm"
+name = "Func_158e8_at_0300347c"
+note = "ELF STT_FUNC/$a entry Func_158e8 installed at the observed DMA destination"
+
+[[resume_range]]
+start = 0x0300347c
+end = 0x030034dc
+mode = "arm"
+note = "Func_158e8 code before its first $d pool at ROM 0x08015948"
+
+[[resume_range]]
+start = 0x0300352c
+end = 0x030035a0
+mode = "arm"
+note = "Func_158e8 code between the $d pools at ROM 0x08015998..0x08015a0c"
+
+[[resume_range]]
+start = 0x030035f4
+end = 0x03003690
+mode = "arm"
+note = "Func_158e8 code after its second $d pool, to the ELF extent end"
+
+[[data_range]]
+start = 0x030034dc
+end = 0x0300352c
+note = "ELF $d literal pool at ROM 0x08015948 inside Func_158e8"
+
+[[data_range]]
+start = 0x030035a0
+end = 0x030035f4
+note = "ELF $d literal pool at ROM 0x08015a0c inside Func_158e8"

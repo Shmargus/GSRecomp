@@ -1,0 +1,70 @@
+# GS-011 POSITION-INDEPENDENT AOT image for Func_203c.
+#
+# The stack-copy wrapper at ROM 0x0800562C (the same shape as the accepted
+# 0x080054E4/0x08005534 wrappers) DMA3-copies its own literal-pool operands
+# onto the stack and calls the copy. Its pool at ROM 0x08005670 holds
+# 0x0000005C (byte count), 0x040000D4 (DMA3 SAD register address) and
+# 0x0800203C (source) — read directly from the ROM. The wrapper's own code
+# proves the pool word is a BYTE count, not a word count: it right-shifts
+# it by 2 (`lsrs r2,r2,#2`) to get a word count for the stack allocation,
+# then rebuilds the DMA3 CNT word as `0x84000000 | word_count`, i.e.
+# enable + 32-bit-width + 0x17 words = 0x5C bytes — matching the claimed
+# size exactly.
+#
+# ROM 0x0800203C..0x08002098 disassembles as one coherent, self-contained
+# ARM routine (push {r5,r6}; ...; pop {r5,r6}; bx lr; no interior $d),
+# structurally the same "scale/quantize a pixel row" shape as the already-
+# accepted Func_1ea8 (0x08001ea8) and Func_1ef8 (0x08001ef8) — a distinct
+# routine, not a duplicate registration: it differs from both in body
+# (extra `strne` stores after each shift) and in size (0x5C vs 0x50/0x40).
+# Its first 20 bytes happen to be byte-identical to Func_1ea8's, Func_1ef8's
+# and Func_2098's first 20 bytes (a shared prologue, verified by
+# disassembling all four and comparing crc32 of their first 20 bytes — all
+# equal 0x3B88AD7A). This file previously (2026-09-23) used 0x03007C14 as
+# an unconfirmed placeholder origin, reasoning from one ambiguous 20-byte
+# fragment at that address ([0x03007C14,0x03007C28), session
+# 20260923_202001) that could not be told apart from Func_1ea8/1ef8/2098 on
+# CRC alone. Re-deriving transient-func_1ea8-relocatable.toml (2026-09-23
+# correction) found the fragment immediately following it in the same log
+# ([0x03007C28,0x03007C64), crc=0x084D3E42) matches Func_1ea8's own tail
+# bytes uniquely (not Func_203c's, Func_1ef8's or Func_2098's) — so
+# 0x03007C14 is now confirmed to be a Func_1ea8 instance, not this routine.
+# This image is registered from the static wrapper/pool evidence above, not
+# from that fragment; entry_pc/runtime_start below is moved to a plain
+# label address with no log fragment attached, to avoid implying it is the
+# same (now-explained) instance. It remains a plausible generation origin
+# only, not a confirmed single instance.
+# Image SHA-1 of ROM 0x0800203c..0x08002098 is
+# edbf9a7eabc225926dd5c0ba22d1b928afab1b02. Generated with
+# `gba_recompile --relocatable-image 0x03007e00:0x5c`.
+
+[program]
+name = "Golden Sun relocatable Func_203c RAM image"
+id = "golden_sun_usa_transient_func_203c_relocatable"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03007e00
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03007e00
+source_start = 0x0800203c
+size = 0x0000005c
+name = "relocatable_Func_203c_image"
+note = "DMA3 stack-copy wrapper at ROM 0x0800562C; pool at 0x08005670 holds byte-count 0x5C, DMA3 SAD reg 0x040000D4, source 0x0800203C"
+
+[[extra_func]]
+addr = 0x03007e00
+mode = "arm"
+name = "Func_203c_relocatable_image"
+note = "origin chosen for generation labels only, not a confirmed single instance; see header"
+
+[[resume_range]]
+start = 0x03007e00
+end = 0x03007e5c
+mode = "arm"
+note = "whole routine; every instruction is an entry"

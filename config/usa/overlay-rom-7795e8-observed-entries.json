@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "overlay_id": "rom_7795e8",
+  "decompressed_sha256": "6a45e6aab0bbea264c91b97e233a079f615c7f86835a48f5316cdee47d434c69",
+  "entries": [
+    { "addr": "0x02008030", "mode": "thumb", "evidence": "GS-011 strict-static reached the ELF-bounded OvlFunc_30 entry after the live EWRAM image matched rom_7795e8" },
+    { "addr": "0x02008044", "mode": "thumb", "evidence": "GS-011 strict-static reached the ELF-bounded OvlFunc_44 entry after the live EWRAM image matched rom_7795e8" },
+    { "addr": "0x0200804c", "mode": "thumb", "evidence": "GS-011 self-heal reached this exact THUMB dispatch target after the live EWRAM prefix uniquely matched rom_7795e8" },
+    { "addr": "0x020080c2", "mode": "thumb", "resume": true, "evidence": "GS-011 strict-static VBlank scheduler resume at OvlFunc_54+0x6e after THUMB STMIA at 0x020080c0; live EWRAM identity matched rom_7795e8" },
+    { "addr": "0x020083cc", "mode": "thumb", "evidence": "GS-011 strict-static reached the ELF-bounded OvlFunc_3cc entry after the live EWRAM image matched rom_7795e8" }
+  ]
+}

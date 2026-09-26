@@ -1,0 +1,50 @@
+# GS-011 POSITION-INDEPENDENT AOT image for Func_a0f8.
+#
+# Session 20260924_080129 compiled 2 ARM pieces at runtime:
+# [0x030057E0,0x03005824) crc=0x35FAD634 and [0x03005824,0x0300587C)
+# crc=0x4EA1B7AC. Their bytes equal ROM 0x0800a0f8:+0x44 and
+# 0x0800a13c:+0x58 exactly, i.e. ROM 0x0800a0f8 + (pc - 0x030057e0).
+# goldensun.elf sizes Func_a0f8 at 0x284 bytes of ARM ($a at 0x0800a0f8,
+# $d at 0x0800a30c, $a again at 0x0800a31c), ending exactly where Func_a37c
+# begins. 0x030057E0 + 0x284 = 0x03005A64, the end of the IWRAM staging slot
+# runner_main.cpp already calls the older generated-blitter range.
+# Image SHA-1 of ROM 0x0800a0f8..0x0800a37c is
+# fc4539c4a9b4e13efc9022885c57dd23ea8fbb7a. Generated with
+# `gba_recompile --relocatable-image 0x030057e0:0x284`.
+
+[program]
+name = "Golden Sun relocatable Func_a0f8 RAM image"
+id = "golden_sun_usa_transient_func_a0f8_relocatable"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x030057e0
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x030057e0
+source_start = 0x0800a0f8
+size = 0x00000284
+name = "relocatable_Func_a0f8_image"
+note = "2 runtime-compiled pieces in session 20260924_080129 equal ROM 0x0800a0f8 + offset; ELF Func_a0f8 is 0x284 bytes of ARM with one interior $d"
+
+[[extra_func]]
+addr = 0x030057e0
+mode = "arm"
+name = "Func_a0f8_relocatable_image"
+note = "ELF STT_FUNC entry Func_a0f8 at its observed copy destination"
+
+[[resume_range]]
+start = 0x030057e0
+end = 0x030059f4
+mode = "arm"
+note = "first $a run, ROM 0x0800a0f8..0x0800a30c"
+
+[[resume_range]]
+start = 0x03005a04
+end = 0x03005a64
+mode = "arm"
+note = "second $a run, ROM 0x0800a31c..0x0800a37c; 0x0800a30c..0x0800a31c is Func_a0f8's own $d literal pool, copied but not dispatched"

@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "overlay_id": "rom_78603c",
+  "decompressed_sha256": "a127e495a758d08005259d4b809e1dee9165d637c3403bc20b77988bf7852d1e",
+  "entries": [
+    {
+      "addr": "0x020080A4",
+      "mode": "thumb",
+      "evidence": "Fifth EWRAM overlay, found in live play just past the Mt. Aleph boulder scene: 'unknown transient code identity at 0x020080A4' with all four registered overlays mismatching. Identified without a new capture by matching the runtime's own reported live hash over 0x02008000..0x020085F8 (864b61a47d6fad56a040afb44baffbeff533d605) against the pinned decompressed overlay set - it is rom_78603c byte for byte. overlay.elf places a $t mapping symbol at 0x020080a4 and OvlFunc_a4 (STT_FUNC, 56 bytes, thumb bit set) at 0x020080a5, so this is an exact THUMB function entry. Trace #39748288 exchanges to it through _call_via_r0 with r0=0x020080A5, agreeing with the ELF mode"
+    }
+  ]
+}

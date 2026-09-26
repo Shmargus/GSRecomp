@@ -1,0 +1,68 @@
+# GS-011 POSITION-INDEPENDENT AOT image for Func_1fb8.
+#
+# NEW sibling of transient-func_1ea8-/1ef8-/1f38-/203c-relocatable.toml,
+# found while re-checking those wrappers' pool evidence (2026-09-23
+# correction). A whole-ROM scan for word triples (byte-count, 0x040000D4,
+# source) found a fifth pool at 0x08005484: 0x00000084, 0x040000D4,
+# 0x08001FB8 (read directly from the verified ROM). Its wrapper,
+# disassembled directly from the ROM starting at 0x0800543C, is the same
+# shape as the accepted wrappers: `push {r5,r6,r7,lr}; mov r7,r8; push {r7};
+# mov ip,r2; ldr r2,[pc,#0x3c]; lsrs r2,r2,#2; lsls r3,r2,#2; ...; bl
+# 0x08007318`, right-shifting the pool word by 2 to get a DMA3 word count
+# (0x84>>2 = 0x21, DMA CNT = 0x84000021, bytes = 0x21*4 = 0x84), so the
+# pool's byte count is proven, not assumed.
+#
+# ROM 0x08001fb8..0x0800203c disassembles as one coherent ARM routine
+# (push {r5,r6,r7,r8,sb}; mov/orr/sub; ldm/stm loop; pop {r5,r6,r7,r8,sb};
+# bx lr; no interior $d), matching goldensun.elf's single STT_FUNC entry
+# Func_1fb8, size 0x84.
+#
+# NOT directly confirmed at a runtime base: the only session-log crc32
+# matches found for this routine's content are 4-8 byte fragments at
+# addresses 0x03000154/0x030005D4 (session 20260923_171845), far outside
+# the 0x03007Bxx-0x03007Exx stack region every other spell-canvas image in
+# this family was observed at, and too short (4-8 bytes) to rule out
+# coincidence against the whole ROM. They are not used as evidence here.
+# entry_pc/runtime_start below is chosen as the address immediately after
+# the confirmed Func_1f38 instance (0x03007bcc + 0x80 = 0x03007c4c) because
+# that is the layout the wrapper call sites would produce if Func_1f38 and
+# Func_1fb8 are copied back to back on the same stack frame, matching every
+# other back-to-back pair in this family — but this is a plausible
+# generation origin only, not a confirmed single instance (same caveat as
+# transient-func_203c-relocatable.toml's origin). The dispatcher verifies
+# this image's SHA-1 at whatever base a failing PC derives, so the choice of
+# origin here does not affect correctness, only the code-generation labels.
+# Image SHA-1 of ROM 0x08001fb8..0x0800203c is
+# 5f53a347bca3fb9556047098c0ea8d5532dd4bb2. Generated with
+# `gba_recompile --relocatable-image 0x03007c4c:0x84`.
+
+[program]
+name = "Golden Sun relocatable Func_1fb8 RAM image"
+id = "golden_sun_usa_transient_func_1fb8_relocatable"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03007c4c
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03007c4c
+source_start = 0x08001fb8
+size = 0x00000084
+name = "relocatable_Func_1fb8_image"
+note = "DMA3 stack-copy wrapper at ROM 0x0800543C; pool at 0x08005484 holds byte-count 0x84, DMA3 SAD reg 0x040000D4, source 0x08001FB8"
+
+[[extra_func]]
+addr = 0x03007c4c
+mode = "arm"
+name = "Func_1fb8_relocatable_image"
+note = "origin chosen for generation labels only, not a confirmed single instance; see header"
+
+[[resume_range]]
+start = 0x03007c4c
+end = 0x03007cd0
+mode = "arm"
+note = "whole routine; every instruction is an entry"

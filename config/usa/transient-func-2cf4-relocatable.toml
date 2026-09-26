@@ -1,0 +1,59 @@
+# GS-011 POSITION-INDEPENDENT AOT image for Func_2cf4.
+#
+# Func_3a7c DMA-copies Func_2cf4 to whatever its SP happens to be, so the same
+# 0x68 bytes execute at every stack depth its caller can be reached from. Four
+# depths were registered one build at a time (0x03007ba4, 0x03007dbc,
+# 0x03007dc4, 0x03007dc8) before it became clear the set is bounded only by the
+# call graph. This config replaces all four.
+#
+# It is generated with `gba_recompile --relocatable-image 0x03007ba4:0x68`, so
+# every guest address the image derives from its own PC is emitted as
+# g_runtime_image_base + offset. 0x03007ba4 is the generation ORIGIN only: the
+# dispatch table, goto labels and resume tokens stay expressed in it, and the
+# runtime registry translates a live PC by subtracting the verified base. The
+# image runs at any base whose live bytes hash to the registered identity.
+#
+# Evidence for source, extent and mode is unchanged from the per-base configs:
+#   - Strict-static trace #3756279..#3756281: Func_3a7c at PC 0x08003aaa writes
+#     DMA3 SAD=0x08002cf4, DAD=0x03007ba4, CNT=0x8400001a — 26 words, 0x68
+#     bytes, channel 3 enabled. Trace #5554342..44 programs the identical copy
+#     to DAD=0x03007dc4.
+#   - #3756283 calls through _call_via_sp and #3756284 exchanges to the image
+#     with CPSR.T clear, so it executes in ARM mode.
+#   - goldensun.elf bounds Func_2cf4 at 0x08002cf4 size 0x68 with an $a mapping
+#     symbol at the entry and the next $a at 0x08002d5c: DMA extent and ELF
+#     extent agree and the image is all code.
+#   - Image SHA-1 of ROM 0x08002cf4..0x08002d5c is
+#     87b609455a1aa6cd4f6251a73f8e15f4b6bc9c05. Dispatch requires it, so stale
+#     stack bytes at a candidate base cannot select this code.
+
+[program]
+name = "Golden Sun relocatable Func_2cf4 RAM image"
+id = "golden_sun_usa_transient_func_2cf4_relocatable"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03007ba4
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03007ba4
+source_start = 0x08002cf4
+size = 0x00000068
+name = "relocatable_Func_2cf4_image"
+note = "generation origin; the emitted code is base-relative and dispatches at any verified base"
+
+[[extra_func]]
+addr = 0x03007ba4
+mode = "arm"
+name = "Func_2cf4_relocatable_image"
+note = "Observed _call_via_sp target with CPSR.T clear; ELF source Func_2cf4 is ARM"
+
+[[resume_range]]
+start = 0x03007ba4
+end = 0x03007c0c
+mode = "arm"
+note = "Complete ELF-bounded Func_2cf4; every aligned instruction is an entry point, and each becomes a base-relative offset in the registry"

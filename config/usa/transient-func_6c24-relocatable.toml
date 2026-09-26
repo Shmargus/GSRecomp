@@ -1,0 +1,65 @@
+# GS-011 POSITION-INDEPENDENT AOT image for Func_6c24.
+#
+# CORRECTS transient-func_6c3a-relocatable.toml (2026-09-23): that image
+# covered only a 16-byte interior slice (ROM 0x08006C3A..0x08006C4A) of a
+# larger copied unit. Session 20260923_202001 self-healed two 22-byte THUMB
+# pieces starting at the copy's own offset 0: [0x03007D1C,0x03007D32) and
+# [0x03007D3C,0x03007D52), crc=0x6241EAC1 both times (zlib/IEEE CRC32, what
+# gba::crc32 uses), equal to crc32(ROM[0x08006C24:+0x16]) — a direct,
+# offset-0 match, unlike the earlier session's 16-byte finds, which start at
+# base+0x16 (ROM 0x08006C3A, exactly the old image's extent).
+#
+# goldensun.elf sizes the copied unit as Func_6c24 (THUMB $t at 0x08006c24,
+# $d at 0x08006c4a, size 0x44) followed immediately by Func_6c68 (THUMB $t
+# at 0x08006c68). Two literal pools independently confirm the copied
+# extent: ROM 0x08006C9C and 0x08007A98 each hold the word pair
+# (0x08006C25, 0x08006C69) — Func_6c24's own THUMB entry and Func_6c68's
+# THUMB entry, 0x44 bytes apart because the two functions are contiguous in
+# ROM. Func_6c68 loads that pair as (start, end), computes end-start=0x44
+# with `subs r0,r0,r1`, and uses the result to size a DMA-register copy of
+# ROM bytes onto a caller-supplied buffer before jumping into it — the same
+# "copy a smaller helper onto the stack and run it" shape as the other
+# images in this directory.
+#
+# This image covers the whole 0x44-byte copied unit (Func_6c24's code plus
+# its own inline literal pool). The resume range below covers only the $t
+# (executable) run, ROM 0x08006C24..0x08006C4A: the pool bytes
+# 0x08006C4A..0x08006C68 are data, copied but never dispatched as code.
+# NOTE (not acted on): the last THUMB instruction before the pool
+# (`b #0x08006c60`) branches to an address inside that nominal $d span; no
+# HEALED entry in this session reaches it, so whether it is ever really
+# executed is TODO-EVIDENCE, not something this image declares.
+# Image SHA-1 of ROM 0x08006c24..0x08006c68 is
+# 94dd9ae3cdd074edfbf78693bc50dbffe0ca3e39. Generated with
+# `gba_recompile --relocatable-image 0x03007d1c:0x44`.
+
+[program]
+name = "Golden Sun relocatable Func_6c24 RAM image"
+id = "golden_sun_usa_transient_func_6c24_relocatable"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03007d1c
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03007d1c
+source_start = 0x08006c24
+size = 0x00000044
+name = "relocatable_Func_6c24_image"
+note = "whole copied unit: Func_6c24 code plus its own inline literal pool, ending exactly where Func_6c68 (the copier) begins"
+
+[[extra_func]]
+addr = 0x03007d1c
+mode = "thumb"
+name = "Func_6c24_relocatable_image"
+note = "directly confirmed by full-length crc match at offset 0 in session 20260923_202001, at two stack depths"
+
+[[resume_range]]
+start = 0x03007d1c
+end = 0x03007d42
+mode = "thumb"
+note = "the $t (executable) run only, ROM 0x08006C24..0x08006C4A; 0x08006C4A..0x08006C68 is Func_6c24's own $d literal pool, copied but not dispatched"

@@ -1,0 +1,54 @@
+# GS-011 identity-verified AOT variant for the Func_2cf4 stack image when
+# Func_3a7c runs at a third call depth and its frame lands at 0x03007dc8.
+#
+# This is the same ROM routine, the same writer and the same call mechanism as
+# transient-func-2cf4-03007ba4.toml. Only the runtime address differs, because
+# the runtime address is the caller's SP. The same thing happened to the
+# Func_6abc thunk (0x03007df8 and 0x03007bc0), so stack-hosted images should be
+# expected to appear at every depth their caller can be reached from.
+#
+# Input-driven strict-static evidence (3,600-frame campaign run):
+#   - #6180121..#6180123 PC 0x08003aaa (Func_3a7c+0x2e) programs DMA3
+#     SAD=0x08002cf4 DAD=0x03007dc8 CNT=0x8400001a — 26 words, 0x68 bytes,
+#     channel 3 enabled.
+#   - #6180124/#6180125 call through _call_via_sp with sp = 0x03007dc8.
+#   - #6180126 exchanges to 0x03007dc8 with CPSR.T clear (cpsr=0x0000001f), so
+#     the image executes in ARM.
+#
+# goldensun.elf bounds Func_2cf4 at exactly 0x08002cf4 size 0x68, with an `$a`
+# mapping symbol at the entry and the next `$a` at 0x08002d5c, so the DMA extent
+# and the ELF extent agree and the image is all ARM code with no trailing data.
+#
+# Image SHA-1 87b609455a1aa6cd4f6251a73f8e15f4b6bc9c05, identical to the
+# 0x03007ba4 copy.
+
+[program]
+name = "Golden Sun transient Func_2cf4 stack image at 0x03007dc8"
+id = "golden_sun_usa_transient_func_2cf4_03007dc8"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03007dc8
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03007dc8
+source_start = 0x08002cf4
+size = 0x00000068
+name = "transient_Func_2cf4_stack_image_03007dc8"
+note = "DMA3 trace #6180121..23 and goldensun.elf agree on source, destination, size and ARM mode; image SHA-1 87b609455a1aa6cd4f6251a73f8e15f4b6bc9c05"
+
+[[extra_func]]
+addr = 0x03007dc8
+mode = "arm"
+name = "Func_2cf4_stack_image_03007dc8"
+note = "Observed _call_via_sp target with CPSR.T clear; ELF source Func_2cf4 is ARM"
+
+[[resume_range]]
+start = 0x03007dc8
+end = 0x03007e30
+mode = "arm"
+note = "Complete ELF-bounded Func_2cf4 copied into the active stack frame"

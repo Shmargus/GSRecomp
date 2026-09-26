@@ -1,0 +1,80 @@
+# GS-011 POSITION-INDEPENDENT AOT image for the "copy and fade" spell-canvas
+# helper at ROM 0x080054E4.
+#
+# CORRECTS the earlier version of this file (2026-09-23), which sized the
+# image at 0x140 bytes by reading the wrapper's literal-pool word (0x50) as
+# a DMA3 word count. The wrapper's own code disproves that: it right-shifts
+# the pool word by 2 (`ldr r2,[pc]; lsrs r2,r2,#2`) to get a word count,
+# left-shifts that back by 2 (`lsls r3,r2,#2`) to size the stack allocation,
+# and rebuilds the DMA3 CNT word as `0x84000000 | word_count` (enable +
+# 32-bit width + word_count). For pool value 0x50: word_count = 0x50>>2 =
+# 0x14, DMA CNT = 0x84000014, bytes copied = 0x14*4 = 0x50 — the pool word
+# is a BYTE count, already word-aligned, not a word count. Disassembled
+# directly from the verified ROM (capstone, CS_MODE_THUMB) at 0x080054E4:
+# `push {r5,r6,r7,lr}; mov r7,r8; push {r7}; mov ip,r2; ldr r2,[pc,#0x38];
+# lsrs r2,r2,#2; lsls r3,r2,#2; ...; bl 0x08007318`. Its literal pool at
+# 0x08005528..0x08005534 holds words 0x00000050, 0x040000D4, 0x08001ea8
+# (byte-verified against the ROM).
+#
+# The copied 0x50-byte span 0x08001ea8..0x08001ef8 is continuous ARM code
+# with no interior $d: goldensun.elf sizes it as exactly one STT_FUNC entry,
+# Func_1ea8, size 0x50. It ends exactly where Func_1ef8 begins — the two
+# spans do NOT overlap once correctly sized (the earlier 0x140/0x100 sizing
+# made them appear to overlap; that was an artifact of the wrong size, not a
+# real design overlap). Func_1f38 (ROM 0x08001f38) and Func_1fb8 (ROM
+# 0x08001fb8), previously folded into this image's oversized span, are
+# separately DMA3-copied by their own wrappers at ROM 0x08005490/0x0800543C;
+# see transient-func_1f38-relocatable.toml and
+# transient-func_1fb8-relocatable.toml.
+#
+# Session 20260923_202001 [ram-compile]/HEALED log entries, matched to this
+# corrected-size blob by content (zlib/IEEE CRC32, what gba::crc32 and the
+# log lines use): two contiguous fragments at runtime base 0x03007C14,
+# together spanning the whole 0x50 bytes —
+#   crc=0x3B88AD7A addr=0x03007C14 len=20 == crc32(rom[0x08001ea8+0x00 : +0x14])
+#   crc=0x084D3E42 addr=0x03007C28 len=60 == crc32(rom[0x08001ea8+0x14 : +0x50])
+# (0x03007C14+20 = 0x03007C28, and 0x03007C28+60 = 0x03007C64 = 0x03007C14
+# + 0x50). The first 20 bytes are a prologue shared with Func_1ef8, Func_203c
+# and Func_2098 (all four begin `push {r5,r6}; add r2,r2,r0; mov ip,#0x3f00;
+# add ip,ip,#0x3f; orr ip,ip,ip,lsl #16`, verified by disassembling all four
+# and comparing crc32 of their first 20 bytes — all equal 0x3B88AD7A) and so
+# cannot disambiguate alone, but the second fragment's crc32
+# (0x084D3E42) is computed directly over Func_1ea8's own tail bytes and does
+# NOT match the corresponding bytes of Func_1ef8, Func_203c or Func_2098
+# (checked: 0x17b82aa7, 0x67b484e0, 0x747f4ec4 respectively) — a unique,
+# full-length, offset-0 identification of this specific instance as
+# Func_1ea8 at base 0x03007C14.
+# Image SHA-1 of ROM 0x08001ea8..0x08001ef8 is
+# f2fe52c16d6b2287b19a632445629fe39d660ae5. Generated with
+# `gba_recompile --relocatable-image 0x03007c14:0x50`.
+
+[program]
+name = "Golden Sun relocatable spell-canvas copy-and-fade RAM image"
+id = "golden_sun_usa_transient_func_1ea8_relocatable"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03007c14
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03007c14
+source_start = 0x08001ea8
+size = 0x00000050
+name = "relocatable_Func_1ea8_image"
+note = "spell canvas copy-and-fade helper, DMA3-copied onto the stack by Func_54e4; pool at 0x08005528 holds byte-count 0x50, DMA3 SAD reg 0x040000D4, source 0x08001EA8"
+
+[[extra_func]]
+addr = 0x03007c14
+mode = "arm"
+name = "Func_1ea8_relocatable_image"
+note = "directly confirmed by two contiguous crc-matched fragments spanning offset 0 to the full 0x50-byte end, the second uniquely matching Func_1ea8's own tail bytes"
+
+[[resume_range]]
+start = 0x03007c14
+end = 0x03007c64
+mode = "arm"
+note = "whole routine; every instruction is an entry"

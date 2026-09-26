@@ -1,0 +1,63 @@
+# GS-011 POSITION-INDEPENDENT AOT image for Func_1f38.
+#
+# NEW sibling of transient-func_1ea8-/1ef8-/203c-relocatable.toml, found
+# while re-checking those wrappers' pool evidence (2026-09-23 correction).
+# A whole-ROM scan for word triples (byte-count, 0x040000D4, source) found a
+# fourth pool at 0x080054D8: 0x00000080, 0x040000D4, 0x08001F38 (read
+# directly from the verified ROM). Its wrapper, disassembled directly from
+# the ROM at 0x08005490, is the same shape as the accepted wrappers: `push
+# {r5,r6,r7,lr}; mov r7,r8; push {r7}; mov ip,r2; ldr r2,[pc,#0x3c]; lsrs
+# r2,r2,#2; lsls r3,r2,#2; ...; bl 0x08007318`, right-shifting the pool word
+# by 2 to get a DMA3 word count (0x80>>2 = 0x20, DMA CNT = 0x84000020, bytes
+# = 0x20*4 = 0x80), so the pool's byte count is proven, not assumed.
+#
+# ROM 0x08001f38..0x08001fb8 disassembles as one coherent ARM routine (rsb,
+# add, mov, push {r5,r6,r7,r8,lr}, ldm/stm loop, pop {r5,r6,r7,r8,ip}, bx
+# ip; no interior $d), matching goldensun.elf's single STT_FUNC entry
+# Func_1f38, size 0x80.
+#
+# Session 20260923_171845 [ram-compile] log entries content-match two
+# contiguous fragments starting at the copy's own offset 0, together
+# spanning the whole 0x80 bytes, at runtime base 0x03007BCC —
+#   crc=0xFDC79E5D addr=0x03007BCC len=36 == crc32(rom[0x08001f38+0x00 : +0x24])
+#   crc=0x031F4AD1 addr=0x03007BF0 len=92 == crc32(rom[0x08001f38+0x24 : +0x80])
+# (0x03007BCC+36 = 0x03007BF0, and 0x03007BF0+92 = 0x03007C4C = 0x03007BCC
+# + 0x80). Neither crc matches Func_1ea8/1ef8/203c/2098's shared 20-byte
+# prologue or any other checked routine in this family, so this is a direct,
+# unambiguous, full-length, offset-0 identification — not the interior
+# slice of a larger copy the earlier (superseded) Func_1ea8 image mistook
+# it for.
+# Image SHA-1 of ROM 0x08001f38..0x08001fb8 is
+# ba870c47936e1e54df7cd9a7846110e663452a59. Generated with
+# `gba_recompile --relocatable-image 0x03007bcc:0x80`.
+
+[program]
+name = "Golden Sun relocatable Func_1f38 RAM image"
+id = "golden_sun_usa_transient_func_1f38_relocatable"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03007bcc
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03007bcc
+source_start = 0x08001f38
+size = 0x00000080
+name = "relocatable_Func_1f38_image"
+note = "DMA3 stack-copy wrapper at ROM 0x08005490; pool at 0x080054D8 holds byte-count 0x80, DMA3 SAD reg 0x040000D4, source 0x08001F38"
+
+[[extra_func]]
+addr = 0x03007bcc
+mode = "arm"
+name = "Func_1f38_relocatable_image"
+note = "directly confirmed by two contiguous crc-matched fragments spanning offset 0 to the full 0x80-byte end, both unique to this routine"
+
+[[resume_range]]
+start = 0x03007bcc
+end = 0x03007c4c
+mode = "arm"
+note = "whole routine; every instruction is an entry"

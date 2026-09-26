@@ -1,0 +1,75 @@
+# GS-011 POSITION-INDEPENDENT AOT image for the "copy and halve" spell-canvas
+# helper at ROM 0x08005534.
+#
+# CORRECTS the earlier version of this file (2026-09-23), which sized the
+# image at 0x100 bytes by reading the wrapper's literal-pool word (0x40) as
+# a DMA3 word count. As with transient-func_1ea8-relocatable.toml (see that
+# file's header for the full derivation), the wrapper right-shifts the pool
+# word by 2 to get the DMA3 word count and rebuilds byte count = word_count
+# * 4: pool value 0x40 -> word_count 0x10 -> DMA CNT 0x84000010 -> 0x40
+# bytes. The pool word is a BYTE count, not a word count. Disassembled
+# directly from the verified ROM at 0x08005534: `push {r5,r6,r7,lr}; mov
+# r7,r8; push {r7}; mov ip,r2; ldr r2,[pc,#0x38]; lsrs r2,r2,#2; lsls
+# r3,r2,#2; ...; bl 0x08007318`. Its literal pool at 0x08005578..0x08005584
+# holds words 0x00000040, 0x040000D4, 0x08001ef8 (byte-verified against the
+# ROM).
+#
+# The copied 0x40-byte span 0x08001ef8..0x08001f38 is continuous ARM code
+# with no interior $d: goldensun.elf sizes it as exactly one STT_FUNC entry,
+# Func_1ef8, size 0x40. It ends exactly where Func_1f38 begins. The earlier
+# 0x100-byte sizing made this image appear to overlap Func_1ea8's span; that
+# was an artifact of both images being oversized, not a real design overlap
+# — correctly sized, Func_1ea8 (0x08001ea8..0x08001ef8) and Func_1ef8
+# (0x08001ef8..0x08001f38) are adjacent, not overlapping.
+#
+# Session 20260923_171845 [ram-compile] log entries, matched to this image
+# by content (zlib/IEEE CRC32, what gba::crc32 uses): two contiguous
+# fragments starting at the copy's own offset 0, together spanning the whole
+# 0x40 bytes —
+#   crc=0x3B88AD7A addr=0x03007C7C len=20 == crc32(rom[0x08001ef8+0x00 : +0x14])
+#   crc=0x17B82AA7 addr=0x03007C90 len=44 == crc32(rom[0x08001ef8+0x14 : +0x40])
+# (0x03007C7C+20 = 0x03007C90, and 0x03007C90+44 = 0x03007CBC = 0x03007C7C
+# + 0x40). The first 20 bytes are the same shared prologue documented in the
+# Func_1ea8 image's header (also present in Func_203c and Func_2098) and
+# cannot disambiguate alone, but the second fragment's crc32 (0x17B82AA7) is
+# computed directly over Func_1ef8's own tail bytes and does NOT match the
+# corresponding bytes of Func_1ea8, Func_203c or Func_2098 (checked:
+# 0x1bdbf438, 0x2b56f476, 0x702ae0ac respectively) — a unique, full-length,
+# offset-0 identification of this instance as Func_1ef8 at base 0x03007C7C.
+# That base is also exactly 0x03007C14 + 0x50, i.e. right after the
+# Func_1ea8 image's own confirmed instance ends on the same stack — the two
+# helpers copied back to back, same as before the size correction.
+# Image SHA-1 of ROM 0x08001ef8..0x08001f38 is
+# 1967086826fcff37e022aac5bebc4e74b2a9978b. Generated with
+# `gba_recompile --relocatable-image 0x03007c7c:0x40`.
+
+[program]
+name = "Golden Sun relocatable spell-canvas copy-and-halve RAM image"
+id = "golden_sun_usa_transient_func_1ef8_relocatable"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03007c7c
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03007c7c
+source_start = 0x08001ef8
+size = 0x00000040
+name = "relocatable_Func_1ef8_image"
+note = "spell canvas copy-and-halve helper, DMA3-copied onto the stack by Func_5534; pool at 0x08005578 holds byte-count 0x40, DMA3 SAD reg 0x040000D4, source 0x08001EF8"
+
+[[extra_func]]
+addr = 0x03007c7c
+mode = "arm"
+name = "Func_1ef8_relocatable_image"
+note = "directly confirmed by two contiguous crc-matched fragments spanning offset 0 to the full 0x40-byte end, the second uniquely matching Func_1ef8's own tail bytes"
+
+[[resume_range]]
+start = 0x03007c7c
+end = 0x03007cbc
+mode = "arm"
+note = "whole routine; every instruction is an entry"

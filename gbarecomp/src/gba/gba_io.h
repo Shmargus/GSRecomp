@@ -1,0 +1,283 @@
+// gba_io.h — GBA IO register dispatcher (0x04000000..0x040003FF).
+//
+// Design:
+//   - 1 KB byte-backed storage so most registers behave like a flat
+//     RAM region. Many GBA registers are simple R/W bit fields with no
+//     side effect on access; backing them with bytes "just works."
+//   - Special-cased registers (with read/write side effects) intercept
+//     the access first and then update / consult the backing array as
+//     needed:
+//       * VCOUNT — read-only; reflects PPU state.
+//       * DISPSTAT — read-only flag bits 0..2 (VBlank/HBlank/VCount)
+//         must be preserved through writes; bits 3..15 are writable.
+//       * IF — write-1-to-clear (writing 1 acknowledges the IRQ).
+//       * IME — single-bit master interrupt enable.
+//       * POSTFLG — boot flag; 0 on cold boot.
+//       * HALTCNT — write-only; values: 0x00 = HALT, 0x80 = STOP.
+//   - Per PRINCIPLES.md "Unknown IO never silently returns a magic
+//     value": addresses outside the documented IO range, or to
+//     reserved bytes inside it, still emit `log_unmapped`.
+//
+// References:
+//   - GBATEK § "GBA I/O Map"
+//   - GBATEK § "GBA Display Status" (DISPSTAT), § "GBA Interrupt
+//     Control" (IE/IF/IME), § "GBA Halt / Stop / Sleep"
+
+#pragma once
+
+#include <atomic>
+#include <vector>
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+
+#include "bus.h"   // armv4t::Bus — used for DMA byte transfers
+
+namespace gbarecomp::debug { class SnapshotWriter; class SnapshotReader; }
+
+namespace gba {
+
+class GbaPpu;
+class GbaIrq;
+class GbaAudio;
+
+// ── Always-on MMIO write-trace ring (Axis 4 — accuracy burndown) ──────
+// A non-destructive, always-on ring recording every committed IO-register
+// write {cycle, addr, value, size, pc} so the mmio_cap TCP probe can QUERY a
+// [start,count] window without arming (ring-buffer discipline). The tap lives
+// at the GbaIo::write8/16/32 commit path and is zero-effect on write behavior.
+// cycle = g_runtime_cycles and pc = recomp g_cpu.R[15] (both meaningful in the
+// recompiled runtime; under the bios_smoke interpreter only addr/value/size are
+// meaningful — it drives its own CPUState and does not tick g_runtime_cycles).
+struct MmioCapEntry {
+    unsigned long long cycle;
+    uint32_t addr;
+    uint32_t value;
+    uint32_t size;   // 1, 2, or 4 bytes
+    uint32_t pc;
+};
+constexpr std::size_t kMmioCapRingSize = 1u << 18;  // 262144 writes
+uint64_t    gba_mmio_cap_total();    // total writes ever recorded (monotonic)
+uint64_t    gba_mmio_cap_oldest();   // earliest absolute index still retained
+std::size_t gba_mmio_cap_query(uint64_t start, std::size_t count,
+                               MmioCapEntry* out, uint64_t& out_first);
+
+// Documented IO register addresses (all relative to 0x04000000).
+namespace IoReg {
+constexpr uint32_t DISPCNT   = 0x000;  // u16
+constexpr uint32_t DISPSTAT  = 0x004;  // u16
+constexpr uint32_t VCOUNT    = 0x006;  // u16 (read-only)
+constexpr uint32_t BG0CNT    = 0x008;
+constexpr uint32_t BG1CNT    = 0x00A;
+constexpr uint32_t BG2CNT    = 0x00C;
+constexpr uint32_t BG3CNT    = 0x00E;
+constexpr uint32_t SOUNDBIAS = 0x088;  // u16
+constexpr uint32_t SIODATA32 = 0x120;  // u32 (also SIOMULTI0..3)
+constexpr uint32_t SIOCNT    = 0x128;  // u16 (SIO control)
+constexpr uint32_t IE        = 0x200;  // u16
+constexpr uint32_t IF        = 0x202;  // u16  (write-1-to-clear)
+constexpr uint32_t WAITCNT   = 0x204;  // u16
+constexpr uint32_t IME       = 0x208;  // u16/u32
+constexpr uint32_t POSTFLG   = 0x300;  // u8
+constexpr uint32_t HALTCNT   = 0x301;  // u8   (write-only)
+// Undocumented 8-bit write-only register touched by the real BIOS at reset.
+// Its purpose is unknown; accepting the write without inventing a side effect
+// matches the hardware-visible contract documented by GBATEK.
+constexpr uint32_t UNDOC_410 = 0x410;
+constexpr uint32_t KEYINPUT  = 0x130;  // u16 (read-only)
+constexpr uint32_t KEYCNT    = 0x132;  // u16
+}  // namespace IoReg
+
+// When set, an HBlank-timed DMA that walks a source table reads the table as
+// it stood at the first visible line's trigger (a per-frame copy) instead of
+// live memory. Game code sets it while it runs more than one frame of guest
+// work per VBlank, so a table rewritten mid-frame cannot tear the picture.
+// Off (the default) is unchanged hardware behaviour.
+extern std::atomic<bool> g_hblank_dma_latch;
+
+class GbaIo {
+public:
+    static constexpr std::size_t kIoSize = 0x400;
+
+    GbaIo();
+    ~GbaIo();
+
+    // Optional wiring. PPU is consulted for VCOUNT/DISPSTAT flag bits;
+    // IRQ controller is the source of truth for IE/IF/IME (but for
+    // Phase 2.2 we just back them in the IO array directly until the
+    // real IRQ scheduler arrives).
+    void set_ppu(GbaPpu* p) { ppu_ = p; }
+    void set_irq(GbaIrq* r) { irq_ = r; }
+    // The bus is needed to execute DMA transfers; without it, writes
+    // to DMAxCNT_H silently store the register without copying any
+    // bytes and the BIOS's VRAM/PAL/OAM uploads vanish.
+    void set_bus(armv4t::Bus* b) { bus_ = b; }
+    void set_audio(GbaAudio* a) { audio_ = a; }
+
+    // Bus-side entry points. `off` is the offset into the IO region
+    // (0x00..0x3FF). Out-of-range offsets are filtered by the bus.
+    uint8_t  read8 (uint32_t off);
+    uint16_t read16(uint32_t off);
+    uint32_t read32(uint32_t off);
+    void     write8 (uint32_t off, uint8_t  v);
+    void     write16(uint32_t off, uint16_t v);
+    void     write32(uint32_t off, uint32_t v);
+
+    // Whether the CPU should HALT until the next IRQ. Set when the
+    // BIOS writes 0x00 to HALTCNT. The fetch loop checks this and
+    // skips instruction execution until a pending IRQ clears it.
+    bool halted() const { return halted_; }
+    void clear_halt() { halted_ = false; }
+
+    // IRQ controller surface. Bit positions per GBATEK § "GBA
+    // Interrupt Control" — VBlank=0, HBlank=1, VCount=2, Timer0..3 =
+    // 3..6, Serial=7, DMA0..3 = 8..11, Keypad=12, Cartridge=13.
+    enum IrqBit : uint16_t {
+        IrqVBlank = 1u << 0,
+        IrqHBlank = 1u << 1,
+        IrqVCount = 1u << 2,
+        IrqTimer0 = 1u << 3,
+        IrqTimer1 = 1u << 4,
+        IrqTimer2 = 1u << 5,
+        IrqTimer3 = 1u << 6,
+        IrqSerial = 1u << 7,
+        IrqDma0   = 1u << 8,
+        IrqDma1   = 1u << 9,
+        IrqDma2   = 1u << 10,
+        IrqDma3   = 1u << 11,
+        IrqKeypad = 1u << 12,
+        IrqCart   = 1u << 13,
+    };
+
+    // Set the bit in IF — devices call this when their event fires.
+    // Whether the CPU actually takes the IRQ depends on IE / IME /
+    // CPSR.I, checked separately.
+    void request_irq(uint16_t bit);
+
+    // True if (IE & IF) != 0 AND IME is set. The CPU's CPSR.I check
+    // happens at the call site.
+    bool irq_pending() const;
+
+    // Raw register reads for the runtime's CPU IRQ entry path.
+    uint16_t ie()      const;
+    uint16_t if_reg()  const;
+    bool     ime()     const;
+    uint16_t dispstat() const;
+    uint16_t waitcnt() const;
+
+    // For tests / debug.
+    std::size_t unmapped_count() const { return unmapped_count_; }
+
+    // Canonical FNV-1a-64 hash of the GUEST-ARCHITECTURAL IO state for the
+    // first-divergence co-sim oracle (COSIM_ORACLE.md): the MMIO register file
+    // (IE/IF/IME/WAITCNT/DISPSTAT/timer/DMA regs) + halt + timer prescaler phase +
+    // latched DMA addresses. DELIBERATELY EXCLUDES emulator bookkeeping counters
+    // (unmapped_count_, dma_runs_, dma_words_) that legitimately differ between the
+    // recomp and interp backends by access frequency without being a guest
+    // divergence — hashing them re-creates the poll-count false-positive the method
+    // exists to avoid. (serialize() keeps them; they are advisory save-state stats.)
+    uint64_t cosim_hash() const;
+
+    // Human-readable field dump of the architectural IO state for co-sim
+    // field-diffing (which io register/timer/DMA field split). Writes one line.
+    int cosim_dump(char* out, int cap) const;
+    void reset_unmapped_count() { unmapped_count_ = 0; }
+    const uint8_t* raw() const { return io_.data(); }
+    std::size_t dma_runs(int ch) const { return dma_runs_[ch]; }
+    std::size_t dma_words(int ch) const { return dma_words_[ch]; }
+
+    // Trigger an immediate-mode DMA on the given channel (0..3).
+    // Called internally when CNT_H is written with enable+mode=0.
+    void run_immediate_dma(int channel);
+
+    // Run all channels armed for a timed start mode (1=VBlank, 2=HBlank), one
+    // transfer block each, advancing the running SAD/DAD across triggers.
+    // Called per VBlank-start / per visible-line HBlank-start by the device
+    // tick. Repeat (CNT_H bit9) keeps the channel armed (reloading DAD when
+    // dest_ctrl==3); otherwise the enable bit is cleared. This delivers the
+    // per-scanline WIN0H table that draws a transition's circular iris
+    // (MC-HP-003) — without it WIN0H gets one value and the iris is a rectangle.
+    void run_timed_dma(int start_mode);
+
+    // Host-side input update. The low 10 bits are GBA KEYINPUT
+    // (active-low: 1 = released, 0 = pressed). Stored directly into
+    // the IO backing so the next CPU read sees the current state.
+    void set_keyinput(uint16_t keys);
+
+    // Advance hardware timers by CPU cycles. Timer overflows raise IRQs
+    // and clock direct-sound FIFOs.
+    void tick_timers(uint32_t cycles);
+    uint32_t cycles_until_next_timer_event() const;
+
+    // Advance an in-flight SIO (Normal-mode, internal-clock) transfer by CPU
+    // cycles. On completion the start/busy bit clears, the shift register
+    // reads back open-bus (no partner), and the Serial IRQ fires if enabled
+    // (SIOCNT bit 14). Games use this as a periodic interrupt source — the
+    // handler re-kicks the transfer. (GBATEK § "SIO Normal Mode".)
+    void tick_sio(uint32_t cycles);
+    uint32_t cycles_until_next_sio_event() const;
+
+    // DMA cycle-stealing: a DMA transfer steals bus cycles from the CPU. The
+    // DMA loops accumulate their GBATEK transfer cost here; the runtime drains
+    // it (charging the master clock + advancing devices) at a safe point. Read
+    // and reset in one call. (GBATEK § "GBA DMA Transfers" timing.)
+    uint32_t take_dma_steal_cycles() {
+        uint32_t c = dma_steal_cycles_;
+        dma_steal_cycles_ = 0;
+        return c;
+    }
+
+    // Save-state serialization. Captures the 1 KB IO page, halt flag,
+    // and timer/DMA shadow state. Live wiring (ppu_/irq_/bus_/audio_)
+    // is NOT serialized — it stays connected across a restore. See
+    // debug/snapshot.h.
+    void serialize(gbarecomp::debug::SnapshotWriter& w) const;
+    void deserialize(gbarecomp::debug::SnapshotReader& r);
+
+private:
+    GbaPpu*       ppu_   = nullptr;
+    GbaIrq*       irq_   = nullptr;
+    armv4t::Bus*  bus_   = nullptr;
+    GbaAudio*     audio_ = nullptr;
+
+    // Flat backing for the 1 KB IO region. Anything not specially
+    // handled is just read/written here.
+    std::array<uint8_t, kIoSize> io_{};
+
+    bool halted_ = false;
+    std::size_t unmapped_count_ = 0;
+    std::size_t dma_runs_[4]  = {0, 0, 0, 0};
+    std::size_t dma_words_[4] = {0, 0, 0, 0};
+    uint16_t timer_reload_[4] = {0, 0, 0, 0};
+    uint16_t timer_counter_[4] = {0, 0, 0, 0};
+    uint16_t timer_control_[4] = {0, 0, 0, 0};
+    uint32_t timer_accum_[4] = {0, 0, 0, 0};
+    uint32_t dma_next_source_[4] = {0, 0, 0, 0};
+    uint32_t dma_next_dest_[4] = {0, 0, 0, 0};
+    // g_hblank_dma_latch: the frame's copy of each HBlank channel's table.
+    std::vector<uint8_t> hblank_latch_[4];
+    uint32_t hblank_latch_base_[4] = {0, 0, 0, 0};
+    bool hblank_latch_valid_[4] = {false, false, false, false};
+
+    // In-flight SIO Normal-mode transfer (internal clock). Armed by a
+    // start-bit rising edge written to SIOCNT; counts down to completion.
+    bool     sio_transfer_active_ = false;
+    uint32_t sio_cycles_remaining_ = 0;
+
+    // Accumulated DMA-stolen bus cycles awaiting charge to the master clock.
+    uint32_t dma_steal_cycles_ = 0;
+    // GBATEK transfer cost of `units` accesses src->dst (read 1N+(n-1)S +
+    // write 1N+(n-1)S + 2 startup I-cycles), N/S from the bus wait-states.
+    uint32_t dma_transfer_cost(uint32_t src, uint32_t dst, bool transfer_32,
+                               uint32_t units) const;
+    void notify_affine_reference_write(uint32_t off, uint32_t size);
+
+    // Log an unknown / unhandled IO access. Logs once per (offset,
+    // direction, width) tuple to keep the output bounded under the
+    // BIOS's setup phase (which touches hundreds of registers).
+    void warn_unhandled(uint32_t off, uint32_t value, bool is_write, uint8_t width);
+    void run_sound_fifo_dma(int channel);
+};
+
+}  // namespace gba

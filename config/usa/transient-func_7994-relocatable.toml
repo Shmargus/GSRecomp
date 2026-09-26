@@ -1,0 +1,52 @@
+# GS-011 POSITION-INDEPENDENT AOT image for Func_7994.
+#
+# CORRECTS transient-func_7998-relocatable.toml (2026-09-23): that image
+# started one ARM instruction late. Session 20260923_202001 self-healed the
+# same 28-byte piece at nine distinct stack bases, all crc=0x66F864FE
+# (zlib/IEEE CRC32, what gba::crc32 uses): [0x03007C98,0x03007CB4),
+# [0x03007CA0,0x03007CBC), [0x03007CC4,0x03007CE0), [0x03007CCC,0x03007CE8),
+# [0x03007CF0,0x03007D0C), [0x03007CF8,0x03007D14), [0x03007D34,0x03007D50),
+# [0x03007D44,0x03007D60) and [0x03007DE8,0x03007E04). That CRC32 equals
+# crc32(ROM[0x08007994:+0x1C]) — not the old image's ROM 0x08007998:+0x18.
+#
+# Disassembled, ROM 0x08007994..0x080079B0 is one coherent ARM routine with
+# no ELF symbol of its own: smull, smlal, ldm sp, smlal, lsl, orr, bx lr.
+# The copier ends at ROM 0x080051BC (bx lr); its own literal pool, ROM
+# 0x080051C0..0x080051C8, holds 0x040000D4 (DMA3 SAD register address),
+# 0x08007994 (source) and 0x84000007 (DMA3 CNT: enable + 32-bit + 7 words =
+# 0x1C bytes) — read directly from the ROM, confirming both the source
+# address and the size independently of the self-heal CRCs.
+# Image SHA-1 of ROM 0x08007994..0x080079b0 is
+# 1f75f819768ebe6da0a4200ec6d2f0f3ff29f663. Generated with
+# `gba_recompile --relocatable-image 0x03007d44:0x1c`.
+
+[program]
+name = "Golden Sun relocatable Func_7994 RAM image"
+id = "golden_sun_usa_transient_func_7994_relocatable"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03007d44
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03007d44
+source_start = 0x08007994
+size = 0x0000001c
+name = "relocatable_Func_7994_image"
+note = "stack copy observed at nine bases in session 20260923_202001; the emitted code is base-relative"
+
+[[extra_func]]
+addr = 0x03007d44
+mode = "arm"
+name = "Func_7994_relocatable_image"
+note = "routine entry at an observed copy destination; DMA3 pool at ROM 0x080051C0 independently confirms source 0x08007994 size 0x1C"
+
+[[resume_range]]
+start = 0x03007d44
+end = 0x03007d60
+mode = "arm"
+note = "whole routine; every instruction is an entry"

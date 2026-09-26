@@ -1,0 +1,57 @@
+# GS-011 identity-verified AOT variant for the 4-byte THUMB stack thunk when
+# Func_6878 runs one frame shallower and its frame lands at 0x03007bc0.
+#
+# This is the same ROM template as transient-func-6abc-03007df8.toml. Only the
+# runtime address differs, because the runtime address is the caller's SP.
+#
+# Evidence (strict-static 1800-frame run, VBlank 694):
+#   - #3839470 Func_6878 (0x08006878) calls Func_6ac0 (0x08006ac0) with
+#     r0 = sp = 0x03007bc0.
+#   - #3839472 Func_6ac0 publishes the callback pointer r0|1 = 0x03007bc1 to
+#     0x02004c1c.
+#   - #3839473 PC 0x08006ae6 stores halfword 0x7800 to 0x03007bc0 with source
+#     cursor r3 = 0x08006abc and remaining halfword count r1 = 2.
+#   - #3839475 the same PC stores 0x4770 to 0x03007bc2 from cursor 0x08006abe,
+#     count r1 = 1. The copy is exactly four bytes.
+#   - #3882935..#3882937 Func_6878's body calls through _call_via_r5 with
+#     r5 = 0x03007bc1 and exchanges to 0x03007bc0 with CPSR.T set.
+#   - goldensun.elf/source bounds Func_6abc as 0x08006abc..0x08006ac0, THUMB,
+#     decoding to `ldrb r0, [r0]; bx lr`. Hash-verified ROM bytes at 0x08006abc
+#     are 00 78 70 47, SHA-1 bbfc4c623d6e47e6d00a0c13ca4a9bbf58f6af36 — byte
+#     identical to the 0x03007df8 image.
+#
+# 0x03007bc0 lies inside the registered ARM Func_2cf4 DMA image extent
+# (0x03007ba4..0x03007c0c). Both are real: the same stack bytes host an ARM
+# image and this THUMB thunk at different times. Mode plus image SHA-1 keep
+# them distinct, which is the D-005 case in DECISIONS.md.
+
+[program]
+name = "Golden Sun transient Func_6abc stack thunk at 0x03007bc0"
+id = "golden_sun_usa_transient_func_6abc_03007bc0"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03007bc0
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03007bc0
+source_start = 0x08006abc
+size = 0x00000004
+name = "transient_Func_6abc_stack_thunk_03007bc0"
+note = "GS-011 store trace proves source, destination, size, THUMB mode, and stack-frame lifetime; image SHA-1 bbfc4c623d6e47e6d00a0c13ca4a9bbf58f6af36"
+
+[[extra_func]]
+addr = 0x03007bc0
+mode = "thumb"
+name = "Func_6abc_stack_thunk_03007bc0"
+note = "Observed r5=0x03007bc1 interworking target; ELF source Func_6abc is THUMB"
+
+[[resume_range]]
+start = 0x03007bc0
+end = 0x03007bc4
+mode = "thumb"
+note = "Complete ELF-bounded Func_6abc copied into Func_6878's active stack frame"

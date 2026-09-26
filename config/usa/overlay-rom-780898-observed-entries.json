@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "overlay_id": "rom_780898",
+  "decompressed_sha256": "e0afeb7aab791af974e832774a1f429ddb497a69929067711cbcefa93e0c1083",
+  "entries": [
+    {
+      "addr": "0x02008AA4",
+      "mode": "thumb",
+      "evidence": "Post-fight/title freeze reproduced from state 8 and input recording 20260809-092536. The first unknown EWRAM identity reported five live-prefix SHA-1 values; every one uniquely matches pinned rom_780898 across all 96 overlays. overlay.elf places a $t mapping symbol at 0x02008aa4 and OvlFunc_aa4 (STT_FUNC, 56 bytes, thumb bit set) at exactly this address"
+    },
+    {
+      "addr": "0x020089DC",
+      "mode": "thumb",
+      "evidence": "Same deterministic state-8 reproduction. overlay.elf places a $t mapping symbol at 0x020089dc and OvlFunc_9dc (STT_FUNC, 8 bytes, thumb bit set) at exactly this address; the healed block CRC32 984AAEA1 exactly matches rom_780898[0x9dc..0x9e0)"
+    },
+    {
+      "addr": "0x020089F0",
+      "mode": "thumb",
+      "evidence": "Same deterministic state-8 reproduction. overlay.elf places a $t mapping symbol at 0x020089f0 and OvlFunc_9f0 (STT_FUNC, 84 bytes, thumb bit set) at exactly this address; the healed block CRC32 710C5222 exactly matches rom_780898[0x9f0..0xa06)"
+    },
+    {
+      "addr": "0x02008AAC",
+      "mode": "thumb",
+      "resume": true,
+      "evidence": "Same deterministic state-8 reproduction. This is OvlFunc_aa4+0x8, inside its ELF extent 0x02008aa4..0x02008adc; the $t mapping at 0x02008aa4 remains active until $d at 0x02008ac8. The healed block CRC32 6F70F375 exactly matches rom_780898[0xaac..0xab4)"
+    },
+    {
+      "addr": "0x0200AA54",
+      "mode": "thumb",
+      "evidence": "Same deterministic state-8 reproduction. overlay.elf places a $t mapping symbol at 0x0200aa54 and OvlFunc_2a54 (STT_FUNC, 604 bytes, thumb bit set) at exactly this address; the healed block CRC32 9E678E8F exactly matches rom_780898[0x2a54..0x2a78)"
+    },
+    {
+      "addr": "0x0200DF9C",
+      "mode": "thumb",
+      "evidence": "Same deterministic state-8 reproduction. overlay.elf places a $t mapping symbol at 0x0200df9c and __Func_79338 (STT_FUNC import thunk, 8 bytes, thumb bit set) at exactly this address; the healed block CRC32 25F85B29 exactly matches rom_780898[0x5f9c..0x5fa0)"
+    }
+  ]
+}

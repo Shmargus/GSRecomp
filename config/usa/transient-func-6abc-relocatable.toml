@@ -1,0 +1,54 @@
+# GS-011 POSITION-INDEPENDENT AOT image for the Func_6abc stack thunk.
+#
+# Func_6878 reserves 0x44 stack bytes and asks Func_6ac0 to copy the complete
+# four-byte THUMB Func_6abc template to SP, then calls it twice through
+# r5 = SP|1. The thunk therefore lands at whatever depth Func_6878 was entered
+# at: 0x03007df8 when reached through its usual caller, 0x03007bc0 when reached
+# one frame shallower through Func_6910. Two builds registered those two; the
+# set is bounded only by the call graph, exactly as for Func_2cf4.
+#
+# Generated with `gba_recompile --relocatable-image 0x03007df8:0x4`, so the
+# emitted code is base-relative and one corpus serves every depth. 0x03007df8
+# is the generation ORIGIN only.
+#
+# Evidence (unchanged from the two per-base configs):
+#   - Store trace #3839473/#3839475: PC 0x08006ae6 in Func_6ac0 writes 0x7800
+#     then 0x4770 from cursors 0x08006abc and 0x08006abe.
+#   - The pinned disassembly bounds THUMB Func_6abc at exactly
+#     0x08006abc..0x08006ac0; hash-verified ROM there is 00 78 70 47.
+#   - The observed entry is an interworking exchange with r5 = base|1 and
+#     CPSR.T set, so the image executes in THUMB.
+#   - Dispatch requires the complete four-byte image SHA-1
+#     bbfc4c623d6e47e6d00a0c13ca4a9bbf58f6af36, so reused stack bytes at a
+#     candidate base cannot select stale code.
+
+[program]
+name = "Golden Sun relocatable Func_6abc stack thunk"
+id = "golden_sun_usa_transient_func_6abc_relocatable"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03007df8
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03007df8
+source_start = 0x08006abc
+size = 0x00000004
+name = "relocatable_Func_6abc_stack_thunk"
+note = "GS-011 store trace proves source, destination, size, THUMB mode, and stack-frame lifetime; image SHA-1 bbfc4c623d6e47e6d00a0c13ca4a9bbf58f6af36"
+
+[[extra_func]]
+addr = 0x03007df8
+mode = "thumb"
+name = "Func_6abc_relocatable_stack_thunk"
+note = "Observed r5=0x03007df9 interworking target; ELF source Func_6abc is THUMB"
+
+[[resume_range]]
+start = 0x03007df8
+end = 0x03007dfc
+mode = "thumb"
+note = "Complete ELF-bounded Func_6abc copied into Func_6878's active stack frame"

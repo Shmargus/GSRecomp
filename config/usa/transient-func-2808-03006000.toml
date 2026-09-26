@@ -1,0 +1,36 @@
+# GS-011 address-specific AOT variant for Func_2808 at 0x03006000.
+#
+# Strict-static evidence (two independent sources agree on source and extent):
+#   1. DMA3 watch on 0x03006000 observed, in order:
+#        ch=3 dad=0x03006000 src=0x08002544 cnt=177 words (0x2c4)
+#        ch=3 dad=0x03006000 src=0x08002808 cnt=315 words (0x4ec)
+#      i.e. the allocator reuses one runtime address for two distinct ROM
+#      images; the second overwrites the first.
+#   2. goldensun.elf .symtab: Func_2808 at 0x08002808, size 1260 (0x4ec),
+#      mode arm, section rom_1b70. The following symbol Func_2cf4 begins
+#      exactly at 0x08002cf4, so the image is all code with no trailing data.
+
+[program]
+name = "Golden Sun transient Func_2808 image at 0x03006000"
+id = "golden_sun_usa_transient_func_2808_03006000"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03006000
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03006000
+source_start = 0x08002808
+size = 0x000004ec
+name = "transient_Func_2808_at_03006000"
+note = "GS-011 strict DMA3 trace proves source, destination, and 0x13b-word extent; image SHA-1 5fd23904086a4129fe3472dbf6658bb5e73f0363"
+
+[[resume_range]]
+start = 0x03006000
+end = 0x030064ec
+mode = "arm"
+note = "ELF-bounded all-code Func_2808 at the observed shared allocation address"

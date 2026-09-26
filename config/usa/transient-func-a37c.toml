@@ -1,0 +1,28 @@
+# GS-011 identity-verified AOT variant for the transient Func_a37c image.
+# Func_fac8 allocates 0x9c bytes, DMA3-copies this exact ROM span to the
+# returned IWRAM address, calls it in ARM mode, then frees it.
+
+[program]
+name = "Golden Sun transient Func_a37c image"
+id = "golden_sun_usa_transient_func_a37c"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03002000
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03002000
+source_start = 0x0800a37c
+size = 0x0000009c
+name = "transient_Func_a37c"
+note = "GS-011 disassembly-proven DMA image; complete bytes SHA-1 77bec232b22b723f3c5f5e0fedd28680fde50048"
+
+[[resume_range]]
+start = 0x03002000
+end = 0x0300209c
+mode = "arm"
+note = "ELF-bounded all-code Func_a37c; bounded aliases cover scheduler yields in two long loops"

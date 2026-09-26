@@ -1,0 +1,42 @@
+# GS-011 identity-verified AOT variant for the 4-byte THUMB stack thunk.
+#
+# Evidence:
+#   - Live IWRAM at the call contains 00 78 70 47 at 0x03007df8.
+#   - Store trace: Func_6ac0 PC 0x08006ae6 copies halfwords 0x7800 and
+#     0x4770 from 0x08006abc and 0x08006abe to that stack address.
+#   - goldensun.elf/source bounds Func_6abc as 0x08006abc..0x08006ac0,
+#     THUMB, decoding to `ldrb r0, [r0]; bx lr`.
+#   - Func_6878 allocates 0x44 stack bytes, installs the thunk at SP, calls it
+#     twice through r5=SP|1, then releases the frame. The identity is therefore
+#     valid only while those four live bytes match.
+
+[program]
+name = "Golden Sun transient Func_6abc stack thunk at 0x03007df8"
+id = "golden_sun_usa_transient_func_6abc_03007df8"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x03007df8
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x03007df8
+source_start = 0x08006abc
+size = 0x00000004
+name = "transient_Func_6abc_stack_thunk"
+note = "GS-011 store trace proves source, destination, size, THUMB mode, and stack-frame lifetime; image SHA-1 bbfc4c623d6e47e6d00a0c13ca4a9bbf58f6af36"
+
+[[extra_func]]
+addr = 0x03007df8
+mode = "thumb"
+name = "Func_6abc_stack_thunk"
+note = "Observed r5=0x03007df9 interworking target; ELF source Func_6abc is THUMB"
+
+[[resume_range]]
+start = 0x03007df8
+end = 0x03007dfc
+mode = "thumb"
+note = "Complete ELF-bounded Func_6abc copied into Func_6878's active stack frame"
