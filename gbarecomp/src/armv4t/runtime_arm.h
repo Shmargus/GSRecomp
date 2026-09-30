@@ -63,6 +63,20 @@ typedef void (*RuntimeFastIwramWriteObserver)(uint32_t address,
                                                uint32_t size,
                                                uint32_t phase);
 extern RuntimeFastIwramWriteObserver g_runtime_fast_iwram_write_observer;
+// 512-bit watch bitmap over IWRAM at 64-byte granularity: bit ((off >> 6) & 63)
+// of word (off >> 12), off = addr & 0x7FFF. The inline store paths call the
+// observer only when it is installed AND a block the store touches is set, so
+// stores the observer would ignore (stack traffic) skip the two indirect
+// calls. Zero by default; the game owner fills it when it installs an
+// observer and the runtime clears it with the observer.
+extern uint64_t g_runtime_fast_iwram_watch[8];
+static inline int runtime_fast_iwram_watched(uint32_t addr, uint32_t width) {
+    const uint32_t lo = addr & 0x7FFFu;
+    const uint32_t hi = (lo + width - 1u) & 0x7FFFu;
+    return (int)(((g_runtime_fast_iwram_watch[lo >> 12] >> ((lo >> 6) & 63u)) |
+                  (g_runtime_fast_iwram_watch[hi >> 12] >> ((hi >> 6) & 63u))) &
+                 1u);
+}
 
 // Optional game-owned observer for generated guest memory writes. The
 // callback receives the exact instruction PC, aligned guest address, value,
@@ -226,6 +240,10 @@ void runtime_note_ram_image_cpu_write(uint32_t pc, uint32_t addr,
 // bounded Func_2808 stack slots used by the pool LDM probe. It is inert until
 // the pool dispatch history arms the probe.
 void runtime_note_pool_ldm_bus_write(uint32_t addr, uint32_t width);
+// The byte window runtime_note_pool_ldm_bus_write acts on (physical IWRAM,
+// end exclusive). A caller may skip the call for stores that cannot overlap it.
+#define RUNTIME_POOL_LDM_WINDOW_BASE 0x03007E00u
+#define RUNTIME_POOL_LDM_WINDOW_END 0x03007E40u
 
 // Diagnostic-only savestate boundary for the pool-LDM provenance probe. This
 // clears host-side history/rings, arms the probe before resumed guest
@@ -478,7 +496,7 @@ static inline const uint8_t* bus_fast_rom(uint32_t addr, uint32_t width) {
     return g_fast_rom + off;
 }
 
-static inline uint32_t bus_read_u32(uint32_t addr) {
+static inline uint32_t bus_read_u32_inline(uint32_t addr) {
     const uint8_t* p = bus_fast_ram(addr);
     if (p) { uint32_t v; __builtin_memcpy(&v, p, 4); return v; }
     p = bus_fast_rom(addr, 4u);
@@ -486,7 +504,7 @@ static inline uint32_t bus_read_u32(uint32_t addr) {
     return bus_read_u32_slow(addr);
 }
 
-static inline uint16_t bus_read_u16(uint32_t addr) {
+static inline uint16_t bus_read_u16_inline(uint32_t addr) {
     const uint8_t* p = bus_fast_ram(addr);
     if (p) { uint16_t v; __builtin_memcpy(&v, p, 2); return v; }
     p = bus_fast_rom(addr, 2u);
@@ -494,7 +512,7 @@ static inline uint16_t bus_read_u16(uint32_t addr) {
     return bus_read_u16_slow(addr);
 }
 
-static inline uint8_t bus_read_u8(uint32_t addr) {
+static inline uint8_t bus_read_u8_inline(uint32_t addr) {
     const uint8_t* p = bus_fast_ram(addr);
     if (p) return *p;
     p = bus_fast_rom(addr, 1u);
@@ -504,7 +522,7 @@ static inline uint8_t bus_read_u8(uint32_t addr) {
     return bus_read_u8_slow(addr);
 }
 
-static inline void bus_write_u32(uint32_t addr, uint32_t val) {
+static inline void bus_write_u32_inline(uint32_t addr, uint32_t val) {
     // A transform is valid only for the immediately following bus write.
     // Clear it even on an address/width mismatch so a branch, yield, or
     // unrelated store cannot apply stale game-owned state later.
@@ -520,7 +538,8 @@ static inline void bus_write_u32(uint32_t addr, uint32_t val) {
             g_runtime_fast_ewram_write_observer(addr, 4u);
         }
         if (g_runtime_fast_iwram_write_observer &&
-            (addr >> 24) == 0x03u) {
+            (addr >> 24) == 0x03u &&
+            runtime_fast_iwram_watched(addr, 4u)) {
             const RuntimeFastIwramWriteObserver observer =
                 g_runtime_fast_iwram_write_observer;
             observer(
@@ -538,7 +557,7 @@ static inline void bus_write_u32(uint32_t addr, uint32_t val) {
     bus_write_u32_slow(addr, val);
 }
 
-static inline void bus_write_u16(uint32_t addr, uint16_t val) {
+static inline void bus_write_u16_inline(uint32_t addr, uint16_t val) {
     // A pending transform can only target a 32-bit store; consume it on any
     // intervening write to prevent stale state from crossing the boundary.
     g_runtime_mem_write_override_pending_valid = 0u;
@@ -549,7 +568,8 @@ static inline void bus_write_u16(uint32_t addr, uint16_t val) {
             g_runtime_fast_ewram_write_observer(addr, 2u);
         }
         if (g_runtime_fast_iwram_write_observer &&
-            (addr >> 24) == 0x03u) {
+            (addr >> 24) == 0x03u &&
+            runtime_fast_iwram_watched(addr, 2u)) {
             const RuntimeFastIwramWriteObserver observer =
                 g_runtime_fast_iwram_write_observer;
             observer(
@@ -567,7 +587,7 @@ static inline void bus_write_u16(uint32_t addr, uint16_t val) {
     bus_write_u16_slow(addr, val);
 }
 
-static inline void bus_write_u8(uint32_t addr, uint8_t val) {
+static inline void bus_write_u8_inline(uint32_t addr, uint8_t val) {
     // See bus_write_u16: any intervening write retires the one-shot state.
     g_runtime_mem_write_override_pending_valid = 0u;
     uint8_t* p = bus_fast_ram(addr);
@@ -577,7 +597,8 @@ static inline void bus_write_u8(uint32_t addr, uint8_t val) {
             g_runtime_fast_ewram_write_observer(addr, 1u);
         }
         if (g_runtime_fast_iwram_write_observer &&
-            (addr >> 24) == 0x03u) {
+            (addr >> 24) == 0x03u &&
+            runtime_fast_iwram_watched(addr, 1u)) {
             const RuntimeFastIwramWriteObserver observer =
                 g_runtime_fast_iwram_write_observer;
             observer(
@@ -594,6 +615,33 @@ static inline void bus_write_u8(uint32_t addr, uint8_t val) {
     }
     bus_write_u8_slow(addr, val);
 }
+
+// Generated game code (GBARECOMP_OUTLINE_BUS, set by CMake on every
+// recompiled_*.cpp) calls one shared out-of-line copy of each fast path
+// instead of inlining it at all ~890k access sites: same behaviour, about a
+// quarter of the game's machine code less (FACTS.md, "Generated code size").
+// Engine code keeps the inline copies.
+#if defined(GBARECOMP_OUTLINE_BUS)
+uint32_t runtime_bus_read_u32(uint32_t addr);
+uint16_t runtime_bus_read_u16(uint32_t addr);
+uint8_t  runtime_bus_read_u8(uint32_t addr);
+void     runtime_bus_write_u32(uint32_t addr, uint32_t val);
+void     runtime_bus_write_u16(uint32_t addr, uint16_t val);
+void     runtime_bus_write_u8(uint32_t addr, uint8_t val);
+static inline uint32_t bus_read_u32(uint32_t a) { return runtime_bus_read_u32(a); }
+static inline uint16_t bus_read_u16(uint32_t a) { return runtime_bus_read_u16(a); }
+static inline uint8_t  bus_read_u8(uint32_t a) { return runtime_bus_read_u8(a); }
+static inline void bus_write_u32(uint32_t a, uint32_t v) { runtime_bus_write_u32(a, v); }
+static inline void bus_write_u16(uint32_t a, uint16_t v) { runtime_bus_write_u16(a, v); }
+static inline void bus_write_u8(uint32_t a, uint8_t v) { runtime_bus_write_u8(a, v); }
+#else
+static inline uint32_t bus_read_u32(uint32_t a) { return bus_read_u32_inline(a); }
+static inline uint16_t bus_read_u16(uint32_t a) { return bus_read_u16_inline(a); }
+static inline uint8_t  bus_read_u8(uint32_t a) { return bus_read_u8_inline(a); }
+static inline void bus_write_u32(uint32_t a, uint32_t v) { bus_write_u32_inline(a, v); }
+static inline void bus_write_u16(uint32_t a, uint16_t v) { bus_write_u16_inline(a, v); }
+static inline void bus_write_u8(uint32_t a, uint8_t v) { bus_write_u8_inline(a, v); }
+#endif
 
 // ── Per-instruction cycle cost (memory + multiply) ─────────────────
 // Generated code computes the fixed part of an instruction's cost
@@ -794,6 +842,10 @@ uint32_t runtime_trace_total(void);
 // shim).
 extern unsigned g_runtime_insn_trace;  // 0 = off; 1 = GFP1; 2 = BIOS PC set
 void runtime_insn_fp(void);            // emit one fingerprint (armed-gated by caller)
+// F1 "Crash log": arms the same per-instruction trail with a small ring
+// (~5 MB, the last ~65k instructions) so a crash or freeze report can show
+// what the game was doing. Costs speed while on. Survives machine reset.
+void runtime_set_crash_log(int on);
 void runtime_fp_reset(void);
 uint32_t runtime_fp_count(void);
 // Write the whole ring (oldest-first) as a compact binary file: a 16-byte
@@ -917,6 +969,60 @@ void runtime_tick(uint32_t cycles);
 // rate regardless of the overclock setting. See runtime_bus_bridge.cpp.
 void runtime_tick_realtime(uint32_t cycles);
 bool runtime_should_yield(void);
+
+// ── Combined per-instruction helpers (tools/slim_corpus.py) ────────────
+// Each replaces a fixed sequence the translator writes at every instruction,
+// load or store with ONE call that does exactly the same work in the same
+// order, so the game's machine code carries one call where it carried two
+// to four (FACTS.md, "Generated code size").
+//
+// `if (runtime_should_yield()) return; if (g_runtime_insn_trace)
+//  runtime_insn_fp();`  ->  `if (runtime_insn_boundary()) return;`
+bool runtime_insn_boundary(void);
+// For an unconditional instruction the translator writes `g_cpu.R[15] = pc;`,
+// the boundary above, then the sequential fetch cost
+// runtime_mem_cycles(pc, w, 1u). This does all three and returns that cost
+// (always >= 1), or 0 where the boundary said return.
+uint32_t runtime_insn_begin(uint32_t pc, uint32_t width);
+// Block timing (game code made by tools/block_timing.py; the normal corpus
+// never uses these). Inside a translated block only the first instruction,
+// labels and branches keep runtime_insn_begin / runtime_insn_boundary; the
+// others take their fetch cost with runtime_insn_fetch (R15 and the cost, no
+// yield check), and every runtime_tick becomes runtime_tick_deferred, which
+// only adds to g_runtime_deferred_cycles. The engine pays that debt through
+// runtime_tick before anything can see the clock: each boundary, dispatch,
+// SWI, MSR, idle back-edge, and any load/store to 0x04000000-0x07FFFFFF (I/O,
+// palette, VRAM, OAM; there with interrupts held to the next boundary). The
+// cycle total is unchanged; an interrupt is taken at the next boundary.
+extern uint32_t g_runtime_deferred_cycles;
+static inline void runtime_tick_deferred(uint32_t cycles) {
+    g_runtime_deferred_cycles += cycles;
+}
+uint32_t runtime_insn_fetch(uint32_t pc, uint32_t width);
+void runtime_flush_deferred(void);
+// runtime_mem_cycles(pc, w, 0u) - runtime_mem_cycles(pc, w, 1u)
+uint32_t runtime_fetch_ns_delta(uint32_t pc, uint32_t width);
+// (runtime_mem_cycles(t, w, 0u) - 1u) + (runtime_mem_cycles(t + w, w, 1u) - 1u):
+// the pipeline refill after a taken branch to t.
+uint32_t runtime_refill_cycles(uint32_t target, uint32_t width);
+// Single loads: the bus read, then its data-access cost
+// (runtime_mem_cycles(ea, w, 2u), which also advances the prefetch model),
+// left in g_runtime_data_cost for the `_cyc += ...` that follows.
+extern uint32_t g_runtime_data_cost;
+uint32_t runtime_ld_u32(uint32_t addr, uint32_t ea);
+uint32_t runtime_ld_u16(uint32_t addr, uint32_t ea);
+uint32_t runtime_ld_u8(uint32_t addr, uint32_t ea);
+// Single stores: the write trace event, the bus write, then the data-access
+// cost, which is returned. `value` is the traced 32-bit value; the stored
+// value is its low bytes, exactly as the translator's own store expression.
+uint32_t runtime_st_u32(uint32_t pc, uint32_t addr, uint32_t ea, uint32_t value);
+uint32_t runtime_st_u16(uint32_t pc, uint32_t addr, uint32_t ea, uint32_t value);
+uint32_t runtime_st_u8(uint32_t pc, uint32_t addr, uint32_t ea, uint32_t value);
+// LDM/STM slots: runtime_mem_cycles(addr, 4u, seq) (pure: region and
+// WAITCNT only), then the access. The cost is returned.
+uint32_t runtime_ldm_u32(uint32_t addr, uint32_t seq, uint32_t* dst);
+uint32_t runtime_stm_u32(uint32_t pc, uint32_t addr, uint32_t value,
+                         uint32_t seq);
 
 // ── GBARECOMP_CPU_OVERCLOCK (TURBO-B2-UI) ──────────────────────────────
 // Live control for the runtime_tick scaling factor (see runtime_bus_bridge.cpp

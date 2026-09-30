@@ -29,6 +29,7 @@
 
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -60,6 +61,9 @@ constexpr int kEffectCanvasHeight = 256;
 
 constexpr std::uint32_t kEwramBase = 0x02000000u;
 constexpr std::uint32_t kRoomRectAddr = 0x02030DC0u;  // min_x,max_x,min_y,max_y
+// Integer halves of the camera clamp's 16.16 min x / min y (see upload_room).
+constexpr std::uint32_t kClampMinXAddr = 0x02030DBAu;
+constexpr std::uint32_t kClampMinYAddr = 0x02030DBEu;
 constexpr std::uint32_t kCameraAddr = 0x02030DB0u;    // x,y, 16.16 fixed point
 constexpr std::uint32_t kIdGridAddr = 0x02010000u;    // 128x128 u32, low 12 bits
 constexpr std::uint32_t kAtlasAddr = 0x02020000u;     // 8 bytes per id
@@ -72,11 +76,12 @@ constexpr int kGridSide = 128;
 constexpr int kAtlasIds = 4096;
 constexpr std::size_t kEwramBytes = 256 * 1024;
 // widescreen_policy.h's measured "not a real tile" sentinels: a raw 0xffff,
-// or metatile 0x017 paired specifically with raw 0xF200. Applied here too so
-// a room the room buffer cannot really answer for doesn't draw the
-// yellow/red checker bug fixed in room_buffer.cpp (FACTS.md, 2026-09-13).
+// or a raw 0xF200 atlas entry on any metatile id. 0xF200 is the un-authored
+// fill; seen at id 0x017 (earlier) and id 0x000 (Bilibin, gpu_frame_0084,
+// 2026-09-29). Applied here too so a room the room buffer cannot really
+// answer for doesn't draw the yellow/red checker bug fixed in
+// room_buffer.cpp (FACTS.md, 2026-09-13).
 constexpr std::uint16_t kRoomUnavailableTile = 0xFFFFu;
-constexpr std::uint16_t kRoomNoMapId = 0x017u;
 constexpr std::uint16_t kRoomNoMapTile = 0xF200u;
 
 std::uint16_t ewram_u16(const std::uint8_t* ewram, std::size_t bytes,
@@ -158,6 +163,8 @@ const char* kBackgroundFragment =
     "uniform int u_layer;\n"            // 0-3: this background's window bit
     "uniform int u_compare_top;\n"      // 0 = first pass, 1 = second pass
     "uniform int u_use_room;\n"         // 1: source this layer from the room
+    // Grid region override per axis (room_region_for): -1 = the scroll's own.
+    "uniform vec2 u_room_region;\n"
     // 0 never widens, 1 always widens, 2 widens under the battle arena rule
     "uniform int u_margin_mode;\n"
     "uniform vec2 u_room_min;\n"        // room rect, pixels (min_x, min_y)
@@ -189,6 +196,10 @@ const char* kBackgroundFragment =
     // top-left map pixel is u_effect_canvas_map (Ivan's hit sparks on BG1,
     // gpu_rewind_0047). Checked on the CPU like u_effect_wrap_canvas.
     "uniform int u_effect_text_canvas;\n"
+    // Hide the game's own effect canvas on this layer (set_effect_hidden):
+    // 1 = text layer, the 128x128 block at u_effect_canvas_map draws
+    // transparent; 2 = wrapping affine layer, canvas at the map origin.
+    "uniform int u_effect_hide;\n"
     "uniform vec2 u_effect_canvas_map;\n"
     "out vec4 o_colour;\n"
     "\n"
@@ -449,6 +460,9 @@ const char* kBackgroundFragment =
     "    }\n"
     "  }\n"
     "  bool room_supplied = false;\n"
+    // Set together with room_copy below: this pixel also takes its colour
+    // from the saved field palette (palette row 1, upload_room_palette).
+    "  bool room_colours = false;\n"
     // Whether this pixel lies inside the room at all, kept separate from
     // whether the room buffer had an answer for it. A margin pixel past the
     // room's own edge is outside the world, and the only honest thing out
@@ -667,6 +681,8 @@ const char* kBackgroundFragment =
     // canvas stamp is EffectBlend::Maximum), so the same rule joins ours.
     "      index = max(base, spark);\n"
     "    }\n"
+    "    if (u_effect_hide == 2 && bg_wraps != 0 && tex_x < 128 && tex_y < 128)\n"
+    "      index = 0;\n"
     "    }\n"
     "  } else {\n"
     // A regular layer showing the spell canvas: the copy of the canvas
@@ -775,14 +791,31 @@ const char* kBackgroundFragment =
     // in play (FACTS.md, 2026-09-11 and 2026-09-13). u_use_room is always 0
     // for an affine layer (never reaches this branch), so this stays the
     // field-only path it was measured on.
-    "    if (room_row_authorized) {\n"
+    // Only OUTSIDE the console's own 240x160 window. Inside it the console's
+    // tilemap is the exact answer by definition; letting the room rule
+    // replace it there made the native picture wrong wherever the rule reads
+    // the wrong grid region -- Lamakan Desert, whose BG2/BG3 scroll 1024 px
+    // off the camera, drew 29,544 of 38,400 native pixels wrong
+    // (logs/gpu_frame_0106.bin, 2026-09-30).
+    "    if (room_row_authorized && outside_native) {\n"
     "      ivec2 room_px = console_px + ivec2(u_ewram_camera);\n"
     "      room_covers = room_px.x >= int(u_room_min.x) &&\n"
     "                    room_px.y >= int(u_room_min.y) &&\n"
     "                    room_px.x < int(u_room_max.x) &&\n"
     "                    room_px.y < int(u_room_max.y);\n"
     "      if (room_covers) {\n"
-    "        ivec2 source = console_px + ivec2(int(hofs_raw), int(vofs_raw));\n"
+    "        ivec2 room_scroll = ivec2(int(hofs_raw), int(vofs_raw));\n"
+    // Region override (room_region_for): camera + region + the scroll's
+    // offset from the camera folded into -512..511, so the haze's -1
+    // (0xFFFF) at a room's left edge stays -1.
+    "        ivec2 cam = ivec2(u_ewram_camera);\n"
+    "        if (u_room_region.x >= 0.0 && !continue_bg3_sky)\n"
+    "          room_scroll.x = cam.x + int(u_room_region.x) +\n"
+    "              (((room_scroll.x - cam.x + 512) & 1023) - 512);\n"
+    "        if (u_room_region.y >= 0.0 && !continue_bg3_sky)\n"
+    "          room_scroll.y = cam.y + int(u_room_region.y) +\n"
+    "              (((room_scroll.y - cam.y + 512) & 1023) - 512);\n"
+    "        ivec2 source = console_px + room_scroll;\n"
     "        if (continue_bg3_sky && source.x < 0) {\n"
     "          source.x = source.x & (width_tiles * 8 - 1);\n"
     "        }\n"
@@ -796,7 +829,7 @@ const char* kBackgroundFragment =
     "            int sub = (sty & 1) * 2 + (stx & 1);\n"
     "            uint candidate = texelFetch(u_atlas, ivec2(sub, int(id)), 0).r;\n"
     "            bool unavailable = candidate == 0xFFFFu ||\n"
-    "                               (id == 0x017u && candidate == 0xF200u);\n"
+    "                               candidate == 0xF200u;\n"
     "            if (!unavailable) { entry = candidate; room_supplied = true; }\n"
     "          }\n"
     "        }\n"
@@ -841,6 +874,7 @@ const char* kBackgroundFragment =
     "    if (vflip) ty = 7 - ty;\n"
     "\n"
     "    bool room_copy = room_supplied && outside_native;\n"
+    "    room_colours = room_copy;\n"
     "    if (bg_eight_bit != 0) {\n"
     "      int at = bg_char_base + tile * 64 + ty * 8 + tx;\n"
     "      index = int(room_copy ? room_vram_byte(at) : vram_byte(at));\n"
@@ -849,6 +883,14 @@ const char* kBackgroundFragment =
     "      uint two = room_copy ? room_vram_byte(at) : vram_byte(at);\n"
     "      index = int(((tx & 1) != 0) ? (two >> 4) : (two & 0xFu));\n"
     "      if (index != 0) index += bank * 16;\n"
+    "    }\n"
+    // The map pixel just sampled lies in the canvas block (wrapped over the
+    // map): draw nothing there. Uses the sampled pixel, so the margins'
+    // held-edge strip is hidden too.
+    "    if (u_effect_hide == 1) {\n"
+    "      ivec2 map_mask = ivec2(width_tiles * 8 - 1, height_tiles * 8 - 1);\n"
+    "      ivec2 rel = (pixel - ivec2(u_effect_canvas_map)) & map_mask;\n"
+    "      if (rel.x < 128 && rel.y < 128) index = 0;\n"
     "    }\n"
     "    }\n"
     "    if (text_beyond) {\n"
@@ -899,7 +941,8 @@ const char* kBackgroundFragment =
     "    if (bg_key <= top_key) discard;\n"
     "  }\n"
     "\n"
-    "  uint c = texelFetch(u_palette, ivec2(u_palette_half + index, 0), 0).r;\n"
+    "  uint c = texelFetch(u_palette, ivec2(u_palette_half + index,\n"
+    "                                        room_colours ? 1 : 0), 0).r;\n"
     // Priority is a per-row value now, so the depth the two-layer peel sorts
     // by cannot come from the quad any more. This reproduces exactly what the
     // vertex path produced for a quad of depth key/1024: ortho() leaves clip
@@ -1308,6 +1351,7 @@ const char* kWindowFragment =
     "uniform sampler2D u_obj_window_mask;\n"
     "uniform usampler2D u_row_io;\n"    // this frame's per-row registers
     "uniform vec2 u_camera;\n"
+    "uniform int u_reveal_full;\n"     // Better Field Psy: Reveal fills the view
     "out vec4 o_colour;\n"
     "\n"
     "uint row_u16(int row, int offset) {\n"
@@ -1356,10 +1400,16 @@ const char* kWindowFragment =
     // Inside the console's own 0..239 / 0..159 the old form and this one
     // agree (both reject every real coordinate), which is why all three
     // pixel-identity gates passed throughout.
+    // Clamping as mGBA does (gba_ppu.cpp win_h_in): X1 past the screen and
+    // past X2 reads as 0, X2 past the screen clamps, and X1 > X2 wraps --
+    // the Boreas summon's WIN0H 0xFFF1 is the full width
+    // (logs/gpu_frame_0113.bin). A wrapping window reaches both margins.
     "bool win_h(int reg, int x) {\n"
     "  int x1 = (reg >> 8) & 0xFF;\n"
     "  int x2 = reg & 0xFF;\n"
-    "  if (x2 > 240 || x1 > x2) x2 = 240;\n"
+    "  if (x1 > 240 && x1 > x2) x1 = 0;\n"
+    "  if (x2 > 240) { x2 = 240; if (x1 > 240) x1 = 240; }\n"
+    "  if (x1 > x2) return x >= x1 || x < x2;\n"
     "  if (x1 == x2) return false;\n"
     "  bool left_open = x1 == 0;\n"
     "  bool right_open = x2 >= 240;\n"
@@ -1381,7 +1431,23 @@ const char* kWindowFragment =
     "  int winout = int(row_u16(reg_row, 0x4A));\n"
     "  int control;\n"
     "  bool any_window = win0_en || win1_en || objwin_en;\n"
-    "  if (!any_window) {\n"
+    // Reveal: WIN0 carves the circle and WIN1 the Psynergy meter, both
+    // showing everything (WININ 0x3F3F), outside only BG0 (WINOUT 0x0001).
+    // Among the 6,590 captured frames only Reveal's (gpu_frame_0104,
+    // gpu_rewind_0054) use it. The circle lies inside the console's screen,
+    // but WIN0V covers the full height, so the open-edge rule below
+    // stretched the circle's first row up the top margin and WIN1 (x 0..16)
+    // across the left margin. Outside the 240x160 window it is outside the
+    // circle; with Better Field Psy the circle covers the whole view.
+    "  bool reveal = (dispcnt & 7u) == 0u && win0_en && win1_en &&\n"
+    "                winin == 0x3F3F && winout == 0x0001;\n"
+    "  bool outside_native = screen.x < 0 || screen.x >= 240 ||\n"
+    "                        screen.y < 0 || screen.y >= 160;\n"
+    "  if (reveal && u_reveal_full != 0) {\n"
+    "    control = winin & 0x3F;\n"
+    "  } else if (reveal && outside_native) {\n"
+    "    control = winout & 0x3F;\n"
+    "  } else if (!any_window) {\n"
     "    control = 0x3F;\n"
     "  } else if (win0_en && win_v(win0v, screen.y) &&\n"
     "             win_h(win0h, screen.x)) {\n"
@@ -1421,6 +1487,9 @@ FieldSceneRenderer::~FieldSceneRenderer() {
     if (!surface_) return;
     if (background_) surface_->destroy_program(background_);
     if (resolve_) surface_->destroy_program(resolve_);
+    if (solid_) surface_->destroy_program(solid_);
+    if (shake_blit_) surface_->destroy_program(shake_blit_);
+    if (shake_target_) surface_->destroy_texture(shake_target_);
     if (obj_window_) surface_->destroy_program(obj_window_);
     if (window_) surface_->destroy_program(window_);
     if (vram_) surface_->destroy_texture(vram_);
@@ -1495,7 +1564,10 @@ bool FieldSceneRenderer::init(gbarecomp::GpuSurface* surface) {
                                           kVramBytes / kVramTextureWidth,
                                           gbarecomp::GpuTextureFormat::R8UI,
                                           false);
-    palette_ = surface_->create_texture(kPaletteEntries, 1,
+    // Row 0 is the live palette; row 1 what room tiles in the margins use,
+    // the field's colours from before a menu replaced some of them
+    // (upload_room_palette). Row 1 follows row 0 whenever no menu is open.
+    palette_ = surface_->create_texture(kPaletteEntries, 2,
                                         gbarecomp::GpuTextureFormat::R16UI,
                                         false);
     id_grid_ = surface_->create_texture(kGridSide, kGridSide,
@@ -1577,6 +1649,111 @@ void FieldSceneRenderer::upload_vram(const std::uint8_t* vram,
         surface_->update_texture(room_vram_, 0, 0, kVramTextureWidth, rows,
                                  vram);
     }
+    // Background map blocks only (the first 64 KB): room_layer_agreement()
+    // compares the room rule's entries against them.
+    vram_maps_.assign(vram, vram + std::min<std::size_t>(vram_bytes, 0x10000));
+}
+
+bool FieldSceneRenderer::room_entry(int screen_x, int screen_y, int scroll_x,
+                                    int scroll_y, std::uint16_t* entry) const {
+    if (!query_room_known(screen_x, screen_y, scroll_x, scroll_y)) return false;
+    const int stx = (scroll_x + screen_x) >> 3;
+    const int sty = (scroll_y + screen_y) >> 3;
+    const std::uint16_t id =
+        room_ids_[static_cast<std::size_t>(sty >> 1) * kGridSide + (stx >> 1)];
+    *entry = room_atlas_[static_cast<std::size_t>(id) * 4u +
+                         static_cast<std::size_t>((sty & 1) * 2 + (stx & 1))];
+    return true;
+}
+
+// How often the room rule gives the tile entry the console itself shows,
+// over the centre of every tile inside the 240x160 window, for one regular
+// layer. Inside the window both answers exist, so this is a direct check of
+// the rule for THIS room and layer on THIS frame. -1 when fewer than
+// kRoomCheckMinTiles tiles could be compared.
+// Each sampled row uses its own scanline's BGxCNT/HOFS/VOFS, as the shader
+// does. The end-of-frame register copy is not the picture's: in Lamakan
+// Desert the heat haze leaves BG1 at (0, n) with n counting up each frame
+// (logs/gpu_rewind_0052/0053, 2026-09-30), so a check made from it failed
+// on most frames and the margins flickered between desert and black.
+int FieldSceneRenderer::room_layer_agreement(const FieldScene& scene, int bg,
+                                             int* compared, int region_x,
+                                             int region_y) const {
+    if (compared) *compared = 0;
+    const SceneLayer& L = scene.layers[bg];
+    if (!room_valid_ || L.affine || vram_maps_.empty()) return -1;
+    int total = 0, same = 0;
+    for (int y = 4; y < 160; y += 8) {
+        const std::uint8_t* io = scene.row_io_valid[y]
+            ? scene.row_io[y].data() : scene.io_bytes.data();
+        auto rd = [&](std::size_t at) {
+            return static_cast<int>(io[at] | (io[at + 1] << 8));
+        };
+        const int bgcnt = rd(0x08u + static_cast<std::size_t>(bg) * 2u);
+        const int scroll_x = rd(0x10u + static_cast<std::size_t>(bg) * 4u);
+        const int scroll_y = rd(0x12u + static_cast<std::size_t>(bg) * 4u);
+        const int size_code = (bgcnt >> 14) & 3;
+        const std::size_t screen_base =
+            static_cast<std::size_t>((bgcnt >> 8) & 31) * 2048u;
+        const int w = (size_code & 1) ? 64 : 32;   // map size in tiles
+        const int h = (size_code & 2) ? 64 : 32;
+        // Same fold as the shader: camera + region + offset in -512..511.
+        const int room_sx = region_x < 0 ? scroll_x
+            : room_camera_x_ + region_x +
+                  (((scroll_x - room_camera_x_ + 512) & 1023) - 512);
+        const int room_sy = region_y < 0 ? scroll_y
+            : room_camera_y_ + region_y +
+                  (((scroll_y - room_camera_y_ + 512) & 1023) - 512);
+        for (int x = 4; x < 240; x += 8) {
+            std::uint16_t want = 0;
+            if (!room_entry(x, y, room_sx, room_sy, &want)) continue;
+            const int tx = (((x + scroll_x) & 511) >> 3) & (w - 1);
+            const int ty = (((y + scroll_y) & 511) >> 3) & (h - 1);
+            int block = 0;
+            if (w == 64 && tx >= 32) block += 1;
+            if (h == 64 && ty >= 32) block += (w == 64) ? 2 : 1;
+            const std::size_t at = screen_base + static_cast<std::size_t>(block) * 2048u +
+                static_cast<std::size_t>(((ty & 31) * 32 + (tx & 31)) * 2);
+            if (at + 1 >= vram_maps_.size()) continue;
+            const std::uint16_t have = static_cast<std::uint16_t>(
+                vram_maps_[at] | (vram_maps_[at + 1] << 8));
+            ++total;
+            if (have == want) ++same;
+        }
+    }
+    if (compared) *compared = total;
+    if (total < kRoomCheckMinTiles) return -1;
+    return (same * 100) / total;
+}
+
+// Normally a layer's unmasked scroll names its region of the 128x128 grid
+// (BG2 at +1024 x, BG3 at +1024 y, and so on). Lamakan Desert breaks that:
+// its heat-haze rows hand BG1 and BG3 each other's +1024 (logs/
+// gpu_frame_0105/0107.bin, 2026-09-30), so the scroll's own region matched
+// 0% of the console's tiles, while the camera plus the right 1024-px region
+// plus the scroll's small offset from the camera (the haze, -1 as 0xFFFF at
+// a left edge: gpu_rewind_0055) matched 100% for every layer. Try the
+// scroll's own region first, so every room it already fits is untouched.
+bool FieldSceneRenderer::room_region_for(const FieldScene& scene, int bg,
+                                         int* region_x,
+                                         int* region_y) const {
+    *region_x = -1;
+    *region_y = -1;
+    const int own = room_layer_agreement(scene, bg, nullptr);
+    if (own < 0 || own >= kRoomCheckMinAgreement) return true;
+    int best = -1;
+    for (int ry = 0; ry <= 1024; ry += 1024) {
+        for (int rx = 0; rx <= 1024; rx += 1024) {
+            const int agree =
+                room_layer_agreement(scene, bg, nullptr, rx, ry);
+            if (agree >= kRoomCheckMinAgreement && agree > best) {
+                best = agree;
+                *region_x = rx;
+                *region_y = ry;
+            }
+        }
+    }
+    return best >= 0;
 }
 
 void FieldSceneRenderer::upload_world_map(const std::uint8_t* tiles,
@@ -1585,7 +1762,62 @@ void FieldSceneRenderer::upload_world_map(const std::uint8_t* tiles,
     world_map_valid_ = tiles != nullptr;
     if (!tiles || generation == world_map_generation_) return;
     surface_->update_texture(world_map_, 0, 0, 512, 1024, tiles);
+    world_tiles_.assign(tiles, tiles + 512 * 1024);
     world_map_generation_ = generation;
+}
+
+// The whole-map decode trusts the game's piece-to-tile table at 0x02010000,
+// and the pause menu reuses that memory one frame before it switches the
+// screen to mode 0 (logs/gpu_rewind_0058 frame 14, 2026-09-30): the pieces
+// still check out, the table does not, and the margins came out as
+// scrambled tiles that the menu then held. So compare the decode with what
+// the console itself shows, as world_row in the shader samples it.
+int FieldSceneRenderer::world_map_agreement(const FieldScene& scene,
+                                            int* compared) const {
+    if (compared) *compared = 0;
+    if (world_tiles_.size() != 512u * 1024u ||
+        vram_maps_.size() < 0x10000u) return -1;
+    int total = 0, same = 0;
+    for (int y = 4; y < 160; y += 8) {
+        if (!scene.row_affine_valid[y]) continue;
+        const std::uint8_t* io = scene.row_io_valid[y]
+            ? scene.row_io[y].data() : scene.io_bytes.data();
+        auto rd = [&](std::size_t at) {
+            return static_cast<int>(io[at] | (io[at + 1] << 8));
+        };
+        if ((rd(0x00) & 7) != 2) continue;
+        if (((rd(0x0E) >> 8) & 0x1F) != 8 || ((rd(0x0C) >> 8) & 0x1F) != 10)
+            continue;
+        for (int layer = 2; layer <= 3; ++layer) {
+            const int bgcnt = rd(0x08u + static_cast<std::size_t>(layer) * 2u);
+            if ((bgcnt & 0x2000) == 0) continue;   // the world rings wrap
+            const int side = 16 << ((bgcnt >> 14) & 3);  // map side in tiles
+            const std::size_t screen =
+                static_cast<std::size_t>((bgcnt >> 8) & 31) * 2048u;
+            const std::size_t param = 0x20u + (layer - 2) * 0x10u;
+            const int pa = static_cast<std::int16_t>(rd(param));
+            const int pc = static_cast<std::int16_t>(rd(param + 4u));
+            const int ref_x = scene.row_affine[y][(layer - 2) * 2];
+            const int ref_y = scene.row_affine[y][(layer - 2) * 2 + 1];
+            for (int x = 4; x < 240; x += 8) {
+                const int tx = (ref_x + pa * x) >> 8;
+                const int ty = (ref_y + pc * x) >> 8;
+                const std::size_t at = screen +
+                    static_cast<std::size_t>(((ty >> 3) & (side - 1)) * side +
+                                             ((tx >> 3) & (side - 1)));
+                if (at >= vram_maps_.size()) continue;
+                const std::size_t wt =
+                    static_cast<std::size_t>(((ty >> 3) & 511) +
+                                             (layer == 2 ? 512 : 0)) * 512u +
+                    static_cast<std::size_t>((tx >> 3) & 511);
+                ++total;
+                if (world_tiles_[wt] == vram_maps_[at]) ++same;
+            }
+        }
+    }
+    if (compared) *compared = total;
+    if (total < kRoomCheckMinTiles) return -1;
+    return (same * 100) / total;
 }
 
 void FieldSceneRenderer::upload_room_vram(const std::uint8_t* vram,
@@ -1601,8 +1833,17 @@ void FieldSceneRenderer::upload_room_vram(const std::uint8_t* vram,
 void FieldSceneRenderer::upload_palette(const std::uint16_t* palette,
                                         std::size_t entries) {
     if (!ready_ || !palette || entries == 0) return;
+    const int width =
+        static_cast<int>(std::min<std::size_t>(entries, kPaletteEntries));
+    surface_->update_texture(palette_, 0, 0, width, 1, palette);
+    surface_->update_texture(palette_, 0, 1, width, 1, palette);
+}
+
+void FieldSceneRenderer::upload_room_palette(const std::uint16_t* palette,
+                                             std::size_t entries) {
+    if (!ready_ || !palette || entries == 0) return;
     surface_->update_texture(
-        palette_, 0, 0,
+        palette_, 0, 1,
         static_cast<int>(std::min<std::size_t>(entries, kPaletteEntries)), 1,
         palette);
 }
@@ -1821,6 +2062,180 @@ void FieldSceneRenderer::analyse_effect_canvas(const std::uint8_t* vram,
     effect_text_canvas_ = at.text;
     effect_canvas_map_x_ = at.map_x;
     effect_canvas_map_y_ = at.map_y;
+    effect_scroll_x_ = layer.scroll_x;
+    effect_scroll_y_ = layer.scroll_y;
+    effect_size_code_ = layer.size_code;
+}
+
+// Canvas -> output pixels, for a text layer showing the canvas. Inverse of
+// what the background shader does in its text_canvas branch:
+//
+//   map_w  = (size_code & 1) ? 512 : 256 ; map_h likewise with bit 1
+//   sx0    = (canvas_map_x - (hofs & 0x1FF)) & (map_w - 1)   (same for y)
+//   sx0   -= map_w if sx0 >= 240 ; sy0 -= map_h if sy0 >= 160
+//   canvas_px = console_px - (sx0, sy0)
+//
+// so a canvas point sits at console_px = canvas + (sx0, sy0), where the
+// canvas's top-left map pixel (effect_canvas_map_x_/y_, found by
+// effect_canvas_layout) is scrolled by the layer's own HOFS/VOFS -- the
+// hardware rule for a regular layer. The shader then takes
+//   console_px = floor(v_screen + u_camera)
+// with v_screen the output pixel and u_camera = ((240 - output_w_) / 2,
+// (160 - output_h_) / 2) (draw()), so
+//   view = console_px - camera.
+// Limits: scroll is the frame-level SceneLayer value, while the shader reads
+// HOFS/VOFS per scanline; a layer whose scroll changes mid-frame would map
+// only approximately. The effect span remap (u_effect_span) is only applied
+// by the shader's affine branch, so it does not enter here.
+void FieldSceneRenderer::set_effect_hidden(bool hidden) {
+    effect_hidden_ = hidden;
+}
+
+bool FieldSceneRenderer::effect_canvas_to_view(int canvas_x, int canvas_y,
+                                               float* view_x,
+                                               float* view_y) const {
+    if (!ready_ || !effect_have_sparks_ || !effect_text_canvas_ ||
+        output_w_ <= 0 || output_h_ <= 0 || !view_x || !view_y)
+        return false;
+    const int map_w = (effect_size_code_ & 1u) ? 512 : 256;
+    const int map_h = (effect_size_code_ & 2u) ? 512 : 256;
+    int sx0 = (effect_canvas_map_x_ - (effect_scroll_x_ & 0x1FF)) & (map_w - 1);
+    int sy0 = (effect_canvas_map_y_ - (effect_scroll_y_ & 0x1FF)) & (map_h - 1);
+    if (sx0 >= 240) sx0 -= map_w;
+    if (sy0 >= 160) sy0 -= map_h;
+    const int camera_x = (240 - output_w_) / 2;
+    const int camera_y = (160 - output_h_) / 2;
+    *view_x = static_cast<float>(canvas_x + sx0 - camera_x);
+    *view_y = static_cast<float>(canvas_y + sy0 - camera_y);
+    return true;
+}
+
+namespace {
+
+const char* kSolidVertex =
+    "#version 130\n"
+    "in vec2 a_pos;\n"
+    "in vec2 a_uv;\n"
+    "in float a_depth;\n"
+    "in vec4 a_tint;\n"
+    "uniform mat4 u_transform;\n"
+    "out vec4 v_tint;\n"
+    "out vec2 v_uv;\n"
+    "void main() {\n"
+    "  v_tint = a_tint;\n"
+    "  v_uv = a_uv;\n"
+    "  gl_Position = u_transform * vec4(a_pos, a_depth, 1.0);\n"
+    "}\n";
+
+const char* kSolidFragment =
+    "#version 130\n"
+    "in vec4 v_tint;\n"
+    "in vec2 v_uv;\n"
+    "out vec4 o_colour;\n"
+    // v_uv runs 0..1 across the quad (GpuQuad's default source rectangle), so
+    // d is 0 at the centre and 1 at the edge. u_shape picks the profile:
+    //   0 soft glow: alpha falls smoothly to 0 at the edge (dust, grit, impact
+    //     flash). With u_core != 0 a near-white core also blends into the
+    //     tint colour; the burst leaves it off so colours stay earth-toned;
+    //   1 hard blob: mostly opaque, edge at 0.85 (dirt chunks; keep in step
+    //     with kBurstChunkQuadScale).
+    "uniform int u_shape;\n"
+    "uniform int u_core;\n"
+    "void main() {\n"
+    "  float d = length(v_uv * 2.0 - 1.0);\n"
+    "  if (d >= 1.0) discard;\n"
+    "  vec3 rgb = v_tint.rgb;\n"
+    "  float shape_a;\n"
+    "  if (u_shape == 1) {\n"
+    "    shape_a = 1.0 - smoothstep(0.72, 0.85, d);\n"
+    "  } else {\n"
+    "    shape_a = 1.0 - d;\n"
+    "    shape_a *= shape_a;\n"
+    "    if (u_core != 0) {\n"
+    "      float core = 1.0 - smoothstep(0.0, 0.4, d);\n"
+    "      rgb = mix(rgb, vec3(1.0), core * 0.7);\n"
+    "    }\n"
+    "  }\n"
+    "  o_colour = vec4(rgb, v_tint.a * shape_a);\n"
+    "}\n";
+
+}  // namespace
+
+// Draws the shake target back to the surface, offset and scaled about the
+// centre. gl_FragCoord is in GL orientation (y up), so the view's downward
+// offset is negated. The source coordinate is clamped; the scale keeps it
+// inside the picture anyway.
+static const char* kShakeBlitFragment =
+    "#version 130\n"
+    "uniform sampler2D u_tex;\n"
+    "uniform vec2 u_size;\n"
+    "uniform vec2 u_offset;\n"
+    "uniform float u_scale;\n"
+    "out vec4 o_colour;\n"
+    "void main() {\n"
+    "  vec2 c = u_size * 0.5;\n"
+    "  vec2 src = (gl_FragCoord.xy - c - u_offset) / u_scale + c;\n"
+    "  ivec2 i = ivec2(clamp(floor(src), vec2(0.0), u_size - 1.0));\n"
+    "  o_colour = texelFetch(u_tex, i, 0);\n"
+    "}\n";
+
+bool FieldSceneRenderer::ensure_solid() {
+    if (!ready_) return false;
+    if (!solid_ && !solid_failed_) {
+        char log[1024] = {};
+        solid_ = surface_->create_program(kSolidVertex, kSolidFragment, log,
+                                          sizeof log);
+        if (!solid_) {
+            solid_failed_ = true;
+            std::fprintf(stderr, "field_scene_renderer: burst shader: %s\n",
+                         log);
+        }
+    }
+    return solid_ != 0;
+}
+
+// Creates the shake program and a target the size of the output. Called
+// outside a frame (spawn_burst / set_charge); draw() shakes only if this
+// succeeded and the size still matches.
+bool FieldSceneRenderer::ensure_shake_target() {
+    if (!ready_ || shake_failed_ || output_w_ <= 0 || output_h_ <= 0)
+        return false;
+    if (!shake_blit_) {
+        char log[1024] = {};
+        shake_blit_ = surface_->create_program(kSolidVertex, kShakeBlitFragment,
+                                               log, sizeof log);
+        if (!shake_blit_) {
+            shake_failed_ = true;
+            std::fprintf(stderr, "field_scene_renderer: shake shader: %s\n",
+                         log);
+            return false;
+        }
+    }
+    if (!shake_target_ || shake_target_w_ != output_w_ ||
+        shake_target_h_ != output_h_) {
+        if (shake_target_) surface_->destroy_texture(shake_target_);
+        shake_target_ = surface_->create_texture(
+            output_w_, output_h_, gbarecomp::GpuTextureFormat::RGBA8, false);
+        shake_target_w_ = output_w_;
+        shake_target_h_ = output_h_;
+        if (!shake_target_) {
+            shake_failed_ = true;
+            return false;
+        }
+    }
+    return true;
+}
+
+void FieldSceneRenderer::spawn_burst(float view_x, float view_y) {
+    if (!ensure_solid()) return;
+    ensure_shake_target();
+    shake_.start();
+    burst_.spawn(view_x, view_y);
+}
+
+void FieldSceneRenderer::add_trail(float x0, float y0, float x1, float y1) {
+    if (!ensure_solid()) return;
+    trail_.add(x0, y0, x1, y1);
 }
 
 void FieldSceneRenderer::set_effect_renderer_enabled(bool enabled) {
@@ -1885,6 +2300,20 @@ bool FieldSceneRenderer::upload_room(const std::uint8_t* ewram,
 
     room_min_x_ = min_x; room_max_x_ = max_x;
     room_min_y_ = min_y; room_max_y_ = max_y;
+    // The words at 0x02030DC0 are the camera clamp's 16.16 MAX x and y
+    // (Func_10230 reads min x, min y, max x, max y at [0x03001E70] + 0xEC,
+    // 0xF0, 0xF4, 0xF8, and [0x03001E70] is 0x02030CCC in every capture), so
+    // the "min" halves above are fractions and always 0. The real minimums
+    // are the integer halves at 0x02030DBA and 0x02030DBE. Rooms whose map
+    // grid holds more than the player can ever scroll to have them above 0,
+    // and the strip between is filler (logs/gpu_frame_0099: min 64,48;
+    // _0100: 288,240; _0103: 16,32), which the margins drew as patterns.
+    {
+        const int clamp_min_x = ewram_u16(ewram, ewram_bytes, kClampMinXAddr);
+        const int clamp_min_y = ewram_u16(ewram, ewram_bytes, kClampMinYAddr);
+        if (clamp_min_x < room_max_x_ - 16) room_min_x_ = clamp_min_x;
+        if (clamp_min_y < room_max_y_ - 16) room_min_y_ = clamp_min_y;
+    }
     room_camera_x_ = static_cast<int>(ewram_u16(ewram, ewram_bytes, kCameraAddr + 2));
     room_camera_y_ = static_cast<int>(ewram_u16(ewram, ewram_bytes, kCameraAddr + 6));
 
@@ -1931,8 +2360,7 @@ bool FieldSceneRenderer::query_room_known(int screen_x, int screen_y,
     const int sub = (sty & 1) * 2 + (stx & 1);
     const std::uint16_t entry =
         room_atlas_[static_cast<std::size_t>(id) * 4u + static_cast<std::size_t>(sub)];
-    if (entry == kRoomUnavailableTile ||
-        (id == kRoomNoMapId && entry == kRoomNoMapTile)) {
+    if (entry == kRoomUnavailableTile || entry == kRoomNoMapTile) {
         return false;
     }
     return true;
@@ -2158,8 +2586,15 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
     surface_->set_uniform_int(background_, "u_top_record", 7);
     surface_->set_uniform_int(background_, "u_room_vram", 9);
     surface_->set_uniform_int(background_, "u_world_map", 10);
+    // Measured on gpu_rewind_0057/0058 and every single capture: 100% on
+    // each good world-map frame, 0% on the two pause-menu frames.
+    {
+        const int agree = world_map_agreement(scene, nullptr);
+        world_map_used_ = world_map_valid_ &&
+                          (agree < 0 || agree >= kRoomCheckMinAgreement);
+    }
     surface_->set_uniform_int(background_, "u_use_world",
-                              world_map_valid_ ? 1 : 0);
+                              world_map_used_ ? 1 : 0);
     surface_->set_uniform_int(background_, "u_palette_half", 0);
     // The native viewport starts at the console's own origin. A wider output
     // is centred on it, so the extra width appears on both sides.
@@ -2199,6 +2634,7 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
     surface_->set_uniform_int(window_, "u_obj_window_mask", 0);
     surface_->set_uniform_int(window_, "u_row_io", 1);
     surface_->set_uniform_vec2(window_, "u_camera", camera_x, camera_y);
+    surface_->set_uniform_int(window_, "u_reveal_full", reveal_full_ ? 1 : 0);
 
     const gbarecomp::GpuTexture textures2[4] = {
         vram_, palette_, window_control_, row_io_};
@@ -2242,6 +2678,55 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
             io[0] | (static_cast<unsigned>(io[1]) << 8);
         if ((dispcnt & 0x1000u) != 0u) objects_on = true;
         if ((dispcnt & 0x8000u) != 0u) obj_window_on = true;
+    }
+    // Draw order within a priority: OAM order (lower slot in front), except
+    // for a character's shadow that the console never shows. Every field
+    // shadow is a 16x8 8-bit sprite on tile 0, centred under its character
+    // (all 67 in logs/gpu_frame_0001..0109). On the console's screen the game
+    // always lists the character first (58 of 58); above the screen it
+    // sometimes lists the shadow first (5 of 9, gpu_frame_0108), which the
+    // console hides but the margins showed as shadows over the feet. Such a
+    // shadow, wholly outside the 240x160 window, draws just behind its own
+    // character; nothing on the console's screen changes order.
+    std::array<int, FieldScene::kObjects> object_rank{};
+    {
+        auto is_shadow = [&](const SceneObject& O) {
+            return O.present && !O.window && O.tile == 0 && O.palette < 0 &&
+                   O.width == 16 && O.height == 8;
+        };
+        auto box_w = [](const SceneObject& O) {
+            return O.affine && O.double_size ? O.width * 2 : O.width;
+        };
+        auto box_h = [](const SceneObject& O) {
+            return O.affine && O.double_size ? O.height * 2 : O.height;
+        };
+        std::array<int, FieldScene::kObjects> body_of{};
+        body_of.fill(-1);
+        for (int s = 0; s < FieldScene::kObjects; ++s) {
+            const SceneObject& S = scene.objects[s];
+            if (!is_shadow(S)) continue;
+            const int sw = box_w(S), sh = box_h(S);
+            if (S.x + sw > 0 && S.x < 240 && S.y + sh > 0 && S.y < 160)
+                continue;
+            for (int b = s + 1; b < FieldScene::kObjects; ++b) {
+                const SceneObject& B = scene.objects[b];
+                if (!B.present || B.window || is_shadow(B) ||
+                    B.priority != S.priority) continue;
+                const int dx = (2 * B.x + box_w(B)) - (2 * S.x + sw);
+                const int dy = S.y - B.y;
+                if (dx >= -2 && dx <= 2 && dy >= 0 && dy <= box_h(B)) {
+                    body_of[s] = b;
+                    break;
+                }
+            }
+        }
+        int rank = 0;
+        for (int b = 0; b < FieldScene::kObjects; ++b) {
+            if (body_of[b] >= 0) continue;
+            object_rank[b] = rank++;
+            for (int s = 0; s < b; ++s)
+                if (body_of[s] == b) object_rank[s] = rank++;
+        }
     }
     bool layer_wanted[4] = {false, false, false, false};
     for (int bg = 0; bg < 4; ++bg) {
@@ -2302,10 +2787,20 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         // Mode is the honest test: every measurement behind this path was
         // taken on mode 0 field frames (FACTS.md), battles are mode 1 and the
         // overworld mode 2.
-        const bool use_room =
+        bool use_room =
             room_source_enabled_ && room_valid_ && scene.video_mode == 0 &&
             bg != 0 && !L.affine;
+        // A layer whose room rule does not reproduce the console's own
+        // tiles inside the window would fill the margins with the wrong
+        // tiles (the patterned strips of logs/gpu_frame_0099/0100/0103):
+        // leave its margins black instead, the honest answer.
+        int region_x = -1, region_y = -1;
+        if (use_room && !room_region_for(scene, bg, &region_x, &region_y))
+            use_room = false;
         surface_->set_uniform_int(background_, "u_use_room", use_room ? 1 : 0);
+        surface_->set_uniform_vec2(background_, "u_room_region",
+                                   static_cast<float>(region_x),
+                                   static_cast<float>(region_y));
         int margin_mode = 0;
         if (battle_frame) {
             if (bg == static_cast<int>(gsr::battle::kBackdropLayer) ||
@@ -2332,17 +2827,27 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         // the game drew nothing, and the span remap stretches its canvas over
         // the view. The first adds artwork; the second magnifies it. Only the
         // first is wanted by default.
+        // Hiding the game's slash (set_effect_hidden) applies only to a canvas
+        // we have located (text block or wrapping affine); it also drops our
+        // own stamp overlay and fill, so nothing of the effect is left.
+        const bool hide_here = effect_hidden_ && effect_layer_ == bg &&
+                               effect_have_sparks_ &&
+                               (effect_text_canvas_ || effect_wrap_canvas_);
+        surface_->set_uniform_int(background_, "u_effect_hide",
+                                  !hide_here ? 0 : (effect_text_canvas_ ? 1 : 2));
         surface_->set_uniform_int(
             background_, "u_effect_extra",
-            (effect_layer_ == bg && effect_have_sparks_) ? 1 : 0);
+            (effect_layer_ == bg && effect_have_sparks_ && !hide_here) ? 1 : 0);
         surface_->set_uniform_int(
             background_, "u_effect_wrap_canvas",
-            (effect_layer_ == bg && effect_have_sparks_ && effect_wrap_canvas_)
+            (effect_layer_ == bg && effect_have_sparks_ && effect_wrap_canvas_ &&
+             !hide_here)
                 ? 1 : 0);
         surface_->set_uniform_int(background_, "u_effect_fill", effect_fill_);
         surface_->set_uniform_int(
             background_, "u_effect_text_canvas",
-            (effect_layer_ == bg && effect_have_sparks_ && effect_text_canvas_)
+            (effect_layer_ == bg && effect_have_sparks_ && effect_text_canvas_ &&
+             !hide_here)
                 ? 1 : 0);
         surface_->set_uniform_vec2(background_, "u_effect_canvas_map",
                                    static_cast<float>(effect_canvas_map_x_),
@@ -2372,7 +2877,7 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         // A mode-2 object never draws a visible pixel; it only shapes the
         // object window, which the mask pass below already used it for.
         if (!O.present || O.window) return;
-        const int key = O.priority * 256 + slot;
+        const int key = O.priority * 256 + object_rank[slot];
         surface_->set_uniform_int(object_, "u_key", key);
         surface_->set_uniform_int(object_, "u_semi_transparent",
                                   O.blended ? 1 : 0);
@@ -2387,8 +2892,18 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         // draw-call skip, because the quad is drawn at the object's real
         // position either way and a parked sprite could otherwise cross back
         // into the authentic window from outside it.
+        // A game window (menu, shop, dialogue) is open: its own sprites are
+        // priority 0 and the game hides unused ones just off the screen --
+        // the shop's arrow parked at x = -32, the icon row at y = 136 whose
+        // bottom 8 rows the console cuts (logs/gpu_frame_0092, _0098,
+        // 2026-09-30). Keep those inside the console's window. Field
+        // characters are priority 1-3, Psynergy sparks outside a window
+        // keep drawing into the margins, and battles (mode 1, whose party
+        // sprites hang below the screen) are left alone.
+        const bool menu_sprite =
+            menu_open_ && scene.video_mode == 0 && O.priority == 0;
         surface_->set_uniform_int(object_, "u_clip_native",
-                                  O.parked ? 1 : 0);
+                                  (O.parked || menu_sprite) ? 1 : 0);
         surface_->set_uniform_vec2(object_, "u_size",
                                    static_cast<float>(O.width),
                                    static_cast<float>(O.height));
@@ -2538,7 +3053,13 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
     // default 0, which could otherwise lose to pass 2's leftover depth buffer
     // at some pixels and leave them undrawn.
     surface_->set_depth_enabled(false);
-    surface_->bind_color_target(0);
+    // While the screen shakes the resolve output goes to a scratch target
+    // (its shader reads pass textures at gl_FragCoord, so moving its quad
+    // would not move the picture) and is drawn back offset and scaled.
+    const bool shaking = shake_.active() && shake_blit_ && shake_target_ &&
+                         shake_target_w_ == output_w_ &&
+                         shake_target_h_ == output_h_;
+    surface_->bind_color_target(shaking ? shake_target_ : 0);
     surface_->set_uniform_mat4(resolve_, "u_transform", transform);
     surface_->set_uniform_int(resolve_, "u_top", 0);
     surface_->set_uniform_int(resolve_, "u_second", 1);
@@ -2555,6 +3076,81 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
     full.w = static_cast<float>(output_w_);
     full.h = static_cast<float>(output_h_);
     surface_->draw_quads(resolve_, &full, 1, resolve_textures, 4);
+
+    // The shake, applied to the burst quads too: about the view centre,
+    // scaled just enough that the shifted picture still covers the view.
+    const float shake_scale =
+        shaking ? shake_.cover_scale(output_w_, output_h_) : 1.0f;
+    const float shake_dx = shaking ? shake_.dx() : 0.0f;
+    const float shake_dy = shaking ? shake_.dy() : 0.0f;
+    if (shaking) {
+        surface_->bind_color_target(0);
+        surface_->set_uniform_mat4(shake_blit_, "u_transform", transform);
+        surface_->set_uniform_int(shake_blit_, "u_tex", 0);
+        surface_->set_uniform_vec2(shake_blit_, "u_size",
+                                   static_cast<float>(output_w_),
+                                   static_cast<float>(output_h_));
+        surface_->set_uniform_vec2(shake_blit_, "u_offset", shake_dx, -shake_dy);
+        surface_->set_uniform_float(shake_blit_, "u_scale", shake_scale);
+        surface_->draw_quads(shake_blit_, &full, 1, &shake_target_, 1);
+    }
+
+    // The Earth Surge burst and the jump trail, over the finished picture.
+    // One simulation step per drawn frame.
+    if (solid_ && (burst_.alive() || trail_.alive())) {
+        std::vector<BurstQuad> burst_quads;
+        trail_.collect(&burst_quads);
+        burst_.collect(&burst_quads);
+        // One batch per kind, in draw order: dust (behind), dirt chunks,
+        // grit, flash. Everything is normally alpha blended (never additive)
+        // so the colours stay earth-toned over any background; only the
+        // shape differs per batch.
+        struct Batch {
+            BurstKind kind;
+            int shape;
+        };
+        const Batch batches[] = {
+            {BurstKind::Trail, 0},
+            {BurstKind::Dust, 0},
+            {BurstKind::Chunk, 1},
+            {BurstKind::Geyser, 1},
+            {BurstKind::Grit, 0},
+            {BurstKind::Flash, 0},
+        };
+        surface_->set_uniform_mat4(solid_, "u_transform", transform);
+        std::vector<gbarecomp::GpuQuad> quads;
+        for (const Batch& batch : batches) {
+            quads.clear();
+            for (const BurstQuad& b : burst_quads) {
+                if (b.kind != batch.kind) continue;
+                gbarecomp::GpuQuad q;
+                const float half_w = static_cast<float>(output_w_) * 0.5f;
+                const float half_h = static_cast<float>(output_h_) * 0.5f;
+                const float cx = (b.x - half_w) * shake_scale + half_w + shake_dx;
+                const float cy = (b.y - half_h) * shake_scale + half_h + shake_dy;
+                const float size = b.size * shake_scale;
+                q.x = cx - size * 0.5f;
+                q.y = cy - size * 0.5f;
+                q.w = size;
+                q.h = size;
+                q.tint[0] = b.r;
+                q.tint[1] = b.g;
+                q.tint[2] = b.b;
+                q.tint[3] = b.a;
+                quads.push_back(q);
+            }
+            if (quads.empty()) continue;
+            surface_->set_uniform_int(solid_, "u_shape", batch.shape);
+            surface_->set_uniform_int(solid_, "u_core", 0);
+            surface_->set_blend_mode(gbarecomp::GpuBlendMode::Alpha);
+            surface_->draw_quads(solid_, quads.data(), quads.size(), nullptr,
+                                 0);
+        }
+        surface_->set_blend_mode(gbarecomp::GpuBlendMode::Off);
+        burst_.step();
+        trail_.step();
+    }
+    shake_.step();
 
     surface_->end_frame();
     return true;

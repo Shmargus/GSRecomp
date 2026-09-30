@@ -8,6 +8,7 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
 
 namespace gbarecomp {
 
@@ -100,6 +101,14 @@ struct RunOptions {
                                std::uint32_t extra_right,
                                std::uint32_t extra_top,
                                std::uint32_t extra_bottom) = nullptr;
+
+    // Optional game-owned ROM patch. Called once after the ROM is loaded and
+    // its SHA-1 verified, before the bus sees it. It may change bytes and may
+    // GROW the vector (data appended past the original end is served at
+    // 0x08000000 + offset; keep the total within 16 MB). For data the game
+    // reads at run time only (tables, text), never code or literal pools,
+    // because the translated code has those built in.
+    void (*rom_patch)(std::vector<std::uint8_t>* rom) = nullptr;
 
     // ---- pre-boot launcher identity (launcher_seam.h, RECOMP_LAUNCHER builds) --
     // Consumed by the recomp-ui launcher seam a game's main() runs BEFORE

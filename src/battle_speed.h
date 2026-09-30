@@ -120,4 +120,28 @@ constexpr int kIndicatorY = 32;
 
 constexpr const char* kOptionsKey = "BattleSpeed=";
 
+// Field Psynergy speed-up (FACTS.md 2026-09-29, session 20260929_193801): a
+// field Psynergy cast is in progress on exactly the frames in which the game
+// entered Func_96f50 (Whirlwind, every frame) or Func_96c80 (Move, every
+// frame); neither ran outside casts. With the setting on Fast those frames
+// run at the same 2x as battle.
+constexpr std::uint32_t kFieldPsynergyEntryA = 0x08096F50u;
+constexpr std::uint32_t kFieldPsynergyEntryB = 0x08096C80u;
+
+// Reveal's range (ROM 0x080982DC, run every frame while Reveal is up; FACTS
+// 2026-09-30). With S = [0x03001EBC]: the cast spot is S+0xCBC (x) and
+// S+0xCBE (y), a countdown S+0xCBA. It forms dx*0xD105>>16 and dy from the
+// leader, compares dx*dx + dy*dy (r2) with 0xE10 (60 px squared) and, when
+// that is reached or the countdown is 0, loads 0x2090 at 0x08098370 and
+// stores it to S+0x17E, which ends Reveal. Better Field Psy doubles the
+// distance: the load then returns S+0x17E's own value (the store changes
+// nothing) while r2 is under 4 * 0xE10 and the countdown is not 0.
+constexpr std::uint32_t kRevealEndLiteralPc = 0x08098370u;
+constexpr std::uint32_t kRevealEndCommand = 0x00002090u;
+constexpr std::uint32_t kRevealStatePointer = 0x03001EBCu;
+constexpr std::uint32_t kRevealCountdownOffset = 0xCBAu;
+constexpr std::uint32_t kRevealCommandOffset = 0x17Eu;
+constexpr std::uint32_t kRevealRangeSquared = 0xE10u;
+constexpr std::uint32_t kRevealBetterRangeSquared = kRevealRangeSquared * 4u;
+
 }  // namespace gsr::battle_speed

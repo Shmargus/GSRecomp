@@ -17,6 +17,7 @@
 #include "host_config_ui.h"
 #include "host_overlay.h"
 #include "frame_timing.h"
+#include "host_prof_phase.h"
 #include "presentation_layout.h"
 #include "player_walk_run_speed_config.h"
 #include "temporal_blend.h"
@@ -111,6 +112,12 @@ enum HostHotkey {
     // menu); the run loop hands the press to RunOptions::game_menu_toggle.
     // Appended so existing [KeyMap] rows keep their meaning.
     HK_GAME_MENU,
+    // Auto Fire A / B: level-triggered like Turbo Held. While the binding is
+    // down the button is pressed and released on alternating frame pairs
+    // (~15 presses a second), read at the end of the KEYINPUT build in
+    // pump(). Appended so existing [KeyMap] rows keep their meaning.
+    HK_AUTOFIRE_A,
+    HK_AUTOFIRE_B,
     HK_COUNT
 };
 
@@ -624,17 +631,21 @@ const char* const kHotkeyNames[HK_COUNT] = {
     "Menu",
     "TurboToggle",
     "CheatMenu",
+    "AutoFireA",
+    "AutoFireB",
 };
 // UI display labels, same order as kHotkeyNames. Only Turbo (-> "Turbo
 // Held") and the new TurboToggle (-> "Turbo Toggle") differ from the
 // persisted key name.
 const char* const kHotkeyLabels[HK_COUNT] = {
-    "Fullscreen", "Pause", "Turbo Held",
-    "WindowBigger", "WindowSmaller",
-    "VolumeUp", "VolumeDown", "DisplayPerf",
-    "Menu",
-    "Turbo Toggle",
+    "Fullscreen", "Pause", "Fast Forward (hold)",
+    "Bigger Window", "Smaller Window",
+    "Volume Up", "Volume Down", "Show FPS",
+    "Settings Menu",
+    "Fast Forward (toggle)",
     "Cheat Menu",
+    "Auto Fire A",
+    "Auto Fire B",
 };
 const char* const kHotkeyDefaults[HK_COUNT] = {
     "Alt+Return", "Shift+P", "Tab",
@@ -652,6 +663,9 @@ const char* const kHotkeyDefaults[HK_COUNT] = {
     // F11 is the one function key nothing else claims (F1 menu, F2..F10
     // save-state slots, F12 the renderer's frame dump).
     "F11",
+    // Auto Fire ships unbound, like Turbo Toggle: the user picks the button.
+    "",
+    "",
 };
 
 // keybinds.ini [player1_pad] key name -> GBA KEYINPUT bit. Same key names as
@@ -718,6 +732,24 @@ bool hotkey_mods_ok(const HotkeyBind& hb, Uint16 state_mods) {
            want(KMOD_SHIFT) == held(KMOD_SHIFT);
 }
 
+// Level read of a hotkey binding: its key (with exactly its modifiers) or its
+// controller button is down right now. L2/R2 use the debounced trigger state
+// pump() maintains, since SDL never reports them as buttons (UI-02b).
+bool hotkey_held(const Backend* b, const HotkeyBind& hb, const Uint8* ks) {
+    if (hb.key != SDLK_UNKNOWN) {
+        const SDL_Scancode sc = SDL_GetScancodeFromKey(hb.key);
+        if (sc != SDL_SCANCODE_UNKNOWN && ks[sc] &&
+            hotkey_mods_ok(hb, SDL_GetModState()))
+            return true;
+    }
+    if (!b->pad) return false;
+    if (hb.pad_button == kPadTriggerLeft) return b->trigger_left_down;
+    if (hb.pad_button == kPadTriggerRight) return b->trigger_right_down;
+    return hb.pad_button >= 0 && hb.pad_button < SDL_CONTROLLER_BUTTON_MAX &&
+           SDL_GameControllerGetButton(
+               b->pad, static_cast<SDL_GameControllerButton>(hb.pad_button));
+}
+
 // Edge-triggered hotkey actions, shared by the keyboard (SDL_KEYDOWN) and
 // controller (SDL_CONTROLLERBUTTONDOWN) dispatch in pump() (UI-02: every
 // hotkey is bindable to either device through the same HotkeyBind table).
@@ -739,7 +771,7 @@ void fire_hotkey(int h, Backend* b, HostWindow::Events& ev) {
         // with repeat==0, or SDL_CONTROLLERBUTTONDOWN, both one-shot).
         case HK_TURBO_TOGGLE:   b->turbo_toggle_on = !b->turbo_toggle_on; break;
         case HK_GAME_MENU:      ev.game_menu = true;                     break;
-        default: break;  // HK_TURBO: level-triggered, handled elsewhere
+        default: break;  // HK_TURBO, HK_AUTOFIRE_*: level-triggered, read in pump()
     }
 }
 
@@ -1643,7 +1675,7 @@ void HostWindow::present(const uint8_t* rgb888) {
         b->fps_last = static_cast<float>(b->fps_presents / seconds);
         if (b->fps_readout) {
             char buf[192];
-            std::snprintf(buf, sizeof(buf), "%s â€” %.1f fps â€” %.0f%% speed",
+            std::snprintf(buf, sizeof(buf), "%s - %.0f fps - %.0f%% speed",
                           b->title.c_str(), b->fps_last,
                           b->cfg.emulation_speed_percent);
             SDL_SetWindowTitle(b->window, buf);
@@ -1755,17 +1787,17 @@ void HostWindow::load_input_config(const char* dir) {
     // has live (the GBARECOMP_CPU_OVERCLOCK env var default, or 1x if unset)
     // so a first-ever run with no config.ini keeps the env var as the
     // effective default; a saved CpuOverclock= value then overrides it.
-    // Off/On control: Off pins 1x, On pins the 10x ceiling. Backwards
+    // Off/On control: Off pins 1x, On pins the 50x ceiling. Backwards
     // compatibility with older config.ini files: the legacy "auto" value and
     // any numeric value greater than 1 (2/4/8 from the old multi-step combo)
-    // both map to On (10x). "1", missing, or malformed map to Off (1x).
+    // both map to On (50x). "1", missing, or malformed map to Off (1x).
     b->overclock_factor = runtime_get_overclock_factor();
     ini_scan_section((base + "config.ini").c_str(), "Enhancements",
                      [b](const char* key, const char* val) {
-        if (SDL_strcasecmp(key, "EnhancedTiming") == 0) {
-            b->cfg.enhanced_timing = SDL_strcasecmp(val, "true") == 0 ||
-                                     std::strcmp(val, "1") == 0;
-        } else if (SDL_strcasecmp(key, "CpuOverclock") == 0) {
+        // EnhancedTiming is no longer a user setting: exact 60 Hz timing is
+        // always on where the game allows it (see saved_enhanced_timing()),
+        // so an old saved "false" is deliberately ignored.
+        if (SDL_strcasecmp(key, "CpuOverclock") == 0) {
             if (SDL_strcasecmp(val, "auto") == 0) {
                 b->overclock_factor = kOverclockFactors[1];
             } else {
@@ -1797,7 +1829,7 @@ void HostWindow::load_input_config(const char* dir) {
         }
     });
     // Apply the resolved factor live and mirror it into the UI's combo index:
-    // 0 (Off/1x) unless the resolved factor is the 10x ceiling.
+    // 0 (Off/1x) unless the resolved factor is the 50x ceiling.
     runtime_set_overclock_factor(b->overclock_factor);
     b->cfg.overclock_index =
         (b->overclock_factor == kOverclockFactors[1]) ? 1 : 0;
@@ -1875,6 +1907,13 @@ void HostWindow::load_input_config(const char* dir) {
     gsr_set_additional_debug_logging(b->cfg.additional_debug_logging ? 1 : 0);
     b->cfg.debug_overlay_state.additional_debug_logging =
         b->cfg.additional_debug_logging;
+    ini_scan_section((base + "config.ini").c_str(), "Logging",
+                     [b](const char* key, const char* val) {
+        if (SDL_strcasecmp(key, "CrashLog") == 0)
+            b->cfg.crash_log =
+                SDL_strcasecmp(val, "true") == 0 || std::strcmp(val, "1") == 0;
+    });
+    runtime_set_crash_log(b->cfg.crash_log ? 1 : 0);
     // Developer Tools owns its UI preference in a small, independent
     // section. Missing values stay false for conservative first-run behavior.
     ini_scan_section((base + "config.ini").c_str(), "Debug",
@@ -1911,6 +1950,10 @@ void HostWindow::adjust_scale(int delta) {
     if (s > 8) s = 8;
     if (s == b->scale) return;
     b->scale = s;
+    // A maximized window ignores SDL_SetWindowSize; restore it first so the
+    // chosen size actually takes.
+    if (SDL_GetWindowFlags(b->window) & SDL_WINDOW_MAXIMIZED)
+        SDL_RestoreWindow(b->window);
     SDL_SetWindowSize(b->window, b->base_w * s, b->base_h * s);
     SDL_SetWindowPosition(b->window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 }
@@ -1984,8 +2027,10 @@ void HostWindow::set_enhanced_timing_enabled(bool on) {
 }
 
 bool HostWindow::saved_enhanced_timing() const {
-    if (!open_ || !impl_) return false;
-    return static_cast<const Backend*>(impl_)->cfg.enhanced_timing;
+    // Exact 60 Hz timing is always on where the game allows it; it is no
+    // longer a menu setting. GBARECOMP_ENHANCED_TIMING and strict/capture
+    // policy still decide first (see enhanced_timing_initial_requested).
+    return open_ && impl_;
 }
 
 void HostWindow::set_native_renderer_available(bool on) {
@@ -2643,7 +2688,8 @@ bool write_cheats_ini(const std::string& dir, bool infinite_hp,
 // Update only [Logging], preserving launcher settings and unknown sections.
 // Own section (not folded into [Enhancements]) — see load_input_config's
 // [Logging] read above and runtime_arm.h gsr_set_additional_debug_logging.
-bool write_logging_ini(const std::string& dir, bool additional_debug_logging) {
+bool write_logging_ini(const std::string& dir, bool additional_debug_logging,
+                       bool crash_log) {
     const std::string path = dir + "/config.ini";
     std::vector<std::string> lines;
     if (std::FILE* in = std::fopen(path.c_str(), "rb")) {
@@ -2657,43 +2703,11 @@ bool write_logging_ini(const std::string& dir, bool additional_debug_logging) {
         std::fclose(in);
     }
 
-    bool in_section = false;
-    bool seen_section = false;
-    bool written = false;
-    std::size_t section_end = 0;
-    for (std::size_t i = 0; i < lines.size(); ++i) {
-        std::string t = lines[i];
-        const std::size_t a = t.find_first_not_of(" \t");
-        if (a == std::string::npos) continue;
-        if (t[a] == '[') {
-            in_section = SDL_strncasecmp(t.c_str() + a, "[Logging]", 9) == 0;
-            if (in_section) { seen_section = true; section_end = i + 1; }
-            continue;
-        }
-        if (!in_section || t[a] == ';' || t[a] == '#') continue;
-        section_end = i + 1;
-        const std::size_t eq = t.find('=');
-        if (eq == std::string::npos) continue;
-        std::string key = t.substr(a, eq - a);
-        while (!key.empty() && (key.back() == ' ' || key.back() == '\t'))
-            key.pop_back();
-        if (SDL_strcasecmp(key.c_str(), "AdditionalDebugLogging") == 0) {
-            lines[i] = std::string("AdditionalDebugLogging=") +
-                       (additional_debug_logging ? "true" : "false");
-            written = true;
-        }
-    }
-
-    std::vector<std::string> add;
-    if (!seen_section) { add.push_back(""); add.push_back("[Logging]"); }
-    if (!written)
-        add.push_back(std::string("AdditionalDebugLogging=") +
-                      (additional_debug_logging ? "true" : "false"));
-    if (!add.empty()) {
-        const std::size_t at = seen_section ? section_end : lines.size();
-        lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(at),
-                     add.begin(), add.end());
-    }
+    static const char* const kNames[] = {"AdditionalDebugLogging",
+                                         "CrashLog"};
+    const std::string values[] = {additional_debug_logging ? "true" : "false",
+                                  crash_log ? "true" : "false"};
+    rewrite_ini_section(lines, "Logging", kNames, values, 2);
 
     std::FILE* out = std::fopen(path.c_str(), "wb");
     if (!out) return false;
@@ -2808,6 +2822,19 @@ HostWindow::Events HostWindow::pump() {
             b->cfg.hotkey_pad[h] = b->hotkeys[h].pad_button;
         }
     }
+    // Largest window scale that still fits the display the window is on, so
+    // the Window Size slider never offers a size the desktop cannot show.
+    {
+        int max_scale = 8;
+        SDL_Rect usable{};
+        const int display = SDL_GetWindowDisplayIndex(b->window);
+        if (display >= 0 && b->base_w > 0 && b->base_h > 0 &&
+            SDL_GetDisplayUsableBounds(display, &usable) == 0) {
+            max_scale = std::clamp(std::min(usable.w / b->base_w,
+                                            usable.h / b->base_h), 1, 8);
+        }
+        b->cfg.max_scale = std::max(max_scale, b->scale);
+    }
     if (!b->cfg.video_changed) {
         b->cfg.scale = b->scale;
         b->cfg.fullscreen = b->fullscreen;
@@ -2879,23 +2906,28 @@ HostWindow::Events HostWindow::pump() {
     for (;;) {
         const uint64_t poll_start = pump_timing ? host_pump_now_ns() : 0;
         int has_event = 0;
-        if (pump_timing) {
-            // SDL_PollEvent is SDL_PumpEvents followed by one
-            // SDL_PeepEvents call. Keep that ordering and call frequency,
-            // but expose the backend pump separately from queue dequeue for
-            // rare long empty polls. The uninstrumented path below remains
-            // the original SDL_PollEvent path.
-            const uint64_t backend_start = host_pump_now_ns();
-            SDL_PumpEvents();
-            const uint64_t backend_end = host_pump_now_ns();
-            const uint64_t peep_start = backend_end;
-            has_event = SDL_PeepEvents(&e, 1, SDL_GETEVENT,
-                                       SDL_FIRSTEVENT, SDL_LASTEVENT);
-            const uint64_t peep_end = host_pump_now_ns();
-            pump_sdl_pump_ns += backend_end - backend_start;
-            pump_sdl_peep_ns += peep_end - peep_start;
-        } else {
-            has_event = SDL_PollEvent(&e);
+        // Host profiler: SDL's own pump/dequeue, apart from our handling of
+        // the events it returns.
+        {
+            HostProfPhaseScope _hp_sdl(kHpSdlEvents);
+            if (pump_timing) {
+                // SDL_PollEvent is SDL_PumpEvents followed by one
+                // SDL_PeepEvents call. Keep that ordering and call frequency,
+                // but expose the backend pump separately from queue dequeue for
+                // rare long empty polls. The uninstrumented path below remains
+                // the original SDL_PollEvent path.
+                const uint64_t backend_start = host_pump_now_ns();
+                SDL_PumpEvents();
+                const uint64_t backend_end = host_pump_now_ns();
+                const uint64_t peep_start = backend_end;
+                has_event = SDL_PeepEvents(&e, 1, SDL_GETEVENT,
+                                           SDL_FIRSTEVENT, SDL_LASTEVENT);
+                const uint64_t peep_end = host_pump_now_ns();
+                pump_sdl_pump_ns += backend_end - backend_start;
+                pump_sdl_peep_ns += peep_end - peep_start;
+            } else {
+                has_event = SDL_PollEvent(&e);
+            }
         }
         if (pump_timing)
             pump_poll_ns += host_pump_now_ns() - poll_start;
@@ -3072,6 +3104,14 @@ HostWindow::Events HostWindow::pump() {
                     keys &= static_cast<uint16_t>(~(1u << bit));
             }
         }
+        // Auto Fire: two frames pressed, two released, so the game sees a
+        // fresh press every fourth frame. Keyed to the guest frame so the
+        // rhythm does not change with the paused/idle pump rate.
+        const bool fire_phase = ((b->cfg.guest_frame >> 1) & 1u) == 0;
+        if (fire_phase && hotkey_held(b, b->hotkeys[HK_AUTOFIRE_A], ks))
+            keys &= static_cast<uint16_t>(~(1u << 0));
+        if (fire_phase && hotkey_held(b, b->hotkeys[HK_AUTOFIRE_B], ks))
+            keys &= static_cast<uint16_t>(~(1u << 1));
     }
     ev.keyinput = keys;
 
@@ -3202,8 +3242,8 @@ HostWindow::Events HostWindow::pump() {
         }
         if (const int requested = runtime_take_no_slowdown_request();
             requested >= 0) {
-            b->cfg.enhanced_timing =
-                requested != 0 && b->cfg.enhanced_timing_available;
+            // No Slowdown (in-game menu) owns only the CPU overclock. Exact
+            // 60 Hz timing stays on regardless.
             b->cfg.overclock_index = requested != 0 ? 1 : 0;
             b->cfg.enhancements_changed = true;
         }
@@ -3254,7 +3294,6 @@ HostWindow::Events HostWindow::pump() {
         }
         runtime_publish_view_mode(b->fixed_view_mode);
         runtime_publish_no_slowdown(
-            b->cfg.enhanced_timing_available && b->cfg.enhanced_timing &&
             b->overclock_factor == kOverclockFactors[1]);
         if (b->cfg.layers_changed) {
             // Applied live immediately, like logging_changed below. Render-
@@ -3295,8 +3334,10 @@ HostWindow::Events HostWindow::pump() {
                 b->cfg.additional_debug_logging ? 1 : 0);
             b->cfg.debug_overlay_state.additional_debug_logging =
                 b->cfg.additional_debug_logging;
+            runtime_set_crash_log(b->cfg.crash_log ? 1 : 0);
             if (!write_logging_ini(b->config_dir,
-                                   b->cfg.additional_debug_logging)) {
+                                   b->cfg.additional_debug_logging,
+                                   b->cfg.crash_log)) {
                 std::fprintf(stderr,
                              "host_window: could not write %s/config.ini\n",
                              b->config_dir.c_str());
@@ -3334,31 +3375,7 @@ HostWindow::Events HostWindow::pump() {
         b->cfg.frame_interpolation_available && b->cfg.frame_interpolation_2x;
     ev.enhanced_timing =
         b->cfg.enhanced_timing_available && b->cfg.enhanced_timing;
-    bool turbo_held = false;
-    {
-        const HotkeyBind& hb = b->hotkeys[HK_TURBO];
-        if (hb.key != SDLK_UNKNOWN) {
-            SDL_Scancode sc = SDL_GetScancodeFromKey(hb.key);
-            if (sc != SDL_SCANCODE_UNKNOWN && ks[sc] &&
-                hotkey_mods_ok(hb, SDL_GetModState()))
-                turbo_held = true;
-        }
-        // UI-02b: Turbo Held stays level-triggered when bound to L2/R2 too —
-        // read the debounced state the event loop above maintains, rather
-        // than polling SDL_GameControllerGetButton (which only knows real
-        // buttons and would be undefined for a synthetic id).
-        if (!turbo_held && b->pad && hb.pad_button == kPadTriggerLeft &&
-            b->trigger_left_down)
-            turbo_held = true;
-        if (!turbo_held && b->pad && hb.pad_button == kPadTriggerRight &&
-            b->trigger_right_down)
-            turbo_held = true;
-        if (!turbo_held && b->pad && hb.pad_button >= 0 &&
-            hb.pad_button < SDL_CONTROLLER_BUTTON_MAX &&
-            SDL_GameControllerGetButton(
-                b->pad, static_cast<SDL_GameControllerButton>(hb.pad_button)))
-            turbo_held = true;
-    }
+    const bool turbo_held = hotkey_held(b, b->hotkeys[HK_TURBO], ks);
     ev.fast_forward = turbo_held || b->turbo_toggle_on;
     if (pump_timing) {
         const uint64_t end = host_pump_now_ns();

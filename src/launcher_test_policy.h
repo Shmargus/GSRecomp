@@ -27,6 +27,7 @@ struct LauncherTestDefaults {
     bool swi_log = false;
     bool bios_pc_log = false;
     bool with_bios = false;
+    bool mod_field_test = false;
 };
 
 constexpr LauncherTestDefaults launcher_test_defaults() {

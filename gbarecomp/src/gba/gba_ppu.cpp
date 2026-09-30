@@ -636,11 +636,21 @@ void render_scanline_internal(uint8_t* rgb,
         if (y2 > kScreenHeight || y1 > y2) y2 = kScreenHeight;
         return y >= y1 && y < y2;
     };
-    // x within WINnH [X1,X2)? GBATEK: X2>width or X1>X2 → X2=width.
+    // x within WINnH? mGBA's rule (video-software.c, GBA_REG_WIN0H and
+    // _breakWindow), not GBATEK's "X1>X2 -> X2=width": X1 past the screen
+    // and past X2 reads as 0; X2 past the screen clamps to it; X1 > X2 then
+    // wraps, [X1,width) plus [0,X2). Golden Sun's Boreas summon writes
+    // WIN0H 0xFFF1 meaning the full width; GBATEK's rule made it empty and
+    // the summon's sky black (logs/gpu_frame_0113.bin, 2026-09-30).
     auto win_h_in = [&](uint32_t hreg, uint32_t x) -> bool {
         uint32_t h  = static_cast<uint32_t>(io[hreg] | (io[hreg + 1] << 8));
         uint32_t x1 = (h >> 8) & 0xFFu, x2 = h & 0xFFu;
-        if (x2 > kScreenWidth || x1 > x2) x2 = kScreenWidth;
+        if (x1 > kScreenWidth && x1 > x2) x1 = 0;
+        if (x2 > kScreenWidth) {
+            x2 = kScreenWidth;
+            if (x1 > kScreenWidth) x1 = kScreenWidth;
+        }
+        if (x1 > x2) return x >= x1 || x < x2;
         return x >= x1 && x < x2;
     };
     const bool win0_row = win0_en && win_v_row(0x44);
@@ -1220,10 +1230,17 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
     auto win_v_row = [&](uint32_t vreg) -> bool {
         return win_v_row_at(vreg, logical_y);
     };
+    // Same mGBA horizontal rule as render_scanline_internal's win_h_in.
     auto win_h_in = [&](uint32_t hreg, int hx) -> bool {
         uint32_t h = static_cast<uint32_t>(io[hreg] | (io[hreg + 1] << 8));
         uint32_t x1 = (h >> 8) & 0xFFu, x2 = h & 0xFFu;
-        if (x2 > kVanW || x1 > x2) x2 = kVanW;
+        if (x1 > kVanW && x1 > x2) x1 = 0;
+        if (x2 > kVanW) {
+            x2 = kVanW;
+            if (x1 > kVanW) x1 = kVanW;
+        }
+        if (x1 > x2)
+            return hx >= static_cast<int>(x1) || hx < static_cast<int>(x2);
         return hx >= static_cast<int>(x1) && hx < static_cast<int>(x2);
     };
     const bool win0_row = win0_en && win_v_row(0x44);

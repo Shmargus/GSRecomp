@@ -25,6 +25,7 @@ extern "C" unsigned int g_ram_code_page_mask_iwram;
 extern "C" unsigned int g_ram_code_page_epoch_ewram[64];
 extern "C" unsigned int g_ram_code_page_epoch_iwram[8];
 extern "C" void runtime_note_ram_code_write(uint32_t addr, uint32_t width);
+extern "C" void runtime_unpacker_slot_note_cpu(uint32_t addr, uint32_t width);
 extern "C" void runtime_note_ram_image_bus_write(uint32_t addr,
                                                    uint32_t width);
 extern "C" void runtime_ram_code_dirty_reset(void);
@@ -122,6 +123,9 @@ static bool ram_code_write_affects_bus(uint32_t addr, uint32_t width) {
 }
 
 static inline void note_ram_code_write_bus(uint32_t addr, uint32_t width) {
+    // Unpacker-slot journal: always on, not gated by the RAM-code page mask.
+    if ((addr >> 24) == 0x03u && (addr & 0x7FFFu) - 0x2000u < 0x2C4u)
+        runtime_unpacker_slot_note_cpu(addr, width);
     if (!ram_code_write_affects_bus(addr, width)) return;
     runtime_note_ram_code_write(addr, width);
     ++g_ram_write_epoch;

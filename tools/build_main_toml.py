@@ -96,6 +96,7 @@ REVIEWED_THUMB_LITERAL_OVERRIDES = (
     (0x0801D7CA, "Settings loop: repeat-keys word 0x03001B04 (settings page two)"),
     (0x0808AF84, "Encounter step: base 0x02000240 of the counter 0x02000478"),
     (0x08003318, "Frame wait: VBlank flag clear mask 0xFFFE (battle speed-up)"),
+    (0x08098370, "Reveal range check: end command 0x2090 (Better Field Psy)"),
 )
 
 # ROM functions that strict-static execution has shown to take an asynchronous

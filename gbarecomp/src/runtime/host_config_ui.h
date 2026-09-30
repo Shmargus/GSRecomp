@@ -24,10 +24,11 @@ namespace gbarecomp {
 
 // CPU Overclock combo values (TURBO-B2-UI), shared by host_config_ui.cpp
 // (draws the combo) and host_window.cpp (persists + applies the factor).
-// Index -> factor: 0=Off(1x) 1=On(10x ceiling). A pinned factor is already a
+// Index -> factor: 0=Off(1x) 1=On(50x ceiling; 10x until 2026-09-30, raised
+// at Jimmy's request). A pinned factor is already a
 // ceiling: the game gets up to this many GBA cycles per frame and HALTs once
 // its frame's work is done, so it never spends more than it needs.
-inline constexpr unsigned kOverclockFactors[2] = {1, 10};
+inline constexpr unsigned kOverclockFactors[2] = {1, 50};
 inline constexpr int kOverclockItemCount = 2;
 
 // UI-02b: synthetic "pad button" ids for the L2/R2 analog triggers, stored in
@@ -89,6 +90,7 @@ struct ConfigUiState {
 
     // --- video --------------------------------------------------------------
     int   scale = 3;                // integer window scale
+    int   max_scale = 8;            // largest scale that fits the display
     bool  fullscreen = false;
     bool  vsync = true;
     bool  linear_filter = false;    // off = crisp nearest-neighbour
@@ -124,7 +126,7 @@ struct ConfigUiState {
     // the old bool Widescreen surface.
     bool  widescreen_available = false;
     bool  widescreen = false;
-    int   overclock_index = 0;       // 0=Off(1x) 1=On(10x), see kOverclockFactors
+    int   overclock_index = 0;       // 0=Off(1x) 1=On(50x), see kOverclockFactors
     // VFX-FLICKER-02/03: temporal frame blend ("LCD ghosting"). 0=Off,
     // 1..3=Flicker only (selective) Light/Medium/Strong, 4..6=Whole frame
     // Light/Medium/Strong — see kTemporalBlendItemCount and
@@ -153,6 +155,10 @@ struct ConfigUiState {
     // etc. stay on regardless). Off by default. See runtime_arm.h
     // gsr_set_additional_debug_logging / gsr_additional_debug_logging.
     bool  additional_debug_logging = false;
+    // Enhancements > Troubleshooting: record the game's last instructions
+    // for crash and freeze reports (runtime_set_crash_log). Saved in
+    // [Logging] as CrashLog; off by default because it costs speed.
+    bool  crash_log = false;
     bool  debug_overlay = false;
     DebugOverlayState debug_overlay_state{};
 

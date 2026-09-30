@@ -17,6 +17,9 @@
 
 extern "C" void runtime_ram_image_dma_begin(void);
 extern "C" void runtime_ram_image_dma_end(void);
+extern "C" int runtime_unpacker_slot_dma_begin(uint32_t dst_lo, uint32_t bytes);
+extern "C" void runtime_unpacker_slot_dma_end(uint32_t dst, uint32_t src,
+                                              uint32_t bytes);
 
 // Always-on MMIO write-trace ring (Axis 4). File-local statics mirroring the
 // runtime_arm.cpp ring style; lazily allocated on the first write. The cycle and
@@ -78,6 +81,24 @@ bool dma_destination_overlaps_image(uint32_t dest, uint32_t step,
     }
     return first < kMeasuredRamImageEnd &&
            last_exclusive > kMeasuredRamImageStart;
+}
+
+// Unpacker-slot journal entry point: returns true (and tells the journal a DMA
+// is in flight) when the destination of this block overlaps 0x03002000..
+// 0x030022C4. The caller pairs it with runtime_unpacker_slot_dma_end().
+bool unpacker_slot_dma_begin(uint32_t dest, uint32_t step,
+                             uint32_t word_count, uint32_t dest_ctrl) {
+    const uint64_t span = static_cast<uint64_t>(step) * word_count;
+    uint64_t first = dest;
+    uint64_t len = span;
+    if (dest_ctrl == 1u) {  // decrement
+        const uint64_t last_exclusive = static_cast<uint64_t>(dest) + step;
+        first = last_exclusive > span ? last_exclusive - span : 0u;
+    } else if (dest_ctrl == 2u) {  // fixed
+        len = step;
+    }
+    return runtime_unpacker_slot_dma_begin(static_cast<uint32_t>(first),
+                                           static_cast<uint32_t>(len)) != 0;
 }
 }  // namespace
 
@@ -309,6 +330,8 @@ void GbaIo::run_immediate_dma(int channel) {
     vram_trace::trace_dma(io_.data(), channel, runtime_current_pc(), sad, dad,
                           transfer_size, cnt_h, 0);
     vram_trace::begin_dma();
+    const bool unpacker_slot_transfer =
+        unpacker_slot_dma_begin(dad, step, word_count, dest_ctrl);
     const bool measured_image_transfer =
         g_runtime_ram_image_dma_probe != nullptr &&
         dma_destination_overlaps_image(dad, step, word_count, dest_ctrl);
@@ -334,6 +357,8 @@ void GbaIo::run_immediate_dma(int channel) {
         step_addr(s, src_ctrl);
         step_addr(d, dest_ctrl);
     }
+    if (unpacker_slot_transfer)
+        runtime_unpacker_slot_dma_end(dad, sad, transfer_size);
     vram_trace::trace_oam_dma(
         bus_, channel, runtime_current_pc(), sad, dad, transfer_size, cnt_h, 0);
     if (measured_image_transfer) {
@@ -401,6 +426,8 @@ void GbaIo::run_timed_dma(int start_mode) {
                               dma_source_start, dma_dest_start,
                               word_count * step, cnt_h, start_mode);
         vram_trace::begin_dma();
+        const bool unpacker_slot_transfer =
+            unpacker_slot_dma_begin(d, step, word_count, dest_ctrl);
         const bool measured_image_transfer =
             g_runtime_ram_image_dma_probe != nullptr &&
             dma_destination_overlaps_image(d, step, word_count, dest_ctrl);
@@ -458,6 +485,9 @@ void GbaIo::run_timed_dma(int start_mode) {
             if (dest_ctrl == 0 || dest_ctrl == 3) d += step;
             else if (dest_ctrl == 1) d -= step;
         }
+        if (unpacker_slot_transfer)
+            runtime_unpacker_slot_dma_end(dma_dest_start, dma_source_start,
+                                          word_count * step);
         vram_trace::trace_oam_dma(
             bus_, channel, runtime_current_pc(), dma_source_start,
             dma_dest_start, word_count * step, cnt_h, start_mode);

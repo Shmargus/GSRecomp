@@ -52,6 +52,7 @@ extern "C" unsigned long long g_cost_irq_handler_calls;
 #include "turbo_audio_service_gate.h"
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
+#include "host_prof_phase.h"
 #include "self_heal.h"
 #include "overlay_loader.h"
 #include "sha1.h"
@@ -90,6 +91,9 @@ extern "C" unsigned long long g_runtime_irq_entries;
 // IRQ handler. The callback must not pump input/savestates or unwind there.
 extern "C" uint32_t g_runtime_frame_present_in_irq;
 extern "C" uint32_t g_runtime_frame_pace_pending;
+// Yield unwind hides the resume PC in R15 (runtime_arm.cpp); the loop restores
+// it right after runtime_dispatch returns.
+extern "C" void runtime_yield_restore_pc(void);
 
 // Present-in-place hook setter (defined in runtime_bus_bridge.cpp). Registering
 // a hook makes the per-VBlank frame-present yield present + resume in place
@@ -900,6 +904,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     gba::g_ws_ewram_write_observer = nullptr;
     g_runtime_fast_ewram_write_observer = nullptr;
     g_runtime_fast_iwram_write_observer = nullptr;
+    for (auto& word : g_runtime_fast_iwram_watch) word = 0u;
     // vram_trace owns these callback slots separately from the runtime hook
     // globals; clear them too before a reused-process faithful run.
     gba::vram_trace::set_dma_descriptor_observer(nullptr);
@@ -1315,6 +1320,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                      "[audio] native output forced OFF by strict-static acceptance\n");
     }
     bus.request_native_audio(native_audio_requested);
+    if (opts.rom_patch) opts.rom_patch(&rom);
     bus.set_rom(rom.data(), rom.size());
     if (header.save_type == gba::SaveType::SRAM) {
         std::size_t sram_bytes = args.save_size ? args.save_size : (32 * 1024);
@@ -1846,6 +1852,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
             const auto _halt_t0 = cost_probe_on
                 ? std::chrono::steady_clock::now()
                 : std::chrono::steady_clock::time_point{};
+            gbarecomp::HostProfPhaseScope _hp_halt(gbarecomp::kHpHaltPump);
             uint64_t _halt_iters = 0;
             uint32_t idle_budget = gba::GbaPpu::kCyclesPerFrame;
             while (bus.io().halted() && idle_budget != 0) {
@@ -1877,6 +1884,8 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                 (g_cpu.cpsr & CPSR_T_BIT) != 0 ? 1u : 0u;
             const auto _t0 = std::chrono::steady_clock::now();
             runtime_dispatch(g_cpu.R[15]);
+            runtime_flush_deferred();
+            runtime_yield_restore_pc();
             const std::uint64_t dispatch_elapsed_ns = static_cast<std::uint64_t>(
                 std::chrono::duration_cast<std::chrono::nanoseconds>(
                     std::chrono::steady_clock::now() - _t0).count());
@@ -1889,6 +1898,8 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                 dispatch_elapsed_ns);
         } else {
             runtime_dispatch(g_cpu.R[15]);
+            runtime_flush_deferred();
+            runtime_yield_restore_pc();
         }
         // A top-level generated body may return here for host scheduling
         // without taking the guest return path. Let transient-RAM bookkeeping
@@ -2359,6 +2370,10 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         uint32_t pump_event_max_subtype = 0;
         uint32_t pacer_us = 0;
         uint32_t compile_us = 0;  // overlay game-thread compile this frame
+        // Cost probe only: emulated cycles advanced, and calls to the
+        // per-instruction helpers (CostBk in host_prof_phase.h).
+        uint64_t guest_cycles = 0;
+        uint32_t bk[kBkCount] = {};
     };
     struct FramePhaseRing {
         enum : int { kSize = 16384 };  // local class: no static data members
@@ -2377,6 +2392,8 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         unsigned long long prev_halt_pump_iters = 0;
         unsigned long long prev_pump_idle_ns = 0;
         unsigned long long prev_pump_idle_calls = 0;
+        unsigned long long prev_cycles = 0;
+        unsigned long long prev_bk[kBkCount] = {};
         static uint64_t now_ns() {
             return static_cast<uint64_t>(
                 std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -2450,6 +2467,13 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                 prev_halt_pump_iters = g_cost_halt_iters;
                 prev_pump_idle_ns = g_cost_pump_idle_ns;
                 prev_pump_idle_calls = g_cost_pump_idle_calls;
+                for (int i = 0; i < kBkCount; ++i) {
+                    s.bk[i] = bounded_count(
+                        counter_delta(g_cost_bk[i], prev_bk[i]));
+                    prev_bk[i] = g_cost_bk[i];
+                }
+                s.guest_cycles = counter_delta(g_runtime_cycles, prev_cycles);
+                prev_cycles = g_runtime_cycles;
             }
             const uint32_t render_and_pre_pacer_us = us(t0, t1);
             s.render_us = render_and_pre_pacer_us > pre_pacer_us
@@ -2478,6 +2502,8 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                 (cc - prev_compile_ns) / 1000ull);
             prev_compile_ns = cc;
             prev_exit_ns = t5;
+            // Host profiler: samples after this point belong to the next row.
+            gbarecomp::host_prof_note_row_recorded(frame);
             ring[total % kSize] = s;
             ++total;
             dispatch.reset();
@@ -2502,14 +2528,17 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                             "pump_sdl_peep_us,pump_dispatch_us,"
                             "pump_event_max_us,pump_event_max_type,"
                             "pump_event_max_subtype,"
-                            "pacer_us,compile_us\n");
+                            "pacer_us,compile_us,guest_cycles");
+            for (int i = 0; i < kBkCount; ++i)
+                std::fprintf(f, ",n_%s", kCostBkNames[i]);
+            std::fputc('\n', f);
             const uint64_t n = std::min<uint64_t>(total, kSize);
             for (uint64_t i = 0; i < n; ++i) {
                 const FramePhaseSample& s = ring[(total - n + i) % kSize];
                 std::fprintf(f, "%llu,%u,%u,%u,%u,%08X,%s,%08X,%s,"
                                 "%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,"
                                 "%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,"
-                                "%u,%u,%u,%u,%u,%u,%u,%u\n",
+                                "%u,%u,%u,%u,%u,%u,%u,%u",
                     static_cast<unsigned long long>(s.frame), s.guest_us,
                     s.dispatch_count, s.dispatch_total_us,
                     s.dispatch_max_us, s.dispatch_max_start_pc,
@@ -2528,6 +2557,11 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                     s.pump_dispatch_us, s.pump_event_max_us,
                     s.pump_event_max_type, s.pump_event_max_subtype,
                     s.pacer_us, s.compile_us);
+                std::fprintf(f, ",%llu",
+                             static_cast<unsigned long long>(s.guest_cycles));
+                for (int j = 0; j < kBkCount; ++j)
+                    std::fprintf(f, ",%u", s.bk[j]);
+                std::fputc('\n', f);
             }
             std::fclose(f);
             std::fprintf(stderr, "[frame-phase] dumped %llu frames -> %s\n",
@@ -2941,6 +2975,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
 
     auto pump_host_input = [&]() {
         if (!args.window) return;
+        gbarecomp::HostProfPhaseScope _hp_pump(gbarecomp::kHpPump);
         auto ev = win.pump();
         // Game-owned menu (RunOptions): the hotkey first, so this pump's
         // keys already see the menu's new state, then the key filter, so
@@ -3249,12 +3284,18 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                                bus.io().raw(), bus.vram_ptr(), bus.oam_ptr(),
                                bus.pal_ptr());
                 }
-                win.present(live_fb.data());
+                {
+                    gbarecomp::HostProfPhaseScope _hp_present(gbarecomp::kHpPresent);
+                    win.present(live_fb.data());
+                }
                 return false;
             }
             ++native_scene_verified_frames;
-            win.present_native(native_scene_fb.data(),
-                               native_width, native_height);
+            {
+                gbarecomp::HostProfPhaseScope _hp_present(gbarecomp::kHpPresent);
+                win.present_native(native_scene_fb.data(),
+                                   native_width, native_height);
+            }
             return false;
         }
         if (ppu.has_latched_framebuffer() && !view_changed) {
@@ -3285,7 +3326,10 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
             // beyond the check itself.
             gbarecomp::invoke_frame_present_override_hook(
                 live_fb.data(), ppu.render_width(), ppu.render_height());
-            win.present(live_fb.data());
+            {
+                gbarecomp::HostProfPhaseScope _hp_present(gbarecomp::kHpPresent);
+                win.present(live_fb.data());
+            }
             return false;
         }
 
@@ -3348,7 +3392,10 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                     reason.c_str(), reason_count, interpolation_degraded_frames);
             }
         }
-        win.present(interpolation_fb.data());
+        {
+            gbarecomp::HostProfPhaseScope _hp_present(gbarecomp::kHpPresent);
+            win.present(interpolation_fb.data());
+        }
         return true;
     };
 
@@ -3360,7 +3407,10 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                 interpolation_pacer->wait_for_next_frame();
                 gbarecomp::host_prof_end_idle();
             }
-            win.present(live_fb.data());
+            {
+                gbarecomp::HostProfPhaseScope _hp_present(gbarecomp::kHpPresent);
+                win.present(live_fb.data());
+            }
             if (pace && interpolation_pacer) {
                 gbarecomp::host_prof_begin_idle();
                 interpolation_pacer->wait_for_next_frame();
@@ -3377,6 +3427,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     // decoupled Turbo render wall-clock MP2K output; canonical samples still
     // run as the verification oracle and immediate fallback.
     auto service_audio = [&](bool already_claimed = false) {
+        gbarecomp::HostProfPhaseScope _hp_audio(gbarecomp::kHpAudio);
         if (turbo_audio_boundary_requested && !already_claimed &&
             !audio_service_gate.claim(ppu.frame_count(),
                                       audio_boundary_generation))
@@ -3551,6 +3602,9 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
             const bool in_irq = g_runtime_frame_present_in_irq != 0u;
             uint64_t frame = ppu.frame_count();
             if (frame != last_presented_frame) {
+                // Residual present-block work (view sync, latched copy, fresh
+                // render); the calls below mark their own phases.
+                gbarecomp::HostProfPhaseScope _hp_render(gbarecomp::kHpRender);
                 gbarecomp::overlay_note_frame(frame);
                 // Report every emulated guest frame, even when Turbo's
                 // presentation decimator skips its visible frame.
@@ -3989,6 +4043,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
             }
             uint64_t frame = ppu.frame_count();
             if (frame != last_presented_frame) {
+                gbarecomp::HostProfPhaseScope _hp_render(gbarecomp::kHpRender);
                 gbarecomp::overlay_note_frame(frame);
                 // Report every emulated guest frame, even when Turbo's
                 // presentation decimator skips its visible frame.

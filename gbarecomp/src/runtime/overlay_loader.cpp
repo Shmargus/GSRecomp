@@ -24,6 +24,7 @@
 #include "hot_queue_policy.h"
 #include "runtime_arm.h"          // g_cpu, g_runtime_*, every runtime/bus/arm fn
 #include "runtime_bus_bridge.h"   // active_bus
+#include "host_prof_phase.h"      // host profiler phase marker
 #include "../gba/gba_bus.h"       // rom_ptr / rom_size / iwram_ptr / ewram_ptr
 #include "../gba/gba_bios.h"      // GbaBios snapshot
 #include "../gba/crc32.h"         // gba::crc32
@@ -1975,6 +1976,8 @@ void overlay_drain_ready() {
 
 void (*overlay_wait_resolve(uint32_t pc, bool thumb,
                             uint32_t timeout_ms))(void) {
+    // The game thread blocking on the compile worker: host profiler phase.
+    gbarecomp::HostProfPhaseScope _hp_wait(gbarecomp::kHpCompileWait);
     const auto deadline = std::chrono::steady_clock::now() +
         std::chrono::milliseconds(timeout_ms);
     for (;;) {

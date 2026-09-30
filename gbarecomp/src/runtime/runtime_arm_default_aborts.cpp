@@ -51,6 +51,7 @@
 #include <vector>
 
 extern "C" bool g_cost_probe_enabled(void);
+extern "C" void runtime_yield_restore_pc(void);
 extern "C" unsigned long long g_cost_mp2k_hook_checks;
 extern "C" unsigned long long g_cost_mp2k_hook_matches;
 extern "C" unsigned long long g_cost_mp2k_hook_deep_calls;
@@ -627,6 +628,8 @@ extern "C" void runtime_mutable_ram_code_miss(uint32_t entry_pc, int thumb) {
     runtime_dispatch_miss(actual_pc | (thumb ? 1u : 0u));
 }
 
+extern "C" void runtime_iwram_code_write_dump(const char* why);
+extern "C" void runtime_unpacker_slot_dump(const char* why);
 extern "C" uint32_t g_bridge_max_call_depth = 0;
 
 // LP-005 probe: tick-origin tag consumed by cyc_probe() in runtime_bus_bridge.cpp.
@@ -1097,6 +1100,12 @@ extern "C" int runtime_bridge_interpret(uint32_t entry_pc, bool entry_thumb,
                 entry_pc,
                 static_cast<unsigned long long>(kBridgeIterationCap),
                 stop_pc, cpu.R[15]);
+            runtime_iwram_code_write_dump("bridge-abort");
+            if ((entry_pc >= 0x03002000u && entry_pc < 0x030022C4u) ||
+                (cpu.R[15] >= 0x03002000u && cpu.R[15] < 0x030022C4u) ||
+                (stop_pc >= 0x03002000u && stop_pc < 0x030022C4u)) {
+                runtime_unpacker_slot_dump("bridge-abort");
+            }
             runtime_trace_dump_recent(96);
             std::abort();
         }
@@ -1232,7 +1241,7 @@ extern "C" void runtime_force_interp_step(void) {
     // state the recomp does — without this the co-sim's prefetch sub-hash split every
     // BIOS instruction. On a yield, return without executing (step_once re-enters
     // next iteration), exactly as the generated function returns to the runner.
-    if (runtime_should_yield()) return;
+    if (runtime_should_yield()) { runtime_yield_restore_pc(); return; }
 
     armv4t::CPUState cpu{};
     gbarecomp::load_arm_cpu_into_interp(g_cpu, cpu);

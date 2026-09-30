@@ -56,6 +56,7 @@
 #include "arm_decode.h"
 #include "thumb_decode.h"
 #include "arm_ir.h"
+#include "slim_pass.h"
 
 using gbarecomp::Config;
 using gbarecomp::CpuMode;
@@ -78,6 +79,9 @@ struct Cli {
     bool ok = true;
     bool bios_mode = false;     // set when --bios is parsed
     bool emit_symbol_map = true; // --no-symbol-map opts out (debug aid)
+    // --slim: rewrite the written recompiled*.cpp with slim_pass.h
+    // (one combined runtime call per fixed multi-call sequence).
+    bool slim = false;
     // --relocatable-image ORIGIN:SIZE. Generates a POSITION-INDEPENDENT
     // corpus for a routine the game copies into RAM at a base its allocator
     // chooses: guest addresses are emitted relative to g_runtime_image_base
@@ -174,6 +178,7 @@ Cli parse_cli(int argc, char** argv) {
             }
         }
         else if (a == "--no-symbol-map") c.emit_symbol_map = false;
+        else if (a == "--slim")          c.slim = true;
         else if (a == "--symbol-map")    c.emit_symbol_map = true;
         else if (a == "--max-functions") {
             const char* v = next();
@@ -1404,6 +1409,17 @@ int main(int argc, char** argv) {
                 names.header, codegen_shards == 1u ? names.body : "shards=",
                 codegen_shards == 1u ? "" : std::to_string(codegen_shards).c_str(),
                 names.dispatch);
+    if (cli.slim) {
+        std::map<std::string, long> counts;
+        std::string error;
+        if (!gbarecomp::slim_directory(cli.out_dir, &counts, &error)) {
+            std::fprintf(stderr, "--slim: %s\n", error.c_str());
+            return 1;
+        }
+        std::printf("  slim:");
+        for (const auto& [rule, n] : counts) std::printf(" %s=%ld", rule.c_str(), n);
+        std::printf("\n");
+    }
 
     return 0;
 }

@@ -37,6 +37,8 @@ enum class GpuTextureFormat {
     RGBA8,     // four bytes per texel: finished colour
 };
 
+enum class GpuBlendMode { Off, Alpha, Additive };
+
 // One textured quad in whatever space the caller's shader works in.
 struct GpuQuad {
     float x = 0, y = 0, w = 0, h = 0;          // destination rectangle
@@ -112,6 +114,13 @@ public:
     // and ImGui rely on. Every begin must be matched by an end.
     void begin_frame(float clear_r, float clear_g, float clear_b, float clear_a);
     void end_frame();
+
+    // Blending: Off, Alpha (src alpha, one minus src alpha) or Additive (src
+    // alpha, one). Between begin_frame and end_frame only; begin/end save and
+    // restore the blend enable and blend function, so the caller need not.
+    // set_blend_alpha(bool) is shorthand for Alpha / Off.
+    void set_blend_mode(GpuBlendMode mode);
+    void set_blend_alpha(bool enabled);
 
     // Draws quads with the given program. Textures are bound to units 0..n-1
     // in the order given, so a shader samples tile art, map and palette

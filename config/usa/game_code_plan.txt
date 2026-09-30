@@ -1,0 +1,66 @@
+# Every piece of translated game code the player builder (gsr_builder)
+# generates from the player's ROM, in the build's own folder names. Read by
+# tools/gsr_builder/builder_main.cpp; keep in step with CMakeLists.txt's
+# GSR_*_DIR list.
+#
+#   main      <dir> <toml> <max functions>
+#   transient <dir> <toml> <symbol prefix> [<relocatable ORIGIN:SIZE>]
+#   overlays                         every overlay in overlay-registry.inc
+#   synth_dc8 <template address>     tools/build_synthesized_dc8_variant.py
+#   synth_dc8b <variant>             ..._slot2_variant.py
+#   synth_dc8c <variant>             ..._slot3_variant.py
+#   stamps                           tools/build_stamp_variants.py
+
+main main main.toml 40000
+
+transient transient_func2d5c transient-func-2d5c.toml gsr_func2d5c_
+transient transient_funca37c transient-func-a37c.toml gsr_funca37c_
+transient transient_func2808_03006000 transient-func-2808-03006000.toml gsr_func2808_03006000_
+transient transient_func15e10_03003a84 transient-func-15e10-03003a84.toml gsr_func15e10_03003a84_
+transient transient_funca418_03003400 transient-func-a418-03003400.toml gsr_funca418_03003400_
+transient transient_func15afc_03003a84 transient-func-15afc-03003a84.toml gsr_func15afc_03003a84_
+transient transient_func6abc_pic transient-func-6abc-relocatable.toml gsr_func6abc_pic_ 0x03007DF8:0x00000004
+transient transient_func6b84_pic transient-func_6b84-relocatable.toml gsr_func6b84_pic_ 0x03007B64:0x00000022
+transient transient_func7994_pic transient-func_7994-relocatable.toml gsr_func7994_pic_ 0x03007D44:0x0000001C
+transient transient_func9e7c_pic transient-func_9e7c-relocatable.toml gsr_func9e7c_pic_ 0x03005AE0:0x0000027C
+transient transient_funca0f8_pic transient-func_a0f8-relocatable.toml gsr_funca0f8_pic_ 0x030057E0:0x00000284
+transient transient_func1b70_pic transient-func_1b70-relocatable.toml gsr_func1b70_pic_ 0x0300387C:0x00000258
+transient transient_func9bb8_pic transient-func_9bb8-relocatable.toml gsr_func9bb8_pic_ 0x0300347C:0x000002C4
+transient transient_func15430_pic transient-func_15430-relocatable.toml gsr_func15430_pic_ 0x0300347C:0x00000140
+transient transient_func15570_pic transient-func_15570-relocatable.toml gsr_func15570_pic_ 0x030035BC:0x00000060
+transient transient_func158e8_pic transient-func_158e8-relocatable.toml gsr_func158e8_pic_ 0x0300347C:0x00000214
+transient transient_func2544_pic transient-func_2544-relocatable.toml gsr_func2544_pic_ 0x03002000:0x000002C4
+transient transient_func2cf4_pic transient-func-2cf4-relocatable.toml gsr_func2cf4_pic_ 0x03007BA4:0x00000068
+transient transient_func1dc8_pic transient-func-1dc8-relocatable.toml gsr_func1dc8_pic_ 0x03002400:0x000000E0
+transient transient_func15afc_pic transient-func_15afc-relocatable.toml gsr_func15afc_pic_ 0x03003A84:0x00000278
+transient transient_func15e10_pic transient-func_15e10-relocatable.toml gsr_func15e10_pic_ 0x03003A84:0x0000007C
+transient transient_func15d74_pic transient-func_15d74-relocatable.toml gsr_func15d74_pic_ 0x030044F4:0x0000009C
+transient transient_func155d0_pic transient-func_155d0-relocatable.toml gsr_func155d0_pic_ 0x030044F4:0x00000318
+transient transient_func9bb8_short_pic transient-func_9bb8_short-relocatable.toml gsr_func9bb8short_pic_ 0x03003EEC:0x000001E4
+transient transient_func9bb8_code_pic transient-func_9bb8_code-relocatable.toml gsr_func9bb8code_pic_ 0x03003B9C:0x000001D8
+transient transient_funcb5138_pic transient-func-b5138-relocatable.toml gsr_funcb5138_pic_ 0x0300207C:0x00000230
+transient transient_funca418_pic transient-func-a418-relocatable.toml gsr_funca418_pic_ 0x03002000:0x0000007C
+transient transient_func1ea8_pic transient-func_1ea8-relocatable.toml gsr_func1ea8_pic_ 0x03007C14:0x00000050
+transient transient_func1ef8_pic transient-func_1ef8-relocatable.toml gsr_func1ef8_pic_ 0x03007C7C:0x00000040
+transient transient_func6c24_pic transient-func_6c24-relocatable.toml gsr_func6c24_pic_ 0x03007D1C:0x00000044
+transient transient_func203c_pic transient-func_203c-relocatable.toml gsr_func203c_pic_ 0x03007E00:0x0000005C
+transient transient_func1f38_pic transient-func_1f38-relocatable.toml gsr_func1f38_pic_ 0x03007BCC:0x00000080
+transient transient_func1fb8_pic transient-func_1fb8-relocatable.toml gsr_func1fb8_pic_ 0x03007C4C:0x00000084
+transient transient_func2098_pic transient-func_2098-relocatable.toml gsr_func2098_pic_ 0x03007CE0:0x0000005C
+
+overlays
+
+synth_dc8 0x030008D4
+synth_dc8 0x030008EC
+synth_dc8 0x03000904
+synth_dc8b 0
+synth_dc8b 1
+synth_dc8b 2
+synth_dc8b 3
+synth_dc8c 0
+synth_dc8c 1
+synth_dc8c 2
+synth_dc8c 3
+synth_dc8c 4
+
+stamps

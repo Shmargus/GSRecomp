@@ -1023,7 +1023,8 @@ inline constexpr bool golden_sun_palace_out_of_room(
            metadata.map_id == kGoldenSunPalaceNoMapId;
 }
 // State1's complete 128x128 field table proves metatile 0x017/raw 0xF200 is
-// the un-authored fill: it occupies 13,531/16,384 cells and forms the solid
+// the un-authored fill (raw 0xF200 is the fill on any id: also seen at id
+// 0x000 in Bilibin, gpu_frame_0084, 2026-09-29): it occupies 13,531/16,384 cells and forms the solid
 // rows/columns outside the active 32x32 room. Metatile 0x003 is authored room
 // data and must not be suppressed. The equal-scroll field uses BG3 as the
 // coordinate-level boundary and suppresses BG1/BG2 there too; the separate
@@ -1045,8 +1046,9 @@ inline constexpr std::uint16_t kGoldenSunFieldNoMapId2 = 0x01Au;
 inline constexpr bool golden_sun_field_bg3_no_map(
     const GoldenSunFieldTilemapMetadata& metadata) {
     if (!metadata.has_raw_entry) return false;
-    if (metadata.map_id == kGoldenSunFieldNoMapId &&
-        metadata.raw_entry == kGoldenSunFieldNoMapTile) {
+    // Raw 0xF200 is the un-authored fill on any metatile id: seen at id 0x017
+    // (earlier) and id 0x000 (Bilibin, gpu_frame_0084, 2026-09-29).
+    if (metadata.raw_entry == kGoldenSunFieldNoMapTile) {
         return true;
     }
     return metadata.map_id == kGoldenSunFieldNoMapId2;

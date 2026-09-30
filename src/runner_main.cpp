@@ -23,6 +23,9 @@
 #include "room_buffer.h"
 #include "field_scene.h"
 #include "effect_capture.h"
+#include "mod_loader.h"
+#include "earth_surge.h"
+#include "move_probe.h"
 #include "field_scene_renderer.h"
 #include "world_map_source.h"
 #include "cheat_menu.h"
@@ -47,6 +50,11 @@
 
 extern "C" unsigned g_ws_active;
 extern "C" unsigned long long runtime_current_frame();
+extern "C" void runtime_iwram_code_write_dump(const char* why);
+extern "C" void runtime_iwram_code_write_dump_range(const char* why,
+                                                    std::uint32_t lo,
+                                                    std::uint32_t hi);
+extern "C" void runtime_unpacker_slot_dump(const char* why);
 
 struct DispatchEntry {
     std::uint32_t addr;
@@ -406,6 +414,13 @@ struct RelocatableCodeImage;
 bool relocatable_resident_at(const RelocatableCodeImage& image,
                              std::uint32_t base, bool* prefix_passed);
 unsigned int ram_code_page_epoch(std::uint32_t addr);
+// Whole-image SHA-1 checks relocatable_resident_at ran (all callers) and the
+// bytes they covered; the Func_1dc8 writer path's share separately. Printed
+// with relocatable_cache_stats: the host profiler put SHA-1 at 11% of the
+// heaviest Ragnarok frames (FACTS.md) without naming the caller.
+unsigned long long g_relocatable_resident_hashes = 0;
+unsigned long long g_relocatable_resident_hash_bytes = 0;
+unsigned long long g_func1dc8_writer_hashes = 0;
 std::uint64_t g_golden_sun_func1dc8_writer_recognized = 0;
 std::uint64_t g_golden_sun_func1dc8_writer_identity_mismatch = 0;
 std::uint64_t g_golden_sun_func1dc8_writer_unknown_variant = 0;
@@ -7496,6 +7511,140 @@ constexpr int kGoldenSunObjFallbackSlackX = 64;
 constexpr int kGoldenSunObjFallbackAliasFirstRawY = 160;
 constexpr int kGoldenSunObjFallbackAliasLastRawY = 207;
 
+// ---- World-map actor side ---------------------------------------------------
+//
+// FACTS.md, 2026-09-29 ("World-map objects below the screen"). The world-map
+// overlay's bounds are widened (golden_sun_worldmap_range_box), so the game now
+// emits towns and caves below the view with raw OAM Y 209..248, which overlaps
+// the "above the view" encoding (raw 184..255). The raw byte cannot tell them
+// apart (logs/gpu_frame_0086: town raw 206 is 162 units BELOW the player and
+// was drawn at y=-50; cave raw 215 was drawn at y=-41; frame 0087, walked south:
+// town raw 116, cave raw 127, correct). The game's own actor table knows which
+// side each one is on:
+//   actor pointers  [[0x03001EBC] + 0x14 + 4 * index] (0x0808BA1C, which
+//                   returns 0 for an index above 0xBF); index 8..0x41 is the
+//                   range OvlFunc_598 (0x02008598) walks; a null entry is unused
+//   +0x50           pointer to the actor's sprite record; its halfwords at +4
+//                   and +6 are attr0 and attr1 (one frame ahead of OAM)
+//   +0x54           low nibble 1 = drawn this frame (Func_c62c draws only those)
+//   +0x08 / +0x10   world x / z, signed 16.16
+//   focus actor     [[0x03001EBC] + 0x1E0]
+// dz = actor z - focus z: positive is below the player on screen (town 162.2 at
+// frame 0086 -> raw 206; 72.7 at 0087 -> raw 116), negative is above.
+// The same block-number test as world_map_margin_hold() decides "world map".
+constexpr std::uint32_t kGoldenSunActorContextPtr = 0x03001EBCu;
+constexpr std::uint32_t kGoldenSunActorTableOffset = 0x14u;
+constexpr std::uint32_t kGoldenSunActorFocusOffset = 0x1E0u;
+constexpr int kGoldenSunWorldActorFirst = 8;
+constexpr int kGoldenSunWorldActorLast = 0x41;
+constexpr std::uint32_t kGoldenSunActorSpriteOffset = 0x50u;
+constexpr std::uint32_t kGoldenSunActorFlagOffset = 0x54u;
+constexpr std::uint32_t kGoldenSunActorZOffset = 0x10u;
+
+bool world_map_blocks_raw(const std::uint8_t* io) {
+    const unsigned bg2 = io[0x0C] | (static_cast<unsigned>(io[0x0D]) << 8);
+    const unsigned bg3 = io[0x0E] | (static_cast<unsigned>(io[0x0F]) << 8);
+    return ((bg3 >> 8) & 0x1Fu) == 8u && ((bg2 >> 8) & 0x1Fu) == 10u;
+}
+
+bool golden_sun_ewram_span_ok(std::uint32_t addr, std::uint32_t bytes) {
+    return addr >= 0x02000000u && addr <= 0x02040000u &&
+           bytes <= 0x02040000u - addr;
+}
+
+struct GoldenSunWorldActorSide {
+    std::uint16_t attr0;
+    std::uint16_t attr1;
+    std::int8_t side;  // +1 below the player, -1 above
+};
+
+// +1 when the world-map actor drawing this OAM entry (attr0/attr1 equal to its
+// sprite record) is below the player, -1 when above, 0 when this is not the
+// world map, no drawn actor matches, they disagree, or dz is exactly 0. The
+// table is scanned at most once per frame.
+int golden_sun_world_map_actor_side(std::uint16_t attr0, std::uint16_t attr1) {
+    static std::uint64_t cache_frame = UINT64_MAX;
+    static std::size_t cache_count = 0;
+    static std::array<GoldenSunWorldActorSide,
+                      kGoldenSunWorldActorLast - kGoldenSunWorldActorFirst + 1>
+        cache{};
+    const std::uint64_t frame_now = runtime_current_frame();
+    if (cache_frame != frame_now) {
+        cache_frame = frame_now;
+        cache_count = 0;
+        gba::GbaBus* bus = gbarecomp::active_bus();
+        if (bus && world_map_blocks_raw(bus->io().raw())) {
+            const std::uint32_t ctx = bus_read_u32(kGoldenSunActorContextPtr);
+            const std::uint32_t table_end =
+                kGoldenSunActorTableOffset +
+                4u * static_cast<std::uint32_t>(kGoldenSunWorldActorLast + 1);
+            std::uint32_t focus = 0u;
+            if (golden_sun_ewram_span_ok(ctx, kGoldenSunActorFocusOffset + 4u) &&
+                golden_sun_ewram_span_ok(ctx, table_end)) {
+                focus = bus_read_u32(ctx + kGoldenSunActorFocusOffset);
+            }
+            if (golden_sun_ewram_span_ok(focus, kGoldenSunActorZOffset + 4u)) {
+                const std::int32_t focus_z = static_cast<std::int32_t>(
+                    bus_read_u32(focus + kGoldenSunActorZOffset));
+                for (int i = kGoldenSunWorldActorFirst;
+                     i <= kGoldenSunWorldActorLast; ++i) {
+                    const std::uint32_t actor = bus_read_u32(
+                        ctx + kGoldenSunActorTableOffset +
+                        4u * static_cast<std::uint32_t>(i));
+                    if (actor == 0u ||
+                        !golden_sun_ewram_span_ok(
+                            actor, kGoldenSunActorFlagOffset + 4u))
+                        continue;
+                    if ((bus_read_u32(actor + kGoldenSunActorFlagOffset) &
+                         0xFu) != 1u)
+                        continue;
+                    const std::uint32_t sprite =
+                        bus_read_u32(actor + kGoldenSunActorSpriteOffset);
+                    if (!golden_sun_ewram_span_ok(sprite, 8u)) continue;
+                    const std::int64_t dz =
+                        static_cast<std::int64_t>(static_cast<std::int32_t>(
+                            bus_read_u32(actor + kGoldenSunActorZOffset))) -
+                        focus_z;
+                    if (dz == 0) continue;
+                    cache[cache_count++] = {
+                        bus_read_u16(sprite + 4u), bus_read_u16(sprite + 6u),
+                        static_cast<std::int8_t>(dz > 0 ? 1 : -1)};
+                }
+            }
+        }
+    }
+    // Match on the bits that do not move (shape, affine/mode flags, size), then
+    // take the nearest record by position. The sprite record is updated a
+    // frame ahead of the OAM copy being drawn, so while the player walks the
+    // Y/X bits differ by a pixel or so (gpu_frame_0088: cave OAM attr0 0x21D5,
+    // its record 0x21D4) and an exact attr0/attr1 match missed on those
+    // frames, which made the objects flicker between the top margin and
+    // hidden (session 20260929_205119).
+    int side = 0;
+    int best = INT_MAX;
+    bool tie_disagrees = false;
+    for (std::size_t i = 0; i < cache_count; ++i) {
+        if ((cache[i].attr0 & 0xFF00u) != (attr0 & 0xFF00u) ||
+            (cache[i].attr1 & 0xFE00u) != (attr1 & 0xFE00u))
+            continue;
+        int dy = std::abs(static_cast<int>(cache[i].attr0 & 0xFFu) -
+                          static_cast<int>(attr0 & 0xFFu));
+        dy = std::min(dy, 256 - dy);
+        int dx = std::abs(static_cast<int>(cache[i].attr1 & 0x1FFu) -
+                          static_cast<int>(attr1 & 0x1FFu));
+        dx = std::min(dx, 512 - dx);
+        const int distance = dx + dy;
+        if (distance < best) {
+            best = distance;
+            side = cache[i].side;
+            tie_disagrees = false;
+        } else if (distance == best && cache[i].side != side) {
+            tie_disagrees = true;
+        }
+    }
+    return tie_disagrees ? 0 : side;
+}
+
 // Fallback used by both wide OBJ attribute providers when
 // golden_sun_obj_provider_provenance has no usable record for this object
 // (the record path already declined -- this never runs ahead of it) and the
@@ -7528,7 +7677,17 @@ bool golden_sun_wide_obj_fallback_position(std::uint16_t attr0,
     const bool wrapped_x = (raw_x - 512) >= min_x && (raw_x - 512) <= max_x;
     if (near_x == wrapped_x) return false;
     const int resolved_x = near_x ? raw_x : raw_x - 512;
-    // Y: only the two unambiguous bands resolve; the aliased band refuses.
+    // Y: on the world map the actor table says which side the sprite is on,
+    // for the whole ambiguous range (see golden_sun_world_map_actor_side).
+    // Otherwise only the two unambiguous bands resolve; the aliased band
+    // refuses.
+    const int world_side = raw_y >= kGoldenSunObjFallbackAliasFirstRawY
+        ? golden_sun_world_map_actor_side(attr0, attr1) : 0;
+    if (world_side != 0) {
+        *out_x = resolved_x;
+        *out_y = world_side > 0 ? raw_y : raw_y - 256;
+        return true;
+    }
     if (raw_y >= kGoldenSunObjFallbackAliasFirstRawY &&
         raw_y <= kGoldenSunObjFallbackAliasLastRawY) return false;
     const int resolved_y = raw_y > kGoldenSunObjFallbackAliasLastRawY
@@ -8565,9 +8724,63 @@ void golden_sun_wide_ewram_write_observer(std::uint32_t address,
     gsr::map_recorder_on_ewram_write(address, size);
 }
 
+// True when any COMMITTED-phase consumer of a fast IWRAM store below can act on
+// [address, address + size). Each test copies the consumer's own condition:
+//  - trace_oam_shadow_write_committed: golden_sun_oam_shadow_write_range (raw
+//    address, no mirror normalisation), installed as its range predicate
+//  - note_golden_sun_obj_record_write / _value: raw address vs the census
+//    window (the value consumer's window is a subset of the write consumer's)
+//  - runtime_note_pool_ldm_bus_write: mirror-normalised address vs the pool
+//    window; it still checks its own armed flag, so it is only reached here
+inline bool golden_sun_fast_iwram_store_has_consumer(std::uint32_t address,
+                                                     std::uint32_t size) {
+    if (size == 0u) return false;
+    if (golden_sun_oam_shadow_write_range(address, size)) return true;
+    const std::uint64_t first = address;
+    const std::uint64_t last = first + size;
+    if (last > kGoldenSunObjRecordCensusStart &&
+        first < kGoldenSunObjRecordCensusEnd) return true;
+    const std::uint64_t physical = (address >> 24) == 0x03u
+        ? 0x03000000u + (address & 0x00007FFFu)
+        : address;
+    return physical < RUNTIME_POOL_LDM_WINDOW_END &&
+           physical + size > RUNTIME_POOL_LDM_WINDOW_BASE;
+}
+
+// Fill the inline gate g_runtime_fast_iwram_watch (runtime_arm.h): one bit per
+// 64-byte IWRAM block, set when golden_sun_fast_iwram_store_has_consumer
+// accepts any byte of it, so the observer is only called for stores it can act
+// on. Every debug store trace needs every store, so it sets all blocks. The
+// observer keeps the precise per-store check, so the gate only has to be a
+// superset. A mirrored address reaches its block through `addr & 0x7FFF` and
+// is still judged by the observer's own raw-address predicates.
+void arm_golden_sun_fast_iwram_watch(bool enabled) {
+    for (auto& word : g_runtime_fast_iwram_watch) word = 0u;
+    if (!enabled) return;
+    if (gba::vram_trace::iwram_store_trace_enabled()) {
+        for (auto& word : g_runtime_fast_iwram_watch) word = ~0ull;
+        return;
+    }
+    for (std::uint32_t off = 0; off < 0x8000u; ++off) {
+        if (golden_sun_fast_iwram_store_has_consumer(0x03000000u + off, 1u)) {
+            g_runtime_fast_iwram_watch[off >> 12] |=
+                1ull << ((off >> 6) & 63u);
+        }
+    }
+}
+
 void golden_sun_fast_iwram_write_observer(std::uint32_t address,
                                           std::uint32_t size,
                                           std::uint32_t phase) {
+    // Both debug traces read the environment once and never change, so the
+    // answer is cached. With them off, the START phase has no consumer and
+    // the COMMITTED phase is skipped unless a consumer's range is touched.
+    static const bool store_traces_on =
+        gba::vram_trace::iwram_store_trace_enabled();
+    if (!store_traces_on) {
+        if (phase == RUNTIME_FAST_IWRAM_WRITE_START) return;
+        if (!golden_sun_fast_iwram_store_has_consumer(address, size)) return;
+    }
     if (phase == RUNTIME_FAST_IWRAM_WRITE_START) {
         gba::vram_trace::trace_oam_shadow_write(g_cpu.R[15], address, size);
         return;
@@ -8719,6 +8932,7 @@ void install_golden_sun_widescreen(std::uint32_t extra_left,
         golden_sun_wide_diagnostics_enabled() ||
         golden_sun_experimental_fixes_enabled() ||
         gsr::obj_recorder_enabled();
+    arm_golden_sun_fast_iwram_watch(oam_shadow_observer_enabled);
     g_runtime_fast_iwram_write_observer =
         oam_shadow_observer_enabled
             ? golden_sun_fast_iwram_write_observer : nullptr;
@@ -8846,12 +9060,33 @@ bool gpu_field_only_enabled() {
 // (BG3CNT 0x0503 and BG0CNT 0x0400 both use block 0 in gpu_rewind_0025), and
 // on hardware a menu covers the screen, so the borrowed tiles never show
 // under the room; in the expanded margins they showed as scraps of menu text.
-// While no window is open this keeps a copy of that block; while one is open
-// (any of the window system's 256 tile-usage bytes set, or our own settings
-// page two, which takes free tiles itself) the margins read the copy instead.
-// FACTS.md 2026-09-24.
+// While no window is open this keeps a copy of the background graphics;
+// while one is open the margins read the copy instead. FACTS.md 2026-09-24.
+//
+// Widened 2026-09-26. The copy was BG0's first 16 KB block only; menus also
+// write the rest of the background area. Djinn and Status screens
+// (logs/gpu_frame_0077/0078): the ground layer's margin tiles 517..1015 sit
+// in block 1, where the menu's second text bank lives (window block +0xEA2
+// set), and the tree/cliff layers read block 2, which the copy never held --
+// pink ground and noisy cliffs in the margins. So the copy is now the whole
+// 64 KB background area, whatever the layers' character bases are.
+//
+// It is also refreshed only after the window system has stood empty for
+// kRoomCopySettleFrames in a row. A single empty frame used to refresh it,
+// and the menu frees and re-takes its text tiles between screens, so one
+// such frame would copy the menu's own graphics in as the "room".
+//
+// The colours too (2026-09-26, logs/gpu_frame_0079/0080): menus load their
+// own palettes over some of the field's background banks -- bank 0 held
+// pure red/green/blue/white on the Status screen -- so room tiles in the
+// margins came out pink and blue with their shapes intact. The 256
+// background colours are saved and restored with the graphics.
 std::vector<std::uint8_t> g_room_char_copy;
-std::uint32_t g_room_char_copy_base = 0;
+std::vector<std::uint16_t> g_room_palette_copy;
+constexpr std::size_t kBgPaletteEntries = 256;
+int g_room_copy_closed_frames = 0;
+constexpr int kRoomCopySettleFrames = 30;
+constexpr std::uint32_t kBgAreaBytes = 0x10000u;
 extern std::atomic<int> g_settings_page;  // defined with the settings page
 
 bool game_window_open() {
@@ -8859,6 +9094,7 @@ bool game_window_open() {
     if (g_settings_page.load() == 2) return true;
     const std::uint32_t block = bus_read_u32(kWindowBlockSlot);
     if ((block >> 24) != 0x02u) return false;
+    if (bus_read_u8(block + kTileBankFlagOffset) != 0u) return true;
     for (std::uint32_t i = 0; i < 256u; ++i) {
         if (bus_read_u8(block + kTileUsageOffset + i) != 0u) return true;
     }
@@ -8866,30 +9102,31 @@ bool game_window_open() {
 }
 
 void build_room_vram(const std::vector<std::uint8_t>& vram,
-                     const std::uint8_t* io,
-                     std::vector<std::uint8_t>* out) {
-    constexpr std::uint32_t kBlockBytes = 0x4000u;
-    const unsigned bg0cnt = io[0x08] | (static_cast<unsigned>(io[0x09]) << 8);
-    const std::uint32_t base = ((bg0cnt >> 2) & 3u) * kBlockBytes;
-    if (base + kBlockBytes > vram.size()) {
-        out->clear();
-        return;
-    }
+                     const std::array<std::uint16_t, 512>& palette,
+                     std::vector<std::uint8_t>* out,
+                     std::vector<std::uint16_t>* out_palette) {
+    out->clear();          // empty = the renderer's live copies already agree
+    out_palette->clear();
+    if (vram.size() < kBgAreaBytes) return;
     if (!game_window_open()) {
-        g_room_char_copy.assign(vram.begin() + base,
-                                vram.begin() + base + kBlockBytes);
-        g_room_char_copy_base = base;
-        out->clear();  // the renderer's own copy of vram already agrees
+        if (g_room_copy_closed_frames < kRoomCopySettleFrames) {
+            ++g_room_copy_closed_frames;
+        } else {
+            g_room_char_copy.assign(vram.begin(), vram.begin() + kBgAreaBytes);
+            g_room_palette_copy.assign(palette.begin(),
+                                       palette.begin() + kBgPaletteEntries);
+        }
         return;
     }
-    if (g_room_char_copy.size() != kBlockBytes ||
-        g_room_char_copy_base != base) {
-        out->clear();
+    g_room_copy_closed_frames = 0;
+    if (g_room_char_copy.size() != kBgAreaBytes ||
+        g_room_palette_copy.size() != kBgPaletteEntries)
         return;
-    }
     *out = vram;
-    std::copy(g_room_char_copy.begin(), g_room_char_copy.end(),
-              out->begin() + base);
+    std::copy(g_room_char_copy.begin(), g_room_char_copy.end(), out->begin());
+    out_palette->assign(palette.begin(), palette.end());
+    std::copy(g_room_palette_copy.begin(), g_room_palette_copy.end(),
+              out_palette->begin());
 }
 
 struct GpuFieldCapture {
@@ -8902,6 +9139,9 @@ struct GpuFieldCapture {
     // build_room_vram). FieldSceneRenderer::upload_room_vram; room tiles
     // in the margins read it.
     std::vector<std::uint8_t> room_vram;
+    // Likewise the palette: the field's background colours restored while a
+    // window is open, else empty.
+    std::vector<std::uint16_t> room_palette;
     // bus->ewram_ptr(), 256 KB: the room rect/camera/id-grid/atlas tables
     // FieldSceneRenderer::upload_room reads (addresses in room_buffer.h),
     // taken from the live guest, not the offline recorded snapshots the
@@ -8930,10 +9170,185 @@ struct GpuFieldCapture {
     std::vector<std::uint8_t> io;     // bus->io().raw(), 0x400 bytes
     std::vector<std::uint8_t> oam;    // bus->oam_ptr(), 1024 bytes
     std::vector<std::uint8_t> pal;    // bus->pal_ptr(), 1024 bytes
+    // game_window_open() at this frame's capture (world-map margin hold).
+    bool window_open = false;
 };
 GpuFieldCapture g_gpu_field_capture;
 
+// ---- World-map margin hold ------------------------------------------------
+//
+// Opening the menu on the world map switches the screen from the world map's
+// mode 2 to mode 0 text layers with the same map blocks (BG3 map block 8,
+// BG2 map block 10; logs/gpu_frame_0081.bin, 2026-09-26: DISPCNT 0x1F40,
+// BG2CNT 0xAA0E, BG3CNT 0xA80A). The widened margins are only sourced from
+// the world map in mode 2, so they went black for as long as the menu was
+// open. The camera cannot move while a menu is open, so the margins of the
+// last world-map frame before it are still the right picture: keep them,
+// and paint them back around the live native picture on menu frames.
+std::vector<std::uint8_t> g_world_margin_rgb;
+std::uint32_t g_world_margin_w = 0;
+std::uint32_t g_world_margin_h = 0;
+// True when this frame's margins were drawn from the decoded, checked world
+// map (set where upload_world_map is called). A mode 2 frame without it has
+// scrambled margins, and holding one kept that garbage on screen for the
+// whole menu (logs/gpu_frame_0101.bin, 2026-09-30).
+bool g_world_map_source_ok = false;
+// The background palette (BGR555) when the margins were saved, and for each
+// distinct saved margin colour the palette index it was drawn from, so the
+// held margins can follow a palette effect started after the save: the
+// world map's Psynergy tint turns the whole palette red (average 18,4,4
+// against 10,18,20; logs/gpu_frame_0102.bin, 2026-09-30) while the held
+// margins stayed green.
+std::array<std::uint16_t, 256> g_world_margin_pal{};
+std::unordered_map<std::uint32_t, std::uint8_t> g_world_margin_index;
+
+void world_margin_rgb_of(std::uint16_t c, int out[3]) {
+    out[0] = (c & 31) * 255 / 31;
+    out[1] = ((c >> 5) & 31) * 255 / 31;
+    out[2] = ((c >> 10) & 31) * 255 / 31;
+}
+
+// Nearest saved-palette index for every distinct colour in the saved
+// margins, found once per save with a new palette.
+void world_margin_index_colours(std::uint32_t width, std::uint32_t height) {
+    g_world_margin_index.clear();
+    int pal_rgb[256][3];
+    for (int i = 0; i < 256; ++i)
+        world_margin_rgb_of(g_world_margin_pal[i], pal_rgb[i]);
+    const std::uint8_t* p = g_world_margin_rgb.data();
+    const std::size_t n = std::size_t{width} * height;
+    for (std::size_t i = 0; i < n; ++i, p += 3) {
+        const std::uint32_t key = (std::uint32_t{p[0]} << 16) |
+                                  (std::uint32_t{p[1]} << 8) | p[2];
+        if (g_world_margin_index.count(key)) continue;
+        int best = 0, best_d = 1 << 30;
+        for (int k = 0; k < 256; ++k) {
+            const int dr = p[0] - pal_rgb[k][0];
+            const int dg = p[1] - pal_rgb[k][1];
+            const int db = p[2] - pal_rgb[k][2];
+            const int d = dr * dr + dg * dg + db * db;
+            if (d < best_d) { best_d = d; best = k; }
+        }
+        g_world_margin_index[key] = static_cast<std::uint8_t>(best);
+    }
+}
+
+bool world_map_blocks(const std::vector<std::uint8_t>& io) {
+    if (io.size() < 0x10) return false;
+    return world_map_blocks_raw(io.data());
+}
+
+void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
+                           std::uint32_t height) {
+    const std::vector<std::uint8_t>& io = g_gpu_field_capture.io;
+    const unsigned mode = io.empty() ? 0xFFu : (io[0] & 7u);
+    const bool world = world_map_blocks(io);
+    const bool native_size = width == 240 && height == 160;
+    if (!world) {
+        g_world_margin_rgb.clear();  // anywhere else: the saved view is stale
+        return;
+    }
+    if (mode == 2u) {
+        // Save only a settled world-map frame: no menu yet, and no screen
+        // fade under way (BLDCNT brightness effect with a non-zero BLDY),
+        // or the "held" margins would be a darkened copy.
+        const unsigned bldcnt = io[0x50] | (static_cast<unsigned>(io[0x51]) << 8);
+        const bool fading = ((bldcnt >> 6) & 3u) >= 2u && (io[0x54] & 0x1Fu) != 0u;
+        if (!native_size && !fading && !g_gpu_field_capture.window_open &&
+            g_world_map_source_ok &&
+            g_gpu_field_capture.pal.size() >= 512) {
+            g_world_margin_rgb.assign(rgb, rgb + std::size_t{width} * height * 3u);
+            g_world_margin_w = width;
+            g_world_margin_h = height;
+            const auto& pal = g_gpu_field_capture.pal;
+            for (int i = 0; i < 256; ++i)
+                g_world_margin_pal[i] = static_cast<std::uint16_t>(
+                    pal[i * 2] | (pal[i * 2 + 1] << 8));
+            // Saved every settled frame; the colour index is only needed if
+            // a palette effect follows, so it is built lazily on the first
+            // menu frame whose palette differs (see below).
+            g_world_margin_index.clear();
+        }
+        return;
+    }
+    if (mode != 0u) return;
+    // Mode 0 on the world map's blocks: the menu's view of the world map.
+    if (native_size) return;
+    const std::uint32_t x0 = (width - 240u) / 2u;
+    const std::uint32_t y0 = (height - 160u) / 2u;
+    // No settled world-map frame to hold, as when a Djinn event switches to
+    // mode 0 straight away (logs/gpu_frame_0083.bin, Flint, 2026-09-26): the
+    // margins would show the world map's rotation-layer data read as text
+    // layers, which is scrambled tiles. Black instead (Jimmy prefers black
+    // margins to garbage).
+    if (g_world_margin_w != width || g_world_margin_h != height ||
+        g_world_margin_rgb.empty()) {
+        for (std::uint32_t y = 0; y < height; ++y) {
+            std::uint8_t* dst = rgb + std::size_t{y} * width * 3u;
+            if (y < y0 || y >= y0 + 160u) {
+                std::memset(dst, 0, std::size_t{width} * 3u);
+                continue;
+            }
+            std::memset(dst, 0, std::size_t{x0} * 3u);
+            std::memset(dst + std::size_t{x0 + 240u} * 3u, 0,
+                        std::size_t{width - x0 - 240u} * 3u);
+        }
+        return;
+    }
+    for (std::uint32_t y = 0; y < height; ++y) {
+        const bool native_row = y >= y0 && y < y0 + 160u;
+        std::uint8_t* dst = rgb + std::size_t{y} * width * 3u;
+        const std::uint8_t* src =
+            g_world_margin_rgb.data() + std::size_t{y} * width * 3u;
+        if (!native_row) {
+            std::memcpy(dst, src, std::size_t{width} * 3u);
+            continue;
+        }
+        std::memcpy(dst, src, std::size_t{x0} * 3u);
+        const std::uint32_t right = x0 + 240u;
+        std::memcpy(dst + std::size_t{right} * 3u, src + std::size_t{right} * 3u,
+                    std::size_t{width - right} * 3u);
+    }
+    // A palette effect started after the save (the Psynergy tint, a fade):
+    // move every held margin colour by the change of the palette entry it
+    // was drawn from, so the margins take the same tint as the picture.
+    const auto& pal = g_gpu_field_capture.pal;
+    if (pal.size() < 512) return;
+    int delta[256][3];
+    bool changed = false;
+    for (int i = 0; i < 256; ++i) {
+        const std::uint16_t live =
+            static_cast<std::uint16_t>(pal[i * 2] | (pal[i * 2 + 1] << 8));
+        int a[3], b[3];
+        world_margin_rgb_of(g_world_margin_pal[i], a);
+        world_margin_rgb_of(live, b);
+        for (int k = 0; k < 3; ++k) delta[i][k] = b[k] - a[k];
+        changed = changed || live != g_world_margin_pal[i];
+    }
+    if (!changed) return;
+    if (g_world_margin_index.empty()) world_margin_index_colours(width, height);
+    for (std::uint32_t y = 0; y < height; ++y) {
+        const bool native_row = y >= y0 && y < y0 + 160u;
+        std::uint8_t* row = rgb + std::size_t{y} * width * 3u;
+        for (std::uint32_t x = 0; x < width; ++x) {
+            if (native_row && x == x0) { x = x0 + 239u; continue; }
+            std::uint8_t* p = row + std::size_t{x} * 3u;
+            const std::uint32_t key = (std::uint32_t{p[0]} << 16) |
+                                      (std::uint32_t{p[1]} << 8) | p[2];
+            const auto it = g_world_margin_index.find(key);
+            if (it == g_world_margin_index.end()) continue;
+            for (int k = 0; k < 3; ++k)
+                p[k] = static_cast<std::uint8_t>(
+                    std::clamp(p[k] + delta[it->second][k], 0, 255));
+        }
+    }
+}
+
+void native_page_frame_end(bool at_capture);
+
 void gpu_field_capture_hook() {
+    // Page two of Settings, before anything copies this frame (see there).
+    native_page_frame_end(true);
     if (!gpu_field_enabled()) return;
     // Snapshot the latest completed effect copy, including fading history.
     g_gpu_field_capture.effects = gsr::effect_capture_take();
@@ -8974,8 +9389,9 @@ void gpu_field_capture_hook() {
     }
     g_gpu_field_capture.scene = scene;
     g_gpu_field_capture.vram.assign(bus->vram_ptr(), bus->vram_ptr() + 96 * 1024);
-    build_room_vram(g_gpu_field_capture.vram, bus->io().raw(),
-                    &g_gpu_field_capture.room_vram);
+    build_room_vram(g_gpu_field_capture.vram, scene.palette,
+                    &g_gpu_field_capture.room_vram,
+                    &g_gpu_field_capture.room_palette);
     g_gpu_field_capture.ewram.assign(bus->ewram_ptr(),
                                      bus->ewram_ptr() + 256 * 1024);
     g_gpu_field_capture.iwram.assign(bus->iwram_ptr(),
@@ -8990,6 +9406,7 @@ void gpu_field_capture_hook() {
                                   bus->io().raw() + gba::GbaIo::kIoSize);
     g_gpu_field_capture.oam.assign(bus->oam_ptr(), bus->oam_ptr() + 1024);
     g_gpu_field_capture.pal.assign(bus->pal_ptr(), bus->pal_ptr() + 1024);
+    g_gpu_field_capture.window_open = game_window_open();
     g_gpu_field_capture.valid = true;
 }
 
@@ -9230,6 +9647,8 @@ struct RewindFrame {
 };
 constexpr std::size_t kRewindFrames = 120;
 std::vector<RewindFrame> g_rewind;
+// Guest frame until which "BUG REPORT SAVED" shows (paint_bug_report_notice).
+unsigned long long g_bug_report_notice_until = 0;
 std::size_t g_rewind_next = 0;
 std::size_t g_rewind_count = 0;
 
@@ -9280,6 +9699,55 @@ void frame_rewind_write() {
     if (index) std::fclose(index);
     std::fprintf(stderr, "[gsr] rewind: %zu frames written to %s\n", written,
                  dir.c_str());
+    // Three seconds of confirmation for the player (a release has this on
+    // for bug reports; the launcher packs the folder when the game closes).
+    g_bug_report_notice_until = runtime_current_frame() + 180u;
+}
+
+// "BUG REPORT SAVED" at the top right, in a small built-in font (the game's
+// menu font is only read once a menu has opened), white on a dark box.
+void paint_bug_report_notice(std::uint8_t* rgb, std::uint32_t width,
+                             std::uint32_t height) {
+    struct Glyph { char c; const char* rows[7]; };
+    static const Glyph kGlyphs[] = {
+        {'A', {".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"}},
+        {'B', {"####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."}},
+        {'D', {"####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."}},
+        {'E', {"#####", "#....", "#....", "####.", "#....", "#....", "#####"}},
+        {'G', {".###.", "#...#", "#....", "#.###", "#...#", "#...#", ".####"}},
+        {'O', {".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."}},
+        {'P', {"####.", "#...#", "#...#", "####.", "#....", "#....", "#...."}},
+        {'R', {"####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"}},
+        {'S', {".####", "#....", "#....", ".###.", "....#", "....#", "####."}},
+        {'T', {"#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."}},
+        {'U', {"#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."}},
+        {'V', {"#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."}},
+    };
+    static const char kText[] = "BUG REPORT SAVED";
+    const int text_w = static_cast<int>(sizeof(kText) - 1) * 6 - 1;
+    const int box_w = text_w + 8, box_h = 7 + 8;
+    const int x0 = static_cast<int>(width) - box_w - 4, y0 = 4;
+    auto put = [&](int x, int y, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+        if (x < 0 || y < 0 || x >= static_cast<int>(width) ||
+            y >= static_cast<int>(height)) return;
+        std::uint8_t* p = rgb + (static_cast<std::size_t>(y) * width + x) * 3u;
+        p[0] = r; p[1] = g; p[2] = b;
+    };
+    for (int y = 0; y < box_h; ++y)
+        for (int x = 0; x < box_w; ++x) {
+            const bool edge = x == 0 || y == 0 || x == box_w - 1 || y == box_h - 1;
+            if (edge) put(x0 + x, y0 + y, 200, 160, 255);
+            else put(x0 + x, y0 + y, 24, 14, 40);
+        }
+    int cx = x0 + 4;
+    for (const char* s = kText; *s; ++s, cx += 6) {
+        for (const Glyph& g : kGlyphs) {
+            if (g.c != *s) continue;
+            for (int ry = 0; ry < 7; ++ry)
+                for (int rx = 0; rx < 5; ++rx)
+                    if (g.rows[ry][rx] == '#') put(cx + rx, y0 + 4 + ry, 255, 255, 255);
+        }
+    }
 }
 
 // Called with the final picture of every presented frame.
@@ -9354,6 +9822,9 @@ bool gpu_field_paint_refused(std::uint8_t* rgb, std::uint32_t width,
     return true;
 }
 
+// Better Field Psy (settings page two), defined with the other options below.
+extern std::atomic<int> g_field_psynergy_fast;
+
 bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
                                 std::uint32_t height) {
     if (!gpu_field_enabled()) return false;
@@ -9415,6 +9886,9 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
                                   g_gpu_field_capture.room_vram.size());
     renderer.upload_palette(g_gpu_field_capture.scene.palette.data(),
                             g_gpu_field_capture.scene.palette.size());
+    if (!g_gpu_field_capture.room_palette.empty())
+        renderer.upload_room_palette(g_gpu_field_capture.room_palette.data(),
+                                     g_gpu_field_capture.room_palette.size());
     renderer.upload_room(g_gpu_field_capture.ewram.data(),
                          g_gpu_field_capture.ewram.size());
     // The world map beyond the game's own 512-pixel ring, for the margins
@@ -9426,9 +9900,11 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
         if (world_map.update(cap.ewram.data(), cap.ewram.size(),
                              cap.iwram.data(), cap.iwram.size(),
                              cap.rom, cap.rom_bytes)) {
+            g_world_map_source_ok = true;
             renderer.upload_world_map(world_map.tiles().data(),
                                       world_map.generation());
         } else {
+            g_world_map_source_ok = false;
             renderer.upload_world_map(nullptr, 0);
         }
     }
@@ -9462,6 +9938,8 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
         if (gsr::effect_capture_enabled()) {
             const auto& captured = g_gpu_field_capture.effects;
             const auto& asked = captured.stamps;
+            gsr::move_probe_on_sparks(sc.frame, effect_layer, asked,
+                                      effect_layer >= 0 ? &sc.layers[effect_layer] : nullptr);
             if (effect_layer >= 0 && !asked.empty()) {
                 renderer.upload_effect_sparks(
                     asked.data(), static_cast<int>(asked.size()),
@@ -9470,6 +9948,9 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
                                                g_gpu_field_capture.vram.size(),
                                                sc.layers[effect_layer]);
             }
+            gsr::earth_surge_on_present(renderer, sc.frame, effect_layer, asked,
+                                        g_gpu_field_capture.oam.data(),
+                                        g_gpu_field_capture.oam.size());
             // Report once, on the first frame that actually captured
             // something -- reporting on the first battle frame printed all
             // zeros because no stamp call had happened yet
@@ -9486,6 +9967,8 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
             }
         }
     }
+    renderer.set_menu_open(g_gpu_field_capture.window_open);
+    renderer.set_reveal_full(g_field_psynergy_fast.load() != 0);
     if (!renderer.draw(g_gpu_field_capture.scene)) {
         // Say once why the card declined. Without this the log cannot tell a
         // path that never ran from one that ran and handed every frame back.
@@ -9510,6 +9993,11 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
     surface.read_texture_rgb(renderer.output_texture(),
                              static_cast<int>(width), static_cast<int>(height),
                              rgb);
+    // A decode the console's own picture disagrees with was not drawn, so
+    // it must not be held either (the pause menu's first frame,
+    // logs/gpu_rewind_0058 frame 14).
+    g_world_map_source_ok = g_world_map_source_ok && renderer.world_map_used();
+    world_map_margin_hold(rgb, width, height);
 
     // Polled only once the frame is safely drawn and read back, so a dump
     // never races the draw it is describing.
@@ -9561,6 +10049,9 @@ bool g_encounter_skip_next = false;
 // Battle speed-up (src/battle_speed.h), toggled with Select in battle; saved
 // with the other options.
 std::atomic<bool> g_battle_speed_on{false};
+// Better Field Psy: Off / On (src/battle_speed.h), saved with the other
+// options.
+std::atomic<int> g_field_psynergy_fast{0};
 // Cheat menu multipliers (src/cheat_menu.h), step indices, saved with the
 // other options.
 std::atomic<int> g_cheat_exp_step{gsr::cheat_menu::kNormalStep};
@@ -9581,13 +10072,17 @@ void load_game_options(const char* argv0) {
     const std::size_t encounter_length = std::strlen(kEncounterKey);
     const char* const battle_key = gsr::battle_speed::kOptionsKey;
     const std::size_t battle_length = std::strlen(battle_key);
+    const std::size_t field_psy_length = std::strlen(kFieldPsynergyKey);
     while (std::fgets(line, sizeof line, f)) {
         if (std::strncmp(line, kEncounterKey, encounter_length) == 0) {
             const int value = std::atoi(line + encounter_length);
-            if (value >= kEncounterNormal && value <= kEncounterOff)
+            if (value >= kEncounterNormal && value < kEncounterRateCount)
                 g_encounter_rate.store(value);
         } else if (std::strncmp(line, battle_key, battle_length) == 0) {
             g_battle_speed_on.store(std::atoi(line + battle_length) != 0);
+        } else if (std::strncmp(line, kFieldPsynergyKey, field_psy_length) == 0) {
+            g_field_psynergy_fast.store(
+                std::atoi(line + field_psy_length) != 0 ? 1 : 0);
         } else {
             using namespace gsr::cheat_menu;
             const std::pair<const char*, std::atomic<int>*> steps[] = {
@@ -9598,7 +10093,9 @@ void load_game_options(const char* argv0) {
                 const std::size_t n = std::strlen(key);
                 if (std::strncmp(line, key, n) != 0) continue;
                 const int value = std::atoi(line + n);
-                if (value >= 0 && value < kStepCount) step->store(value);
+                const int count = step == &g_cheat_drop_step ? kDropStepCount
+                                                             : kStepCount;
+                if (value >= 0 && value < count) step->store(value);
             }
         }
     }
@@ -9616,6 +10113,8 @@ void save_game_options() {
                  g_encounter_rate.load());
     std::fprintf(f, "%s%d\n", gsr::battle_speed::kOptionsKey,
                  g_battle_speed_on.load() ? 1 : 0);
+    std::fprintf(f, "%s%d\n", gsr::settings_page::kFieldPsynergyKey,
+                 g_field_psynergy_fast.load() ? 1 : 0);
     std::fprintf(f, "%s%d\n", gsr::cheat_menu::kExpKey,
                  g_cheat_exp_step.load());
     std::fprintf(f, "%s%d\n", gsr::cheat_menu::kCoinKey,
@@ -9688,7 +10187,9 @@ int settings_page_repeat_keys(std::uint32_t* out_value) {
         g_settings_speed.store(speed);
     } else if ((keys & (kKeyLeft | kKeyRight)) && row == kEncounterRow) {
         int rate = g_encounter_rate.load();
-        rate = (keys & kKeyRight) ? (rate + 1) % 3 : (rate + 2) % 3;
+        rate = (keys & kKeyRight) ? (rate + 1) % kEncounterRateCount
+                                  : (rate + kEncounterRateCount - 1) %
+                                        kEncounterRateCount;
         g_encounter_rate.store(rate);
         save_game_options();
     } else if ((keys & (kKeyLeft | kKeyRight)) && row == kScreenRow) {
@@ -9701,6 +10202,10 @@ int settings_page_repeat_keys(std::uint32_t* out_value) {
         const int on = runtime_get_no_slowdown() ? 0 : 1;
         runtime_request_no_slowdown(on);
         g_settings_no_slowdown.store(on);
+    } else if ((keys & (kKeyLeft | kKeyRight)) && row == kFieldPsynergyRow) {
+        // Two values: either direction toggles.
+        g_field_psynergy_fast.store(g_field_psynergy_fast.load() ? 0 : 1);
+        save_game_options();
     }
     *out_value = kZeroWord;
     return 1;
@@ -9980,13 +10485,15 @@ std::vector<std::uint8_t> native_page_canvas(int width, int height) {
     if (speed < 1 || speed > 3) speed = 1;
     const int view_mode = g_settings_view_mode.load() == 0 ? 0 : 1;
     int encounters = g_encounter_rate.load();
-    if (encounters < kEncounterNormal || encounters > kEncounterOff)
+    if (encounters < kEncounterNormal || encounters >= kEncounterRateCount)
         encounters = kEncounterNormal;
     const int no_slowdown = g_settings_no_slowdown.load() ? 1 : 0;
+    const int field_psynergy = g_field_psynergy_fast.load() ? 1 : 0;
     const char* const words[kRowCount] = {kWalkingSpeedWords[speed - 1],
                                           kEncounterWords[encounters],
                                           kScreenWords[view_mode],
-                                          kOnOffWords[no_slowdown]};
+                                          kOnOffWords[no_slowdown],
+                                          kFieldPsynergyWords[field_psynergy]};
     const int cursor_row = g_settings_row.load();
     for (int row = 0; row < kRowCount; ++row) {
         const int y = kRowLineY[row];
@@ -9998,17 +10505,55 @@ std::vector<std::uint8_t> native_page_canvas(int width, int height) {
     return canvas;
 }
 
+// Captures where the game had drawn page one's text over page two.
+unsigned g_native_page_capture_logs = 0;
+
 // End of a game frame (the frame routine's wait): keep page two in the
 // settings window while it shows, or put page one back once it does not.
-void native_page_frame_end() {
+//
+// `at_capture` is the second caller, the frame capture at the start of
+// VBlank (gpu_field_capture_hook): on Up/Down the game redraws page one's
+// values into fresh text tiles after the wait had already run, and they were
+// on screen for two frames (gpu_rewind_0059, frames 70-71 and 110-111;
+// ROADMAP.md). There it runs from inside guest code, so it only puts page
+// two's pixels back into text tiles: no tile is handed out, no cell or
+// sprite is touched, and nothing starts or ends.
+void native_page_frame_end(bool at_capture = false) {
     using namespace gsr::settings_page;
     const bool open = g_settings_open.load() && !g_settings_closing.load() &&
                       g_settings_font_loaded.load(std::memory_order_acquire);
+    // Why page two was not kept, while it should show (bounded): the fix
+    // above still let page one through in a player build
+    // (bug_report_20260930_212742, rewind 2 frames 22-23), and the capture
+    // there shows the game's page-one text untouched.
+    auto note_skip = [&](const char* where, const char* why) {
+        static unsigned logged = 0;
+        if (logged >= 60u) return;
+        ++logged;
+        std::fprintf(stderr,
+                     "[settings] page two not kept at %s: %s (frame %llu, "
+                     "open=%d closing=%d page=%d active=%d line %u)\n",
+                     where, why, runtime_current_frame(),
+                     g_settings_open.load() ? 1 : 0,
+                     g_settings_closing.load() ? 1 : 0, g_settings_page.load(),
+                     g_native_page.active ? 1 : 0,
+                     static_cast<unsigned>(bus_read_u16(0x04000006u)));
+    };
+    if (at_capture &&
+        (!open || g_settings_page.load() != 2 || !g_native_page.active)) {
+        if (g_settings_page.load() == 2 || g_native_page.active)
+            note_skip("the frame capture", !open ? "not open"
+                      : g_settings_page.load() != 2 ? "page one"
+                                                    : "not started");
+        return;
+    }
     if (!open) {
+        if (g_native_page.active) note_skip("the frame wait", "not open");
         native_page_end(false);
         return;
     }
     if (g_settings_page.load() != 2) {
+        if (g_native_page.active) note_skip("the frame wait", "page one");
         native_page_end(true);
         return;
     }
@@ -10016,6 +10561,7 @@ void native_page_frame_end() {
     const std::uint32_t oam = bus_read_u32(kOamShadowSlot);
     if ((block >> 24) != 0x02u || (oam >> 24) != 0x03u) return;
     NativeSettingsPage& page = g_native_page;
+    int repainted = 0;  // text tiles the game had drawn over
     if (!page.active) {
         page.active = true;
         // Free text tiles, in the game's own usage table.
@@ -10070,12 +10616,15 @@ void native_page_frame_end() {
                 const std::array<std::uint8_t, 32> now = native_page_read_tile(tile);
                 auto& saved = page.saved[tile];
                 if (now != saved.written) saved.original = now;
-                if (now != wanted) native_page_write_tile(tile, wanted);
+                if (now != wanted) {
+                    ++repainted;
+                    native_page_write_tile(tile, wanted);
+                }
                 saved.written = wanted;
                 continue;
             }
             // Blank or frame: only a cell that needs text takes a tile.
-            if (blank || tile != kBlankTile) continue;
+            if (at_capture || blank || tile != kBlankTile) continue;
             // A candidate the game took since page two opened is skipped.
             while (page.reserved_used < page.reserved.size() &&
                    bus_read_u8(native_page_usage(
@@ -10090,6 +10639,18 @@ void native_page_frame_end() {
             native_page_write_cell(block, cell, written);
             page.cells[cell] = {value, written};
         }
+    }
+
+    if (at_capture) {
+        if (repainted > 0 && g_native_page_capture_logs < 40u) {
+            ++g_native_page_capture_logs;
+            std::fprintf(stderr,
+                         "[settings] page two: %d text tiles of page one put "
+                         "back at the frame capture (frame %llu, line %u)\n",
+                         repainted, runtime_current_frame(),
+                         static_cast<unsigned>(bus_read_u16(0x04000006u)));
+        }
+        return;
     }
 
     // Page one's icons inside the window: every sprite whose top-left lies
@@ -10129,6 +10690,39 @@ int g_battle_bg_pending_index = -1;
 int g_battle_bg_restored_index = -1;
 std::int64_t g_battle_arena_pending_index = -1;
 std::int64_t g_battle_arena_restored_index = -1;
+
+// ---- Field Psynergy speed-up (src/battle_speed.h) ----------------------
+// A cast is in progress on exactly the frames in which the game entered
+// Func_96f50 or Func_96c80. `active` is whether the last completed frame saw
+// either entry: no hold, no debounce. There is no per-frame hook, so the
+// frame is closed by the first function entry of the next frame or by the
+// frame wait's mask load, whichever comes first. Emulation thread only.
+struct FieldPsynergyState {
+    unsigned long long frame = 0;
+    bool started = false;
+    bool seen = false;    // an entry was seen in `frame`
+    bool active = false;  // an entry was seen in the completed frame before
+    bool running = false; // the field path is holding 2x (for the log)
+};
+FieldPsynergyState g_field_psy;
+
+void field_psynergy_roll_frame() {
+    FieldPsynergyState& s = g_field_psy;
+    const unsigned long long frame = runtime_current_frame();
+    if (s.started && frame == s.frame) return;
+    // A gap of more than one frame (or a savestate load) had no entries.
+    s.active = s.started && frame == s.frame + 1 && s.seen;
+    s.started = true;
+    s.frame = frame;
+    s.seen = false;
+}
+
+void field_psynergy_on_entry(std::uint32_t entry_pc) {
+    field_psynergy_roll_frame();
+    if (entry_pc == gsr::battle_speed::kFieldPsynergyEntryA ||
+        entry_pc == gsr::battle_speed::kFieldPsynergyEntryB)
+        g_field_psy.seen = true;
+}
 
 // ---- Battle BG1 write recorder (launcher "Record battle BG1 writes") ----
 //
@@ -10353,25 +10947,45 @@ int battle_speed_wait_mask(std::uint32_t* out_value) {
                                           kNoticeFrames);
     }
     g_battle_field_toggle_held = field_toggle;
-    if (!in_battle || !g_battle_speed_on.load()) {
-        g_battle_skip_this_frame = false;
+    field_psynergy_roll_frame();
+    const bool battle_2x = in_battle && g_battle_speed_on.load();
+    // A field Psynergy cast at Fast: the same 2x, outside battle only.
+    const bool field_2x = !in_battle && g_field_psynergy_fast.load() != 0 &&
+                          g_field_psy.active;
+    if (field_2x != g_field_psy.running) {
+        g_field_psy.running = field_2x;
+        std::fprintf(stderr, field_2x ? "[field-psy-fast] on frame=%llu\n"
+                                      : "[field-psy-fast] off frame=%llu\n",
+                     static_cast<unsigned long long>(runtime_current_frame()));
+    }
+    if (!battle_2x) {
+        // Battle-only state: the per-line table restores and the HBlank DMA
+        // latch belong to the battle's own drawing, never the field's.
         g_battle_bg_front_index = -1;
         g_battle_arena_front_index = -1;
         g_battle_bg_pending_index = -1;
         g_battle_arena_pending_index = -1;
         gba::g_hblank_dma_latch.store(false, std::memory_order_relaxed);
+    }
+    if (!battle_2x && !field_2x) {
+        g_battle_skip_this_frame = false;
         battle_speed_hold_overclock(false);
         return 0;
     }
     battle_speed_hold_overclock(true);
-    // Per-line tables are read as they stood at the start of each frame.
-    gba::g_hblank_dma_latch.store(true, std::memory_order_relaxed);
-    load_menu_font();
-    g_battle_speed_seen_frame.store(runtime_current_frame());
-    g_battle_skip_this_frame =
-        !battle_speed_display_paced() && !g_battle_skip_this_frame;
-    const std::uint32_t bg_index = battle_bg_index_address();
-    const std::uint32_t arena_index = battle_arena_index_address();
+    bool display_paced = false;
+    if (battle_2x) {
+        // Per-line tables are read as they stood at the start of each frame.
+        gba::g_hblank_dma_latch.store(true, std::memory_order_relaxed);
+        load_menu_font();
+        g_battle_speed_seen_frame.store(runtime_current_frame());
+        display_paced = battle_speed_display_paced();
+    }
+    g_battle_skip_this_frame = !display_paced && !g_battle_skip_this_frame;
+    // Both index tables are battle blocks; 0 leaves them alone in the field.
+    const std::uint32_t bg_index = battle_2x ? battle_bg_index_address() : 0u;
+    const std::uint32_t arena_index =
+        battle_2x ? battle_arena_index_address() : 0u;
     if (!g_battle_skip_this_frame) {
         // This wait halts. If the dropped pass's flip was put back and this
         // pass did not flip again, hand the game its own choice back first:
@@ -10522,7 +11136,8 @@ void cheat_menu_change(int row, int direction) {
     } else if (row == kInfinitePpRow) {
         runtime_set_infinite_pp(runtime_get_infinite_pp() ? 0 : 1);
     } else if (std::atomic<int>* step = cheat_menu_step(row)) {
-        step->store(std::clamp(step->load() + direction, 0, kStepCount - 1));
+        const int last = (row == kDropRow ? kDropStepCount : kStepCount) - 1;
+        step->store(std::clamp(step->load() + direction, 0, last));
     }
 }
 
@@ -10700,7 +11315,10 @@ bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
     if (settings) paint_settings_page(rgb, width, height);
     if (battle) paint_battle_speed_indicator(rgb, width, height);
     frame_rewind_record(rgb, width, height, drawn, battle);
-    return drawn || settings || battle;
+    // After the recording, so the notice is not in the saved frames.
+    const bool notice = runtime_current_frame() <= g_bug_report_notice_until;
+    if (notice) paint_bug_report_notice(rgb, width, height);
+    return drawn || settings || battle || notice;
 }
 
 // Instant text is the settings screen's fourth Message-speed choice, always
@@ -10879,10 +11497,30 @@ int golden_sun_thumb_literal(std::uint32_t pc, std::uint32_t original,
         native_page_frame_end();
         return battle_speed_wait_mask(out_value);
     }
+    if (pc == gsr::battle_speed::kRevealEndLiteralPc &&
+        original == gsr::battle_speed::kRevealEndCommand) {
+        // Better Field Psy: Reveal lasts to twice the distance.
+        using namespace gsr::battle_speed;
+        if (g_field_psynergy_fast.load() == 0) return 0;
+        const std::uint32_t state = bus_read_u32(kRevealStatePointer);
+        if (bus_read_u16(state + kRevealCountdownOffset) == 0) return 0;
+        // The countdown is running, so the distance test sent us here and
+        // r2 still holds the squared distance.
+        if (g_cpu.R[2] >= kRevealBetterRangeSquared) return 0;
+        *out_value = bus_read_u16(state + kRevealCommandOffset);
+        return 1;
+    }
     if (pc == gsr::settings_page::kEncounterBaseLiteralPc &&
         original == gsr::settings_page::kEncounterBase) {
         using namespace gsr::settings_page;
         const int rate = g_encounter_rate.load();
+        if (rate == kEncounterDouble) {
+            // r0 is this step's amount; the game adds it once more below.
+            const std::uint32_t counter =
+                kEncounterBase + kEncounterCounterOffset;
+            bus_write_u32(counter, bus_read_u32(counter) + g_cpu.R[0]);
+            return 0;
+        }
         bool drop = rate == kEncounterOff;
         if (rate == kEncounterHalf) {
             drop = g_encounter_skip_next;
@@ -11992,6 +12630,7 @@ bool golden_sun_func1dc8_writer_pc(std::uint32_t pc,
         verified = cache.image_verified;
     } else {
         bool prefix_passed = false;
+        ++g_func1dc8_writer_hashes;
         verified = relocatable_resident_at(*image, base, &prefix_passed);
         cache = {};
         cache.valid = true;
@@ -12220,6 +12859,8 @@ bool relocatable_resident_at(const RelocatableCodeImage& image,
         return false;
     }
     *prefix_passed = true;
+    ++g_relocatable_resident_hashes;
+    g_relocatable_resident_hash_bytes += size;
     if (const std::uint8_t* fast = bus_fast_ram_contiguous(base, size)) {
         return gsr::sha1_excluding(
                    size,
@@ -12244,26 +12885,95 @@ bool relocatable_resident_at(const RelocatableCodeImage& image,
 // "Page-epoch cache core" comment for why mask coverage has to be proven
 // per-base here rather than computed once at startup like the fixed-address
 // sibling's g_verified_identity_cache.
+//
+// Several entries per image, for matches and non-matches alike: the scan path
+// (a dispatch at a base other than the hint's) ran 17,494 whole-image hashes
+// (10.3 MB) over one slot-8 Ragnarok run, ~11% of the heaviest frames
+// (FACTS.md). A non-match entry is only ever answered by the exact byte
+// compare, never by page epochs.
 struct RelocatableIdentityCacheEntry {
     bool valid = false;
+    bool matched = false;
     std::uint32_t base = 0;
     std::uint32_t size = 0;
     std::array<unsigned int, 64> page_epochs{};
     std::vector<std::uint8_t> snapshot;
 };
-std::array<RelocatableIdentityCacheEntry, kRelocatableCodeImages.size()>
+constexpr std::size_t kRelocatableIdentityCacheWays = 4;
+struct RelocatableIdentityCacheSet {
+    std::array<RelocatableIdentityCacheEntry, kRelocatableIdentityCacheWays>
+        ways{};
+    std::size_t next = 0;  // round-robin replacement
+};
+std::array<RelocatableIdentityCacheSet, kRelocatableCodeImages.size()>
     g_relocatable_identity_cache{};
 unsigned long long g_relocatable_identity_hashes = 0;
 unsigned long long g_relocatable_identity_cache_hits = 0;
+// Epoch/local-word check failed but the live bytes still equal the snapshot
+// taken at the last matching SHA-1, so the hash was skipped.
+unsigned long long g_relocatable_identity_snapshot_hits = 0;
 
 unsigned int ram_code_page_epoch(std::uint32_t addr);
 
-// Cache-aware sibling of relocatable_resident_at, used ONLY on the hint path
-// (try_relocatable_dispatch already knows this (image, base) matched last
-// time). Never concludes anything relocatable_resident_at would not: a cache
-// hit only ever short-circuits to `true`, and any miss, invalidation or
-// mismatch falls straight through to the same byte-exact hash the uncached
-// path runs, which is the sole authority over whether the image matches.
+// True when every byte the identity hash covers (i.e. outside
+// image.excluded_ranges, exactly as sha1_excluding skips them) equals the
+// snapshot. Identical hashed bytes give an identical SHA-1, so a true result
+// is the same conclusion the hash would reach for a previously matched image.
+bool relocatable_live_matches_snapshot(const RelocatableCodeImage& image,
+                                       std::uint32_t base, std::uint32_t size,
+                                       const std::vector<std::uint8_t>& snapshot) {
+    if (snapshot.size() != size) return false;
+    const std::uint8_t* fast = bus_fast_ram_contiguous(base, size);
+    if (fast && image.excluded_ranges_len == 0) {
+        return std::memcmp(fast, snapshot.data(), size) == 0;
+    }
+    // With excluded ranges: memcmp over the spans between them. The per-byte
+    // loop below tested every range for every byte and was 7% of the
+    // heaviest Nereid frames (logs/session_20260930_190323.hostprof.txt).
+    std::array<gsr::ByteRange, 16> excluded{};
+    if (fast && image.excluded_ranges_len <= excluded.size()) {
+        std::size_t count = 0;
+        for (unsigned i = 0; i < image.excluded_ranges_len; ++i) {
+            const std::uint32_t start = std::min(image.excluded_ranges[i].start, size);
+            const std::uint32_t end = std::min(image.excluded_ranges[i].end, size);
+            if (start < end) excluded[count++] = {start, end};
+        }
+        std::sort(excluded.begin(), excluded.begin() + count,
+                  [](const gsr::ByteRange& a, const gsr::ByteRange& b) {
+                      return a.start < b.start;
+                  });
+        std::uint32_t at = 0;
+        for (std::size_t i = 0; i < count; ++i) {
+            if (excluded[i].start > at &&
+                std::memcmp(fast + at, snapshot.data() + at,
+                            excluded[i].start - at) != 0) {
+                return false;
+            }
+            at = std::max(at, excluded[i].end);
+        }
+        return at >= size ||
+               std::memcmp(fast + at, snapshot.data() + at, size - at) == 0;
+    }
+    for (std::uint32_t offset = 0; offset < size; ++offset) {
+        if (gsr::byte_range_excludes(offset, image.excluded_ranges,
+                                     image.excluded_ranges_len)) {
+            continue;
+        }
+        const std::uint8_t live =
+            fast ? fast[offset]
+                 : static_cast<std::uint8_t>(bus_read_u8(base + offset));
+        if (live != snapshot[offset]) return false;
+    }
+    return true;
+}
+
+// Cache-aware sibling of relocatable_resident_at, used by both the hint path
+// and the scan in try_relocatable_dispatch. Never concludes anything
+// relocatable_resident_at would not: the page-epoch hit only ever answers
+// `true` for an entry installed on a real match, the byte compare answers
+// with the result the hash gave for those same bytes, and anything else falls
+// through to the same byte-exact hash the uncached path runs, which is the
+// sole authority over whether the image matches.
 bool relocatable_resident_at_cached(std::size_t index,
                                     const RelocatableCodeImage& image,
                                     std::uint32_t base, std::uint32_t pc,
@@ -12278,39 +12988,67 @@ bool relocatable_resident_at_cached(std::size_t index,
     }
     *prefix_passed = true;
 
-    auto& cache = g_relocatable_identity_cache[index];
-    if (cache.valid && cache.base == base && cache.size == size &&
-        gsr::ram_range_pages_current(base, base + size, cache.page_epochs,
+    auto& set = g_relocatable_identity_cache[index];
+    RelocatableIdentityCacheEntry* cache = nullptr;
+    for (auto& way : set.ways) {
+        if (way.valid && way.base == base && way.size == size) {
+            cache = &way;
+            break;
+        }
+    }
+    if (cache && cache->matched &&
+        gsr::ram_range_pages_current(base, base + size, cache->page_epochs,
                                      ram_code_page_epoch) &&
         gsr::identity_local_words_current(
-            base, pc, cache.snapshot.data(), cache.size, image.excluded_ranges,
-            image.excluded_ranges_len, bus_read_u32)) {
+            base, pc, cache->snapshot.data(), cache->size,
+            image.excluded_ranges, image.excluded_ranges_len, bus_read_u32)) {
         ++g_relocatable_identity_cache_hits;
-        return true;  // a cache entry is only ever installed on a real match
+        return true;
+    }
+
+    // Epochs or local words say "maybe changed" (an unrelated write in a
+    // shared page is common), or this is a remembered non-match. Exact byte
+    // compare against the snapshot the hash judged before paying SHA-1.
+    if (cache &&
+        relocatable_live_matches_snapshot(image, base, size, cache->snapshot)) {
+        if (cache->matched) {
+            gsr::ram_range_register_mask(base, base + size,
+                                         &g_ram_code_page_mask_iwram,
+                                         &g_ram_code_page_mask_ewram_lo,
+                                         &g_ram_code_page_mask_ewram_hi);
+            gsr::save_ram_range_page_epochs(base, base + size,
+                                            cache->page_epochs,
+                                            ram_code_page_epoch);
+        }
+        ++g_relocatable_identity_snapshot_hits;
+        return cache->matched;
     }
 
     ++g_relocatable_identity_hashes;
     const bool matched = relocatable_resident_at(image, base, prefix_passed);
+    if (!cache) {
+        cache = &set.ways[set.next];
+        set.next = (set.next + 1u) % set.ways.size();
+    }
+    cache->valid = true;
+    cache->matched = matched;
+    cache->base = base;
+    cache->size = size;
+    cache->snapshot.resize(size);
+    if (const std::uint8_t* fast = bus_fast_ram_contiguous(base, size)) {
+        std::memcpy(cache->snapshot.data(), fast, size);
+    } else {
+        for (std::uint32_t offset = 0; offset < size; ++offset) {
+            cache->snapshot[offset] = bus_read_u8(base + offset);
+        }
+    }
     if (matched) {
         gsr::ram_range_register_mask(base, base + size,
                                      &g_ram_code_page_mask_iwram,
                                      &g_ram_code_page_mask_ewram_lo,
                                      &g_ram_code_page_mask_ewram_hi);
-        cache.valid = true;
-        cache.base = base;
-        cache.size = size;
-        gsr::save_ram_range_page_epochs(base, base + size, cache.page_epochs,
+        gsr::save_ram_range_page_epochs(base, base + size, cache->page_epochs,
                                         ram_code_page_epoch);
-        cache.snapshot.resize(size);
-        if (const std::uint8_t* fast = bus_fast_ram_contiguous(base, size)) {
-            std::memcpy(cache.snapshot.data(), fast, size);
-        } else {
-            for (std::uint32_t offset = 0; offset < size; ++offset) {
-                cache.snapshot[offset] = bus_read_u8(base + offset);
-            }
-        }
-    } else {
-        cache.valid = false;
     }
     return matched;
 }
@@ -12424,10 +13162,8 @@ RuntimeGuestFn try_relocatable_dispatch(std::uint32_t pc, int thumb) {
         }
         if (fn == nullptr) return nullptr;
         bool prefix_passed = false;
-        const bool resident =
-            from_hint ? relocatable_resident_at_cached(index, image, base, pc,
-                                                        &prefix_passed)
-                      : relocatable_resident_at(image, base, &prefix_passed);
+        const bool resident = relocatable_resident_at_cached(
+            index, image, base, pc, &prefix_passed);
         if (!resident) {
             if (profiling && prefix_passed) ++image_stats.prefix_passes;
             return nullptr;
@@ -12595,6 +13331,9 @@ extern "C" int overlay_try_dispatch(std::uint32_t pc, int thumb);
 extern "C" void runtime_dispatch_miss(std::uint32_t target_pc);
 
 void golden_sun_function_entry_observer(std::uint32_t entry_pc) {
+    field_psynergy_on_entry(entry_pc);
+    gsr::move_probe_on_entry(entry_pc);
+    gsr::earth_surge_on_entry(entry_pc);
     golden_sun_obj_f0_entry_capture(entry_pc);
     golden_sun_obj_staging_handoff(entry_pc);
     record_golden_sun_obj_boulder_calc_entry(entry_pc);
@@ -12669,6 +13408,10 @@ unsigned long long g_verified_identity_content_hits = 0;
 unsigned long long g_verified_identity_invalidations = 0;
 std::array<unsigned long long, kTransientCodeImages.size()>
     g_verified_identity_hash_counts{};
+// Stamp byte-scan path (try_stamp_dispatch): entries into the scan, and SHA-1
+// computations made inside it. Reported at exit with the counters above.
+unsigned long long g_stamp_identity_scans = 0;
+unsigned long long g_stamp_identity_hashes = 0;
 
 std::uint64_t verified_ram_key(std::uint32_t pc, int thumb) {
     return (static_cast<std::uint64_t>(pc & ~1u) << 1) |
@@ -12971,6 +13714,7 @@ RuntimeGuestFn try_stamp_dispatch(std::uint32_t pc, int thumb) {
 
     const StampRegistry& registry = stamp_registry();
     if (registry.lengths.empty()) return nullptr;
+    ++g_stamp_identity_scans;
     // Every variant opens with STMFD sp!, {r5-r11, lr} (0xE92D4FE0), and no
     // variant holds that word anywhere else.
     constexpr std::uint32_t kStampOpening = 0xE92D4FE0u;
@@ -12999,6 +13743,7 @@ RuntimeGuestFn try_stamp_dispatch(std::uint32_t pc, int thumb) {
         }
         for (const std::uint32_t length : registry.lengths) {
             if (base + length <= pc) break;  // longest first: none reach pc
+            ++g_stamp_identity_hashes;
             const std::string key = std::to_string(length) + ":" +
                                     gba::sha1(bytes.data(), length).hex();
             const auto found = registry.by_identity.find(key);
@@ -13533,6 +14278,80 @@ RuntimeGuestFn verified_ram_dispatch(std::uint32_t pc, int thumb) {
     }
     std::fprintf(stderr,
         "GoldenSunRecomp: unknown transient code identity at 0x%08X\n", pc);
+    if (pc >= 0x03000000u && pc < 0x03002300u) {
+        // At most once per 600 frames: show what rewrote the IWRAM code area.
+        static unsigned long long s_last_dump_frame = 0;
+        const unsigned long long frame = runtime_current_frame() + 1ull;
+        if (s_last_dump_frame == 0 || frame - s_last_dump_frame >= 600ull) {
+            s_last_dump_frame = frame;
+            runtime_iwram_code_write_dump("unknown-identity");
+        }
+    }
+    // Always-on (not behind Additional debug logging), bounded report for the
+    // fixed image that covers this PC: which bytes differ from the ROM copy,
+    // and what wrote into its range. The first candidate that covers the PC in
+    // this mode and has a linear ROM source is the one reported; the number of
+    // covering candidates is printed so a second one is not hidden.
+    {
+        const TransientCodeImage* failing = nullptr;
+        std::size_t failing_index = 0;
+        unsigned covering = 0;
+        for (std::size_t candidate_index = 0;
+             candidate_index < kTransientCodeImages.size(); ++candidate_index) {
+            const auto& candidate = kTransientCodeImages[candidate_index];
+            if (pc < candidate.start || pc >= candidate.end) continue;
+            ++covering;
+            if (!failing && candidate.rom_start != 0 &&
+                candidate.thumb == thumb) {
+                failing = &candidate;
+                failing_index = candidate_index;
+            }
+        }
+        // Same 600-frame spacing as the write dump above, so a routine that
+        // keeps self-healing cannot flood stderr.
+        static unsigned long long s_last_candidate_frame = 0;
+        const unsigned long long frame = runtime_current_frame() + 1ull;
+        if (failing && (s_last_candidate_frame == 0 ||
+                        frame - s_last_candidate_frame >= 600ull)) {
+            s_last_candidate_frame = frame;
+            const std::string actual = observed_sha1[failing_index].empty()
+                ? live_sha1(failing->start, failing->end - failing->start)
+                : observed_sha1[failing_index];
+            std::fprintf(stderr,
+                "  failing candidate=%s range=0x%08X..0x%08X covering=%u "
+                "expected=%s actual=%s\n",
+                failing->name, failing->start, failing->end, covering,
+                failing->sha1, actual.c_str());
+            unsigned differences = 0;
+            for (std::uint32_t offset = 0;
+                 offset < failing->end - failing->start; ++offset) {
+                const std::uint8_t live = bus_read_u8(failing->start + offset);
+                const std::uint8_t source =
+                    bus_read_u8(failing->rom_start + offset);
+                if (live == source) continue;
+                if (differences < 16) {
+                    std::fprintf(stderr,
+                        "    offset=0x%X live=0x%02X rom=0x%02X\n",
+                        offset, live, source);
+                }
+                ++differences;
+            }
+            std::fprintf(stderr, "    differing_bytes=%u\n", differences);
+            std::fprintf(stderr, "    live_prefix=");
+            for (std::uint32_t offset = 0; offset < 32; ++offset) {
+                std::fprintf(stderr, "%02x",
+                             bus_read_u8(failing->start + offset));
+            }
+            std::fprintf(stderr, "\n");
+            runtime_iwram_code_write_dump_range(
+                "unknown-identity-candidate", failing->start, failing->end);
+            // Journal of DMA/CPU copies into, and dispatches to, the overlay
+            // unpacker slot (see runtime_arm.cpp): says WHEN and FROM WHERE
+            // each routine was copied over 0x03002000.
+            if (pc >= 0x03002000u && pc < 0x030022C4u)
+                runtime_unpacker_slot_dump("unknown-identity");
+        }
+    }
     // A compressed overlay has no linear ROM source to diff against, so the
     // byte-level report below can say nothing about it. Dumping the live
     // window instead lets the image be matched offline against the pinned
@@ -13721,6 +14540,15 @@ int main(int argc, char** argv) {
     // subsystem, so as much of the run as possible is covered. nullptr =
     // default to the directory this executable lives in.
     gbarecomp::crash_handler_install(nullptr);
+    // F1 "Crash log": a crash report also gets the game's last instructions
+    // (freezes get the same trail from the hang watchdog, hang_fp_tail.csv).
+    gbarecomp::crash_handler_set_extra_writer([](const char* dir) -> const char* {
+        if (runtime_fp_count() == 0) return nullptr;
+        char path[300];
+        std::snprintf(path, sizeof(path), "%s\\crash_trail.csv", dir);
+        return runtime_fp_save_tail_csv(path, 20000) ? "crash_trail.csv"
+                                                     : nullptr;
+    });
     // The field atlas source is now part of the evidence-backed widescreen
     // policy. Keep the payload-free producer trace opt-in for future source
     // investigations; set GBARECOMP_VRAM_MAP_TRACE=1 when needed.
@@ -13795,6 +14623,7 @@ int main(int argc, char** argv) {
     options.max_resize_view_width = 240;
     options.resize_driven_view = false;
     options.extended_view_init = install_golden_sun_widescreen;
+    options.rom_patch = gsr::mods::patch_rom;
     options.thumb_alu_immediate_override = golden_sun_thumb_alu_immediate;
     options.thumb_literal_override = golden_sun_thumb_literal;
     options.swi_override = golden_sun_swi_override;
@@ -13836,15 +14665,26 @@ int main(int argc, char** argv) {
     }
     g_relocatable_identity_cache = {};
     const int result = gbarecomp::run_game(argc, argv, options);
-    if (std::getenv("GBARECOMP_RAM_CACHE_STATS")) {
+    // Printed once, after the run. The launcher's "Cost probe" test toggle sets
+    // GBARECOMP_COST_PROBE (same test as runtime.cpp), which never sets the
+    // RAM_CACHE_STATS variable, so either one turns the report on.
+    const char* cost_probe_env = std::getenv("GBARECOMP_COST_PROBE");
+    const bool cost_probe_on = cost_probe_env != nullptr &&
+        !(cost_probe_env[0] == '0' && cost_probe_env[1] == '\0');
+    if (std::getenv("GBARECOMP_RAM_CACHE_STATS") || cost_probe_on) {
         std::fprintf(stderr,
-            "ram_cache_stats epoch=%llu hashes=%llu image_hits=%llu "
-            "content_hits=%llu invalidations=%llu pc_entries=%zu\n",
+            "ram_cache_stats frames=%llu epoch=%llu hashes=%llu "
+            "image_hits=%llu content_hits=%llu invalidations=%llu "
+            "pc_entries=%zu\n",
+            static_cast<unsigned long long>(runtime_current_frame()),
             g_ram_write_epoch, g_verified_identity_hashes,
             g_verified_identity_cache_hits, g_verified_identity_content_hits,
             g_verified_identity_invalidations,
             g_verified_ram_cache.size());
-        if (std::getenv("GBARECOMP_RAM_CACHE_DETAIL")) {
+        std::fprintf(stderr,
+            "stamp_identity_stats scans=%llu hashes=%llu\n",
+            g_stamp_identity_scans, g_stamp_identity_hashes);
+        if (std::getenv("GBARECOMP_RAM_CACHE_DETAIL") || cost_probe_on) {
             for (std::size_t i = 0; i < kTransientCodeImages.size(); ++i) {
                 if (g_verified_identity_hash_counts[i] == 0) continue;
                 std::fprintf(stderr, "  ram_cache_image=%s hashes=%llu matched=%d known=%d\n",
@@ -13855,8 +14695,13 @@ int main(int argc, char** argv) {
             }
         }
         std::fprintf(stderr,
-            "relocatable_cache_stats hashes=%llu cache_hits=%llu\n",
-            g_relocatable_identity_hashes, g_relocatable_identity_cache_hits);
+            "relocatable_cache_stats hashes=%llu cache_hits=%llu "
+            "identity_snapshot_hits=%llu resident_hashes=%llu "
+            "resident_hash_bytes=%llu func1dc8_writer_checks=%llu\n",
+            g_relocatable_identity_hashes, g_relocatable_identity_cache_hits,
+            g_relocatable_identity_snapshot_hits,
+            g_relocatable_resident_hashes,
+            g_relocatable_resident_hash_bytes, g_func1dc8_writer_hashes);
     }
     gbarecomp::crash_handler_mark_clean_exit();
     return result;

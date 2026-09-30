@@ -30,10 +30,13 @@ constexpr std::uint32_t kExpStorePc = 0x080C265Cu;
 constexpr std::uint32_t kDropBranchPc = 0x080C26BEu;
 
 // Multiplier steps, in halves so 0.5x stays exact.
-constexpr int kStepCount = 6;
-constexpr int kStepHalves[kStepCount] = {0, 1, 2, 4, 10, 20};
-constexpr const char* kStepWords[kStepCount] = {"0x", "0.5x", "1x",
-                                                "2x", "5x", "10x"};
+// 25x..100x apply to Experience and Coins only; Drop Chance stops at 10x
+// (kDropStepCount), where a drop is already all but certain.
+constexpr int kStepCount = 9;
+constexpr int kDropStepCount = 6;
+constexpr int kStepHalves[kStepCount] = {0, 1, 2, 4, 10, 20, 50, 100, 200};
+constexpr const char* kStepWords[kStepCount] = {
+    "0x", "0.5x", "1x", "2x", "5x", "10x", "25x", "50x", "100x"};
 constexpr int kNormalStep = 2;
 
 constexpr int kRowCount = 5;
@@ -46,7 +49,7 @@ constexpr const char* kTitle = "Cheats";
 constexpr const char* kRowLabels[kRowCount] = {
     "Infinite HP", "Infinite PP", "Experience", "Coins", "Drop Chance"};
 
-// game_options.ini keys (step index 0..5).
+// game_options.ini keys (step index 0..8; Drop 0..5).
 constexpr const char* kExpKey = "ExpMultiplier=";
 constexpr const char* kCoinKey = "CoinMultiplier=";
 constexpr const char* kDropKey = "DropMultiplier=";

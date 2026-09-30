@@ -38,6 +38,8 @@
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
 
+extern "C" void runtime_yield_restore_pc(void);
+
 namespace {
 
 bool read_file(const std::string& path, std::vector<uint8_t>& out) {
@@ -121,6 +123,7 @@ int main(int argc, char** argv) {
     for (int i = 0; i < steps_budget; ++i) {
         const uint32_t pc = g_cpu.R[15];
         runtime_dispatch(pc);
+        runtime_yield_restore_pc();  // a yield unwind hides the resume PC
         ++steps_taken;
         if (g_cpu.R[15] == prev_pc) {
             if (++stuck_count >= kStuckThreshold) break;

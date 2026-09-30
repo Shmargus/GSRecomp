@@ -7,6 +7,7 @@
 namespace gbarecomp {
 void crash_handler_install(const char* log_dir) { (void)log_dir; }
 void crash_handler_mark_clean_exit() {}
+void crash_handler_set_extra_writer(CrashExtraWriter) {}
 }  // namespace gbarecomp
 
 #else  // _WIN32
@@ -131,6 +132,8 @@ char g_exe_path[MAX_PATH] = {};
 char g_report_path[MAX_PATH + 32] = {};
 char g_dump_path[MAX_PATH + 32] = {};
 char g_run_state_path[MAX_PATH + 32] = {};
+char g_dir[MAX_PATH] = {};
+gbarecomp::CrashExtraWriter g_extra_writer = nullptr;
 ULONGLONG g_start_tick = 0;
 bool g_report_written = false;  // first fatal event wins; no clobbering
 
@@ -251,9 +254,25 @@ void append_backtrace(ReportBuf& buf, void** frames, USHORT count) {
             }
         }
         if (!resolved) {
-            buf.appendf("  #%2u 0x%p  (no symbols%s)\n", static_cast<unsigned>(i),
-                        frames[i],
-                        g_dbghelp.module ? "" : " -- dbghelp.dll not available");
+            HMODULE hmod = nullptr;
+            char mod_path[MAX_PATH] = {};
+            const char* mod_name = "?";
+            std::uintptr_t offset = 0;
+            if (GetModuleHandleExA(
+                    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                        GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                    reinterpret_cast<LPCSTR>(frames[i]), &hmod) &&
+                hmod) {
+                GetModuleFileNameA(hmod, mod_path, MAX_PATH);
+                mod_name = mod_path;
+                for (const char* p = mod_path; *p; ++p) {
+                    if (*p == '\\' || *p == '/') mod_name = p + 1;
+                }
+                offset = reinterpret_cast<std::uintptr_t>(frames[i]) -
+                         reinterpret_cast<std::uintptr_t>(hmod);
+            }
+            buf.appendf("  #%2u 0x%p  %s+0x%zx\n", static_cast<unsigned>(i),
+                        frames[i], mod_name, offset);
         }
     }
 }
@@ -371,6 +390,12 @@ void write_crash_report(const char* reason, EXCEPTION_POINTERS* ep) {
     buf.appendf("Backtrace (%u frames):\n", static_cast<unsigned>(frame_count));
     append_backtrace(buf, frames, frame_count);
 
+    if (g_extra_writer) {
+        const char* extra = g_extra_writer(g_dir);
+        buf.appendf("\nGame trail: %s\n",
+                    extra ? extra : "(off -- enable Crash log in the F1 menu)");
+    }
+
     raw_write_file(g_report_path, buf.data, buf.len);
     write_minidump(ep);
 }
@@ -470,6 +495,7 @@ void crash_handler_install(const char* log_dir) {
         dir = dir_buf;
     }
 
+    std::snprintf(g_dir, sizeof(g_dir), "%s", dir);
     std::snprintf(g_report_path, sizeof(g_report_path), "%s\\crash_report.txt", dir);
     std::snprintf(g_dump_path, sizeof(g_dump_path), "%s\\crash_dump.dmp", dir);
     std::snprintf(g_run_state_path, sizeof(g_run_state_path), "%s\\run_state.txt", dir);
@@ -499,6 +525,10 @@ void crash_handler_install(const char* log_dir) {
                    live_len > 0 ? static_cast<size_t>(live_len) : 0);
 
     g_installed = true;
+}
+
+void crash_handler_set_extra_writer(CrashExtraWriter writer) {
+    g_extra_writer = writer;
 }
 
 void crash_handler_mark_clean_exit() {

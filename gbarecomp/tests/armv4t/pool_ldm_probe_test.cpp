@@ -412,8 +412,16 @@ void test_arm_crc_and_ring_provenance() {
     g_fast_iwram_event_count = 0;
     for (auto& event : g_fast_iwram_events) event = {};
     g_runtime_fast_iwram_write_observer = &observe_fast_iwram_write;
+    // Inline gate: a store outside every watched 64-byte block must not call
+    // the observer; the block holding 0x03007E30 (word 7, bit 56) must.
+    for (auto& word : g_runtime_fast_iwram_watch) word = 0u;
+    bus_write_u32(0x03007E30u, 0u);
+    check(g_fast_iwram_event_count == 0u,
+          "unwatched fast-IWRAM store must not call the observer");
+    g_runtime_fast_iwram_watch[7] = 1ull << 56;
     g_cpu.R[15] = 0x0833A700u;
     bus_write_u32(0x03007E30u, 0xDCEF0210u);
+    for (auto& word : g_runtime_fast_iwram_watch) word = 0u;
     g_runtime_fast_iwram_write_observer = nullptr;
     check(g_fast_iwram_event_count == 2u,
           "fast-IWRAM write must emit exactly one start and committed event");

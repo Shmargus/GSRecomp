@@ -30,6 +30,7 @@
 #include <cstddef>
 #include <vector>
 
+#include "effect_burst.h"
 #include "effect_particles.h"
 #include "field_scene.h"
 #include "gpu_surface.h"
@@ -58,12 +59,41 @@ public:
     // Uploads video memory and palettes. Call when they have changed; the
     // renderer does not guess. `vram_bytes` is normally 96 KB.
     void upload_vram(const std::uint8_t* vram, std::size_t vram_bytes);
+    // The room rule's tile entry for a screen pixel (false: no answer).
+    bool room_entry(int screen_x, int screen_y, int scroll_x, int scroll_y,
+                    std::uint16_t* entry) const;
+    // Percentage of tiles inside the 240x160 window where the room rule
+    // gives the console's own entry for layer `bg`, each tile row read with
+    // that scanline's own registers; -1 if too few compared.
+    // region_x/y -1: the layer's own scroll names its grid region. 0 or
+    // 1024: read camera + region + the scroll's offset from the camera
+    // instead (Lamakan Desert, see room_region_for).
+    int room_layer_agreement(const FieldScene& scene, int bg, int* compared,
+                             int region_x = -1, int region_y = -1) const;
+    // The grid region a layer's room rule reads: false if neither the
+    // layer's own scroll nor any of the four 1024-px regions reaches
+    // kRoomCheckMinAgreement. *region_x/y -1 means the scroll's own.
+    bool room_region_for(const FieldScene& scene, int bg, int* region_x,
+                         int* region_y) const;
+    // Percentage of sampled world-map pixels inside the 240x160 window
+    // (mode 2 rows, BG2 and BG3) whose tile in the uploaded whole world map
+    // equals the console's own affine map entry; -1 if too few compared.
+    int world_map_agreement(const FieldScene& scene, int* compared) const;
+    // Whether the last draw() drew the margins from the whole world map.
+    bool world_map_used() const { return world_map_used_; }
+    static constexpr int kRoomCheckMinTiles = 40;
+    static constexpr int kRoomCheckMinAgreement = 80;  // measured, see FACTS
     // Video memory for room tiles drawn OUTSIDE the console's 240x160:
     // the same bytes, except that a character block a game window has
     // borrowed keeps what it held before the window opened. Optional;
     // upload_vram() also fills it, so without this call both agree.
     void upload_room_vram(const std::uint8_t* vram, std::size_t vram_bytes);
     void upload_palette(const std::uint16_t* palette, std::size_t entries);
+    // Palette for room tiles in the margins while a menu is open (row 1 of
+    // the palette texture). Call after upload_palette, which resets row 1 to
+    // the live palette.
+    void upload_room_palette(const std::uint16_t* palette,
+                             std::size_t entries);
 
     // Selects the field's background source: video memory only (default --
     // what the pixel-identity gate compares against, and what BG0, the
@@ -110,6 +140,42 @@ public:
     static int find_effect_canvas_layer(const std::uint8_t* vram,
                                         std::size_t vram_bytes,
                                         const FieldScene& scene);
+
+    // Converts a point in the effect canvas's coordinates (the coordinates of
+    // EffectSpark.x/y handed to upload_effect_sparks) to output pixels (the
+    // space of the resolve quad, output_w_ x output_h_). Only valid after
+    // analyse_effect_canvas on the same frame, and only for a TEXT layer
+    // showing the canvas (an attack slash on BG1). False for anything else
+    // (affine layer, canvas not found); *view_x/*view_y are then untouched.
+    // The mapping is derived in field_scene_renderer.cpp.
+    bool effect_canvas_to_view(int canvas_x, int canvas_y, float* view_x,
+                               float* view_y) const;
+
+    // Hides the game's own effect: while on, the effect layer's 128x128
+    // canvas block draws transparent and our host stamp overlay is skipped;
+    // the rest of that layer draws normally. Works for the text-layer canvas
+    // and for a wrapping affine layer with the canvas at the map origin (as
+    // located by analyse_effect_canvas). It does nothing for the non-wrapping
+    // stretched-canvas BG2 (the layer is then the arena as well). Call from
+    // the thread that calls draw().
+    void set_effect_hidden(bool hidden);
+    // Whether a game window (menu, shop, dialogue) is open this frame;
+    // its priority-0 sprites then stay inside the console's 240x160.
+    void set_menu_open(bool open) { menu_open_ = open; }
+    // Better Field Psy (settings page two): Reveal's circle opens to the
+    // whole view instead of blacking out everything around it.
+    void set_reveal_full(bool full) { reveal_full_ = full; }
+
+    // Starts a particle burst at an output-pixel position, together with the
+    // impact screen shake (ScreenShake). The burst is drawn by draw() on top
+    // of the finished picture, one simulation step per draw, until it ends;
+    // the shake moves the picture and the burst together. Call from the
+    // thread that calls draw().
+    void spawn_burst(float view_x, float view_y);
+
+    // Drops the white jump trail along a segment (output pixels). Drawn under
+    // the burst, standing still and fading. Same thread rule.
+    void add_trail(float x0, float y0, float x1, float y1);
 
     // F12-only readback: distinguish disabled drawing from a lost GPU upload.
     void log_effect_state() const;
@@ -218,6 +284,8 @@ private:
     gbarecomp::GpuTexture row_affine_ = 0;
     gbarecomp::GpuTexture world_map_ = 0;
     bool world_map_valid_ = false;
+    bool world_map_used_ = false;
+    std::vector<std::uint8_t> world_tiles_;  // CPU copy of world_map_
     std::uint32_t world_map_generation_ = 0;
     bool room_source_enabled_ = false;
     bool room_valid_ = false;
@@ -232,7 +300,29 @@ private:
     bool effect_wrap_canvas_ = false;
     bool effect_text_canvas_ = false;
     int effect_canvas_map_x_ = 0, effect_canvas_map_y_ = 0;
+    // The effect layer's scroll and map size, saved by analyse_effect_canvas
+    // for effect_canvas_to_view().
+    int effect_scroll_x_ = 0, effect_scroll_y_ = 0;
+    unsigned effect_size_code_ = 0;
+    bool effect_hidden_ = false;
+    bool menu_open_ = false;
+    bool reveal_full_ = false;
     int effect_fill_ = 0;
+    // Earth Surge burst (effect_burst.h): drawn after the resolve quad with
+    // a plain coloured-quad program, compiled the first time a burst starts.
+    EffectBurst burst_;
+    ScreenShake shake_;
+    WhiteTrail trail_;
+    gbarecomp::GpuProgram solid_ = 0;
+    bool solid_failed_ = false;
+    bool ensure_solid();
+    // Shake: the resolve pass draws into shake_target_, which is then drawn
+    // to the surface offset and scaled by shake_blit_.
+    gbarecomp::GpuProgram shake_blit_ = 0;
+    gbarecomp::GpuTexture shake_target_ = 0;
+    int shake_target_w_ = 0, shake_target_h_ = 0;
+    bool shake_failed_ = false;
+    bool ensure_shake_target();
     // Default true: a caller that never uploads a room (the offline checks)
     // must behave exactly as before this flag existed.
     bool world_loaded_ = true;
@@ -240,6 +330,8 @@ private:
     int room_camera_x_ = 0, room_camera_y_ = 0;
     std::vector<std::uint16_t> room_ids_;    // 128*128, low 12 bits
     std::vector<std::uint16_t> room_atlas_;  // 4096*4, id-major
+    // The background map blocks as last uploaded (upload_vram).
+    std::vector<std::uint8_t> vram_maps_;
     // Two-layer depth peel: every quad is drawn twice, once recording the
     // frontmost ("top") candidate at each pixel and once recording the
     // runner-up ("second"), then a resolve pass applies the console's alpha

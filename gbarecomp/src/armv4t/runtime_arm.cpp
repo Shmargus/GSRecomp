@@ -22,6 +22,9 @@ namespace {
 // default; the lightweight mode is armed only when its output path is set.
 constexpr uint32_t kBiosPcRegionEnd = 0x00004000u;
 bool g_bios_pc_log_armed = false;
+// Per-instruction trail arming: GBARECOMP_INSN_TRACE and the F1 crash log.
+static bool g_insn_trace_from_env = false;
+static bool g_crash_log = false;
 // Per BIOS halfword and mode: bit 0 seen before the first cartridge
 // instruction (boot), bit 1 seen after it (play: SWIs, IRQ entry, waits).
 std::vector<uint8_t> g_bios_pc_seen;
@@ -115,6 +118,7 @@ extern "C" RuntimeFastEwramWriteObserver
     g_runtime_fast_ewram_write_observer = nullptr;
 extern "C" RuntimeFastIwramWriteObserver
     g_runtime_fast_iwram_write_observer = nullptr;
+extern "C" uint64_t g_runtime_fast_iwram_watch[8] = {};
 extern "C" RuntimeMemWriteObserverHook
     g_runtime_mem_write_observer = nullptr;
 extern "C" RuntimeThumbAluImmediateOverride
@@ -244,8 +248,8 @@ PoolLdmWriteRing g_pool_ldm_slot_writes[kPoolLdmSlotCount]{};
 // address. Keep a small, payload-free window around the measured stack so a
 // future invalid-pool dump can identify the actual two loaded words even when
 // the entry SP is not 0x03007E24.
-constexpr uint32_t kPoolLdmStackBase = 0x03007E00u;
-constexpr uint32_t kPoolLdmStackEnd = 0x03007E40u;
+constexpr uint32_t kPoolLdmStackBase = RUNTIME_POOL_LDM_WINDOW_BASE;
+constexpr uint32_t kPoolLdmStackEnd = RUNTIME_POOL_LDM_WINDOW_END;
 constexpr uint32_t kPoolLdmStackSlotCount =
     (kPoolLdmStackEnd - kPoolLdmStackBase) / 4u;
 PoolLdmWriteRing g_pool_ldm_stack_writes[kPoolLdmStackSlotCount]{};
@@ -706,9 +710,301 @@ extern "C" void runtime_register_ram_code_page(uint32_t pc) {
     }
 }
 
+// Diagnostic ring of writes into the IWRAM code area (interrupt handler and
+// the copied helper routines, 0x03000000-0x030022FF). Opt-in-free but cheap:
+// one write per word per frame is kept, so per-frame scroll shadows do not
+// flood it. Dumped when the bridge aborts or the IWRAM code stops matching
+// any registered identity, to show what last rewrote the code and when.
+namespace {
+// Covers the whole overlay unpacker (Func_2544) at 0x03002000..0x030022C4.
+constexpr uint32_t kIwramCodeDiagEnd = 0x2300u;
+constexpr uint32_t kIwramCodeDiagWords = kIwramCodeDiagEnd / 4u;
+constexpr uint32_t kIwramCodeRing = 256u;
+struct IwramCodeWrite {
+    unsigned long long frame;
+    uint32_t addr, width, pc, lr;
+};
+IwramCodeWrite g_iwram_code_ring[kIwramCodeRing];
+uint32_t g_iwram_code_ring_next = 0;
+unsigned long long g_iwram_code_word_frame[kIwramCodeDiagWords];
+}  // namespace
+
+// Unpacker-slot journal (crash diagnosis). Always on, and independent of the
+// ring above: that ring only sees writes to pages registered as RAM-code pages
+// (runtime_register_ram_code_page), which is not guaranteed for the unpacker
+// page, and it is flooded by data writes elsewhere. This one records only
+// events touching the overlay unpacker's slot 0x03002000..0x030022C4:
+//   dma   one entry per DMA transfer whose destination overlaps the slot
+//         (dst, src, byte count) plus the first word at 0x03002000 afterwards,
+//         which says which routine was copied in;
+//   cpu   one entry per (word, frame) for bus/interpreter CPU stores, and for
+//         generated-code stores on registered RAM-code pages;
+//   enter every runtime_dispatch to exactly 0x03002000 (ARM);
+//   push/ret_match/ret_unwind/cancel  the generated call-return stack
+//         (runtime_call_push_return / _should_return / _cancel_return) when
+//         the return pc lies inside the slot. Tests whether a stale unpacker
+//         return frame is resumed after another routine is copied into the
+//         slot (only the address is compared by the return matcher).
+// One 64-entry ring holds all three kinds; the oldest entry is overwritten.
+// Dumped by the runner's unknown-identity report and the bridge-abort path.
+extern "C" bool g_frame_present_in_progress = false;  // set by the host bridge
+extern "C" uint32_t g_irq_nest_depth;
+
+namespace {
+constexpr uint32_t kUnpackerSlotOff = 0x2000u;   // within the 32 KiB IWRAM
+constexpr uint32_t kUnpackerSlotLen = 0x2C4u;
+constexpr uint32_t kUnpackerJournalDepth = 64u;
+constexpr uint32_t kUnpackerSlotWords = kUnpackerSlotLen / 4u;
+enum UnpackerSlotKind : uint8_t {
+    kUnpackerDma = 0, kUnpackerCpu = 1, kUnpackerEnter = 2,
+    kUnpackerPush = 3, kUnpackerRetMatch = 4, kUnpackerRetUnwind = 5,
+    kUnpackerCancel = 6
+};
+struct UnpackerSlotEntry {
+    unsigned long long frame;
+    uint32_t dst, src_or_width, count, pc, lr, irq_depth, first_word;
+    uint32_t aux;   // call-return kinds: 1 = matched the top slot
+    uint8_t kind, present;
+};
+UnpackerSlotEntry g_unpacker_journal[kUnpackerJournalDepth];
+uint64_t g_unpacker_journal_total = 0;
+unsigned long long g_unpacker_word_frame[kUnpackerSlotWords];
+bool g_unpacker_in_dma = false;
+
+// True when [addr, addr+len) (IWRAM, mirror-normalized) overlaps the slot.
+bool unpacker_slot_overlaps(uint32_t addr, uint32_t len) {
+    if ((addr >> 24) != 0x03u || len == 0u) return false;
+    if (len >= 0x8000u) return true;
+    const uint32_t lo = addr & 0x7FFFu;
+    const uint32_t hi = lo + len;   // may run past 0x8000: wrap check below
+    if (lo < kUnpackerSlotOff + kUnpackerSlotLen && hi > kUnpackerSlotOff)
+        return true;
+    return hi > 0x8000u && (hi - 0x8000u) > kUnpackerSlotOff;
+}
+
+UnpackerSlotEntry& unpacker_journal_next(uint8_t kind) {
+    UnpackerSlotEntry& e =
+        g_unpacker_journal[g_unpacker_journal_total++ % kUnpackerJournalDepth];
+    e = {};
+    e.frame = g_runtime_vblank_starts;
+    e.kind = kind;
+    e.pc = g_cpu.R[15];
+    e.lr = g_cpu.R[14];
+    e.irq_depth = g_irq_nest_depth;
+    e.present = g_frame_present_in_progress ? 1u : 0u;
+    return e;
+}
+
+// True when a (thumb-bit-stripped) return pc lies inside the slot. This is the
+// only cost the call-return hooks pay when the pc is elsewhere.
+inline bool unpacker_pc_in_slot(uint32_t pc) {
+    return (pc - (0x03000000u + kUnpackerSlotOff)) < kUnpackerSlotLen;
+}
+
+// Call-return stack events. Callers gate on unpacker_pc_in_slot() (except the
+// unwind case, which gates on the live stack contents). e.pc is R15 at the
+// time; e.frame is the host vblank frame.
+//   push:       dst=return pc, src_or_width=depth after push, count=floor
+//   ret_match:  dst=target pc, src_or_width=matched slot, count=depth before,
+//               aux=1 if it was the top entry, 0 for a deeper match
+//   ret_unwind: dst=target pc, src_or_width=depth, count=floor
+//   cancel:     dst=cancelled pc, src_or_width=matched slot or 0xFFFFFFFF,
+//               count=depth before, aux=1 if top
+void unpacker_note_callret(uint8_t kind, uint32_t pc, uint32_t a, uint32_t b,
+                           uint32_t aux) {
+    UnpackerSlotEntry& e = unpacker_journal_next(kind);
+    e.dst = pc;
+    e.src_or_width = a;
+    e.count = b;
+    e.aux = aux;
+    e.first_word = bus_read_u32(0x03000000u + kUnpackerSlotOff);
+}
+
+// Defined next to the call-return stack (which is declared further down).
+void unpacker_dump_live_ret();
+}  // namespace
+
+// CPU store hook (bus/interpreter stores unconditionally; generated stores via
+// runtime_note_ram_code_write). Cheap: returns at once outside the slot.
+extern "C" void runtime_unpacker_slot_note_cpu(uint32_t addr, uint32_t width) {
+    if (g_unpacker_in_dma || !unpacker_slot_overlaps(addr, width)) return;
+    uint32_t off = (addr & 0x7FFFu);
+    if (off < kUnpackerSlotOff) off = kUnpackerSlotOff;
+    const uint32_t word = (off - kUnpackerSlotOff) >> 2;
+    if (word >= kUnpackerSlotWords) return;
+    if (g_unpacker_word_frame[word] == g_runtime_vblank_starts + 1u) return;
+    g_unpacker_word_frame[word] = g_runtime_vblank_starts + 1u;
+    UnpackerSlotEntry& e = unpacker_journal_next(kUnpackerCpu);
+    e.dst = addr;
+    e.src_or_width = width;
+}
+
+// DMA hook. begin() returns nonzero when the transfer's destination range
+// [dst_lo, dst_lo+bytes) overlaps the slot; only then call end() afterwards.
+extern "C" int runtime_unpacker_slot_dma_begin(uint32_t dst_lo,
+                                               uint32_t bytes) {
+    if (!unpacker_slot_overlaps(dst_lo, bytes)) return 0;
+    g_unpacker_in_dma = true;   // the per-word bus stores are one DMA entry
+    return 1;
+}
+
+extern "C" void runtime_unpacker_slot_dma_end(uint32_t dst, uint32_t src,
+                                              uint32_t bytes) {
+    g_unpacker_in_dma = false;
+    UnpackerSlotEntry& e = unpacker_journal_next(kUnpackerDma);
+    e.dst = dst;
+    e.src_or_width = src;
+    e.count = bytes;
+    e.first_word = bus_read_u32(0x03000000u + kUnpackerSlotOff);
+}
+
+extern "C" void runtime_unpacker_slot_note_dispatch(void) {
+    UnpackerSlotEntry& e = unpacker_journal_next(kUnpackerEnter);
+    e.dst = 0x03000000u + kUnpackerSlotOff;
+    e.first_word = bus_read_u32(0x03000000u + kUnpackerSlotOff);
+}
+
+extern "C" void runtime_unpacker_slot_dump(const char* why) {
+    const uint64_t total = g_unpacker_journal_total;
+    const uint64_t shown =
+        total < kUnpackerJournalDepth ? total : kUnpackerJournalDepth;
+    std::fprintf(stderr,
+        "[unpacker-slot] reason=%s frame=%llu entries=%llu of %llu total "
+        "(oldest first; pc/lr are g_cpu at the time and may lag generated "
+        "code)\n",
+        why ? why : "?", static_cast<unsigned long long>(g_runtime_vblank_starts),
+        static_cast<unsigned long long>(shown),
+        static_cast<unsigned long long>(total));
+    for (uint64_t i = total - shown; i < total; ++i) {
+        const UnpackerSlotEntry& e = g_unpacker_journal[i % kUnpackerJournalDepth];
+        const char* kind = e.kind == kUnpackerDma ? "dma"
+                         : e.kind == kUnpackerCpu ? "cpu"
+                         : e.kind == kUnpackerPush ? "push"
+                         : e.kind == kUnpackerRetMatch ? "ret_match"
+                         : e.kind == kUnpackerRetUnwind ? "ret_unwind"
+                         : e.kind == kUnpackerCancel ? "cancel" : "enter";
+        if (e.kind == kUnpackerDma) {
+            std::fprintf(stderr,
+                "[unpacker-slot] frame=%llu kind=%s dst=0x%08X src=0x%08X "
+                "bytes=%u first_word=0x%08X pc=0x%08X lr=0x%08X irq_depth=%u "
+                "present=%u\n",
+                e.frame, kind, e.dst, e.src_or_width, e.count, e.first_word,
+                e.pc, e.lr, e.irq_depth, e.present);
+        } else if (e.kind == kUnpackerCpu) {
+            std::fprintf(stderr,
+                "[unpacker-slot] frame=%llu kind=%s dst=0x%08X width=%u "
+                "pc=0x%08X lr=0x%08X irq_depth=%u present=%u\n",
+                e.frame, kind, e.dst, e.src_or_width, e.pc, e.lr,
+                e.irq_depth, e.present);
+        } else if (e.kind == kUnpackerPush) {
+            std::fprintf(stderr,
+                "[unpacker-slot] frame=%llu kind=%s ret=0x%08X depth=%u "
+                "floor=%u r15=0x%08X first_word=0x%08X irq_depth=%u "
+                "present=%u\n",
+                e.frame, kind, e.dst, e.src_or_width, e.count, e.pc,
+                e.first_word, e.irq_depth, e.present);
+        } else if (e.kind == kUnpackerRetMatch) {
+            std::fprintf(stderr,
+                "[unpacker-slot] frame=%llu kind=%s target=0x%08X slot=%u "
+                "depth=%u %s r15=0x%08X first_word=0x%08X irq_depth=%u "
+                "present=%u\n",
+                e.frame, kind, e.dst, e.src_or_width, e.count,
+                e.aux ? "top" : "deeper", e.pc, e.first_word, e.irq_depth,
+                e.present);
+        } else if (e.kind == kUnpackerRetUnwind) {
+            std::fprintf(stderr,
+                "[unpacker-slot] frame=%llu kind=%s target=0x%08X depth=%u "
+                "floor=%u r15=0x%08X first_word=0x%08X irq_depth=%u "
+                "present=%u\n",
+                e.frame, kind, e.dst, e.src_or_width, e.count, e.pc,
+                e.first_word, e.irq_depth, e.present);
+        } else if (e.kind == kUnpackerCancel) {
+            if (e.src_or_width == 0xFFFFFFFFu)
+                std::fprintf(stderr,
+                    "[unpacker-slot] frame=%llu kind=%s pc=0x%08X slot=none "
+                    "depth=%u r15=0x%08X first_word=0x%08X irq_depth=%u "
+                    "present=%u\n",
+                    e.frame, kind, e.dst, e.count, e.pc, e.first_word,
+                    e.irq_depth, e.present);
+            else
+                std::fprintf(stderr,
+                    "[unpacker-slot] frame=%llu kind=%s pc=0x%08X slot=%u "
+                    "depth=%u %s r15=0x%08X first_word=0x%08X irq_depth=%u "
+                    "present=%u\n",
+                    e.frame, kind, e.dst, e.src_or_width, e.count,
+                    e.aux ? "top" : "deeper", e.pc, e.first_word,
+                    e.irq_depth, e.present);
+        } else {
+            std::fprintf(stderr,
+                "[unpacker-slot] frame=%llu kind=%s dst=0x%08X "
+                "first_word=0x%08X lr=0x%08X pc=0x%08X irq_depth=%u "
+                "present=%u\n",
+                e.frame, kind, e.dst, e.first_word, e.lr, e.pc,
+                e.irq_depth, e.present);
+        }
+    }
+    unpacker_dump_live_ret();
+}
+
+extern "C" void runtime_iwram_code_write_dump(const char* why) {
+    std::fprintf(stderr,
+        "runtime_arm: [iwram-code-writes] reason=%s frame=%llu "
+        "(newest first; one write per word per frame; pc/lr are g_cpu at "
+        "the time and may lag generated code)\n",
+        why ? why : "?", static_cast<unsigned long long>(g_runtime_vblank_starts));
+    for (uint32_t i = 0; i < 96u; ++i) {
+        const IwramCodeWrite& e =
+            g_iwram_code_ring[(g_iwram_code_ring_next - 1u - i) %
+                              kIwramCodeRing];
+        if (e.width == 0u) break;
+        std::fprintf(stderr,
+            "  frame=%llu addr=0x%08X width=%u pc=0x%08X lr=0x%08X\n",
+            e.frame, e.addr, e.width, e.pc, e.lr);
+    }
+}
+
+// Same ring as above, filtered to [lo, hi): scans the whole ring (not just the
+// newest 96) so writes into one region are not hidden behind per-frame data
+// writes elsewhere. Prints at most 64 matches, newest first, then the count.
+extern "C" void runtime_iwram_code_write_dump_range(const char* why,
+                                                    uint32_t lo, uint32_t hi) {
+    std::fprintf(stderr,
+        "runtime_arm: [iwram-code-writes-range] reason=%s range=0x%08X..0x%08X "
+        "frame=%llu (newest first, max 64 shown; scans all %u ring entries)\n",
+        why ? why : "?", lo, hi,
+        static_cast<unsigned long long>(g_runtime_vblank_starts),
+        kIwramCodeRing);
+    uint32_t matched = 0;
+    for (uint32_t i = 0; i < kIwramCodeRing; ++i) {
+        const IwramCodeWrite& e =
+            g_iwram_code_ring[(g_iwram_code_ring_next - 1u - i) %
+                              kIwramCodeRing];
+        if (e.width == 0u) break;
+        if (e.addr < lo || e.addr >= hi) continue;
+        if (matched < 64u) {
+            std::fprintf(stderr,
+                "  frame=%llu addr=0x%08X width=%u pc=0x%08X lr=0x%08X\n",
+                e.frame, e.addr, e.width, e.pc, e.lr);
+        }
+        ++matched;
+    }
+    std::fprintf(stderr, "  matched=%u\n", matched);
+}
+
 extern "C" void runtime_note_ram_code_write(uint32_t addr, uint32_t width) {
     if (width == 0u) return;
     const uint32_t region = addr >> 24;
+    if (region == 0x03u) runtime_unpacker_slot_note_cpu(addr, width);
+    if (region == 0x03u && (addr & 0x7FFFu) < kIwramCodeDiagEnd) {
+        const uint32_t word = (addr & 0x7FFFu) >> 2;
+        if (g_iwram_code_word_frame[word] != g_runtime_vblank_starts + 1u) {
+            g_iwram_code_word_frame[word] = g_runtime_vblank_starts + 1u;
+            IwramCodeWrite& e =
+                g_iwram_code_ring[g_iwram_code_ring_next++ % kIwramCodeRing];
+            e = {g_runtime_vblank_starts, addr, width, g_cpu.R[15],
+                 g_cpu.R[14]};
+        }
+    }
     uint64_t* bits = nullptr;
     uint32_t mask = 0;
     if (region == 0x03u) { bits = g_ram_dirty_iwram; mask = 0x7FFFu; }
@@ -902,6 +1198,24 @@ uint32_t g_call_return_depth = 0;
 // to the live depth for the duration of the handler; should_return/cancel_return
 // never look below it. Saved/restored across nested IRQs by runtime_irq().
 uint32_t g_call_return_floor = 0;
+
+// Dump-time view of the call-return stack for the unpacker-slot journal:
+// every live entry whose value lies inside the slot, plus depth and floor.
+void unpacker_dump_live_ret() {
+    std::fprintf(stderr,
+        "[unpacker-slot] live_ret depth=%u floor=%u (entries inside "
+        "0x%08X..0x%08X follow)\n",
+        g_call_return_depth, g_call_return_floor,
+        0x03000000u + kUnpackerSlotOff,
+        0x03000000u + kUnpackerSlotOff + kUnpackerSlotLen);
+    for (uint32_t i = 0; i < g_call_return_depth; ++i) {
+        if (!unpacker_pc_in_slot(g_call_return_stack[i])) continue;
+        std::fprintf(stderr,
+            "[unpacker-slot] live_ret index=%u value=0x%08X%s\n", i,
+            g_call_return_stack[i],
+            i < g_call_return_floor ? " (below floor)" : "");
+    }
+}
 
 const char* trace_kind_name(uint32_t kind) {
     switch (kind) {
@@ -1268,8 +1582,9 @@ extern "C" void runtime_trace_reset(void) {
     }
     g_bios_pc_handed_off = false;
     const char* it = std::getenv("GBARECOMP_INSN_TRACE");
+    g_insn_trace_from_env = it && it[0] && it[0] != '0';
     g_runtime_insn_trace = g_bios_pc_log_armed
-        ? 2u : ((it && it[0] && it[0] != '0') ? 1u : 0u);
+        ? 2u : ((g_insn_trace_from_env || g_crash_log) ? 1u : 0u);
     runtime_fp_reset();
 
     // Function coverage (see the "Function coverage" block, defined further
@@ -1397,6 +1712,9 @@ namespace {
 // so one dump spans both the pre-divergence anchor and the first divergent insn.
 // 80 bytes/entry → ~640 MB, only touched when armed (GBARECOMP_INSN_TRACE=1).
 constexpr uint32_t kFpSize = 1u << 23;
+// The F1 crash log's ring: the last ~65k instructions, 5 MB.
+constexpr uint32_t kCrashLogFpSize = 1u << 16;
+uint32_t        g_fp_size = kFpSize;  // fixed once g_fp is allocated
 RuntimeFpEntry* g_fp = nullptr;       // lazily allocated on first arm
 uint32_t        g_fp_write = 0;
 uint32_t        g_fp_count = 0;
@@ -1419,7 +1737,7 @@ extern "C" void runtime_insn_fp(void) {
     }
     if (!g_fp) {
         g_fp = static_cast<RuntimeFpEntry*>(
-            std::calloc(kFpSize, sizeof(RuntimeFpEntry)));
+            std::calloc(g_fp_size, sizeof(RuntimeFpEntry)));
         if (!g_fp) { g_runtime_insn_trace = 0; return; }  // OOM → disarm quietly
     }
     RuntimeFpEntry& e = g_fp[g_fp_write];
@@ -1427,8 +1745,19 @@ extern "C" void runtime_insn_fp(void) {
     e.pc = g_cpu.R[15];
     e.cpsr = g_cpu.cpsr;
     for (int i = 0; i < 16; ++i) e.r[i] = g_cpu.R[i];
-    g_fp_write = (g_fp_write + 1u) % kFpSize;
-    if (g_fp_count < kFpSize) ++g_fp_count;
+    g_fp_write = (g_fp_write + 1u) % g_fp_size;
+    if (g_fp_count < g_fp_size) ++g_fp_count;
+}
+
+extern "C" void runtime_set_crash_log(int on) {
+    g_crash_log = on != 0;
+    if (g_bios_pc_log_armed) return;
+    if (g_crash_log) {
+        if (!g_fp && !g_insn_trace_from_env) g_fp_size = kCrashLogFpSize;
+        g_runtime_insn_trace = 1u;
+    } else if (!g_insn_trace_from_env) {
+        g_runtime_insn_trace = 0u;
+    }
 }
 
 extern "C" void runtime_fp_reset(void) {
@@ -1448,9 +1777,9 @@ extern "C" uint32_t runtime_fp_save_file(const char* path) {
     std::fwrite(&magic, sizeof(magic), 1, f);
     std::fwrite(&esz, sizeof(esz), 1, f);
     std::fwrite(&count, sizeof(count), 1, f);
-    uint32_t start = (g_fp_write + kFpSize - g_fp_count) % kFpSize;
+    uint32_t start = (g_fp_write + g_fp_size - g_fp_count) % g_fp_size;
     for (uint32_t i = 0; i < g_fp_count; ++i) {
-        std::fwrite(&g_fp[(start + i) % kFpSize], sizeof(RuntimeFpEntry), 1, f);
+        std::fwrite(&g_fp[(start + i) % g_fp_size], sizeof(RuntimeFpEntry), 1, f);
     }
     std::fclose(f);
     return g_fp_count;
@@ -1473,9 +1802,9 @@ extern "C" uint32_t runtime_fp_save_tail_csv(const char* path, uint32_t n) {
     std::fprintf(f, "idx,cycles,pc,cpsr,r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,"
                     "r12,sp,lr,r15\n");
     // The most recent record is at (g_fp_write-1); walk back n, then forward.
-    uint32_t start = (g_fp_write + kFpSize - n) % kFpSize;
+    uint32_t start = (g_fp_write + g_fp_size - n) % g_fp_size;
     for (uint32_t i = 0; i < n; ++i) {
-        const RuntimeFpEntry& e = g_fp[(start + i) % kFpSize];
+        const RuntimeFpEntry& e = g_fp[(start + i) % g_fp_size];
         std::fprintf(f, "%u,%llu,0x%08X,0x%08X", i,
                      static_cast<unsigned long long>(e.cycles), e.pc, e.cpsr);
         for (int k = 0; k < 16; ++k) std::fprintf(f, ",0x%08X", e.r[k]);
@@ -1493,10 +1822,10 @@ extern "C" uint32_t runtime_fp_save_tail_csv(const char* path, uint32_t n) {
 extern "C" uint32_t runtime_fp_query_pc(uint32_t pc, uint32_t max_hits,
                                         unsigned long long* out_cycles) {
     if (!g_fp || g_fp_count == 0 || !out_cycles || max_hits == 0) return 0;
-    uint32_t start = (g_fp_write + kFpSize - g_fp_count) % kFpSize;
+    uint32_t start = (g_fp_write + g_fp_size - g_fp_count) % g_fp_size;
     uint32_t found = 0;
     for (uint32_t i = 0; i < g_fp_count && found < max_hits; ++i) {
-        const RuntimeFpEntry& e = g_fp[(start + i) % kFpSize];
+        const RuntimeFpEntry& e = g_fp[(start + i) % g_fp_size];
         if (e.pc == pc) out_cycles[found++] = e.cycles;
     }
     return found;
@@ -1933,12 +2262,14 @@ extern "C" __attribute__((optimize("O2")))
 extern "C"
 #endif
 void runtime_dispatch(uint32_t target_pc) {
+    runtime_flush_deferred();  // block timing: pay before leaving the block
     // Strip THUMB bit; codegen handles the mode via cpsr_T already.
     uint32_t pc = target_pc & ~1u;
     runtime_trace_event(RUNTIME_TRACE_DISPATCH, pc, target_pc, 0, 0);
 
     bool thumb = (g_cpu.cpsr & CPSR_T_BIT) != 0;
     runtime_pool_dispatch_history_record(pc, thumb ? 1 : 0);
+    if (pc == 0x03002000u && !thumb) runtime_unpacker_slot_note_dispatch();
     if (g_runtime_ram_image_dispatch_probe) {
         g_runtime_ram_image_dispatch_probe(
             g_runtime_vblank_starts, pc, thumb ? 1u : 0u);
@@ -2080,6 +2411,9 @@ extern "C" void runtime_call_push_return(uint32_t return_pc) {
         std::abort();
     }
     g_call_return_stack[g_call_return_depth++] = pc;
+    if (unpacker_pc_in_slot(pc))
+        unpacker_note_callret(kUnpackerPush, pc, g_call_return_depth,
+                              g_call_return_floor, 0u);
     runtime_trace_event(RUNTIME_TRACE_CALL, pc, pc, g_call_return_depth, 1u);
 }
 
@@ -2090,6 +2424,10 @@ extern "C" int runtime_call_should_return(uint32_t target_pc) {
     for (uint32_t i = g_call_return_depth; i != g_call_return_floor; --i) {
         uint32_t slot = i - 1u;
         if (g_call_return_stack[slot] == pc) {
+            if (unpacker_pc_in_slot(pc))
+                unpacker_note_callret(kUnpackerRetMatch, pc, slot,
+                                      g_call_return_depth,
+                                      slot + 1u == g_call_return_depth ? 1u : 0u);
             runtime_trace_event(RUNTIME_TRACE_CALL, pc, pc,
                                 g_call_return_depth,
                                 (slot + 1u == g_call_return_depth) ? 2u : 5u);
@@ -2122,7 +2460,30 @@ extern "C" int runtime_call_should_return(uint32_t target_pc) {
     // loop at the bottom continues at R15 -- the same path a scheduler yield
     // takes. Below the threshold nothing changes.
     constexpr uint32_t kUnwindDepth = kCallReturnStackSize / 4u;
-    if (g_call_return_depth - g_call_return_floor >= kUnwindDepth) return 1;
+    if (g_call_return_depth - g_call_return_floor >= kUnwindDepth) {
+        // Journal this even when the target itself is outside the unpacker
+        // slot: what matters is that the unwind collapses live frames of which
+        // some are unpacker return addresses. Only scan (and log) when at
+        // least one live entry in [floor, depth) lies inside the slot.
+        // Skip an exact repeat of the previous unwind so a long deep run
+        // cannot push the surrounding push/match/cancel entries out.
+        static uint32_t s_last_unwind_pc = 0xFFFFFFFFu;
+        static uint32_t s_last_unwind_depth = 0xFFFFFFFFu;
+        const bool repeat = pc == s_last_unwind_pc &&
+                            g_call_return_depth == s_last_unwind_depth;
+        s_last_unwind_pc = pc;
+        s_last_unwind_depth = g_call_return_depth;
+        for (uint32_t i = g_call_return_floor;
+             !repeat && i < g_call_return_depth; ++i) {
+            if (unpacker_pc_in_slot(g_call_return_stack[i])) {
+                unpacker_note_callret(kUnpackerRetUnwind, pc,
+                                      g_call_return_depth,
+                                      g_call_return_floor, 0u);
+                break;
+            }
+        }
+        return 1;
+    }
     return 0;
 }
 
@@ -2144,6 +2505,10 @@ extern "C" void runtime_call_cancel_return(uint32_t return_pc) {
     for (uint32_t i = g_call_return_depth; i != g_call_return_floor; --i) {
         uint32_t slot = i - 1u;
         if (g_call_return_stack[slot] == pc) {
+            if (unpacker_pc_in_slot(pc))
+                unpacker_note_callret(kUnpackerCancel, pc, slot,
+                                      g_call_return_depth,
+                                      slot + 1u == g_call_return_depth ? 1u : 0u);
             runtime_trace_event(RUNTIME_TRACE_CALL, pc, pc,
                                 g_call_return_depth,
                                 (slot + 1u == g_call_return_depth) ? 4u : 6u);
@@ -2156,6 +2521,9 @@ extern "C" void runtime_call_cancel_return(uint32_t return_pc) {
             return;
         }
     }
+    if (unpacker_pc_in_slot(pc))
+        unpacker_note_callret(kUnpackerCancel, pc, 0xFFFFFFFFu,
+                              g_call_return_depth, 0u);
     if (g_runtime_call_return_hook)
         g_runtime_call_return_hook(pc, g_call_return_depth);
     if (g_runtime_ram_image_boundary_probe)
@@ -2413,6 +2781,7 @@ extern "C" uint32_t runtime_mrs_spsr(void) {
 }
 
 extern "C" void runtime_msr_cpsr(uint32_t value, uint32_t mask) {
+    runtime_flush_deferred();
     uint32_t bytewise = 0;
     if (mask & 1u) bytewise |= 0x000000FFu;
     if (mask & 2u) bytewise |= 0x0000FF00u;
@@ -2524,6 +2893,7 @@ extern "C" void runtime_restore_cpsr_from_spsr(void) {
 // "BIOS not recompiled" gate.
 
 extern "C" void runtime_swi(uint32_t swi_imm) {
+    runtime_flush_deferred();
     uint32_t return_address = g_cpu.R[15];
     uint32_t saved_cpsr     = g_cpu.cpsr;
     const unsigned long long log_cycles = g_runtime_cycles;
@@ -2653,6 +3023,22 @@ extern "C" unsigned long long g_runtime_irq_max_depth = 0;
 // spins its drive-to-completion loop until it equals the IRQ's own depth.
 extern "C" uint32_t      g_irq_iret_depth = 0;
 
+// Yield-unwind resume PC. While a scheduler yield unwinds the host C stack,
+// runtime_should_yield() (runtime_bus_bridge.cpp) parks the real resume PC here
+// and leaves g_cpu.R[15] = 0xFFFFFFF0 so no generated call site's
+// `if (g_cpu.R[15] != <ret>)` can match a stale frame. Every loop that
+// re-dispatches R15 after runtime_dispatch() returns calls
+// runtime_yield_restore_pc() first. See FACTS.md "Door+Turbo crash".
+extern "C" uint32_t g_yield_resume_pc = 0;
+extern "C" bool     g_yield_resume_pending = false;
+
+extern "C" void runtime_yield_restore_pc(void) {
+    if (g_yield_resume_pending) {
+        g_cpu.R[15] = g_yield_resume_pc;
+        g_yield_resume_pending = false;
+    }
+}
+
 extern "C" void runtime_irq(uint32_t return_address) {
     ++g_runtime_irq_entries;
     ++g_irq_nest_depth;
@@ -2758,6 +3144,7 @@ extern "C" void runtime_irq(uint32_t return_address) {
     const auto _irqh_t0 = _cp ? std::chrono::steady_clock::now()
                                : std::chrono::steady_clock::time_point{};
     runtime_dispatch(g_runtime_no_bios ? g_cpu.R[15] : 0x00000018u);
+    runtime_yield_restore_pc();  // a yield unwind hid the resume PC
     constexpr uint32_t kMaxIrqDispatches = 4'000'000u;
     uint32_t irq_guard = 0u;
     while (g_irq_iret_depth != my_depth) {
@@ -2770,6 +3157,7 @@ extern "C" void runtime_irq(uint32_t return_address) {
             break;
         }
         runtime_dispatch(g_cpu.R[15]);
+        runtime_yield_restore_pc();
     }
     if (_cp) {
         g_cost_irq_handler_ns += static_cast<unsigned long long>(

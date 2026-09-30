@@ -197,6 +197,11 @@ if (Test-Stage 'recompile') {
         throw "gba_recompile exited $recompileExit. Full log: $log"
     }
 
+    # One call per fixed multi-call sequence (tools/slim_corpus.py): same
+    # behaviour, about 40% less machine code to compile and link.
+    & python (Join-Path $RepoRoot 'tools/slim_corpus.py') $CorpusDir
+    if ($LASTEXITCODE -ne 0) { throw "slim_corpus.py failed ($LASTEXITCODE)." }
+
     # A TOML conditional-branch override is only effective when the emitted
     # instruction contains the runtime chokepoint. Keep stale generated
     # shards from silently making the runner's callback unreachable.
@@ -231,7 +236,8 @@ if (Test-Stage 'recompile') {
         'runtime_thumb_literal(0x0801D772u',
         'runtime_thumb_literal(0x0801D7CAu',
         'runtime_thumb_literal(0x0808AF84u',
-        'runtime_thumb_literal(0x08003318u'
+        'runtime_thumb_literal(0x08003318u',
+        'runtime_thumb_literal(0x08098370u'
     )
     foreach ($needle in $valueHooks) {
         $hook = @($generatedShards | Select-String -SimpleMatch $needle)

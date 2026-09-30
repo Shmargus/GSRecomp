@@ -428,13 +428,19 @@ endif()
 
 add_executable(gba_recompile
     tools/gba_recompile/main.cpp
-    tools/gba_recompile/config.cpp)
+    tools/gba_recompile/config.cpp
+    tools/gba_recompile/slim_pass.cpp)
 target_include_directories(gba_recompile PRIVATE
     tools/gba_recompile
     src/armv4t
     "${GBARECOMP_TOMLPP_INCLUDE_DIR}")
 target_link_libraries(gba_recompile PRIVATE
     gbarecomp_recompile_core gbarecomp_armv4t gbarecomp_gba)
+# Self-contained on MinGW: the Golden Sun player builder ships this exe
+# and runs it on PCs without the MinGW runtime DLLs.
+if(MINGW)
+    target_link_options(gba_recompile PRIVATE -static)
+endif()
 
 add_executable(symbol_import tools/symbol_import/main.cpp)
 target_link_libraries(symbol_import PRIVATE gbarecomp_armv4t)

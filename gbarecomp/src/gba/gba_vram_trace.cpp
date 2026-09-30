@@ -1492,6 +1492,9 @@ bool get_oam_attr0_provenance(std::size_t slot, OamAttr0Provenance* out) {
 void begin_dma() { ++dma_depth(); }
 void end_dma() { if (dma_depth() != 0u) --dma_depth(); }
 bool dma_active() { return dma_depth() != 0u; }
+bool iwram_store_trace_enabled() {
+    return effect_trace_enabled() || oam_shadow_trace_enabled();
+}
 
 void set_default_enabled(bool enabled) {
     g_default_enabled = enabled ? 1 : 0;

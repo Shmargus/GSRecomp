@@ -189,6 +189,18 @@ void test_expanding_canvas_preserves_and_fades_history() {
     assert(at(-2, -1) == 0 && at(3, 2) == 0);
 }
 
+// Heat Wave crash, 2026-09-27: a far-off spark must not grow the canvas without bound.
+void test_far_spark_does_not_grow_canvas_without_bound() {
+    gsr::EffectCanvas canvas;
+    const std::uint8_t art[] = {63};
+    gsr::EffectSpark near{1, 1, 0, 0};
+    assert(gsr::stamp_spark_expanding(&canvas, near, art, sizeof art));
+    gsr::EffectSpark far{2000000000, -2000000000, 0, 0};
+    assert(!gsr::stamp_spark_expanding(&canvas, far, art, sizeof art));
+    assert(canvas.width <= 1024 && canvas.height <= 1024);
+    assert(canvas.pixels[(1 + canvas.origin_y) * canvas.width + 1 + canvas.origin_x] == 63);
+}
+
 }  // namespace
 
 int main() {
@@ -203,6 +215,7 @@ int main() {
     test_large_stamp_crosses_the_original_canvas_edge();
     test_maximum_and_flipped_rectangular_stamps();
     test_expanding_canvas_preserves_and_fades_history();
+    test_far_spark_does_not_grow_canvas_without_bound();
     std::printf("effect_particles: all checks passed\n");
     return 0;
 }

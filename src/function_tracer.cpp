@@ -284,6 +284,15 @@ RoomIdentitySnapshot read_room_identity() {
     return s;
 }
 
+// Session-end support. The atexit handler runs after run_game() returned, when
+// gbarecomp's active bus/PPU pointers dangle (they point at run_game locals),
+// so the exit-time close must not touch either. Every checked frame therefore
+// caches the last frame number and room snapshot, and close_and_reopen_window()
+// uses them (and skips the screenshot) while g_closing_at_exit is set.
+std::uint64_t g_last_frame_seen = 0;
+RoomIdentitySnapshot g_cached_room;
+bool g_closing_at_exit = false;
+
 std::string format_room_identity(const RoomIdentitySnapshot& s) {
     char buf[160];
     if (s.valid) {
@@ -491,7 +500,8 @@ void close_and_reopen_window(const std::string& label) {
 
     std::sort(g_window_overlays.begin(), g_window_overlays.end());
     const std::string overlays_joined = join_names(g_window_overlays);
-    const RoomIdentitySnapshot room = read_room_identity();  // item 5
+    const RoomIdentitySnapshot room =
+        g_closing_at_exit ? g_cached_room : read_room_identity();  // item 5
 
     // F4: tag the window's visible/on-disk name with the room signature so
     // captures from the same room share a spottable substring. Only the
@@ -534,7 +544,8 @@ void close_and_reopen_window(const std::string& label) {
     g_last_close_distinct = g_window_distinct;
     g_last_close_new = new_count;
 
-    const std::uint64_t end_frame = runtime_current_frame();
+    const std::uint64_t end_frame =
+        g_closing_at_exit ? g_last_frame_seen : runtime_current_frame();
     if (g_text_record) {
         text_trace_window_closed(g_window_index, display_name.c_str(),
                                  g_window_start_frame, end_frame);
@@ -550,7 +561,7 @@ void close_and_reopen_window(const std::string& label) {
 
     // Item 4: save BEFORE this window's own fingerprint is pushed, for
     // ordering consistency with the fingerprint append below.
-    maybe_save_screenshot(display_name);
+    if (!g_closing_at_exit) maybe_save_screenshot(display_name);
 
     // Fingerprint this window under its name before the table resets, then
     // append it -- see build_fingerprint()/append_fingerprint().
@@ -559,11 +570,12 @@ void close_and_reopen_window(const std::string& label) {
 
     // Repeat matching: fold this window into the running intersection for
     // its name, then rewrite that name's repeats file -- see
-    // merge_repeat_window()/write_repeats_file(). Auto-generated names are
-    // unique per window, so this only actually accumulates (2+) for the
-    // manual "Mark window" label, which is the intended use (isolating a
-    // repeated user action across several captures under the same typed
-    // label).
+    // merge_repeat_window()/write_repeats_file(). Hashed auto names
+    // (generated_window_name) are unique per window, so this only accumulates
+    // (2+) for the manual "Mark window" label and the stable auto labels
+    // (close_and_reopen_window_stable: oam_other_on/off, l_press,
+    // session_end), which is the intended use (isolating a repeated action
+    // across several captures under the same label).
     merge_repeat_window(safe, capped_pcs, g_window_overlays);
     write_repeats_file(safe);
 
@@ -606,6 +618,16 @@ std::string generated_window_name(const char* reason) {
 
 void close_and_reopen_window_auto(const char* reason) {
     close_and_reopen_window(generated_window_name(reason));
+}
+
+// Stable auto label: no hash suffix, so close_and_reopen_window() files every
+// window closed under it in the same g_label_repeat bucket (merge_repeat_
+// window / write_repeats_file key on the sanitized label) and repeats/<label>.txt
+// accumulates the running intersection exactly like a manual "Mark window"
+// label. Used by the boundaries whose repeats are the point: oam_other_on/off,
+// l_press, session_end. The hashed reasons above stay unique per window.
+void close_and_reopen_window_stable(const char* label) {
+    close_and_reopen_window(label);
 }
 
 // ---- hardware boundary detection (item 2), sampled once per new guest
@@ -686,6 +708,28 @@ std::uint32_t g_prev_room_ext_x = 0, g_prev_room_ext_y = 0;
 bool g_overlay_state_valid = false;
 std::vector<std::string> g_prev_overlay_set;
 
+// OAM upload source ("oam_other_on"/"oam_other_off"). g_frame_oam_other (set in
+// log_raw_signals from the same deltas as signals.csv's oam_src_* columns) says
+// whether this frame's VBlank OAM upload(s) came from neither 0x0300347C,
+// 0x03005AE0 nor 0x03002000. Frames without an upload carry no information and
+// leave the state alone. In logs/trace_20260929_191502/signals.csv (4200
+// frames) the bucket flips 18 times, every run >=27 frames except one 1-frame
+// blip (frame 3796), so a flip is only accepted once the new value has been
+// seen on kOamOtherStableFrames upload frames; that absorbs the blip and delays
+// a real boundary by 2 frames.
+constexpr unsigned kOamOtherStableFrames = 3;
+bool g_oam_state_valid = false;
+bool g_oam_reported_other = false;
+unsigned g_oam_change_frames = 0;
+
+// L button press edge ("l_press"): KEYINPUT (io 0x130) bit 9, active low, going
+// 1 -> 0. Tracked every frame so holding L while entering the field does not
+// fire; the boundary itself only fires when the field screen-base signature
+// (BG3/BG2/BG1 bases 5/6/7, same test as log_raw_signals' field_sig) holds.
+constexpr std::uint16_t kKeyInputL = 1u << 9;
+bool g_l_state_valid = false;
+bool g_prev_l_released = true;
+
 int popcount3(std::uint8_t bits) {
     return ((bits >> 0) & 1) + ((bits >> 1) & 1) + ((bits >> 2) & 1);
 }
@@ -754,6 +798,14 @@ std::uint64_t g_prev_obj_reject_totals[12] = {
 // g_ws_obj_reject_totals above; the tracer reports the per-frame delta.
 extern "C" unsigned long long g_ws_oam_src_totals[4];
 std::uint64_t g_prev_oam_src_totals[4] = {0, 0, 0, 0};
+// Set by log_raw_signals() from the same per-frame delta it writes to
+// signals.csv: whether at least one OAM upload happened this frame, and if so
+// whether every upload came from the "other" bucket (index 3). No mixed frames
+// occur in the measured sessions (0 of 6600 rows); a mixed frame counts as
+// not-other. Read by the oam_other_on/off boundary in
+// check_hardware_boundaries().
+bool g_frame_oam_uploaded = false;
+bool g_frame_oam_other = false;
 
 // Defined in runner_main.cpp: per-object-per-frame tally of sprites resolved
 // via the persistent position table (golden_sun_obj_track_lookup) rather
@@ -894,6 +946,7 @@ void log_raw_signals(std::uint64_t frame, const std::uint8_t* io) {
     const std::uint16_t win1v =
         static_cast<std::uint16_t>(io[0x46] | (io[0x47] << 8));
     const RoomIdentitySnapshot room = read_room_identity();
+    g_cached_room = room;  // for the exit-time close, see g_closing_at_exit
     std::string overlays;
     for (std::size_t i = 0;; ++i) {
         const char* name = gsr_overlay_name_at(i);
@@ -974,6 +1027,10 @@ void log_raw_signals(std::uint64_t frame, const std::uint8_t* io) {
         oam_src_delta[i] = total - g_prev_oam_src_totals[i];
         g_prev_oam_src_totals[i] = total;
     }
+    g_frame_oam_uploaded = (oam_src_delta[0] | oam_src_delta[1] |
+                            oam_src_delta[2] | oam_src_delta[3]) != 0;
+    g_frame_oam_other = g_frame_oam_uploaded && oam_src_delta[3] != 0 &&
+        (oam_src_delta[0] | oam_src_delta[1] | oam_src_delta[2]) == 0;
 
     // obj_from_track delta, same shape as obj_trusted/obj_untrusted above;
     // appended last so the existing columns keep their positions.
@@ -1239,10 +1296,33 @@ void flush_text_delay_window_at_exit() {
     flush_text_log();
     flush_text_budget_log();
     if (!g_text_delay_window_active) return;
+    // Cached frame, not runtime_current_frame(): the active PPU pointer
+    // dangles by the time atexit handlers run (see g_closing_at_exit).
     write_text_delay_window(g_text_delay_window_index, "exit",
                             g_text_delay_window_start_frame,
-                            runtime_current_frame());
+                            g_last_frame_seen);
     g_text_delay_window_active = false;
+}
+
+// atexit handler, registered whenever the tracer is enabled. Writes the window
+// that is still open at session end (everything after the last boundary) as a
+// normal window under the stable label "session_end", so the repeat/fingerprint
+// machinery treats it like any other close. An empty window (no guest calls
+// since the last boundary) is skipped. Then flushes signals.csv and, under
+// GSR_TEXT_RECORD, the text ledger. Must not touch the bus/PPU: see
+// g_closing_at_exit.
+void flush_tracer_at_exit() {
+    if (!g_enabled) return;
+    if (g_window_total_calls != 0) {
+        g_closing_at_exit = true;
+        close_and_reopen_window_stable("session_end");
+        g_closing_at_exit = false;
+        // The reopened window is empty; do not let the text ledger write an
+        // extra "exit" row for it.
+        g_text_delay_window_active = false;
+    }
+    flush_signal_log();
+    flush_text_delay_window_at_exit();
 }
 
 // Called for every guest function entry while GSR_TEXT_RECORD is on. Four
@@ -1357,7 +1437,50 @@ bool check_hardware_boundaries(std::uint64_t frame) {
     const gba::GbaBus* bus = gbarecomp::active_bus();
     if (!bus) return false;
     const std::uint8_t* io = bus->io().raw();
+    g_last_frame_seen = frame;
     log_raw_signals(frame, io);
+
+    // ---- L press edge (field only) ---------------------------------------
+    // Ahead of the level-tracked boundaries below so a same-frame fade/window
+    // change cannot swallow the label; those re-fire next frame (their state
+    // is only advanced when they fire).
+    {
+        const std::uint16_t keyinput =
+            static_cast<std::uint16_t>(io[0x130] | (io[0x131] << 8));
+        const bool l_released = (keyinput & kKeyInputL) != 0;
+        const bool l_edge =
+            g_l_state_valid && g_prev_l_released && !l_released;
+        g_l_state_valid = true;
+        g_prev_l_released = l_released;
+        const auto base_of = [&](unsigned lo) {
+            return static_cast<unsigned>(
+                ((io[lo] | (io[lo + 1] << 8)) >> 8) & 0x1Fu);
+        };
+        const bool in_field = base_of(0x0E) == 5u && base_of(0x0C) == 6u &&
+                              base_of(0x0A) == 7u;
+        if (l_edge && in_field) {
+            close_and_reopen_window_stable("l_press");
+            return true;
+        }
+    }
+
+    // ---- OAM upload source bucket ----------------------------------------
+    if (g_frame_oam_uploaded) {
+        if (!g_oam_state_valid) {
+            g_oam_state_valid = true;
+            g_oam_reported_other = g_frame_oam_other;
+            g_oam_change_frames = 0;
+        } else if (g_frame_oam_other == g_oam_reported_other) {
+            g_oam_change_frames = 0;
+        } else if (++g_oam_change_frames >= kOamOtherStableFrames) {
+            g_oam_reported_other = g_frame_oam_other;
+            g_oam_change_frames = 0;
+            close_and_reopen_window_stable(g_oam_reported_other
+                                               ? "oam_other_on"
+                                               : "oam_other_off");
+            return true;
+        }
+    }
 
     // ---- fade --------------------------------------------------------
     const std::uint8_t bldy = io[0x54] & 0x1Fu;
@@ -1707,10 +1830,9 @@ void function_tracer_init() {
     load_fingerprints();
     g_window_label = "unlabeled";
     g_window_start_frame = runtime_current_frame();
-    if (g_text_record) {
+    if (g_text_record)
         text_trace_window_opened(g_window_index, g_window_start_frame);
-        std::atexit(&flush_text_delay_window_at_exit);
-    }
+    std::atexit(&flush_tracer_at_exit);
     gbarecomp::g_config_ui_extra_draw = &draw_tracer_window;
     gbarecomp::g_config_ui_extra_wants_keyboard = &tracer_wants_keyboard;
 }

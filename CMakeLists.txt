@@ -34,6 +34,17 @@ endif()
 # against that WPA peak on a 16 GB box. Set to "" to omit the explicit -flto=N
 # override, or to 1 for a fully serial (lowest-memory) LTRANS. See the LTO
 # section in the delivery report for the reasoning and how to size this up.
+# build_lto_nosymbols.bat: the same optimised build without debug
+# information, which every compile and the LTO link otherwise carry (the
+# split-off .debug file is ~600 MB). The exe keeps its plain symbol table, so
+# a crash report's exe offsets can still be matched to functions with nm.
+# -g0 comes after the configuration's -g on every command line, so it wins.
+option(GSR_DEBUG_SYMBOLS "Build with debug information" ON)
+if(NOT GSR_DEBUG_SYMBOLS AND NOT MSVC)
+    add_compile_options(-g0)
+    add_link_options(-g0)
+endif()
+
 set(GSR_LTO_JOBS "8" CACHE STRING
     "Parallel LTRANS job count (-flto=N) for the GoldenSunRecomp link when LTO is enabled; empty = compiler default")
 
@@ -64,6 +75,14 @@ add_executable(gsr_effect_particles_test
     src/effect_particles.cpp)
 target_include_directories(gsr_effect_particles_test PRIVATE src)
 add_test(NAME effect_particles COMMAND gsr_effect_particles_test)
+
+# The Earth Surge mod test's particle burst (src/effect_burst.h): a pure CPU
+# simulation, checked here without ROM or graphics.
+add_executable(gsr_effect_burst_test
+    tests/cpp/effect_burst_test.cpp
+    src/effect_burst.cpp)
+target_include_directories(gsr_effect_burst_test PRIVATE src)
+add_test(NAME effect_burst COMMAND gsr_effect_burst_test)
 
 # Reading the particles out of guest memory, which is the half that cannot be
 # shared between effect systems -- they disagree on where the array is and what
@@ -101,135 +120,141 @@ option(GSR_BUILD_LOCAL_RUNNER
     OFF)
 set(GBARECOMP_ROOT "${CMAKE_SOURCE_DIR}/gbarecomp"
     CACHE PATH "Path to the pinned gbarecomp checkout")
+# Root of the generated game code (every overlay, transient and variant
+# folder below). scripts/build_lto.ps1 points it (and each folder setting)
+# at the block-timing copy local/gs011_block (tools/block_timing.py), the
+# default since 2026-09-30; -PerInstruction points it back at local/gs011.
+set(GSR_GAME_CODE_ROOT "${CMAKE_SOURCE_DIR}/local/gs011"
+    CACHE PATH "Root of the generated game code folders")
 set(GSR_GENERATED_DIR "${CMAKE_SOURCE_DIR}/local/gs009/main"
     CACHE PATH "Private gba_recompile output directory")
 set(GSR_TRANSIENT_FUNC2D5C_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func2d5c"
+    "${GSR_GAME_CODE_ROOT}/transient_func2d5c"
     CACHE PATH "Private identity-prefixed Func_2d5c AOT variant output")
 set(GSR_TRANSIENT_FUNCA37C_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_funca37c"
+    "${GSR_GAME_CODE_ROOT}/transient_funca37c"
     CACHE PATH "Private identity-prefixed Func_a37c AOT variant output")
 set(GSR_TRANSIENT_FUNC2808_03006000_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func2808_03006000"
+    "${GSR_GAME_CODE_ROOT}/transient_func2808_03006000"
     CACHE PATH "Private identity-prefixed Func_2808 AOT output at 0x03006000")
 set(GSR_TRANSIENT_FUNC6ABC_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func6abc_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func6abc_pic"
     CACHE PATH "Private position-independent Func_6abc stack-thunk AOT output")
 set(GSR_TRANSIENT_FUNC15E10_03003A84_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func15e10_03003a84"
+    "${GSR_GAME_CODE_ROOT}/transient_func15e10_03003a84"
     CACHE PATH "Private identity-prefixed Func_15e10 AOT output at 0x03003a84")
 set(GSR_TRANSIENT_FUNCA418_03003400_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_funca418_03003400"
+    "${GSR_GAME_CODE_ROOT}/transient_funca418_03003400"
     CACHE PATH "Private identity-prefixed Func_a418 AOT output at 0x03003400")
 set(GSR_TRANSIENT_FUNC15AFC_03003A84_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func15afc_03003a84"
+    "${GSR_GAME_CODE_ROOT}/transient_func15afc_03003a84"
     CACHE PATH "Private identity-prefixed Func_15afc AOT output at 0x03003a84")
 # ONE position-independent corpus replaces the four per-base Func_2cf4 ones.
 set(GSR_TRANSIENT_FUNC6B84_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func6b84_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func6b84_pic"
     CACHE PATH "Private position-independent Func_6b84 RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC7994_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func7994_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func7994_pic"
     CACHE PATH "Private position-independent Func_7994 RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC9E7C_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func9e7c_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func9e7c_pic"
     CACHE PATH "Private position-independent Func_9e7c RAM-image AOT output")
 set(GSR_TRANSIENT_FUNCA0F8_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_funca0f8_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_funca0f8_pic"
     CACHE PATH "Private position-independent Func_a0f8 RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC1B70_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func1b70_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func1b70_pic"
     CACHE PATH "Private position-independent Func_1b70 RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC9BB8_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func9bb8_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func9bb8_pic"
     CACHE PATH "Private position-independent Func_9bb8 RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC15430_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func15430_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func15430_pic"
     CACHE PATH "Private position-independent Func_15430 RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC15570_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func15570_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func15570_pic"
     CACHE PATH "Private position-independent Func_15570 RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC158E8_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func158e8_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func158e8_pic"
     CACHE PATH "Private position-independent Func_158e8 RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC2544_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func2544_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func2544_pic"
     CACHE PATH "Private position-independent Func_2544 RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC2CF4_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func2cf4_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func2cf4_pic"
     CACHE PATH "Private position-independent Func_2cf4 RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC1DC8_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func1dc8_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func1dc8_pic"
     CACHE PATH "Private position-independent Func_1dc8 RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC15AFC_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func15afc_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func15afc_pic"
     CACHE PATH "Private position-independent Func_15afc RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC15E10_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func15e10_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func15e10_pic"
     CACHE PATH "Private position-independent Func_15e10 RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC15D74_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func15d74_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func15d74_pic"
     CACHE PATH "Private position-independent Func_15d74 RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC155D0_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func155d0_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func155d0_pic"
     CACHE PATH "Private position-independent Func_155d0 RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC9BB8_SHORT_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func9bb8_short_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func9bb8_short_pic"
     CACHE PATH "Private position-independent Func_9bb8 short-copy RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC9BB8_CODE_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func9bb8_code_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func9bb8_code_pic"
     CACHE PATH "Private position-independent Func_9bb8 code-only RAM-image AOT output")
 set(GSR_TRANSIENT_FUNCB5138_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_funcb5138_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_funcb5138_pic"
     CACHE PATH "Private position-independent Func_b5138 RAM-image AOT output")
 set(GSR_TRANSIENT_FUNCA418_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_funca418_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_funca418_pic"
     CACHE PATH "Private position-independent Func_a418 RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC1EA8_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func1ea8_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func1ea8_pic"
     CACHE PATH "Private position-independent spell-canvas copy-and-fade RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC1EF8_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func1ef8_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func1ef8_pic"
     CACHE PATH "Private position-independent spell-canvas copy-and-halve RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC6C24_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func6c24_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func6c24_pic"
     CACHE PATH "Private position-independent Func_6c24 RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC203C_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func203c_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func203c_pic"
     CACHE PATH "Private position-independent Func_203c RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC1F38_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func1f38_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func1f38_pic"
     CACHE PATH "Private position-independent Func_1f38 RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC1FB8_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func1fb8_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func1fb8_pic"
     CACHE PATH "Private position-independent Func_1fb8 RAM-image AOT output")
 set(GSR_TRANSIENT_FUNC2098_PIC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/transient_func2098_pic"
+    "${GSR_GAME_CODE_ROOT}/transient_func2098_pic"
     CACHE PATH "Private position-independent Func_2098 RAM-image AOT output")
 set(GSR_SYNTH_DC8_030008D4_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/synth_dc8_030008d4"
+    "${GSR_GAME_CODE_ROOT}/synth_dc8_030008d4"
     CACHE PATH "Private identity-prefixed synthesized Func_dc8 AOT output")
 set(GSR_SYNTH_DC8_03000904_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/synth_dc8_03000904"
+    "${GSR_GAME_CODE_ROOT}/synth_dc8_03000904"
     CACHE PATH "Private identity-prefixed third synthesized Func_dc8 AOT output")
 set(GSR_SYNTH_DC8_030008EC_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/synth_dc8_030008ec"
+    "${GSR_GAME_CODE_ROOT}/synth_dc8_030008ec"
     CACHE PATH "Private identity-prefixed second synthesized Func_dc8 AOT output")
 set(GSR_STAMPS_DIR
-    "${CMAKE_SOURCE_DIR}/local/gs011/stamps"
+    "${GSR_GAME_CODE_ROOT}/stamps"
     CACHE PATH "Private position-independent Func_ed408 stamp routines (tools/build_stamp_variants.py)")
 foreach(GSR_SLOT3_VARIANT 0 1 2 3 4)
     set(GSR_SYNTH_DC8C_${GSR_SLOT3_VARIANT}_DIR
-        "${CMAKE_SOURCE_DIR}/local/gs011/synth_dc8c_${GSR_SLOT3_VARIANT}"
+        "${GSR_GAME_CODE_ROOT}/synth_dc8c_${GSR_SLOT3_VARIANT}"
         CACHE PATH "Private identity-prefixed Func_dc8 slot-3 variant AOT output")
 endforeach()
 foreach(GSR_SLOT2_VARIANT 0 1 2 3)
     set(GSR_SYNTH_DC8B_${GSR_SLOT2_VARIANT}_DIR
-        "${CMAKE_SOURCE_DIR}/local/gs011/synth_dc8b_${GSR_SLOT2_VARIANT}"
+        "${GSR_GAME_CODE_ROOT}/synth_dc8b_${GSR_SLOT2_VARIANT}"
         CACHE PATH "Private identity-prefixed Func_dc8 slot-2 variant AOT output")
 endforeach()
 set(GSR_OVERLAY_ROOT
-    "${CMAKE_SOURCE_DIR}/local/gs011"
+    "${GSR_GAME_CODE_ROOT}"
     CACHE PATH "Root containing private identity-prefixed overlay_<id> AOT outputs")
 
 if(GSR_BUILD_LOCAL_RUNNER)
@@ -697,7 +722,7 @@ if(GSR_BUILD_LOCAL_RUNNER)
         list(APPEND GSR_PROACTIVE_OVERLAY_SOURCES ${GSR_ONE_OVERLAY_SOURCES})
     endforeach()
 
-    add_executable(GoldenSunRecomp
+    set(GSR_ENGINE_SOURCES
         src/runner_main.cpp
         src/function_tracer.cpp
         src/map_recorder.cpp
@@ -709,7 +734,13 @@ if(GSR_BUILD_LOCAL_RUNNER)
         src/effect_particles.cpp
         src/effect_sources.cpp
         src/effect_capture.cpp
-        "${GBARECOMP_ROOT}/src/runtime/gpu_surface.cpp"
+        src/mod_loader.cpp
+        src/gs_text_encode.cpp
+        src/move_probe.cpp
+        src/earth_surge.cpp
+        src/effect_burst.cpp
+        "${GBARECOMP_ROOT}/src/runtime/gpu_surface.cpp")
+    set(GSR_GAME_SOURCES
         ${GSR_GENERATED_SOURCES}
         ${GSR_TRANSIENT_FUNC2D5C_SOURCES}
         ${GSR_TRANSIENT_FUNCA37C_SOURCES}
@@ -751,9 +782,34 @@ if(GSR_BUILD_LOCAL_RUNNER)
         ${GSR_SYNTH_DC8B_SOURCES}
         ${GSR_STAMPS_SOURCES}
         ${GSR_PROACTIVE_OVERLAY_SOURCES})
+    # GSR_SPLIT_GAME_CODE: the engine (our code only) is GoldenSunRecomp.exe
+    # and the translated game code is GoldenSunGame.dll beside it, so a
+    # release can ship the engine prebuilt and the player's PC builds only
+    # the DLL from their ROM (ROADMAP.md, "Player builder"). Windows joins
+    # the two when the game starts: the DLL exports the tables the engine
+    # reads (GoldenSunGame.def, generated below) and the exe exports
+    # everything the game code calls. The default since 2026-09-26 (Jimmy:
+    # played through Vale, performs like the single LTO exe); OFF builds
+    # the single exe.
+    option(GSR_SPLIT_GAME_CODE "Build the game code as GoldenSunGame.dll" ON)
+    if(GSR_SPLIT_GAME_CODE)
+        add_executable(GoldenSunRecomp ${GSR_ENGINE_SOURCES})
+    else()
+        add_executable(GoldenSunRecomp
+            ${GSR_ENGINE_SOURCES}
+            ${GSR_GAME_SOURCES})
+    endif()
     if(GSR_IPO_SUPPORTED)
         set_property(TARGET GoldenSunRecomp PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
     endif()
+    # Generated game code calls one shared copy of the RAM/ROM access fast
+    # paths instead of inlining them at every load and store (runtime_arm.h,
+    # GBARECOMP_OUTLINE_BUS). Same behaviour; much less code to compile and
+    # link. Engine sources keep the inline copies.
+    set(GSR_GAME_CODE_SOURCES ${GSR_GAME_SOURCES})
+    list(FILTER GSR_GAME_CODE_SOURCES INCLUDE REGEX "/recompiled[^/]*\\.cpp$")
+    set_property(SOURCE ${GSR_GAME_CODE_SOURCES} APPEND PROPERTY
+        COMPILE_DEFINITIONS GBARECOMP_OUTLINE_BUS=1)
     target_include_directories(GoldenSunRecomp PRIVATE
         "${GSR_GENERATED_DIR}"
         "${GBARECOMP_ROOT}/src/armv4t"
@@ -773,11 +829,21 @@ if(GSR_BUILD_LOCAL_RUNNER)
     else()
         target_compile_options(GoldenSunRecomp PRIVATE
             -ffunction-sections -fdata-sections)
-        target_link_libraries(GoldenSunRecomp PRIVATE
-            "-Wl,--start-group"
-            gbarecomp_runtime gbarecomp_debug gbarecomp_gba
-            gbarecomp_armv4t
-            "-Wl,--end-group")
+        if(GSR_SPLIT_GAME_CODE)
+            # Every engine function the game code might call has to be in
+            # the exe even when the engine itself never calls it.
+            target_link_libraries(GoldenSunRecomp PRIVATE
+                "-Wl,--whole-archive"
+                gbarecomp_runtime gbarecomp_debug gbarecomp_gba
+                gbarecomp_armv4t
+                "-Wl,--no-whole-archive")
+        else()
+            target_link_libraries(GoldenSunRecomp PRIVATE
+                "-Wl,--start-group"
+                gbarecomp_runtime gbarecomp_debug gbarecomp_gba
+                gbarecomp_armv4t
+                "-Wl,--end-group")
+        endif()
         target_link_options(GoldenSunRecomp PRIVATE -Wl,--gc-sections)
         if(MINGW OR WIN32)
             target_link_options(GoldenSunRecomp PRIVATE -Wl,--stack,16777216)
@@ -790,6 +856,127 @@ if(GSR_BUILD_LOCAL_RUNNER)
             # isn't set to the full core count.
             target_link_options(GoldenSunRecomp PRIVATE -flto=${GSR_LTO_JOBS})
         endif()
+        # Incremental LTO (GCC 15+): the link splits the program into pieces
+        # by a stable rule (-flto-partition=cache) and keeps each finished
+        # piece in <build>/lto-cache. A later link recompiles only the pieces
+        # whose code changed, so an engine-only change no longer redoes the
+        # whole game's final optimisation. The first link after enabling this
+        # is a full one. One build per tree at a time (the cache has no file
+        # locking on Windows), which build_lto.ps1 already enforces.
+        option(GSR_LTO_INCREMENTAL "Cache LTO link pieces between builds" ON)
+        if(GSR_IPO_SUPPORTED AND GSR_LTO_INCREMENTAL AND
+           CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND
+           CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 15)
+            # Relative to the build directory, where the link runs: GCC's
+            # LTO job list is a makefile, and an absolute path here would
+            # carry this checkout's spaces into it ("overriding recipe for
+            # target 'Sun'", 2026-09-26).
+            file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/lto-cache")
+            target_link_options(GoldenSunRecomp PRIVATE
+                -flto-partition=cache
+                -flto-incremental=lto-cache)
+        endif()
+    endif()
+
+    if(GSR_SPLIT_GAME_CODE AND NOT MSVC)
+        # The tables the engine reads from the game code, by name. Every
+        # dispatch_table*.cpp (and the stamps' stamp_registry.cpp) defines
+        # them as `extern "C" const ... NAME`.
+        set(GSR_GAME_DEF "${CMAKE_BINARY_DIR}/GoldenSunGame.def")
+        set(GSR_GAME_DEF_TEXT "LIBRARY GoldenSunGame.dll\nEXPORTS\n")
+        set(GSR_GAME_TABLE_FILES ${GSR_GAME_SOURCES})
+        list(FILTER GSR_GAME_TABLE_FILES INCLUDE REGEX "/(dispatch_table|stamp_registry)[^/]*\\.cpp$")
+        foreach(GSR_TABLE_FILE IN LISTS GSR_GAME_TABLE_FILES)
+            file(STRINGS "${GSR_TABLE_FILE}" GSR_TABLE_LINES
+                REGEX "^extern \"C\" const ")
+            foreach(GSR_TABLE_LINE IN LISTS GSR_TABLE_LINES)
+                if(GSR_TABLE_LINE MATCHES "([A-Za-z_][A-Za-z0-9_]*)(\\[\\])? =")
+                    string(APPEND GSR_GAME_DEF_TEXT "    ${CMAKE_MATCH_1} DATA\n")
+                endif()
+            endforeach()
+        endforeach()
+        file(WRITE "${GSR_GAME_DEF}.tmp" "${GSR_GAME_DEF_TEXT}")
+        file(COPY_FILE "${GSR_GAME_DEF}.tmp" "${GSR_GAME_DEF}" ONLY_IF_DIFFERENT)
+
+        # The exe imports those tables from GoldenSunGame.dll through an
+        # import library made from the .def alone, so the exe never waits
+        # on (or depends on) the DLL being built.
+        set(GSR_GAME_IMPLIB "${CMAKE_BINARY_DIR}/libGoldenSunGame_tables.a")
+        find_program(GSR_DLLTOOL dlltool REQUIRED)
+        add_custom_command(OUTPUT "${GSR_GAME_IMPLIB}"
+            COMMAND "${GSR_DLLTOOL}" -d "${GSR_GAME_DEF}" -l "${GSR_GAME_IMPLIB}"
+                    -D GoldenSunGame.dll
+            DEPENDS "${GSR_GAME_DEF}"
+            COMMENT "Import library for GoldenSunGame.dll's tables")
+        add_custom_target(gsr_game_tables_implib DEPENDS "${GSR_GAME_IMPLIB}")
+        add_dependencies(GoldenSunRecomp gsr_game_tables_implib)
+        target_link_libraries(GoldenSunRecomp PRIVATE "${GSR_GAME_IMPLIB}")
+
+        # The game code: no LTO (it calls shared engine helpers, which is
+        # what LTO used to copy into it), compiled once and reused until the
+        # translated code changes. Objects first, so the exe's export list
+        # can be read from them before the exe links.
+        add_library(gsr_game_objects OBJECT ${GSR_GAME_SOURCES})
+        set_target_properties(gsr_game_objects PROPERTIES
+            INTERPROCEDURAL_OPTIMIZATION FALSE)
+        # This compile is what a player's PC waits for. Per file
+        # (recompiled_005, 2026-09-26): -O2 -g 31.6 s, -O2 22.9 s, -O1
+        # 14.5 s, -Og 8.3 s, -O0 5.6 s. No debug information: it made the DLL
+        # 567 MB and nothing reads it.
+        set(GSR_GAME_CODE_OPT "-Og" CACHE STRING
+            "Optimisation flag for the game code in a split build")
+        target_compile_options(gsr_game_objects PRIVATE
+            ${GSR_GAME_CODE_OPT} -g0)
+        target_include_directories(gsr_game_objects PRIVATE
+            "${GSR_GENERATED_DIR}"
+            "${GBARECOMP_ROOT}/src/armv4t"
+            "${GBARECOMP_ROOT}/src/gba"
+            "${GBARECOMP_ROOT}/src/runtime"
+            "${GBARECOMP_ROOT}/src/debug"
+            "${CMAKE_SOURCE_DIR}/config/usa")
+        add_library(GoldenSunGame SHARED $<TARGET_OBJECTS:gsr_game_objects>)
+        set_target_properties(GoldenSunGame PROPERTIES
+            PREFIX ""
+            INTERPROCEDURAL_OPTIMIZATION FALSE
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+        set(GSR_ENGINE_API_IMPLIB "${CMAKE_BINARY_DIR}/libGoldenSunRecomp_api.a")
+        add_dependencies(GoldenSunGame GoldenSunRecomp)
+        target_link_libraries(GoldenSunGame PRIVATE "${GSR_ENGINE_API_IMPLIB}")
+        target_link_options(GoldenSunGame PRIVATE "${GSR_GAME_DEF}")
+
+        # What the exe exports: every symbol the game objects use that the
+        # engine defines (cmake/gsr_engine_exports.cmake), worked out right
+        # before the exe links. Exporting everything instead fails under
+        # LTO ("cannot export ...: symbol wrong type").
+        # gcc-nm, not nm: the engine objects hold LTO bytecode, which only
+        # the compiler's plugin can list.
+        find_program(GSR_GCC_NM gcc-nm REQUIRED)
+        set(GSR_ENGINE_EXPORTS "${CMAKE_BINARY_DIR}/GoldenSunRecomp_exports.def")
+        set(GSR_ENGINE_EXPORTS_RSP "${CMAKE_BINARY_DIR}/GoldenSunRecomp_exports.rsp")
+        file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/gsr_game_objects.txt"
+            CONTENT "$<JOIN:$<TARGET_OBJECTS:gsr_game_objects>,\n>\n")
+        file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/gsr_engine_inputs.txt"
+            CONTENT "$<TARGET_FILE:gbarecomp_runtime>\n$<TARGET_FILE:gbarecomp_debug>\n$<TARGET_FILE:gbarecomp_gba>\n$<TARGET_FILE:gbarecomp_armv4t>\n$<JOIN:$<TARGET_OBJECTS:GoldenSunRecomp>,\n>\n")
+        add_dependencies(GoldenSunRecomp gsr_game_objects)
+        add_custom_command(TARGET GoldenSunRecomp PRE_LINK
+            COMMAND "${CMAKE_COMMAND}"
+                "-DNM=${GSR_GCC_NM}"
+                "-DGAME_LIST=${CMAKE_BINARY_DIR}/gsr_game_objects.txt"
+                "-DENGINE_LIST=${CMAKE_BINARY_DIR}/gsr_engine_inputs.txt"
+                "-DOUT=${GSR_ENGINE_EXPORTS}"
+                "-DOUT_RSP=${GSR_ENGINE_EXPORTS_RSP}"
+                -P "${CMAKE_SOURCE_DIR}/cmake/gsr_engine_exports.cmake"
+            # The DLL's import library comes from the same list. The one ld
+            # writes with --out-implib under LTO leaves out exports the
+            # engine itself never calls (2026-09-26).
+            COMMAND "${GSR_DLLTOOL}" -d "${GSR_ENGINE_EXPORTS}"
+                -l "${GSR_ENGINE_API_IMPLIB}" -D GoldenSunRecomp.exe
+            BYPRODUCTS "${GSR_ENGINE_EXPORTS}" "${GSR_ENGINE_EXPORTS_RSP}"
+                       "${GSR_ENGINE_API_IMPLIB}"
+            WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+            VERBATIM)
+        target_link_options(GoldenSunRecomp PRIVATE "${GSR_ENGINE_EXPORTS}"
+            "@${GSR_ENGINE_EXPORTS_RSP}")
     endif()
 
     add_test(NAME runner_help COMMAND GoldenSunRecomp --help)
@@ -797,7 +984,7 @@ if(GSR_BUILD_LOCAL_RUNNER)
     # Split debug symbols out of the executable so the shipped binary stays
     # small while crash/hang stack traces can still resolve against the
     # separate .debug file (GNU objcopy debuglink convention).
-    if(CMAKE_BUILD_TYPE MATCHES "^(Debug|RelWithDebInfo)$")
+    if(GSR_DEBUG_SYMBOLS AND CMAKE_BUILD_TYPE MATCHES "^(Debug|RelWithDebInfo)$")
         find_program(CMAKE_OBJCOPY objcopy)
         if(CMAKE_OBJCOPY)
             add_custom_command(TARGET GoldenSunRecomp POST_BUILD
@@ -815,14 +1002,72 @@ if(GSR_BUILD_LOCAL_RUNNER)
         add_executable(GoldenSunLauncher WIN32
             src/launcher_main.cpp
             "${GBARECOMP_ROOT}/src/runtime/crash_handler.cpp")
+        # The launcher's logo (assets/launcher_logo.png), built into the exe
+        # as a byte array so the developer and player launchers both show it
+        # without a loose image file. Rewritten only when the PNG changes.
+        set(GSR_LAUNCHER_LOGO "${CMAKE_SOURCE_DIR}/assets/launcher_logo.png")
+        set(GSR_LAUNCHER_LOGO_H "${CMAKE_BINARY_DIR}/generated/launcher_logo.h")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${GSR_LAUNCHER_LOGO}")
+        file(SHA1 "${GSR_LAUNCHER_LOGO}" gsr_logo_sha1)
+        if(NOT EXISTS "${GSR_LAUNCHER_LOGO_H}" OR
+           NOT gsr_logo_sha1 STREQUAL "${GSR_LAUNCHER_LOGO_SHA1}")
+            file(READ "${GSR_LAUNCHER_LOGO}" gsr_logo_hex HEX)
+            string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," gsr_logo_bytes
+                "${gsr_logo_hex}")
+            file(WRITE "${GSR_LAUNCHER_LOGO_H}"
+                "// Generated from assets/launcher_logo.png by CMakeLists.txt.\n"
+                "#pragma once\n"
+                "static const unsigned char kLauncherLogoPng[] = {${gsr_logo_bytes}};\n")
+            set(GSR_LAUNCHER_LOGO_SHA1 "${gsr_logo_sha1}" CACHE INTERNAL
+                "SHA-1 of the logo the generated header was written from")
+        endif()
         target_include_directories(GoldenSunLauncher PRIVATE
-            "${GBARECOMP_ROOT}/src/runtime")
+            "${GBARECOMP_ROOT}/src/runtime"
+            "${CMAKE_BINARY_DIR}/generated")
         target_compile_definitions(GoldenSunLauncher PRIVATE
             UNICODE _UNICODE NOMINMAX)
-        target_link_libraries(GoldenSunLauncher PRIVATE bcrypt comdlg32 gdiplus)
-        set_target_properties(GoldenSunLauncher PROPERTIES
-            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}")
+        target_link_libraries(GoldenSunLauncher PRIVATE bcrypt comdlg32 gdiplus
+            shlwapi)
+        # make_release.bat: a player launcher with only Pick ROM and Quit,
+        # built into its own build tree so it never replaces the developer
+        # launcher in the repository root.
+        option(GSR_RELEASE_LAUNCHER
+            "Build the player launcher (Pick ROM and Quit only)" OFF)
+        # Where the developer launcher lands. The repository root by default;
+        # a comparison build (build_nolto_test.bat) keeps its own copy in its
+        # build tree so it never replaces the one you play from.
+        set(GSR_LAUNCHER_OUTPUT_DIR "${CMAKE_SOURCE_DIR}" CACHE PATH
+            "Output directory for the developer GoldenSunLauncher.exe")
+        if(GSR_RELEASE_LAUNCHER)
+            target_compile_definitions(GoldenSunLauncher PRIVATE
+                GSR_RELEASE_LAUNCHER=1)
+        else()
+            set_target_properties(GoldenSunLauncher PROPERTIES
+                RUNTIME_OUTPUT_DIRECTORY "${GSR_LAUNCHER_OUTPUT_DIR}")
+        endif()
         add_dependencies(GoldenSunRecomp GoldenSunLauncher)
+
+        # The player builder (tools/gsr_builder): translates the player's
+        # ROM with gba_recompile and compiles GoldenSunGame.dll with the
+        # bundled GCC. make_release.bat ships it; static so it needs no DLLs.
+        if(NOT MSVC)
+            add_executable(gsr_builder
+                tools/gsr_builder/builder_main.cpp
+                tools/gsr_builder/guest_call.cpp
+                tools/gsr_builder/block_timing.cpp
+                "${GBARECOMP_ROOT}/src/armv4t/interpreter.cpp"
+                "${GBARECOMP_ROOT}/src/armv4t/arm_decode.cpp"
+                "${GBARECOMP_ROOT}/src/armv4t/thumb_decode.cpp"
+                "${GBARECOMP_ROOT}/src/armv4t/arm_ir.cpp"
+                "${GBARECOMP_ROOT}/src/gba/sha1.cpp")
+            target_include_directories(gsr_builder PRIVATE
+                "${GBARECOMP_ROOT}/src/armv4t"
+                "${GBARECOMP_ROOT}/src/gba")
+            set_target_properties(gsr_builder PROPERTIES
+                INTERPROCEDURAL_OPTIMIZATION FALSE)
+            target_link_options(gsr_builder PRIVATE -municode -static)
+        endif()
     endif()
 
 endif()

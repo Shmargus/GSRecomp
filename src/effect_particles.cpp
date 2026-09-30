@@ -30,12 +30,16 @@ bool stamp_spark_expanding(EffectCanvas* canvas, const EffectSpark& spark,
     if (!canvas) return false;
     const std::int64_t x = std::int64_t(spark.x) - effect_stamp_width(spark) / 2;
     const std::int64_t y = std::int64_t(spark.y) - effect_stamp_height(spark) / 2;
-    const auto left = std::min(x, -std::int64_t(canvas->origin_x));
-    const auto top = std::min(y, -std::int64_t(canvas->origin_y));
-    const auto right = std::max(x + effect_stamp_width(spark),
-        std::int64_t(canvas->width) - canvas->origin_x);
-    const auto bottom = std::max(y + effect_stamp_height(spark),
-        std::int64_t(canvas->height) - canvas->origin_y);
+    // Growth stops kMaxReach pixels from the origin; the stamp is clipped there.
+    // A stray far-off spark (Heat Wave, 2026-09-27) otherwise asked for a
+    // canvas gigabytes large and the allocation threw. That far is off-screen.
+    constexpr std::int64_t kMaxReach = 512;
+    const auto left = std::max(std::min(x, -std::int64_t(canvas->origin_x)), -kMaxReach);
+    const auto top = std::max(std::min(y, -std::int64_t(canvas->origin_y)), -kMaxReach);
+    const auto right = std::min(std::max(x + effect_stamp_width(spark),
+        std::int64_t(canvas->width) - canvas->origin_x), kMaxReach);
+    const auto bottom = std::min(std::max(y + effect_stamp_height(spark),
+        std::int64_t(canvas->height) - canvas->origin_y), kMaxReach);
     const auto limit = std::numeric_limits<int>::max();
     if (right - left > limit || bottom - top > limit ||
         -left > limit || -top > limit) return false;

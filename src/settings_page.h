@@ -3,7 +3,7 @@
 #include <cstdint>
 
 // A second page on Golden Sun's settings screen: Walk Speed, Encounters,
-// Screen and No Slowdown.
+// Screen, No Slowdown and Better Field Psy.
 //
 // The native screen is fixed at five rows filling the native height, so the
 // page is drawn by the runner over the settings window at present time; the
@@ -60,18 +60,22 @@ constexpr std::uint32_t kAutoSleepRow = 4u;
 // The help window above (text ID 0xC15 + row at (0, 0), 0x0801D758) is kept
 // by the loop at [sp+0x10].
 constexpr std::uint32_t kHelpWindowStackOffset = 0x10u;
-constexpr int kRowCount = 4;
+constexpr int kRowCount = 5;
 constexpr int kWalkSpeedRow = 0;
 constexpr int kEncounterRow = 1;
 constexpr int kScreenRow = 2;
 constexpr int kNoSlowdownRow = 3;
-constexpr const char* kRowLabels[kRowCount] = {"Walk Speed", "Encounters",
-                                               "Screen", "No Slowdown"};
+constexpr int kFieldPsynergyRow = 4;
+constexpr const char* kRowLabels[kRowCount] = {
+    "Walk Speed", "Encounters", "Screen", "No Slowdown", "Better Field Psy"};
 constexpr const char* kRowHelp[kRowCount] = {
     "Set walking speed.", "Set how often monsters appear.",
-    "Set the screen size.", "Remove slowdown."};
-// Text line of each row, matching the cursor hand (above).
-constexpr int kRowLineY[kRowCount] = {0x00, 0x10, 0x28, 0x40};
+    "Set the screen size.", "Remove slowdown.",
+    "Faster Psynergy, bigger Reveal."};
+// Text line of each row, matching the cursor hand (above). Page one's five
+// rows sit on lines 0, 0x10, 0x28, 0x40 and 0x58 (FACTS.md, 2026-09-23), so
+// page two's fifth row uses page one's last line.
+constexpr int kRowLineY[kRowCount] = {0x00, 0x10, 0x28, 0x40, 0x58};
 // Page number and a chevron (down on page one, up on page two),
 // right-aligned just below the settings window on both pages. The chevron
 // is the font's '^', flipped for down; its shadow is redrawn one pixel down
@@ -106,12 +110,17 @@ constexpr int kValueCentreX = 0x7C;
 constexpr char kColourSampleLetter = 'W';
 
 constexpr const char* kWalkingSpeedWords[3] = {"Normal", "2x", "3x"};
-constexpr const char* kEncounterWords[3] = {"Normal", "Half", "Off"};
+// Saved values 0..3; Double was added after Off so saved files keep meaning.
+constexpr const char* kEncounterWords[4] = {"Normal", "Half", "Off", "Double"};
 // Fixed view mode 0 is Native 240x160, 1 the expanded view (runner options).
 constexpr const char* kScreenWords[2] = {"Normal", "Wide"};
-// Enhanced Timing (60 Hz) and CPU Overclock (10x) together, through the
+// Enhanced Timing (60 Hz) and CPU Overclock (50x) together, through the
 // engine's F1 settings; On only while both are on.
 constexpr const char* kOnOffWords[2] = {"Off", "On"};
+// Better Field Psy (docs/features/IN_GAME_QOL.md): On runs a field
+// Psynergy cast at battle 2x and opens Reveal's circle to the whole view
+// (FieldSceneRenderer::set_reveal_full).
+constexpr const char* kFieldPsynergyWords[2] = {"Off", "On"};
 
 // Random encounters (FACTS.md, 2026-09-23). The field's encounter step
 // 0x0808AEE0.. loads the base 0x02000240 at 0x0808AF84, adds the step's
@@ -120,13 +129,17 @@ constexpr const char* kOnOffWords[2] = {"Off", "On"};
 // clears it (0x0808CA5A). Redirecting that one base load to
 // kZeroWord - 0x238 makes the step read 0 and store into ROM (dropped), so
 // the step's amount is lost and the real counter does not move. Off does
-// that on every step, Half on every other step.
+// that on every step, Half on every other step. Double adds the step's
+// amount (r0 at the base load, the result of the multiply just before) to
+// the counter first, so the game's own add makes it twice.
 constexpr std::uint32_t kEncounterBaseLiteralPc = 0x0808AF84u;
 constexpr std::uint32_t kEncounterBase = 0x02000240u;
 constexpr std::uint32_t kEncounterCounterOffset = 0x238u;
 constexpr int kEncounterNormal = 0;
 constexpr int kEncounterHalf = 1;
 constexpr int kEncounterOff = 2;
+constexpr int kEncounterDouble = 3;
+constexpr int kEncounterRateCount = 4;
 // Page two is drawn in the game's own window graphics, not over the picture
 // (Jimmy, 2026-09-23). Verified ROM + gpu_rewind_0005/0006 (FACTS.md,
 // 2026-09-23):
@@ -167,5 +180,6 @@ constexpr std::uint32_t kHelpTextBase = 0xC15u;
 // Kept next to the executable; the engine's config.ini is its own.
 constexpr const char* kOptionsFile = "game_options.ini";
 constexpr const char* kEncounterKey = "EncounterRate=";
+constexpr const char* kFieldPsynergyKey = "FieldPsynergy=";
 
 }  // namespace gsr::settings_page

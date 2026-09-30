@@ -60,6 +60,10 @@ constexpr GLenum kPixelUnpackBuffer    = 0x88EC;
 constexpr GLenum kPixelPackBuffer      = 0x88EB;
 constexpr GLenum kPixelUnpackBufferBinding = 0x88EF;
 constexpr GLenum kPixelPackBufferBinding   = 0x88ED;
+constexpr GLenum kBlendDstRgb          = 0x80C8;
+constexpr GLenum kBlendSrcRgb          = 0x80C9;
+constexpr GLenum kBlendDstAlpha        = 0x80CA;
+constexpr GLenum kBlendSrcAlpha        = 0x80CB;
 
 // ── the entry points we need ────────────────────────────────────────────────
 #define GPU_GL_FUNCTIONS(X)                                                    \
@@ -105,7 +109,8 @@ constexpr GLenum kPixelPackBufferBinding   = 0x88ED;
     X(void,    BindRenderbuffer,(GLenum, GLuint))                              \
     X(void,    RenderbufferStorage,(GLenum, GLenum, GLsizei, GLsizei))         \
     X(void,    FramebufferRenderbuffer,(GLenum, GLenum, GLenum, GLuint))       \
-    X(void,    DeleteRenderbuffers,(GLsizei, const GLuint*))
+    X(void,    DeleteRenderbuffers,(GLsizei, const GLuint*))                    \
+    X(void,    BlendFuncSeparate,(GLenum, GLenum, GLenum, GLenum))
 
 #define GPU_DECLARE(ret, name, args) ret (APIENTRY* gl##name) args = nullptr;
 GPU_GL_FUNCTIONS(GPU_DECLARE)
@@ -177,6 +182,8 @@ struct GpuSurface::SavedState {
     GLboolean depth_test = GL_FALSE;
     GLboolean scissor = GL_FALSE;
     GLboolean depth_mask = GL_TRUE;
+    GLint blend_src_rgb = GL_ONE, blend_dst_rgb = GL_ZERO;
+    GLint blend_src_alpha = GL_ONE, blend_dst_alpha = GL_ZERO;
 };
 
 GpuSurface::~GpuSurface() { release(); }
@@ -568,6 +575,10 @@ void GpuSurface::begin_frame(float r, float g, float b, float a) {
     saved_->depth_test = glIsEnabled(GL_DEPTH_TEST);
     saved_->scissor = glIsEnabled(GL_SCISSOR_TEST);
     glGetBooleanv(GL_DEPTH_WRITEMASK, &saved_->depth_mask);
+    glGetIntegerv(kBlendSrcRgb, &saved_->blend_src_rgb);
+    glGetIntegerv(kBlendDstRgb, &saved_->blend_dst_rgb);
+    glGetIntegerv(kBlendSrcAlpha, &saved_->blend_src_alpha);
+    glGetIntegerv(kBlendDstAlpha, &saved_->blend_dst_alpha);
 
     glBindFramebuffer(kFramebuffer, fbo_);
     glViewport(0, 0, target_w_, target_h_);
@@ -590,7 +601,27 @@ void GpuSurface::end_frame() {
     if (saved_->depth_test) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     if (saved_->scissor) glEnable(GL_SCISSOR_TEST); else glDisable(GL_SCISSOR_TEST);
     glDepthMask(saved_->depth_mask);
+    glBlendFuncSeparate(static_cast<GLenum>(saved_->blend_src_rgb),
+                        static_cast<GLenum>(saved_->blend_dst_rgb),
+                        static_cast<GLenum>(saved_->blend_src_alpha),
+                        static_cast<GLenum>(saved_->blend_dst_alpha));
     in_frame_ = false;
+}
+
+void GpuSurface::set_blend_mode(GpuBlendMode mode) {
+    if (!ready_ || !in_frame_) return;
+    if (mode == GpuBlendMode::Off) {
+        glDisable(GL_BLEND);
+        return;
+    }
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, mode == GpuBlendMode::Additive
+                                  ? GL_ONE
+                                  : GL_ONE_MINUS_SRC_ALPHA);
+}
+
+void GpuSurface::set_blend_alpha(bool enabled) {
+    set_blend_mode(enabled ? GpuBlendMode::Alpha : GpuBlendMode::Off);
 }
 
 void GpuSurface::bind_color_target(GpuTexture texture) {

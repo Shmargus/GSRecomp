@@ -152,6 +152,10 @@ note = "Encounter step: base 0x02000240 of the counter 0x02000478"
 addr = 0x08003318
 note = "Frame wait: VBlank flag clear mask 0xFFFE (battle speed-up)"
 
+[[thumb_literal_override]]
+addr = 0x08098370
+note = "Reveal range check: end command 0x2090 (Better Field Psy)"
+
 [[code_copy]]
 runtime_start = 0x03000000
 source_start = 0x08000770

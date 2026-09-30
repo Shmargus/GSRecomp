@@ -12,6 +12,7 @@
 #include "../gba/gba_irq.h"
 #include "../gba/gba_m4a.h"
 #include "../gba/gba_ppu.h"
+#include "host_prof_phase.h"
 
 #ifdef GBA_COSIM
 #include "../debug/cosim.h"   // cosim_on_tick() — first-divergence checkpoint hook
@@ -157,6 +158,9 @@ extern "C" unsigned long long g_cost_mp2k_producer_blocks_ns;
 extern "C" unsigned long long g_cost_mp2k_producer_blocks;
 extern "C" unsigned long long g_cost_mp2k_judge_output_ns;
 extern "C" unsigned long long g_cost_mp2k_judge_output_calls;
+// Per-instruction bookkeeping call counts (see CostBk in host_prof_phase.h);
+// bumped by cost_bk() below, read per frame by runtime.cpp.
+extern "C" unsigned long long g_cost_bk[kBkCount] = {};
 extern "C" bool g_cost_probe_enabled(void);
 static const bool g_cost_probe = [] {
     const char* e = std::getenv("GBARECOMP_COST_PROBE");
@@ -208,11 +212,19 @@ static const bool g_cost_probe = [] {
                 g_cost_mp2k_producer_blocks_ns,
                 g_cost_mp2k_judge_output_calls,
                 g_cost_mp2k_judge_output_ns);
+            std::fprintf(stderr, "[cost] bookkeeping calls (logical, nested helpers counted at each level):");
+            for (int i = 0; i < kBkCount; ++i)
+                std::fprintf(stderr, " %s=%llu", kCostBkNames[i], g_cost_bk[i]);
+            std::fprintf(stderr, "\n");
         });
     }
     return on;
 }();
 extern "C" bool g_cost_probe_enabled(void) { return g_cost_probe; }
+// One predictable branch when the probe is off; a plain increment when on.
+static inline void cost_bk(int slot) {
+    if (g_cost_probe) ++g_cost_bk[slot];
+}
 struct CostTimer {
     unsigned long long* ns_accum;
     unsigned long long* call_accum;
@@ -239,7 +251,8 @@ extern "C" uint32_t g_irq_nest_depth;
 // Host-only presentation context. An IRQ-safe present must never unwind the
 // guest or request quit: runtime_irq() is synchronously driving the handler.
 extern "C" uint32_t g_runtime_frame_present_in_irq = 0;
-static bool g_frame_present_in_progress = false;
+// Defined in runtime_arm.cpp so the unpacker-slot journal can record it.
+extern "C" bool g_frame_present_in_progress;
 
 // Cumulative guest-cycle clock (MC-HP-002 cycle-aligned divergence hunt).
 // Incremented by runtime_tick on EVERY tick — both the per-instruction exec
@@ -284,6 +297,18 @@ static unsigned long long g_idle_confirmed_sites = 0;
 // Default 0 → normal play / the gcc path are untouched.
 extern "C" unsigned          g_runtime_shadow_tick   = 0;
 extern "C" unsigned long long g_runtime_shadow_cycles = 0;
+
+// Memory timing table (runtime_mem_cycles below), exported so the
+// block-timing game code (tools/block_timing.py) can read it inline instead
+// of calling runtime_mem_cycles: [region][width == 4][sequential].
+// g_runtime_mem_cost_key is the WAITCNT value the table was built for
+// (0xFFFFFFFF: not built); g_runtime_waitcnt_live points at the active bus's
+// live WAITCNT bytes (null without a bus). A reader uses the table only when
+// the live value equals the key, and otherwise calls runtime_mem_cycles,
+// which rebuilds it.
+extern "C" uint8_t g_runtime_mem_cost[16][2][2] = {};
+extern "C" uint32_t g_runtime_mem_cost_key = 0xFFFFFFFFu;
+extern "C" const uint8_t* g_runtime_waitcnt_live = nullptr;
 
 namespace gbarecomp {
 
@@ -395,7 +420,48 @@ static void sampler_loop() {
 // Writes "rip count" lines plus the module base; symbolise offline against
 // `nm` output (the exe keeps ~83k symbols). Fully off unless the env var is
 // set — no thread, no clock reads, nothing.
+//
+// The tick is a HIGH-RESOLUTION waitable timer on an absolute 1 ms schedule
+// (see host_prof_loop). std::this_thread::sleep_for(1ms) runs at the Windows
+// timer resolution (~15.6 ms), which is how one 32 s capture got 808 samples.
+// The timer belongs to the sampler thread alone and exists only while the
+// profiler runs: nothing here changes the process-wide timer resolution, so
+// the frame limiter's sleeps behave exactly as they do with the profiler off.
+//
+// Besides the aggregated "0x<rip> <count>" lines, every sample is also kept
+// raw (rip, guest frame, host phase id, first in-module caller) and written
+// under "# samples" -- that is what lets a profile be restricted to slow
+// frames or split by phase. See host_prof_phase.h.
+
+// Phase / frame mirrors read by the sampler (host_prof_phase.h). Defined on
+// every platform: the scopes that write them compile everywhere.
+bool g_host_prof_enabled = false;
+std::atomic<std::uint8_t> g_host_prof_phase{0};
+std::atomic<std::uint64_t> g_host_prof_frame{0};
+std::atomic<std::uint64_t> g_host_prof_present_frame{0};
+
+[[maybe_unused]] static const char* host_prof_phase_name(unsigned id) {
+    switch (id) {
+        case kHpGuest:       return "guest";
+        case kHpIrqHandler:  return "irq_handler";
+        case kHpTickDevices: return "tick_devices";
+        case kHpPpuRender:   return "ppu_render";
+        case kHpRender:      return "render";
+        case kHpPresent:     return "present";
+        case kHpAudio:       return "audio";
+        case kHpPump:        return "pump";
+        case kHpPacer:       return "pacer";
+        case kHpHaltPump:    return "halt_pump";
+        case kHpCompileWait: return "compile_wait";
+        case kHpSdlEvents:   return "sdl_events";
+        default:             return "unknown";
+    }
+}
+
 #ifdef _WIN32
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#endif
 static std::thread                                 g_host_prof;
 static std::atomic<bool>                           g_host_profiling{false};
 static std::unordered_map<unsigned long long, unsigned long long> g_host_hist;
@@ -407,59 +473,177 @@ static std::map<std::pair<unsigned long long, unsigned long long>,
 static uintptr_t g_host_crt_begin = 0;
 static uintptr_t g_host_crt_end = 0;
 static void* g_host_thread_handle = nullptr;
+// Address ranges of the two modules that hold code we own: the engine exe and
+// the translated game code DLL (absent in a single-exe build). A sample
+// outside both gets its first return address inside them recorded as caller.
+static uintptr_t g_host_exe_begin = 0;
+static uintptr_t g_host_exe_end = 0;
+static uintptr_t g_host_game_begin = 0;
+static uintptr_t g_host_game_end = 0;
+struct HostProfSample {
+    unsigned long long rip;
+    unsigned long long caller;       // first in-module return address, or 0
+    std::uint32_t frame;             // PPU frame counter (g_host_prof_frame)
+    std::uint32_t present_frame;     // frame key of the last phase-CSV row
+    std::uint8_t phase;              // HostProfPhase
+};
+// Raw samples, pre-reserved so a push never allocates. Capped: at ~1 kHz the
+// cap is about 33 minutes; later samples still reach the aggregated histogram
+// and are counted in "# raw_dropped".
+static constexpr std::size_t kHostProfMaxRawSamples = 2000000;
+static std::vector<HostProfSample> g_host_samples;
+static unsigned long long g_host_samples_dropped = 0;
+// Sampler-thread only until it is joined: ticks skipped because the frame
+// limiter was asleep on purpose, and the wall span the loop ran for.
+static unsigned long long g_host_idle_ticks = 0;
+static std::chrono::steady_clock::time_point g_host_loop_t0;
+static std::chrono::steady_clock::time_point g_host_loop_t1;
+static const char* g_host_timer_method = "none";
 // Set while the frame limiter is asleep on purpose; the sampler skips
 // those ticks entirely, so what remains is work.
 static std::atomic<bool> g_host_prof_idle{false};
+
+// One step up the stack. False when the walk cannot continue (no way to read
+// the return address, a null address, or a stack pointer that did not rise).
+static bool host_prof_unwind_one(CONTEXT& ctx) {
+    const DWORD64 previous_rsp = ctx.Rsp;
+    DWORD64 image_base = 0;
+    PRUNTIME_FUNCTION fn = RtlLookupFunctionEntry(ctx.Rip, &image_base, nullptr);
+    if (fn) {
+        PVOID handler_data = nullptr;
+        DWORD64 establisher_frame = 0;
+        RtlVirtualUnwind(UNW_FLAG_NHANDLER, image_base, ctx.Rip, fn, &ctx,
+                         &handler_data, &establisher_frame, nullptr);
+    } else {
+        // A leaf function has only its return address on the stack.
+        DWORD64 return_address = 0;
+        SIZE_T read = 0;
+        if (!ReadProcessMemory(GetCurrentProcess(),
+                reinterpret_cast<const void*>(ctx.Rsp), &return_address,
+                sizeof(return_address), &read) || read != sizeof(return_address))
+            return false;
+        ctx.Rip = return_address;
+        ctx.Rsp += sizeof(return_address);
+    }
+    return ctx.Rip && ctx.Rsp > previous_rsp;
+}
 
 static unsigned long long host_prof_crt_caller(CONTEXT ctx) {
     if (!g_host_crt_begin || ctx.Rip < g_host_crt_begin ||
         ctx.Rip >= g_host_crt_end) return 0;
     while (ctx.Rip >= g_host_crt_begin && ctx.Rip < g_host_crt_end) {
-        const DWORD64 previous_rsp = ctx.Rsp;
-        DWORD64 image_base = 0;
-        PRUNTIME_FUNCTION fn = RtlLookupFunctionEntry(ctx.Rip, &image_base, nullptr);
-        if (fn) {
-            PVOID handler_data = nullptr;
-            DWORD64 establisher_frame = 0;
-            RtlVirtualUnwind(UNW_FLAG_NHANDLER, image_base, ctx.Rip, fn, &ctx,
-                             &handler_data, &establisher_frame, nullptr);
-        } else {
-            // A leaf function has only its return address on the stack.
-            DWORD64 return_address = 0;
-            SIZE_T read = 0;
-            if (!ReadProcessMemory(GetCurrentProcess(),
-                    reinterpret_cast<const void*>(ctx.Rsp), &return_address,
-                    sizeof(return_address), &read) || read != sizeof(return_address))
-                return 0;
-            ctx.Rip = return_address;
-            ctx.Rsp += sizeof(return_address);
-        }
-        if (!ctx.Rip || ctx.Rsp <= previous_rsp) return 0;
+        if (!host_prof_unwind_one(ctx)) return 0;
     }
     return ctx.Rip;
 }
 
+static bool host_prof_in_own_code(unsigned long long rip) {
+    return (g_host_exe_begin && rip >= g_host_exe_begin && rip < g_host_exe_end) ||
+           (g_host_game_begin && rip >= g_host_game_begin && rip < g_host_game_end);
+}
+
+// For a sample outside both the exe and the game DLL (ntdll, the graphics
+// driver, SDL, the CRT ...): the first return address that IS inside one of
+// them, i.e. which of our functions asked for the time. 0 when the sample is
+// already ours, or no such frame within 64 frames.
+static unsigned long long host_prof_module_caller(CONTEXT ctx) {
+    if (host_prof_in_own_code(ctx.Rip)) return 0;
+    for (int depth = 0; depth < 64; ++depth) {
+        if (!host_prof_unwind_one(ctx)) return 0;
+        if (host_prof_in_own_code(ctx.Rip)) return ctx.Rip;
+    }
+    return 0;
+}
+
+static void host_prof_resolve_game_dll() {
+    if (g_host_game_begin) return;
+    HMODULE game = GetModuleHandleW(L"GoldenSunGame.dll");
+    if (!game) return;
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(game);
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(
+        reinterpret_cast<const char*>(game) + dos->e_lfanew);
+    g_host_game_end = reinterpret_cast<uintptr_t>(game) +
+                      nt->OptionalHeader.SizeOfImage;
+    g_host_game_begin = reinterpret_cast<uintptr_t>(game);  // set last
+}
+
 static void host_prof_loop() {
+    // High-resolution waitable timer, owned by this thread. If the OS refuses
+    // it (pre-Windows 10 1803) fall back to sleep_for and say so in the dump:
+    // the achieved rate is then the coarse timer's.
+    HANDLE timer = CreateWaitableTimerExW(
+        nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+        TIMER_ALL_ACCESS);
+    g_host_timer_method = timer ? "high_resolution_waitable_timer"
+                                : "sleep_for_fallback";
+    using clock = std::chrono::steady_clock;
+    constexpr auto kPeriod = std::chrono::milliseconds(1);
+    g_host_loop_t0 = clock::now();
+    auto next = g_host_loop_t0;
+    unsigned long long iteration = 0;
     while (g_host_profiling.load(std::memory_order_relaxed)) {
+        // The thread is running here, so taking the loader lock is safe. The
+        // game DLL is normally an import and already present at start; this
+        // is only a late retry.
+        if (!g_host_game_begin && (++iteration & 1023u) == 0)
+            host_prof_resolve_game_dll();
         HANDLE h = reinterpret_cast<HANDLE>(g_host_thread_handle);
-        if (h && !g_host_prof_idle.load(std::memory_order_relaxed)) {
+        if (h && g_host_prof_idle.load(std::memory_order_relaxed)) {
+            ++g_host_idle_ticks;
+        } else if (h) {
             if (SuspendThread(h) != (DWORD)-1) {
                 CONTEXT ctx{};
                 ctx.ContextFlags = CONTEXT_FULL;
                 const bool sampled = GetThreadContext(h, &ctx) != 0;
-                const unsigned long long caller = sampled
+                // Read while frozen so RIP, phase and frame describe the
+                // same instant.
+                HostProfSample s{};
+                s.phase = g_host_prof_phase.load(std::memory_order_relaxed);
+                s.frame = static_cast<std::uint32_t>(
+                    g_host_prof_frame.load(std::memory_order_relaxed));
+                s.present_frame = static_cast<std::uint32_t>(
+                    g_host_prof_present_frame.load(std::memory_order_relaxed));
+                const unsigned long long crt_caller = sampled
                     ? host_prof_crt_caller(ctx) : 0;
+                s.caller = sampled ? host_prof_module_caller(ctx) : 0;
+                s.rip = sampled ? ctx.Rip : 0;
                 ResumeThread(h);
                 // Map insertion may allocate: do it only after resuming the
                 // sampled thread, which could have been holding a heap lock.
                 if (sampled) {
                     ++g_host_hist[ctx.Rip];
-                    if (caller) ++g_host_crt_callers[{ctx.Rip, caller}];
+                    if (crt_caller) ++g_host_crt_callers[{ctx.Rip, crt_caller}];
+                    if (g_host_samples.size() < kHostProfMaxRawSamples)
+                        g_host_samples.push_back(s);  // capacity is reserved
+                    else
+                        ++g_host_samples_dropped;
                 }
             }
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        // Absolute schedule: a late wakeup is made up by the next one, so the
+        // long-run rate holds at 1 kHz. If the thread fell far behind (a stall
+        // in the sampled process), resynchronise instead of bursting.
+        next += kPeriod;
+        const auto now = clock::now();
+        if (next > now) {
+            if (timer) {
+                const auto ns = std::chrono::duration_cast<
+                    std::chrono::nanoseconds>(next - now).count();
+                LARGE_INTEGER due;
+                due.QuadPart = -(ns / 100);  // relative, 100 ns units
+                if (SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE))
+                    WaitForSingleObject(timer, 100);
+                else
+                    std::this_thread::sleep_for(next - now);
+            } else {
+                std::this_thread::sleep_for(next - now);
+            }
+        } else if (now - next > std::chrono::milliseconds(20)) {
+            next = now;
+        }
     }
+    g_host_loop_t1 = clock::now();
+    if (timer) CloseHandle(timer);
 }
 
 static void dump_host_hist() {
@@ -474,9 +658,29 @@ static void dump_host_hist() {
     const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(module);
     const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(module + dos->e_lfanew);
     std::fprintf(f, "# module_size 0x%lx\n", nt->OptionalHeader.SizeOfImage);
+    // The translated game code, when it is a separate DLL. 0 = single exe.
+    std::fprintf(f, "# game_dll_base 0x%llx\n",
+                 (unsigned long long)g_host_game_begin);
+    std::fprintf(f, "# game_dll_size 0x%llx\n",
+                 (unsigned long long)(g_host_game_end - g_host_game_begin));
     unsigned long long total = 0;
     for (const auto& kv : g_host_hist) total += kv.second;
     std::fprintf(f, "# total_samples %llu\n", total);
+    // Achieved rate: samples taken / wall seconds the sampler loop ran.
+    // tick_hz also counts the ticks skipped while the frame limiter slept.
+    const double wall = std::chrono::duration<double>(
+        g_host_loop_t1 - g_host_loop_t0).count();
+    std::fprintf(f, "# sample_wall_seconds %.3f\n", wall);
+    std::fprintf(f, "# sample_hz %.1f\n", wall > 0.0 ? total / wall : 0.0);
+    std::fprintf(f, "# idle_ticks %llu\n", g_host_idle_ticks);
+    std::fprintf(f, "# tick_hz %.1f\n",
+                 wall > 0.0 ? (total + g_host_idle_ticks) / wall : 0.0);
+    std::fprintf(f, "# sample_timer %s\n", g_host_timer_method);
+    std::fprintf(f, "# raw_samples %zu\n", g_host_samples.size());
+    std::fprintf(f, "# raw_cap %zu\n", kHostProfMaxRawSamples);
+    std::fprintf(f, "# raw_dropped %llu\n", g_host_samples_dropped);
+    for (unsigned id = 0; id < kHpPhaseCount; ++id)
+        std::fprintf(f, "# phase %u %s\n", id, host_prof_phase_name(id));
     std::fprintf(f, "# crt_range 0x%llx 0x%llx\n",
                  (unsigned long long)g_host_crt_begin,
                  (unsigned long long)g_host_crt_end);
@@ -532,9 +736,26 @@ static void dump_host_hist() {
                          (unsigned long long)kv.second.first, name.c_str());
         }
     }
+
+    // Raw samples, last so the aggregated section above stays first.
+    //   rip(hex) frame(dec) phase(dec) caller(hex, 0 = none) present_frame(dec)
+    // The fifth column is the frame key of the last row written to the
+    // frame-phase CSV before the sample; the sample belongs to the CSV row
+    // AFTER it (see g_host_prof_present_frame).
+    std::fprintf(f, "# samples\n");
+    for (const HostProfSample& s : g_host_samples) {
+        std::fprintf(f, "0x%llx %u %u ", s.rip, s.frame,
+                     static_cast<unsigned>(s.phase));
+        if (s.caller) std::fprintf(f, "0x%llx", s.caller);
+        else std::fputc('0', f);
+        std::fprintf(f, " %u\n", s.present_frame);
+    }
     std::fclose(f);
-    std::fprintf(stderr, "[host-prof] %llu samples over %zu distinct RIPs -> %s\n",
-                 total, g_host_hist.size(), path);
+    std::fprintf(stderr,
+                 "[host-prof] %llu samples over %zu distinct RIPs, %.0f Hz "
+                 "(%s), %llu idle ticks -> %s\n",
+                 total, g_host_hist.size(), wall > 0.0 ? total / wall : 0.0,
+                 g_host_timer_method, g_host_idle_ticks, path);
 }
 
 static void start_host_prof() {
@@ -547,10 +768,24 @@ static void start_host_prof() {
         g_host_crt_begin = reinterpret_cast<uintptr_t>(crt);
         g_host_crt_end = g_host_crt_begin + nt->OptionalHeader.SizeOfImage;
     }
+    if (HMODULE exe = GetModuleHandleW(nullptr)) {
+        const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(exe);
+        const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(
+            reinterpret_cast<const char*>(exe) + dos->e_lfanew);
+        g_host_exe_begin = reinterpret_cast<uintptr_t>(exe);
+        g_host_exe_end = g_host_exe_begin + nt->OptionalHeader.SizeOfImage;
+    }
+    host_prof_resolve_game_dll();
+    g_host_samples.reserve(kHostProfMaxRawSamples);
     HANDLE dup = nullptr;
     DuplicateHandle(GetCurrentProcess(), GetCurrentThread(),
                     GetCurrentProcess(), &dup, 0, FALSE, DUPLICATE_SAME_ACCESS);
     g_host_thread_handle = dup;
+    // Phase scopes and the frame mirror only write while this is set.
+    g_host_prof_enabled = true;
+    if (g_active_ppu)
+        g_host_prof_frame.store(g_active_ppu->frame_count(),
+                                std::memory_order_relaxed);
     g_host_prof = std::thread(host_prof_loop);
     std::atexit([] {
         g_host_profiling.store(false);
@@ -566,15 +801,27 @@ static void start_host_prof() {}
 // on every platform because the header declares it unconditionally and
 // runtime.cpp calls it from the pacer path; the body is a no-op where there
 // is no sampler.
+// The limiter waits are not nested, so one saved phase is enough. Samples are
+// skipped while idle, so kHpPacer never appears in a capture; it is set so the
+// phase is right for anything that reads it during the wait.
+static std::uint8_t g_host_idle_prev_phase = 0;
 void host_prof_begin_idle() {
 #ifdef _WIN32
     g_host_prof_idle.store(true, std::memory_order_relaxed);
 #endif
+    if (g_host_prof_enabled) {
+        g_host_idle_prev_phase =
+            g_host_prof_phase.load(std::memory_order_relaxed);
+        g_host_prof_phase.store(kHpPacer, std::memory_order_relaxed);
+    }
 }
 void host_prof_end_idle() {
 #ifdef _WIN32
     g_host_prof_idle.store(false, std::memory_order_relaxed);
 #endif
+    if (g_host_prof_enabled)
+        g_host_prof_phase.store(g_host_idle_prev_phase,
+                                std::memory_order_relaxed);
 }
 
 // GBARECOMP_SAMPLE, if explicitly set, wins outright. Otherwise falls back
@@ -657,6 +904,9 @@ extern "C" void runtime_mp2k_control_observer(uint32_t pc, uint32_t target,
 
 void set_active_bus(gba::GbaBus* bus) {
     g_active_bus = bus;
+    // WAITCNT is the u16 at IO offset 0x204 (gba_io.h, IoReg::WAITCNT).
+    g_runtime_waitcnt_live = bus ? bus->io().raw() + 0x204u : nullptr;
+    g_runtime_mem_cost_key = 0xFFFFFFFFu;
     g_runtime_bios_open_bus_hook = bus
         ? [](uint32_t value) {
               if (g_active_bus) g_active_bus->set_bios_open_bus(value);
@@ -710,6 +960,11 @@ void set_savestate_load_hook(std::function<void()> hook) {
 }
 
 void notify_savestate_loaded() {
+    // The load moved the PPU frame counter discontinuously; re-mirror it for
+    // the host profiler (no-op unless it is running).
+    if (g_host_prof_enabled && g_active_ppu)
+        g_host_prof_frame.store(g_active_ppu->frame_count(),
+                                std::memory_order_relaxed);
     if (g_savestate_load_hook) g_savestate_load_hook();
 }
 
@@ -996,21 +1251,217 @@ extern "C" void bus_write_u8_slow(uint32_t addr, uint8_t val) {
     if (io) runtime_resync_horizon();
 }
 
+// Block timing (runtime_arm.h). Always 0 in the normal game code.
+extern "C" uint32_t g_runtime_deferred_cycles = 0;
+// Set while a deferred debt is paid in the middle of an instruction (before
+// an I/O, palette, VRAM or OAM access): the clock and devices advance, but
+// an interrupt waits for the next instruction boundary, as it would today.
+static bool g_tick_irq_held = false;
+
+extern "C" void runtime_flush_deferred(void) {
+    if (g_runtime_deferred_cycles) runtime_tick(0u);
+}
+
+static inline void flush_deferred_for_access(uint32_t addr) {
+    if (g_runtime_deferred_cycles && addr - 0x04000000u < 0x04000000u) {
+        g_tick_irq_held = true;
+        runtime_tick(0u);
+        g_tick_irq_held = false;
+    }
+}
+
+extern "C" uint32_t runtime_insn_fetch(uint32_t pc, uint32_t width) {
+    g_cpu.R[15] = pc;
+    return runtime_mem_cycles(pc, width, 1u);
+}
+
+// The shared copies generated game code calls (runtime_arm.h,
+// GBARECOMP_OUTLINE_BUS). noinline keeps LTO from copying them back into
+// every access site, which is the size this exists to remove.
+extern "C" __attribute__((noinline)) uint32_t runtime_bus_read_u32(uint32_t a) {
+    cost_bk(kBkBusRead);
+    flush_deferred_for_access(a);
+    return bus_read_u32_inline(a);
+}
+extern "C" __attribute__((noinline)) uint16_t runtime_bus_read_u16(uint32_t a) {
+    cost_bk(kBkBusRead);
+    flush_deferred_for_access(a);
+    return bus_read_u16_inline(a);
+}
+extern "C" __attribute__((noinline)) uint8_t runtime_bus_read_u8(uint32_t a) {
+    cost_bk(kBkBusRead);
+    flush_deferred_for_access(a);
+    return bus_read_u8_inline(a);
+}
+extern "C" __attribute__((noinline)) void runtime_bus_write_u32(uint32_t a, uint32_t v) {
+    cost_bk(kBkBusWrite);
+    flush_deferred_for_access(a);
+    bus_write_u32_inline(a, v);
+}
+extern "C" __attribute__((noinline)) void runtime_bus_write_u16(uint32_t a, uint16_t v) {
+    cost_bk(kBkBusWrite);
+    flush_deferred_for_access(a);
+    bus_write_u16_inline(a, v);
+}
+extern "C" __attribute__((noinline)) void runtime_bus_write_u8(uint32_t a, uint8_t v) {
+    cost_bk(kBkBusWrite);
+    flush_deferred_for_access(a);
+    bus_write_u8_inline(a, v);
+}
+
+// Combined per-instruction helpers: see runtime_arm.h. Each body is the
+// exact sequence it replaces in generated code.
+extern "C" uint32_t g_runtime_data_cost = 0;
+
+extern "C" bool runtime_insn_boundary(void) {
+    cost_bk(kBkInsnBoundary);
+    runtime_flush_deferred();
+    if (runtime_should_yield()) return true;
+    if (g_runtime_insn_trace) runtime_insn_fp();
+    return false;
+}
+
+extern "C" uint32_t runtime_insn_begin(uint32_t pc, uint32_t width) {
+    cost_bk(kBkInsnBegin);
+    g_cpu.R[15] = pc;
+    if (runtime_insn_boundary()) return 0u;
+    return runtime_mem_cycles(pc, width, 1u);
+}
+
+extern "C" uint32_t runtime_fetch_ns_delta(uint32_t pc, uint32_t width) {
+    cost_bk(kBkFetchNsDelta);
+    return runtime_mem_cycles(pc, width, 0u) - runtime_mem_cycles(pc, width, 1u);
+}
+
+extern "C" uint32_t runtime_refill_cycles(uint32_t target, uint32_t width) {
+    cost_bk(kBkRefillCycles);
+    const uint32_t n = runtime_mem_cycles(target, width, 0u) - 1u;
+    return n + (runtime_mem_cycles(target + width, width, 1u) - 1u);
+}
+
+extern "C" uint32_t runtime_ld_u32(uint32_t addr, uint32_t ea) {
+    cost_bk(kBkLd);
+    flush_deferred_for_access(addr);
+    const uint32_t v = bus_read_u32_inline(addr);
+    g_runtime_data_cost = runtime_mem_cycles(ea, 4u, 2u);
+    return v;
+}
+extern "C" uint32_t runtime_ld_u16(uint32_t addr, uint32_t ea) {
+    cost_bk(kBkLd);
+    flush_deferred_for_access(addr);
+    const uint32_t v = bus_read_u16_inline(addr);
+    g_runtime_data_cost = runtime_mem_cycles(ea, 2u, 2u);
+    return v;
+}
+extern "C" uint32_t runtime_ld_u8(uint32_t addr, uint32_t ea) {
+    cost_bk(kBkLd);
+    flush_deferred_for_access(addr);
+    const uint32_t v = bus_read_u8_inline(addr);
+    g_runtime_data_cost = runtime_mem_cycles(ea, 1u, 2u);
+    return v;
+}
+
+extern "C" uint32_t runtime_st_u32(uint32_t pc, uint32_t addr, uint32_t ea,
+                                   uint32_t value) {
+    cost_bk(kBkSt);
+    flush_deferred_for_access(addr);
+    runtime_trace_event(RUNTIME_TRACE_MEM_WRITE, pc, addr, value, 4u);
+    bus_write_u32_inline(addr, value);
+    return runtime_mem_cycles(ea, 4u, 2u);
+}
+extern "C" uint32_t runtime_st_u16(uint32_t pc, uint32_t addr, uint32_t ea,
+                                   uint32_t value) {
+    cost_bk(kBkSt);
+    flush_deferred_for_access(addr);
+    runtime_trace_event(RUNTIME_TRACE_MEM_WRITE, pc, addr, value, 2u);
+    bus_write_u16_inline(addr, static_cast<uint16_t>(value));
+    return runtime_mem_cycles(ea, 2u, 2u);
+}
+extern "C" uint32_t runtime_st_u8(uint32_t pc, uint32_t addr, uint32_t ea,
+                                  uint32_t value) {
+    cost_bk(kBkSt);
+    flush_deferred_for_access(addr);
+    runtime_trace_event(RUNTIME_TRACE_MEM_WRITE, pc, addr, value, 1u);
+    bus_write_u8_inline(addr, static_cast<uint8_t>(value));
+    return runtime_mem_cycles(ea, 1u, 2u);
+}
+
+extern "C" uint32_t runtime_ldm_u32(uint32_t addr, uint32_t seq,
+                                    uint32_t* dst) {
+    cost_bk(kBkLdm);
+    flush_deferred_for_access(addr);
+    const uint32_t c = runtime_mem_cycles(addr, 4u, seq);
+    *dst = bus_read_u32_inline(addr);
+    return c;
+}
+extern "C" uint32_t runtime_stm_u32(uint32_t pc, uint32_t addr,
+                                    uint32_t value, uint32_t seq) {
+    cost_bk(kBkStm);
+    flush_deferred_for_access(addr);
+    const uint32_t c = runtime_mem_cycles(addr, 4u, seq);
+    runtime_trace_event(RUNTIME_TRACE_MEM_WRITE, pc, addr, value, 4u);
+    bus_write_u32_inline(addr, value);
+    return c;
+}
+
+// Memory timing table (ROADMAP.md "block bookkeeping", step 2). The heaviest
+// Ragnarok frames make ~2 M runtime_mem_cycles calls (FACTS.md, "What the
+// block build still spends Ragnarok on"). GbaBus::access_cycles depends only
+// on the address's region, the width (8 and 16 cost the same), S/N and
+// WAITCNT, so its answers are kept per region x width x S/N and rebuilt when
+// WAITCNT changes, instead of a virtual call and a switch per access. The
+// table and its key are defined at the top of this file.
+
+// Kept out of line (and the prefetch call below): inlined, the loop made
+// runtime_mem_cycles save and restore eight registers on every call, which
+// is where most of its 22% of the heaviest Ragnarok frames went
+// (logs/session_20260930_182758.hostprof.txt).
+__attribute__((noinline, cold))
+static void rebuild_mem_cost(const gba::GbaBus& bus, uint16_t waitcnt) {
+    for (uint32_t region = 0; region < 16u; ++region) {
+        for (uint32_t w = 0; w < 2u; ++w) {
+            for (uint32_t s = 0; s < 2u; ++s) {
+                g_runtime_mem_cost[region][w][s] = static_cast<uint8_t>(
+                    bus.access_cycles(region << 24, w ? 4u : 2u, s != 0u));
+            }
+        }
+    }
+    g_runtime_mem_cost_key = waitcnt;
+}
+
+__attribute__((noinline))
+static uint32_t prefetch_data_cycles(gba::GbaBus& bus, uint32_t addr,
+                                     uint32_t width) {
+    return static_cast<uint32_t>(bus.data_access_cycles(
+        addr, static_cast<uint8_t>(width), false, g_cpu.R[15]));
+}
+
 extern "C" uint32_t runtime_mem_cycles(uint32_t addr, uint32_t width,
                                        uint32_t sequential) {
+    cost_bk(kBkMemCycles);
     auto* bus = gbarecomp::g_active_bus;
-    if (bus && sequential == 2u) {
-        return static_cast<uint32_t>(bus->data_access_cycles(
-            addr, static_cast<uint8_t>(width), false, g_cpu.R[15]));
+    if (!bus) return 1u;
+    const uint16_t waitcnt = bus->io().waitcnt();
+    if (waitcnt != g_runtime_mem_cost_key) rebuild_mem_cost(*bus, waitcnt);
+    const uint32_t region = (addr >> 24) & 0xFu;
+    const bool seq = sequential != 0u && sequential != 2u;
+    const uint32_t cost = g_runtime_mem_cost[region][width == 4u][seq];
+    if (sequential == 2u) {
+        // GbaBus::data_access_cycles returns the plain N cost unless the
+        // access is below the cart while cart code runs with prefetch on;
+        // only that case needs the prefetch model.
+        if (addr >= 0x08000000u || ((g_cpu.R[15] >> 24) & 0xFu) < 0x8u ||
+            (waitcnt & 0x4000u) == 0u)
+            return cost;
+        return prefetch_data_cycles(*bus, addr, width);
     }
-    return bus ? bus->access_cycles(addr, static_cast<uint8_t>(width),
-                                    sequential != 0u)
-               : 1u;
+    return cost;
 }
 
 extern "C" uint32_t runtime_mul_cycles(uint32_t rs_value,
                                        uint32_t signed_variant,
                                        uint32_t extra) {
+    cost_bk(kBkMulCycles);
     return armv4t::mul_wait_cycles(rs_value, signed_variant != 0u, extra);
 }
 
@@ -1039,6 +1490,7 @@ static bool g_skip_frame_render = false;
 
 static void tick_devices(gba::GbaBus* bus, gba::GbaPpu* ppu, uint32_t cycles) {
     CostTimer _ct_total(&g_cost_tick_devices_ns, &g_cost_tick_devices_calls);
+    gbarecomp::HostProfPhaseScope _hp_tick(gbarecomp::kHpTickDevices);
     DeviceTickGuard _dtg;
     // Stage 2: materializing device state can raise IF, advance the PPU phase,
     // run timed DMA into watched RAM, etc. Any of these can change a polled
@@ -1071,6 +1523,10 @@ static void tick_devices(gba::GbaBus* bus, gba::GbaPpu* ppu, uint32_t cycles) {
             (bus->io().dispstat() >> 8) & 0xFFu);
         auto events = ppu->tick(chunk, vc_compare);
         if (events.frame_completed) {
+            // Host profiler: the sampler thread cannot read the PPU.
+            if (gbarecomp::g_host_prof_enabled)
+                gbarecomp::g_host_prof_frame.store(
+                    ppu->frame_count(), std::memory_order_relaxed);
             // Earliest point the newly-started frame's index is known, and
             // strictly before that frame's own scanline 0 HBlank render
             // below — the decision is committed before any of its pixel
@@ -1086,6 +1542,7 @@ static void tick_devices(gba::GbaBus* bus, gba::GbaPpu* ppu, uint32_t cycles) {
                 if (phase_prof_enabled()) _prof_t0 = std::chrono::steady_clock::now();
                 {
                     CostTimer _ct_render(&g_cost_ppu_render_ns, &g_cost_ppu_render_calls);
+                    gbarecomp::HostProfPhaseScope _hp_ppu(gbarecomp::kHpPpuRender);
                     ppu->render_scanline(ppu->vcount(),
                                          bus->io().read16(0x000),
                                          bus->io().raw(),
@@ -1138,8 +1595,10 @@ static void tick_devices(gba::GbaBus* bus, gba::GbaPpu* ppu, uint32_t cycles) {
                 if (mark_renders) {
                     CostTimer _ct_render(&g_cost_ppu_render_ns,
                                          &g_cost_ppu_render_calls);
+                    gbarecomp::HostProfPhaseScope _hp_ppu(gbarecomp::kHpPpuRender);
                     ppu->mark_framebuffer_latched();
                 } else {
+                    gbarecomp::HostProfPhaseScope _hp_ppu(gbarecomp::kHpPpuRender);
                     ppu->mark_framebuffer_latched();
                 }
             }
@@ -1345,7 +1804,8 @@ static void runtime_tick_common(uint32_t cycles) {
     // so a DMA-end IRQ or a timer that overflowed during the steal is seen now.
     drain_dma_steal(bus, ppu);
 
-    if (bus->io().irq_pending() && (g_cpu.cpsr & CPSR_I_BIT) == 0) {
+    if (!g_tick_irq_held && bus->io().irq_pending() &&
+        (g_cpu.cpsr & CPSR_I_BIT) == 0) {
         CostTimer _ct_irq(&g_cost_irq_check_ns, &g_cost_irq_check_calls);
         g_runtime_irq_from_halt = bus->io().halted() ? 1u : 0u;
         if (bus->io().halted()) {
@@ -1378,7 +1838,10 @@ static void runtime_tick_common(uint32_t cycles) {
             tick_devices(bus, ppu, gba::kIrqWakeDelayCycles);
             recompute_event_budget(bus, ppu);
         }
-        runtime_irq(g_cpu.R[15]);
+        {
+            gbarecomp::HostProfPhaseScope _hp_irq(gbarecomp::kHpIrqHandler);
+            runtime_irq(g_cpu.R[15]);
+        }
     }
 
 #ifdef GBA_COSIM
@@ -1400,6 +1863,7 @@ static void runtime_tick_common(uint32_t cycles) {
 // GBARECOMP_CPU_OVERCLOCK regardless of the setting — calls straight through
 // to the shared body with no scaling logic at all.
 extern "C" void runtime_tick_realtime(uint32_t cycles) {
+    cost_bk(kBkTickRealtime);
     runtime_tick_common(cycles);
 }
 
@@ -1499,6 +1963,11 @@ extern "C" unsigned runtime_get_overclock_factor() {
 }
 
 extern "C" void runtime_tick(uint32_t cycles) {
+    cost_bk(kBkTick);
+    if (g_runtime_deferred_cycles) {
+        cycles += g_runtime_deferred_cycles;
+        g_runtime_deferred_cycles = 0;
+    }
     const unsigned factor = g_overclock_factor_q8.load(std::memory_order_relaxed);
     if (factor <= kQ8One) {
         // Default: exact current behavior, no scaling branch entered.
@@ -1564,6 +2033,8 @@ static const bool g_idle_elision_on = [] {
 }  // namespace
 
 extern "C" void runtime_idle_backedge(uint32_t header_pc) {
+    cost_bk(kBkIdleBackedge);
+    runtime_flush_deferred();
     if (!g_idle_elision_on) return;
     if (g_runtime_shadow_tick) return;  // never alter time during a shadow re-run
 
@@ -1653,7 +2124,11 @@ void runtime_set_frame_present_hook(std::function<bool()> h) {
     g_runtime_frame_pace_pending = 0;
 }
 
-extern "C" bool runtime_should_yield(void) {
+// Decides whether the guest must yield; runtime_should_yield() below turns a
+// "yes" into the R15 sentinel. Every non-yield side effect (MP2K hook, BIOS
+// prefetch latch, present-in-place hook, hang watchdog) stays here and still
+// sees the real R15.
+static bool runtime_should_yield_decide(void) {
     auto* bus = gbarecomp::g_active_bus;
 
     // Generated code enters this prologue for every guest instruction,
@@ -1790,4 +2265,27 @@ extern "C" bool runtime_should_yield(void) {
         return true;  // debug breakpoint hit — unwind to the exec loop
     }
     return halted;
+}
+
+extern "C" uint32_t g_yield_resume_pc;
+extern "C" bool     g_yield_resume_pending;
+
+// A yield unwinds the host C stack: each generated call site sees R15 != its
+// return address, cancels its frame and returns. Stale sites (left live by
+// code whose trampoline returned elsewhere, e.g. the overlay unpacker at
+// 0x03002000) can expect the very PC we yielded at and would then CONTINUE
+// old C code on new state. Hide the resume PC behind a sentinel that no call
+// site can match; runtime_yield_restore_pc() puts it back at the loop that
+// re-dispatches it. Sentinel 0xFFFFFFF0 is outside the GBA bus (max 0x0FFFFFFF)
+// so it is never a return address. FACTS.md "Door+Turbo crash".
+extern "C" bool runtime_should_yield(void) {
+    cost_bk(kBkShouldYield);
+    if (!runtime_should_yield_decide()) return false;
+    // Keep the first stash if a second yield is reported before the restore.
+    if (!g_yield_resume_pending) {
+        g_yield_resume_pc = g_cpu.R[15];
+        g_yield_resume_pending = true;
+    }
+    g_cpu.R[15] = 0xFFFFFFF0u;
+    return true;
 }

@@ -258,4 +258,10 @@ void trace_oam_shadow_write_committed(std::uint32_t pc,
 void end_dma();
 bool dma_active();
 
+// True when either debug toggle that consumes the START phase of every fast
+// IWRAM store is on (effect staging trace, OAM shadow writer trace). Both are
+// read from the environment once and never change afterwards, so a caller may
+// cache the answer.
+bool iwram_store_trace_enabled();
+
 }  // namespace gba::vram_trace

@@ -348,12 +348,13 @@ bool entry_for_prepared_row(unsigned layer, std::int32_t world_px,
     // 2026-09-13 (maprec_20260913_161626, snap_00052, room 400x400): cell
     // (23,1) holds id 0x01A with atlas 0341/13AA/13AA/13AB, ordinary authored
     // tiles, and the blanket rule punched it out as a 16x16 black square in
-    // the margin. The (0x017, 0xF200) pair and the 0xffff raw sentinel are
-    // both value-paired and stay.
+    // the margin. The raw 0xF200 fill and the 0xffff raw sentinel are both
+    // value-based and stay. 0xF200 is the un-authored fill; seen at id 0x017
+    // (earlier) and id 0x000 (Bilibin, gpu_frame_0084, 2026-09-29), so it is
+    // rejected for any metatile id.
     const bool unavailable =
         cache.entry == widescreen::kGoldenSunFieldUnavailableTile ||
-        (id == widescreen::kGoldenSunFieldNoMapId &&
-         cache.entry == widescreen::kGoldenSunFieldNoMapTile);
+        cache.entry == widescreen::kGoldenSunFieldNoMapTile;
     if (unavailable) {
         cache.refusal = kUnavailableEntry;
         ++g_refuse[cache.refusal];

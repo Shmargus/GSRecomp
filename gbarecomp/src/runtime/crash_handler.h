@@ -58,4 +58,11 @@ void crash_handler_install(const char* log_dir);
 // it is then a no-op.
 void crash_handler_mark_clean_exit();
 
+// Optional extra writer run while a crash report is being written. It gets
+// the report directory and returns a short file name it wrote there (or
+// nullptr when it wrote nothing); the report then points at that file. The
+// game uses it for the F1 "Crash log" trail of the last game instructions.
+using CrashExtraWriter = const char* (*)(const char* dir);
+void crash_handler_set_extra_writer(CrashExtraWriter writer);
+
 }  // namespace gbarecomp

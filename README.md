@@ -24,13 +24,21 @@ machine, and the launcher checks the ROM's SHA-1 before starting.
 - Launcher with a ROM picker and SHA-1 check.
 - Expanded widescreen view drawn by a native GPU renderer (field, world map and
   battles), with spell effects extended into the extra margins.
-- In-window settings menu (F1): fullscreen, window scale, integer scaling,
-  colour profiles, LCD ghosting, volume, turbo, and rebindable controls and
-  hotkeys.
+- In-window settings menu (F1): fullscreen, window size, sharp pixels,
+  flicker reduction, volume, fast forward, an FPS/speed counter, and
+  rebindable controls and hotkeys, including auto fire for A and B.
 - Optional in-game settings for walking speed, encounter rate, screen size and slowdown
   removal, plus 2x battle speed (Select in battle).
 - In-game cheat menu (F11 by default): infinite HP/PP and experience, coin
   and drop-chance multipliers.
+- Block timing: the translated code keeps its cycle count per block instead
+  of per instruction, so heavy spells and summons run far faster
+  (`tools/block_timing.py`, applied by `build_lto.bat`;
+  `build_lto.bat -PerInstruction` builds the old way for comparison).
+- Player release: the launcher prepares the game code from the player's own
+  ROM on first start and again after an update, with a progress bar; F12
+  saves the last two seconds and the launcher packs a bug report when the
+  game closes.
 
 ## Build requirements
 
@@ -104,7 +112,8 @@ and a configured build directory. From a fresh clone:
 5. **Run `build_lto.bat`** (double-click it or run it from a terminal). It
    runs `scripts/build_lto.ps1`, which:
    - re-configures `build/gs011_opt` with link-time optimisation;
-   - builds the `GoldenSunRecomp` target;
+   - builds the engine, `GoldenSunRecomp.exe` (our code only, with LTO),
+     and the translated game code beside it as `GoldenSunGame.dll`;
    - by default caps the build at 90% of CPU and 90% of RAM
      (`build_lto.bat -CpuPercent 80 -RamPercent 75` to lower them).
 

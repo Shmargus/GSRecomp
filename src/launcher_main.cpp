@@ -7,6 +7,7 @@
 #include <bcrypt.h>
 #include <commdlg.h>
 #include <gdiplus.h>
+#include <shlwapi.h>
 
 #include "crash_handler.h"
 #include "launcher_audio_policy.h"
@@ -14,8 +15,10 @@
 #include "launcher_session_id.h"
 #include "launcher_test_policy.h"
 #include "launcher_widescreen_diagnostics_policy.h"
+#include "launcher_logo.h"  // generated from assets/launcher_logo.png
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cwchar>
 #include <filesystem>
@@ -23,16 +26,54 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <set>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
 
+// GSR_RELEASE_LAUNCHER (CMake option of the same name, used by
+// make_release.bat): a player build with only Pick ROM and Quit. No
+// diagnostics, no settings file, and the game is looked for next to the
+// launcher. The play settings are fixed to the ones the game ships with.
+#ifdef GSR_RELEASE_LAUNCHER
+constexpr bool kReleaseLauncher = true;
+#else
+constexpr bool kReleaseLauncher = false;
+#endif
+
 namespace {
 
 constexpr char kExpectedRomSha1[] =
     "5c4695205413df7db52b9a184815a07783999971";
+
+// ── Release: first-run game build ─────────────────────────────────────
+// A release holds no game code. The first time the player picks their ROM
+// the launcher runs builder\gsr_builder.exe, which translates the ROM and
+// compiles GoldenSunGame.dll beside the game (tools/gsr_builder). Its
+// progress lines (@stage / @progress / @done / @error) drive the text and
+// bar drawn over the splash. GoldenSunGame.build.txt records what the DLL
+// was built from; a different ROM, builder or engine means building again.
+constexpr UINT kBuildUpdateMessage = WM_APP + 1;
+constexpr UINT kBuildFinishedMessage = WM_APP + 2;
+constexpr char kBuilderVersion[] = "2";  // tools/gsr_builder kBuilderVersion
+
+struct BuildStatus {
+    std::mutex mutex;
+    bool running = false;
+    bool ready = false;          // GoldenSunGame.dll matches this release
+    std::wstring stage;
+    int done = 0;
+    int total = 0;
+    std::wstring error;
+    bool succeeded = false;
+};
+BuildStatus g_build;
+std::thread g_build_thread;
+HANDLE g_build_job = nullptr;
+std::wstring g_build_rom;
 
 // Diagnostic variables are deliberately opt-in. The checkbox is reset to
 // this value on every launcher start, and the selected values are applied to
@@ -58,9 +99,20 @@ bool g_test_effect_trace = k_launcher_test_defaults.effect_trace;
 bool g_test_frame_rewind = k_launcher_test_defaults.frame_rewind;
 bool g_test_with_bios = k_launcher_test_defaults.with_bios;
 bool g_test_battle_bg1_record = k_launcher_test_defaults.battle_bg1_record;
+bool g_test_mod_field_test = k_launcher_test_defaults.mod_field_test;
 bool g_test_room_buffer = k_launcher_test_defaults.room_buffer;
 bool g_test_swi_log = k_launcher_test_defaults.swi_log;
 bool g_test_bios_pc_log = k_launcher_test_defaults.bios_pc_log;
+// Player-builder stage 1 (ROADMAP.md): play build\gs011_nolto, the same game
+// built without link-time optimisation by build_nolto_test.bat, so the two
+// builds can be compared in the same scene. Session-only, like the others.
+bool g_test_nolto_build = false;
+// build_lto_nosymbols.bat's output (build\gs011_nosym): the normal build
+// without debug information. Session-only.
+bool g_test_nosym_build = false;
+// build\gs011_split: the engine exe plus the game code as GoldenSunGame.dll
+// (GSR_SPLIT_GAME_CODE, ROADMAP.md "Player builder"). Session-only.
+bool g_test_split_build = false;
 
 struct LauncherAudioSettings {
     bool native_mp2k = false;
@@ -79,6 +131,18 @@ struct LauncherAudioSettings {
 // user machine paths and must not be rewritten by the launcher.
 LauncherAudioSettings g_audio_settings{};
 bool g_strict_static_route = false;
+
+// What a release launch plays with: Enhanced Options (expanded view
+// rendering and spell effects) and the graphics-card field renderer, WITH
+// the console compositor kept as the fallback for any frame the card
+// refuses. Everything experimental or diagnostic stays off.
+LauncherAudioSettings release_launch_settings() {
+    LauncherAudioSettings settings{};
+    settings.enhanced_options = true;
+    settings.gpu_field = true;
+    settings.gpu_field_only = false;
+    return settings;
+}
 
 bool parse_bool_setting(const std::string& value) {
     return value == "1" || value == "true" || value == "TRUE" ||
@@ -694,10 +758,150 @@ private:
     EntryList entries_;
 };
 
+// ---- Bug reports (player launcher) -------------------------------------------
+// Players press F12 in the game: the runner writes the last 2 seconds of
+// frames (logs/gpu_rewind_NNNN, GSR_FRAME_REWIND, always on in a release)
+// and shows "BUG REPORT SAVED". When the game closes, the launcher packs
+// every capture from that session, or the crash files if it crashed, with
+// the session log, the settings files and a short system note into one zip
+// in logs/bug_reports, and points the player at it.
+std::set<std::wstring> rewind_dirs(const fs::path& logs_dir) {
+    std::set<std::wstring> dirs;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(logs_dir, ec)) {
+        const std::wstring name = entry.path().filename().wstring();
+        if (entry.is_directory(ec) && name.rfind(L"gpu_rewind_", 0) == 0)
+            dirs.insert(name);
+    }
+    return dirs;
+}
+
+std::string registry_text(const wchar_t* value) {
+    wchar_t buffer[256] = {};
+    DWORD size = sizeof(buffer);
+    if (RegGetValueW(HKEY_LOCAL_MACHINE,
+                     L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", value,
+                     RRF_RT_REG_SZ, nullptr, buffer, &size) != ERROR_SUCCESS)
+        return "?";
+    return wide_to_utf8(buffer);
+}
+
+// Runs tar.exe (in Windows since 10 version 1803) to write the zip.
+bool run_tar(const std::wstring& arguments) {
+    wchar_t system_dir[MAX_PATH] = {};
+    GetSystemDirectoryW(system_dir, MAX_PATH);
+    const std::wstring tar = std::wstring(system_dir) + L"\\tar.exe";
+    std::wstring command = L"\"" + tar + L"\" " + arguments;
+    std::vector<wchar_t> mutable_command(command.begin(), command.end());
+    mutable_command.push_back(L'\0');
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(tar.c_str(), mutable_command.data(), nullptr, nullptr,
+                        FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &startup,
+                        &process))
+        return false;
+    CloseHandle(process.hThread);
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD code = 1;
+    GetExitCodeProcess(process.hProcess, &code);
+    CloseHandle(process.hProcess);
+    return code == 0;
+}
+
+// Returns the zip, or the folder when zipping failed; empty when there was
+// nothing to report.
+fs::path make_bug_report(const fs::path& root, const fs::path& game_dir,
+                         const std::wstring& log_path,
+                         const std::vector<std::wstring>& rewinds,
+                         bool crashed, DWORD exit_code) {
+    const fs::path logs_dir = root / L"logs";
+    const fs::path reports = logs_dir / L"bug_reports";
+    std::error_code ec;
+    fs::create_directories(reports, ec);
+    std::wstring name = fs::path(log_path).stem().wstring();
+    if (name.rfind(L"session_", 0) == 0) name = name.substr(8);
+    if (name.empty()) name = L"latest";
+    name = L"bug_report_" + name;
+    const fs::path staging = reports / name;
+    fs::remove_all(staging, ec);
+    fs::create_directories(staging, ec);
+    if (ec) return {};
+
+    auto copy_if_there = [&](const fs::path& from) {
+        std::error_code copy_ec;
+        if (fs::is_regular_file(from, copy_ec))
+            fs::copy_file(from, staging / from.filename(),
+                          fs::copy_options::overwrite_existing, copy_ec);
+    };
+    // The session log and anything written beside it under the same name.
+    if (!log_path.empty()) {
+        const fs::path log(log_path);
+        const std::wstring stem = log.stem().wstring();
+        for (const auto& entry : fs::directory_iterator(logs_dir, ec)) {
+            if (entry.path().filename().wstring().rfind(stem, 0) == 0)
+                copy_if_there(entry.path());
+        }
+    }
+    for (const wchar_t* file : {L"config.ini", L"game_options.ini",
+                                L"keybinds.ini", L"GoldenSunGame.build.txt",
+                                L"run_state.txt"})
+        copy_if_there(game_dir / file);
+    if (crashed) {
+        copy_if_there(game_dir / L"crash_report.txt");
+        copy_if_there(game_dir / L"crash_dump.dmp");
+    }
+    {
+        std::ofstream info(staging / L"report_info.txt", std::ios::binary);
+        info << "Golden Sun Recompiled bug report\n"
+             << "Launcher built: " << __DATE__ << " " << __TIME__ << "\n"
+             << "Windows: " << registry_text(L"ProductName") << " "
+             << registry_text(L"DisplayVersion") << " (build "
+             << registry_text(L"CurrentBuild") << ")\n"
+             << "F12 captures: " << rewinds.size() << "\n"
+             << "Game crashed: " << (crashed ? "yes" : "no") << "\n"
+             << "Game exit code: " << exit_code << "\n";
+    }
+
+    const fs::path zip = reports / (name + L".zip");
+    fs::remove(zip, ec);
+    std::wstring arguments = L"-a -c -f \"" + zip.wstring() + L"\" -C \"" +
+                             staging.wstring() + L"\" .";
+    for (const std::wstring& dir : rewinds)
+        arguments += L" -C \"" + logs_dir.wstring() + L"\" \"" + dir + L"\"";
+    if (run_tar(arguments) && fs::is_regular_file(zip, ec)) {
+        fs::remove_all(staging, ec);
+        // The captures are in the zip now; they are large, so drop the
+        // loose copies.
+        for (const std::wstring& dir : rewinds) fs::remove_all(logs_dir / dir, ec);
+        return zip;
+    }
+    return staging;
+}
+
+void offer_bug_report(const fs::path& report, bool crashed) {
+    if (report.empty()) return;
+    const bool is_zip = report.extension() == L".zip";
+    std::wstring text = crashed
+        ? L"The game closed unexpectedly. A bug report was saved:\n\n"
+        : L"Your bug report was saved:\n\n";
+    text += report.wstring();
+    text += is_zip
+        ? L"\n\nPlease send this file to the developer, with a few words "
+          L"about what happened. The folder opens now."
+        : L"\n\nIt could not be zipped. Please zip this folder (and any "
+          L"gpu_rewind folders next to it) and send it to the developer.";
+    MessageBoxW(nullptr, text.c_str(), L"Golden Sun Recompiled",
+                MB_OK | (crashed ? MB_ICONWARNING : MB_ICONINFORMATION));
+    const std::wstring select = L"/select,\"" + report.wstring() + L"\"";
+    ShellExecuteW(nullptr, L"open", L"explorer.exe", select.c_str(), nullptr,
+                  SW_SHOWNORMAL);
+}
+
 int run_game(const fs::path& root, const std::wstring& rom,
              const std::wstring& bios, HWND window) {
     // Save before spawning so a launch cannot lose a changed checkbox.
-    save_launcher_audio_settings(root, g_audio_settings);
+    if (!kReleaseLauncher) save_launcher_audio_settings(root, g_audio_settings);
     // The game runs without the BIOS (Jimmy, 2026-09-24): no BIOS path is
     // needed or passed and no Nintendo code executes. The test checkbox
     // passes the configured BIOS for a comparison run, which only a build
@@ -715,6 +919,52 @@ int run_game(const fs::path& root, const std::wstring& rom,
     // slower headless — 9.2s vs 2.5s over 600 frames. Fall back to gs011_rel,
     // then gs011, so a checkout without the current build still runs.
     fs::path game = root / L"build" / L"gs011_opt" / L"GoldenSunRecomp.exe";
+    // A release folder holds the game right beside the launcher.
+    if (kReleaseLauncher) game = root / L"GoldenSunRecomp.exe";
+    const bool nolto_build = !kReleaseLauncher &&
+        gsr::launcher_test_variable_enabled(g_test_variables, false,
+                                            g_test_nolto_build);
+    const bool nosym_build = !kReleaseLauncher && !nolto_build &&
+        gsr::launcher_test_variable_enabled(g_test_variables, false,
+                                            g_test_nosym_build);
+    const bool split_build = !kReleaseLauncher && !nolto_build &&
+        !nosym_build &&
+        gsr::launcher_test_variable_enabled(g_test_variables, false,
+                                            g_test_split_build);
+    if (split_build) {
+        game = root / L"build" / L"gs011_split" / L"GoldenSunRecomp.exe";
+        if (!fs::is_regular_file(game) ||
+            !fs::is_regular_file(game.parent_path() / L"GoldenSunGame.dll")) {
+            MessageBoxW(nullptr,
+                        L"The split build was not found.\n\n"
+                        L"It is built in build\\gs011_split, or untick "
+                        L"\"Play the split build\".",
+                        L"Golden Sun Recompiled", MB_OK | MB_ICONERROR);
+            return 1;
+        }
+    }
+    if (nosym_build) {
+        game = root / L"build" / L"gs011_nosym" / L"GoldenSunRecomp.exe";
+        if (!fs::is_regular_file(game)) {
+            MessageBoxW(nullptr,
+                        L"The no-symbols build was not found.\n\n"
+                        L"Run build_lto_nosymbols.bat first, or untick "
+                        L"\"Play the no-symbols build\".",
+                        L"Golden Sun Recompiled", MB_OK | MB_ICONERROR);
+            return 1;
+        }
+    }
+    if (nolto_build) {
+        game = root / L"build" / L"gs011_nolto" / L"GoldenSunRecomp.exe";
+        if (!fs::is_regular_file(game)) {
+            MessageBoxW(nullptr,
+                        L"The no-LTO comparison build was not found.\n\n"
+                        L"Run build_nolto_test.bat first, or untick "
+                        L"\"Play the no-LTO comparison build\".",
+                        L"Golden Sun Recompiled", MB_OK | MB_ICONERROR);
+            return 1;
+        }
+    }
     if (!fs::is_regular_file(game)) {
         game = root / L"build" / L"gs011_rel" / L"GoldenSunRecomp.exe";
     }
@@ -901,6 +1151,9 @@ int run_game(const fs::path& root, const std::wstring& rom,
         {L"GSR_FRAME_REWIND", g_test_frame_rewind},
         {L"GSR_BATTLE_BG1_RECORD", g_test_battle_bg1_record},
         {L"GSR_ROOM_BUFFER", g_test_room_buffer},
+        // First piece of the mod loader: swaps one item icon and one Psynergy
+        // animation in the loaded ROM data (src/mod_loader.cpp).
+        {L"GSR_MOD_FIELD_TEST", g_test_mod_field_test},
     };
     // Record what actually reached the child. Three capture sessions in a row
     // came back missing a diagnostic with no way to tell whether the checkbox
@@ -932,11 +1185,21 @@ int run_game(const fs::path& root, const std::wstring& rom,
             child_environment.unset(variable.name);
         }
     }
+    // Players: F12 always saves the last 2 seconds for a bug report.
+    if (kReleaseLauncher) {
+        child_environment.set(L"GSR_FRAME_REWIND", L"1");
+        if (!enabled_list.empty()) enabled_list += ",";
+        enabled_list += "GSR_FRAME_REWIND";
+    }
     if (logging) {
         const std::string line =
             std::string("[launcher] test_variables=") +
             (g_test_variables ? "ON" : "OFF") + " set=" +
-            (enabled_list.empty() ? "(none)" : enabled_list) + "\n";
+            (enabled_list.empty() ? "(none)" : enabled_list) +
+            "\n[launcher] game_build=" +
+            (nolto_build ? "gs011_nolto"
+                         : nosym_build ? "gs011_nosym"
+                         : split_build ? "gs011_split" : "default") + "\n";
         DWORD written = 0;
         WriteFile(log_file, line.data(), static_cast<DWORD>(line.size()),
                   &written, nullptr);
@@ -1016,7 +1279,7 @@ int run_game(const fs::path& root, const std::wstring& rom,
         }
     }
 
-    if (logging) {
+    if (logging && !kReleaseLauncher) {
         // Respect an explicit developer override inherited by the launcher.
         fs::path events_path = log_path;
         fs::path phase_path = log_path;
@@ -1075,10 +1338,18 @@ int run_game(const fs::path& root, const std::wstring& rom,
         }
     }
 
+    const std::set<std::wstring> rewinds_before = rewind_dirs(logs_dir);
+    const auto launch_time = fs::file_time_type::clock::now();
+
     PROCESS_INFORMATION process{};
     std::vector<wchar_t> environment_block = child_environment.block();
+    // The game is a console-subsystem exe, so Windows would give it a console
+    // window. A player release hides it; its output still reaches the
+    // session log through the pipes above.
+    const DWORD creation_flags = CREATE_UNICODE_ENVIRONMENT |
+        (kReleaseLauncher ? CREATE_NO_WINDOW : 0);
     if (!CreateProcessW(game.c_str(), mutable_command.data(), nullptr, nullptr,
-                        inherit_handles, CREATE_UNICODE_ENVIRONMENT,
+                        inherit_handles, creation_flags,
                         environment_block.data(), root.c_str(), &startup,
                         &process)) {
         if (out_read) CloseHandle(out_read);
@@ -1117,8 +1388,26 @@ int run_game(const fs::path& root, const std::wstring& rom,
         out_thread.join();
         err_thread.join();
     }
+    DWORD exit_code = 0;
+    GetExitCodeProcess(process.hProcess, &exit_code);
     if (log_file != INVALID_HANDLE_VALUE) CloseHandle(log_file);
     CloseHandle(process.hProcess);
+
+    if (kReleaseLauncher) {
+        std::vector<std::wstring> new_rewinds;
+        for (const std::wstring& dir : rewind_dirs(logs_dir))
+            if (!rewinds_before.count(dir)) new_rewinds.push_back(dir);
+        std::error_code time_ec;
+        const fs::path crash_report = game.parent_path() / L"crash_report.txt";
+        const bool crashed = fs::is_regular_file(crash_report, time_ec) &&
+            fs::last_write_time(crash_report, time_ec) >= launch_time;
+        if (!new_rewinds.empty() || crashed) {
+            offer_bug_report(make_bug_report(root, game.parent_path(),
+                                             log_path, new_rewinds, crashed,
+                                             exit_code),
+                             crashed);
+        }
+    }
     return 0;
 }
 
@@ -1153,6 +1442,10 @@ constexpr int kEffectTraceButton = 1043;
 constexpr int kFrameRewindButton = 1044;
 constexpr int kBattleBg1RecordButton = 1045;
 constexpr int kWithBiosButton = 1046;
+constexpr int kNoLtoBuildButton = 1047;
+constexpr int kNoSymBuildButton = 1048;
+constexpr int kSplitBuildButton = 1049;
+constexpr int kModFieldTestButton = 1050;
 
 fs::path g_launcher_root;
 std::wstring g_launcher_bios;
@@ -1185,6 +1478,12 @@ void layout_buttons(HWND window) {
     if (pick) MoveWindow(pick, button_x, button_y, button_width, button_height, TRUE);
     if (quit) MoveWindow(quit, button_x + button_width + button_gap, button_y,
                          button_width, button_height, TRUE);
+    if (kReleaseLauncher) {
+        // Only the two buttons exist: no settings panel behind anything.
+        g_panel_rect = {};
+        InvalidateRect(window, nullptr, FALSE);
+        return;
+    }
 
     // ---- Checkbox panel -----------------------------------------------
     constexpr int kPanelPaddingX = 24;
@@ -1277,13 +1576,14 @@ void layout_buttons(HWND window) {
         kFunctionTracerButton, kVramMapTraceButton,   kEffectTraceButton,
         kBattleBg1RecordButton,
         // right: rendering
-        kRoomBufferButton,     kFrameRewindButton,
+        kRoomBufferButton,     kFrameRewindButton,     kModFieldTestButton,
         // right, continued: performance
         kHeadroomProbeButton,  kCostProbeButton,      kHostProfButton,
         kPresentCadenceButton, kRamChurnProbeButton,
         // right, last: the one safety toggle, kept apart from the probes,
         // and the BIOS comparison run
-        kSelfHealRamButton,    kWithBiosButton,
+        kSelfHealRamButton,    kWithBiosButton,       kNoLtoBuildButton,
+        kNoSymBuildButton,     kSplitBuildButton,
     };
     const int child_count = static_cast<int>(std::size(child_ids));
     int visible_children = 0;
@@ -1387,6 +1687,168 @@ void layout_buttons(HWND window) {
     InvalidateRect(window, nullptr, FALSE);
 }
 
+// The backdrop: a dark indigo gradient, a soft purple glow and the logo
+// (assets/launcher_logo.png, built in), fitted into the space above the
+// settings panel, or above the buttons in the player launcher. One bitmap,
+// redrawn only when the window or the panel changes.
+struct Backdrop {
+    int width = 0, height = 0, logo_bottom = 0;
+    std::unique_ptr<Gdiplus::Bitmap> bitmap;
+};
+Backdrop g_backdrop;
+
+Gdiplus::Bitmap* launcher_backdrop(int width, int height, int logo_bottom) {
+    Backdrop& b = g_backdrop;
+    if (b.bitmap && b.width == width && b.height == height &&
+        b.logo_bottom == logo_bottom)
+        return b.bitmap.get();
+    b.bitmap = std::make_unique<Gdiplus::Bitmap>(width, height,
+                                                 PixelFormat32bppPARGB);
+    b.width = width;
+    b.height = height;
+    b.logo_bottom = logo_bottom;
+    Gdiplus::Graphics g(b.bitmap.get());
+    g.SetSmoothingMode(Gdiplus::SmoothingModeHighQuality);
+    Gdiplus::LinearGradientBrush sky(Gdiplus::Point(0, 0),
+                                     Gdiplus::Point(0, height),
+                                     Gdiplus::Color(255, 32, 21, 56),
+                                     Gdiplus::Color(255, 8, 7, 14));
+    g.FillRectangle(&sky, 0, 0, width, height);
+    if (g_splash_image && g_splash_image->GetLastStatus() == Gdiplus::Ok) {
+        const int top = 28;
+        const int room_h = logo_bottom - top;
+        const int room_w = width - 80;
+        if (room_h > 60 && room_w > 60) {
+            const float iw = static_cast<float>(g_splash_image->GetWidth());
+            const float ih = static_cast<float>(g_splash_image->GetHeight());
+            const float scale = std::min({room_w / iw, room_h / ih, 1.0f});
+            const int dw = static_cast<int>(iw * scale);
+            const int dh = static_cast<int>(ih * scale);
+            const int dx = (width - dw) / 2;
+            const int dy = top + (room_h - dh) / 2;
+            Gdiplus::GraphicsPath glow;
+            glow.AddEllipse(dx - dw * 0.18f, dy - dh * 0.25f, dw * 1.36f,
+                            dh * 1.5f);
+            Gdiplus::PathGradientBrush glow_brush(&glow);
+            glow_brush.SetCenterColor(Gdiplus::Color(120, 130, 70, 210));
+            Gdiplus::Color edge(0, 130, 70, 210);
+            int edges = 1;
+            glow_brush.SetSurroundColors(&edge, &edges);
+            g.FillPath(&glow_brush, &glow);
+            g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+            g.DrawImage(g_splash_image.get(), Gdiplus::Rect(dx, dy, dw, dh));
+        }
+    }
+    return b.bitmap.get();
+}
+
+void rounded_rect_path(Gdiplus::GraphicsPath& path, float x, float y, float w,
+                       float h, float r) {
+    r = std::min({r, w / 2.0f, h / 2.0f});
+    if (r <= 0.5f) {
+        path.AddRectangle(Gdiplus::RectF(x, y, w, h));
+        return;
+    }
+    const float d = r * 2.0f;
+    path.AddArc(x, y, d, d, 180.0f, 90.0f);
+    path.AddArc(x + w - d, y, d, d, 270.0f, 90.0f);
+    path.AddArc(x + w - d, y + h - d, d, d, 0.0f, 90.0f);
+    path.AddArc(x, y + h - d, d, d, 90.0f, 90.0f);
+    path.CloseFigure();
+}
+
+// The area the progress animation repaints (WM_TIMER), set by the painter.
+RECT g_progress_rect{};
+constexpr UINT_PTR kProgressTimer = 1;
+
+// The first-start build's progress: a glowing purple bar with a light
+// sweeping along the filled part. Before the builder reports a total it is
+// a glow sliding back and forth.
+void paint_progress_bar(Gdiplus::Graphics& g, int width, int height, int done,
+                        int total) {
+    const float bar_w = static_cast<float>(std::min(width - 140, 480));
+    const float bar_h = 16.0f;
+    const float bar_x = (width - bar_w) / 2.0f;
+    const float bar_y = static_cast<float>(height - 94);
+    g_progress_rect = {static_cast<LONG>(bar_x) - 28, static_cast<LONG>(bar_y) - 28,
+                       static_cast<LONG>(bar_x + bar_w) + 70,
+                       static_cast<LONG>(bar_y + bar_h) + 28};
+    const double t = static_cast<double>(GetTickCount64() % 1000000u) / 1000.0;
+    const bool known = total > 0;
+    const float frac = known
+        ? std::clamp(static_cast<float>(done) / static_cast<float>(total), 0.0f, 1.0f)
+        : 0.0f;
+    float fill_w = known ? std::max(bar_h, bar_w * frac) : bar_w * 0.3f;
+    float fill_x = bar_x;
+    if (!known) {
+        const double phase = 0.5 - 0.5 * std::cos(t * 1.6);
+        fill_x = bar_x + static_cast<float>(phase) * (bar_w - fill_w);
+    }
+    g.SetSmoothingMode(Gdiplus::SmoothingModeHighQuality);
+
+    // Glow: soft purple layers around the filled part, gently pulsing.
+    const float pulse = 0.72f + 0.28f * static_cast<float>(std::sin(t * 3.0));
+    for (int i = 8; i >= 1; --i) {
+        const float grow = i * 2.4f;
+        Gdiplus::GraphicsPath layer;
+        rounded_rect_path(layer, fill_x - grow, bar_y - grow, fill_w + grow * 2,
+                          bar_h + grow * 2, bar_h / 2 + grow);
+        Gdiplus::SolidBrush brush(Gdiplus::Color(
+            static_cast<BYTE>(pulse * 13.0f), 176, 96, 255));
+        g.FillPath(&brush, &layer);
+    }
+
+    // Track.
+    Gdiplus::GraphicsPath track;
+    rounded_rect_path(track, bar_x, bar_y, bar_w, bar_h, bar_h / 2);
+    Gdiplus::SolidBrush track_fill(Gdiplus::Color(235, 22, 13, 40));
+    g.FillPath(&track_fill, &track);
+
+    // Fill: violet to lilac, glossy top, a light sweeping along it.
+    Gdiplus::GraphicsPath fill;
+    rounded_rect_path(fill, fill_x, bar_y, fill_w, bar_h, bar_h / 2);
+    Gdiplus::LinearGradientBrush fill_brush(
+        Gdiplus::PointF(fill_x - 1, 0), Gdiplus::PointF(fill_x + fill_w + 1, 0),
+        Gdiplus::Color(255, 106, 46, 214), Gdiplus::Color(255, 214, 156, 255));
+    g.FillPath(&fill_brush, &fill);
+    g.SetClip(&fill, Gdiplus::CombineModeIntersect);
+    Gdiplus::SolidBrush gloss(Gdiplus::Color(55, 255, 255, 255));
+    g.FillRectangle(&gloss, fill_x, bar_y, fill_w, bar_h * 0.45f);
+    if (known) {
+        const float band = 90.0f;
+        // The light crosses the whole track at a steady pace and shows only
+        // over the filled part, so the fill growing does not restart it (its
+        // position used to be taken modulo the filled width).
+        const float travel = bar_w + band * 2;
+        const float sx = bar_x - band +
+            static_cast<float>(std::fmod(t * 280.0, static_cast<double>(travel)));
+        Gdiplus::LinearGradientBrush shine(
+            Gdiplus::PointF(sx - 1, 0), Gdiplus::PointF(sx + band + 1, 0),
+            Gdiplus::Color(0, 255, 255, 255), Gdiplus::Color(0, 255, 255, 255));
+        shine.SetBlendTriangularShape(0.5f, 1.0f);
+        Gdiplus::Color shine_colours[] = {Gdiplus::Color(0, 255, 255, 255),
+                                          Gdiplus::Color(150, 255, 240, 255),
+                                          Gdiplus::Color(0, 255, 255, 255)};
+        Gdiplus::REAL shine_stops[] = {0.0f, 0.5f, 1.0f};
+        shine.SetInterpolationColors(shine_colours, shine_stops, 3);
+        g.FillRectangle(&shine, sx, bar_y, band, bar_h);
+    }
+    g.ResetClip();
+
+    Gdiplus::Pen rim(Gdiplus::Color(170, 168, 120, 245), 1.0f);
+    g.DrawPath(&rim, &track);
+
+    if (known) {
+        const std::wstring percent =
+            std::to_wstring(static_cast<int>(frac * 100.0f + 0.5f)) + L"%";
+        Gdiplus::Font font(L"Segoe UI", 10.0f, Gdiplus::FontStyleBold,
+                           Gdiplus::UnitPoint);
+        Gdiplus::SolidBrush ink(Gdiplus::Color(255, 226, 206, 255));
+        g.DrawString(percent.c_str(), -1, &font,
+                     Gdiplus::PointF(bar_x + bar_w + 12.0f, bar_y - 4.0f), &ink);
+    }
+}
+
 // origin_x/origin_y let this same routine paint into a child control's DC:
 // (0, 0) in that DC is (origin_x, origin_y) in the launcher window's own
 // client coordinates, so passing the child's client-relative position here
@@ -1401,32 +1863,18 @@ void paint_splash(HWND window, HDC dc, int origin_x = 0, int origin_y = 0) {
     graphics.SetSmoothingMode(Gdiplus::SmoothingModeHighQuality);
     graphics.TranslateTransform(static_cast<Gdiplus::REAL>(-origin_x),
                                 static_cast<Gdiplus::REAL>(-origin_y));
-    graphics.Clear(Gdiplus::Color(255, 13, 17, 15));
+    graphics.Clear(Gdiplus::Color(255, 13, 11, 20));
 
-    if (g_splash_image && g_splash_image->GetLastStatus() == Gdiplus::Ok &&
-        width > 0 && height > 0) {
-        const auto image_width = static_cast<float>(g_splash_image->GetWidth());
-        const auto image_height = static_cast<float>(g_splash_image->GetHeight());
-        const float scale = std::max(width / image_width, height / image_height);
-        const int draw_width = static_cast<int>(image_width * scale);
-        const int draw_height = static_cast<int>(image_height * scale);
-        const int draw_x = (width - draw_width) / 2;
-        const int draw_y = (height - draw_height) / 2;
-
-        Gdiplus::ColorMatrix dim = {
-            {{0.52f, 0.00f, 0.00f, 0.00f, 0.00f},
-             {0.00f, 0.52f, 0.00f, 0.00f, 0.00f},
-             {0.00f, 0.00f, 0.52f, 0.00f, 0.00f},
-             {0.00f, 0.00f, 0.00f, 1.00f, 0.00f},
-             {0.00f, 0.00f, 0.00f, 0.00f, 1.00f}}};
-        Gdiplus::ImageAttributes attributes;
-        attributes.SetColorMatrix(&dim);
-        graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-        graphics.DrawImage(g_splash_image.get(),
-                           Gdiplus::Rect(draw_x, draw_y, draw_width, draw_height),
-                           0, 0, g_splash_image->GetWidth(),
-                           g_splash_image->GetHeight(), Gdiplus::UnitPixel,
-                           &attributes);
+    if (width > 0 && height > 0) {
+        const bool has_panel = g_panel_rect.bottom > g_panel_rect.top;
+        const int logo_bottom = has_panel ? g_panel_rect.top - 12 : height - 172;
+        if (Gdiplus::Bitmap* backdrop =
+                launcher_backdrop(width, height, logo_bottom)) {
+            graphics.SetInterpolationMode(
+                Gdiplus::InterpolationModeNearestNeighbor);
+            graphics.DrawImage(backdrop, Gdiplus::Rect(0, 0, width, height), 0,
+                               0, width, height, Gdiplus::UnitPixel);
+        }
     }
 
     // One coherent backdrop behind every checkbox group, instead of a
@@ -1446,9 +1894,65 @@ void paint_splash(HWND window, HDC dc, int origin_x = 0, int origin_y = 0) {
                                panel_height - 1);
     }
 
+    // The player launcher's band is taller: it holds the build note, the
+    // step line and the bar above the buttons.
+    const int band = kReleaseLauncher ? 160 : 132;
     Gdiplus::SolidBrush bottom_overlay(Gdiplus::Color(145, 0, 0, 0));
-    graphics.FillRectangle(&bottom_overlay, 0, std::max(0, height - 132),
-                           width, 132);
+    graphics.FillRectangle(&bottom_overlay, 0, std::max(0, height - band),
+                           width, band);
+
+    if (kReleaseLauncher) {
+        std::wstring text, note;
+        int done = 0, total = 0;
+        bool running = false;
+        {
+            std::lock_guard<std::mutex> lock(g_build.mutex);
+            running = g_build.running;
+            done = g_build.done;
+            total = g_build.total;
+            if (running) {
+                // The builder's stages (tools/gsr_builder): checking the ROM
+                // and translating are step 1, compiling and linking step 2.
+                const std::wstring& stage = g_build.stage;
+                const bool step_two =
+                    stage.find(L"Compiling") != std::wstring::npos ||
+                    stage.find(L"Linking") != std::wstring::npos;
+                text = std::wstring(step_two ? L"Step 2 of 2: " : L"Step 1 of 2: ") +
+                       stage;
+                if (total > 0)
+                    text += L"  (" + std::to_wstring(done) + L" of " +
+                            std::to_wstring(total) + L")";
+                note = L"Step 1 translates the game from your ROM, step 2 "
+                       L"compiles it. This can take several minutes, and the "
+                       L"game starts by itself when it's done.";
+            } else if (!g_build.ready) {
+                text = L"First start: pick your Golden Sun ROM. The game is "
+                       L"prepared from it once, which takes a few minutes.";
+                note = L"Step 1 translates the game from your ROM, step 2 "
+                       L"compiles it. After an update this happens again.";
+            }
+        }
+        graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
+        Gdiplus::StringFormat format;
+        format.SetAlignment(Gdiplus::StringAlignmentCenter);
+        if (!note.empty()) {
+            Gdiplus::Font small(L"Segoe UI", 9.0f, Gdiplus::FontStyleRegular,
+                                Gdiplus::UnitPoint);
+            Gdiplus::SolidBrush muted(Gdiplus::Color(255, 190, 176, 222));
+            const Gdiplus::RectF box(40.0f, static_cast<Gdiplus::REAL>(height - 154),
+                                     static_cast<Gdiplus::REAL>(width - 80), 34.0f);
+            graphics.DrawString(note.c_str(), -1, &small, box, &format, &muted);
+        }
+        if (!text.empty()) {
+            Gdiplus::Font font(L"Segoe UI", 10.5f, Gdiplus::FontStyleRegular,
+                               Gdiplus::UnitPoint);
+            Gdiplus::SolidBrush ink(Gdiplus::Color(255, 240, 232, 210));
+            const Gdiplus::RectF box(24.0f, static_cast<Gdiplus::REAL>(height - 120),
+                                     static_cast<Gdiplus::REAL>(width - 48), 22.0f);
+            graphics.DrawString(text.c_str(), -1, &font, box, &format, &ink);
+        }
+        if (running) paint_progress_bar(graphics, width, height, done, total);
+    }
 }
 
 // Standard (non-owner-drawn) BS_AUTOCHECKBOX controls always erase their own
@@ -1476,7 +1980,11 @@ bool* checkbox_state_for_id(int id) {
     case kEffectTraceButton: return &g_test_effect_trace;
     case kFrameRewindButton: return &g_test_frame_rewind;
     case kWithBiosButton: return &g_test_with_bios;
+    case kNoLtoBuildButton: return &g_test_nolto_build;
+    case kNoSymBuildButton: return &g_test_nosym_build;
+    case kSplitBuildButton: return &g_test_split_build;
     case kBattleBg1RecordButton: return &g_test_battle_bg1_record;
+    case kModFieldTestButton: return &g_test_mod_field_test;
     case kRoomBufferButton: return &g_test_room_buffer;
     case kSwiLogButton: return &g_test_swi_log;
     case kBiosPcLogButton: return &g_test_bios_pc_log;
@@ -1534,6 +2042,288 @@ void draw_checkbox_item(const DRAWITEMSTRUCT& item, bool checked) {
     if (item.itemState & ODS_FOCUS) DrawFocusRect(item.hDC, &item.rcItem);
 }
 
+// ---- Pick ROM / Quit buttons ---------------------------------------------
+// Owner-drawn, flat: slightly rounded, a solid gold Pick ROM and an outlined
+// Quit, with hover and pressed states. The corners show the artwork behind
+// them rather than a square box.
+int g_hot_button = 0;           // control id under the mouse, 0 = none
+WNDPROC g_button_base_proc = nullptr;
+
+LRESULT CALLBACK action_button_proc(HWND button, UINT message, WPARAM w_param,
+                                    LPARAM l_param) {
+    const int id = GetDlgCtrlID(button);
+    if (message == WM_MOUSEMOVE && g_hot_button != id) {
+        g_hot_button = id;
+        TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, button, 0};
+        TrackMouseEvent(&track);
+        InvalidateRect(button, nullptr, FALSE);
+    } else if (message == WM_MOUSELEAVE && g_hot_button == id) {
+        g_hot_button = 0;
+        InvalidateRect(button, nullptr, FALSE);
+    } else if (message == WM_ERASEBKGND) {
+        return 1;  // WM_DRAWITEM paints every pixel
+    }
+    return CallWindowProcW(g_button_base_proc, button, message, w_param,
+                           l_param);
+}
+
+void subclass_action_button(HWND button) {
+    if (!button) return;
+    const auto previous = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(
+        button, GWLP_WNDPROC,
+        reinterpret_cast<LONG_PTR>(&action_button_proc)));
+    if (!g_button_base_proc) g_button_base_proc = previous;
+}
+
+Gdiplus::Color shade(const Gdiplus::Color& c, float f) {
+    auto ch = [f](BYTE v) {
+        return static_cast<BYTE>(std::clamp(v * f, 0.0f, 255.0f));
+    };
+    return Gdiplus::Color(c.GetA(), ch(c.GetR()), ch(c.GetG()), ch(c.GetB()));
+}
+
+void draw_action_button(const DRAWITEMSTRUCT& item) {
+    const int w = item.rcItem.right - item.rcItem.left;
+    const int h = item.rcItem.bottom - item.rcItem.top;
+    if (w <= 0 || h <= 0) return;
+
+    // Draw off-screen, then copy once: no flicker on hover.
+    HDC dc = CreateCompatibleDC(item.hDC);
+    HBITMAP bitmap = CreateCompatibleBitmap(item.hDC, w, h);
+    HGDIOBJ old_bitmap = SelectObject(dc, bitmap);
+
+    HWND parent = GetParent(item.hwndItem);
+    POINT origin{0, 0};
+    RECT window_rect{};
+    if (parent && GetWindowRect(item.hwndItem, &window_rect)) {
+        origin = {window_rect.left, window_rect.top};
+        ScreenToClient(parent, &origin);
+    }
+    paint_splash(parent, dc, origin.x, origin.y);
+
+    const bool quit = item.CtlID == kQuitButton;
+    const bool pressed = (item.itemState & ODS_SELECTED) != 0;
+    const bool hot = g_hot_button == static_cast<int>(item.CtlID);
+    const bool focused = (item.itemState & ODS_FOCUS) != 0;
+
+    // Flat and quiet: Pick ROM is a solid muted gold, Quit an outline on a
+    // faint dark wash. Hover lightens, pressing darkens; nothing else.
+    const float lift = pressed ? 0.88f : (hot ? 1.10f : 1.0f);
+    const Gdiplus::Color fill = quit
+        ? Gdiplus::Color(pressed ? 150 : (hot ? 120 : 90), 10, 12, 20)
+        : shade(Gdiplus::Color(255, 214, 172, 82), lift);
+    const Gdiplus::Color edge = quit
+        ? Gdiplus::Color(hot || focused ? 230 : 150, 240, 232, 214)
+        : shade(Gdiplus::Color(255, 214, 172, 82), lift);
+    const Gdiplus::Color text = quit ? Gdiplus::Color(255, 240, 234, 214)
+                                     : Gdiplus::Color(255, 40, 28, 10);
+
+    Gdiplus::Graphics g(dc);
+    g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    g.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
+    const float inset = 1.5f;
+    const float bx = inset;
+    const float by = inset;
+    const float bw = static_cast<float>(w) - inset * 2.0f;
+    const float bh = static_cast<float>(h) - inset * 2.0f;
+    const float radius = std::min(6.0f, bh / 2.0f);
+
+    Gdiplus::GraphicsPath body;
+    rounded_rect_path(body, bx, by, bw, bh, radius);
+    Gdiplus::SolidBrush fill_brush(fill);
+    g.FillPath(&fill_brush, &body);
+    Gdiplus::Pen border(edge, 1.0f);
+    g.DrawPath(&border, &body);
+    // Keyboard focus on the gold button: a thin inner line, not a dotted box.
+    if (focused && !quit) {
+        Gdiplus::GraphicsPath ring;
+        rounded_rect_path(ring, bx + 3.0f, by + 3.0f, bw - 6.0f, bh - 6.0f,
+                          std::max(1.0f, radius - 2.0f));
+        Gdiplus::Pen ring_pen(Gdiplus::Color(140, 40, 28, 10), 1.0f);
+        g.DrawPath(&ring_pen, &ring);
+    }
+
+    wchar_t label[64] = {};
+    GetWindowTextW(item.hwndItem, label, static_cast<int>(std::size(label)));
+    Gdiplus::Font font(dc, g_button_font);
+    Gdiplus::StringFormat format;
+    format.SetAlignment(Gdiplus::StringAlignmentCenter);
+    format.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+    Gdiplus::SolidBrush text_brush(text);
+    g.DrawString(label, -1, &font, Gdiplus::RectF(bx, by, bw, bh), &format,
+                 &text_brush);
+
+    BitBlt(item.hDC, item.rcItem.left, item.rcItem.top, w, h, dc, 0, 0,
+           SRCCOPY);
+    SelectObject(dc, old_bitmap);
+    DeleteObject(bitmap);
+    DeleteDC(dc);
+}
+
+// What the game code in a release is built from, one "path sha1" line per
+// file: the engine, the builder, the translator and everything in
+// builder\data and builder\engine. Written beside GoldenSunGame.dll after a
+// build (GoldenSunGame.release.txt); any difference, such as a new release
+// unzipped over an old one, means building again. The engine check below
+// already caught a new engine; this also catches a release that changes only
+// the builder, the translator or its data. The toolchain is left out: it is
+// large, and it only changes together with the builder.
+std::string release_fingerprint(const fs::path& root) {
+    std::vector<fs::path> files = {root / L"GoldenSunRecomp.exe",
+                                   root / L"builder" / L"gsr_builder.exe",
+                                   root / L"builder" / L"gba_recompile.exe"};
+    std::error_code ec;
+    for (const wchar_t* dir : {L"data", L"engine"}) {
+        std::vector<fs::path> found;
+        for (const auto& entry :
+             fs::recursive_directory_iterator(root / L"builder" / dir, ec)) {
+            if (entry.is_regular_file(ec)) found.push_back(entry.path());
+        }
+        std::sort(found.begin(), found.end());
+        files.insert(files.end(), found.begin(), found.end());
+    }
+    std::string text;
+    for (const fs::path& file : files) {
+        std::string digest;
+        if (!sha1_file(file, &digest)) digest = "missing";
+        text += fs::relative(file, root, ec).generic_string() + " " + digest + "\n";
+    }
+    return text;
+}
+
+// Whether GoldenSunGame.dll beside the game was built from the supported
+// ROM by this release's builder against this release's engine.
+bool game_code_ready(const fs::path& root) {
+    std::error_code ec;
+    if (!fs::is_regular_file(root / L"GoldenSunGame.dll", ec)) return false;
+    {
+        std::ifstream recorded(root / L"GoldenSunGame.release.txt",
+                               std::ios::binary);
+        std::ostringstream text;
+        text << recorded.rdbuf();
+        if (!recorded || text.str() != release_fingerprint(root)) return false;
+    }
+    std::ifstream in(root / L"GoldenSunGame.build.txt");
+    std::string line, rom, builder, engine;
+    while (std::getline(in, line)) {
+        if (line.rfind("rom_sha1=", 0) == 0) rom = line.substr(9);
+        else if (line.rfind("builder=", 0) == 0) builder = line.substr(8);
+        else if (line.rfind("engine_sha1=", 0) == 0) engine = line.substr(12);
+    }
+    std::string engine_now;
+    if (!sha1_file(root / L"GoldenSunRecomp.exe", &engine_now)) return false;
+    return rom == kExpectedRomSha1 && builder == kBuilderVersion &&
+           engine == engine_now;
+}
+
+// Run builder\gsr_builder.exe for `rom` in the background; progress arrives
+// as kBuildUpdateMessage, the end as kBuildFinishedMessage.
+void start_game_build(HWND window, const std::wstring& rom) {
+    const fs::path builder = g_launcher_root / L"builder" / L"gsr_builder.exe";
+    std::error_code ec;
+    if (!fs::is_regular_file(builder, ec)) {
+        MessageBoxW(window,
+                    L"Part of Golden Sun Recompiled is missing (builder\\gsr_builder.exe).\n\n"
+                    L"Please unzip the whole download again.",
+                    L"Golden Sun Recompiled", MB_OK | MB_ICONERROR);
+        return;
+    }
+    SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
+    HANDLE read_end = nullptr, write_end = nullptr;
+    if (!CreatePipe(&read_end, &write_end, &sa, 0)) return;
+    SetHandleInformation(read_end, HANDLE_FLAG_INHERIT, 0);
+    std::wstring cmd = L"\"" + builder.wstring() + L"\" --rom \"" + rom + L"\"";
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = write_end;
+    si.hStdError = write_end;
+    PROCESS_INFORMATION pi{};
+    std::vector<wchar_t> cmd_buf(cmd.begin(), cmd.end());
+    cmd_buf.push_back(L'\0');
+    const BOOL started = CreateProcessW(
+        nullptr, cmd_buf.data(), nullptr, nullptr, TRUE,
+        CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr,
+        builder.parent_path().c_str(), &si, &pi);
+    CloseHandle(write_end);
+    if (!started) {
+        CloseHandle(read_end);
+        MessageBoxW(window, L"The game builder could not start.",
+                    L"Golden Sun Recompiled", MB_OK | MB_ICONERROR);
+        return;
+    }
+    // Closing the launcher mid-build stops the builder and its compilers.
+    if (!g_build_job) {
+        g_build_job = CreateJobObjectW(nullptr, nullptr);
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION info{};
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if (g_build_job)
+            SetInformationJobObject(g_build_job, JobObjectExtendedLimitInformation,
+                                    &info, sizeof(info));
+    }
+    if (g_build_job) AssignProcessToJobObject(g_build_job, pi.hProcess);
+    ResumeThread(pi.hThread);
+    CloseHandle(pi.hThread);
+    {
+        std::lock_guard<std::mutex> lock(g_build.mutex);
+        g_build.running = true;
+        g_build.stage = L"Starting";
+        g_build.done = g_build.total = 0;
+        g_build.error.clear();
+        g_build.succeeded = false;
+    }
+    g_build_rom = rom;
+    EnableWindow(GetDlgItem(window, 1001 /* kPickRomButton */), FALSE);
+    InvalidateRect(window, nullptr, FALSE);
+
+    if (g_build_thread.joinable()) g_build_thread.join();
+    g_build_thread = std::thread([window, read_end, process = pi.hProcess] {
+        std::string pending;
+        char buf[4096];
+        DWORD n = 0;
+        bool done = false;
+        std::string error;
+        auto handle = [&](const std::string& line) {
+            std::lock_guard<std::mutex> lock(g_build.mutex);
+            if (line.rfind("@stage ", 0) == 0) {
+                g_build.stage = utf8_to_wide(line.substr(7));
+                g_build.done = g_build.total = 0;
+            } else if (line.rfind("@progress ", 0) == 0) {
+                std::sscanf(line.c_str() + 10, "%d %d", &g_build.done, &g_build.total);
+            } else if (line == "@done") {
+                done = true;
+            } else if (line.rfind("@error ", 0) == 0) {
+                error = line.substr(7);
+            }
+        };
+        while (ReadFile(read_end, buf, sizeof(buf), &n, nullptr) && n > 0) {
+            pending.append(buf, n);
+            std::size_t nl;
+            while ((nl = pending.find('\n')) != std::string::npos) {
+                std::string line = pending.substr(0, nl);
+                if (!line.empty() && line.back() == '\r') line.pop_back();
+                pending.erase(0, nl + 1);
+                handle(line);
+                PostMessageW(window, kBuildUpdateMessage, 0, 0);
+            }
+        }
+        CloseHandle(read_end);
+        WaitForSingleObject(process, INFINITE);
+        DWORD code = 1;
+        GetExitCodeProcess(process, &code);
+        CloseHandle(process);
+        {
+            std::lock_guard<std::mutex> lock(g_build.mutex);
+            g_build.running = false;
+            g_build.succeeded = done && code == 0;
+            g_build.error = utf8_to_wide(
+                error.empty() && !g_build.succeeded
+                    ? std::string("The build stopped unexpectedly.") : error);
+        }
+        PostMessageW(window, kBuildFinishedMessage, 0, 0);
+    });
+}
+
 LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
                                       WPARAM w_param, LPARAM l_param) {
     switch (message) {
@@ -1555,6 +2345,7 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
         g_test_room_buffer = k_launcher_test_defaults.room_buffer;
         g_test_swi_log = k_launcher_test_defaults.swi_log;
         g_test_bios_pc_log = k_launcher_test_defaults.bios_pc_log;
+        g_test_mod_field_test = k_launcher_test_defaults.mod_field_test;
         CreateWindowExW(0, L"BUTTON", L"Pick ROM",
                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                         0, 0, 0, 0, window,
@@ -1565,6 +2356,12 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
                         0, 0, 0, 0, window,
                         reinterpret_cast<HMENU>(kQuitButton),
                         GetModuleHandleW(nullptr), nullptr);
+        subclass_action_button(GetDlgItem(window, kPickRomButton));
+        subclass_action_button(GetDlgItem(window, kQuitButton));
+        if (kReleaseLauncher) {
+            layout_buttons(window);
+            return 0;
+        }
         // Every checkbox below is BS_OWNERDRAW (drawn by draw_checkbox_item,
         // state read from checkbox_state_for_id) rather than BS_AUTOCHECKBOX
         // so it can sit on the panel's real background instead of painting
@@ -1614,6 +2411,14 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             // Which code writes BG1 in battle, per frame, with the 2x state:
             // finds the updates battle speed 2x loses.
             {kBattleBg1RecordButton, L"Record battle BG1 writes"},
+            // Adds the test Psynergy Earth Surge (src/mod_loader.cpp): Isaac
+            // knows it from level 1. It plays the casting flourish, then
+            // his jump attack with a white trail and a big earth explosion
+            // with a screen shake (src/earth_surge.cpp); the explosion needs
+            // the host spell effects on.
+            // Also logs [move-probe] lines for battle moves (src/move_probe.cpp):
+            // the frame each blow lands and where its sparks are on screen.
+            {kModFieldTestButton, L"Mod test: Earth Surge"},
             {kRoomBufferButton, L"Room buffer self-check"},
             // F12 saves the frames shown just before it, not only the
             // current one: a one-frame flicker is gone before F12 lands.
@@ -1623,6 +2428,13 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             // Normal launches run no BIOS code. This passes the BIOS for
             // a comparison run in a GBARECOMP_LINK_BIOS=ON build.
             {kWithBiosButton, L"Run with real BIOS (comparison build)"},
+            // build_nolto_test.bat's output, for the player-builder speed
+            // comparison (ROADMAP.md, "Player builder").
+            {kNoLtoBuildButton, L"Play the no-LTO comparison build"},
+            // build_lto_nosymbols.bat's output: same game, no debug info.
+            {kNoSymBuildButton, L"Play the no-symbols build"},
+            // Engine exe + GoldenSunGame.dll, the player-builder layout.
+            {kSplitBuildButton, L"Play the split build"},
             // Restored 2026-09-13: the battle/effect slowdown cannot be
             // attributed without it, and handing over a raw environment
             // variable is not how this project ships a debug option.
@@ -1686,12 +2498,44 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
     case WM_ERASEBKGND:
         return 1;
     case WM_PAINT: {
+        // Drawn off screen and copied in, so the progress animation's
+        // repaints do not flicker.
         PAINTSTRUCT paint{};
         HDC dc = BeginPaint(window, &paint);
-        paint_splash(window, dc);
+        RECT client{};
+        GetClientRect(window, &client);
+        HDC memory = CreateCompatibleDC(dc);
+        HBITMAP bitmap = memory ? CreateCompatibleBitmap(dc, client.right,
+                                                         client.bottom)
+                                : nullptr;
+        if (memory && bitmap) {
+            HGDIOBJ old = SelectObject(memory, bitmap);
+            paint_splash(window, memory);
+            BitBlt(dc, paint.rcPaint.left, paint.rcPaint.top,
+                   paint.rcPaint.right - paint.rcPaint.left,
+                   paint.rcPaint.bottom - paint.rcPaint.top, memory,
+                   paint.rcPaint.left, paint.rcPaint.top, SRCCOPY);
+            SelectObject(memory, old);
+        } else {
+            paint_splash(window, dc);
+        }
+        if (bitmap) DeleteObject(bitmap);
+        if (memory) DeleteDC(memory);
         EndPaint(window, &paint);
         return 0;
     }
+    case WM_TIMER:
+        if (w_param == kProgressTimer) {
+            bool running = false;
+            {
+                std::lock_guard<std::mutex> lock(g_build.mutex);
+                running = g_build.running;
+            }
+            if (running && g_progress_rect.right > g_progress_rect.left)
+                InvalidateRect(window, &g_progress_rect, FALSE);
+            return 0;
+        }
+        break;
     case WM_CTLCOLORSTATIC: {
         // The help text is a plain (non-owner-drawn) STATIC label. Left
         // unhandled it erases its own rect to an opaque system color before
@@ -1720,24 +2564,7 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             draw_checkbox_item(*item, checked);
             return TRUE;
         }
-        const bool quit = item->CtlID == kQuitButton;
-        const COLORREF fill = quit ? RGB(92, 42, 37) : RGB(180, 127, 35);
-        const COLORREF border = quit ? RGB(202, 120, 95) : RGB(255, 220, 112);
-        HBRUSH brush = CreateSolidBrush(fill);
-        FillRect(item->hDC, &item->rcItem, brush);
-        DeleteObject(brush);
-        HBRUSH border_brush = CreateSolidBrush(border);
-        FrameRect(item->hDC, &item->rcItem, border_brush);
-        DeleteObject(border_brush);
-        SetBkMode(item->hDC, TRANSPARENT);
-        SetTextColor(item->hDC, RGB(255, 246, 215));
-        HFONT old_font = static_cast<HFONT>(SelectObject(item->hDC, g_button_font));
-        RECT text_rect = item->rcItem;
-        if (item->itemState & ODS_SELECTED) OffsetRect(&text_rect, 1, 1);
-        DrawTextW(item->hDC, quit ? L"Quit" : L"Pick ROM", -1, &text_rect,
-                  DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-        SelectObject(item->hDC, old_font);
-        if (item->itemState & ODS_FOCUS) DrawFocusRect(item->hDC, &item->rcItem);
+        draw_action_button(*item);
         return TRUE;
     }
     case WM_COMMAND:
@@ -1797,17 +2624,70 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
         }
         if (LOWORD(w_param) == kPickRomButton) {
             const std::wstring rom = choose_rom(g_launcher_root);
-            if (!rom.empty() &&
-                run_game(g_launcher_root, rom, g_launcher_bios, window) == 0) {
+            if (rom.empty()) return 0;
+            // A release builds the game code from the ROM first, once.
+            if (kReleaseLauncher && !game_code_ready(g_launcher_root)) {
+                start_game_build(window, rom);
+                return 0;
+            }
+            if (run_game(g_launcher_root, rom, g_launcher_bios, window) == 0) {
                 DestroyWindow(window);  // no-op if run_game already destroyed it
             }
             return 0;
         }
         break;
+    case kBuildUpdateMessage: {
+        // Only the status line and the bar change.
+        RECT client{};
+        GetClientRect(window, &client);
+        RECT status{0, client.bottom - 164, client.right, client.bottom};
+        InvalidateRect(window, &status, FALSE);
+        return 0;
+    }
+    case kBuildFinishedMessage: {
+        if (g_build_thread.joinable()) g_build_thread.join();
+        bool ok = false;
+        std::wstring error;
+        {
+            std::lock_guard<std::mutex> lock(g_build.mutex);
+            ok = g_build.succeeded;
+            error = g_build.error;
+        }
+        EnableWindow(GetDlgItem(window, kPickRomButton), TRUE);
+        if (ok) {
+            std::ofstream stamp(g_launcher_root / L"GoldenSunGame.release.txt",
+                                std::ios::binary | std::ios::trunc);
+            stamp << release_fingerprint(g_launcher_root);
+        }
+        const bool ready = ok && game_code_ready(g_launcher_root);
+        {
+            std::lock_guard<std::mutex> lock(g_build.mutex);
+            g_build.ready = ready;
+        }
+        InvalidateRect(window, nullptr, FALSE);
+        if (!ready) {
+            std::wstring msg = L"The game could not be prepared.\n\n" + error +
+                L"\n\nThe full log is builder\\work\\build-log.txt.";
+            MessageBoxW(window, msg.c_str(), L"Golden Sun Recompiled",
+                        MB_OK | MB_ICONERROR);
+            return 0;
+        }
+        if (run_game(g_launcher_root, g_build_rom, g_launcher_bios, window) == 0)
+            DestroyWindow(window);
+        return 0;
+    }
     case WM_CLOSE:
         DestroyWindow(window);
         return 0;
     case WM_DESTROY:
+        KillTimer(window, kProgressTimer);
+        // Quit mid-build: closing the job stops the builder and its
+        // compilers, which ends the reader thread.
+        if (g_build_job) {
+            CloseHandle(g_build_job);
+            g_build_job = nullptr;
+        }
+        if (g_build_thread.joinable()) g_build_thread.join();
         PostQuitMessage(0);
         return 0;
     default:
@@ -1828,11 +2708,32 @@ int show_launcher(const fs::path& root, const std::wstring& bios) {
 
     g_launcher_root = root;
     g_launcher_bios = bios;
-    g_audio_settings = load_launcher_audio_settings(root);
+    if (kReleaseLauncher) g_build.ready = game_code_ready(root);
+    g_audio_settings = kReleaseLauncher ? release_launch_settings()
+                                        : load_launcher_audio_settings(root);
     g_strict_static_route = inherited_environment_truthy(
         L"GBARECOMP_STRICT_STATIC");
-    g_splash_image = std::make_unique<Gdiplus::Image>(
-        (root / L"gssplash.jpg").c_str());
+    // The logo is built into the launcher (launcher_logo.h). GDI+ wants the
+    // stream kept for an image's life, so it is copied into a plain bitmap.
+    if (IStream* stream = SHCreateMemStream(kLauncherLogoPng,
+                                            sizeof(kLauncherLogoPng))) {
+        std::unique_ptr<Gdiplus::Bitmap> decoded(
+            Gdiplus::Bitmap::FromStream(stream));
+        if (decoded && decoded->GetLastStatus() == Gdiplus::Ok) {
+            auto copy = std::make_unique<Gdiplus::Bitmap>(
+                static_cast<INT>(decoded->GetWidth()),
+                static_cast<INT>(decoded->GetHeight()), PixelFormat32bppPARGB);
+            {
+                Gdiplus::Graphics g(copy.get());
+                g.DrawImage(decoded.get(), 0, 0,
+                            static_cast<INT>(decoded->GetWidth()),
+                            static_cast<INT>(decoded->GetHeight()));
+            }
+            g_splash_image = std::move(copy);
+        }
+        decoded.reset();
+        stream->Release();
+    }
     g_button_font = CreateFontW(22, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
                                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                                 CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
@@ -1863,12 +2764,20 @@ int show_launcher(const fs::path& root, const std::wstring& bios) {
     // and their 28px bottom inset. At the ten rows actually created that is
     // 640 + help, leaving room for the help text to wrap to about nine lines
     // before anything collides. Each further visible row costs 32.
-    RECT desired{0, 0, 720, 880};
+    // The release launcher has no panel, so it only needs the artwork (which
+    // is square) and the buttons.
+    RECT desired{0, 0, 720, kReleaseLauncher ? 720 : 880};
     AdjustWindowRectEx(&desired, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU |
                                  WS_MINIMIZEBOX, FALSE, WS_EX_APPWINDOW);
+    // The player launcher's window leaves its two buttons out of its own
+    // painting (WS_CLIPCHILDREN): each build update repaints the window, and
+    // painting over the buttons before they redrew made them flicker. Not
+    // in the developer launcher, whose transparent help text relies on the
+    // window painting behind it.
     HWND window = CreateWindowExW(
         WS_EX_APPWINDOW, class_name, L"Golden Sun Recompiled",
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX |
+            (kReleaseLauncher ? WS_CLIPCHILDREN : 0),
         CW_USEDEFAULT, CW_USEDEFAULT, desired.right - desired.left,
         desired.bottom - desired.top, nullptr, nullptr,
         GetModuleHandleW(nullptr), nullptr);
@@ -1878,6 +2787,7 @@ int show_launcher(const fs::path& root, const std::wstring& bios) {
         if (g_body_font) DeleteObject(g_body_font);
         g_body_font = nullptr;
         g_splash_image.reset();
+        g_backdrop.bitmap.reset();
         Gdiplus::GdiplusShutdown(gdiplus_token);
         MessageBoxW(nullptr, L"The launcher window could not be created.",
                     L"Golden Sun Recompiled", MB_OK | MB_ICONERROR);
@@ -1890,6 +2800,7 @@ int show_launcher(const fs::path& root, const std::wstring& bios) {
                  (screen_width - (desired.right - desired.left)) / 2,
                  (screen_height - (desired.bottom - desired.top)) / 2, 0, 0,
                  SWP_NOSIZE | SWP_NOZORDER);
+    if (kReleaseLauncher) SetTimer(window, kProgressTimer, 33, nullptr);
     ShowWindow(window, SW_SHOW);
     UpdateWindow(window);
 
@@ -1904,6 +2815,7 @@ int show_launcher(const fs::path& root, const std::wstring& bios) {
     if (g_body_font) DeleteObject(g_body_font);
     g_body_font = nullptr;
     g_splash_image.reset();
+    g_backdrop.bitmap.reset();
     UnregisterClassW(class_name, GetModuleHandleW(nullptr));
     Gdiplus::GdiplusShutdown(gdiplus_token);
     return static_cast<int>(message.wParam);
@@ -1921,7 +2833,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     // missing BIOS only when one is actually required.
     const std::wstring bios = read_json_string(root / L"config" / L"local.json",
                                                "bios");
-    const bool developer_auto_launch =
+    const bool developer_auto_launch = !kReleaseLauncher &&
         inherited_environment_truthy(L"GBARECOMP_AUTO_LAUNCH");
     if (developer_auto_launch) {
         // This path is deliberately opt-in and uses the same cached ROM plus

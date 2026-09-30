@@ -107,24 +107,31 @@ void hotkey_label(char* out, std::size_t n, int keycode, unsigned mods) {
     std::snprintf(out, n, "%s%s", buf, (kn && *kn) ? kn : "?");
 }
 
-// Keep the main pages compact. Long explanations belong in a hover tooltip so
-// the control they describe stays visible without pushing the next setting
-// below the fold. AllowWhenDisabled is intentional: unavailable options still
-// explain why they cannot currently be used.
-void hover_tooltip(const char* text) {
-    if (!text || !*text ||
-        !ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) return;
-    ImGui::BeginTooltip();
-    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 36.0f);
-    ImGui::TextWrapped("%s", text);
+// Golden Sun menu palette: deep blue windows, gold trim and highlights,
+// parchment text. Shared by the style below and the page headings.
+const ImVec4 kGold      (0.93f, 0.76f, 0.30f, 1.00f);
+const ImVec4 kGoldDim   (0.70f, 0.55f, 0.20f, 1.00f);
+const ImVec4 kParchment (0.96f, 0.93f, 0.84f, 1.00f);
+const ImVec4 kMutedText (0.66f, 0.71f, 0.84f, 1.00f);
+
+// A one-line explanation under a control, always visible so nothing needs
+// hovering to be understood.
+void caption(const char* text) {
+    ImGui::Indent(4.0f);
+    ImGui::PushStyleColor(ImGuiCol_Text, kMutedText);
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextUnformatted(text);
     ImGui::PopTextWrapPos();
-    ImGui::EndTooltip();
+    ImGui::PopStyleColor();
+    ImGui::Unindent(4.0f);
+    ImGui::Spacing();
 }
 
-void help_marker(const char* text) {
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    hover_tooltip(text);
+void section(const char* title) {
+    ImGui::Spacing();
+    ImGui::PushStyleColor(ImGuiCol_Text, kGold);
+    ImGui::SeparatorText(title);
+    ImGui::PopStyleColor();
 }
 
 // A bind row: label on the left, a button showing the current binding that
@@ -163,12 +170,12 @@ bool bind_row(const char* label, const char* value, bool armed,
 }
 
 void draw_controls_page(ConfigUiState* st) {
-    ImGui::SeparatorText("Gameplay Bindings");
-    help_marker("Click a binding, then press a key or controller button. "
-                "Press Esc to cancel a capture.");
+    section("Buttons");
+    caption("Click a box, then press the key or controller button to use. "
+            "Esc cancels.");
 
     ImGui::BeginChild("controls_bindings_scroll",
-                      ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing() * 2.0f),
+                      ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing() * 1.5f),
                       false, ImGuiWindowFlags_HorizontalScrollbar);
     if (ImGui::BeginTable("binds", 5,
                           ImGuiTableFlags_SizingFixedFit |
@@ -236,8 +243,7 @@ void draw_controls_page(ConfigUiState* st) {
     }
     ImGui::EndChild();
 
-    ImGui::SeparatorText("Reset");
-    if (ImGui::Button("Restore Defaults")) {
+    if (ImGui::Button("Restore defaults")) {
         static const int kDefaultKeys[10] = {
             SDL_SCANCODE_X, SDL_SCANCODE_Z, SDL_SCANCODE_RSHIFT,
             SDL_SCANCODE_RETURN, SDL_SCANCODE_RIGHT, SDL_SCANCODE_LEFT,
@@ -258,23 +264,20 @@ void draw_controls_page(ConfigUiState* st) {
         }
         st->binds_changed = true;
     }
-    ImGui::SameLine();
-    ImGui::TextDisabled("keybinds.ini");
-    hover_tooltip("Gameplay bindings are saved to keybinds.ini.");
 }
 
 void draw_hotkeys_page(ConfigUiState* st) {
-    ImGui::SeparatorText("Hotkeys");
-    help_marker("System hotkeys work while the game has focus. Bind either "
-                "the keyboard key, the controller button, or both; values "
-                "are saved to config.ini.");
+    section("Hotkeys");
+    caption("Shortcuts that work while playing. Each can have a key, a "
+            "controller button, or both. Auto Fire presses A or B rapidly "
+            "while held.");
     ImGui::BeginChild("hotkeys_scroll",
                       ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing()),
                       false, ImGuiWindowFlags_HorizontalScrollbar);
     if (ImGui::BeginTable("hotkeys", 5,
                           ImGuiTableFlags_SizingFixedFit |
                           ImGuiTableFlags_RowBg)) {
-        ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, 130);
+        ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, 150);
         ImGui::TableSetupColumn("Keyboard", ImGuiTableColumnFlags_WidthFixed, 130);
         ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 46);
         ImGui::TableSetupColumn("Controller", ImGuiTableColumnFlags_WidthFixed, 130);
@@ -319,279 +322,128 @@ void draw_hotkeys_page(ConfigUiState* st) {
 }
 
 void draw_video_page(ConfigUiState* st) {
-    // Apply the scale ONLY when the drag ends. Signalling on every tick made
-    // the host resize the window and rebuild the swapchain once per step, so
-    // dragging the slider stuttered badly and was hard to land on a value.
-    // The number still tracks the cursor live; only the expensive resize is
-    // deferred to release. IsItemDeactivatedAfterEdit also covers keyboard and
-    // ctrl-click entry, which SliderInt's return value alone does not.
-    ImGui::SeparatorText("Display");
-    ImGui::SliderInt("Window scale", &st->scale, 1, 8, "%dx");
-    hover_tooltip("Integer scale of the host window. The resize is applied "
-                  "when you release the slider.");
-    if (ImGui::IsItemDeactivatedAfterEdit()) st->video_changed = true;
+    section("Window");
+    // The slider edits a menu-local copy. host_window republishes st->scale
+    // from the live window every frame, which used to overwrite the dragged
+    // value before release, so the resize never happened. The copy follows
+    // the window only while the slider is idle, and the (expensive) resize
+    // is requested once, when the slider is released.
+    static int pending_scale = 0;
+    static bool scale_active = false;
+    const int max_scale = std::clamp(st->max_scale, 1, 8);
+    if (!scale_active) pending_scale = st->scale;
+    pending_scale = std::clamp(pending_scale, 1, max_scale);
+    if (st->fullscreen) ImGui::BeginDisabled();
+    ImGui::SetNextItemWidth(220.0f);
+    ImGui::SliderInt("Window size", &pending_scale, 1, max_scale, "%dx");
+    scale_active = ImGui::IsItemActive();
+    if (ImGui::IsItemDeactivatedAfterEdit() && pending_scale != st->scale) {
+        st->scale = pending_scale;
+        st->video_changed = true;
+    }
+    if (st->fullscreen) ImGui::EndDisabled();
+    caption(st->fullscreen
+        ? "Leave fullscreen to change the window size."
+        : "Size of the game window. Applied when you let go of the slider.");
     if (ImGui::Checkbox("Fullscreen", &st->fullscreen)) st->video_changed = true;
-    hover_tooltip("Toggle fullscreen presentation.");
-    if (ImGui::Checkbox("V-Sync", &st->vsync)) st->video_changed = true;
-    hover_tooltip("Synchronize presentation to the display. The guest clock "
-                  "and emulated hardware timing remain unchanged.");
-    if (ImGui::Checkbox("Integer scaling (no stretched pixels)",
-                        &st->integer_scale))
-        st->video_changed = true;
-    hover_tooltip("Keep whole GBA pixels sharp instead of stretching them.");
-    ImGui::SeparatorText("Color");
-    static const char kScreenItems[] =
-        "Raw (faithful output)\0"
-        "Original GBA (unlit)\0"
-        "GBA SP (frontlit)\0"
-        "GBA SP (backlit)\0"
-        "Classic vivid\0";
-    if (ImGui::Combo("Color profile", &st->screen_kind, kScreenItems))
-        st->video_changed = true;
-    hover_tooltip("Choose the display color treatment. Raw is the faithful "
-                  "unmodified output.");
-    if (ImGui::Checkbox("Show FPS", &st->show_fps)) st->video_changed = true;
-    hover_tooltip("Show the host FPS readout in the game window.");
 
-    ImGui::SeparatorText("Status");
-    ImGui::Text("Present: %.1f fps  (%.2f ms/frame)", st->fps, st->frame_ms);
-    ImGui::Text("Guest frame: %llu", st->guest_frame);
-    help_marker("The faithful GBA rate is 59.73 Hz. Above that the pacer "
-                "idles; below it, the emulator is the bottleneck.");
+    section("Picture");
+    if (ImGui::Checkbox("Sharp pixels", &st->integer_scale))
+        st->video_changed = true;
+    caption("Keeps every pixel the same size. Off stretches the picture to "
+            "fill the window.");
+    if (ImGui::Checkbox("V-Sync", &st->vsync)) st->video_changed = true;
+    caption("Matches the monitor's refresh to prevent tearing.");
+
+    section("Performance counter");
+    if (ImGui::Checkbox("Show FPS", &st->show_fps)) st->video_changed = true;
+    caption("Shows frames drawn per second and game speed in the corner of "
+            "the screen. 100% is full speed.");
 }
 
 void draw_audio_page(ConfigUiState* st) {
-    ImGui::SeparatorText("Output");
+    section("Sound");
+    ImGui::SetNextItemWidth(220.0f);
     if (ImGui::SliderInt("Volume", &st->volume, 0, 100, "%d%%"))
         st->audio_changed = true;
-    hover_tooltip("Set the host output volume.");
     if (ImGui::Checkbox("Mute", &st->mute)) st->audio_changed = true;
-    hover_tooltip("Mute host audio without changing guest audio timing.");
 }
 
 void draw_turbo_page(ConfigUiState* st) {
-    ImGui::SeparatorText("Turbo");
-    help_marker("Bind Turbo Held or Turbo Toggle under Hotkeys. Held speeds "
-                "up only while pressed; Toggle latches on or off. Default audio "
-                "is coupled. The root-launcher experimental toggle "
-                "enables MP2K music-only wall audio; PSG/FIFO are omitted. "
-                "Only 2x-4x is supported; 1x, above 4x, uncapped, reverb, or "
-                "other unsupported state falls back to canonical coupled audio. "
-                "Explicit MuteDuringTurbo wins.");
-    ImGui::SliderFloat("Turbo speed", &st->turbo_multiplier, 1.0f,
+    section("Fast Forward");
+    caption("Set the Fast Forward buttons on the Hotkeys page. Hold runs "
+            "fast while pressed; Toggle switches it on and off.");
+    ImGui::SetNextItemWidth(220.0f);
+    ImGui::SliderFloat("Speed", &st->turbo_multiplier, 1.0f,
                        kMaxTurboMultiplier, "%.1fx");
-    hover_tooltip("Speed cap used while Turbo is active. The root launcher can "
-                  "enable experimental normal-speed MP2K Turbo audio. The "
-                  "default path remains coupled. Experimental path supports only 2x-4x; 1x, above "
-                  "4x, uncapped, reverb, or unsupported state falls back to "
-                  "canonical coupled audio. Explicit MuteDuringTurbo wins.");
     if (ImGui::IsItemDeactivatedAfterEdit()) st->speed_changed = true;
-    if (ImGui::Checkbox("Mute audio while Turbo is held",
-                        &st->mute_during_turbo))
+    if (ImGui::Checkbox("As fast as possible", &st->uncapped))
         st->speed_changed = true;
-    hover_tooltip("Mute audio during held Turbo. This does not change guest "
-                  "timing.");
-    if (ImGui::Checkbox("Uncapped while held (ignore the multiplier)",
-                        &st->uncapped))
+    caption("Ignores the speed above and runs as fast as your PC allows.");
+    if (ImGui::Checkbox("Mute while fast forwarding", &st->mute_during_turbo))
         st->speed_changed = true;
-    hover_tooltip("Run as fast as the host allows while Turbo is held, ignoring "
-                  "the multiplier. This is not faithful timing.");
 }
 
-void draw_timing_page(ConfigUiState* st) {
-    ImGui::SeparatorText("Timing");
-    if (st->enhanced_timing_available) {
-        if (ImGui::Checkbox("Enhanced Timing (exact 60/120 Hz)",
-                            &st->enhanced_timing))
-            st->enhancements_changed = true;
-        hover_tooltip("Paces guest updates at exactly 60.000 Hz and 2x "
-                      "presentation at 120.000 Hz. Per-frame hardware cycles "
-                      "stay unchanged; canonical audio is resampled to the "
-                      "active host clock.");
-        if (st->frame_interpolation_display_ok)
-            help_marker("Recommended for smoother cadence on this high-refresh "
-                        "display. Your choice is saved.");
-        else
-            help_marker("Optional presentation timing mode. Your choice is saved.");
-    } else {
-        ImGui::TextDisabled("Enhanced timing is unavailable in this build.");
-    }
-}
-
-void draw_performance_page(ConfigUiState* st) {
-    ImGui::SeparatorText("Performance");
-    static const char kOverclockItems[] = "Off\0" "On\0";
-    if (st->overclock_index < 0 ||
-        st->overclock_index >= gbarecomp::kOverclockItemCount)
-        st->overclock_index = 0;
-    if (ImGui::Combo("Guest CPU Overclock", &st->overclock_index, kOverclockItems))
+void draw_enhancements_page(ConfigUiState* st) {
+    section("Flicker");
+    // VFX-FLICKER-02: selective temporal blend ("LCD ghosting"). Legacy
+    // config values 4..6 selected whole-frame modes that are no longer
+    // offered; migrate them explicitly through the normal change path so an
+    // old file cannot keep a hidden mode active. Greyed, not hidden, while
+    // 2x scene interpolation is on: blending across its synthetic midpoint
+    // frame would smear the picture (see host_window.cpp's present()).
+    static const char kTemporalBlendItems[] =
+        "Off\0" "Light\0" "Medium\0" "Strong\0";
+    if (st->temporal_blend_index >= 4) {
+        st->temporal_blend_index = 3;
         st->enhancements_changed = true;
-    hover_tooltip("On lets the game use up to ten times a Game Boy Advance's "
-                  "processor cycles in a frame, which it only takes while it "
-                  "is running out of time; picture and sound speed are "
-                  "unchanged. If music or animation misbehaves, turn this "
-                  "off.");
-}
-
-bool fixed_view_mode_item_getter(void* data, int index,
-                                 const char** out_text) {
-    if (!data || !out_text || index < 0) return false;
-    auto* st = static_cast<ConfigUiState*>(data);
-    if (!st->fixed_view_mode_labels ||
-        index >= st->fixed_view_mode_count) return false;
-    const char* label = st->fixed_view_mode_labels[index];
-    if (!label || !*label) return false;
-    *out_text = label;
-    return true;
-}
-
-void draw_visual_page(ConfigUiState* st) {
-    ImGui::SeparatorText("Display");
-    if (st->fixed_view_modes_available &&
-        st->fixed_view_mode_count > 0 && st->fixed_view_mode_labels) {
-        st->fixed_view_mode = std::clamp(
-            st->fixed_view_mode, 0, st->fixed_view_mode_count - 1);
-        if (ImGui::Combo("Expanded Widescreen", &st->fixed_view_mode,
-                         fixed_view_mode_item_getter, st,
-                         st->fixed_view_mode_count))
-            st->enhancements_changed = true;
-        hover_tooltip("Choose Native 240x160, Widescreen 288x160, or the "
-                      "game's Expanded Widescreen 360x240 view. The guest "
-                      "timing remains unchanged.");
-    } else if (st->widescreen_available) {
-        // Compatibility fallback for an older host caller that has not yet
-        // supplied the mode table.
-        if (ImGui::Checkbox("Widescreen (288x160)", &st->widescreen))
-            st->enhancements_changed = true;
-        hover_tooltip("Use the game's fixed 288x160 expanded view. The guest "
-                      "remains at its authentic 160-line timing.");
-    } else {
-        ImGui::TextDisabled("Expanded Widescreen is unavailable in this run.");
     }
+    if (st->temporal_blend_index < 0 || st->temporal_blend_index > 3)
+        st->temporal_blend_index = gbarecomp::kTemporalBlendDefaultIndex;
+    const bool blocked =
+        st->frame_interpolation_available && st->frame_interpolation_2x;
+    if (blocked) ImGui::BeginDisabled();
+    ImGui::SetNextItemWidth(220.0f);
+    if (ImGui::Combo("Flicker reduction", &st->temporal_blend_index,
+                     kTemporalBlendItems))
+        st->enhancements_changed = true;
+    if (blocked) ImGui::EndDisabled();
+    caption(blocked
+        ? "Unavailable in the current presentation mode."
+        : "Smooths effects that flash every other frame, such as barriers "
+          "and the world map, the way the GBA screen did. Normal movement "
+          "stays sharp.");
 
-    ImGui::SeparatorText("Flicker");
-    {
-        // VFX-FLICKER-02: selective temporal blend ("LCD ghosting"),
-        // opt-in and off by default. Whole-frame modes remain implemented
-        // for compatibility, but are intentionally hidden from this page.
-        // Disabled (greyed, not hidden) while 2x
-        // scene interpolation is on: interpolation already synthesizes a
-        // midpoint frame between real ones, and blending across that
-        // synthetic pair would smear the picture instead of steadying it —
-        // see host_window.cpp's present() for where that is enforced.
-        static const char kTemporalBlendItems[] =
-            "Off\0"
-            "Flicker only (Light)\0" "Flicker only (Medium)\0"
-            "Flicker only (Strong)\0";
-        // Legacy config values 4..6 selected hidden whole-frame modes. Make
-        // that migration explicit and persist it through the normal change
-        // path, so an old file cannot silently keep a hidden mode active.
-        if (st->temporal_blend_index >= 4) {
-            st->temporal_blend_index = 3;
-            st->enhancements_changed = true;
-        }
-        if (st->temporal_blend_index < 0 || st->temporal_blend_index > 3)
-            st->temporal_blend_index = gbarecomp::kTemporalBlendDefaultIndex;
-        const bool blend_blocked_by_interp =
-            st->frame_interpolation_available && st->frame_interpolation_2x;
-        if (blend_blocked_by_interp) ImGui::BeginDisabled();
-        if (ImGui::Combo("Temporal blend (LCD ghosting)",
-                         &st->temporal_blend_index, kTemporalBlendItems))
-            st->enhancements_changed = true;
-        hover_tooltip("Reduces intentional alternating-frame flicker, such as "
-                      "the Kolima barrier or world map. Flicker-only keeps "
-                      "ordinary movement sharp. Off leaves the picture "
-                      "untouched.");
-        if (blend_blocked_by_interp) ImGui::EndDisabled();
-        if (blend_blocked_by_interp)
-            ImGui::TextDisabled(
-                "Disabled by the current presentation mode.");
-    }
-
-    ImGui::SeparatorText("Layers");
-    help_marker("Render-only BG layer visibility. Takes effect immediately "
-                "and never touches guest memory or timing.");
-    if (ImGui::Checkbox("Hide BG0", &st->hide_bg0)) st->layers_changed = true;
-    if (ImGui::Checkbox("Hide BG1", &st->hide_bg1)) st->layers_changed = true;
-    if (ImGui::Checkbox("Hide BG2", &st->hide_bg2)) st->layers_changed = true;
-    if (ImGui::Checkbox("Hide BG3", &st->hide_bg3)) st->layers_changed = true;
-}
-
-void draw_timing_performance_page(ConfigUiState* st) {
-    draw_timing_page(st);
-    draw_performance_page(st);
-}
-
-[[maybe_unused]] void draw_native_rendering_page(ConfigUiState* st) {
-    ImGui::SeparatorText("Native Rendering");
-    if (!st->native_renderer_available) {
-        ImGui::TextDisabled("Native rendering is unavailable in this build.");
-        return;
-    }
-    if (ImGui::Checkbox("Native compositor (experimental)",
-                        &st->native_renderer))
-        st->video_changed = true;
-    hover_tooltip("Supersamples the scene with the optional native compositor. "
-                  "Canonical rendering remains the fallback.");
-    static const char kNativeScaleItems[] =
-        "1x\0" "2x\0" "3x\0" "4x\0" "5x\0"
-        "6x\0" "7x\0" "8x\0" "9x\0" "10x\0";
-    if (st->native_scale < 1) st->native_scale = 1;
-    if (st->native_scale > 10) st->native_scale = 10;
-    int native_scale_index = st->native_scale - 1;
-    if (ImGui::Combo("Native render resolution", &native_scale_index,
-                     kNativeScaleItems)) {
-        st->native_scale = native_scale_index + 1;
-        st->video_changed = true;
-    }
-    hover_tooltip("Native scene scale from 1x to 10x, fitted to the current "
-                  "window.");
-}
-
-void draw_cheats_player_page(ConfigUiState* st) {
-    ImGui::SeparatorText("Player");
-    help_marker("Opt-in gameplay cheats. These change game state and are "
-                "disabled by default.");
-    if (ImGui::Checkbox("Infinite HP", &st->infinite_hp))
-        st->cheats_changed = true;
-    hover_tooltip("Restore each occupied party slot's current HP from its live "
-                  "maximum at VBlank.");
-    if (ImGui::Checkbox("Infinite PP", &st->infinite_pp))
-        st->cheats_changed = true;
-    hover_tooltip("Restore each occupied party slot's current PP from its live "
-                  "maximum at VBlank.");
-    static const char kWalkingSpeedItems[] = "Normal\0" "2x\0" "3x\0";
-    st->player_walk_run_speed_multiplier = std::clamp(
-        st->player_walk_run_speed_multiplier, 1, 3);
-    int walking_speed_index = st->player_walk_run_speed_multiplier - 1;
-    if (ImGui::Combo("Walking speed", &walking_speed_index,
-                     kWalkingSpeedItems)) {
-        st->player_walk_run_speed_multiplier = walking_speed_index + 1;
-        st->cheats_changed = true;
-    }
-    hover_tooltip("Cheat/mod: scales only the measured player walking and "
-                  "B-running speed limits. Gap jumps, battles, NPCs, menus, "
-                  "and global emulation timing are unchanged. Normal is the "
-                  "faithful default.");
-}
-
-void draw_logging_page(ConfigUiState* st) {
-    ImGui::SeparatorText("Diagnostics");
-    help_marker("Controls extra behind-the-scenes logging for bug reports. "
-                "Leave it off for normal play because it adds host overhead.");
-    if (ImGui::Checkbox("Additional debug logging",
-                        &st->additional_debug_logging))
+    section("Troubleshooting");
+    if (ImGui::Checkbox("Crash log", &st->crash_log))
         st->logging_changed = true;
-    hover_tooltip("Adds detailed runtime information to logs/session_*.log. "
-                  "The newest 20 logs are kept. Crash reports are written "
-                  "regardless of this setting.");
-    if (ImGui::Checkbox("Debug overlay", &st->debug_overlay))
-        st->debug_overlay_changed = true;
-    hover_tooltip("Show selected cached test and audio status variables over "
-                  "gameplay. It never reads guest memory and is off by default.");
-    ImGui::TextDisabled(
-        "Some detailed streams start only at launch; changes take full effect "
-        "the next time you launch the game.");
+    caption("Records what the game was doing, so a crash or freeze report "
+            "shows where it happened. Slows the game down; turn it on only "
+            "if you are hunting a crash.");
+}
+
+void draw_fps_overlay(const ConfigUiState* st) {
+    if (!st || !st->show_fps) return;
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + 8.0f,
+                                   viewport->WorkPos.y + 8.0f),
+                            ImGuiCond_Always);
+    ImGui::SetNextWindowViewport(viewport->ID);
+    ImGui::SetNextWindowBgAlpha(0.70f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 4.0f));
+    constexpr ImGuiWindowFlags kFlags =
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
+        ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoDocking |
+        ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoBringToFrontOnFocus;
+    if (ImGui::Begin("##FpsOverlay", nullptr, kFlags)) {
+        ImGui::TextColored(kGold, "%.0f FPS", st->fps);
+        ImGui::SameLine();
+        ImGui::TextColored(kParchment, "%.0f%% speed",
+                           st->emulation_speed_percent);
+    }
+    ImGui::End();
+    ImGui::PopStyleVar();
 }
 
 void draw_debug_overlay(const ConfigUiState* st) {
@@ -681,63 +533,87 @@ void draw_debug_overlay(const ConfigUiState* st) {
 
 }  // namespace
 
-// UI-03: a conservative modernization pass over the stock ImGui dark theme —
-// rounded corners, roomier padding, and one coherent accent color reused for
-// every interactive element (buttons, tabs, headers, sliders). No layout or
-// binding-logic change; every widget call in this file is unaffected. Legible
-// at the window's default scale, same font (no network fonts, no new deps).
+// Golden Sun look: deep blue menu windows with gold trim, like the game's
+// own menus, and parchment text. Rounded, roomy, same built-in font.
 void apply_modern_style() {
     ImGuiStyle& style = ImGui::GetStyle();
 
-    style.WindowRounding    = 6.0f;
+    style.WindowRounding    = 8.0f;
     style.ChildRounding     = 6.0f;
-    style.FrameRounding     = 4.0f;
-    style.PopupRounding     = 4.0f;
+    style.FrameRounding     = 5.0f;
+    style.PopupRounding     = 5.0f;
     style.ScrollbarRounding = 6.0f;
-    style.GrabRounding      = 4.0f;
-    style.TabRounding       = 4.0f;
+    style.GrabRounding      = 5.0f;
+    style.TabRounding       = 5.0f;
+    style.WindowBorderSize  = 2.0f;
+    style.ChildBorderSize   = 1.0f;
+    style.FrameBorderSize   = 1.0f;
+    style.PopupBorderSize   = 1.0f;
 
-    style.WindowPadding     = ImVec2(12.0f, 10.0f);
-    style.FramePadding      = ImVec2(8.0f, 5.0f);
-    style.CellPadding       = ImVec2(6.0f, 4.0f);
-    style.ItemSpacing       = ImVec2(8.0f, 6.0f);
-    style.ItemInnerSpacing  = ImVec2(6.0f, 4.0f);
+    style.WindowPadding     = ImVec2(14.0f, 12.0f);
+    style.FramePadding      = ImVec2(9.0f, 6.0f);
+    style.CellPadding       = ImVec2(6.0f, 5.0f);
+    style.ItemSpacing       = ImVec2(9.0f, 7.0f);
+    style.ItemInnerSpacing  = ImVec2(7.0f, 5.0f);
     style.IndentSpacing     = 18.0f;
     style.ScrollbarSize     = 14.0f;
-    style.GrabMinSize       = 10.0f;
+    style.GrabMinSize       = 14.0f;
+    style.SeparatorTextBorderSize = 2.0f;
+    style.SelectableTextAlign = ImVec2(0.0f, 0.5f);
 
-    // One accent (a muted teal) reused for every interactive/highlight
-    // state, over the stock dark grays — keeps contrast and legibility
-    // rather than introducing a whole new palette.
-    const ImVec4 accent      (0.20f, 0.55f, 0.60f, 1.00f);
-    const ImVec4 accent_hover(0.25f, 0.65f, 0.70f, 1.00f);
-    const ImVec4 accent_active(0.16f, 0.45f, 0.50f, 1.00f);
+    const ImVec4 navy      (0.06f, 0.09f, 0.22f, 0.97f);
+    const ImVec4 navy_deep (0.04f, 0.06f, 0.15f, 1.00f);
+    const ImVec4 blue      (0.13f, 0.20f, 0.42f, 1.00f);
+    const ImVec4 blue_hover(0.20f, 0.30f, 0.58f, 1.00f);
+    const ImVec4 blue_high (0.27f, 0.39f, 0.70f, 1.00f);
+    auto gold_a = [](float a) { return ImVec4(kGold.x, kGold.y, kGold.z, a); };
+
     ImVec4* c = style.Colors;
-    c[ImGuiCol_WindowBg]         = ImVec4(0.10f, 0.11f, 0.12f, 0.98f);
-    c[ImGuiCol_Header]           = ImVec4(accent.x, accent.y, accent.z, 0.45f);
-    c[ImGuiCol_HeaderHovered]    = ImVec4(accent_hover.x, accent_hover.y, accent_hover.z, 0.65f);
-    c[ImGuiCol_HeaderActive]     = ImVec4(accent_active.x, accent_active.y, accent_active.z, 0.80f);
-    c[ImGuiCol_Button]           = ImVec4(0.20f, 0.21f, 0.23f, 1.00f);
-    c[ImGuiCol_ButtonHovered]    = accent_hover;
-    c[ImGuiCol_ButtonActive]     = accent_active;
-    c[ImGuiCol_FrameBg]          = ImVec4(0.16f, 0.17f, 0.19f, 1.00f);
-    c[ImGuiCol_FrameBgHovered]   = ImVec4(0.20f, 0.24f, 0.26f, 1.00f);
-    c[ImGuiCol_FrameBgActive]    = ImVec4(0.20f, 0.28f, 0.30f, 1.00f);
-    c[ImGuiCol_CheckMark]        = accent_hover;
-    c[ImGuiCol_SliderGrab]       = accent;
-    c[ImGuiCol_SliderGrabActive] = accent_hover;
-    c[ImGuiCol_Tab]              = ImVec4(0.14f, 0.15f, 0.16f, 1.00f);
-    c[ImGuiCol_TabHovered]       = accent_hover;
-    c[ImGuiCol_TabActive]        = accent_active;
-    c[ImGuiCol_TabUnfocused]     = c[ImGuiCol_Tab];
-    c[ImGuiCol_TabUnfocusedActive] = accent_active;
-    c[ImGuiCol_TitleBgActive]    = ImVec4(0.14f, 0.15f, 0.16f, 1.00f);
-    c[ImGuiCol_MenuBarBg]        = ImVec4(0.12f, 0.13f, 0.14f, 1.00f);
-    c[ImGuiCol_Separator]        = ImVec4(0.30f, 0.31f, 0.33f, 1.00f);
-    c[ImGuiCol_SeparatorHovered] = accent_hover;
-    c[ImGuiCol_TableHeaderBg]    = ImVec4(0.16f, 0.17f, 0.19f, 1.00f);
-    c[ImGuiCol_TableBorderStrong] = ImVec4(0.30f, 0.31f, 0.33f, 1.00f);
-    c[ImGuiCol_TableBorderLight]  = ImVec4(0.22f, 0.23f, 0.25f, 1.00f);
+    c[ImGuiCol_Text]                 = kParchment;
+    c[ImGuiCol_TextDisabled]         = kMutedText;
+    c[ImGuiCol_WindowBg]             = navy;
+    c[ImGuiCol_ChildBg]              = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    c[ImGuiCol_PopupBg]              = navy_deep;
+    c[ImGuiCol_Border]               = kGoldDim;
+    c[ImGuiCol_BorderShadow]         = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    c[ImGuiCol_FrameBg]              = navy_deep;
+    c[ImGuiCol_FrameBgHovered]       = blue;
+    c[ImGuiCol_FrameBgActive]        = blue_hover;
+    c[ImGuiCol_TitleBg]              = navy_deep;
+    c[ImGuiCol_TitleBgActive]        = blue;
+    c[ImGuiCol_TitleBgCollapsed]     = navy_deep;
+    c[ImGuiCol_MenuBarBg]            = navy_deep;
+    c[ImGuiCol_ScrollbarBg]          = navy_deep;
+    c[ImGuiCol_ScrollbarGrab]        = blue;
+    c[ImGuiCol_ScrollbarGrabHovered] = blue_hover;
+    c[ImGuiCol_ScrollbarGrabActive]  = kGoldDim;
+    c[ImGuiCol_CheckMark]            = kGold;
+    c[ImGuiCol_SliderGrab]           = kGoldDim;
+    c[ImGuiCol_SliderGrabActive]     = kGold;
+    c[ImGuiCol_Button]               = blue;
+    c[ImGuiCol_ButtonHovered]        = blue_hover;
+    c[ImGuiCol_ButtonActive]         = blue_high;
+    c[ImGuiCol_Header]               = gold_a(0.30f);
+    c[ImGuiCol_HeaderHovered]        = gold_a(0.20f);
+    c[ImGuiCol_HeaderActive]         = gold_a(0.40f);
+    c[ImGuiCol_Separator]            = kGoldDim;
+    c[ImGuiCol_SeparatorHovered]     = kGold;
+    c[ImGuiCol_SeparatorActive]      = kGold;
+    c[ImGuiCol_ResizeGrip]           = gold_a(0.25f);
+    c[ImGuiCol_ResizeGripHovered]    = gold_a(0.55f);
+    c[ImGuiCol_ResizeGripActive]     = kGold;
+    c[ImGuiCol_Tab]                  = navy_deep;
+    c[ImGuiCol_TabHovered]           = blue_hover;
+    c[ImGuiCol_TabActive]            = blue;
+    c[ImGuiCol_TabUnfocused]         = navy_deep;
+    c[ImGuiCol_TabUnfocusedActive]   = blue;
+    c[ImGuiCol_DockingPreview]       = gold_a(0.50f);
+    c[ImGuiCol_TableHeaderBg]        = navy_deep;
+    c[ImGuiCol_TableBorderStrong]    = kGoldDim;
+    c[ImGuiCol_TableBorderLight]     = ImVec4(0.22f, 0.27f, 0.45f, 1.00f);
+    c[ImGuiCol_TableRowBg]           = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    c[ImGuiCol_TableRowBgAlt]        = ImVec4(1.0f, 1.0f, 1.0f, 0.04f);
+    c[ImGuiCol_TextSelectedBg]       = gold_a(0.35f);
 }
 
 bool config_ui_init(SDL_Window* window, SDL_Renderer* renderer,
@@ -945,18 +821,6 @@ void config_ui_draw(ConfigUiState* st) {
         // guest is supposed to see.
         ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(),
                                      ImGuiDockNodeFlags_PassthruCentralNode);
-        if (ImGui::BeginMainMenuBar()) {
-            if (ImGui::BeginMenu("File")) {
-                if (ImGui::MenuItem("Close menu", "F1")) g_visible = false;
-                ImGui::Separator();
-                if (ImGui::MenuItem("Quit")) st->request_quit = true;
-                ImGui::EndMenu();
-            }
-            ImGui::TextDisabled("|  F1 closes  |  %.0f fps  |  %.0f%% speed",
-                                st->fps, st->emulation_speed_percent);
-            ImGui::EndMainMenuBar();
-        }
-
         // Clamp to the window: at scale 1 the host window is 240x160, and an
         // unclamped panel would open almost entirely offscreen with no way
         // to drag it back.
@@ -965,34 +829,19 @@ void config_ui_draw(ConfigUiState* st) {
         const ImVec2 work_size = viewport->WorkSize;
         const float max_w = std::max(1.0f, work_size.x);
         const float max_h = std::max(1.0f, work_size.y);
-        const float pane_w = std::min(700.0f, max_w);
-        const float pane_h = std::min(520.0f, max_h);
-        const float pane_x = work_pos.x +
-            std::min(40.0f, std::max(0.0f, max_w - pane_w));
-        const float pane_y = work_pos.y +
-            std::min(46.0f, std::max(0.0f, max_h - pane_h));
-        // UI-03: raised from 620x460 — the old default was cramped enough on
-        // modest host windows that a user recovering from an accidental
-        // shrink (see the size-constraint comment below) landed right back
-        // in a tight fit.
-        ImGui::SetNextWindowSize(ImVec2(pane_w, pane_h), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowPos(ImVec2(pane_x, pane_y), ImGuiCond_FirstUseEver);
-        // UI-03: floor the resize range. Proven mechanism (headless drag
-        // probe against this exact window): with no constraint, ImGui lets
-        // a corner-grip drag shrink this panel all the way down to its bare
-        // style.WindowMinSize (32x32) — reproduced exactly, no coordinate
-        // bug involved. Below roughly the Hotkeys tab's own content width
-        // (~370-400px for its 5-column table, measured headless) the grip
-        // itself becomes a sliver of the whole window, so a user trying to
-        // grab it to resize back out overwhelmingly grabs the title bar
-        // instead and just moves the window — which reads as "resizing is
-        // broken; it won't leave the minimum no matter where I click." The
-        // floor below keeps the panel always big enough to show that table
-        // and stay grabbable. No maximum: the user can still grow it freely.
+        // Every time the menu opens it fills the game window (Jimmy,
+        // 2026-09-29); it stays resizable and movable while open.
+        ImGui::SetNextWindowSize(ImVec2(max_w, max_h), ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(work_pos, ImGuiCond_Appearing);
+        // UI-03: floor the resize range so the corner grip never shrinks to
+        // a sliver that cannot be grabbed again (the Hotkeys table needs
+        // roughly this width). No maximum.
         ImGui::SetNextWindowSizeConstraints(
-            ImVec2(std::min(480.0f, max_w), std::min(360.0f, max_h)),
+            ImVec2(std::min(520.0f, max_w), std::min(360.0f, max_h)),
             ImVec2(FLT_MAX, FLT_MAX));
-        if (ImGui::Begin("Configuration", nullptr)) {
+        bool window_open = true;
+        if (ImGui::Begin("Settings###Configuration", &window_open,
+                         ImGuiWindowFlags_NoCollapse)) {
             const ImVec2 current_pos = ImGui::GetWindowPos();
             const ImVec2 current_size = ImGui::GetWindowSize();
             // Recover only on first open, an invalid saved/current rect, or
@@ -1030,116 +879,76 @@ void config_ui_draw(ConfigUiState* st) {
                 ImGui::SetWindowPos(recovered_pos);
                 g_config_window_recover = false;
             }
-            // Lighthouse-style navigation: stable top-level categories, then
-            // a compact page sidebar and a scrollable content pane. Page IDs
-            // persist across menu closes/category switches; enhancement IDs
-            // keep old meanings so removed pages fall back safely.
-            enum : int {
-                kSettings = 0, kEnhancements = 1, kCheats = 2,
-                kDeveloper = 3, kCategoryCount = 4,
-            };
-            struct PageEntry { int id; const char* name; };
-            static int category = kSettings;
-            static int settings_page = 0;
-            static int enhancements_page = 0;
-            static int cheats_page = 0;
-            static int developer_page = 0;
 
-            static const char* const categories[kCategoryCount] = {
-                "Settings", "Enhancements", "Cheats", "Developer Tools",
+            // One sidebar of pages, the chosen page beside it, and a footer.
+            // The page is remembered while the menu is closed.
+            struct Page { const char* name; const char* blurb; };
+            static const Page kPages[] = {
+                {"Video",        "Window size, fullscreen and picture."},
+                {"Audio",        "Volume."},
+                {"Controls",     "Which keys and buttons play the game."},
+                {"Hotkeys",      "Shortcuts such as fast forward and auto fire."},
+                {"Fast Forward", "How fast fast forward runs."},
+                {"Enhancements", "Optional improvements to the picture."},
             };
-            static const PageEntry settings_pages[] = {
-                {0, "Video"}, {1, "Audio"}, {2, "Controls"},
-                {3, "Hotkeys"}, {4, "Speed"},
-            };
-            // Legacy IDs: 0=Timing, 1=Performance, 2=Visual,
-            // 3=Native Rendering. Performance merges into ID 0; removed
-            // IDs 1 and 3 therefore clamp to the first visible page.
-            static const PageEntry enhancement_pages[] = {
-                {0, "Timing & Performance"}, {2, "Visual"},
-            };
-            static const PageEntry cheat_pages[] = { {0, "Player"} };
-            static const PageEntry developer_pages[] = { {0, "Logging"} };
-            int* page = &settings_page;
-            const PageEntry* page_entries = settings_pages;
-            int page_count = static_cast<int>(sizeof(settings_pages) /
-                                              sizeof(settings_pages[0]));
-            if (category < 0 || category >= kCategoryCount)
-                category = kSettings;
-            if (category == kEnhancements) {
-                page = &enhancements_page;
-                page_entries = enhancement_pages;
-                page_count = static_cast<int>(sizeof(enhancement_pages) /
-                                              sizeof(enhancement_pages[0]));
-            } else if (category == kCheats) {
-                page = &cheats_page;
-                page_entries = cheat_pages;
-                page_count = static_cast<int>(sizeof(cheat_pages) /
-                                              sizeof(cheat_pages[0]));
-            } else if (category == kDeveloper) {
-                page = &developer_page;
-                page_entries = developer_pages;
-                page_count = static_cast<int>(sizeof(developer_pages) /
-                                              sizeof(developer_pages[0]));
-            }
-            bool page_valid = false;
-            for (int i = 0; i < page_count; ++i)
-                page_valid = page_valid || *page == page_entries[i].id;
-            if (!page_valid) *page = page_entries[0].id;
+            constexpr int kPageCount =
+                static_cast<int>(sizeof(kPages) / sizeof(kPages[0]));
+            static int page = 0;
+            page = std::clamp(page, 0, kPageCount - 1);
 
-            ImGui::BeginChild("ConfigCategories", ImVec2(0.0f, 38.0f), false,
-                              ImGuiWindowFlags_NoScrollbar);
-            for (int i = 0; i < kCategoryCount; ++i) {
-                if (i != 0) ImGui::SameLine();
-                ImGui::PushID(i);
-                const float width = ImGui::CalcTextSize(categories[i]).x + 24.0f;
-                if (ImGui::Selectable(categories[i], category == i, 0,
-                                       ImVec2(width, 30.0f)))
-                    category = i;
-                ImGui::PopID();
+            const float footer_h = ImGui::GetFrameHeightWithSpacing() + 8.0f;
+            ImGui::BeginChild("ConfigSidebar", ImVec2(150.0f, -footer_h), true);
+            for (int i = 0; i < kPageCount; ++i) {
+                const bool selected = page == i;
+                if (selected) ImGui::PushStyleColor(ImGuiCol_Text, kGold);
+                if (ImGui::Selectable(kPages[i].name, selected, 0,
+                                      ImVec2(0.0f, 30.0f)))
+                    page = i;
+                if (selected) ImGui::PopStyleColor();
             }
             ImGui::EndChild();
-            ImGui::Separator();
+            ImGui::SameLine();
 
-            ImGui::BeginChild("ConfigBody", ImVec2(0.0f, 0.0f), false);
-            if (category != kCheats) {
-                ImGui::BeginChild("ConfigSidebar", ImVec2(168.0f, 0.0f), true);
-                for (int i = 0; i < page_count; ++i) {
-                    ImGui::PushID(page_entries[i].id);
-                    if (ImGui::Selectable(page_entries[i].name,
-                                          *page == page_entries[i].id,
-                                          ImGuiSelectableFlags_SpanAllColumns,
-                                          ImVec2(0.0f, 30.0f)))
-                        *page = page_entries[i].id;
-                    ImGui::PopID();
-                }
-                ImGui::EndChild();
-                ImGui::SameLine();
-            }
-            ImGui::BeginChild("ConfigContent", ImVec2(0.0f, 0.0f), true);
-            if (category == kSettings) {
-                switch (*page) {
-                    case 0: draw_video_page(st); break;
-                    case 1: draw_audio_page(st); break;
-                    case 2: draw_controls_page(st); break;
-                    case 3: draw_hotkeys_page(st); break;
-                    default: draw_turbo_page(st); break;
-                }
-            } else if (category == kEnhancements) {
-                switch (*page) {
-                    case 2: draw_visual_page(st); break;
-                    case 0: default: draw_timing_performance_page(st); break;
-                }
-            } else if (category == kCheats) {
-                draw_cheats_player_page(st);
-            } else {
-                draw_logging_page(st);
+            ImGui::BeginChild("ConfigContent", ImVec2(0.0f, -footer_h), true);
+            ImGui::TextColored(kGold, "%s", kPages[page].name);
+            ImGui::PushStyleColor(ImGuiCol_Text, kMutedText);
+            ImGui::TextUnformatted(kPages[page].blurb);
+            ImGui::PopStyleColor();
+            switch (page) {
+                case 0: draw_video_page(st); break;
+                case 1: draw_audio_page(st); break;
+                case 2: draw_controls_page(st); break;
+                case 3: draw_hotkeys_page(st); break;
+                case 4: draw_turbo_page(st); break;
+                default: draw_enhancements_page(st); break;
             }
             ImGui::EndChild();
-            ImGui::EndChild();
+
+            ImGui::Spacing();
+            if (ImGui::Button("Close")) window_open = false;
+            ImGui::SameLine();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("F1 or Esc");
+            ImGui::SameLine();
+            ImGui::TextDisabled("   %.0f FPS   %.0f%% speed",
+                                st->fps, st->emulation_speed_percent);
+            const char* quit_label = "Quit Game";
+            const float quit_w = ImGui::CalcTextSize(quit_label).x +
+                                 ImGui::GetStyle().FramePadding.x * 2.0f;
+            ImGui::SameLine(ImGui::GetContentRegionMax().x - quit_w);
+            if (ImGui::Button(quit_label)) st->request_quit = true;
+
+            // Esc closes the menu, unless it is cancelling a bind capture.
+            if (g_capture == Capture::None &&
+                ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+                ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+                window_open = false;
         }
         ImGui::End();
+        if (!window_open) config_ui_set_visible(false);
     }
+
+    draw_fps_overlay(st);
 
     // Unlike the F1 configuration window, this stays visible during normal
     // gameplay whenever the persisted Debug overlay switch is on.

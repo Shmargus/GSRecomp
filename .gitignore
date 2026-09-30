@@ -29,6 +29,7 @@ recomp_seed_proposals*
 *.srm
 *.ss?
 *.state
+*.state[0-9]*
 *.trace
 *.dump
 *.raw
@@ -175,7 +176,8 @@ BLOG_POST*.html
 /.github/
 /docs/
 /symbols/
-/assets/
+/assets/*
+!/assets/launcher_logo.png
 /generated/
 /roms/
 /tests/*
@@ -190,6 +192,9 @@ BLOG_POST*.html
 !/tools/import_overlay_inventory.py
 !/tools/validate_overlay_manifest.py
 !/tools/build_all_overlays.py
+!/tools/slim_corpus.py
+!/tools/block_timing.py
+!/tools/gsr_builder/
 !/tools/build_overlay_toml.py
 !/tools/build_synthesized_dc8_variant.py
 !/tools/build_synthesized_dc8_slot2_variant.py
@@ -210,3 +215,12 @@ BLOG_POST*.html
 !/gbarecomp/tools/gba_scan/
 !/gbarecomp/tools/symbol_import/
 !/gbarecomp/tools/test_rom_runner/
+
+# Local player releases (make_release.bat) and the script that makes them.
+/GSRecomp-Release/
+/make_release.bat
+/build_nolto_test.bat
+/build_lto_nosymbols.bat
+/build_lto_o2.bat
+# Downloaded Python packages (e.g. the unicorn wheel for build_stamp_variants.py).
+*.whl
