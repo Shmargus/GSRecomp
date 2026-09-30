@@ -1,0 +1,710 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Golden Sun Recompiled: the Game Boy Advance game rebuilt as a native Windows program, with widescreen, extra settings and more. A free fan project.">
+<meta property="og:title" content="Golden Sun Recompiled">
+<meta property="og:description" content="The Game Boy Advance game rebuilt as a native Windows program. A free fan project.">
+<meta property="og:image" content="logo.webp">
+<title>Golden Sun Recompiled</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lobster&family=Bebas+Neue&family=Open+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap">
+<style>
+/* Layout: a 2011-style fan site. Dark linen backdrop, the logo on it, a white content panel with a right-hand sidebar of boxes. One look in
+   every theme, so every colour is set here explicitly. */
+:root {
+  --linen: #2b2f36;
+  --linen-line: #33383f;
+  --panel: #ffffff;
+  --panel-alt: #f4f6f8;
+  --text: #333a42;
+  --muted: #6a737d;
+  --rule: #dde2e7;
+  --link: #1f63a8;
+  --gold: #f2b632;
+  --gold-deep: #c9861a;
+  --nav-top: #3f6f9f;
+  --nav-bottom: #274d74;
+  --window-top: #3272b0;
+  --window-bottom: #1d4775;
+  --note-bg: #fff8d6;
+  --note-line: #e8d27a;
+  --script: "Lobster", "Brush Script MT", cursive;
+  --head: "Bebas Neue", Impact, "Arial Narrow", sans-serif;
+  --body: "Open Sans", "Segoe UI", Arial, sans-serif;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding-inline: 16px; padding-block: 10px 40px;
+  font: 14px/1.6 var(--body); color: var(--text);
+  background-color: var(--linen);
+  background-image:
+    repeating-linear-gradient(45deg, var(--linen-line) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(-45deg, rgba(0,0,0,.18) 0 1px, transparent 1px 4px);
+}
+a { color: var(--link); }
+.site { max-width: 980px; margin: 0 auto; box-shadow: 0 0 0 1px rgba(0,0,0,.4), 0 8px 30px rgba(0,0,0,.5); border-radius: 6px; overflow: clip; }
+
+/* Header */
+.masthead {
+  max-width: 980px; margin: 0 auto 12px; padding: 0 16px;
+  display: grid; justify-items: center; gap: 2px; position: relative; text-align: center;
+}
+.ai-note {
+  max-width: 980px; margin: 0 auto 6px; padding: 6px 14px; text-align: center;
+  font: 600 12.5px var(--body); color: #e8edf2; background: rgba(0,0,0,.35);
+  border: 1px solid rgba(255,255,255,.12); border-radius: 4px;
+}
+.masthead h1 { margin: 0; line-height: 0; }
+.masthead img { display: block; width: 520px; max-width: 100%; height: auto; filter: drop-shadow(0 4px 10px rgba(0,0,0,.45)); }
+.tagline { font: 600 13px var(--body); color: #cfe0f0; text-shadow: 0 1px 0 rgba(0,0,0,.5); letter-spacing: .02em; margin: 0; }
+.logo { font-family: var(--script); font-size: clamp(34px, 6vw, 52px); line-height: 1; color: var(--gold); text-shadow: 0 2px 0 #7a4a06, 0 3px 8px rgba(0,0,0,.5); margin: 0; font-weight: 400; }
+.logo small { display: block; font: 600 13px var(--body); color: #cfe0f0; text-shadow: 0 1px 0 rgba(0,0,0,.5); margin-top: 8px; letter-spacing: .02em; }
+.wip-stamp {
+  font: 700 11px var(--body); letter-spacing: .12em; text-transform: uppercase; color: #5a3a00;
+  background: linear-gradient(#ffd66b, #f2b632); border: 1px solid #b07a14; border-radius: 3px;
+  padding: 5px 10px; box-shadow: inset 0 1px 0 rgba(255,255,255,.6), 0 1px 2px rgba(0,0,0,.4); transform: rotate(-2deg);
+}
+
+
+/* Body columns */
+.cols { background: var(--panel); display: grid; grid-template-columns: minmax(0, 1fr) 270px; }
+main { padding: 26px 30px 34px; min-width: 0; display: grid; gap: 34px; align-content: start; }
+aside { background: var(--panel-alt); border-left: 1px solid var(--rule); padding: 22px 18px; display: grid; gap: 20px; align-content: start; }
+
+h2.section {
+  font: 400 30px/1 var(--head); letter-spacing: .04em; color: #1d4775; margin: 0 0 12px;
+  padding-bottom: 8px; border-bottom: 2px solid var(--rule); position: relative;
+}
+h2.section::after { content: ""; position: absolute; left: 0; bottom: -2px; width: 60px; height: 2px; background: var(--gold-deep); }
+h3 { font: 700 15px var(--body); margin: 0 0 4px; color: #22303d; }
+p { margin: 0 0 10px; }
+.intro { font-size: 15.5px; }
+.note { background: var(--note-bg); border: 1px solid var(--note-line); border-radius: 4px; padding: 10px 14px; font-size: 13.5px; }
+.note b { color: #7a5500; }
+
+/* Picture: two-up list */
+.pairs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 26px; margin: 0; }
+.pairs div { min-width: 0; }
+.pairs p { color: var(--muted); margin: 0; }
+.where { font-size: 12px; color: var(--muted); }
+.where b { color: var(--text); font-weight: 600; }
+
+/* The settings window, in the game's style */
+.sim-wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
+.gswin {
+  background: linear-gradient(180deg, var(--window-top), var(--window-bottom));
+  border: 2px solid #e8f0f8; outline: 2px solid #0d1f33; border-radius: 5px;
+  color: #fff; text-shadow: 1px 1px 0 #0b1a2b; font: 700 13px/1.2 var(--body);
+}
+.gswin.help { padding: 7px 12px; font-style: italic; font-weight: 600; margin-bottom: 8px; min-height: 32px; }
+.gswin.rows { padding: 6px 0; }
+.srow {
+  display: grid; grid-template-columns: 22px 1fr 118px; align-items: center;
+  width: 100%; background: none; border: 0; color: inherit; font: inherit; text-shadow: inherit;
+  padding: 7px 10px 7px 6px; cursor: pointer; text-align: left;
+}
+.srow + .srow { border-top: 1px solid rgba(255,255,255,.12); }
+.srow .hand { visibility: hidden; color: var(--gold); font-size: 14px; }
+.srow.cur .hand { visibility: visible; }
+.srow .val { text-align: center; white-space: nowrap; }
+.srow:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+.sim-under { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 12px; color: var(--muted); gap: 8px; flex-wrap: wrap; }
+.btns { display: flex; gap: 6px; }
+.btn {
+  font: 700 12px var(--body); color: #2d3640; cursor: pointer;
+  background: linear-gradient(#ffffff, #e3e8ed); border: 1px solid #aeb7c0; border-radius: 4px;
+  padding: 4px 10px; box-shadow: inset 0 1px 0 #fff, 0 1px 1px rgba(0,0,0,.12);
+}
+.btn:active { background: linear-gradient(#e3e8ed, #ffffff); }
+.btn:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
+.gswin.cheatwin { background: #00398c; padding: 8px 0 8px; }
+.cheat-title { text-align: center; padding: 2px 0 8px; font-size: 14px; }
+.crow {
+  display: grid; grid-template-columns: 1fr 124px; align-items: center;
+  width: 100%; background: none; border: 0; color: inherit; font: inherit; text-shadow: inherit;
+  padding: 7px 12px 7px 14px; cursor: pointer; text-align: left;
+}
+.crow .val { text-align: center; white-space: nowrap; }
+
+.crow:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+.screen-col { display: grid; gap: 10px; justify-items: start; min-width: 0; }
+.bezel { background: #3a3f4a; padding: 10px; border-radius: 10px; box-shadow: inset 0 2px 4px rgba(0,0,0,.5), 0 1px 0 #fff; max-width: 100%; }
+canvas.gba { display: block; width: 480px; max-width: 100%; aspect-ratio: 3 / 2; image-rendering: pixelated; image-rendering: crisp-edges; background: #16222e; cursor: pointer; }
+canvas.gba:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+.pad { display: flex; gap: 6px; flex-wrap: wrap; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.explain { background: var(--panel-alt); border: 1px solid var(--rule); border-radius: 4px; padding: 12px 14px; min-height: 100%; }
+.explain h3 { color: #1d4775; }
+.explain .opts { font-size: 12.5px; color: var(--muted); margin: 0; }
+
+/* Tables */
+table.plain { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.plain th, table.plain td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+table.plain th { font-weight: 700; background: linear-gradient(#fafbfc, #eef1f4); color: #3b4550; border-top: 1px solid var(--rule); }
+table.plain tr:nth-child(even) td { background: #fafbfc; }
+.tblwrap { overflow-x: auto; }
+
+/* Bullet lists */
+ul.ticks { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+ul.ticks li { padding-left: 22px; position: relative; }
+ul.ticks li::before { content: ""; position: absolute; left: 2px; top: 7px; width: 9px; height: 9px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #ffe08a, var(--gold-deep)); box-shadow: 0 0 0 1px #a86d10; }
+ul.ticks.later li::before { background: radial-gradient(circle at 35% 35%, #fff, #b8c2cc); box-shadow: 0 0 0 1px #8f9aa5; }
+.tag { font: 700 10px var(--body); text-transform: uppercase; letter-spacing: .08em; color: #8a5a00; background: #fff1c2; border: 1px solid #e8cf7a; border-radius: 3px; padding: 1px 5px; margin-left: 6px; vertical-align: 1px; }
+
+/* Sidebar boxes */
+/* FAQ */
+.faq { display: grid; gap: 8px; }
+.faq details { border: 1px solid var(--rule); border-radius: 4px; background: linear-gradient(#fdfdfe, #f3f5f8); }
+.faq details[open] { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.faq summary {
+  list-style: none; cursor: pointer; padding: 10px 14px 10px 38px; position: relative;
+  font-weight: 700; color: #22303d;
+}
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::before {
+  content: "+"; position: absolute; left: 12px; top: 9px; width: 16px; height: 16px;
+  border-radius: 3px; background: linear-gradient(var(--nav-top), var(--nav-bottom));
+  color: #fff; font: 700 13px/16px var(--body); text-align: center;
+}
+.faq details[open] summary::before { content: "2"; }
+.faq summary:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
+.faq .a { padding: 0 16px 12px 38px; }
+.faq .a p:last-child { margin-bottom: 0; }
+.faq ol { margin: 0 0 10px; padding-left: 20px; }
+.faq ol li { margin-bottom: 4px; }
+.box { background: #fff; border: 1px solid #cfd6dd; border-radius: 5px; box-shadow: 0 1px 2px rgba(0,0,0,.06); overflow: hidden; }
+.box h4 { margin: 0; padding: 8px 12px; font: 400 18px/1 var(--head); letter-spacing: .05em; color: #fff; background: linear-gradient(var(--nav-top), var(--nav-bottom)); text-shadow: 0 -1px 0 rgba(0,0,0,.4); }
+.box .in { padding: 10px 12px; font-size: 13px; }
+.keys { list-style: none; margin: 0; padding: 0; }
+.keys li { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px dotted #d3d9df; align-items: center; }
+.keys li:last-child { border-bottom: 0; }
+kbd {
+  font: 700 11px var(--body); color: #333; white-space: nowrap;
+  background: linear-gradient(#fff, #e6e9ec); border: 1px solid #aab3bc; border-radius: 3px;
+  padding: 1px 5px; box-shadow: 0 1px 0 #9aa3ac;
+}
+.box ul.small { margin: 0; padding-left: 18px; }
+.keynote { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid #d3d9df; font-size: 12px; color: var(--muted); }
+.box ul.small li { margin-bottom: 4px; }
+
+footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14px 28px; border-top: 1px solid #0e1114; display: grid; gap: 4px; }
+
+@media (max-width: 800px) {
+  .cols { grid-template-columns: minmax(0, 1fr); }
+  aside { border-left: 0; border-top: 1px solid var(--rule); }
+  .sim-wrap, .pairs { grid-template-columns: minmax(0, 1fr); }
+  main { padding: 20px 18px 26px; }
+  .masthead { padding: 20px 18px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<p class="ai-note">Portions of this project were developed with the assistance of AI-based development tools.</p>
+<header class="masthead">
+    <h1><img src="logo.webp" width="1774" height="887" alt="Golden Sun Recompiled"></h1>
+</header>
+<div class="site">
+
+
+  <div class="cols">
+    <main>
+      <section id="about">
+        <h2 class="section">What is this?</h2>
+        <p class="intro">Golden Sun Recompiled turns the 2001 Game Boy Advance game into a program that runs straight on Windows. It isn't an emulator. The game's own code is translated into PC code, so you get the same adventure with a wider screen, a proper settings menu and a handful of optional extras.</p>
+        <p>You bring your own copy of the game. Nothing from the game comes with this project, and your game file is never changed.</p>
+        <div class="note"><b>Heads up:</b> this is still being worked on. It's tested by playing through the game, and a few things may still look or sound slightly off.</div>
+      </section>
+
+      <section id="picture">
+        <h2 class="section">Picture</h2>
+        <div class="pairs">
+          <div><h3>Widescreen</h3><p>See more around you in towns, dungeons, on the world map and in battle.</p><span class="where">Settings page two → <b>Screen: Wide</b></span></div>
+          <div><h3>Spells fill the screen</h3><p>Psynergy and summons carry on into the extra space instead of stopping at the old edge.</p><span class="where">Automatic in <b>Wide</b></span></div>
+          <div><h3>Sharp pixels</h3><p>Keeps the pixel art crisp at any window size.</p><span class="where"><b>F1</b> → Video</span></div>
+          <div><h3>Flicker reduction</h3><p>Smooths out effects the original drew by flashing them on and off.</p><span class="where"><b>F1</b> menu</span></div>
+          <div><h3>Any window size</h3><p>Resize the window freely or play fullscreen.</p><span class="where"><b>Alt+Enter</b> or <b>F1</b> → Video</span></div>
+          <div><h3>FPS counter</h3><p>Shows the frame rate and game speed in a corner.</p><span class="where">Press <b>F</b></span></div>
+        </div>
+      </section>
+
+      <section id="settings">
+        <h2 class="section">Game settings</h2>
+        <p>The game's own Settings screen has a second page. Press Down past Auto-Sleep to reach it. Try it here: click the screen, then use the arrow keys or the buttons. The map that shows behind the menu in the game is left out.</p>
+        <div class="sim-wrap">
+          <div class="screen-col">
+            <div class="bezel"><canvas id="settings-screen" class="gba" width="240" height="160" tabindex="0" role="application" aria-label="Settings page two. Use the arrow keys."></canvas></div>
+            <span class="sr" id="settings-live" aria-live="polite"></span>
+            <div class="pad" aria-label="Buttons">
+              <button class="btn" type="button" data-for="settings-screen" data-act="up" aria-label="Up">&#9650;</button>
+              <button class="btn" type="button" data-for="settings-screen" data-act="down" aria-label="Down">&#9660;</button>
+              <button class="btn" type="button" data-for="settings-screen" data-act="left" aria-label="Left">&#9664;</button>
+              <button class="btn" type="button" data-for="settings-screen" data-act="right" aria-label="Right">&#9654;</button>
+              
+            </div>
+          </div>
+          <div class="explain" id="sim-explain"></div>
+        </div>
+        <p style="margin-top:16px">Page one gains one choice too: <b>Message Speed: Instant</b>, which shows each line of dialogue at once.</p>
+      </section>
+
+      <section id="speed">
+        <h2 class="section">Battles &amp; speed</h2>
+        <div class="tblwrap">
+          <table class="plain">
+            <thead><tr><th>Feature</th><th>What it does</th><th>How</th></tr></thead>
+            <tbody>
+              <tr><td><b>2x battle speed</b></td><td>Runs battles at double speed. A small &raquo; shows while it's on.</td><td><kbd>Select</kbd> in battle</td></tr>
+              <tr><td><b>Fast forward</b></td><td>Speeds up everything while you hold the key, or switch it on and off with a key of your choice.</td><td><kbd>Tab</kbd> (hold), changeable in <kbd>F1</kbd></td></tr>
+              <tr><td><b>No slowdown</b></td><td>Keeps busy scenes at full speed where the original slowed down.</td><td>Settings page two</td></tr>
+              <tr><td><b>Save states</b></td><td>Save the exact moment anywhere and jump back later, on top of the game's own saves.</td><td><kbd>Shift</kbd>+<kbd>F2</kbd>&ndash;<kbd>F10</kbd> save, <kbd>F2</kbd>&ndash;<kbd>F10</kbd> load</td></tr>
+              <tr><td><b>Controls</b></td><td>Change every key and controller button. Add auto fire to A and B.</td><td><kbd>F1</kbd> → Controls, Hotkeys</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="cheats">
+        <h2 class="section">Cheat menu</h2>
+        <p>Press <kbd>F11</kbd> anywhere (or the key you picked in the F1 menu). The game pauses and this window opens over the picture. Everything starts at normal. Try it: click the screen, then use the arrow keys (A or Enter switches On and Off).</p>
+        <div class="sim-wrap">
+          <div class="screen-col">
+            <div class="bezel"><canvas id="cheat-screen" class="gba" width="240" height="160" tabindex="0" role="application" aria-label="Cheat menu. Use the arrow keys; A switches On and Off."></canvas></div>
+            <span class="sr" id="cheat-live" aria-live="polite"></span>
+            <div class="pad" aria-label="Buttons">
+              <button class="btn" type="button" data-for="cheat-screen" data-act="up" aria-label="Up">&#9650;</button>
+              <button class="btn" type="button" data-for="cheat-screen" data-act="down" aria-label="Down">&#9660;</button>
+              <button class="btn" type="button" data-for="cheat-screen" data-act="left" aria-label="Left">&#9664;</button>
+              <button class="btn" type="button" data-for="cheat-screen" data-act="right" aria-label="Right">&#9654;</button>
+              
+            </div>
+          </div>
+          <div class="explain" id="cheat-explain"></div>
+        </div>
+      </section>
+
+      <section id="inside">
+        <h2 class="section">Under the hood</h2>
+        <ul class="ticks">
+          <li><b>Real PC code.</b> The game's code is translated ahead of time, including the parts it loads while you play.</li>
+          <li><b>No BIOS file.</b> You only need your game file, not the handheld's start-up chip.</li>
+          <li><b>Checks your game file.</b> The launcher makes sure it's the exact version this was built for.</li>
+        </ul>
+      </section>
+
+      <section id="faq">
+        <h2 class="section">FAQ</h2>
+        <div class="faq">
+          <details open>
+            <summary>How do I report a bug?</summary>
+            <div class="a">
+              <ol>
+                <li>Press <kbd>F12</kbd> right after the problem shows up. The game keeps the last two seconds, so a flicker that's already gone is still caught. "BUG REPORT SAVED" appears in the top-right corner.</li>
+                <li>Keep playing if you like, and press <kbd>F12</kbd> again for any other problem.</li>
+                <li>Close the game. The launcher packs everything into one zip file in <b>logsug_reports</b> and opens that folder for you.</li>
+                <li>Send the zip with a few words about what happened, on <a href="https://github.com/Shmargus/GSRecomp/issues" target="_blank" rel="noopener">GitHub</a>.</li>
+              </ol>
+              <p>If the game crashes, you don't need to press anything: the launcher makes the report by itself when it notices. The zip holds the game's log and screen captures, your settings files and your Windows version. The file can be 20 to 30 MB, so a file-sharing link may be easier than an attachment.</p>
+            </div>
+          </details>
+          <details>
+            <summary>Is this an emulator?</summary>
+            <div class="a"><p>No. The game's own code is translated into PC code ahead of time, so it runs directly on Windows instead of through a program that imitates the Game Boy Advance.</p></div>
+          </details>
+          <details>
+            <summary>Do I need my own copy of the game?</summary>
+            <div class="a"><p>Yes. Nothing from Golden Sun comes with this project. You pick your own Golden Sun (USA/Europe) game file, and the launcher checks it's the exact version this was built for. No BIOS file is needed.</p></div>
+          </details>
+          <details>
+            <summary>Why does the first start take a few minutes?</summary>
+            <div class="a"><p>The first time you pick your game file, the game is prepared from it on your PC. A progress bar shows how far along it is. After that it starts straight away, until an update needs it to prepare again.</p></div>
+          </details>
+          <details>
+            <summary>Where are my saves, and do they survive updates?</summary>
+            <div class="a"><p>Your in-game save and your save states are stored next to your own game file, not in the program folder. Installing a new version doesn't touch them.</p></div>
+          </details>
+          <details>
+            <summary>Can I play with a controller?</summary>
+            <div class="a"><p>Yes. Every button can be changed in the <b>F1</b> menu, for both keyboard and controller.</p></div>
+          </details>
+          <details>
+            <summary>Is it finished?</summary>
+            <div class="a"><p>Not yet. A first test release is coming soon. Expect some rough edges, and please report what you find.</p></div>
+          </details>
+          <details>
+            <summary>What does it run on, and what does it cost?</summary>
+            <div class="a"><p>Windows 10 and 11. It's a free, noncommercial fan project.</p></div>
+          </details>
+        </div>
+      </section>
+    </main>
+
+    <aside>
+      <div class="box">
+        <h4>Quick keys</h4>
+        <div class="in">
+          <ul class="keys">
+            <li><span>Settings menu</span><kbd>F1</kbd></li>
+            <li><span>Cheat menu</span><kbd>F11</kbd></li>
+            <li><span>Load state</span><kbd>F2&ndash;F10</kbd></li>
+            <li><span>Save state</span><kbd>Shift+F2&ndash;F10</kbd></li>
+            <li><span>Fast forward</span><kbd>Tab</kbd></li>
+            <li><span>Fullscreen</span><kbd>Alt+Enter</kbd></li>
+            <li><span>Pause</span><kbd>Shift+P</kbd></li>
+            <li><span>FPS counter</span><kbd>F</kbd></li>
+            <li><span>2x battles</span><kbd>Select</kbd></li>
+          </ul>
+          <p class="keynote">Every hotkey here except the save states can be changed in the <b>F1</b> menu.</p>
+        </div>
+      </div>
+      <div class="box">
+        <h4>What you need</h4>
+        <div class="in">
+          <ul class="small">
+            <li>A Windows 10 or 11 PC</li>
+            <li>Your own Golden Sun game file (USA/Europe)</li>
+            <li>That's it. No BIOS, no emulator.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="box">
+        <h4>Get it</h4>
+        <div class="in">
+          <ul class="keys">
+            <li><span>Source code</span><a href="https://github.com/Shmargus/GSRecomp" target="_blank" rel="noopener">GitHub</a></li>
+            <li><span>Download</span><b>Coming soon</b></li>
+          </ul>
+        </div>
+      </div>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="foot">
+    <span>A noncommercial fan project. Golden Sun belongs to its owners; you need your own legally obtained copy to play.</span>
+    <span>Updated September 2026.</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  // ---- A small pixel font, drawn for this page (not the game's). Same
+  // metrics as the game's menu text: capitals 7 pixels, lowercase 5, a
+  // 1-pixel shadow down and to the right.
+  const G = {
+    "A": [" ### ","#   #","#   #","#####","#   #","#   #","#   #"],
+    "B": ["#### ","#   #","#   #","#### ","#   #","#   #","#### "],
+    "C": [" ### ","#   #","#    ","#    ","#    ","#   #"," ### "],
+    "D": ["#### ","#   #","#   #","#   #","#   #","#   #","#### "],
+    "E": ["#####","#    ","#    ","#### ","#    ","#    ","#####"],
+    "F": ["#####","#    ","#    ","#### ","#    ","#    ","#    "],
+    "G": [" ### ","#   #","#    ","# ###","#   #","#   #"," ####"],
+    "H": ["#   #","#   #","#   #","#####","#   #","#   #","#   #"],
+    "I": ["###"," # "," # "," # "," # "," # ","###"],
+    "J": ["  ###","   # ","   # ","   # ","   # ","#  # "," ##  "],
+    "K": ["#   #","#  # ","# #  ","##   ","# #  ","#  # ","#   #"],
+    "L": ["#    ","#    ","#    ","#    ","#    ","#    ","#####"],
+    "M": ["#   #","## ##","# # #","# # #","#   #","#   #","#   #"],
+    "N": ["#   #","##  #","# # #","#  ##","#   #","#   #","#   #"],
+    "O": [" ### ","#   #","#   #","#   #","#   #","#   #"," ### "],
+    "P": ["#### ","#   #","#   #","#### ","#    ","#    ","#    "],
+    "Q": [" ### ","#   #","#   #","#   #","# # #","#  # "," ## #"],
+    "R": ["#### ","#   #","#   #","#### ","# #  ","#  # ","#   #"],
+    "S": [" ####","#    ","#    "," ### ","    #","    #","#### "],
+    "T": ["#####","  #  ","  #  ","  #  ","  #  ","  #  ","  #  "],
+    "U": ["#   #","#   #","#   #","#   #","#   #","#   #"," ### "],
+    "V": ["#   #","#   #","#   #","#   #","#   #"," # # ","  #  "],
+    "W": ["#   #","#   #","#   #","# # #","# # #","## ##","#   #"],
+    "X": ["#   #","#   #"," # # ","  #  "," # # ","#   #","#   #"],
+    "Y": ["#   #","#   #"," # # ","  #  ","  #  ","  #  ","  #  "],
+    "Z": ["#####","    #","   # ","  #  "," #   ","#    ","#####"],
+    "a": ["    ","    "," ## ","   #"," ###","#  #"," ###"],
+    "b": ["#   ","#   ","### ","#  #","#  #","#  #","### "],
+    "c": ["   ","   "," ##","#  ","#  ","#  "," ##"],
+    "d": ["   #","   #"," ###","#  #","#  #","#  #"," ###"],
+    "e": ["    ","    "," ## ","#  #","####","#   "," ###"],
+    "f": [" ##","#  ","#  ","###","#  ","#  ","#  "],
+    "g": ["    ","    "," ###","#  #","#  #","#  #"," ###","   #"," ## "],
+    "h": ["#   ","#   ","### ","#  #","#  #","#  #","#  #"],
+    "i": ["#"," ","#","#","#","#","#"],
+    "j": ["  #","   ","  #","  #","  #","  #","  #","  #","## "],
+    "k": ["#   ","#   ","#  #","# # ","##  ","# # ","#  #"],
+    "l": ["#","#","#","#","#","#","#"],
+    "m": ["     ","     ","#### ","# # #","# # #","# # #","# # #"],
+    "n": ["    ","    ","### ","#  #","#  #","#  #","#  #"],
+    "o": ["    ","    "," ## ","#  #","#  #","#  #"," ## "],
+    "p": ["    ","    ","### ","#  #","#  #","#  #","### ","#   ","#   "],
+    "q": ["    ","    "," ###","#  #","#  #","#  #"," ###","   #","   #"],
+    "r": ["   ","   ","# #","## ","#  ","#  ","#  "],
+    "s": ["    ","    "," ###","#   "," ## ","   #","### "],
+    "t": [" # "," # ","###"," # "," # "," # ","  #"],
+    "u": ["    ","    ","#  #","#  #","#  #","#  #"," ###"],
+    "v": ["     ","     ","#   #","#   #","#   #"," # # ","  #  "],
+    "w": ["     ","     ","#   #","#   #","# # #","# # #"," # # "],
+    "x": ["    ","    ","#  #","#  #"," ## ","#  #","#  #"],
+    "y": ["    ","    ","#  #","#  #","#  #","#  #"," ###","   #"," ## "],
+    "z": ["    ","    ","####","  # "," #  ","#   ","####"],
+    "0": [" ## ","#  #","#  #","#  #","#  #","#  #"," ## "],
+    "1": [" # ","## "," # "," # "," # "," # ","###"],
+    "2": [" ## ","#  #","   #","  # "," #  ","#   ","####"],
+    "3": ["### ","   #","   #"," ## ","   #","   #","### "],
+    "4": ["#  #","#  #","#  #","####","   #","   #","   #"],
+    "5": ["####","#   ","### ","   #","   #","#  #"," ## "],
+    "6": [" ## ","#   ","#   ","### ","#  #","#  #"," ## "],
+    "7": ["####","   #","  # ","  # "," #  "," #  "," #  "],
+    "8": [" ## ","#  #","#  #"," ## ","#  #","#  #"," ## "],
+    "9": [" ## ","#  #","#  #"," ###","   #","   #"," ## "],
+    ".": [" "," "," "," "," "," ","#"],
+    ",": [" "," "," "," "," "," ","#","#"],
+    "/": ["  #","  #"," # "," # "," # ","#  ","#  "],
+    "<": ["   ","  #"," # ","#  "," # ","  #","   "],
+    ">": ["   ","#  "," # ","  #"," # ","#  ","   "],
+    " ": ["  "]
+  };
+  const width = ch => (G[ch] || G[" "]).reduce((m, r) => Math.max(m, r.length), 0);
+  const textWidth = s => [...s].reduce((w, ch) => w + width(ch) + 1, 0) - (s.length ? 1 : 0);
+
+  // ---- Colours measured from the game's own window on screen.
+  const C = {
+    edge: [82, 82, 82], white: [255, 255, 255], light: [164, 164, 164], black: [0, 0, 0],
+    shade: [[0, 74, 82], [0, 82, 99], [0, 90, 115]],
+    glow: [[8, 132, 189], [8, 115, 173], [8, 107, 156]],
+    fill: [0, 99, 140], shadowText: [0, 0, 0], text: [255, 255, 255],
+    backdrop: [22, 34, 46], backdrop2: [28, 44, 58]
+  };
+
+  function Screen(canvas) {
+    const ctx = canvas.getContext("2d");
+    const img = ctx.createImageData(240, 160);
+    const d = img.data;
+    const px = (x, y, c) => {
+      if (x < 0 || y < 0 || x >= 240 || y >= 160) return;
+      const i = (y * 240 + x) * 4;
+      d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
+    };
+    return {
+      px,
+      clear() {
+        // Checkered backdrop where the game shows the map behind the menu.
+        for (let y = 0; y < 160; y++)
+          for (let x = 0; x < 240; x++)
+            px(x, y, ((x >> 3) + (y >> 3)) & 1 ? C.backdrop : C.backdrop2);
+      },
+      // The bevelled window: 4 border rings, then 3 rings of shading inside
+      // (darker along the top and left, lighter along the bottom and right).
+      window(x0, y0, w, h) {
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const l = x, t = y, r = w - 1 - x, b = h - 1 - y;
+            if ((l === 0 || r === 0) && (t === 0 || b === 0)) continue;
+            if ((l <= 1 && t <= 1) || (r <= 1 && t <= 1) || (l <= 1 && b <= 1) || (r <= 1 && b <= 1)) {
+              if (l + t === 1 || r + t === 1 || l + b === 1 || r + b === 1) { px(x0 + x, y0 + y, C.black); continue; }
+            }
+            const lowSide = Math.min(r, b), highSide = Math.min(l, t);
+            let c;
+            if (lowSide < highSide) {
+              c = [C.black, C.light, C.white, C.edge][lowSide] || C.glow[lowSide - 4] || C.fill;
+            } else {
+              c = [C.edge, C.white, C.light, C.black][highSide] || C.shade[highSide - 4] || C.fill;
+            }
+            px(x0 + x, y0 + y, c);
+          }
+        }
+      },
+      // A groove across the window, as between the Settings rows.
+      groove(x0, x1, y) {
+        const rows = [C.shade[2], C.shade[0], C.glow[0], C.glow[2]];
+        rows.forEach((c, i) => { for (let x = x0; x <= x1; x++) px(x, y + i, c); });
+      },
+      text(s, x, y, colour = C.text, shadow = C.shadowText, bold = false) {
+        let cx = x;
+        for (const ch of s) {
+          const g = G[ch] || G[" "];
+          for (const [dx, dy] of [[1, 1], [0, 0]]) {
+            g.forEach((row, ry) => {
+              for (let rx = 0; rx < row.length; rx++) {
+                if (row[rx] !== "#") continue;
+                px(cx + rx + dx, y + ry + dy, dx ? shadow : colour);
+                if (bold) px(cx + rx + dx + 1, y + ry + dy, dx ? shadow : colour);
+              }
+            });
+          }
+          cx += width(ch) + 1 + (bold ? 1 : 0);
+        }
+      },
+      // The cursor hand, pointing right; 12 x 9.
+      hand(x, y) {
+        const H = [
+          "  oooo      ",
+          " o####oooooo",
+          "o#########o ",
+          "o####ooooo  ",
+          "o#####o     ",
+          "o####oo     ",
+          "o#####o     ",
+          " o###o      ",
+          "  ooo       "];
+        H.forEach((row, ry) => { for (let rx = 0; rx < row.length; rx++) {
+          if (row[rx] === "#") px(x + rx, y + ry, C.white);
+          else if (row[rx] === "o") px(x + rx, y + ry, C.black);
+        } });
+      },
+      // Page marker chevron (up), 7 wide.
+      chevron(x, y) {
+        ["   #   ", "  ###  ", " ##### ", "#######"].forEach((row, ry) => {
+          for (let rx = 0; rx < 7; rx++) if (row[rx] === "#") { px(x + rx + 1, y + ry + 1, C.black); }
+        });
+        ["   #   ", "  ###  ", " ##### ", "#######"].forEach((row, ry) => {
+          for (let rx = 0; rx < 7; rx++) if (row[rx] === "#") px(x + rx, y + ry, C.white);
+        });
+      },
+      // The yellow-to-green title plate above the Settings windows.
+      plate(label, x, y) {
+        const w = textWidth(label) + label.length + 10, h = 14;
+        for (let j = 0; j < h; j++) {
+          const t = j / (h - 1);
+          const c = [Math.round(255 * (1 - t)), 255, 0];
+          for (let i = 0; i < w; i++) px(x + i, y + j, c);
+        }
+        for (let i = 0; i < w; i++) { px(x + i, y - 1, C.white); px(x + i, y + h, C.black); }
+        for (let j = -1; j <= h; j++) px(x + w, y + j, C.black);
+        this.text(label, x + 5, y + 3, C.text, [58, 58, 58], true);
+      },
+      show() { ctx.putImageData(img, 0, 0); }
+    };
+  }
+
+  function makeMenu(opts) {
+    const canvas = document.getElementById(opts.canvas);
+    const scr = Screen(canvas);
+    const rows = opts.rows;
+    const state = rows.map(r => r.start || 0);
+    let cur = 0;
+    const exp = document.getElementById(opts.explain);
+    const live = document.getElementById(opts.live);
+    function draw() {
+      scr.clear();
+      opts.paint(scr, rows, state, cur);
+      scr.show();
+      const r = rows[cur], v = r.vals[state[cur]];
+      exp.innerHTML = "<h3>" + r.label + ": " + v + "</h3><p>" + r.say(v) +
+        '</p><p class="opts">Choices: ' + r.vals.join(" / ") + "</p>";
+      if (live) live.textContent = r.label + ", " + v;
+    }
+    function step(dir) {
+      const r = rows[cur], n = r.vals.length;
+      if (opts.wrapValues || r.flip) state[cur] = (state[cur] + dir + n) % n;
+      else state[cur] = Math.max(0, Math.min(n - 1, state[cur] + dir));
+      draw();
+    }
+    function move(dir) {
+      const n = rows.length;
+      cur = opts.wrapRows ? (cur + dir + n) % n : Math.max(0, Math.min(n - 1, cur + dir));
+      draw();
+    }
+    canvas.addEventListener("click", e => {
+      const box = canvas.getBoundingClientRect();
+      const y = (e.clientY - box.top) * 160 / box.height;
+      const hit = opts.rowAt(y);
+      if (hit >= 0) { cur = hit; draw(); }
+      canvas.focus();
+    });
+    canvas.addEventListener("keydown", e => {
+      const k = e.key;
+      if (k === "ArrowUp") move(-1);
+      else if (k === "ArrowDown") move(1);
+      else if (k === "ArrowLeft") step(-1);
+      else if (k === "ArrowRight") step(1);
+      else if ((k === "a" || k === "A" || k === "Enter") && rows[cur].flip) step(1);
+      else return;
+      e.preventDefault();
+    });
+    document.querySelectorAll('[data-for="' + opts.canvas + '"]').forEach(b => {
+      b.addEventListener("click", () => {
+        const a = b.dataset.act;
+        if (a === "up") move(-1); else if (a === "down") move(1);
+        else if (a === "left") step(-1); else if (a === "right") step(1);
+      });
+    });
+    draw();
+  }
+
+  // ---- Settings page two, laid out as the game draws it: help window
+  // 8,16 224x24; settings window 8,40 224x112; labels at x 24, values
+  // centred on x 140; row lines at 48, 64, 88, 112, 136; grooves at 56, 72,
+  // 96 and 120; "2/2" and the chevron under the bottom-right corner.
+  const SETTINGS = [
+    { label: "Walk Speed", help: "Set walking speed.", vals: ["Normal", "2x", "3x"],
+      say: v => ({ "Normal": "The normal walking and running speed.", "2x": "Walk and run twice as fast.", "3x": "Walk and run three times as fast." })[v] },
+    { label: "Encounters", help: "Set how often monsters appear.", vals: ["Normal", "Half", "Off", "Double"],
+      say: v => ({ "Normal": "Monsters appear as often as in the original.", "Half": "Half as many random battles.", "Off": "No random battles at all.", "Double": "Twice as many random battles, for levelling up." })[v] },
+    { label: "Screen", help: "Set the screen size.", vals: ["Normal", "Wide"], flip: true,
+      say: v => v === "Wide" ? "The widescreen view: more of the world on screen." : "The original screen size." },
+    { label: "No Slowdown", help: "Remove slowdown.", vals: ["Off", "On"], flip: true,
+      say: v => v === "On" ? "Busy scenes stay at full speed." : "Busy scenes slow down like on the handheld." },
+    { label: "Better Field Psy", help: "Faster Psynergy, bigger Reveal.", vals: ["Off", "On"], flip: true,
+      say: v => v === "On" ? "Field Psynergy casts faster, and Reveal shows the whole screen and lasts twice as far." : "Psynergy in the field works like the original." }
+  ];
+  const SET_LINES = [48, 64, 88, 112, 136];
+  makeMenu({
+    canvas: "settings-screen", explain: "sim-explain", live: "settings-live",
+    rows: SETTINGS, wrapRows: false, wrapValues: true,
+    rowAt: y => SET_LINES.findIndex(l => y >= l - 6 && y < l + 12),
+    paint(s, rows, state, cur) {
+      s.window(8, 16, 224, 24);
+      s.window(8, 40, 224, 112);
+      [56, 72, 96, 120].forEach(y => s.groove(13, 226, y + 2));
+      s.plate("Settings", 82, 3);
+      s.text(rows[cur].help, 16, 24);
+      rows.forEach((r, i) => {
+        const y = SET_LINES[i];
+        s.text(r.label, 24, y);
+        const v = i === cur ? "< " + r.vals[state[i]] + " >" : r.vals[state[i]];
+        s.text(v, 140 - (textWidth(v) >> 1), y);
+      });
+      s.hand(4, SET_LINES[cur] - 1);
+      s.text("2/2", 232 - 8 - textWidth("2/2") - 2, 152);
+      s.chevron(232 - 8, 154);
+    }
+  });
+
+  // ---- The cheat menu: one window of 20 x 14 tiles at tile 5,3 (x 40,
+  // y 24, 160 x 112); "Cheats" centred on x 120 at y 32; rows every 16
+  // pixels from y 48; labels at x 56, values centred on x 160; no hand.
+  const STEPS = ["0x", "0.5x", "1x", "2x", "5x", "10x", "25x", "50x", "100x"];
+  const CHEATS = [
+    { label: "Infinite HP", vals: ["Off", "On"], flip: true,
+      say: v => v === "On" ? "Your party's HP stays full, in battle and out." : "HP works as normal." },
+    { label: "Infinite PP", vals: ["Off", "On"], flip: true,
+      say: v => v === "On" ? "Your party never runs out of Psynergy points." : "PP works as normal." },
+    { label: "Experience", vals: STEPS, start: 2,
+      say: v => v === "0x" ? "Battles give no experience at all." : v === "1x" ? "Normal experience from each defeated enemy." : "Each defeated enemy gives " + v + " its normal experience." },
+    { label: "Coins", vals: STEPS, start: 2,
+      say: v => v === "0x" ? "Battles give no coins at all." : v === "1x" ? "Normal coins from each defeated enemy." : "Each defeated enemy gives " + v + " its normal coins." },
+    { label: "Drop Chance", vals: STEPS.slice(0, 6), start: 2,
+      say: v => v === "0x" ? "Enemies never drop their items." : v === "1x" ? "Items drop as often as normal." : "Enemies are " + v + " as likely to drop their item." + (v === "10x" ? " At 10x a drop is all but certain." : "") }
+  ];
+  makeMenu({
+    canvas: "cheat-screen", explain: "cheat-explain", live: "cheat-live",
+    rows: CHEATS, wrapRows: true, wrapValues: false,
+    rowAt: y => { const i = Math.floor((y - 44) / 16); return i >= 0 && i < 5 ? i : -1; },
+    paint(s, rows, state, cur) {
+      s.window(40, 24, 160, 112);
+      s.text("Cheats", 120 - (textWidth("Cheats") >> 1), 32);
+      rows.forEach((r, i) => {
+        const y = 48 + 16 * i;
+        s.text(r.label, 56, y);
+        const v = i === cur ? "< " + r.vals[state[i]] + " >" : r.vals[state[i]];
+        s.text(v, 160 - (textWidth(v) >> 1), y);
+      });
+    }
+  });
+
+})();
+</script>
+</body>
+</html>
