@@ -637,8 +637,8 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
   // centred on x 140; row lines at 48, 64, 88, 112, 136; grooves at 56, 72,
   // 96 and 120; "2/2" and the chevron under the bottom-right corner.
   const SETTINGS = [
-    { label: "Walk Speed", help: "Set walking speed.", vals: ["Normal", "2x", "3x"],
-      say: v => ({ "Normal": "The normal walking and running speed.", "2x": "Walk and run twice as fast.", "3x": "Walk and run three times as fast." })[v] },
+    { label: "Walk Speed", help: "Set walking speed.", vals: ["Normal", "1.5x", "2x", "3x"],
+      say: v => ({ "Normal": "The normal walking and running speed.", "1.5x": "Walk, run, push and climb ladders one and a half times as fast.", "2x": "Walk, run, push and climb ladders twice as fast.", "3x": "Walk, run, push and climb ladders three times as fast." })[v] },
     { label: "Encounters", help: "Set how often monsters appear.", vals: ["Normal", "Half", "Off", "Double"],
       say: v => ({ "Normal": "Monsters appear as often as in the original.", "Half": "Half as many random battles.", "Off": "No random battles at all.", "Double": "Twice as many random battles, for levelling up." })[v] },
     { label: "Screen", help: "Set the screen size.", vals: ["Normal", "Wide"], flip: true,
