@@ -170,7 +170,7 @@ ul.ticks.later li::before { background: radial-gradient(circle at 35% 35%, #fff,
   border-radius: 3px; background: linear-gradient(var(--nav-top), var(--nav-bottom));
   color: #fff; font: 700 13px/16px var(--body); text-align: center;
 }
-.faq details[open] summary::before { content: "2"; }
+.faq details[open] summary::before { content: "\2212"; }
 .faq summary:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
 .faq .a { padding: 0 16px 12px 38px; }
 .faq .a p:last-child { margin-bottom: 0; }
@@ -305,7 +305,7 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
               <ol>
                 <li>Press <kbd>F12</kbd> right after the problem shows up. The game keeps the last two seconds, so a flicker that's already gone is still caught. "BUG REPORT SAVED" appears in the top-right corner.</li>
                 <li>Keep playing if you like, and press <kbd>F12</kbd> again for any other problem.</li>
-                <li>Close the game. The launcher packs everything into one zip file in <b>logsug_reports</b> and opens that folder for you.</li>
+                <li>Close the game. The launcher packs everything into one zip file in <b>logs\bug_reports</b> and opens that folder for you.</li>
                 <li>Send the zip with a few words about what happened, on <a href="https://github.com/Shmargus/GSRecomp/issues" target="_blank" rel="noopener">GitHub</a>.</li>
               </ol>
               <p>If the game crashes, you don't need to press anything: the launcher makes the report by itself when it notices. The zip holds the game's log and screen captures, your settings files and your Windows version. The file can be 20 to 30 MB, so a file-sharing link may be easier than an attachment.</p>
@@ -379,7 +379,6 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
             <li><span>Download</span><b>Coming soon</b></li>
           </ul>
         </div>
-      </div>
       </div>
     </aside>
   </div>
