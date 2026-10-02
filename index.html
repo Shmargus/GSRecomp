@@ -190,6 +190,14 @@ kbd {
 .box ul.small { margin: 0; padding-left: 18px; }
 .keynote { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid #d3d9df; font-size: 12px; color: var(--muted); }
 .box ul.small li { margin-bottom: 4px; }
+a.report {
+  display: block; text-align: center; text-decoration: none;
+  font: 700 13px var(--body); color: #5a3a00; padding: 7px 10px; border-radius: 4px;
+  background: linear-gradient(#ffd66b, #f2b632); border: 1px solid #b07a14;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.6), 0 1px 2px rgba(0,0,0,.25);
+}
+a.report:hover { background: linear-gradient(#ffe08a, #f5c04a); }
+a.report:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 
 footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14px 28px; border-top: 1px solid #0e1114; display: grid; gap: 4px; }
 
@@ -305,10 +313,10 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
               <ol>
                 <li>Press <kbd>F12</kbd> right after the problem shows up. The game keeps the last two seconds, so a flicker that's already gone is still caught. "BUG REPORT SAVED" appears in the top-right corner.</li>
                 <li>Keep playing if you like, and press <kbd>F12</kbd> again for any other problem.</li>
-                <li>Close the game. The launcher packs everything into one zip file in <b>logs\bug_reports</b> and opens that folder for you.</li>
-                <li>Send the zip with a few words about what happened, on <a href="https://github.com/Shmargus/GSRecomp/issues" target="_blank" rel="noopener">GitHub</a>.</li>
+                <li>Close the game. The launcher packs everything into one zip file in <b>logs\bug_reports</b>, then opens that folder and the <a href="https://docs.google.com/forms/d/e/1FAIpQLScTmnmH6_BXYsYVfIKtjDsN-gLx59mv4pVjYx4ITbH2YGktBw/viewform" target="_blank" rel="noopener">bug report form</a> for you.</li>
+                <li>Write a few words about what happened and drag the zip into the form. Uploading needs a Google account.</li>
               </ol>
-              <p>If the game crashes, you don't need to press anything: the launcher makes the report by itself when it notices. The zip holds the game's log and screen captures, your settings files and your Windows version. The file can be 20 to 30 MB, so a file-sharing link may be easier than an attachment.</p>
+              <p>If the game crashes, you don't need to press anything: the launcher makes the report by itself when it notices. The zip holds the game's log and screen captures, your settings files and your Windows version. Only the developer sees what you upload.</p>
             </div>
           </details>
           <details>
@@ -369,6 +377,14 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
             <li>Your own Golden Sun game file (USA/Europe)</li>
             <li>That's it. No BIOS, no emulator.</li>
           </ul>
+        </div>
+      </div>
+      <div class="box">
+        <h4>Found a bug?</h4>
+        <div class="in">
+          <p>Press <kbd>F12</kbd> when it happens, close the game, and upload the zip the launcher makes.</p>
+          <a class="report" href="https://docs.google.com/forms/d/e/1FAIpQLScTmnmH6_BXYsYVfIKtjDsN-gLx59mv4pVjYx4ITbH2YGktBw/viewform" target="_blank" rel="noopener">Report a bug</a>
+          <p class="keynote"><a href="#faq">How it works</a></p>
         </div>
       </div>
       <div class="box">
