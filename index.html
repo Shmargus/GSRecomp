@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Golden Sun Recompiled: the Game Boy Advance game rebuilt as a native Windows program, with widescreen, extra settings and more. A free fan project.">
+<meta name="description" content="Golden Sun Recompiled: the Game Boy Advance game rebuilt as a native PC program for Windows and Linux, with widescreen, extra settings and more. A free fan project.">
 <meta property="og:title" content="Golden Sun Recompiled">
-<meta property="og:description" content="The Game Boy Advance game rebuilt as a native Windows program. A free fan project.">
+<meta property="og:description" content="The Game Boy Advance game rebuilt as a native PC program for Windows and Linux. A free fan project.">
 <meta property="og:image" content="logo.webp">
 <title>Golden Sun Recompiled</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -223,7 +223,7 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
     <main>
       <section id="about">
         <h2 class="section">What is this?</h2>
-        <p class="intro">Golden Sun Recompiled turns the 2001 Game Boy Advance game into a program that runs straight on Windows. It isn't an emulator. The game's own code is translated into PC code, so you get the same adventure with a wider screen, a proper settings menu and a handful of optional extras.</p>
+        <p class="intro">Golden Sun Recompiled turns the 2001 Game Boy Advance game into a program that runs straight on Windows (and, as a test, on Linux). It isn't an emulator. The game's own code is translated into PC code, so you get the same adventure with a wider screen, a proper settings menu and a handful of optional extras.</p>
         <p>You bring your own copy of the game. Nothing from the game comes with this project, and your game file is never changed.</p>
         <div class="note"><b>Heads up:</b> this is still being worked on. It's tested by playing through the game, and a few things may still look or sound slightly off.</div>
       </section>
@@ -313,15 +313,15 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
               <ol>
                 <li>Press <kbd>F12</kbd> right after the problem shows up. The game keeps the last two seconds, so a flicker that's already gone is still caught. "BUG REPORT SAVED" appears in the top-right corner.</li>
                 <li>Keep playing if you like, and press <kbd>F12</kbd> again for any other problem.</li>
-                <li>Close the game. The launcher packs everything into one zip file in <b>logs\bug_reports</b>, then opens that folder and the <a href="https://docs.google.com/forms/d/e/1FAIpQLScTmnmH6_BXYsYVfIKtjDsN-gLx59mv4pVjYx4ITbH2YGktBw/viewform" target="_blank" rel="noopener">bug report form</a> for you.</li>
-                <li>Write a few words about what happened and drag the zip into the form. Uploading needs a Google account.</li>
+                <li>Close the game. A bug report window opens: write a few words about what happened and where, and press <b>Send report</b>. No account or form needed.</li>
               </ol>
-              <p>If the game crashes, the launcher saves the same kind of zip on your PC without you pressing F12. Nothing is ever sent automatically: the zip stays on your computer unless you choose to upload it. The zip holds the game's log and screen captures, your settings files and your Windows version. Only the developer sees what you upload.</p>
+              <p>If the game crashes, the same window opens without you pressing F12. Nothing is ever sent unless you press <b>Send report</b>; otherwise the report stays on your computer in <b>logs\bug_reports</b>. A report holds the game's log and screen captures, your settings files and your Windows or Linux version, with your user name taken out. Only the developer sees it.</p>
+              <p>If sending doesn't work, the window offers the <a href="https://docs.google.com/forms/d/e/1FAIpQLScTmnmH6_BXYsYVfIKtjDsN-gLx59mv4pVjYx4ITbH2YGktBw/viewform" target="_blank" rel="noopener">bug report form</a> instead, where you can add the report by hand. On 0.1-test the launcher still uses that form.</p>
             </div>
           </details>
           <details>
             <summary>Is this an emulator?</summary>
-            <div class="a"><p>No. The game's own code is translated into PC code ahead of time, so it runs directly on Windows instead of through a program that imitates the Game Boy Advance.</p></div>
+            <div class="a"><p>No. The game's own code is translated into PC code ahead of time, so it runs directly on your PC instead of through a program that imitates the Game Boy Advance.</p></div>
           </details>
           <details>
             <summary>Do I need my own copy of the game?</summary>
@@ -336,16 +336,20 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
             <div class="a"><p>Your in-game save and your save states are stored next to your own game file, not in the program folder. Installing a new version doesn't touch them.</p></div>
           </details>
           <details>
+            <summary>How do I update?</summary>
+            <div class="a"><p>From 0.2 on, the launcher tells you when a new version is out and opens its download page. Unzip the new version, start its launcher and pick your game file. Your saves stay where they are, and the game is prepared once more on the first start.</p></div>
+          </details>
+          <details>
             <summary>Can I play with a controller?</summary>
             <div class="a"><p>Yes. Every button can be changed in the <b>F1</b> menu, for both keyboard and controller.</p></div>
           </details>
           <details>
             <summary>Is it finished?</summary>
-            <div class="a"><p>Not yet. The first test release is out: <a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">download it from GitHub</a>. Expect some rough edges, and please report what you find.</p></div>
+            <div class="a"><p>Not yet. Test release 0.2 is out: <a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">download it from GitHub</a>. Expect some rough edges, and please report what you find.</p></div>
           </details>
           <details>
             <summary>What does it run on, and what does it cost?</summary>
-            <div class="a"><p>Windows 10 and 11. It's a free, noncommercial fan project.</p></div>
+            <div class="a"><p>Windows 10 and 11. New in 0.2 and still a test: a recent 64-bit Linux, for example Ubuntu 24.04, Debian 13, Fedora 40 or Arch, with SDL2 installed. It hasn't been tested on Steam Deck yet. It's a free, noncommercial fan project.</p></div>
           </details>
         </div>
       </section>
@@ -355,8 +359,9 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
       <div class="box">
         <h4>Get it</h4>
         <div class="in">
-          <a class="report" href="https://github.com/Shmargus/GSRecomp/releases/download/v0.1-test/GoldenSunRecompiled-2026-10-02.zip">Download test release</a>
-          <p class="keynote">v0.1-test, 2 October 2026, 38 MB zip. Windows 10 and 11 only. Unzip it and start <b>GoldenSunLauncher.exe</b>; the first start takes several minutes.</p>
+          <a class="report" href="https://github.com/Shmargus/GSRecomp/releases/download/0.2/GoldenSunRecompiled-0.2-windows.zip">Download for Windows</a>
+          <a class="report" style="margin-top: 8px" href="https://github.com/Shmargus/GSRecomp/releases/download/0.2/GoldenSunRecompiled-0.2-linux.zip">Download for Linux (test)</a>
+          <p class="keynote">Test release 0.2, 2 October 2026. Windows 10 and 11: 37 MB zip. Linux: 27 MB zip. Unzip it and start <b>GoldenSunLauncher</b>; the first start takes several minutes.</p>
           <ul class="keys">
             <li><span>All releases</span><a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">GitHub</a></li>
             <li><span>Source code</span><a href="https://github.com/Shmargus/GSRecomp" target="_blank" rel="noopener">GitHub</a></li>
@@ -384,7 +389,7 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
         <h4>What you need</h4>
         <div class="in">
           <ul class="small">
-            <li>A Windows 10 or 11 PC</li>
+            <li>A Windows 10 or 11 PC, or a recent 64-bit Linux</li>
             <li>Your own Golden Sun game file (USA/Europe)</li>
             <li>That's it. No BIOS, no emulator.</li>
           </ul>
@@ -393,9 +398,8 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
       <div class="box">
         <h4>Found a bug?</h4>
         <div class="in">
-          <p>Press <kbd>F12</kbd> when it happens, close the game, and upload the zip the launcher makes.</p>
-          <a class="report" href="https://docs.google.com/forms/d/e/1FAIpQLScTmnmH6_BXYsYVfIKtjDsN-gLx59mv4pVjYx4ITbH2YGktBw/viewform" target="_blank" rel="noopener">Report a bug</a>
-          <p class="keynote"><a href="#faq">How it works</a></p>
+          <p>Press <kbd>F12</kbd> when it happens and close the game. The launcher asks what happened; press <b>Send report</b>.</p>
+          <p class="keynote"><a href="#faq">How it works</a> &middot; <a href="https://docs.google.com/forms/d/e/1FAIpQLScTmnmH6_BXYsYVfIKtjDsN-gLx59mv4pVjYx4ITbH2YGktBw/viewform" target="_blank" rel="noopener">Report by hand</a></p>
         </div>
       </div>
     </aside>
