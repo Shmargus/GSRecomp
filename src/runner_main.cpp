@@ -9671,8 +9671,21 @@ void gpu_field_capture_hook() {
 // top of it to reach one function is a way to lose a twenty-minute link to an
 // include-order collision. user32 is already linked (gbarecomp/CMakeLists.txt
 // links it PUBLIC), so the symbol resolves with nothing else added.
+#if defined(_WIN32)
 extern "C" short __stdcall GetAsyncKeyState(int virtual_key);
 constexpr int kVirtualKeyDump = 0x7B;  // VK_F12
+bool dump_key_down() {
+    return (GetAsyncKeyState(kVirtualKeyDump) & 0x8000) != 0;
+}
+#else
+// Linux: SDL's keyboard state, declared here for the same reason (SDL2's
+// own header is not included in this file). SDL_SCANCODE_F12 is 69.
+extern "C" const unsigned char* SDL_GetKeyboardState(int* numkeys);
+bool dump_key_down() {
+    const unsigned char* keys = SDL_GetKeyboardState(nullptr);
+    return keys && keys[69] != 0;
+}
+#endif
 
 // The GSRGPUF1 bytes of the current capture (layout above), shared by the
 // single F12 dump and the rewind ring below.
@@ -9794,7 +9807,7 @@ void gpu_field_write_dump_if_requested(const std::uint8_t* rgb,
     // With rewind on, F12 belongs to frame_rewind_record() instead.
     if (frame_rewind_enabled()) return;
     static bool was_down = false;
-    const bool down = (GetAsyncKeyState(kVirtualKeyDump) & 0x8000) != 0;
+    const bool down = dump_key_down();
     const bool pressed = down && !was_down;
     was_down = down;
     if (!pressed) return;
@@ -10415,7 +10428,7 @@ void frame_rewind_record(const std::uint8_t* rgb, std::uint32_t width,
     auto_capture_write_if_due();
 
     static bool was_down = false;
-    const bool down = (GetAsyncKeyState(kVirtualKeyDump) & 0x8000) != 0;
+    const bool down = dump_key_down();
     const bool pressed = down && !was_down;
     was_down = down;
     if (pressed) frame_rewind_write();

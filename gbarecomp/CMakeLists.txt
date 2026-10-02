@@ -339,6 +339,10 @@ if(WIN32 OR MSYS)
     # host_platform's FramePacer uses timeBeginPeriod/timeEndPeriod (winmm).
     target_link_libraries(gbarecomp_runtime PUBLIC comdlg32 user32 winmm)
 endif()
+if(UNIX)
+    # overlay_compile loads healed code with dlopen.
+    target_link_libraries(gbarecomp_runtime PUBLIC ${CMAKE_DL_LIBS})
+endif()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # debug — TCP server + always-on ring buffers + snapshot. Always built.
@@ -440,6 +444,9 @@ target_link_libraries(gba_recompile PRIVATE
 # and runs it on PCs without the MinGW runtime DLLs.
 if(MINGW)
     target_link_options(gba_recompile PRIVATE -static)
+elseif(UNIX AND NOT APPLE)
+    # The Linux release ships it too: no dependency on the distro's libstdc++.
+    target_link_options(gba_recompile PRIVATE -static-libstdc++ -static-libgcc)
 endif()
 
 add_executable(symbol_import tools/symbol_import/main.cpp)

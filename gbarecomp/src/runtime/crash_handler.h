@@ -19,9 +19,10 @@
 // latter cannot run any handler at all — see crash_handler_install()'s doc
 // comment below for how that is surfaced.
 //
-// This header is platform-free on purpose: everything Windows-specific is
-// hidden in the .cpp, and on a non-Windows build every entry point here
-// compiles down to a no-op so callers never need an #ifdef of their own.
+// This header is platform-free on purpose: everything platform-specific is
+// hidden in the .cpp, so callers never need an #ifdef of their own. On Linux
+// the same crash_report.txt and run_state.txt are written from a signal
+// handler (with an execinfo backtrace); there is no minidump.
 
 #pragma once
 
@@ -44,9 +45,7 @@ namespace gbarecomp {
 // That is the only way to tell a real crash apart from an external kill,
 // because an external kill cannot run our handler at all.
 //
-// Safe to call more than once; later calls are a no-op. On non-Windows
-// platforms this only manages run_state.txt bookkeeping (see below) — there
-// is no SEH, so mid-crash reporting is Windows-only.
+// Safe to call more than once; later calls are a no-op.
 void crash_handler_install(const char* log_dir);
 
 // Call once, right before a normal, successful process exit (after the main

@@ -14,6 +14,9 @@
 #ifdef _WIN32
 #  define WIN32_LEAN_AND_MEAN
 #  include <windows.h>
+#else
+#  include <dlfcn.h>
+#  include <unistd.h>
 #endif
 
 // Baked at configure time (target_compile_definitions): the gbarecomp source
@@ -82,6 +85,10 @@ std::string exe_dir() {
     char buf[MAX_PATH];
     DWORD n = GetModuleFileNameA(nullptr, buf, sizeof(buf));
     if (n > 0 && n < sizeof(buf)) return fs::path(buf).parent_path().string();
+#else
+    std::error_code ec;
+    const fs::path self = fs::read_symlink("/proc/self/exe", ec);
+    if (!ec) return self.parent_path().string();
 #endif
     return "";
 }
@@ -102,7 +109,11 @@ std::string gxx_path() {
     if (const char* e = std::getenv("GBARECOMP_HEAL_CXX")) {
         if (e[0]) return e;
     }
+#ifdef _WIN32
     return "C:/msys64/mingw64/bin/g++.exe";
+#else
+    return "g++";
+#endif
 }
 
 // The bundled, toolchain-free C compiler used to build overlay DLLs on a player
@@ -115,7 +126,11 @@ std::string tcc_path() {
     }
     const std::string ed = exe_dir();
     if (!ed.empty()) {
+#ifdef _WIN32
         fs::path cand = fs::path(ed) / "overlay_toolchain" / "tcc" / "tcc.exe";
+#else
+        fs::path cand = fs::path(ed) / "overlay_toolchain" / "tcc" / "tcc";
+#endif
         std::error_code ec;
         if (fs::exists(cand, ec)) return cand.string();
     }
@@ -240,10 +255,45 @@ int run_process(const std::string& cmdline, const std::string& logpath,
     std::string c = cmdline + " > \"" + logpath + "\" 2>&1";
     return std::system(c.c_str());
 }
-bool load_and_resolve(const std::string&, uint32_t, const GbaOverlayCallbacks*,
-                      void**, void (**)(void), std::string* err) {
-    if (err) *err = "overlay loading unimplemented on this platform";
-    return false;
+bool load_and_resolve(const std::string& dll, uint32_t pc,
+                      const GbaOverlayCallbacks* cb,
+                      void** out_module, void (**out_fn)(void),
+                      std::string* err) {
+    void* h = dlopen(dll.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (!h) {
+        if (err) *err = "dlopen(" + dll + ") failed: " + dlerror();
+        return false;
+    }
+    auto abi = reinterpret_cast<uint32_t (*)(void)>(dlsym(h, "overlay_abi"));
+    if (!abi || abi() != GBA_OVERLAY_ABI_VERSION) {
+        if (err) *err = "ABI mismatch in " + dll + " (so=" +
+                        std::to_string(abi ? abi() : 0u) + " runtime=" +
+                        std::to_string(GBA_OVERLAY_ABI_VERSION) +
+                        ") — rejecting + deleting stale cache entry";
+        dlclose(h);
+        unlink(dll.c_str());
+        return false;
+    }
+    auto init = reinterpret_cast<void (*)(const GbaOverlayCallbacks*)>(
+        dlsym(h, "overlay_init"));
+    if (!init) {
+        if (err) *err = "no overlay_init in " + dll;
+        dlclose(h);
+        return false;
+    }
+    init(cb);
+
+    char fname[24];
+    std::snprintf(fname, sizeof(fname), "func_%08X", pc);
+    auto fn = reinterpret_cast<void (*)(void)>(dlsym(h, fname));
+    if (!fn) {
+        if (err) *err = std::string("no ") + fname + " export in " + dll;
+        dlclose(h);
+        return false;
+    }
+    *out_module = h;
+    *out_fn = fn;
+    return true;
 }
 #endif
 
@@ -289,7 +339,11 @@ bool overlay_compile_one(const OverlayWorkItem& w,
     std::snprintf(stem, sizeof(stem), "%08X_%08X_%c",
                   w.pc, crc, w.thumb ? 't' : 'a');
     const fs::path dir(cache_dir);
+#ifdef _WIN32
     const fs::path dll = dir / (std::string(stem) + ".dll");
+#else
+    const fs::path dll = dir / (std::string(stem) + ".so");
+#endif
 
     std::error_code ec;
     if (!fs::exists(dll, ec)) {
@@ -324,7 +378,11 @@ bool overlay_compile_one(const OverlayWorkItem& w,
             // / func_<pc> symbols the loader resolves. No -O (tcc has no real
             // optimizer) and no -x c++ (it is a C compiler).
             cmd =
-                "\"" + tcc_path() + "\" -shared" + inc +
+                "\"" + tcc_path() + "\" -shared"
+#ifndef _WIN32
+                " -fPIC"
+#endif
+                + inc +
                 " -o \"" + dlltmp.generic_string() + "\""
                 " \"" + cpath.generic_string() + "\"";
         } else {
@@ -336,7 +394,11 @@ bool overlay_compile_one(const OverlayWorkItem& w,
                 // the static corpus's C++ semantics exactly. Explicit so it
                 // never depends on the driver's .c-suffix handling.
                 " -x c++ \"" + cpath.generic_string() + "\""
+#ifdef _WIN32
                 " -Wl,--export-all-symbols";
+#else
+                " -fPIC";
+#endif
         }
 
         const int rc = run_process(cmd, logpath.string(), err);

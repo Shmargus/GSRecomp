@@ -908,7 +908,7 @@ void set_active_bus(gba::GbaBus* bus) {
     g_runtime_waitcnt_live = bus ? bus->io().raw() + 0x204u : nullptr;
     g_runtime_mem_cost_key = 0xFFFFFFFFu;
     g_runtime_bios_open_bus_hook = bus
-        ? [](uint32_t value) {
+        ? +[](uint32_t value) {
               if (g_active_bus) g_active_bus->set_bios_open_bus(value);
           }
         : nullptr;

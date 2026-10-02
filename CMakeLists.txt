@@ -892,7 +892,54 @@ if(GSR_BUILD_LOCAL_RUNNER)
         endif()
     endif()
 
-    if(GSR_SPLIT_GAME_CODE AND NOT MSVC)
+    if(GSR_SPLIT_GAME_CODE AND UNIX AND NOT APPLE)
+        # Linux: the engine is GoldenSunRecomp and the game code is
+        # libGoldenSunGame.so beside it. ELF needs none of the Windows
+        # export/import lists below: the engine links against the library
+        # (the player's builder later replaces it with one built from their
+        # ROM, with the same symbols), and every engine symbol the library
+        # uses is exported automatically because the library references it.
+        # The engine is compiled -fPIC, not -fPIE, so it reaches the
+        # library's tables through the GOT instead of copy relocations
+        # sized from this build's copy.
+        foreach(GSR_PIC_TARGET GoldenSunRecomp gbarecomp_armv4t gbarecomp_gba
+                gbarecomp_debug gbarecomp_runtime)
+            target_compile_options(${GSR_PIC_TARGET} PRIVATE -fPIC)
+        endforeach()
+        add_library(gsr_game_objects OBJECT ${GSR_GAME_SOURCES})
+        set_target_properties(gsr_game_objects PROPERTIES
+            INTERPROCEDURAL_OPTIMIZATION FALSE
+            POSITION_INDEPENDENT_CODE ON)
+        set(GSR_GAME_CODE_OPT "-Og" CACHE STRING
+            "Optimisation flag for the game code in a split build")
+        # -fno-semantic-interposition and -Bsymbolic: calls between game
+        # functions bind inside the library instead of through the PLT.
+        target_compile_options(gsr_game_objects PRIVATE
+            ${GSR_GAME_CODE_OPT} -g0 -fno-semantic-interposition)
+        target_include_directories(gsr_game_objects PRIVATE
+            "${GSR_GENERATED_DIR}"
+            "${GBARECOMP_ROOT}/src/armv4t"
+            "${GBARECOMP_ROOT}/src/gba"
+            "${GBARECOMP_ROOT}/src/runtime"
+            "${GBARECOMP_ROOT}/src/debug"
+            "${CMAKE_SOURCE_DIR}/config/usa")
+        add_library(GoldenSunGame SHARED $<TARGET_OBJECTS:gsr_game_objects>)
+        set_target_properties(GoldenSunGame PROPERTIES
+            INTERPROCEDURAL_OPTIMIZATION FALSE
+            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+        target_link_options(GoldenSunGame PRIVATE -Wl,-Bsymbolic)
+        target_link_libraries(GoldenSunRecomp PRIVATE GoldenSunGame)
+        # The library is found beside the engine and nowhere else (no build
+        # path baked in). No ENABLE_EXPORTS: only the engine symbols the
+        # library calls are exported (about fifty runtime_*/g_* names; the
+        # player's library, from the same SHA-1-gated ROM, calls the same
+        # ones), so nothing the engine defines can interpose on the system's
+        # graphics drivers. libstdc++ and libgcc are linked in, so the
+        # engine runs on distros with an older GCC.
+        set_target_properties(GoldenSunRecomp PROPERTIES
+            BUILD_WITH_INSTALL_RPATH ON INSTALL_RPATH "$ORIGIN")
+        target_link_options(GoldenSunRecomp PRIVATE -static-libstdc++ -static-libgcc)
+    elseif(GSR_SPLIT_GAME_CODE AND NOT MSVC)
         # The tables the engine reads from the game code, by name. Every
         # dispatch_table*.cpp (and the stamps' stamp_registry.cpp) defines
         # them as `extern "C" const ... NAME`.
@@ -1012,37 +1059,57 @@ if(GSR_BUILD_LOCAL_RUNNER)
         endif()
     endif()
 
+    # The player builder (tools/gsr_builder): translates the player's ROM
+    # with gba_recompile and compiles the game code with the bundled GCC.
+    set(GSR_BUILDER_SOURCES
+        tools/gsr_builder/builder_main.cpp
+        tools/gsr_builder/guest_call.cpp
+        tools/gsr_builder/block_timing.cpp
+        "${GBARECOMP_ROOT}/src/armv4t/interpreter.cpp"
+        "${GBARECOMP_ROOT}/src/armv4t/arm_decode.cpp"
+        "${GBARECOMP_ROOT}/src/armv4t/thumb_decode.cpp"
+        "${GBARECOMP_ROOT}/src/armv4t/arm_ir.cpp"
+        "${GBARECOMP_ROOT}/src/gba/sha1.cpp")
+
+    # The launcher's logo (assets/launcher_logo.png), built into the exe as a
+    # byte array so the developer and player launchers (Windows and Linux)
+    # all show it without a loose image file. Rewritten only when the PNG
+    # changes.
+    set(GSR_LAUNCHER_LOGO "${CMAKE_SOURCE_DIR}/assets/launcher_logo.png")
+    set(GSR_LAUNCHER_LOGO_H "${CMAKE_BINARY_DIR}/generated/launcher_logo.h")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${GSR_LAUNCHER_LOGO}")
+    file(SHA1 "${GSR_LAUNCHER_LOGO}" gsr_logo_sha1)
+    if(NOT EXISTS "${GSR_LAUNCHER_LOGO_H}" OR
+       NOT gsr_logo_sha1 STREQUAL "${GSR_LAUNCHER_LOGO_SHA1}")
+        file(READ "${GSR_LAUNCHER_LOGO}" gsr_logo_hex HEX)
+        string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," gsr_logo_bytes
+            "${gsr_logo_hex}")
+        file(WRITE "${GSR_LAUNCHER_LOGO_H}"
+            "// Generated from assets/launcher_logo.png by CMakeLists.txt.\n"
+            "#pragma once\n"
+            "static const unsigned char kLauncherLogoPng[] = {${gsr_logo_bytes}};\n")
+        set(GSR_LAUNCHER_LOGO_SHA1 "${gsr_logo_sha1}" CACHE INTERNAL
+            "SHA-1 of the logo the generated header was written from")
+    endif()
+
+    # The release's version, the tag of its GitHub release (make_release sets
+    # it). A launcher built as "dev" never offers updates (launcher_online.h).
+    set(GSR_RELEASE_VERSION "dev" CACHE STRING
+        "Release version (GitHub release tag) the launcher reports and updates from")
+
     if(WIN32)
         add_executable(GoldenSunLauncher WIN32
             src/launcher_main.cpp
             "${GBARECOMP_ROOT}/src/runtime/crash_handler.cpp")
-        # The launcher's logo (assets/launcher_logo.png), built into the exe
-        # as a byte array so the developer and player launchers both show it
-        # without a loose image file. Rewritten only when the PNG changes.
-        set(GSR_LAUNCHER_LOGO "${CMAKE_SOURCE_DIR}/assets/launcher_logo.png")
-        set(GSR_LAUNCHER_LOGO_H "${CMAKE_BINARY_DIR}/generated/launcher_logo.h")
-        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-            "${GSR_LAUNCHER_LOGO}")
-        file(SHA1 "${GSR_LAUNCHER_LOGO}" gsr_logo_sha1)
-        if(NOT EXISTS "${GSR_LAUNCHER_LOGO_H}" OR
-           NOT gsr_logo_sha1 STREQUAL "${GSR_LAUNCHER_LOGO_SHA1}")
-            file(READ "${GSR_LAUNCHER_LOGO}" gsr_logo_hex HEX)
-            string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," gsr_logo_bytes
-                "${gsr_logo_hex}")
-            file(WRITE "${GSR_LAUNCHER_LOGO_H}"
-                "// Generated from assets/launcher_logo.png by CMakeLists.txt.\n"
-                "#pragma once\n"
-                "static const unsigned char kLauncherLogoPng[] = {${gsr_logo_bytes}};\n")
-            set(GSR_LAUNCHER_LOGO_SHA1 "${gsr_logo_sha1}" CACHE INTERNAL
-                "SHA-1 of the logo the generated header was written from")
-        endif()
         target_include_directories(GoldenSunLauncher PRIVATE
             "${GBARECOMP_ROOT}/src/runtime"
             "${CMAKE_BINARY_DIR}/generated")
         target_compile_definitions(GoldenSunLauncher PRIVATE
-            UNICODE _UNICODE NOMINMAX)
+            UNICODE _UNICODE NOMINMAX
+            GSR_RELEASE_VERSION="${GSR_RELEASE_VERSION}")
         target_link_libraries(GoldenSunLauncher PRIVATE bcrypt comdlg32 gdiplus
-            shlwapi)
+            shlwapi winhttp)
         # make_release.bat: a player launcher with only Pick ROM and Quit,
         # built into its own build tree so it never replaces the developer
         # launcher in the repository root.
@@ -1066,21 +1133,48 @@ if(GSR_BUILD_LOCAL_RUNNER)
         # ROM with gba_recompile and compiles GoldenSunGame.dll with the
         # bundled GCC. make_release.bat ships it; static so it needs no DLLs.
         if(NOT MSVC)
-            add_executable(gsr_builder
-                tools/gsr_builder/builder_main.cpp
-                tools/gsr_builder/guest_call.cpp
-                tools/gsr_builder/block_timing.cpp
-                "${GBARECOMP_ROOT}/src/armv4t/interpreter.cpp"
-                "${GBARECOMP_ROOT}/src/armv4t/arm_decode.cpp"
-                "${GBARECOMP_ROOT}/src/armv4t/thumb_decode.cpp"
-                "${GBARECOMP_ROOT}/src/armv4t/arm_ir.cpp"
-                "${GBARECOMP_ROOT}/src/gba/sha1.cpp")
+            add_executable(gsr_builder ${GSR_BUILDER_SOURCES})
             target_include_directories(gsr_builder PRIVATE
                 "${GBARECOMP_ROOT}/src/armv4t"
                 "${GBARECOMP_ROOT}/src/gba")
             set_target_properties(gsr_builder PROPERTIES
                 INTERPROCEDURAL_OPTIMIZATION FALSE)
             target_link_options(gsr_builder PRIVATE -municode -static)
+        endif()
+    elseif(UNIX AND NOT APPLE)
+        # Linux release: the same builder, producing libGoldenSunGame.so.
+        # libstdc++ and libgcc are linked in so it runs on any glibc distro.
+        add_executable(gsr_builder ${GSR_BUILDER_SOURCES})
+        target_include_directories(gsr_builder PRIVATE
+            "${GBARECOMP_ROOT}/src/armv4t"
+            "${GBARECOMP_ROOT}/src/gba")
+        set_target_properties(gsr_builder PROPERTIES
+            INTERPROCEDURAL_OPTIMIZATION FALSE)
+        target_link_options(gsr_builder PRIVATE -static-libstdc++ -static-libgcc)
+
+        # The Linux launcher (src/launcher_linux.cpp): its own SDL2 + ImGui
+        # window, the same jobs as the Windows player launcher.
+        find_package(ZLIB)
+        find_package(Threads REQUIRED)
+        if(TARGET gbarecomp_imgui AND ZLIB_FOUND)
+            add_executable(GoldenSunLauncher
+                src/launcher_linux.cpp
+                "${GBARECOMP_ROOT}/src/gba/sha1.cpp"
+                "${GBARECOMP_ROOT}/src/runtime/crash_handler.cpp")
+            target_include_directories(GoldenSunLauncher PRIVATE
+                "${GBARECOMP_ROOT}/src/runtime"
+                "${GBARECOMP_ROOT}/src/gba"
+                "${CMAKE_BINARY_DIR}/generated")
+            set_target_properties(GoldenSunLauncher PROPERTIES
+                INTERPROCEDURAL_OPTIMIZATION FALSE)
+            target_compile_definitions(GoldenSunLauncher PRIVATE
+                GSR_RELEASE_VERSION="${GSR_RELEASE_VERSION}")
+            target_link_libraries(GoldenSunLauncher PRIVATE gbarecomp_imgui
+                ZLIB::ZLIB Threads::Threads)
+            target_link_options(GoldenSunLauncher PRIVATE
+                -static-libstdc++ -static-libgcc)
+        else()
+            message(STATUS "GoldenSunLauncher (Linux) skipped: needs SDL2/ImGui and zlib")
         endif()
     endif()
 

@@ -8,6 +8,7 @@
 #include <commdlg.h>
 #include <gdiplus.h>
 #include <shlwapi.h>
+#include <winhttp.h>
 
 #include "crash_handler.h"
 #include "launcher_audio_policy.h"
@@ -16,8 +17,12 @@
 #include "launcher_test_policy.h"
 #include "launcher_widescreen_diagnostics_policy.h"
 #include "launcher_logo.h"  // generated from assets/launcher_logo.png
+#include "launcher_online.h"
 
 #include <algorithm>
+#include <atomic>
+#include <functional>
+#include <cwctype>
 #include <cmath>
 #include <cstdio>
 #include <cwchar>
@@ -58,6 +63,8 @@ constexpr char kExpectedRomSha1[] =
 // was built from; a different ROM, builder or engine means building again.
 constexpr UINT kBuildUpdateMessage = WM_APP + 1;
 constexpr UINT kBuildFinishedMessage = WM_APP + 2;
+// Updates (launcher_online.h): the start-up check found a newer release.
+constexpr UINT kUpdateFoundMessage = WM_APP + 3;
 constexpr char kBuilderVersion[] = "2";  // tools/gsr_builder kBuilderVersion
 
 struct BuildStatus {
@@ -296,6 +303,37 @@ std::string wide_to_utf8(const std::wstring& text) {
     return out;
 }
 
+// ── Launcher log ───────────────────────────────────────────────────────
+// logs\launcher.log: what the launcher itself did, one timestamped line per
+// step (ROM picked and checked, game build started and how it ended, game
+// started and how it exited), so a "I picked my ROM and nothing happened"
+// report always has a file to look at. Started fresh past 256 KB.
+fs::path g_launcher_log_path;
+
+void launcher_log(std::wstring line) {
+    if (g_launcher_log_path.empty()) return;
+    for (wchar_t& c : line)
+        if (c == L'\r' || c == L'\n') c = L' ';
+    SYSTEMTIME st{};
+    GetLocalTime(&st);
+    char stamp[32];
+    std::snprintf(stamp, sizeof(stamp), "%04u-%02u-%02u %02u:%02u:%02u  ",
+                  st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+    std::ofstream file(g_launcher_log_path, std::ios::binary | std::ios::app);
+    if (file) file << stamp << wide_to_utf8(line) << "\r\n";
+}
+
+void open_launcher_log(const fs::path& root) {
+    const fs::path dir = root / L"logs";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    g_launcher_log_path = dir / L"launcher.log";
+    const auto size = fs::file_size(g_launcher_log_path, ec);
+    if (!ec && size > 256 * 1024) fs::remove(g_launcher_log_path, ec);
+    launcher_log(L"---- Launcher " + utf8_to_wide(gsr_online::kReleaseVersion) +
+                 L" started (built " __DATE__ " " __TIME__ ") in " + root.wstring());
+}
+
 std::string read_text(const fs::path& path) {
     std::ifstream file(path, std::ios::binary);
     if (!file) return {};
@@ -372,10 +410,12 @@ bool sha1_file(const fs::path& path, std::string* out) {
 }
 
 std::wstring pick_file(const wchar_t* title, const wchar_t* filter,
-                       const std::wstring& initial_directory = {}) {
+                       const std::wstring& initial_directory = {},
+                       HWND owner = nullptr) {
     wchar_t buffer[32768] = {};
     OPENFILENAMEW dialog{};
     dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = owner;
     dialog.lpstrFilter = filter;
     dialog.lpstrFile = buffer;
     dialog.nMaxFile = static_cast<DWORD>(std::size(buffer));
@@ -409,7 +449,10 @@ bool validate_rom(const std::wstring& path, std::wstring* error) {
     return true;
 }
 
-std::wstring choose_rom(const fs::path& root) {
+// `owner` is the launcher window: the file dialog and the "not the right
+// ROM" message stay in front of it. Without an owner the message could open
+// behind the launcher, and the launcher then looked like it did nothing.
+std::wstring choose_rom(const fs::path& root, HWND owner) {
     const fs::path cache = root / L"local" / L"launcher-rom.txt";
     const std::wstring cached = read_cached_path(cache);
     std::wstring initial_directory;
@@ -418,16 +461,21 @@ std::wstring choose_rom(const fs::path& root) {
         const std::wstring candidate = pick_file(
             L"Select the Golden Sun USA/Europe ROM",
             L"Golden Sun ROM (*.gba)\0*.gba\0All files (*.*)\0*.*\0\0",
-            initial_directory);
-        if (candidate.empty()) return {};
+            initial_directory, owner);
+        if (candidate.empty()) {
+            launcher_log(L"Pick ROM: no file chosen.");
+            return {};
+        }
 
         std::wstring error;
         if (validate_rom(candidate, &error)) {
+            launcher_log(L"Pick ROM: " + candidate + L" - accepted.");
             write_cached_path(cache, candidate);
             return candidate;
         }
-        MessageBoxW(nullptr, error.c_str(), L"Golden Sun Recompiled",
-                    MB_OK | MB_ICONERROR);
+        launcher_log(L"Pick ROM: " + candidate + L" - refused: " + error);
+        MessageBoxW(owner, error.c_str(), L"Golden Sun Recompiled",
+                    MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
     }
 }
 
@@ -763,12 +811,220 @@ bool run_tar(const std::wstring& arguments) {
     return code == 0;
 }
 
-// Returns the zip, or the folder when zipping failed; empty when there was
-// nothing to report.
-fs::path make_bug_report(const fs::path& root, const fs::path& game_dir,
-                         const std::wstring& log_path,
-                         const std::vector<std::wstring>& rewinds,
-                         bool crashed, DWORD exit_code) {
+// ── Online: HTTPS through WinHTTP ──────────────────────────────────────
+// Used for checking GitHub for a newer release and, when the player presses
+// Send report, uploading a bug report.
+
+struct HttpTarget {
+    std::wstring host;
+    std::wstring path;
+    INTERNET_PORT port = INTERNET_DEFAULT_HTTPS_PORT;
+};
+
+bool crack_url(const std::wstring& url, HttpTarget* target) {
+    URL_COMPONENTS parts{};
+    parts.dwStructSize = sizeof(parts);
+    wchar_t host[256] = {}, path[4096] = {}, extra[4096] = {};
+    parts.lpszHostName = host;
+    parts.dwHostNameLength = 256;
+    parts.lpszUrlPath = path;
+    parts.dwUrlPathLength = 4096;
+    parts.lpszExtraInfo = extra;
+    parts.dwExtraInfoLength = 4096;
+    if (!WinHttpCrackUrl(url.c_str(), 0, 0, &parts) || parts.nScheme != INTERNET_SCHEME_HTTPS)
+        return false;
+    target->host.assign(host, parts.dwHostNameLength);
+    target->path.assign(path, parts.dwUrlPathLength);
+    target->path.append(extra, parts.dwExtraInfoLength);
+    target->port = parts.nPort;
+    return true;
+}
+
+using HttpProgress = std::function<void(std::uint64_t done, std::uint64_t total)>;
+
+// One HTTPS request. `upload` is sent as the body when given; the answer goes
+// to `download` when given, otherwise into *text. Redirects (GitHub's
+// downloads use them) are followed. Returns the HTTP status, or 0 when there
+// was no answer at all (*error then says why).
+int http_request(const wchar_t* verb, const HttpTarget& target,
+                 const std::vector<std::wstring>& headers, const fs::path* upload,
+                 const fs::path* download, std::string* text,
+                 const HttpProgress& progress, std::wstring* error) {
+    struct Handle {
+        HINTERNET h = nullptr;
+        ~Handle() { if (h) WinHttpCloseHandle(h); }
+    } session, connection, request;
+    auto fail = [&](const wchar_t* what) {
+        const DWORD code = GetLastError();
+        *error = std::wstring(what) + L" (error " + std::to_wstring(code) + L")";
+        if (code == ERROR_WINHTTP_NAME_NOT_RESOLVED || code == ERROR_WINHTTP_CANNOT_CONNECT)
+            *error = L"No internet connection.";
+        else if (code == ERROR_WINHTTP_TIMEOUT)
+            *error = L"The connection timed out.";
+        return 0;
+    };
+    session.h = WinHttpOpen(L"GoldenSunLauncher", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                            WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!session.h) return fail(L"Could not start an internet connection");
+    WinHttpSetTimeouts(session.h, 15000, 15000, 60000, 60000);
+    connection.h = WinHttpConnect(session.h, target.host.c_str(), target.port, 0);
+    if (!connection.h) return fail(L"Could not connect");
+    request.h = WinHttpOpenRequest(connection.h, verb, target.path.c_str(), nullptr,
+                                   WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                   WINHTTP_FLAG_SECURE);
+    if (!request.h) return fail(L"Could not start the request");
+    for (const std::wstring& header : headers)
+        WinHttpAddRequestHeaders(request.h, header.c_str(), static_cast<DWORD>(-1L),
+                                 WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE);
+
+    std::ifstream body;
+    std::uint64_t body_size = 0;
+    if (upload) {
+        std::error_code ec;
+        body_size = fs::file_size(*upload, ec);
+        body.open(*upload, std::ios::binary);
+        if (ec || !body) {
+            *error = L"The report file could not be read.";
+            return 0;
+        }
+    }
+    if (!WinHttpSendRequest(request.h, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                            WINHTTP_NO_REQUEST_DATA, 0, static_cast<DWORD>(body_size), 0))
+        return fail(L"Could not reach the server");
+    if (upload) {
+        std::vector<char> chunk(64 * 1024);
+        std::uint64_t sent = 0;
+        while (sent < body_size) {
+            body.read(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+            const DWORD n = static_cast<DWORD>(body.gcount());
+            if (n == 0) break;
+            DWORD written = 0;
+            if (!WinHttpWriteData(request.h, chunk.data(), n, &written))
+                return fail(L"Sending stopped");
+            sent += written;
+            if (progress) progress(sent, body_size);
+        }
+    }
+    if (!WinHttpReceiveResponse(request.h, nullptr)) return fail(L"No answer from the server");
+
+    DWORD status = 0, status_size = sizeof(status);
+    WinHttpQueryHeaders(request.h, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                        WINHTTP_HEADER_NAME_BY_INDEX, &status, &status_size,
+                        WINHTTP_NO_HEADER_INDEX);
+    wchar_t length_text[32] = {};
+    DWORD length_size = sizeof(length_text);
+    std::uint64_t total = 0;
+    if (WinHttpQueryHeaders(request.h, WINHTTP_QUERY_CONTENT_LENGTH,
+                            WINHTTP_HEADER_NAME_BY_INDEX, length_text, &length_size,
+                            WINHTTP_NO_HEADER_INDEX))
+        total = std::wcstoull(length_text, nullptr, 10);
+
+    std::ofstream out;
+    if (download && status == 200) {
+        out.open(*download, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            *error = L"The download could not be saved.";
+            return 0;
+        }
+    }
+    std::vector<char> buffer(256 * 1024);
+    std::uint64_t received = 0;
+    for (;;) {
+        DWORD available = 0;
+        if (!WinHttpQueryDataAvailable(request.h, &available)) return fail(L"The download stopped");
+        if (available == 0) break;
+        DWORD got = 0;
+        if (!WinHttpReadData(request.h, buffer.data(),
+                             std::min<DWORD>(available, static_cast<DWORD>(buffer.size())), &got))
+            return fail(L"The download stopped");
+        if (got == 0) break;
+        received += got;
+        if (out.is_open()) {
+            out.write(buffer.data(), got);
+            if (!out) {
+                *error = L"The download could not be saved (is the disk full?).";
+                return 0;
+            }
+            if (progress) progress(received, total);
+        } else if (text && text->size() < 4 * 1024 * 1024) {
+            text->append(buffer.data(), got);
+        }
+    }
+    return static_cast<int>(status);
+}
+
+// ── Bug reports ────────────────────────────────────────────────────────
+// The launcher's Send report button uploads the zips to the project's report
+// service (tools/report_service). Every zip holds the small logs plus at most
+// ONE F12 capture (about 7 MB zipped), so each upload stays small; a session
+// with three captures makes three zips.
+
+// The text in a report with the player's Windows user name taken out of
+// paths (C:\Users\Name\... becomes C:\Users\<user>\...), so a report never
+// shows who sent it.
+std::string scrub_user_name(std::string text) {
+    auto lower = [](std::string s) {
+        for (char& c : s)
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+        return s;
+    };
+    wchar_t user[256] = {};
+    if (!GetEnvironmentVariableW(L"USERNAME", user, 256) || !user[0]) return text;
+    const std::string name = wide_to_utf8(user);
+    for (const char* sep : {"\\", "/", "\\\\"}) {
+        const std::string needle = lower(std::string(sep) + "users" + sep + name);
+        const std::string replacement = std::string(sep) + "Users" + sep + "<user>";
+        std::string folded = lower(text);
+        std::size_t at = 0;
+        while ((at = folded.find(needle, at)) != std::string::npos) {
+            const std::size_t after = at + needle.size();
+            // Only the whole folder name: "Jim" must not match "Jimmy".
+            if (after < text.size() && text[after] != '\\' && text[after] != '/' &&
+                text[after] != '"' && text[after] != '\'' && text[after] != ' ' &&
+                text[after] != '\r' && text[after] != '\n') {
+                at = after;
+                continue;
+            }
+            text.replace(at, needle.size(), replacement);
+            folded.replace(at, needle.size(), lower(replacement));
+            at += replacement.size();
+        }
+    }
+    return text;
+}
+
+// Copies a log or settings file into the report, user name taken out. A
+// very long session log keeps its first 256 KB and its last 3 MB: the start
+// says how the game was set up, the end is where the problem is.
+void copy_into_report(const fs::path& from, const fs::path& staging) {
+    std::error_code ec;
+    if (!fs::is_regular_file(from, ec)) return;
+    std::wstring ext = from.extension().wstring();
+    for (wchar_t& c : ext) c = static_cast<wchar_t>(towlower(c));
+    const bool text = ext == L".log" || ext == L".txt" || ext == L".ini" ||
+                      ext == L".csv";
+    if (!text) {
+        fs::copy_file(from, staging / from.filename(),
+                      fs::copy_options::overwrite_existing, ec);
+        return;
+    }
+    std::string content = read_text(from);
+    constexpr std::size_t kHead = 256 * 1024, kTail = 3 * 1024 * 1024;
+    if (content.size() > kHead + kTail) {
+        content = content.substr(0, kHead) +
+                  "\n\n[... the middle of this log was left out of the bug report ...]\n\n" +
+                  content.substr(content.size() - kTail);
+    }
+    std::ofstream out(staging / from.filename(), std::ios::binary | std::ios::trunc);
+    out << scrub_user_name(content);
+}
+
+// Returns the zips (one per F12 capture, or one when there was none), or
+// the folder when zipping failed; empty when there was nothing to report.
+std::vector<fs::path> make_bug_report(const fs::path& root, const fs::path& game_dir,
+                                      const std::wstring& log_path,
+                                      const std::vector<std::wstring>& rewinds,
+                                      bool crashed, DWORD exit_code) {
     const fs::path logs_dir = root / L"logs";
     const fs::path reports = logs_dir / L"bug_reports";
     std::error_code ec;
@@ -782,28 +1038,23 @@ fs::path make_bug_report(const fs::path& root, const fs::path& game_dir,
     fs::create_directories(staging, ec);
     if (ec) return {};
 
-    auto copy_if_there = [&](const fs::path& from) {
-        std::error_code copy_ec;
-        if (fs::is_regular_file(from, copy_ec))
-            fs::copy_file(from, staging / from.filename(),
-                          fs::copy_options::overwrite_existing, copy_ec);
-    };
     // The session log and anything written beside it under the same name.
     if (!log_path.empty()) {
         const fs::path log(log_path);
         const std::wstring stem = log.stem().wstring();
         for (const auto& entry : fs::directory_iterator(logs_dir, ec)) {
             if (entry.path().filename().wstring().rfind(stem, 0) == 0)
-                copy_if_there(entry.path());
+                copy_into_report(entry.path(), staging);
         }
     }
+    copy_into_report(logs_dir / L"launcher.log", staging);
     for (const wchar_t* file : {L"config.ini", L"game_options.ini",
                                 L"keybinds.ini", L"GoldenSunGame.build.txt",
                                 L"run_state.txt"})
-        copy_if_there(game_dir / file);
+        copy_into_report(game_dir / file, staging);
     if (crashed) {
-        copy_if_there(game_dir / L"crash_report.txt");
-        copy_if_there(game_dir / L"crash_dump.dmp");
+        copy_into_report(game_dir / L"crash_report.txt", staging);
+        copy_into_report(game_dir / L"crash_dump.dmp", staging);
     }
     {
         std::ofstream info(staging / L"report_info.txt", std::ios::binary);
@@ -817,51 +1068,301 @@ fs::path make_bug_report(const fs::path& root, const fs::path& game_dir,
              << "Game exit code: " << exit_code << "\n";
     }
 
-    const fs::path zip = reports / (name + L".zip");
-    fs::remove(zip, ec);
-    std::wstring arguments = L"-a -c -f \"" + zip.wstring() + L"\" -C \"" +
-                             staging.wstring() + L"\" .";
-    for (const std::wstring& dir : rewinds)
-        arguments += L" -C \"" + logs_dir.wstring() + L"\" \"" + dir + L"\"";
-    if (run_tar(arguments) && fs::is_regular_file(zip, ec)) {
-        fs::remove_all(staging, ec);
-        // The captures are in the zip now; they are large, so drop the
-        // loose copies.
-        for (const std::wstring& dir : rewinds) fs::remove_all(logs_dir / dir, ec);
-        return zip;
+    std::vector<fs::path> zips;
+    const std::size_t parts = std::max<std::size_t>(1, rewinds.size());
+    for (std::size_t i = 0; i < parts; ++i) {
+        const std::wstring suffix =
+            parts > 1 ? L"_part" + std::to_wstring(i + 1) + L"of" + std::to_wstring(parts)
+                      : L"";
+        const fs::path zip = reports / (name + suffix + L".zip");
+        fs::remove(zip, ec);
+        std::wstring arguments = L"-a -c -f \"" + zip.wstring() + L"\" -C \"" +
+                                 staging.wstring() + L"\" .";
+        if (!rewinds.empty())
+            arguments += L" -C \"" + logs_dir.wstring() + L"\" \"" + rewinds[i] + L"\"";
+        if (!run_tar(arguments) || !fs::is_regular_file(zip, ec)) {
+            for (const fs::path& made : zips) fs::remove(made, ec);
+            fs::remove(zip, ec);
+            return {staging};
+        }
+        zips.push_back(zip);
     }
-    return staging;
+    fs::remove_all(staging, ec);
+    // The captures are in the zips now; they are large, so drop the loose
+    // copies.
+    for (const std::wstring& dir : rewinds) fs::remove_all(logs_dir / dir, ec);
+    return zips;
 }
 
-// Where players upload the zip: a Google Form with a file upload, whose
-// answers only the developer sees. The project page links the same form.
+// Where players can still upload a report by hand: the Google Form, offered
+// when sending fails. The project page links the same form.
 constexpr const wchar_t* kBugReportFormUrl =
     L"https://docs.google.com/forms/d/e/"
     L"1FAIpQLScTmnmH6_BXYsYVfIKtjDsN-gLx59mv4pVjYx4ITbH2YGktBw/viewform";
 
-void offer_bug_report(const fs::path& report, bool crashed) {
-    if (report.empty()) return;
-    const bool is_zip = report.extension() == L".zip";
-    std::wstring text = crashed
-        ? L"The game closed unexpectedly. A bug report was saved:\n\n"
-        : L"Your bug report was saved:\n\n";
-    text += report.wstring();
-    text += is_zip
-        ? L"\n\nPress OK to open the bug report form and this folder. Write a "
-          L"few words about what happened and drag the zip into the form."
-        : L"\n\nIt could not be zipped. Press OK to open the bug report form "
-          L"and this folder; zip this folder (and any gpu_rewind folders next "
-          L"to it) and drag the zip into the form.";
-    text += L"\n\nCancel keeps the file without sending anything.";
-    const int answer =
-        MessageBoxW(nullptr, text.c_str(), L"Golden Sun Recompiled",
-                    MB_OKCANCEL | (crashed ? MB_ICONWARNING : MB_ICONINFORMATION));
-    if (answer != IDOK) return;
-    ShellExecuteW(nullptr, L"open", kBugReportFormUrl, nullptr, nullptr,
-                  SW_SHOWNORMAL);
-    const std::wstring select = L"/select,\"" + report.wstring() + L"\"";
-    ShellExecuteW(nullptr, L"open", L"explorer.exe", select.c_str(), nullptr,
-                  SW_SHOWNORMAL);
+// ── The "Send report" window ───────────────────────────────────────────
+// Shown after the game closed with a crash or F12 captures. The player can
+// write what happened and press Send, which uploads the report zips to the
+// project's report service; nothing is sent otherwise.
+constexpr UINT kReportProgressMessage = WM_APP + 20;  // wParam: percent
+constexpr UINT kReportDoneMessage = WM_APP + 21;      // wParam: 1 sent
+constexpr int kReportEdit = 3001;
+constexpr int kReportSend = 3002;
+constexpr int kReportClose = 3003;
+constexpr int kReportFolder = 3004;
+
+struct ReportWindow {
+    std::vector<fs::path> reports;
+    bool crashed = false;
+    bool zipped = false;
+    HWND edit = nullptr, status = nullptr, send = nullptr, close = nullptr;
+    HFONT font = nullptr;
+    std::thread worker;
+    std::wstring error;
+    bool sent = false;
+};
+ReportWindow* g_report_window = nullptr;
+
+void report_set_status(const std::wstring& text) {
+    if (g_report_window && g_report_window->status)
+        SetWindowTextW(g_report_window->status, text.c_str());
+}
+
+// Uploads every report zip with the player's description; runs on its own
+// thread and posts kReportProgressMessage / kReportDoneMessage to `window`.
+void send_reports(HWND window, std::vector<fs::path> reports, std::string description,
+                  std::wstring* error) {
+    HttpTarget target;
+    target.host = utf8_to_wide(gsr_online::kReportHost);
+    target.path = utf8_to_wide(gsr_online::kReportPath);
+    std::uint64_t total = 0, before = 0;
+    std::error_code ec;
+    for (const fs::path& report : reports) total += fs::file_size(report, ec);
+    bool ok = true;
+    for (std::size_t i = 0; i < reports.size() && ok; ++i) {
+        std::string part = description;
+        if (reports.size() > 1)
+            part += " [part " + std::to_string(i + 1) + " of " + std::to_string(reports.size()) + "]";
+        const std::vector<std::wstring> headers = {
+            L"X-GSR-Client: GoldenSunLauncher",
+            L"X-GSR-Platform: windows",
+            L"X-GSR-Launcher: " + utf8_to_wide(gsr_online::kReleaseVersion) + L" " +
+                utf8_to_wide(__DATE__),
+            L"X-GSR-File: " + utf8_to_wide(gsr_online::percent_encode(
+                                  wide_to_utf8(reports[i].filename().wstring()), 120)),
+            L"X-GSR-Description: " + utf8_to_wide(gsr_online::percent_encode(part)),
+            L"Content-Type: application/octet-stream",
+        };
+        std::string answer;
+        const int status = http_request(
+            L"POST", target, headers, &reports[i], nullptr, &answer,
+            [&](std::uint64_t done, std::uint64_t) {
+                const int percent = total ? static_cast<int>((before + done) * 100 / total) : 0;
+                PostMessageW(window, kReportProgressMessage, static_cast<WPARAM>(percent), 0);
+            },
+            error);
+        before += fs::file_size(reports[i], ec);
+        if (status != 200) {
+            ok = false;
+            if (status != 0) {
+                while (!answer.empty() && (answer.back() == '\n' || answer.back() == '\r'))
+                    answer.pop_back();
+                *error = utf8_to_wide(answer.empty() ? "The server said no (" +
+                                                           std::to_string(status) + ")."
+                                                     : answer);
+            }
+        }
+    }
+    PostMessageW(window, kReportDoneMessage, ok ? 1 : 0, 0);
+}
+
+LRESULT CALLBACK report_window_proc(HWND window, UINT message, WPARAM w_param,
+                                    LPARAM l_param) {
+    ReportWindow* state = g_report_window;
+    switch (message) {
+    case WM_COMMAND: {
+        if (!state) break;
+        const int id = LOWORD(w_param);
+        if (id == kReportFolder) {
+            const std::wstring select = L"/select,\"" + state->reports.front().wstring() + L"\"";
+            ShellExecuteW(nullptr, L"open", L"explorer.exe", select.c_str(), nullptr,
+                          SW_SHOWNORMAL);
+            return 0;
+        }
+        if (id == kReportClose) {
+            DestroyWindow(window);
+            return 0;
+        }
+        if (id == kReportSend && !state->sent) {
+            const int length = GetWindowTextLengthW(state->edit);
+            std::wstring text(static_cast<std::size_t>(length) + 1, L'\0');
+            GetWindowTextW(state->edit, text.data(), length + 1);
+            text.resize(static_cast<std::size_t>(length));
+            EnableWindow(state->send, FALSE);
+            EnableWindow(state->close, FALSE);
+            SendMessageW(state->edit, EM_SETREADONLY, TRUE, 0);
+            report_set_status(L"Sending...");
+            launcher_log(L"Bug report: sending " + std::to_wstring(state->reports.size()) +
+                         L" file(s).");
+            if (state->worker.joinable()) state->worker.join();
+            state->error.clear();
+            state->worker = std::thread(send_reports, window, state->reports,
+                                        wide_to_utf8(text), &state->error);
+            return 0;
+        }
+        break;
+    }
+    case kReportProgressMessage:
+        report_set_status(L"Sending... " + std::to_wstring(static_cast<int>(w_param)) + L"%");
+        return 0;
+    case kReportDoneMessage:
+        if (!state) return 0;
+        if (state->worker.joinable()) state->worker.join();
+        EnableWindow(state->close, TRUE);
+        if (w_param == 1) {
+            state->sent = true;
+            launcher_log(L"Bug report: sent.");
+            report_set_status(L"Sent. Thank you!");
+            SetWindowTextW(state->close, L"Close");
+            return 0;
+        }
+        launcher_log(L"Bug report: sending failed: " + state->error);
+        report_set_status(L"Not sent: " + state->error);
+        EnableWindow(state->send, TRUE);
+        SetWindowTextW(state->send, L"Try again");
+        SendMessageW(state->edit, EM_SETREADONLY, FALSE, 0);
+        if (MessageBoxW(window,
+                        (L"The report could not be sent:\n" + state->error +
+                         L"\n\nYou can try again, or upload the zip yourself on the bug "
+                         L"report form. Open the form and the folder now?")
+                            .c_str(),
+                        L"Golden Sun Recompiled", MB_YESNO | MB_ICONWARNING) == IDYES) {
+            ShellExecuteW(nullptr, L"open", kBugReportFormUrl, nullptr, nullptr, SW_SHOWNORMAL);
+            const std::wstring select = L"/select,\"" + state->reports.front().wstring() + L"\"";
+            ShellExecuteW(nullptr, L"open", L"explorer.exe", select.c_str(), nullptr,
+                          SW_SHOWNORMAL);
+        }
+        return 0;
+    case WM_CTLCOLORSTATIC: {
+        HDC dc = reinterpret_cast<HDC>(w_param);
+        SetBkColor(dc, GetSysColor(COLOR_WINDOW));
+        return reinterpret_cast<INT_PTR>(GetSysColorBrush(COLOR_WINDOW));
+    }
+    case WM_CLOSE:
+        if (state && state->worker.joinable()) return 0;  // wait for the upload
+        DestroyWindow(window);
+        return 0;
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        return 0;
+    default:
+        break;
+    }
+    return DefWindowProcW(window, message, w_param, l_param);
+}
+
+void offer_bug_report(const std::vector<fs::path>& reports, bool crashed) {
+    if (reports.empty()) return;
+    ReportWindow state;
+    state.reports = reports;
+    state.crashed = crashed;
+    state.zipped = reports.front().extension() == L".zip";
+    if (!state.zipped) {
+        // Zipping failed: nothing to upload, only the folder to point at.
+        const std::wstring text =
+            L"A bug report was saved, but it could not be zipped:\n\n" +
+            reports.front().wstring() +
+            L"\n\nPress OK to open the bug report form and this folder; zip the folder "
+            L"(and any gpu_rewind folders next to it) and add it to the form.";
+        if (MessageBoxW(nullptr, text.c_str(), L"Golden Sun Recompiled",
+                        MB_OKCANCEL | MB_SETFOREGROUND | MB_ICONWARNING) == IDOK) {
+            ShellExecuteW(nullptr, L"open", kBugReportFormUrl, nullptr, nullptr, SW_SHOWNORMAL);
+            ShellExecuteW(nullptr, L"open", L"explorer.exe", reports.front().c_str(), nullptr,
+                          SW_SHOWNORMAL);
+        }
+        return;
+    }
+
+    HDC screen = GetDC(nullptr);
+    const int dpi = GetDeviceCaps(screen, LOGPIXELSY);
+    ReleaseDC(nullptr, screen);
+    auto px = [dpi](int v) { return MulDiv(v, dpi, 96); };
+
+    const wchar_t class_name[] = L"GoldenSunRecompiledReportWindow";
+    WNDCLASSW window_class{};
+    window_class.hInstance = GetModuleHandleW(nullptr);
+    window_class.lpfnWndProc = report_window_proc;
+    window_class.lpszClassName = class_name;
+    window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    window_class.hbrBackground = GetSysColorBrush(COLOR_WINDOW);
+    RegisterClassW(&window_class);
+
+    const int width = px(520), height = px(400);
+    RECT frame{0, 0, width, height};
+    const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
+    AdjustWindowRectEx(&frame, style, FALSE, WS_EX_APPWINDOW);
+    HWND window = CreateWindowExW(
+        WS_EX_APPWINDOW | WS_EX_TOPMOST, class_name, L"Golden Sun Recompiled: bug report",
+        style, (GetSystemMetrics(SM_CXSCREEN) - (frame.right - frame.left)) / 2,
+        (GetSystemMetrics(SM_CYSCREEN) - (frame.bottom - frame.top)) / 2,
+        frame.right - frame.left, frame.bottom - frame.top, nullptr, nullptr,
+        GetModuleHandleW(nullptr), nullptr);
+    if (!window) return;
+    g_report_window = &state;
+    state.font = CreateFontW(-px(15), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                             DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    auto add = [&](const wchar_t* cls, const std::wstring& text, DWORD extra, int id, int x,
+                   int y, int w, int h) {
+        HWND child = CreateWindowExW(
+            cls == std::wstring(L"EDIT") ? WS_EX_CLIENTEDGE : 0, cls, text.c_str(),
+            WS_CHILD | WS_VISIBLE | extra, px(x), px(y), px(w), px(h), window,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), GetModuleHandleW(nullptr),
+            nullptr);
+        SendMessageW(child, WM_SETFONT, reinterpret_cast<WPARAM>(state.font), TRUE);
+        return child;
+    };
+
+    std::wstring heading = crashed ? L"The game closed unexpectedly. A bug report was saved."
+                                   : L"Your bug report was saved.";
+    heading += L"\nWhat happened, and where in the game? A few words help a lot:";
+    add(L"STATIC", heading, 0, 0, 20, 16, 480, 44);
+    state.edit = add(L"EDIT", L"",
+                     ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | WS_VSCROLL | WS_TABSTOP,
+                     kReportEdit, 20, 66, 480, 110);
+    SendMessageW(state.edit, EM_SETLIMITTEXT, 500, 0);
+    std::wstring files;
+    std::uint64_t bytes = 0;
+    std::error_code ec;
+    for (const fs::path& report : reports) bytes += fs::file_size(report, ec);
+    files = L"Send report uploads " +
+            std::wstring(reports.size() > 1 ? std::to_wstring(reports.size()) + L" zips"
+                                            : std::wstring(L"the zip")) +
+            L" (" + std::to_wstring(std::max<std::uint64_t>(1, bytes / (1024 * 1024))) +
+            L" MB) to the developer: the game's log and screen captures, your settings "
+            L"and your Windows version. Your Windows user name is taken out. Nothing is "
+            L"sent unless you press Send report.";
+    add(L"STATIC", files, 0, 0, 20, 186, 480, 84);
+    state.status = add(L"STATIC", L"", 0, 0, 20, 276, 480, 40);
+    state.send = add(L"BUTTON", L"Send report", BS_DEFPUSHBUTTON | WS_TABSTOP, kReportSend, 20,
+                     330, 150, 40);
+    state.close = add(L"BUTTON", L"Don't send", WS_TABSTOP, kReportClose, 180, 330, 130, 40);
+    add(L"BUTTON", L"Open folder", WS_TABSTOP, kReportFolder, 370, 330, 130, 40);
+
+    ShowWindow(window, SW_SHOW);
+    SetForegroundWindow(window);
+    SetFocus(state.edit);
+    MSG message{};
+    while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+        if (!IsDialogMessageW(window, &message)) {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    }
+    if (state.worker.joinable()) state.worker.join();
+    g_report_window = nullptr;
+    if (state.font) DeleteObject(state.font);
+    UnregisterClassW(class_name, GetModuleHandleW(nullptr));
 }
 
 int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
@@ -889,9 +1390,10 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
         game = root / L"build" / L"gs011" / L"GoldenSunRecomp.exe";
     }
     if (!fs::is_regular_file(game)) {
-        MessageBoxW(nullptr,
+        launcher_log(L"Start game: GoldenSunRecomp.exe not found.");
+        MessageBoxW(window,
                     L"GoldenSunRecomp.exe was not found. Run the build first.",
-                    L"Golden Sun Recompiled", MB_OK | MB_ICONERROR);
+                    L"Golden Sun Recompiled", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
         return 1;
     }
 
@@ -937,8 +1439,9 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
     ChildEnvironment child_environment;
     if (!child_environment.valid()) {
         if (log_file != INVALID_HANDLE_VALUE) CloseHandle(log_file);
-        MessageBoxW(nullptr, L"The game environment could not be prepared.",
-                    L"Golden Sun Recompiled", MB_OK | MB_ICONERROR);
+        launcher_log(L"Start game: the game environment could not be prepared.");
+        MessageBoxW(window, L"The game environment could not be prepared.",
+                    L"Golden Sun Recompiled", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
         return 1;
     }
 
@@ -1236,16 +1739,22 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
                         inherit_handles, creation_flags,
                         environment_block.data(), root.c_str(), &startup,
                         &process)) {
+        const DWORD start_error = GetLastError();
         if (out_read) CloseHandle(out_read);
         if (out_write) CloseHandle(out_write);
         if (err_read) CloseHandle(err_read);
         if (err_write) CloseHandle(err_write);
         if (log_file != INVALID_HANDLE_VALUE) CloseHandle(log_file);
-        MessageBoxW(nullptr, L"Windows could not start the recompiled game.",
-                    L"Golden Sun Recompiled", MB_OK | MB_ICONERROR);
+        launcher_log(L"Start game: Windows could not start " + game.wstring() +
+                     L" (error " + std::to_wstring(start_error) + L").");
+        MessageBoxW(window, L"Windows could not start the recompiled game.",
+                    L"Golden Sun Recompiled", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
         return 1;
     }
     CloseHandle(process.hThread);
+    launcher_log(L"Start game: running " + game.wstring() + L", session log " +
+                 (log_path.empty() ? std::wstring(L"(none)")
+                                   : fs::path(log_path).filename().wstring()) + L".");
 
     // The splash window has nothing left to do once the game has actually
     // started; destroying it now (rather than after the wait below) avoids
@@ -1285,6 +1794,9 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
         const fs::path crash_report = game.parent_path() / L"crash_report.txt";
         const bool crashed = fs::is_regular_file(crash_report, time_ec) &&
             fs::last_write_time(crash_report, time_ec) >= launch_time;
+        launcher_log(L"Game ended: exit code " + std::to_wstring(exit_code) +
+                     (crashed ? L", crashed (crash_report.txt written)" : L"") +
+                     L", rewind captures " + std::to_wstring(new_rewinds.size()) + L".");
         if (!new_rewinds.empty() || crashed) {
             offer_bug_report(make_bug_report(root, game.parent_path(),
                                              log_path, new_rewinds, crashed,
@@ -2084,6 +2596,7 @@ void start_game_build(HWND window, const std::wstring& rom) {
     const fs::path builder = g_launcher_root / L"builder" / L"gsr_builder.exe";
     std::error_code ec;
     if (!fs::is_regular_file(builder, ec)) {
+        launcher_log(L"Build: builder\\gsr_builder.exe is missing.");
         MessageBoxW(window,
                     L"Part of Golden Sun Recompiled is missing (builder\\gsr_builder.exe).\n\n"
                     L"Please unzip the whole download again.",
@@ -2092,7 +2605,13 @@ void start_game_build(HWND window, const std::wstring& rom) {
     }
     SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
     HANDLE read_end = nullptr, write_end = nullptr;
-    if (!CreatePipe(&read_end, &write_end, &sa, 0)) return;
+    if (!CreatePipe(&read_end, &write_end, &sa, 0)) {
+        launcher_log(L"Build: no pipe for the builder (error " +
+                     std::to_wstring(GetLastError()) + L").");
+        MessageBoxW(window, L"The game builder could not start.",
+                    L"Golden Sun Recompiled", MB_OK | MB_ICONERROR);
+        return;
+    }
     SetHandleInformation(read_end, HANDLE_FLAG_INHERIT, 0);
     std::wstring cmd = L"\"" + builder.wstring() + L"\" --rom \"" + rom + L"\"";
     STARTUPINFOW si{};
@@ -2107,9 +2626,13 @@ void start_game_build(HWND window, const std::wstring& rom) {
         nullptr, cmd_buf.data(), nullptr, nullptr, TRUE,
         CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr,
         builder.parent_path().c_str(), &si, &pi);
+    const DWORD start_error = started ? 0 : GetLastError();
     CloseHandle(write_end);
     if (!started) {
         CloseHandle(read_end);
+        // Error 225 or 5 here usually means antivirus blocked or removed it.
+        launcher_log(L"Build: Windows could not start the builder (error " +
+                     std::to_wstring(start_error) + L").");
         MessageBoxW(window, L"The game builder could not start.",
                     L"Golden Sun Recompiled", MB_OK | MB_ICONERROR);
         return;
@@ -2124,6 +2647,7 @@ void start_game_build(HWND window, const std::wstring& rom) {
                                     &info, sizeof(info));
     }
     if (g_build_job) AssignProcessToJobObject(g_build_job, pi.hProcess);
+    launcher_log(L"Build: started (log: builder\\work\\build-log.txt).");
     ResumeThread(pi.hThread);
     CloseHandle(pi.hThread);
     {
@@ -2184,6 +2708,48 @@ void start_game_build(HWND window, const std::wstring& rom) {
         }
         PostMessageW(window, kBuildFinishedMessage, 0, 0);
     });
+}
+
+// ── Updates ────────────────────────────────────────────────────────────
+// A release launcher asks GitHub for the newest release when it starts
+// (launcher_online.h). When it differs from this launcher's version, the
+// player is told and can open its GitHub page to download it; the launcher
+// itself downloads and installs nothing.
+std::mutex g_update_mutex;
+gsr_online::Release g_update;
+
+void check_for_update(HWND window) {
+    if (!kReleaseLauncher || !gsr_online::update_checks_enabled()) return;
+    std::thread([window] {
+        HttpTarget target;
+        target.host = utf8_to_wide(gsr_online::kReleasesApiHost);
+        target.path = utf8_to_wide(gsr_online::kReleasesApiPath);
+        std::string reply;
+        std::wstring error;
+        const int status = http_request(L"GET", target, {L"Accept: application/vnd.github+json"},
+                                        nullptr, nullptr, &reply, nullptr, &error);
+        if (status != 200) {
+            launcher_log(L"Update check: " +
+                         (status ? L"GitHub answered " + std::to_wstring(status) : error));
+            return;
+        }
+        gsr_online::Release release;
+        std::string parse_error;
+        if (!gsr_online::parse_newest_release(reply, false, &release, &parse_error)) {
+            launcher_log(L"Update check: " + utf8_to_wide(parse_error));
+            return;
+        }
+        if (!gsr_online::is_newer_release(release)) {
+            launcher_log(L"Update check: " + utf8_to_wide(release.tag) + L" is the newest.");
+            return;
+        }
+        launcher_log(L"Update check: " + utf8_to_wide(release.tag) + L" is available.");
+        {
+            std::lock_guard<std::mutex> lock(g_update_mutex);
+            g_update = release;
+        }
+        PostMessageW(window, kUpdateFoundMessage, 0, 0);
+    }).detach();
 }
 
 LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
@@ -2471,13 +3037,15 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             return 0;
         }
         if (LOWORD(w_param) == kPickRomButton) {
-            const std::wstring rom = choose_rom(g_launcher_root);
+            const std::wstring rom = choose_rom(g_launcher_root, window);
             if (rom.empty()) return 0;
             // A release builds the game code from the ROM first, once.
             if (kReleaseLauncher && !game_code_ready(g_launcher_root)) {
+                launcher_log(L"The game is not built yet (or is out of date): building it.");
                 start_game_build(window, rom);
                 return 0;
             }
+            launcher_log(L"Starting the game.");
             if (run_game(g_launcher_root, rom, window) == 0) {
                 DestroyWindow(window);  // no-op if run_game already destroyed it
             }
@@ -2490,6 +3058,34 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
         GetClientRect(window, &client);
         RECT status{0, client.bottom - 164, client.right, client.bottom};
         InvalidateRect(window, &status, FALSE);
+        return 0;
+    }
+    case kUpdateFoundMessage: {
+        gsr_online::Release release;
+        {
+            std::lock_guard<std::mutex> lock(g_update_mutex);
+            release = g_update;
+        }
+        {
+            std::lock_guard<std::mutex> lock(g_build.mutex);
+            if (g_build.running) return 0;  // asked again on the next start
+        }
+        std::wstring text = L"A new version of Golden Sun Recompiled is out: " +
+                            utf8_to_wide(release.tag);
+        if (!release.title.empty()) text += L"\n" + utf8_to_wide(release.title);
+        text += L"\n\nYou have " + utf8_to_wide(gsr_online::kReleaseVersion) +
+                L". Open the download page now?\n\nUnzip the new version over this "
+                L"folder to keep your settings and saves. The game is then prepared from "
+                L"your ROM once more, which takes a few minutes.";
+        if (MessageBoxW(window, text.c_str(), L"Update available",
+                        MB_YESNO | MB_ICONINFORMATION) == IDYES) {
+            launcher_log(L"Update: opened the page of " + utf8_to_wide(release.tag) + L".");
+            const std::wstring url =
+                utf8_to_wide(release.page.empty() ? gsr_online::kReleasesPage : release.page);
+            ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        } else {
+            launcher_log(L"Update: not now.");
+        }
         return 0;
     }
     case kBuildFinishedMessage: {
@@ -2512,6 +3108,10 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             std::lock_guard<std::mutex> lock(g_build.mutex);
             g_build.ready = ready;
         }
+        launcher_log(ready ? std::wstring(L"Build: finished, the game is ready.")
+                     : ok  ? std::wstring(L"Build: finished, but the game files do not "
+                                          L"match this release.")
+                           : L"Build: failed: " + error);
         InvalidateRect(window, nullptr, FALSE);
         if (!ready) {
             std::wstring msg = L"The game could not be prepared.\n\n" + error +
@@ -2555,6 +3155,7 @@ int show_launcher(const fs::path& root) {
     }
 
     g_launcher_root = root;
+    open_launcher_log(root);
     if (kReleaseLauncher) g_build.ready = game_code_ready(root);
     g_audio_settings = kReleaseLauncher ? release_launch_settings()
                                         : load_launcher_audio_settings(root);
@@ -2650,6 +3251,7 @@ int show_launcher(const fs::path& root) {
     if (kReleaseLauncher) SetTimer(window, kProgressTimer, 33, nullptr);
     ShowWindow(window, SW_SHOW);
     UpdateWindow(window);
+    check_for_update(window);
 
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {

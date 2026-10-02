@@ -1230,7 +1230,12 @@ void worker_main() {
 // doesn't match the exact shape written by overlay_compile_one.
 bool parse_cache_filename(const std::string& fn, uint32_t* pc, uint32_t* crc,
                           bool* thumb) {
+#ifdef _WIN32
     if (fn.size() != 23 || fn.compare(19, 4, ".dll") != 0) return false;
+#else
+    // Linux writes "<pc>_<crc>_<mode>.so" (22 chars).
+    if (fn.size() != 22 || fn.compare(19, 3, ".so") != 0) return false;
+#endif
     if (fn[8] != '_' || fn[17] != '_') return false;
     const char mode = fn[18];
     if (mode != 'a' && mode != 't') return false;

@@ -2,12 +2,158 @@
 
 #if !defined(_WIN32)
 
-// Non-Windows: no SEH, no minidumps. Keep the public API present and inert
-// so callers never need their own #ifdef.
+// POSIX (Linux): the same files as on Windows except the minidump.
+// crash_report.txt holds the signal, the faulting address and a backtrace
+// (execinfo); run_state.txt tells an external kill or hard hang apart from
+// a crash on the next start. The handler runs on its own stack so a stack
+// overflow can still be reported, and uses only write(2)-level output until
+// the backtrace, which is best-effort.
+#include <cerrno>
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <exception>
+#include <initializer_list>
+#include <execinfo.h>
+#include <fcntl.h>
+#include <unistd.h>
+
 namespace gbarecomp {
-void crash_handler_install(const char* log_dir) { (void)log_dir; }
-void crash_handler_mark_clean_exit() {}
-void crash_handler_set_extra_writer(CrashExtraWriter) {}
+namespace {
+
+bool g_installed = false;
+char g_dir[1024];
+char g_report_path[1100];
+char g_run_state_path[1100];
+CrashExtraWriter g_extra_writer = nullptr;
+alignas(16) char g_alt_stack[64 * 1024];
+
+void raw_write_file(const char* path, const char* data, size_t len) {
+    const int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) return;
+    while (len > 0) {
+        const ssize_t n = write(fd, data, len);
+        if (n <= 0) break;
+        data += n;
+        len -= static_cast<size_t>(n);
+    }
+    close(fd);
+}
+
+void put(int fd, const char* s) {
+    const size_t len = std::strlen(s);
+    if (write(fd, s, len) < 0) {}
+}
+
+const char* signal_name(int sig) {
+    switch (sig) {
+        case SIGSEGV: return "SIGSEGV (invalid memory access)";
+        case SIGBUS:  return "SIGBUS (bus error)";
+        case SIGILL:  return "SIGILL (illegal instruction)";
+        case SIGFPE:  return "SIGFPE (arithmetic fault)";
+        case SIGABRT: return "SIGABRT (abort)";
+        default:      return "fatal signal";
+    }
+}
+
+void write_report(const char* what, const void* address) {
+    const int fd = open(g_report_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) return;
+    char line[256];
+    put(fd, "Golden Sun Recompiled crash report\n\n");
+    std::snprintf(line, sizeof(line), "What: %s\n", what);
+    put(fd, line);
+    std::snprintf(line, sizeof(line), "Address: %p\n\nBacktrace:\n", address);
+    put(fd, line);
+    void* frames[64];
+    const int count = backtrace(frames, 64);
+    backtrace_symbols_fd(frames, count, fd);
+    if (g_extra_writer) {
+        if (const char* extra = g_extra_writer(g_dir)) {
+            std::snprintf(line, sizeof(line), "\nAlso written: %s\n", extra);
+            put(fd, line);
+        }
+    }
+    close(fd);
+    raw_write_file(g_run_state_path, "crashed\n", 8);
+}
+
+void fatal_signal(int sig, siginfo_t* info, void*) {
+    write_report(signal_name(sig), info ? info->si_addr : nullptr);
+    // Hand the signal back to the default action so the exit status and
+    // any core dump stay what they would have been.
+    std::signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+void terminate_handler() {
+    write_report("std::terminate (uncaught C++ exception)", nullptr);
+    std::signal(SIGABRT, SIG_DFL);
+    std::abort();
+}
+
+void check_previous_run_state() {
+    char buf[64] = {};
+    const int fd = open(g_run_state_path, O_RDONLY);
+    if (fd < 0) return;
+    const ssize_t n = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
+    if (n > 0 && std::strncmp(buf, "live", 4) == 0 &&
+        access(g_report_path, F_OK) != 0) {
+        std::fprintf(stderr,
+                     "previous run ended without a clean exit and without a "
+                     "crash report -- externally terminated or hard hang\n");
+    }
+}
+
+}  // namespace
+
+void crash_handler_install(const char* log_dir) {
+    if (g_installed) return;
+    if (log_dir && log_dir[0]) {
+        std::snprintf(g_dir, sizeof(g_dir), "%s", log_dir);
+    } else {
+        char exe[1024] = {};
+        const ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+        if (n <= 0) return;
+        exe[n] = '\0';
+        if (char* slash = std::strrchr(exe, '/')) *slash = '\0';
+        std::snprintf(g_dir, sizeof(g_dir), "%s", exe);
+    }
+    std::snprintf(g_report_path, sizeof(g_report_path), "%s/crash_report.txt", g_dir);
+    std::snprintf(g_run_state_path, sizeof(g_run_state_path), "%s/run_state.txt", g_dir);
+
+    check_previous_run_state();
+
+    stack_t alt{};
+    alt.ss_sp = g_alt_stack;
+    alt.ss_size = sizeof(g_alt_stack);
+    sigaltstack(&alt, nullptr);
+    struct sigaction sa{};
+    sa.sa_sigaction = &fatal_signal;
+    sa.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESETHAND;
+    sigemptyset(&sa.sa_mask);
+    for (int sig : {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT})
+        sigaction(sig, &sa, nullptr);
+    std::set_terminate(&terminate_handler);
+
+    char live[64];
+    const int len = std::snprintf(live, sizeof(live), "live pid=%d\n",
+                                  static_cast<int>(getpid()));
+    raw_write_file(g_run_state_path, live, len > 0 ? static_cast<size_t>(len) : 0);
+    g_installed = true;
+}
+
+void crash_handler_mark_clean_exit() {
+    if (!g_installed) return;
+    raw_write_file(g_run_state_path, "clean\n", 6);
+}
+
+void crash_handler_set_extra_writer(CrashExtraWriter writer) {
+    g_extra_writer = writer;
+}
+
 }  // namespace gbarecomp
 
 #else  // _WIN32

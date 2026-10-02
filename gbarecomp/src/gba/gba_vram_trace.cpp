@@ -1462,7 +1462,7 @@ void trace_oam_dma(armv4t::Bus* bus, int channel, std::uint32_t pc,
 void reset_oam_trace_window() {
     g_oam_shadow_stats = {};
     g_oam_dma_stats = {};
-    g_oam_attr0_stats = {};
+    g_oam_attr0_stats = OamAttr0TraceStats{};
     g_oam_attr0_provenance.fill({});
     g_oam_attr0_generation = 0;
     g_oam_shadow_slot_seen.fill(false);

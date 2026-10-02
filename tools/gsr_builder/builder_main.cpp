@@ -22,10 +22,19 @@
 // Layout (all overridable): <root>/builder/gsr_builder.exe, with data/,
 // engine/, mingw64/ (the compiler), gba_recompile.exe beside it; the DLL
 // goes to <root>.
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/prctl.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cstring>
 #include <atomic>
 #include <cstdarg>
@@ -53,6 +62,17 @@ namespace {
 
 constexpr const char* kRomSha1 = "5c4695205413df7db52b9a184815a07783999971";
 constexpr const char* kBuilderVersion = "2";  // 2: block timing (block_timing.cpp)
+
+// File names that differ between the Windows and Linux releases.
+#ifdef _WIN32
+constexpr const char* kExeSuffix = ".exe";
+constexpr const char* kGameLibrary = "GoldenSunGame.dll";
+constexpr const char* kEngineExe = "GoldenSunRecomp.exe";
+#else
+constexpr const char* kExeSuffix = "";
+constexpr const char* kGameLibrary = "libGoldenSunGame.so";
+constexpr const char* kEngineExe = "GoldenSunRecomp";
+#endif
 
 // ---------------------------------------------------------------- output
 
@@ -91,6 +111,21 @@ std::string read_text(const fs::path& p) {
     return s.str();
 }
 
+// The end of a failed step's own log, copied into build-log.txt so that one
+// file is enough to see why a build failed.
+void log_tail(const fs::path& log, std::size_t max_lines = 30) {
+    std::istringstream in(read_text(log));
+    std::vector<std::string> lines;
+    for (std::string line; std::getline(in, line);) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        lines.push_back(line);
+    }
+    const std::size_t first = lines.size() > max_lines ? lines.size() - max_lines : 0;
+    log_line("---- " + log.filename().string() + (first ? " (last lines)" : "") + " ----");
+    for (std::size_t i = first; i < lines.size(); ++i) log_line(lines[i]);
+    log_line("----");
+}
+
 bool write_bytes(const fs::path& p, const void* data, std::size_t n) {
     std::ofstream f(p, std::ios::binary | std::ios::trunc);
     f.write(static_cast<const char*>(data), static_cast<std::streamsize>(n));
@@ -113,6 +148,7 @@ std::string hex(std::uint32_t v, int width, bool upper) {
 
 // ---------------------------------------------------------------- processes
 
+#ifdef _WIN32
 HANDLE g_job = nullptr;  // kills every child if the builder is stopped
 
 std::wstring widen(const std::string& s) {
@@ -196,6 +232,60 @@ int run_process(const fs::path& exe, const std::vector<std::string>& args,
     CloseHandle(pi.hProcess);
     return static_cast<int>(code);
 }
+#else
+// Children find the bundled toolchain first, then the system's basics. The
+// bundled compiler's own libraries (GMP, MPFR, ISL, BFD...) are in
+// toolchain/hostlib, which few distros have at the right versions.
+void set_child_path(const fs::path& toolchain_bin) {
+    const std::string path = toolchain_bin.string() + ":/usr/bin:/bin";
+    setenv("PATH", path.c_str(), 1);
+    const fs::path hostlib = toolchain_bin.parent_path() / "hostlib";
+    if (fs::is_directory(hostlib)) setenv("LD_LIBRARY_PATH", hostlib.c_str(), 1);
+}
+
+// Run exe with args; stdout/stderr go to `log` (appended). Returns the exit
+// code, or -1 if it could not start. Every child is killed if the builder
+// dies (PR_SET_PDEATHSIG), as the Windows job object does.
+int run_process(const fs::path& exe, const std::vector<std::string>& args,
+                const fs::path& log, const fs::path& cwd = {}) {
+    // Everything the child needs is built before fork: the builder runs
+    // compilers from several threads, and after fork only async-signal-safe
+    // calls are allowed.
+    const std::string exe_s = exe.string(), log_s = log.string(),
+                      cwd_s = cwd.string();
+    std::vector<std::string> owned;
+    owned.push_back(exe_s);
+    owned.insert(owned.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    for (std::string& a : owned) argv.push_back(a.data());
+    argv.push_back(nullptr);
+    const pid_t parent = getpid();
+    const pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        prctl(PR_SET_PDEATHSIG, SIGKILL);
+        if (getppid() != parent) _exit(127);
+        const int fd = open(log_s.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (fd >= 0) {
+            dup2(fd, 1);
+            dup2(fd, 2);
+            close(fd);
+        }
+        if (!cwd_s.empty() && chdir(cwd_s.c_str()) != 0) _exit(127);
+        execv(exe_s.c_str(), argv.data());
+        _exit(127);
+    }
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) return -1;
+    }
+    if (WIFEXITED(status)) {
+        const int code = WEXITSTATUS(status);
+        return code == 127 ? -1 : code;
+    }
+    return -1;
+}
+#endif
 
 // Run `tasks` on `jobs` threads, reporting progress; stops handing out new
 // tasks after the first failure and returns its message.
@@ -255,6 +345,7 @@ bool recompile(const Setup& s, const std::vector<std::string>& args,
     fs::remove(log, ec);
     const int rc = run_process(s.recompiler, a, log);
     if (rc != 0) {
+        log_tail(log);
         *error = "translating " + name + " failed (" + std::to_string(rc) +
                  "); see " + log.string();
         return false;
@@ -834,15 +925,26 @@ bool compile_and_link(const Setup& s, std::string* error) {
         *error = "no game code was generated";
         return false;
     }
-    const fs::path gxx = s.toolchain / "bin" / "g++.exe";
+    const fs::path gxx = s.toolchain / "bin" / (std::string("g++") + kExeSuffix);
     std::vector<std::string> base = {
         "-O2", "-g", "-DNDEBUG", "-std=c++20", "-Og", "-g0",
         // A broken setup fails in seconds instead of printing errors for
         // an hour per file.
         "-fmax-errors=20",
         "-DGBARECOMP_OUTLINE_BUS=1",
+#ifndef _WIN32
+        // A shared library on Linux must be position-independent; calls
+        // between game functions bind inside it (with -Bsymbolic below).
+        "-fPIC", "-fno-semantic-interposition",
+#endif
         "-I" + (gen / "main").string(),
         "-I" + (s.engine / "include").string()};
+#ifndef _WIN32
+    // The bundled compiler brings the C library headers and link stubs it
+    // needs (a Steam Deck has none installed); a system compiler has its own.
+    const fs::path sysroot = s.toolchain / "sysroot";
+    if (fs::is_directory(sysroot)) base.push_back("--sysroot=" + sysroot.string());
+#endif
 
     emit("@stage Compiling the game (%zu files)", sources.size());
     std::vector<fs::path> objects;
@@ -860,6 +962,7 @@ bool compile_and_link(const Setup& s, std::string* error) {
             fs::remove(log, ec);
             const int rc = run_process(gxx, args, log);
             if (rc != 0) {
+                log_tail(log);
                 *e = "compiling " + src.filename().string() + " failed (" +
                      std::to_string(rc) + "); see " + log.string();
                 return false;
@@ -870,7 +973,7 @@ bool compile_and_link(const Setup& s, std::string* error) {
     }
     if (!run_parallel(tasks, s.jobs, error)) return false;
 
-    emit("@stage Linking GoldenSunGame.dll");
+    emit("@stage Linking %s", kGameLibrary);
     const fs::path def = s.work / "GoldenSunGame.def";
     const fs::path rsp = s.work / "objects.rsp";
     write_text(def, make_def(sources));
@@ -880,19 +983,31 @@ bool compile_and_link(const Setup& s, std::string* error) {
         list += "\"" + p + "\"\n";
     }
     write_text(rsp, list);
-    const fs::path dll_tmp = s.work / "GoldenSunGame.dll";
+    const fs::path dll_tmp = s.work / kGameLibrary;
     const fs::path log = logs_dir(s) / "link.log";
     std::error_code ec;
     fs::remove(log, ec);
+#ifdef _WIN32
     const int rc = run_process(gxx, {"-shared", "-o", dll_tmp.string(), "@" + rsp.string(),
                                      def.string(),
                                      (s.engine / "libGoldenSunRecomp_api.a").string()},
                                log);
+#else
+    // ELF needs no export or import list: the library exports every table,
+    // and what it calls in the engine is found in GoldenSunRecomp when the
+    // game loads it (the linker exports each engine symbol the build's own
+    // copy of this library called, and this one calls the same).
+    std::vector<std::string> link = {"-shared", "-Wl,-Bsymbolic", "-o", dll_tmp.string(),
+                                     "@" + rsp.string()};
+    if (fs::is_directory(sysroot)) link.push_back("--sysroot=" + sysroot.string());
+    const int rc = run_process(gxx, link, log);
+#endif
     if (rc != 0) {
+        log_tail(log);
         *error = "linking failed (" + std::to_string(rc) + "); see " + log.string();
         return false;
     }
-    const fs::path dll = s.out_dir / "GoldenSunGame.dll";
+    const fs::path dll = s.out_dir / kGameLibrary;
     fs::remove(dll, ec);
     fs::copy_file(dll_tmp, dll, ec);
     if (ec) {
@@ -905,9 +1020,14 @@ bool compile_and_link(const Setup& s, std::string* error) {
 // ---------------------------------------------------------------- main
 
 fs::path exe_dir() {
+#ifdef _WIN32
     wchar_t buf[MAX_PATH];
     GetModuleFileNameW(nullptr, buf, MAX_PATH);
     return fs::path(buf).parent_path();
+#else
+    std::error_code ec;
+    return fs::read_symlink("/proc/self/exe", ec).parent_path();
+#endif
 }
 
 int usage() {
@@ -921,6 +1041,7 @@ int usage() {
 
 }  // namespace
 
+#ifdef _WIN32
 int wmain(int argc, wchar_t** wargv) {
     std::vector<std::string> argv;
     for (int i = 0; i < argc; ++i) {
@@ -929,14 +1050,22 @@ int wmain(int argc, wchar_t** wargv) {
         WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, s.data(), n, nullptr, nullptr);
         argv.push_back(s);
     }
+#else
+int main(int argc, char** cargv) {
+    std::vector<std::string> argv(cargv, cargv + argc);
+#endif
     const fs::path here = exe_dir();
     Setup s;
     s.data = here / "data";
     s.engine = here / "engine";
+#ifdef _WIN32
     // GCC finds its Windows headers at bin/../../mingw64/include, so the
     // bundled toolchain folder must be called mingw64.
     s.toolchain = here / "mingw64";
-    s.recompiler = here / "gba_recompile.exe";
+#else
+    s.toolchain = here / "toolchain";
+#endif
+    s.recompiler = here / (std::string("gba_recompile") + kExeSuffix);
     s.work = here / "work";
     s.out_dir = here.parent_path();
     for (std::size_t i = 1; i < argv.size(); ++i) {
@@ -963,18 +1092,27 @@ int wmain(int argc, wchar_t** wargv) {
     }
     if (s.jobs <= 0) {
         // One job per core, but at least ~700 MB of RAM each.
+#ifdef _WIN32
         MEMORYSTATUSEX mem{sizeof(mem)};
         GlobalMemoryStatusEx(&mem);
-        const int by_ram = static_cast<int>(mem.ullTotalPhys / (700ull << 20));
+        const unsigned long long total_ram = mem.ullTotalPhys;
+#else
+        const unsigned long long total_ram =
+            static_cast<unsigned long long>(sysconf(_SC_PHYS_PAGES)) *
+            static_cast<unsigned long long>(sysconf(_SC_PAGE_SIZE));
+#endif
+        const int by_ram = static_cast<int>(total_ram / (700ull << 20));
         s.jobs = std::max(1, std::min<int>(static_cast<int>(std::thread::hardware_concurrency()), by_ram));
     }
 
+#ifdef _WIN32
     g_job = CreateJobObjectW(nullptr, nullptr);
     if (g_job) {
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION info{};
         info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         SetInformationJobObject(g_job, JobObjectExtendedLimitInformation, &info, sizeof(info));
     }
+#endif
     set_child_path(s.toolchain / "bin");
 
     std::error_code ec;
@@ -994,8 +1132,14 @@ int wmain(int argc, wchar_t** wargv) {
     const std::string rom_sha1 = sha1_hex(rom.data(), rom.size());
     if (rom_sha1 != kRomSha1)
         return fail("This is not the Golden Sun (USA, Europe) ROM this release supports.");
-    for (const fs::path& need : {s.recompiler, s.toolchain / "bin" / "g++.exe",
-                                 s.engine / "libGoldenSunRecomp_api.a",
+#ifdef _WIN32
+    const fs::path engine_link_input = s.engine / "libGoldenSunRecomp_api.a";
+#else
+    const fs::path engine_link_input = s.engine / "include" / "runtime_arm.h";
+#endif
+    for (const fs::path& need : {s.recompiler,
+                                 s.toolchain / "bin" / (std::string("g++") + kExeSuffix),
+                                 engine_link_input,
                                  s.data / "game_code_plan.txt"}) {
         if (!fs::exists(need)) return fail("Missing part of the release: " + need.string());
     }
@@ -1009,7 +1153,7 @@ int wmain(int argc, wchar_t** wargv) {
         // The launcher rebuilds when any of these change: a different ROM,
         // a new builder, or a new engine (an update may change what the
         // game code calls).
-        const auto engine = read_bytes(s.out_dir / "GoldenSunRecomp.exe");
+        const auto engine = read_bytes(s.out_dir / kEngineExe);
         const std::string stamp = std::string("rom_sha1=") + rom_sha1 +
                                   "\nbuilder=" + kBuilderVersion +
                                   "\nengine_sha1=" +
