@@ -1097,6 +1097,11 @@ if(GSR_BUILD_LOCAL_RUNNER)
     # it). A launcher built as "dev" never offers updates (launcher_online.h).
     set(GSR_RELEASE_VERSION "dev" CACHE STRING
         "Release version (GitHub release tag) the launcher reports and updates from")
+    # The bug report service's host name. Empty (the default, and what a fork
+    # gets): the launcher has no Send report button and offers the bug report
+    # form instead. The official release scripts set it.
+    set(GSR_REPORT_HOST "" CACHE STRING
+        "Host name of the bug report service the Send report button uploads to")
 
     if(WIN32)
         add_executable(GoldenSunLauncher WIN32
@@ -1107,7 +1112,8 @@ if(GSR_BUILD_LOCAL_RUNNER)
             "${CMAKE_BINARY_DIR}/generated")
         target_compile_definitions(GoldenSunLauncher PRIVATE
             UNICODE _UNICODE NOMINMAX
-            GSR_RELEASE_VERSION="${GSR_RELEASE_VERSION}")
+            GSR_RELEASE_VERSION="${GSR_RELEASE_VERSION}"
+            GSR_REPORT_HOST="${GSR_REPORT_HOST}")
         target_link_libraries(GoldenSunLauncher PRIVATE bcrypt comdlg32 gdiplus
             shlwapi winhttp)
         # make_release.bat: a player launcher with only Pick ROM and Quit,
@@ -1168,7 +1174,8 @@ if(GSR_BUILD_LOCAL_RUNNER)
             set_target_properties(GoldenSunLauncher PROPERTIES
                 INTERPROCEDURAL_OPTIMIZATION FALSE)
             target_compile_definitions(GoldenSunLauncher PRIVATE
-                GSR_RELEASE_VERSION="${GSR_RELEASE_VERSION}")
+                GSR_RELEASE_VERSION="${GSR_RELEASE_VERSION}"
+                GSR_REPORT_HOST="${GSR_REPORT_HOST}")
             target_link_libraries(GoldenSunLauncher PRIVATE gbarecomp_imgui
                 ZLIB::ZLIB Threads::Threads)
             target_link_options(GoldenSunLauncher PRIVATE

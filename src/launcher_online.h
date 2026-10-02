@@ -7,7 +7,11 @@
 //     has a download for this platform, the player is told and can open the
 //     release's GitHub page. Nothing is downloaded by the launcher.
 //   * Bug reports: the "Send report" button uploads a report archive to the
-//     project's report service (tools/report_service/worker.js).
+//     project's report service (tools/report_service/worker.js). Its address
+//     is not in the source: only the official release scripts build it in
+//     (GSR_REPORT_HOST). A launcher built without it has no Send button and
+//     offers the bug report form instead, so a fork never sends reports to
+//     the project by accident.
 //
 // Plain C++ only: the HTTP and file work is platform code in each launcher.
 #pragma once
@@ -24,6 +28,9 @@
 #ifndef GSR_RELEASE_VERSION
 #define GSR_RELEASE_VERSION "dev"
 #endif
+#ifndef GSR_REPORT_HOST
+#define GSR_REPORT_HOST ""
+#endif
 
 namespace gsr_online {
 
@@ -31,7 +38,7 @@ constexpr const char* kReleaseVersion = GSR_RELEASE_VERSION;
 constexpr const char* kReleasesApiHost = "api.github.com";
 constexpr const char* kReleasesApiPath = "/repos/Shmargus/GSRecomp/releases?per_page=1";
 constexpr const char* kReleasesPage = "https://github.com/Shmargus/GSRecomp/releases";
-constexpr const char* kReportHost = "gsr-reports.gsrecomp.workers.dev";
+constexpr const char* kReportHost = GSR_REPORT_HOST;
 constexpr const char* kReportPath = "/report";
 constexpr const char* kUserAgent = "GoldenSunLauncher";
 
@@ -39,6 +46,9 @@ constexpr const char* kUserAgent = "GoldenSunLauncher";
 inline bool update_checks_enabled() {
     return std::strcmp(kReleaseVersion, "dev") != 0 && kReleaseVersion[0] != '\0';
 }
+
+// Only a launcher built with the report service's address can send reports.
+inline bool report_upload_enabled() { return kReportHost[0] != '\0'; }
 
 // ---------------------------------------------------------------- JSON
 // Just enough JSON for GitHub's release list: objects, arrays, strings

@@ -1124,7 +1124,8 @@ int main(int, char**) {
                 const int state = g_ui.send_state.load();
                 ImGui::TextUnformatted(g_ui.title.c_str());
                 ImGui::Separator();
-                if (g_ui.reports_packed) {
+                const bool can_send = g_ui.reports_packed && gsr_online::report_upload_enabled();
+                if (can_send) {
                     ImGui::TextUnformatted("What happened, and where in the game? A few words "
                                            "help a lot:");
                     ImGui::BeginDisabled(state == 1 || state == 2);
@@ -1139,7 +1140,7 @@ int main(int, char**) {
                     std::lock_guard<std::mutex> lock(g_ui.send_mutex);
                     ImGui::TextUnformatted(("Not sent: " + g_ui.send_error).c_str());
                 }
-                if (g_ui.reports_packed && state != 2) {
+                if (can_send && state != 2) {
                     ImGui::BeginDisabled(state == 1);
                     if (ImGui::Button(state == 3 ? "Try again" : "Send report", ImVec2(180, 0))) {
                         if (g_ui.sender.joinable()) g_ui.sender.join();
@@ -1171,7 +1172,7 @@ int main(int, char**) {
                 ImGui::SameLine();
                 if (ImGui::Button("Open folder", ImVec2(140, 0)))
                     open_with_desktop(g_ui.reports.front().parent_path().string());
-                if (state == 3 || !g_ui.reports_packed) {
+                if (state == 3 || !can_send) {
                     if (ImGui::Button("Open the report form instead", ImVec2(300, 0))) {
                         open_with_desktop(kBugReportUrl);
                         open_with_desktop(g_ui.reports.front().parent_path().string());
@@ -1244,7 +1245,13 @@ int main(int, char**) {
                     std::uintmax_t bytes = 0;
                     for (const fs::path& report : g_ui.reports)
                         bytes += fs::file_size(report, size_ec);
-                    if (packed) {
+                    if (packed && !gsr_online::report_upload_enabled()) {
+                        g_ui.message = "The report is in " +
+                                       g_ui.reports.front().parent_path().string() +
+                                       ". Open the report form, write a few words about what "
+                                       "happened and add the file. Nothing is sent "
+                                       "automatically.";
+                    } else if (packed) {
                         g_ui.message =
                             "Send report uploads " +
                             (g_ui.reports.size() > 1

@@ -1282,6 +1282,27 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed) {
         }
         return;
     }
+    if (!gsr_online::report_upload_enabled()) {
+        // A launcher built without the report service (a fork, a developer
+        // build): the zips and the form, as before the Send button.
+        std::wstring text = crashed
+            ? L"The game closed unexpectedly. A bug report was saved:\n\n"
+            : L"Your bug report was saved:\n\n";
+        for (const fs::path& report : reports) text += report.filename().wstring() + L"\n";
+        text += L"in " + reports.front().parent_path().wstring() +
+                L"\n\nPress OK to open the bug report form and this folder, write a few "
+                L"words about what happened and add the zip. Cancel keeps the files "
+                L"without sending anything.";
+        if (MessageBoxW(nullptr, text.c_str(), L"Golden Sun Recompiled",
+                        MB_OKCANCEL | MB_SETFOREGROUND |
+                            (crashed ? MB_ICONWARNING : MB_ICONINFORMATION)) == IDOK) {
+            ShellExecuteW(nullptr, L"open", kBugReportFormUrl, nullptr, nullptr, SW_SHOWNORMAL);
+            const std::wstring select = L"/select,\"" + reports.front().wstring() + L"\"";
+            ShellExecuteW(nullptr, L"open", L"explorer.exe", select.c_str(), nullptr,
+                          SW_SHOWNORMAL);
+        }
+        return;
+    }
 
     HDC screen = GetDC(nullptr);
     const int dpi = GetDeviceCaps(screen, LOGPIXELSY);
@@ -1352,8 +1373,23 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed) {
     ShowWindow(window, SW_SHOW);
     SetForegroundWindow(window);
     SetFocus(state.edit);
+    // The launcher window was closed when the game started, so its WM_QUIT
+    // is pending. Windows hands it out whenever the queue runs empty, which
+    // would end this loop and leave the window on screen with nobody
+    // handling its buttons (the 0.2 "Send does nothing" bug). So the loop
+    // runs until this window is gone, and a WM_QUIT seen meanwhile is posted
+    // again afterwards for the launcher's own loop.
+    bool launcher_quit = false;
+    int launcher_exit_code = 0;
     MSG message{};
-    while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+    while (IsWindow(window)) {
+        const BOOL got = GetMessageW(&message, nullptr, 0, 0);
+        if (got == -1) break;
+        if (got == 0) {
+            launcher_quit = true;
+            launcher_exit_code = static_cast<int>(message.wParam);
+            continue;
+        }
         if (!IsDialogMessageW(window, &message)) {
             TranslateMessage(&message);
             DispatchMessageW(&message);
@@ -1363,6 +1399,7 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed) {
     g_report_window = nullptr;
     if (state.font) DeleteObject(state.font);
     UnregisterClassW(class_name, GetModuleHandleW(nullptr));
+    if (launcher_quit) PostQuitMessage(launcher_exit_code);
 }
 
 int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
