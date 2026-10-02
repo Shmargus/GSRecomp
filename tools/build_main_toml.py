@@ -70,6 +70,39 @@ REVIEWED_CONDITIONAL_BRANCH_OVERRIDES = (
     # The battle reward tally's drop roll (Func_c24f0, FACTS.md 2026-09-25):
     # the cheat menu's Item Drops multiplier decides it on a scaled threshold.
     (0x080C26BE, "Func_c24f0 drop roll BLE: cheat menu drop multiplier"),
+    # Field camera clamp (Func_10230, FACTS.md 2026-10-01): in the expanded
+    # view the camera keeps the whole view inside the room.
+    (0x08010262, "Func_10230 camera min-X BGE: clamp the expanded view"),
+    (0x0801027E, "Func_10230 camera min-Y BGE: clamp the expanded view"),
+    (0x0801007C, "Func_10000 camera max-X BLE: clamp the expanded view"),
+    (0x08010088, "Func_10000 camera max-Y BLE: clamp the expanded view"),
+    # Spark Plasma's spark loop (FACTS.md 2026-10-02): sparks it moves past
+    # its canvas are handed to the host spark capture. Decisions unchanged.
+    (0x080D4532, "Spark Plasma spark x < 0 BLT: observe the skipped spark"),
+    (0x080D4536, "Spark Plasma spark x > 119 BGT: observe the skipped spark"),
+    (0x080D453A, "Spark Plasma spark y < 0 BLT: observe the skipped spark"),
+    # The same spark-loop shape in nine more spell routines (FACTS.md
+    # 2026-10-02): the x and y bounds tests that skip the stamp call.
+    (0x080CE438, "Spell spark loop (stamp 0x080CE476) x BHI: observe the skipped spark"),
+    (0x080CE43C, "Spell spark loop (stamp 0x080CE476) y < 0 BLT: observe the skipped spark"),
+    (0x080D4B7E, "Supernova spark x BHI: observe the skipped spark"),
+    (0x080D4B82, "Supernova spark y < 0 BLT: observe the skipped spark"),
+    (0x080D5190, "Spell spark loop (stamp 0x080D51D8) x < 0 BLT: observe the skipped spark"),
+    (0x080D5196, "Spell spark loop (stamp 0x080D51D8) x > 126 BGT: observe the skipped spark"),
+    (0x080D519A, "Spell spark loop (stamp 0x080D51D8) y < 0 BLT: observe the skipped spark"),
+    (0x080DB592, "Spell spark loop (stamp 0x080DB5C6) x BHI: observe the skipped spark"),
+    (0x080DB596, "Spell spark loop (stamp 0x080DB5C6) y < 0 BLT: observe the skipped spark"),
+    (0x080DE22A, "Spell spark loop (stamp 0x080DE25E) x BHI: observe the skipped spark"),
+    (0x080DE22E, "Spell spark loop (stamp 0x080DE25E) y < 0 BLT: observe the skipped spark"),
+    (0x080E6C5E, "Spell spark loop (stamp 0x080E6C98) x BHI: observe the skipped spark"),
+    (0x080E6C62, "Spell spark loop (stamp 0x080E6C98) y < 0 BLT: observe the skipped spark"),
+    (0x080E988E, "Spell spark loop (stamp 0x080E98D2) x BHI: observe the skipped spark"),
+    (0x080E9892, "Spell spark loop (stamp 0x080E98D2) y < 0 BLT: observe the skipped spark"),
+    (0x080E9FB6, "Spell spark loop (stamp 0x080E9FEA) x BHI: observe the skipped spark"),
+    (0x080E9FBA, "Spell spark loop (stamp 0x080E9FEA) y < 0 BLT: observe the skipped spark"),
+    (0x080ECD98, "Spell spark loop (stamp 0x080ECDDA) x < 0 BLT: observe the skipped spark"),
+    (0x080ECD9E, "Spell spark loop (stamp 0x080ECDDA) x > 126 BGT: observe the skipped spark"),
+    (0x080ECDA2, "Spell spark loop (stamp 0x080ECDDA) y < 0 BLT: observe the skipped spark"),
 )
 
 # Instant text as a fourth Message-speed choice (value 3). The settings screen
@@ -81,6 +114,10 @@ REVIEWED_THUMB_ALU_IMMEDIATE_OVERRIDES = (
     (0x08021732, "Icon loader: adds r2,r5,#0 picture source for the OBJ upload"),
     (0x0801D6B8, "Settings screen: Message-speed caption clear x movs #0xA0"),
     (0x0801D6C6, "Settings screen: Message-speed caption draw x movs #0xA0"),
+    (0x08010264, "Func_10230 camera min-X adds r7,r3,#0: expanded view minimum"),
+    (0x08010280, "Func_10230 camera min-Y adds r0,r3,#0: expanded view minimum"),
+    (0x0801007E, "Func_10000 camera adds r7,r1,#0: expanded view clamp X"),
+    (0x0801008A, "Func_10000 camera adds r6,r3,#0: expanded view clamp Y"),
 )
 
 # The ROM speed tables hold three entries; index 3 reads the next table's
@@ -97,6 +134,10 @@ REVIEWED_THUMB_LITERAL_OVERRIDES = (
     (0x0808AF84, "Encounter step: base 0x02000240 of the counter 0x02000478"),
     (0x08003318, "Frame wait: VBlank flag clear mask 0xFFFE (battle speed-up)"),
     (0x08098370, "Reveal range check: end command 0x2090 (Better Field Psy)"),
+    (0x0801026C, "Func_10230 camera max-X offset -240: expanded view width"),
+    (0x08010288, "Func_10230 camera max-Y offset -160: expanded view height"),
+    (0x0801004A, "Func_10000 camera max-X offset -240: expanded view width"),
+    (0x08010062, "Func_10000 camera max-Y offset -160: expanded view height"),
 )
 
 # ROM functions that strict-static execution has shown to take an asynchronous

@@ -394,6 +394,7 @@ void GbaIo::run_immediate_dma(int channel) {
 // draws a transition iris (MC-HP-003). Sound-FIFO mode 3 is handled separately
 // (run_sound_fifo_dma); DMA3 video-capture mode 3 is not modeled.
 std::atomic<bool> g_hblank_dma_latch{false};
+std::atomic<bool> g_hblank_dma_cpu_write_wins{false};
 
 void GbaIo::run_timed_dma(int start_mode) {
     if (!bus_) return;
@@ -471,6 +472,7 @@ void GbaIo::run_timed_dma(int start_mode) {
             }
             return wide ? bus_->read32(addr) : bus_->read16(addr);
         };
+        in_timed_dma_ = true;
         for (uint32_t k = 0; k < word_count; ++k) {
             if (transfer_32) bus_->write32(d, read_source(s, true));
             else             bus_->write16(d, static_cast<uint16_t>(read_source(s, false)));
@@ -485,6 +487,7 @@ void GbaIo::run_timed_dma(int start_mode) {
             if (dest_ctrl == 0 || dest_ctrl == 3) d += step;
             else if (dest_ctrl == 1) d -= step;
         }
+        in_timed_dma_ = false;
         if (unpacker_slot_transfer)
             runtime_unpacker_slot_dma_end(dma_dest_start, dma_source_start,
                                           word_count * step);
@@ -837,6 +840,30 @@ void GbaIo::write8(uint32_t off, uint8_t v) {
 void GbaIo::write16(uint32_t off, uint16_t v) {
     if (off + 1 >= kIoSize) { warn_unhandled(off, v, true, 2); return; }
     if (!g_mmio_split) mmio_cap_record(0x04000000u + off, v, 2);
+    // g_hblank_dma_cpu_write_wins: remember a CPU write to a BGxCNT that a
+    // running HBlank channel also writes. Only the four BG control
+    // registers: line tables of scroll and rotation registers are stopped
+    // and restarted every VBlank by some effects, where this would move a
+    // line, while a BGxCNT table is stopped for good before a spell sets
+    // its own layer.
+    if (!in_timed_dma_ && off >= 0x08u && off < 0x10u &&
+        g_hblank_dma_cpu_write_wins.load(std::memory_order_relaxed)) {
+        for (int ch = 0; ch < 4; ++ch) {
+            const uint32_t base = 0xB0u + static_cast<uint32_t>(ch) * 12u;
+            const uint16_t cnt_h = load_u16(&io_[base + 10u]);
+            if ((cnt_h & 0x8000u) == 0 || ((cnt_h >> 12) & 0x3u) != 2u) continue;
+            const uint32_t dad = load_u32(&io_[base + 4u]) & 0x0FFFFFFFu;
+            if (dad < 0x04000000u || dad >= 0x04000000u + kIoSize) continue;
+            const uint32_t cnt_l = load_u16(&io_[base + 8u]);
+            const uint32_t units = cnt_l ? cnt_l : 0x4000u;
+            const uint32_t bytes = units * (((cnt_h & 0x0400u) != 0) ? 4u : 2u);
+            const uint32_t first = dad - 0x04000000u;
+            if (off < first || off >= first + bytes) continue;
+            hblank_cpu_write_valid_[ch] = true;
+            hblank_cpu_write_off_[ch] = off;
+            hblank_cpu_write_value_[ch] = v;
+        }
+    }
     if (audio_ && off >= 0x060 && off <= 0x0AF) {
         audio_->write_io16(off, v, g_runtime_cycles);
     }
@@ -938,6 +965,14 @@ void GbaIo::write16(uint32_t off, uint16_t v) {
             if (!was_enabled && now_enabled && start_mode == 0) {
                 run_immediate_dma(ch);
             }
+            // The game turned the line table off: a register it set itself
+            // meanwhile keeps that value (g_hblank_dma_cpu_write_wins).
+            if (was_enabled && !now_enabled && hblank_cpu_write_valid_[ch]) {
+                const uint32_t at = hblank_cpu_write_off_[ch];
+                store_u16(&io_[at], hblank_cpu_write_value_[ch]);
+                notify_affine_reference_write(at, 2);
+            }
+            if (was_enabled != now_enabled) hblank_cpu_write_valid_[ch] = false;
             return;
         }
     }

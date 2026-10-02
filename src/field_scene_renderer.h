@@ -65,16 +65,15 @@ public:
     // Percentage of tiles inside the 240x160 window where the room rule
     // gives the console's own entry for layer `bg`, each tile row read with
     // that scanline's own registers; -1 if too few compared.
-    // region_x/y -1: the layer's own scroll names its grid region. 0 or
-    // 1024: read camera + region + the scroll's offset from the camera
-    // instead (Lamakan Desert, see room_region_for).
+    // from_record false: the layer's own scroll names its grid region.
+    // true: read the game's record of the layer's position + the row's
+    // offset from it instead (Lamakan Desert, see room_reference_for).
     int room_layer_agreement(const FieldScene& scene, int bg, int* compared,
-                             int region_x = -1, int region_y = -1) const;
-    // The grid region a layer's room rule reads: false if neither the
-    // layer's own scroll nor any of the four 1024-px regions reaches
-    // kRoomCheckMinAgreement. *region_x/y -1 means the scroll's own.
-    bool room_region_for(const FieldScene& scene, int bg, int* region_x,
-                         int* region_y) const;
+                             bool from_record = false) const;
+    // How a layer's room rule reads the grid: false if neither the layer's
+    // own scroll nor its recorded position reaches kRoomCheckMinAgreement.
+    bool room_reference_for(const FieldScene& scene, int bg,
+                            bool* from_record) const;
     // Percentage of sampled world-map pixels inside the 240x160 window
     // (mode 2 rows, BG2 and BG3) whose tile in the uploaded whole world map
     // equals the console's own affine map entry; -1 if too few compared.
@@ -308,6 +307,10 @@ private:
     bool menu_open_ = false;
     bool reveal_full_ = false;
     int effect_fill_ = 0;
+    // analyse_effect_canvas's check that our sparks are this frame's: how
+    // many of our pixels fall inside the game's canvas, and how many of
+    // those the canvas has lit. Printed by log_effect_state.
+    int effect_sparks_inside_ = 0, effect_sparks_lit_ = 0;
     // Earth Surge burst (effect_burst.h): drawn after the resolve quad with
     // a plain coloured-quad program, compiled the first time a burst starts.
     EffectBurst burst_;
@@ -328,6 +331,15 @@ private:
     bool world_loaded_ = true;
     int room_min_x_ = 0, room_max_x_ = 0, room_min_y_ = 0, room_max_y_ = 0;
     int room_camera_x_ = 0, room_camera_y_ = 0;
+    // From the game's per-layer scroll records (upload_room). wrap_x/y 0 =
+    // no wrap inside the region.
+    struct LayerWrap {
+        int region_x = 0, region_y = 0, wrap_x = 0, wrap_y = 0;
+        int pos_x = 0, pos_y = 0;   // integer position (= the layer's scroll)
+        bool parallax = false;
+        bool have_record = false;
+    };
+    LayerWrap layer_wrap_[4];
     std::vector<std::uint16_t> room_ids_;    // 128*128, low 12 bits
     std::vector<std::uint16_t> room_atlas_;  // 4096*4, id-major
     // The background map blocks as last uploaded (upload_vram).

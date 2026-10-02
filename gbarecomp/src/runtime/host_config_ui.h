@@ -147,7 +147,7 @@ struct ConfigUiState {
     // Gameplay-changing options are opt-in and default OFF.
     bool  infinite_hp = false;
     bool  infinite_pp = false;
-    int   player_walk_run_speed_multiplier = 1;
+    int   player_walk_run_speed_multiplier = 2;  // halves: 2 = 1x
 
     // --- logging --------------------------------------------------------
     // Single toggle for every verbose/diagnostic stream that isn't already

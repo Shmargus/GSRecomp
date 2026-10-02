@@ -25,8 +25,6 @@ struct LauncherTestDefaults {
     bool battle_bg1_record = false;
     bool room_buffer = false;
     bool swi_log = false;
-    bool bios_pc_log = false;
-    bool with_bios = false;
     bool mod_field_test = false;
 };
 

@@ -109,7 +109,15 @@ constexpr int kValueCentreX = 0x7C;
 // supplies the exact letter and shadow colours.
 constexpr char kColourSampleLetter = 'W';
 
-constexpr const char* kWalkingSpeedWords[3] = {"Normal", "2x", "3x"};
+// Walk Speed steps, in the engine's halves (2 = 1x ... 6 = 3x).
+constexpr int kWalkSpeedCount = 4;
+constexpr int kWalkSpeedHalves[kWalkSpeedCount] = {2, 3, 4, 6};
+constexpr const char* kWalkingSpeedWords[kWalkSpeedCount] = {"Normal", "1.5x", "2x", "3x"};
+constexpr int walk_speed_index(int halves) {
+    for (int i = 0; i < kWalkSpeedCount; ++i)
+        if (kWalkSpeedHalves[i] == halves) return i;
+    return 0;
+}
 // Saved values 0..3; Double was added after Off so saved files keep meaning.
 constexpr const char* kEncounterWords[4] = {"Normal", "Half", "Off", "Double"};
 // Fixed view mode 0 is Native 240x160, 1 the expanded view (runner options).

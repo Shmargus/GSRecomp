@@ -9,7 +9,7 @@
 # reviewed section seeds: 2539
 # reviewed interworking resumes: 216
 # derived veneer resumes: 705
-# reviewed conditional branch overrides: 18
+# reviewed conditional branch overrides: 45
 # reviewed resume ranges: 500 from 218 function(s)
 
 [program]
@@ -96,6 +96,114 @@ note = "Func_94e7c lower-Y BLT: admit the top margin"
 addr = 0x080c26be
 note = "Func_c24f0 drop roll BLE: cheat menu drop multiplier"
 
+[[conditional_branch_override]]
+addr = 0x08010262
+note = "Func_10230 camera min-X BGE: clamp the expanded view"
+
+[[conditional_branch_override]]
+addr = 0x0801027e
+note = "Func_10230 camera min-Y BGE: clamp the expanded view"
+
+[[conditional_branch_override]]
+addr = 0x0801007c
+note = "Func_10000 camera max-X BLE: clamp the expanded view"
+
+[[conditional_branch_override]]
+addr = 0x08010088
+note = "Func_10000 camera max-Y BLE: clamp the expanded view"
+
+[[conditional_branch_override]]
+addr = 0x080d4532
+note = "Spark Plasma spark x < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080d4536
+note = "Spark Plasma spark x > 119 BGT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080d453a
+note = "Spark Plasma spark y < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080ce438
+note = "Spell spark loop (stamp 0x080CE476) x BHI: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080ce43c
+note = "Spell spark loop (stamp 0x080CE476) y < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080d4b7e
+note = "Supernova spark x BHI: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080d4b82
+note = "Supernova spark y < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080d5190
+note = "Spell spark loop (stamp 0x080D51D8) x < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080d5196
+note = "Spell spark loop (stamp 0x080D51D8) x > 126 BGT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080d519a
+note = "Spell spark loop (stamp 0x080D51D8) y < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080db592
+note = "Spell spark loop (stamp 0x080DB5C6) x BHI: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080db596
+note = "Spell spark loop (stamp 0x080DB5C6) y < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080de22a
+note = "Spell spark loop (stamp 0x080DE25E) x BHI: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080de22e
+note = "Spell spark loop (stamp 0x080DE25E) y < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080e6c5e
+note = "Spell spark loop (stamp 0x080E6C98) x BHI: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080e6c62
+note = "Spell spark loop (stamp 0x080E6C98) y < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080e988e
+note = "Spell spark loop (stamp 0x080E98D2) x BHI: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080e9892
+note = "Spell spark loop (stamp 0x080E98D2) y < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080e9fb6
+note = "Spell spark loop (stamp 0x080E9FEA) x BHI: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080e9fba
+note = "Spell spark loop (stamp 0x080E9FEA) y < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080ecd98
+note = "Spell spark loop (stamp 0x080ECDDA) x < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080ecd9e
+note = "Spell spark loop (stamp 0x080ECDDA) x > 126 BGT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x080ecda2
+note = "Spell spark loop (stamp 0x080ECDDA) y < 0 BLT: observe the skipped spark"
+
 [[thumb_alu_immediate_override]]
 addr = 0x0801d072
 note = "Settings screen setup: Message-speed choice count movs #3"
@@ -115,6 +223,22 @@ note = "Settings screen: Message-speed caption clear x movs #0xA0"
 [[thumb_alu_immediate_override]]
 addr = 0x0801d6c6
 note = "Settings screen: Message-speed caption draw x movs #0xA0"
+
+[[thumb_alu_immediate_override]]
+addr = 0x08010264
+note = "Func_10230 camera min-X adds r7,r3,#0: expanded view minimum"
+
+[[thumb_alu_immediate_override]]
+addr = 0x08010280
+note = "Func_10230 camera min-Y adds r0,r3,#0: expanded view minimum"
+
+[[thumb_alu_immediate_override]]
+addr = 0x0801007e
+note = "Func_10000 camera adds r7,r1,#0: expanded view clamp X"
+
+[[thumb_alu_immediate_override]]
+addr = 0x0801008a
+note = "Func_10000 camera adds r6,r3,#0: expanded view clamp Y"
 
 [[thumb_literal_override]]
 addr = 0x08016e56
@@ -155,6 +279,22 @@ note = "Frame wait: VBlank flag clear mask 0xFFFE (battle speed-up)"
 [[thumb_literal_override]]
 addr = 0x08098370
 note = "Reveal range check: end command 0x2090 (Better Field Psy)"
+
+[[thumb_literal_override]]
+addr = 0x0801026c
+note = "Func_10230 camera max-X offset -240: expanded view width"
+
+[[thumb_literal_override]]
+addr = 0x08010288
+note = "Func_10230 camera max-Y offset -160: expanded view height"
+
+[[thumb_literal_override]]
+addr = 0x0801004a
+note = "Func_10000 camera max-X offset -240: expanded view width"
+
+[[thumb_literal_override]]
+addr = 0x08010062
+note = "Func_10000 camera max-Y offset -160: expanded view height"
 
 [[code_copy]]
 runtime_start = 0x03000000

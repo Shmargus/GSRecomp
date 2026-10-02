@@ -414,7 +414,7 @@ struct Backend {
     // The walking-speed multiplier config.ini last recorded. Game code may
     // change the live value (runtime_set_mem_write_override_enabled) from
     // its own menus; a difference from this is saved on the next pump.
-    int          persisted_player_speed = 1;
+    int          persisted_player_speed = 2;  // halves: 2 = 1x
     // Same for Infinite HP/PP, which a game-owned menu can also switch.
     bool         persisted_infinite_hp = false;
     bool         persisted_infinite_pp = false;
@@ -473,6 +473,10 @@ struct Backend {
     double       display_refresh_hz = 0.0;
     int          volume = 100;          // 0..100 gain on pushed samples
     std::vector<int16_t> volume_buf;    // scratch for gain != 100
+    // What config.ini [Audio] last recorded, so a change from the menu or
+    // the Volume Up/Down hotkeys is written once, not every frame.
+    int          persisted_volume = 100;
+    bool         persisted_mute = false;
     // Readouts: actual SDL_RenderPresent calls/sec and guest emulation speed.
     // The latter advances from every guest frame, including Turbo frames that
     // the presentation decimator skips.
@@ -1893,6 +1897,21 @@ void HostWindow::load_input_config(const char* dir) {
         }
     }
 
+    // Audio tab: Volume (0..100) and Mute, in their own [Audio] section.
+    // Before this they lived only in memory, so every run started at 100%.
+    // A --volume argument still wins (runtime.cpp applies it after this).
+    ini_scan_section((base + "config.ini").c_str(), "Audio",
+                     [b](const char* key, const char* val) {
+        if (SDL_strcasecmp(key, "Volume") == 0)
+            b->cfg.volume = std::clamp(std::atoi(val), 0, 100);
+        else if (SDL_strcasecmp(key, "Mute") == 0)
+            b->cfg.mute = SDL_strcasecmp(val, "true") == 0 ||
+                          std::strcmp(val, "1") == 0;
+    });
+    b->volume = b->cfg.mute ? 0 : b->cfg.volume;
+    b->persisted_volume = b->cfg.volume;
+    b->persisted_mute = b->cfg.mute;
+
     // Logging tab: own [Logging] section (not folded into [Enhancements]).
     // Missing section (an INI from an older build) keeps the conservative
     // default (false / off). See runtime_arm.h
@@ -2685,6 +2704,47 @@ bool write_cheats_ini(const std::string& dir, bool infinite_hp,
     return true;
 }
 
+// Update only [Audio], preserving launcher settings and unknown sections.
+bool write_audio_ini(const std::string& dir, int volume, bool mute) {
+    const std::string path = dir + "/config.ini";
+    std::vector<std::string> lines;
+    if (std::FILE* in = std::fopen(path.c_str(), "rb")) {
+        std::string cur;
+        int c;
+        while ((c = std::fgetc(in)) != EOF) {
+            if (c == '\n') { lines.push_back(cur); cur.clear(); }
+            else if (c != '\r') cur.push_back(static_cast<char>(c));
+        }
+        if (!cur.empty()) lines.push_back(cur);
+        std::fclose(in);
+    }
+
+    static const char* const kNames[] = {"Volume", "Mute"};
+    const std::string values[] = {std::to_string(volume),
+                                  mute ? "true" : "false"};
+    rewrite_ini_section(lines, "Audio", kNames, values, 2);
+
+    std::FILE* out = std::fopen(path.c_str(), "wb");
+    if (!out) return false;
+    for (const std::string& line : lines)
+        std::fprintf(out, "%s\n", line.c_str());
+    std::fclose(out);
+    return true;
+}
+
+// Write [Audio] when it differs from what config.ini last recorded.
+void persist_audio(Backend* b) {
+    if (b->cfg.volume == b->persisted_volume && b->cfg.mute == b->persisted_mute)
+        return;
+    if (!write_audio_ini(b->config_dir, b->cfg.volume, b->cfg.mute)) {
+        std::fprintf(stderr, "host_window: could not write %s/config.ini\n",
+                     b->config_dir.c_str());
+        return;
+    }
+    b->persisted_volume = b->cfg.volume;
+    b->persisted_mute = b->cfg.mute;
+}
+
 // Update only [Logging], preserving launcher settings and unknown sections.
 // Own section (not folded into [Enhancements]) — see load_input_config's
 // [Logging] read above and runtime_arm.h gsr_set_additional_debug_logging.
@@ -2847,6 +2907,8 @@ HostWindow::Events HostWindow::pump() {
     }
     if (!b->cfg.audio_changed && !b->cfg.mute) {
         b->cfg.volume = b->volume;
+        // The Volume Up/Down hotkeys change it outside the menu: save that too.
+        persist_audio(b);
     }
     if (!b->cfg.enhancements_changed) {
         b->cfg.fixed_view_modes_available = b->fixed_view_modes_allowed;
@@ -3215,6 +3277,7 @@ HostWindow::Events HostWindow::pump() {
         if (b->cfg.audio_changed) {
             b->volume = b->cfg.mute ? 0 : b->cfg.volume;
             b->cfg.audio_changed = false;
+            persist_audio(b);
         }
         // Turbo shape is read every pump (no change flag): it only matters
         // while the Turbo binding is held, and the run loop wants the current

@@ -97,29 +97,20 @@ bool g_test_headroom_probe = k_launcher_test_defaults.headroom_probe;
 bool g_test_vram_trace = k_launcher_test_defaults.vram_map_trace;
 bool g_test_effect_trace = k_launcher_test_defaults.effect_trace;
 bool g_test_frame_rewind = k_launcher_test_defaults.frame_rewind;
-bool g_test_with_bios = k_launcher_test_defaults.with_bios;
 bool g_test_battle_bg1_record = k_launcher_test_defaults.battle_bg1_record;
+// Saves the rewind ring by itself on a blink, a sprite the handheld shows
+// but we draw nowhere, or a refused frame (GSR_AUTO_CAPTURE; the runner
+// keeps the ring on for it). Off each session, like the other probes.
+bool g_test_auto_capture = false;
 bool g_test_mod_field_test = k_launcher_test_defaults.mod_field_test;
 bool g_test_room_buffer = k_launcher_test_defaults.room_buffer;
 bool g_test_swi_log = k_launcher_test_defaults.swi_log;
-bool g_test_bios_pc_log = k_launcher_test_defaults.bios_pc_log;
-// Player-builder stage 1 (ROADMAP.md): play build\gs011_nolto, the same game
-// built without link-time optimisation by build_nolto_test.bat, so the two
-// builds can be compared in the same scene. Session-only, like the others.
-bool g_test_nolto_build = false;
-// build_lto_nosymbols.bat's output (build\gs011_nosym): the normal build
-// without debug information. Session-only.
-bool g_test_nosym_build = false;
-// build\gs011_split: the engine exe plus the game code as GoldenSunGame.dll
-// (GSR_SPLIT_GAME_CODE, ROADMAP.md "Player builder"). Session-only.
-bool g_test_split_build = false;
 
 struct LauncherAudioSettings {
     bool native_mp2k = false;
     bool turbo_decoupled = false;
     bool copy_session_id_to_clipboard = false;
     bool enhanced_options = false;
-    bool instant_text = false;
     bool gpu_field = false;
     // Draw ONLY with the graphics card: no fallback to the console
     // compositor, which is also then not run at all. Meaningless with
@@ -185,8 +176,6 @@ LauncherAudioSettings load_launcher_audio_settings(const fs::path& root) {
             settings.copy_session_id_to_clipboard = value;
         } else if (in_launcher && key == "EnhancedOptions") {
             settings.enhanced_options = value;
-        } else if (in_launcher && key == "InstantText") {
-            settings.instant_text = value;
         } else if (in_launcher && key == "GpuFieldRenderer") {
             settings.gpu_field = value;
         } else if (in_launcher && key == "GpuFieldOnly") {
@@ -241,9 +230,6 @@ void save_launcher_audio_settings(const fs::path& root,
            << "\n"
            << "EnhancedOptions="
            << (settings.enhanced_options ? "true" : "false")
-           << "\n"
-           << "InstantText="
-           << (settings.instant_text ? "true" : "false")
            << "\n"
            << "GpuFieldRenderer="
            << (settings.gpu_field ? "true" : "false")
@@ -315,38 +301,6 @@ std::string read_text(const fs::path& path) {
     if (!file) return {};
     return {std::istreambuf_iterator<char>(file),
             std::istreambuf_iterator<char>()};
-}
-
-std::wstring read_json_string(const fs::path& path, const char* key) {
-    const std::string text = read_text(path);
-    const std::string marker = std::string("\"") + key + "\"";
-    const std::size_t key_pos = text.find(marker);
-    if (key_pos == std::string::npos) return {};
-    const std::size_t colon = text.find(':', key_pos + marker.size());
-    if (colon == std::string::npos) return {};
-    const std::size_t quote = text.find('"', colon + 1);
-    if (quote == std::string::npos) return {};
-
-    std::string value;
-    for (std::size_t i = quote + 1; i < text.size(); ++i) {
-        const char c = text[i];
-        if (c == '"') break;
-        if (c != '\\' || i + 1 >= text.size()) {
-            value.push_back(c);
-            continue;
-        }
-        const char escaped = text[++i];
-        switch (escaped) {
-        case '\\': value.push_back('\\'); break;
-        case '"': value.push_back('"'); break;
-        case '/': value.push_back('/'); break;
-        case 'n': value.push_back('\n'); break;
-        case 'r': value.push_back('\r'); break;
-        case 't': value.push_back('\t'); break;
-        default: value.push_back(escaped); break;
-        }
-    }
-    return utf8_to_wide(value);
 }
 
 std::wstring read_cached_path(const fs::path& path) {
@@ -879,6 +833,12 @@ fs::path make_bug_report(const fs::path& root, const fs::path& game_dir,
     return staging;
 }
 
+// Where players upload the zip: a Google Form with a file upload, whose
+// answers only the developer sees. The project page links the same form.
+constexpr const wchar_t* kBugReportFormUrl =
+    L"https://docs.google.com/forms/d/e/"
+    L"1FAIpQLScTmnmH6_BXYsYVfIKtjDsN-gLx59mv4pVjYx4ITbH2YGktBw/viewform";
+
 void offer_bug_report(const fs::path& report, bool crashed) {
     if (report.empty()) return;
     const bool is_zip = report.extension() == L".zip";
@@ -887,27 +847,28 @@ void offer_bug_report(const fs::path& report, bool crashed) {
         : L"Your bug report was saved:\n\n";
     text += report.wstring();
     text += is_zip
-        ? L"\n\nPlease send this file to the developer, with a few words "
-          L"about what happened. The folder opens now."
-        : L"\n\nIt could not be zipped. Please zip this folder (and any "
-          L"gpu_rewind folders next to it) and send it to the developer.";
-    MessageBoxW(nullptr, text.c_str(), L"Golden Sun Recompiled",
-                MB_OK | (crashed ? MB_ICONWARNING : MB_ICONINFORMATION));
+        ? L"\n\nPress OK to open the bug report form and this folder. Write a "
+          L"few words about what happened and drag the zip into the form."
+        : L"\n\nIt could not be zipped. Press OK to open the bug report form "
+          L"and this folder; zip this folder (and any gpu_rewind folders next "
+          L"to it) and drag the zip into the form.";
+    text += L"\n\nCancel keeps the file without sending anything.";
+    const int answer =
+        MessageBoxW(nullptr, text.c_str(), L"Golden Sun Recompiled",
+                    MB_OKCANCEL | (crashed ? MB_ICONWARNING : MB_ICONINFORMATION));
+    if (answer != IDOK) return;
+    ShellExecuteW(nullptr, L"open", kBugReportFormUrl, nullptr, nullptr,
+                  SW_SHOWNORMAL);
     const std::wstring select = L"/select,\"" + report.wstring() + L"\"";
     ShellExecuteW(nullptr, L"open", L"explorer.exe", select.c_str(), nullptr,
                   SW_SHOWNORMAL);
 }
 
-int run_game(const fs::path& root, const std::wstring& rom,
-             const std::wstring& bios, HWND window) {
+int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
     // Save before spawning so a launch cannot lose a changed checkbox.
     if (!kReleaseLauncher) save_launcher_audio_settings(root, g_audio_settings);
     // The game runs without the BIOS (Jimmy, 2026-09-24): no BIOS path is
-    // needed or passed and no Nintendo code executes. The test checkbox
-    // passes the configured BIOS for a comparison run, which only a build
-    // configured with GBARECOMP_LINK_BIOS=ON can perform.
-    const bool no_bios = !gsr::launcher_test_variable_enabled(
-        g_test_variables, false, g_test_with_bios);
+    // needed or passed and no Nintendo code executes.
 
     // Prefer gs011_opt: it is configured WITH SDL2 (the host window), so the
     // game actually presents a frame. build/gs011_rel is the same tree at
@@ -921,50 +882,6 @@ int run_game(const fs::path& root, const std::wstring& rom,
     fs::path game = root / L"build" / L"gs011_opt" / L"GoldenSunRecomp.exe";
     // A release folder holds the game right beside the launcher.
     if (kReleaseLauncher) game = root / L"GoldenSunRecomp.exe";
-    const bool nolto_build = !kReleaseLauncher &&
-        gsr::launcher_test_variable_enabled(g_test_variables, false,
-                                            g_test_nolto_build);
-    const bool nosym_build = !kReleaseLauncher && !nolto_build &&
-        gsr::launcher_test_variable_enabled(g_test_variables, false,
-                                            g_test_nosym_build);
-    const bool split_build = !kReleaseLauncher && !nolto_build &&
-        !nosym_build &&
-        gsr::launcher_test_variable_enabled(g_test_variables, false,
-                                            g_test_split_build);
-    if (split_build) {
-        game = root / L"build" / L"gs011_split" / L"GoldenSunRecomp.exe";
-        if (!fs::is_regular_file(game) ||
-            !fs::is_regular_file(game.parent_path() / L"GoldenSunGame.dll")) {
-            MessageBoxW(nullptr,
-                        L"The split build was not found.\n\n"
-                        L"It is built in build\\gs011_split, or untick "
-                        L"\"Play the split build\".",
-                        L"Golden Sun Recompiled", MB_OK | MB_ICONERROR);
-            return 1;
-        }
-    }
-    if (nosym_build) {
-        game = root / L"build" / L"gs011_nosym" / L"GoldenSunRecomp.exe";
-        if (!fs::is_regular_file(game)) {
-            MessageBoxW(nullptr,
-                        L"The no-symbols build was not found.\n\n"
-                        L"Run build_lto_nosymbols.bat first, or untick "
-                        L"\"Play the no-symbols build\".",
-                        L"Golden Sun Recompiled", MB_OK | MB_ICONERROR);
-            return 1;
-        }
-    }
-    if (nolto_build) {
-        game = root / L"build" / L"gs011_nolto" / L"GoldenSunRecomp.exe";
-        if (!fs::is_regular_file(game)) {
-            MessageBoxW(nullptr,
-                        L"The no-LTO comparison build was not found.\n\n"
-                        L"Run build_nolto_test.bat first, or untick "
-                        L"\"Play the no-LTO comparison build\".",
-                        L"Golden Sun Recompiled", MB_OK | MB_ICONERROR);
-            return 1;
-        }
-    }
     if (!fs::is_regular_file(game)) {
         game = root / L"build" / L"gs011_rel" / L"GoldenSunRecomp.exe";
     }
@@ -974,14 +891,6 @@ int run_game(const fs::path& root, const std::wstring& rom,
     if (!fs::is_regular_file(game)) {
         MessageBoxW(nullptr,
                     L"GoldenSunRecomp.exe was not found. Run the build first.",
-                    L"Golden Sun Recompiled", MB_OK | MB_ICONERROR);
-        return 1;
-    }
-    if (!no_bios && (bios.empty() || !fs::is_regular_file(bios))) {
-        MessageBoxW(nullptr,
-                    L"The configured GBA BIOS was not found.\n\nEdit "
-                    L"config\\local.json before a comparison run, or "
-                    L"untick \"Run with real BIOS\".",
                     L"Golden Sun Recompiled", MB_OK | MB_ICONERROR);
         return 1;
     }
@@ -1149,6 +1058,7 @@ int run_game(const fs::path& root, const std::wstring& rom,
         {L"GBARECOMP_VRAM_MAP_TRACE", g_test_vram_trace},
         {L"GSR_EFFECT_TRACE", g_test_effect_trace},
         {L"GSR_FRAME_REWIND", g_test_frame_rewind},
+        {L"GSR_AUTO_CAPTURE", g_test_auto_capture},
         {L"GSR_BATTLE_BG1_RECORD", g_test_battle_bg1_record},
         {L"GSR_ROOM_BUFFER", g_test_room_buffer},
         // First piece of the mod loader: swaps one item icon and one Psynergy
@@ -1195,11 +1105,7 @@ int run_game(const fs::path& root, const std::wstring& rom,
         const std::string line =
             std::string("[launcher] test_variables=") +
             (g_test_variables ? "ON" : "OFF") + " set=" +
-            (enabled_list.empty() ? "(none)" : enabled_list) +
-            "\n[launcher] game_build=" +
-            (nolto_build ? "gs011_nolto"
-                         : nosym_build ? "gs011_nosym"
-                         : split_build ? "gs011_split" : "default") + "\n";
+            (enabled_list.empty() ? "(none)" : enabled_list) + "\n";
         DWORD written = 0;
         WriteFile(log_file, line.data(), static_cast<DWORD>(line.size()),
                   &written, nullptr);
@@ -1220,16 +1126,8 @@ int run_game(const fs::path& root, const std::wstring& rom,
         child_environment.set(L"GSR_HOST_EFFECTS", L"1");
     }
 
-    // Instant text is a normal launcher setting like Enhanced Options, not a
-    // session diagnostic: it changes how the game plays, so it persists and is
-    // not gated behind "Test variables". The runner no longer reads it: the
-    // in-game Message speed menu's fourth choice, Instant, replaces it. Kept
-    // until that choice is confirmed in play, then removed.
-    child_environment.set(L"GSR_INSTANT_TEXT",
-                          g_audio_settings.instant_text ? L"1" : L"0");
-
     // Drawing the field with the graphics card is a persistent player
-    // setting like the two above, not a session diagnostic. It replaces the
+    // setting like Enhanced Options, not a session diagnostic. It replaces the
     // per-pixel console compositor for field frames only and falls back to
     // it for any frame it cannot reproduce, so a launch with the box
     // unticked behaves exactly as before.
@@ -1246,36 +1144,23 @@ int run_game(const fs::path& root, const std::wstring& rom,
                           (g_audio_settings.gpu_field &&
                            g_audio_settings.gpu_field_only) ? L"1" : L"0");
 
-    // BIOS inventory logs are session-only diagnostics. Remove inherited
-    // values first, then add the launcher-owned paths only when their
-    // corresponding checkboxes are enabled.
+    // The BIOS SWI log is a session-only diagnostic. Remove inherited values
+    // first, then add the launcher-owned path only when its checkbox is
+    // enabled.
     child_environment.unset(L"GBARECOMP_SWI_LOG");
     child_environment.unset(L"GBARECOMP_BIOS_PC_LOG");
     child_environment.unset(L"GBARECOMP_BIOS_READ_LOG");
     const bool swi_log_enabled = gsr::launcher_test_variable_enabled(
         g_test_variables, false, g_test_swi_log);
-    const bool bios_pc_log_enabled = gsr::launcher_test_variable_enabled(
-        g_test_variables, false, g_test_bios_pc_log);
-    if (swi_log_enabled || bios_pc_log_enabled) {
+    if (swi_log_enabled) {
         const fs::path bios_inventory_dir =
             root / L"logs" / L"bios_inventory";
         std::error_code bios_inventory_ec;
         fs::create_directories(bios_inventory_dir, bios_inventory_ec);
         if (!bios_inventory_ec) {
-            if (swi_log_enabled) {
-                child_environment.set(
-                    L"GBARECOMP_SWI_LOG",
-                    (bios_inventory_dir / L"swi.csv").wstring());
-            }
-            if (bios_pc_log_enabled) {
-                child_environment.set(
-                    L"GBARECOMP_BIOS_PC_LOG",
-                    (bios_inventory_dir / L"bios_pc.csv").wstring());
-                // Protected BIOS-region reads ride along: same inventory.
-                child_environment.set(
-                    L"GBARECOMP_BIOS_READ_LOG",
-                    (bios_inventory_dir / L"bios_read.csv").wstring());
-            }
+            child_environment.set(
+                L"GBARECOMP_SWI_LOG",
+                (bios_inventory_dir / L"swi.csv").wstring());
         }
     }
 
@@ -1294,7 +1179,6 @@ int run_game(const fs::path& root, const std::wstring& rom,
     }
 
     std::wstring command = L"\"" + game.wstring() + L"\"";
-    if (!no_bios) command += L" --bios \"" + bios + L"\"";
     command += L" --rom \"" + rom + L"\"";
     // Developer-only replay seam. The normal launcher command is unchanged
     // when these inherited variables are absent. Input replay is already
@@ -1430,25 +1314,19 @@ constexpr int kVramMapTraceButton = 1021;
 constexpr int kRoomBufferButton = 1022;
 constexpr int kObjRecordButton = 1024;
 constexpr int kSwiLogButton = 1025;
-constexpr int kBiosPcLogButton = 1026;
 constexpr int kEnhancedOptionsButton = 1027;
 constexpr int kTextRecordButton = 1028;
 constexpr int kHeadroomProbeButton = 1029;
-constexpr int kInstantTextButton = 1030;
 // Next free id; nothing already in use is renumbered.
 constexpr int kGpuFieldButton = 1041;
 constexpr int kGpuFieldOnlyButton = 1042;
 constexpr int kEffectTraceButton = 1043;
 constexpr int kFrameRewindButton = 1044;
 constexpr int kBattleBg1RecordButton = 1045;
-constexpr int kWithBiosButton = 1046;
-constexpr int kNoLtoBuildButton = 1047;
-constexpr int kNoSymBuildButton = 1048;
-constexpr int kSplitBuildButton = 1049;
 constexpr int kModFieldTestButton = 1050;
+constexpr int kAutoCaptureButton = 1051;
 
 fs::path g_launcher_root;
-std::wstring g_launcher_bios;
 std::unique_ptr<Gdiplus::Image> g_splash_image;
 HFONT g_button_font = nullptr;
 HFONT g_body_font = nullptr;
@@ -1504,7 +1382,6 @@ void layout_buttons(HWND window) {
     HWND audio_help = GetDlgItem(window, kAudioHelpText);
     HWND copy_session_id = GetDlgItem(window, kCopySessionIdButton);
     HWND enhanced_options = GetDlgItem(window, kEnhancedOptionsButton);
-    HWND instant_text = GetDlgItem(window, kInstantTextButton);
     HWND gpu_field = GetDlgItem(window, kGpuFieldButton);
     HWND gpu_field_only = GetDlgItem(window, kGpuFieldOnlyButton);
     HWND test_variables = GetDlgItem(window, kTestVariablesButton);
@@ -1541,8 +1418,6 @@ void layout_buttons(HWND window) {
     // session-only diagnostic controls below.
     const int enhanced_options_y = cursor;
     cursor += kRowHeight + kRowGap;
-    const int instant_text_y = cursor;
-    cursor += kRowHeight + kRowGap;
     const int gpu_field_y = cursor;
     cursor += kRowHeight + kRowGap;
     const int gpu_field_only_y = cursor;
@@ -1556,34 +1431,30 @@ void layout_buttons(HWND window) {
     cursor += kRowHeight;
     const int children_top = cursor + kRowGap;
 
-    // Row order for the diagnostic sub-toggles. Several ids here are
-    // deliberately not created (see the commented-out entries in children[]
-    // under WM_CREATE), so this list is longer than the visible list -- and
-    // rows are therefore packed by how many controls EXIST, not by position
-    // in this array. Indexing by array position instead left a blank row for
-    // every uncreated id: ten checkboxes spread over seventeen row slots,
-    // which pushed the last one off the bottom of the panel and under the
-    // action buttons, where it could not be clicked at all. That is how the
-    // CPU headroom capture came back empty from three sessions in a row.
+    // Row order for the diagnostic sub-toggles. Rows are packed by how many
+    // controls EXIST, not by position in this array. Indexing by array
+    // position instead left a blank row for every uncreated id, which pushed
+    // the last checkbox off the bottom of the panel and under the action
+    // buttons, where it could not be clicked at all. That is how the CPU
+    // headroom capture came back empty from three sessions in a row.
     // Grouped by what they are FOR, and laid out in two columns below, so the
-    // list reads as four short groups instead of one column of sixteen. The
-    // order here is the left column top to bottom, then the right.
+    // list reads as short groups instead of one long column. The order here
+    // is the left column top to bottom, then the right.
     const int child_ids[] = {
         // left: capture something to a file
         kMapRecordButton,      kObjRecordButton,      kTextRecordButton,
-        kSwiLogButton,         kBiosPcLogButton,
+        kSwiLogButton,
         // left, continued: traces
         kFunctionTracerButton, kVramMapTraceButton,   kEffectTraceButton,
         kBattleBg1RecordButton,
         // right: rendering
-        kRoomBufferButton,     kFrameRewindButton,     kModFieldTestButton,
+        kRoomBufferButton,     kFrameRewindButton,     kAutoCaptureButton,
+        kModFieldTestButton,
         // right, continued: performance
         kHeadroomProbeButton,  kCostProbeButton,      kHostProfButton,
         kPresentCadenceButton, kRamChurnProbeButton,
-        // right, last: the one safety toggle, kept apart from the probes,
-        // and the BIOS comparison run
-        kSelfHealRamButton,    kWithBiosButton,       kNoLtoBuildButton,
-        kNoSymBuildButton,     kSplitBuildButton,
+        // right, last: the one safety toggle, kept apart from the probes
+        kSelfHealRamButton,
     };
     const int child_count = static_cast<int>(std::size(child_ids));
     int visible_children = 0;
@@ -1591,9 +1462,9 @@ void layout_buttons(HWND window) {
         if (GetDlgItem(window, child_ids[i])) ++visible_children;
     }
 
-    // Two columns. Sixteen sub-toggles in one column stood 512 pixels tall and
-    // pushed the panel past everything else; in two it is half that and the
-    // groups above stay together, because the fill is column-major.
+    // Two columns. The sub-toggles in one column stood so tall they pushed
+    // the panel past everything else; in two it is half that and the groups
+    // above stay together, because the fill is column-major.
     constexpr int kChildColumns = 2;
     constexpr int kColumnGap = 12;
     const int child_rows =
@@ -1640,10 +1511,6 @@ void layout_buttons(HWND window) {
         MoveWindow(enhanced_options, content_x,
                    panel_top + enhanced_options_y, kContentWidth, kRowHeight,
                    TRUE);
-    }
-    if (instant_text) {
-        MoveWindow(instant_text, content_x, panel_top + instant_text_y,
-                   kContentWidth, kRowHeight, TRUE);
     }
     if (gpu_field) {
         MoveWindow(gpu_field, content_x, panel_top + gpu_field_y,
@@ -1979,19 +1846,14 @@ bool* checkbox_state_for_id(int id) {
     case kVramMapTraceButton: return &g_test_vram_trace;
     case kEffectTraceButton: return &g_test_effect_trace;
     case kFrameRewindButton: return &g_test_frame_rewind;
-    case kWithBiosButton: return &g_test_with_bios;
-    case kNoLtoBuildButton: return &g_test_nolto_build;
-    case kNoSymBuildButton: return &g_test_nosym_build;
-    case kSplitBuildButton: return &g_test_split_build;
+    case kAutoCaptureButton: return &g_test_auto_capture;
     case kBattleBg1RecordButton: return &g_test_battle_bg1_record;
     case kModFieldTestButton: return &g_test_mod_field_test;
     case kRoomBufferButton: return &g_test_room_buffer;
     case kSwiLogButton: return &g_test_swi_log;
-    case kBiosPcLogButton: return &g_test_bios_pc_log;
     case kTextRecordButton: return &g_test_text_record;
     case kHeadroomProbeButton: return &g_test_headroom_probe;
     case kEnhancedOptionsButton: return &g_audio_settings.enhanced_options;
-    case kInstantTextButton: return &g_audio_settings.instant_text;
     case kGpuFieldButton: return &g_audio_settings.gpu_field;
     case kGpuFieldOnlyButton: return &g_audio_settings.gpu_field_only;
     case kNativeMp2kButton: return &g_audio_settings.native_mp2k;
@@ -2344,7 +2206,6 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
         g_test_vram_trace = k_launcher_test_defaults.vram_map_trace;
         g_test_room_buffer = k_launcher_test_defaults.room_buffer;
         g_test_swi_log = k_launcher_test_defaults.swi_log;
-        g_test_bios_pc_log = k_launcher_test_defaults.bios_pc_log;
         g_test_mod_field_test = k_launcher_test_defaults.mod_field_test;
         CreateWindowExW(0, L"BUTTON", L"Pick ROM",
                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
@@ -2378,11 +2239,6 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                         0, 0, 0, 0, window,
                         reinterpret_cast<HMENU>(kEnhancedOptionsButton),
-                        GetModuleHandleW(nullptr), nullptr);
-        CreateWindowExW(0, L"BUTTON", L"Instant text (unused: now in-game)",
-                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                        0, 0, 0, 0, window,
-                        reinterpret_cast<HMENU>(kInstantTextButton),
                         GetModuleHandleW(nullptr), nullptr);
         CreateWindowExW(0, L"BUTTON", L"Draw the field with the graphics card",
                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
@@ -2423,18 +2279,10 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             // F12 saves the frames shown just before it, not only the
             // current one: a one-frame flicker is gone before F12 lands.
             {kFrameRewindButton, L"Rewind F12 (keep last 2 s)"},
+            // Saves those 2 s by itself when a glitch check fires; the
+            // reason goes to auto_capture.txt in the capture folder.
+            {kAutoCaptureButton, L"Auto-capture glitches"},
             {kSwiLogButton, L"Record BIOS SWI calls"},
-            {kBiosPcLogButton, L"Record BIOS PC inventory"},
-            // Normal launches run no BIOS code. This passes the BIOS for
-            // a comparison run in a GBARECOMP_LINK_BIOS=ON build.
-            {kWithBiosButton, L"Run with real BIOS (comparison build)"},
-            // build_nolto_test.bat's output, for the player-builder speed
-            // comparison (ROADMAP.md, "Player builder").
-            {kNoLtoBuildButton, L"Play the no-LTO comparison build"},
-            // build_lto_nosymbols.bat's output: same game, no debug info.
-            {kNoSymBuildButton, L"Play the no-symbols build"},
-            // Engine exe + GoldenSunGame.dll, the player-builder layout.
-            {kSplitBuildButton, L"Play the split build"},
             // Restored 2026-09-13: the battle/effect slowdown cannot be
             // attributed without it, and handing over a raw environment
             // variable is not how this project ships a debug option.
@@ -2630,7 +2478,7 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
                 start_game_build(window, rom);
                 return 0;
             }
-            if (run_game(g_launcher_root, rom, g_launcher_bios, window) == 0) {
+            if (run_game(g_launcher_root, rom, window) == 0) {
                 DestroyWindow(window);  // no-op if run_game already destroyed it
             }
             return 0;
@@ -2672,7 +2520,7 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
                         MB_OK | MB_ICONERROR);
             return 0;
         }
-        if (run_game(g_launcher_root, g_build_rom, g_launcher_bios, window) == 0)
+        if (run_game(g_launcher_root, g_build_rom, window) == 0)
             DestroyWindow(window);
         return 0;
     }
@@ -2696,7 +2544,7 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
     return DefWindowProcW(window, message, w_param, l_param);
 }
 
-int show_launcher(const fs::path& root, const std::wstring& bios) {
+int show_launcher(const fs::path& root) {
     Gdiplus::GdiplusStartupInput startup_input;
     ULONG_PTR gdiplus_token = 0;
     if (Gdiplus::GdiplusStartup(&gdiplus_token, &startup_input, nullptr) !=
@@ -2707,7 +2555,6 @@ int show_launcher(const fs::path& root, const std::wstring& bios) {
     }
 
     g_launcher_root = root;
-    g_launcher_bios = bios;
     if (kReleaseLauncher) g_build.ready = game_code_ready(root);
     g_audio_settings = kReleaseLauncher ? release_launch_settings()
                                         : load_launcher_audio_settings(root);
@@ -2829,10 +2676,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     gbarecomp::crash_handler_install(nullptr);
 
     const fs::path root = module_dir();
-    // May be empty: a no-BIOS launch needs none, and run_game reports a
-    // missing BIOS only when one is actually required.
-    const std::wstring bios = read_json_string(root / L"config" / L"local.json",
-                                               "bios");
     const bool developer_auto_launch = !kReleaseLauncher &&
         inherited_environment_truthy(L"GBARECOMP_AUTO_LAUNCH");
     if (developer_auto_launch) {
@@ -2847,13 +2690,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
             g_strict_static_route = inherited_environment_truthy(
                 L"GBARECOMP_STRICT_STATIC");
             SetProcessDPIAware();
-            const int result = run_game(root, cached_rom, bios, nullptr);
+            const int result = run_game(root, cached_rom, nullptr);
             gbarecomp::crash_handler_mark_clean_exit();
             return result;
         }
     }
     SetProcessDPIAware();
-    const int result = show_launcher(root, bios);
+    const int result = show_launcher(root);
     gbarecomp::crash_handler_mark_clean_exit();
     return result;
 }

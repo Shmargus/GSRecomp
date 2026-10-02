@@ -19,7 +19,7 @@ std::set<std::pair<std::uint32_t, std::uint32_t>> g_reported_unsupported;
 std::uint64_t g_frame = std::numeric_limits<std::uint64_t>::max();
 struct {
     unsigned long long entries = 0, kept = 0, unsupported = 0, invalid = 0;
-    unsigned long long copies = 0, clears = 0;
+    unsigned long long copies = 0, clears = 0, skipped = 0;
     int max_width = 0, max_height = 0;
 } g_counts;
 
@@ -32,6 +32,22 @@ constexpr std::uint32_t kStampSlot = 0x03001F08u;
 // c1470 clears it with the relocated ROM 0x080008D4 routine (116 bytes).
 constexpr std::uint32_t kCopyAndFade = 0x080054E4u;
 constexpr std::uint32_t kCopyAndHalve = 0x08005534u;
+// Func_cd260's other canvas modes (block [0x03001EEC], mode +0x7780, param
+// +0x7784, acting while +0x7824 is 1; FACTS.md 2026-10-02): mode 3 copies
+// then subtracts the param from every byte, floor 0 (Func_5490, template
+// 0x08001F38); mode 4 copies then adds it, capped at 63 (Func_543c,
+// template 0x08001FB8); both take r0 canvas, r1 packed param, r2 the VRAM
+// copy, r3 the size. Mode 1 is the plain copy followed by a fill of the
+// canvas with the param (0x03000168, entered mid-routine, so never seen as
+// an entry here). Meteor runs mode 3 (param 0x02020202) then mode 1
+// (0x10101010); only modes 0 and 2 were followed, so the history kept
+// trails the game had already wiped (gpu_rewind_0106/0109).
+constexpr std::uint32_t kCopyAndSubtract = 0x08005490u;
+constexpr std::uint32_t kCopyAndAdd = 0x0800543Cu;
+constexpr std::uint32_t kCanvasBlockSlot = 0x03001EECu;
+constexpr std::uint32_t kCanvasModeOffset = 0x7780u;
+constexpr std::uint32_t kCanvasActiveOffset = 0x7824u;
+constexpr std::uint32_t kCanvasFillMode = 1u;
 constexpr std::uint32_t kPlainCopy = 0x03001388u;
 constexpr std::uint32_t kClearCanvas = 0x03000164u;
 constexpr std::uint32_t kFillCanvas = 0x03000168u;
@@ -120,6 +136,11 @@ bool stamp_operation(const Memory& memory, std::uint32_t pc, EffectSpark& stamp)
     return false;
 }
 
+void capture_stamp(const Memory& memory, std::uint32_t pc, std::uint32_t caller,
+                   std::uint32_t art, std::uint32_t x_word,
+                   std::uint32_t y_word, std::uint32_t width,
+                   std::uint32_t height, std::uint64_t frame);
+
 }  // namespace
 
 void effect_capture_set_enabled(bool enabled) {
@@ -139,6 +160,7 @@ bool effect_capture_enabled() { return g_enabled; }
 bool effect_capture_observes(std::uint32_t pc) {
     return (pc >= 0x03002000u && pc <= 0x030077FCu) ||
            pc == kCopyAndFade || pc == kCopyAndHalve || pc == kPlainCopy ||
+           pc == kCopyAndSubtract || pc == kCopyAndAdd ||
            pc == kClearCanvas || pc == kFillCanvas;
 }
 
@@ -159,7 +181,9 @@ void effect_capture_on_entry(std::uint32_t pc, const std::uint32_t* r,
     if (canvas == 0 || (plain_copy ? r[1] : r[0]) != canvas) return;
     if (pc == kClearCanvas || pc == kFillCanvas) {
         const bool clear = pc == kClearCanvas;
-        if (r[1] == kCanvasBytes && (clear || r[2] == 0) &&
+        // A fill with any value replaces everything drawn so far; the
+        // renderer reads a tint back from the canvas edge.
+        if (r[1] == kCanvasBytes &&
             memory.matches(pc, clear ? 0x080008D4u : 0x080008D8u,
                            clear ? 116 : 112)) {
             // Clearing the working canvas does not change the already
@@ -169,9 +193,11 @@ void effect_capture_on_entry(std::uint32_t pc, const std::uint32_t* r,
         }
         return;
     }
-    if (pc == kCopyAndFade || pc == kCopyAndHalve || plain_copy) {
-        const auto destination = plain_copy ? r[0] : r[1];
-        if (r[2] != kCanvasBytes || destination < 0x06000000u ||
+    const bool step_copy = pc == kCopyAndSubtract || pc == kCopyAndAdd;
+    if (pc == kCopyAndFade || pc == kCopyAndHalve || plain_copy || step_copy) {
+        const auto destination = plain_copy ? r[0] : step_copy ? r[2] : r[1];
+        const auto bytes = step_copy ? r[3] : r[2];
+        if (bytes != kCanvasBytes || destination < 0x06000000u ||
             destination > 0x06018000u - kCanvasBytes ||
             (plain_copy && !memory.matches(pc, 0x08001AF8u, 120))) return;
         g_pending = {};
@@ -186,12 +212,60 @@ void effect_capture_on_entry(std::uint32_t pc, const std::uint32_t* r,
             completed.blend = EffectBlend::Maximum;
             g_pending.stamps.push_back(completed);
             g_pending.artwork = g_history.pixels;
-            // Publish first, then fade the working copy, exactly as the game.
-            if (!plain_copy) g_history.fade(pc == kCopyAndHalve);
+            // Publish first, then change the working copy, exactly as the game.
+            if (step_copy) {
+                const unsigned step = r[1] & 0xFFu;
+                for (auto& pixel : g_history.pixels)
+                    pixel = static_cast<std::uint8_t>(pc == kCopyAndAdd
+                        ? std::min(63u, unsigned(pixel) + step)
+                        : (pixel > step ? unsigned(pixel) - step : 0u));
+            } else if (!plain_copy) {
+                g_history.fade(pc == kCopyAndHalve);
+            }
+        }
+        // Mode 1: the plain copy is followed by a fill of the whole canvas.
+        if (plain_copy) {
+            const auto block = memory.word(kCanvasBlockSlot);
+            if (block != 0 &&
+                memory.word(block + kCanvasActiveOffset) == 1u &&
+                memory.word(block + kCanvasModeOffset) == kCanvasFillMode) {
+                g_history = {};
+                ++g_counts.clears;
+            }
         }
         ++g_counts.copies;
         return;
     }
+    const auto stack = memory.span(r[13], 8);
+    if (!stack) { ++g_counts.invalid; return; }
+    capture_stamp(memory, pc, r[14], r[1], r[2], r[3], memory.word(r[13]),
+                  memory.word(r[13] + 4), frame);
+}
+
+void effect_capture_skipped_spark(std::uint32_t routine, std::uint32_t canvas,
+                                  std::uint32_t art, std::int32_t x,
+                                  std::int32_t y, std::uint32_t width,
+                                  std::uint32_t height,
+                                  const std::uint8_t* ewram,
+                                  const std::uint8_t* iwram,
+                                  const std::uint8_t* rom,
+                                  std::size_t rom_bytes, std::uint64_t frame) {
+    if (!g_enabled) return;
+    const Memory memory{ewram, iwram, rom, rom_bytes};
+    // Only into the canvas the capture is already following this frame.
+    if (canvas == 0 || canvas != g_canvas ||
+        canvas != memory.word(kCanvasSlot) || frame != g_frame) return;
+    ++g_counts.skipped;
+    capture_stamp(memory, routine, 0, art, static_cast<std::uint32_t>(x),
+                  static_cast<std::uint32_t>(y), width, height, frame);
+}
+
+namespace {
+
+void capture_stamp(const Memory& memory, std::uint32_t pc, std::uint32_t caller,
+                   std::uint32_t art, std::uint32_t x_word,
+                   std::uint32_t y_word, std::uint32_t width,
+                   std::uint32_t height, std::uint64_t frame) {
     // Read LIVE pointers: the previous presented frame may belong to a
     // different spell, or a savestate may have replaced the whole allocation.
     if (pc != memory.word(kStampSlot) && pc != memory.word(kStampSlot + 4)) return;
@@ -199,29 +273,25 @@ void effect_capture_on_entry(std::uint32_t pc, const std::uint32_t* r,
     EffectSpark stamp;
     if (!stamp_operation(memory, pc, stamp)) {
         ++g_counts.unsupported;
-        if (g_reported_unsupported.emplace(pc, r[14]).second) {
+        if (g_reported_unsupported.emplace(pc, caller).second) {
             std::fprintf(stderr,
                 "[gsr] host effects: unsupported stamp pc=0x%08X caller=0x%08X "
-                "width=%u height=%u frame=%llu\n", pc, r[14],
-                memory.word(r[13]), memory.word(r[13] + 4),
+                "width=%u height=%u frame=%llu\n", pc, caller, width, height,
                 static_cast<unsigned long long>(frame));
         }
         return;
     }
-    const auto stack = memory.span(r[13], 8);
-    if (!stack) { ++g_counts.invalid; return; }
-    const auto width = memory.word(r[13]), height = memory.word(r[13] + 4);
     const auto count = std::uint64_t(width) * height;
     const auto pixels = count <= std::numeric_limits<std::size_t>::max()
-        ? memory.span(r[1], static_cast<std::size_t>(count)) : nullptr;
+        ? memory.span(art, static_cast<std::size_t>(count)) : nullptr;
     if (!pixels || width == 0 || height == 0 ||
         width > std::uint32_t(std::numeric_limits<int>::max()) ||
         height > std::uint32_t(std::numeric_limits<int>::max())) {
         ++g_counts.invalid;
         return;
     }
-    const std::int64_t x = static_cast<std::int32_t>(r[2]);
-    const std::int64_t y = static_cast<std::int32_t>(r[3]);
+    const std::int64_t x = static_cast<std::int32_t>(x_word);
+    const std::int64_t y = static_cast<std::int32_t>(y_word);
     if (x + width > std::numeric_limits<int>::max() ||
         y + height > std::numeric_limits<int>::max()) {
         ++g_counts.invalid;
@@ -238,6 +308,8 @@ void effect_capture_on_entry(std::uint32_t pc, const std::uint32_t* r,
     g_counts.max_height = std::max(g_counts.max_height, stamp.height);
 }
 
+}  // namespace
+
 CapturedEffectFrame effect_capture_take() {
     // VBlank/presentation frequency does not define the effect's lifetime.
     // A frame with no display copy must keep showing the preceding copy.
@@ -247,9 +319,11 @@ void effect_capture_report(char* out, std::size_t bytes) {
     if (!out || !bytes) return;
     std::snprintf(out, bytes,
         "stamp entries %llu, captured %llu, largest width/height %d/%d, "
-        "unsupported operation %llu, invalid source/size %llu, copies %llu, clears %llu",
+        "unsupported operation %llu, invalid source/size %llu, copies %llu, clears %llu, "
+        "skipped sparks added %llu",
         g_counts.entries, g_counts.kept, g_counts.max_width, g_counts.max_height,
-        g_counts.unsupported, g_counts.invalid, g_counts.copies, g_counts.clears);
+        g_counts.unsupported, g_counts.invalid, g_counts.copies, g_counts.clears,
+        g_counts.skipped);
 }
 
 }  // namespace gsr

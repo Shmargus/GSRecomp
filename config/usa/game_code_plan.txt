@@ -39,6 +39,7 @@ transient transient_func155d0_pic transient-func_155d0-relocatable.toml gsr_func
 transient transient_func9bb8_short_pic transient-func_9bb8_short-relocatable.toml gsr_func9bb8short_pic_ 0x03003EEC:0x000001E4
 transient transient_func9bb8_code_pic transient-func_9bb8_code-relocatable.toml gsr_func9bb8code_pic_ 0x03003B9C:0x000001D8
 transient transient_funcb5138_pic transient-func-b5138-relocatable.toml gsr_funcb5138_pic_ 0x0300207C:0x00000230
+transient transient_funcf0024_pic transient-func-f0024-relocatable.toml gsr_funcf0024_pic_ 0x0300347C:0x00000230
 transient transient_funca418_pic transient-func-a418-relocatable.toml gsr_funca418_pic_ 0x03002000:0x0000007C
 transient transient_func1ea8_pic transient-func_1ea8-relocatable.toml gsr_func1ea8_pic_ 0x03007C14:0x00000050
 transient transient_func1ef8_pic transient-func_1ef8-relocatable.toml gsr_func1ef8_pic_ 0x03007C7C:0x00000040

@@ -207,6 +207,9 @@ set(GSR_TRANSIENT_FUNC9BB8_CODE_PIC_DIR
 set(GSR_TRANSIENT_FUNCB5138_PIC_DIR
     "${GSR_GAME_CODE_ROOT}/transient_funcb5138_pic"
     CACHE PATH "Private position-independent Func_b5138 RAM-image AOT output")
+set(GSR_TRANSIENT_FUNCF0024_PIC_DIR
+    "${GSR_GAME_CODE_ROOT}/transient_funcf0024_pic"
+    CACHE PATH "Private position-independent Func_f0024 (credits decoder) RAM-image AOT output")
 set(GSR_TRANSIENT_FUNCA418_PIC_DIR
     "${GSR_GAME_CODE_ROOT}/transient_funca418_pic"
     CACHE PATH "Private position-independent Func_a418 RAM-image AOT output")
@@ -423,6 +426,12 @@ if(GSR_BUILD_LOCAL_RUNNER)
         message(FATAL_ERROR
             "GSR_TRANSIENT_FUNCB5138_PIC_DIR is not a complete private corpus: "
             "${GSR_TRANSIENT_FUNCB5138_PIC_DIR}")
+    endif()
+    if(NOT EXISTS "${GSR_TRANSIENT_FUNCF0024_PIC_DIR}/recompiled.h" OR
+       NOT EXISTS "${GSR_TRANSIENT_FUNCF0024_PIC_DIR}/dispatch_table.cpp")
+        message(FATAL_ERROR
+            "GSR_TRANSIENT_FUNCF0024_PIC_DIR is not a complete private corpus: "
+            "${GSR_TRANSIENT_FUNCF0024_PIC_DIR}")
     endif()
     if(NOT EXISTS "${GSR_TRANSIENT_FUNCA418_PIC_DIR}/recompiled.h" OR
        NOT EXISTS "${GSR_TRANSIENT_FUNCA418_PIC_DIR}/dispatch_table.cpp")
@@ -668,6 +677,10 @@ if(GSR_BUILD_LOCAL_RUNNER)
         "${GSR_TRANSIENT_FUNCB5138_PIC_DIR}/recompiled.cpp"
         "${GSR_TRANSIENT_FUNCB5138_PIC_DIR}/recompiled_*.cpp"
         "${GSR_TRANSIENT_FUNCB5138_PIC_DIR}/dispatch_table.cpp")
+    file(GLOB GSR_TRANSIENT_FUNCF0024_PIC_SOURCES CONFIGURE_DEPENDS
+        "${GSR_TRANSIENT_FUNCF0024_PIC_DIR}/recompiled.cpp"
+        "${GSR_TRANSIENT_FUNCF0024_PIC_DIR}/recompiled_*.cpp"
+        "${GSR_TRANSIENT_FUNCF0024_PIC_DIR}/dispatch_table.cpp")
     file(GLOB GSR_TRANSIENT_FUNCA418_PIC_SOURCES CONFIGURE_DEPENDS
         "${GSR_TRANSIENT_FUNCA418_PIC_DIR}/recompiled.cpp"
         "${GSR_TRANSIENT_FUNCA418_PIC_DIR}/recompiled_*.cpp"
@@ -768,6 +781,7 @@ if(GSR_BUILD_LOCAL_RUNNER)
         ${GSR_TRANSIENT_FUNC9BB8_SHORT_PIC_SOURCES}
         ${GSR_TRANSIENT_FUNC9BB8_CODE_PIC_SOURCES}
         ${GSR_TRANSIENT_FUNCB5138_PIC_SOURCES}
+        ${GSR_TRANSIENT_FUNCF0024_PIC_SOURCES}
         ${GSR_TRANSIENT_FUNCA418_PIC_SOURCES}
         ${GSR_TRANSIENT_FUNC1EA8_PIC_SOURCES}
         ${GSR_TRANSIENT_FUNC1EF8_PIC_SOURCES}

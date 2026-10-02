@@ -153,6 +153,7 @@ struct Args {
     // persists them in its own config.ini and passes them per run).
     bool fullscreen = false;      // --fullscreen: borderless desktop fullscreen
     int  volume = 100;            // --volume 0..100: pushed-sample gain
+    bool volume_given = false;    // else the F1 menu's saved [Audio] value
     bool linear_filter = false;   // --linear-filter 1: linear texture scaling
     // [audio] shadow = true|false — arm the MP2K verified-enhancement shadow
     // mixer (default off). GBARECOMP_AUDIO_SHADOW overrides at launch.
@@ -776,6 +777,7 @@ bool parse_cli(int argc, char** argv, Args* args, std::string* err) {
                 if (err) *err = "invalid --volume value (expected 0..100)";
                 return false;
             }
+            args->volume_given = true;
             continue;
         }
         if (s == "--linear-filter") {
@@ -2786,7 +2788,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
             enhanced_timing_allowed, enhanced_timing_env_present,
             enhanced_timing_env_requested, win.saved_enhanced_timing());
         if (args.fullscreen) win.set_fullscreen(true);
-        win.set_volume(args.volume);
+        if (args.volume_given) win.set_volume(args.volume);
         win.set_frame_interpolation_available(frame_interpolation_allowed);
         win.set_frame_interpolation_enabled(frame_interpolation_requested);
         win.set_enhanced_timing_available(enhanced_timing_allowed);

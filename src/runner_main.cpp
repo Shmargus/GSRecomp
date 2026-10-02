@@ -43,6 +43,10 @@
 #include "runtime.h"
 #include "runtime_bus_bridge.h"
 #include "runtime_arm.h"
+#include "arm_cpu_bridge.h"
+#include "arm_decode.h"
+#include "interpreter.h"
+#include "thumb_decode.h"
 #include "overlay_loader.h"
 #include "self_heal.h"
 #include "sha1.h"
@@ -175,6 +179,13 @@ extern "C" const DispatchEntry gsr_funcb5138_pic_kDispatchTable[];
 extern "C" const unsigned gsr_funcb5138_pic_kDispatchTableLen;
 extern "C" const std::uint32_t gsr_funcb5138_pic_kImageOrigin;
 extern "C" const std::uint32_t gsr_funcb5138_pic_kImageSize;
+// Func_f0024, the ending credits' decoder: the same self-relocating decoder
+// as Func_b5138 from another module, copied into an IWRAM pool block.
+// Observed at 0x0300347c.
+extern "C" const DispatchEntry gsr_funcf0024_pic_kDispatchTable[];
+extern "C" const unsigned gsr_funcf0024_pic_kDispatchTableLen;
+extern "C" const std::uint32_t gsr_funcf0024_pic_kImageOrigin;
+extern "C" const std::uint32_t gsr_funcf0024_pic_kImageSize;
 // Func_a418, the same ROM routine already registered fixed at 0x03003400
 // (see kTransientCodeImages below), now also observed at 0x03002000. Routine
 // and base vary independently (D-005); registered position-independent so a
@@ -7619,13 +7630,18 @@ int golden_sun_world_map_actor_side(std::uint16_t attr0, std::uint16_t attr1) {
     // Y/X bits differ by a pixel or so (gpu_frame_0088: cave OAM attr0 0x21D5,
     // its record 0x21D4) and an exact attr0/attr1 match missed on those
     // frames, which made the objects flicker between the top margin and
-    // hidden (session 20260929_205119).
+    // hidden (session 20260929_205119). attr1 is compared on its size bits
+    // only: bits 9-13 are the rotation slot, which the game reassigns from
+    // frame to frame (Vale's record 0x8001 against its OAM 0x8204, slot 0
+    // against 1), so the town missed for a frame and was drawn at the top
+    // edge (gpu_rewind_0065 frame 2428), or matched another town on the
+    // wrong side and vanished (gpu_rewind_0071 frame 9115).
     int side = 0;
     int best = INT_MAX;
     bool tie_disagrees = false;
     for (std::size_t i = 0; i < cache_count; ++i) {
         if ((cache[i].attr0 & 0xFF00u) != (attr0 & 0xFF00u) ||
-            (cache[i].attr1 & 0xFE00u) != (attr1 & 0xFE00u))
+            (cache[i].attr1 & 0xC000u) != (attr1 & 0xC000u))
             continue;
         int dy = std::abs(static_cast<int>(cache[i].attr0 & 0xFFu) -
                           static_cast<int>(attr0 & 0xFFu));
@@ -7643,6 +7659,20 @@ int golden_sun_world_map_actor_side(std::uint16_t attr0, std::uint16_t attr1) {
         }
     }
     return tie_disagrees ? 0 : side;
+}
+
+bool game_window_open();
+
+// game_window_open() at most once per frame: the providers ask per scanline.
+bool game_window_open_this_frame() {
+    static std::uint64_t frame = UINT64_MAX;
+    static bool open = false;
+    const std::uint64_t now = runtime_current_frame();
+    if (frame != now) {
+        frame = now;
+        open = game_window_open();
+    }
+    return open;
 }
 
 // Fallback used by both wide OBJ attribute providers when
@@ -7680,8 +7710,12 @@ bool golden_sun_wide_obj_fallback_position(std::uint16_t attr0,
     // Y: on the world map the actor table says which side the sprite is on,
     // for the whole ambiguous range (see golden_sun_world_map_actor_side).
     // Otherwise only the two unambiguous bands resolve; the aliased band
-    // refuses.
-    const int world_side = raw_y >= kGoldenSunObjFallbackAliasFirstRawY
+    // refuses. Not while a game window is open: a menu's own sprites are
+    // not actors, and the selected party member bouncing to y = -4 (raw
+    // 252) matched actor 16's 32x32 record and was sent below the screen
+    // (logs/gpu_rewind_0061, frames 29-33, 2026-10-01).
+    const int world_side = raw_y >= kGoldenSunObjFallbackAliasFirstRawY &&
+                                   !game_window_open_this_frame()
         ? golden_sun_world_map_actor_side(attr0, attr1) : 0;
     if (world_side != 0) {
         *out_x = resolved_x;
@@ -8479,6 +8513,21 @@ int golden_sun_wide_conditional_branch(std::uint32_t instruction_pc,
             *out_decision = 0u;
             overridden = true;
         }
+        // A sprite entering the bottom margin (never on screen last frame,
+        // so never authorized above) -- the oars as the ship's deck scrolls
+        // (gpu_rewind_0092: parked at 199 until their real row was <= 159).
+        // Only when its box cannot wrap to the console's top row.
+        std::uint16_t attr0 = 0, attr1 = 0, attr2 = 0;
+        if (!overridden && golden_sun_expanded_obj_view_active() &&
+            original_decision == 1u && compared_operand >= 160 &&
+            compared_operand < 200 &&
+            read_golden_sun_obj_staging_attrs(g_cpu.R[7], &attr0, &attr1,
+                                              &attr2) &&
+            gsr::widescreen::golden_sun_obj_bottom_margin_cannot_wrap(
+                compared_operand, attr0, attr1)) {
+            *out_decision = 0u;
+            overridden = true;
+        }
     }
     const std::uint32_t final_decision =
         overridden ? *out_decision : original_decision;
@@ -9238,6 +9287,80 @@ bool world_map_blocks(const std::vector<std::uint8_t>& io) {
     return world_map_blocks_raw(io.data());
 }
 
+// The colour the console draws across row `y` from its four text layers,
+// when all 240 pixels come out the same (the battle flash's band, see
+// world_map_margin_hold). False for anything else, and for a row with
+// windows or alpha blending, which this does not model. Objects are not
+// drawn. `regs` is the row's register copy (FieldScene::row_io).
+bool text_row_single_colour(const std::uint8_t* regs, int y,
+                            const std::vector<std::uint8_t>& vram,
+                            const std::vector<std::uint8_t>& pal,
+                            std::uint8_t rgb_out[3]) {
+    auto reg = [&](int o) { return unsigned(regs[o] | (regs[o + 1] << 8)); };
+    const unsigned dispcnt = reg(0x00);
+    if ((dispcnt & 7u) != 0u || (dispcnt & 0xE000u) != 0u) return false;
+    if (vram.size() < 0x10000u || pal.size() < 512u) return false;
+    const unsigned bldcnt = reg(0x50);
+    const unsigned effect = (bldcnt >> 6) & 3u;
+    if (effect == 1u) return false;
+    const unsigned evy = std::min(16u, reg(0x54) & 31u);
+    int first = -1;
+    for (int x = 0; x < 240; ++x) {
+        int best_prio = 4, target = 5;  // 5 = backdrop
+        unsigned index = 0;
+        for (int bg = 0; bg < 4; ++bg) {
+            if (!((dispcnt >> (8 + bg)) & 1u)) continue;
+            const unsigned cnt = reg(0x08 + 2 * bg);
+            const int prio = static_cast<int>(cnt & 3u);
+            if (prio >= best_prio) continue;
+            const unsigned chars = ((cnt >> 2) & 3u) * 0x4000u;
+            const unsigned map = ((cnt >> 8) & 31u) * 0x800u;
+            const int w = (cnt & 0x4000u) ? 512 : 256;
+            const int h = (cnt & 0x8000u) ? 512 : 256;
+            const int tx = (x + static_cast<int>(reg(0x10 + 4 * bg) & 0x1FFu)) & (w - 1);
+            const int ty = (y + static_cast<int>(reg(0x12 + 4 * bg) & 0x1FFu)) & (h - 1);
+            const unsigned at = map +
+                (unsigned(tx >> 8) + unsigned(ty >> 8) * unsigned(w >> 8)) * 0x800u +
+                unsigned(((ty & 255) >> 3) * 32 + ((tx & 255) >> 3)) * 2u;
+            if (at + 1u >= vram.size()) continue;
+            const unsigned e = vram[at] | (vram[at + 1] << 8);
+            const int px = (e & 0x400u) ? 7 - (tx & 7) : (tx & 7);
+            const int py = (e & 0x800u) ? 7 - (ty & 7) : (ty & 7);
+            unsigned i = 0;
+            if (cnt & 0x80u) {
+                const unsigned a = chars + (e & 0x3FFu) * 64u + unsigned(py * 8 + px);
+                if (a >= 0x10000u) continue;
+                i = vram[a];
+            } else {
+                const unsigned a = chars + (e & 0x3FFu) * 32u + unsigned(py * 4 + px / 2);
+                if (a >= 0x10000u) continue;
+                i = (px & 1) ? (vram[a] >> 4) : (vram[a] & 15u);
+                if (i) i += (e >> 12) * 16u;
+            }
+            if (!i) continue;
+            best_prio = prio;
+            target = bg;
+            index = i;
+        }
+        unsigned c = pal[index * 2] | (pal[index * 2 + 1] << 8);
+        if ((effect == 2u || effect == 3u) && ((bldcnt >> target) & 1u)) {
+            unsigned out = 0;
+            for (int k = 0; k < 3; ++k) {
+                const unsigned v = (c >> (5 * k)) & 31u;
+                const unsigned nv = effect == 2u ? v + (31u - v) * evy / 16u
+                                                 : v - v * evy / 16u;
+                out |= nv << (5 * k);
+            }
+            c = out;
+        }
+        if (first < 0) first = static_cast<int>(c);
+        else if (static_cast<int>(c) != first) return false;
+    }
+    for (int k = 0; k < 3; ++k)
+        rgb_out[k] = static_cast<std::uint8_t>(((first >> (5 * k)) & 31) * 255 / 31);
+    return true;
+}
+
 void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
                            std::uint32_t height) {
     const std::vector<std::uint8_t>& io = g_gpu_field_capture.io;
@@ -9249,6 +9372,28 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
         return;
     }
     if (mode == 2u) {
+        // The battle flash: rows switched to mode 0 for a band of the
+        // game's solid fill layer (BG1, tile 0x7F, palette 15), every other
+        // frame, growing from the middle (gpu_rewind_0087, frames
+        // 1684-1696). The graphics card draws a frame in one mode, so those
+        // rows came out as world map; paint them, across the margins too,
+        // in the one colour the console draws there.
+        const gsr::FieldScene& sc = g_gpu_field_capture.scene;
+        const std::uint32_t band_y0 = (height - 160u) / 2u;
+        bool mixed = false;
+        for (int y = 0; y < gsr::FieldScene::kRows; ++y) {
+            if (!sc.row_io_valid[y] || (sc.row_io[y][0] & 7u) == 2u) continue;
+            mixed = true;
+            std::uint8_t colour[3];
+            if (!text_row_single_colour(sc.row_io[y].data(), y,
+                                        g_gpu_field_capture.vram,
+                                        g_gpu_field_capture.pal, colour))
+                continue;
+            std::uint8_t* row = rgb + (std::size_t{band_y0} + y) * width * 3u;
+            for (std::uint32_t x = 0; x < width; ++x)
+                std::memcpy(row + std::size_t{x} * 3u, colour, 3);
+        }
+        if (mixed) return;  // a transition, not a view to hold
         // Save only a settled world-map frame: no menu yet, and no screen
         // fade under way (BLDCNT brightness effect with a non-zero BLDY),
         // or the "held" margins would be a darkened copy.
@@ -9276,6 +9421,33 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     if (native_size) return;
     const std::uint32_t x0 = (width - 240u) / 2u;
     const std::uint32_t y0 = (height - 160u) / 2u;
+    // A flat picture -- the battle flash fading from white to black, the
+    // game's fill layer over the whole screen (gpu_rewind_0087, frames
+    // 1698-1714) -- is no menu over the map: the margins take its colour.
+    {
+        std::uint8_t flat[3];
+        std::memcpy(flat, rgb + (std::size_t{y0} * width + x0) * 3u, 3);
+        bool is_flat = true;
+        for (std::uint32_t y = y0; y < y0 + 160u && is_flat; ++y) {
+            const std::uint8_t* p = rgb + (std::size_t{y} * width + x0) * 3u;
+            for (std::uint32_t x = 0; x < 240u; ++x, p += 3)
+                if (p[0] != flat[0] || p[1] != flat[1] || p[2] != flat[2]) {
+                    is_flat = false;
+                    break;
+                }
+        }
+        if (is_flat) {
+            for (std::uint32_t y = 0; y < height; ++y) {
+                const bool native_row = y >= y0 && y < y0 + 160u;
+                std::uint8_t* p = rgb + std::size_t{y} * width * 3u;
+                for (std::uint32_t x = 0; x < width; ++x, p += 3) {
+                    if (native_row && x == x0) { x += 239u; p += 239u * 3u; continue; }
+                    std::memcpy(p, flat, 3);
+                }
+            }
+            return;
+        }
+    }
     // No settled world-map frame to hold, as when a Djinn event switches to
     // mode 0 straight away (logs/gpu_frame_0083.bin, Flint, 2026-09-26): the
     // margins would show the world map's rotation-layer data read as text
@@ -9312,10 +9484,15 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     // A palette effect started after the save (the Psynergy tint, a fade):
     // move every held margin colour by the change of the palette entry it
     // was drawn from, so the margins take the same tint as the picture.
+    // Only a whole-palette effect, though: menus load their own colours into
+    // a few banks (Status 0, 1 and 14; Djinn 0, 1, 4-7 and 14), and
+    // following those turned the held margins into noise
+    // (logs/gpu_rewind_0062/0063, 2026-10-01). The Psynergy tint changed
+    // every bank but 15, the windows' own (logs/gpu_frame_0102.bin).
     const auto& pal = g_gpu_field_capture.pal;
     if (pal.size() < 512) return;
     int delta[256][3];
-    bool changed = false;
+    std::array<bool, 16> bank_used{}, bank_changed{};
     for (int i = 0; i < 256; ++i) {
         const std::uint16_t live =
             static_cast<std::uint16_t>(pal[i * 2] | (pal[i * 2 + 1] << 8));
@@ -9323,9 +9500,16 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
         world_margin_rgb_of(g_world_margin_pal[i], a);
         world_margin_rgb_of(live, b);
         for (int k = 0; k < 3; ++k) delta[i][k] = b[k] - a[k];
-        changed = changed || live != g_world_margin_pal[i];
+        if (g_world_margin_pal[i] != 0u) bank_used[i / 16] = true;
+        if (live != g_world_margin_pal[i]) bank_changed[i / 16] = true;
     }
-    if (!changed) return;
+    bool whole_palette = false;
+    for (int bank = 0; bank < 15; ++bank) {
+        if (!bank_used[bank]) continue;
+        if (!bank_changed[bank]) return;  // a menu's colours: keep the margins
+        whole_palette = true;
+    }
+    if (!whole_palette) return;
     if (g_world_margin_index.empty()) world_margin_index_colours(width, height);
     for (std::uint32_t y = 0; y < height; ++y) {
         const bool native_row = y >= y0 && y < y0 + 160u;
@@ -9345,6 +9529,11 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
 }
 
 void native_page_frame_end(bool at_capture);
+void native_page_patch_capture(std::vector<std::uint8_t>& vram,
+                               std::vector<std::uint8_t>& oam,
+                               gsr::FieldScene& scene);
+void auto_capture_check_sprites(const gsr::FieldScene& scene,
+                                const std::uint8_t* oam);
 
 void gpu_field_capture_hook() {
     // Page two of Settings, before anything copies this frame (see there).
@@ -9372,9 +9561,49 @@ void gpu_field_capture_hook() {
         }
     }
 
+    // The registers this frame was drawn with. The end-of-frame read can
+    // already hold the next frame's: the battle flash on the world map
+    // alternates a mode 2 frame with a white band drawn in mode 0 and a
+    // plain mode 2 frame, and on the plain ones DISPCNT already said mode 0
+    // at VBlank, so the whole frame was drawn as mode 0, solid white
+    // (gpu_rewind_0087, frames 1683-1697). When every row agrees on a
+    // display mode the end-of-frame read does not, the rows are the truth:
+    // take the first row's registers.
+    std::vector<std::uint8_t> frame_io(bus->io().raw(),
+                                       bus->io().raw() + gba::GbaIo::kIoSize);
+    {
+        const std::uint8_t* rows = ppu->latched_native_line_io();
+        const bool* rows_valid = ppu->latched_native_line_io_valid();
+        int first = -1;
+        bool agree = true;
+        for (int y = 0; rows && rows_valid && y < gsr::FieldScene::kRows; ++y) {
+            if (!rows_valid[y]) continue;
+            const std::uint8_t* row = rows + std::size_t(y) * gsr::FieldScene::kLineIoBytes;
+            if (first < 0) first = y;
+            else if ((row[0] & 7u) != (rows[std::size_t(first) * gsr::FieldScene::kLineIoBytes] & 7u))
+                agree = false;
+        }
+        if (first >= 0 && agree) {
+            const std::uint8_t* row = rows + std::size_t(first) * gsr::FieldScene::kLineIoBytes;
+            if ((row[0] & 7u) != (frame_io[0] & 7u)) {
+                static bool reported = false;
+                if (!reported) {
+                    reported = true;
+                    std::fprintf(stderr,
+                        "[gsr] frame drawn in display mode %u while the "
+                        "end-of-frame registers say %u: using the rows' "
+                        "registers (frame %llu)\n", row[0] & 7u,
+                        frame_io[0] & 7u,
+                        static_cast<unsigned long long>(ppu->frame_count()));
+                }
+                std::memcpy(frame_io.data(), row, gsr::FieldScene::kLineIoBytes);
+            }
+        }
+    }
+
     gsr::FieldScene scene{};
     gsr::field_scene_capture(
-        &scene, ppu->frame_count(), bus->io().raw(), bus->oam_ptr(),
+        &scene, ppu->frame_count(), frame_io.data(), bus->oam_ptr(),
         bus->pal_ptr(), ppu->latched_native_line_io(),
         ppu->latched_native_line_io_valid(),
         ppu->latched_native_affine_line_refs(),
@@ -9387,6 +9616,8 @@ void gpu_field_capture_hook() {
         g_gpu_field_capture.valid = false;
         return;
     }
+    // Before native_page_patch_capture hides page one's icons on purpose.
+    auto_capture_check_sprites(scene, bus->oam_ptr());
     g_gpu_field_capture.scene = scene;
     g_gpu_field_capture.vram.assign(bus->vram_ptr(), bus->vram_ptr() + 96 * 1024);
     build_room_vram(g_gpu_field_capture.vram, scene.palette,
@@ -9402,9 +9633,11 @@ void gpu_field_capture_hook() {
     std::memcpy(&effect_canvas, g_gpu_field_capture.iwram.data() + 0x1EF0, 4);
     if (g_gpu_field_capture.effects.canvas != effect_canvas)
         g_gpu_field_capture.effects = {};
-    g_gpu_field_capture.io.assign(bus->io().raw(),
-                                  bus->io().raw() + gba::GbaIo::kIoSize);
+    g_gpu_field_capture.io = frame_io;
     g_gpu_field_capture.oam.assign(bus->oam_ptr(), bus->oam_ptr() + 1024);
+    // Settings page two where the repaint above could not reach (see there).
+    native_page_patch_capture(g_gpu_field_capture.vram, g_gpu_field_capture.oam,
+                              g_gpu_field_capture.scene);
     g_gpu_field_capture.pal.assign(bus->pal_ptr(), bus->pal_ptr() + 1024);
     g_gpu_field_capture.window_open = game_window_open();
     g_gpu_field_capture.valid = true;
@@ -9628,10 +9861,13 @@ void gpu_field_write_dump_if_requested(const std::uint8_t* rgb,
 // F12 writes the whole ring, oldest first, to logs/gpu_rewind_NNNN/ with an
 // index.csv. About 0.7 MB a frame; 120 frames is 2 s at 60 frames a second
 // (a starting size, not a measured one).
+bool auto_capture_enabled();
+
 bool frame_rewind_enabled() {
     static const bool enabled = [] {
         const char* e = std::getenv("GSR_FRAME_REWIND");
-        return e != nullptr && e[0] != '\0' && e[0] != '0';
+        return (e != nullptr && e[0] != '\0' && e[0] != '0') ||
+               auto_capture_enabled();
     }();
     return enabled;
 }
@@ -9649,10 +9885,14 @@ constexpr std::size_t kRewindFrames = 120;
 std::vector<RewindFrame> g_rewind;
 // Guest frame until which "BUG REPORT SAVED" shows (paint_bug_report_notice).
 unsigned long long g_bug_report_notice_until = 0;
+// The notice's text: F12's, or the auto-capture's.
+const char* g_bug_report_notice_text = "BUG REPORT SAVED";
 std::size_t g_rewind_next = 0;
 std::size_t g_rewind_count = 0;
 
-void frame_rewind_write() {
+// `note` (the auto-capture's findings) goes to auto_capture.txt beside the
+// frames; F12 passes none.
+void frame_rewind_write(const std::string& note = {}) {
     std::error_code ec;
     std::string dir;
     for (unsigned n = 1; n <= 9999; ++n) {
@@ -9697,11 +9937,400 @@ void frame_rewind_write() {
                          fr.battle_2x ? 1 : 0, fr.scene.empty() ? 0 : 1, name);
     }
     if (index) std::fclose(index);
+    if (!note.empty()) {
+        if (std::FILE* f = std::fopen((dir + "/auto_capture.txt").c_str(), "wb")) {
+            std::fwrite(note.data(), 1, note.size(), f);
+            std::fclose(f);
+        }
+    }
     std::fprintf(stderr, "[gsr] rewind: %zu frames written to %s\n", written,
                  dir.c_str());
     // Three seconds of confirmation for the player (a release has this on
     // for bug reports; the launcher packs the folder when the game closes).
     g_bug_report_notice_until = runtime_current_frame() + 180u;
+    g_bug_report_notice_text = note.empty() ? "BUG REPORT SAVED" : "GLITCH SAVED";
+}
+
+// ---- Auto-capture glitches (launcher "Auto-capture glitches",
+// GSR_AUTO_CAPTURE) ------------------------------------------------------------
+//
+// Saves the rewind ring by itself when one of three checks fires, each
+// modelled on a glitch that was only caught by luck with F12:
+//   blink   -- part of the picture changes for one or two frames, then is
+//              exactly as before (settings page two's page-one flash, 2
+//              frames, gpu_rewind_0059; the "< Wide >" tips, 1 frame,
+//              bug_report_20261001_114130);
+//   sprite  -- the handheld would show a sprite on screen, but we draw it
+//              nowhere (the bouncing party member placed at y = 252,
+//              gpu_rewind_0061);
+//   jump    -- a sprite drawn on the far side of the view for a frame or
+//              two while the handheld moved it smoothly (Vale at the top
+//              edge for one frame, gpu_rewind_0065);
+//   refused -- the graphics card refused a frame in "only with the graphics
+//              card" mode, which paints it magenta.
+// Each check starts a capture only on the first frame of a run of firings.
+// The frames are written kAutoCaptureAfter frames later so the capture also
+// shows what followed; findings from that wait go into the same note.
+bool auto_capture_enabled() {
+    static const bool enabled = [] {
+        const char* e = std::getenv("GSR_AUTO_CAPTURE");
+        return e != nullptr && e[0] != '\0' && e[0] != '0';
+    }();
+    return enabled;
+}
+
+enum class AutoCaptureCheck { Blink, Sprite, Jump, Refused, Count };
+
+struct AutoCaptureState {
+    unsigned long long write_at = 0;    // guest frame; 0 = nothing pending
+    unsigned long long last_write = 0;
+    unsigned saved = 0;
+    std::string note;
+    std::array<unsigned long long,
+               static_cast<std::size_t>(AutoCaptureCheck::Count)>
+        last_fired{};
+};
+AutoCaptureState g_auto_capture;
+// Disk budget, not measured: a capture is about 85 MB.
+constexpr unsigned kAutoCaptureMax = 10;
+constexpr unsigned long long kAutoCaptureGap = 300;   // frames between captures
+constexpr unsigned long long kAutoCaptureAfter = 30;  // frames kept after
+
+void auto_capture_trigger(AutoCaptureCheck check, const std::string& detail) {
+    if (!auto_capture_enabled()) return;
+    static const char* const kNames[] = {"blink", "sprite", "jump", "refused"};
+    const char* name = kNames[static_cast<std::size_t>(check)];
+    const unsigned long long now = runtime_current_frame();
+    unsigned long long& last = g_auto_capture.last_fired[static_cast<std::size_t>(check)];
+    const bool run_start = last == 0 || now > last + 1u;
+    last = now;
+    char head[96];
+    std::snprintf(head, sizeof head, "frame %llu %s: ", now, name);
+    if (g_auto_capture.write_at != 0) {
+        if (g_auto_capture.note.size() < 8000u)
+            g_auto_capture.note += head + detail + "\n";
+        return;
+    }
+    if (!run_start || g_auto_capture.saved >= kAutoCaptureMax) return;
+    if (g_auto_capture.last_write != 0 &&
+        now < g_auto_capture.last_write + kAutoCaptureGap) return;
+    g_auto_capture.write_at = now + kAutoCaptureAfter;
+    g_auto_capture.note = head + detail + "\n";
+    std::fprintf(stderr, "[auto-capture] %s%s\n", head, detail.c_str());
+}
+
+// Called after each frame is added to the ring.
+void auto_capture_write_if_due() {
+    if (g_auto_capture.write_at == 0 ||
+        runtime_current_frame() < g_auto_capture.write_at) return;
+    g_auto_capture.write_at = 0;
+    g_auto_capture.last_write = runtime_current_frame();
+    ++g_auto_capture.saved;
+    frame_rewind_write(g_auto_capture.note);
+    std::fprintf(stderr, "[auto-capture] saved %u of %u\n", g_auto_capture.saved,
+                 kAutoCaptureMax);
+}
+
+// Blink: an 8x8 block of the shown picture that was the same for two
+// frames, then different for one or two, then back to exactly the same for
+// two. Needing it steady before and after keeps animations that change
+// every frame (screen shakes) from counting. Only in display mode 0 (field
+// and menus) and only where no sprite was in the last six frames: replayed
+// over the saved captures, every real blink (gpu_rewind_0059, both bug
+// reports of 2026-10-01) was background text in mode 0, while sprite
+// animation (the cursor hand, the world-map ship) and battle sparks
+// (mode 1, gpu_rewind_0060) fired otherwise.
+// Not while a game window opens or closes within the six frames: the game
+// draws one or two in-between pictures then, and the handheld shows them
+// too (Settings, Status, Djinn, a Yes/No prompt: gpu_rewind_0062-0064,
+// 0068). And not for a faint change, 32 or less in every colour: a lamp's
+// glow flickers by 8 (gpu_rewind_0069, 0072), every real blink by 255.
+constexpr int kBlinkFaint = 32;
+struct BlinkHistory {
+    std::uint32_t width = 0, height = 0;
+    std::array<std::vector<std::uint64_t>, 6> hashes;  // oldest .. newest
+    std::array<std::vector<std::uint8_t>, 6> sprite;   // block under a sprite
+    std::array<unsigned long long, 6> frames{};
+    std::array<bool, 6> window{};                      // a game window open
+    std::size_t count = 0;
+};
+BlinkHistory g_blink;
+
+void auto_capture_check_blink(const std::uint8_t* rgb, std::uint32_t width,
+                              std::uint32_t height) {
+    if (!auto_capture_enabled()) return;
+    const std::uint32_t bw = (width + 7u) / 8u, bh = (height + 7u) / 8u;
+    if (width != g_blink.width || height != g_blink.height) {
+        g_blink = BlinkHistory{};
+        g_blink.width = width;
+        g_blink.height = height;
+    }
+    std::rotate(g_blink.hashes.begin(), g_blink.hashes.begin() + 1,
+                g_blink.hashes.end());
+    std::rotate(g_blink.sprite.begin(), g_blink.sprite.begin() + 1,
+                g_blink.sprite.end());
+    std::rotate(g_blink.frames.begin(), g_blink.frames.begin() + 1,
+                g_blink.frames.end());
+    std::rotate(g_blink.window.begin(), g_blink.window.begin() + 1,
+                g_blink.window.end());
+    g_blink.window.back() = game_window_open_this_frame();
+    std::vector<std::uint8_t>& covered = g_blink.sprite.back();
+    covered.assign(std::size_t{bw} * bh, 0u);
+    const bool scene_ok = g_gpu_field_capture.valid;
+    const gsr::FieldScene& scene = g_gpu_field_capture.scene;
+    if (scene_ok) {
+        const int ox = static_cast<int>(g_golden_sun_wide_extra_left);
+        const int oy = static_cast<int>(g_golden_sun_wide_extra_top);
+        for (const gsr::SceneObject& o : scene.objects) {
+            if (!o.present || o.window) continue;
+            const int k = o.affine && o.double_size ? 2 : 1;
+            const int x0 = std::max(0, o.x + ox), y0 = std::max(0, o.y + oy);
+            const int x1 = std::min(static_cast<int>(width) - 1, o.x + ox + k * o.width - 1);
+            const int y1 = std::min(static_cast<int>(height) - 1, o.y + oy + k * o.height - 1);
+            for (int by = y0 / 8; by <= y1 / 8 && y0 <= y1; ++by)
+                for (int bx = x0 / 8; bx <= x1 / 8 && x0 <= x1; ++bx)
+                    covered[std::size_t(by) * bw + bx] = 1u;
+        }
+    }
+    std::vector<std::uint64_t>& now = g_blink.hashes.back();
+    now.assign(std::size_t{bw} * bh, 1469598103934665603ull);
+    for (std::uint32_t y = 0; y < height; ++y) {
+        const std::uint8_t* row = rgb + std::size_t{y} * width * 3u;
+        std::uint64_t* block = now.data() + std::size_t{y / 8u} * bw;
+        for (std::uint32_t x = 0; x < width; ++x) {
+            std::uint64_t& h = block[x / 8u];
+            for (int k = 0; k < 3; ++k) {
+                h ^= row[x * 3u + k];
+                h *= 1099511628211ull;
+            }
+        }
+    }
+    g_blink.frames.back() = runtime_current_frame();
+    if (g_blink.count < g_blink.hashes.size()) ++g_blink.count;
+    if (g_blink.count < g_blink.hashes.size()) return;
+    if (!scene_ok || scene.video_mode != 0) return;
+    // Six consecutive guest frames: under fast-forward only every few are
+    // shown, and a screen shake or scrolling looks like a blink (a 1-pixel
+    // shake every third frame, gpu_rewind_0075; the room's edge, 0076).
+    for (std::size_t k = 1; k < g_blink.frames.size(); ++k)
+        if (g_blink.frames[k] != g_blink.frames[k - 1] + 1u) return;
+    if (std::count(g_blink.window.begin(), g_blink.window.end(),
+                   g_blink.window.front()) != std::ptrdiff_t(g_blink.window.size()))
+        return;
+    // The pictures behind h[3] and h[4]: frame_rewind_record has just added
+    // this frame to the ring, so h[5] is its newest entry.
+    auto ring_rgb = [](std::size_t back) -> const RewindFrame& {
+        return g_rewind[(g_rewind_next + kRewindFrames - 1 - back) % kRewindFrames];
+    };
+    const RewindFrame& odd = ring_rgb(2);
+    const RewindFrame& steady = ring_rgb(1);
+    if (odd.width != width || odd.height != height ||
+        steady.width != width || steady.height != height) return;
+
+    const auto& h = g_blink.hashes;
+    const auto& s = g_blink.sprite;
+    std::uint32_t x0 = bw, y0 = bh, x1 = 0, y1 = 0, blocks = 0;
+    int length = 0;
+    for (std::size_t b = 0; b < now.size(); ++b) {
+        if (s[0][b] | s[1][b] | s[2][b] | s[3][b] | s[4][b] | s[5][b]) continue;
+        int blip = 0;
+        // One frame (h[3]) between two steady pairs.
+        if (h[1][b] == h[2][b] && h[2][b] == h[4][b] && h[4][b] == h[5][b] &&
+            h[3][b] != h[2][b])
+            blip = 1;
+        // Two frames (h[2], h[3]) between two steady pairs.
+        else if (h[0][b] == h[1][b] && h[1][b] == h[4][b] &&
+                 h[4][b] == h[5][b] && h[2][b] != h[1][b] &&
+                 h[3][b] != h[1][b])
+            blip = 2;
+        if (!blip) continue;
+        const std::uint32_t px = static_cast<std::uint32_t>(b % bw) * 8u;
+        const std::uint32_t py = static_cast<std::uint32_t>(b / bw) * 8u;
+        int change = 0;
+        for (std::uint32_t y = py; y < std::min(py + 8u, height); ++y) {
+            const std::size_t row = (std::size_t{y} * width + px) * 3u;
+            const std::size_t n = std::size_t{std::min(px + 8u, width) - px} * 3u;
+            for (std::size_t k = 0; k < n; ++k)
+                change = std::max(change, std::abs(int(odd.rgb[row + k]) -
+                                                   int(steady.rgb[row + k])));
+        }
+        if (change <= kBlinkFaint) continue;
+        length = std::max(length, blip);
+        ++blocks;
+        const std::uint32_t bx = static_cast<std::uint32_t>(b % bw);
+        const std::uint32_t by = static_cast<std::uint32_t>(b / bw);
+        x0 = std::min(x0, bx); y0 = std::min(y0, by);
+        x1 = std::max(x1, bx); y1 = std::max(y1, by);
+    }
+    if (!blocks) return;
+    char detail[192];
+    std::snprintf(detail, sizeof detail,
+                  "%u block(s) of 8x8 in x %u-%u, y %u-%u of the %ux%u picture "
+                  "changed for %d frame(s) (guest frames %llu-%llu) and came "
+                  "back exactly",
+                  blocks, x0 * 8u, x1 * 8u + 7u, y0 * 8u, y1 * 8u + 7u,
+                  width, height, length,
+                  g_blink.frames[length == 1 ? 3 : 2], g_blink.frames[3]);
+    auto_capture_trigger(AutoCaptureCheck::Blink, detail);
+}
+
+// Sprite: every object the handheld would show inside its 240x160 screen
+// (its hardware position, Y read as 8-bit wrapping and X as 9-bit signed)
+// must be drawn somewhere in our view. Run on the captured scene before
+// settings page two hides page one's icons on purpose.
+// Two exceptions, from the 2026-10-01 run where all five firings were the
+// handheld's own wrap: the middle of the sprite's picture (half its width
+// and height) must be on the handheld's screen, since a box that only
+// grazes the edge shows its empty border (gpu_rewind_0066, 0067, 0070,
+// 0071); and a sprite placed by the game's own coordinates, track or actor
+// table, with no menu open, is where the game put it -- the handheld draws
+// a town that left the bottom at the top instead (gpu_rewind_0065 frame
+// 2431), and a Kalay sprite 130 pixels above the view at its bottom
+// (gpu_rewind_0074). The menu bug this check was made for still fires
+// (gpu_rewind_0061-0063).
+void auto_capture_check_sprites(const gsr::FieldScene& scene,
+                                const std::uint8_t* oam) {
+    if (!auto_capture_enabled() || !oam) return;
+    const int view_left = -static_cast<int>(g_golden_sun_wide_extra_left);
+    const int view_top = -static_cast<int>(g_golden_sun_wide_extra_top);
+    const int view_right = 240 + static_cast<int>(g_golden_sun_wide_extra_right);
+    const int view_bottom = 160 + static_cast<int>(g_golden_sun_wide_extra_bottom);
+    const bool menu_open = game_window_open_this_frame();
+    for (int i = 0; i < gsr::FieldScene::kObjects; ++i) {
+        const gsr::SceneObject& o = scene.objects[i];
+        if (!o.present || o.window) continue;
+        const unsigned a0 = oam[i * 8] | (oam[i * 8 + 1] << 8);
+        const unsigned a1 = oam[i * 8 + 2] | (oam[i * 8 + 3] << 8);
+        const int raw_y = static_cast<int>(a0 & 0xFFu);
+        const int raw_x = static_cast<int>(a1 & 0x1FFu);
+        const int hw_y = raw_y >= 160 ? raw_y - 256 : raw_y;
+        const int hw_x = raw_x >= 256 ? raw_x - 512 : raw_x;
+        const int w = o.affine && o.double_size ? o.width * 2 : o.width;
+        const int h = o.affine && o.double_size ? o.height * 2 : o.height;
+        const int mid_x = hw_x + w / 2, mid_y = hw_y + h / 2;
+        if (mid_x - o.width / 4 >= 240 || mid_x + o.width / 4 <= 0 ||
+            mid_y - o.height / 4 >= 160 || mid_y + o.height / 4 <= 0)
+            continue;  // the handheld shows at most its empty border
+        if (o.trusted && !menu_open) continue;
+        // The renderer keeps these inside the console's screen
+        // (field_scene_renderer.cpp, u_clip_native).
+        const bool native_only =
+            o.parked || (menu_open && scene.video_mode == 0 && o.priority == 0);
+        const int left = native_only ? 0 : view_left;
+        const int top = native_only ? 0 : view_top;
+        const int right = native_only ? 240 : view_right;
+        const int bottom = native_only ? 160 : view_bottom;
+        if (o.x < right && o.x + w > left && o.y < bottom && o.y + h > top)
+            continue;
+        char detail[192];
+        std::snprintf(detail, sizeof detail,
+                      "slot %d (%dx%d, tile 0x%03X) is on the handheld's screen "
+                      "at (%d, %d) but drawn at (%d, %d), outside our view",
+                      i, w, h, o.tile, hw_x, hw_y, o.x, o.y);
+        auto_capture_trigger(AutoCaptureCheck::Sprite, detail);
+    }
+}
+
+// Jump: a sprite at one place, then 128 or more pixels away vertically (256
+// horizontally) for one or two shown frames, then back within 24 pixels of
+// where it was -- while its hardware coordinates moved smoothly. That is our
+// reading of the console's wrapped coordinates flipping sides, not the game
+// moving it. Same size, shape and tile in every frame, so a slot handed to
+// another sprite does not count. Replayed over every saved capture
+// (gpu_rewind_0001-0072, both bug reports of 2026-10-01) it fired once:
+// Vale at the top edge for one frame, gpu_rewind_0065 frame 2428.
+struct JumpObject {
+    bool on = false;
+    int x = 0, y = 0, raw_x = 0, raw_y = 0, w = 0, h = 0;
+    unsigned tile = 0;
+    bool affine = false, double_size = false;
+    bool same_sprite(const JumpObject& o) const {
+        return on && o.on && w == o.w && h == o.h && tile == o.tile &&
+               affine == o.affine && double_size == o.double_size;
+    }
+};
+struct JumpHistory {
+    // Shown frames, oldest .. newest.
+    std::array<std::array<JumpObject, gsr::FieldScene::kObjects>, 4> frames;
+    std::size_t count = 0;
+    std::uint64_t scene_frame = UINT64_MAX;
+};
+JumpHistory g_jump;
+constexpr int kJumpNear = 24;
+
+void auto_capture_check_jumps() {
+    if (!auto_capture_enabled()) return;
+    if (!g_gpu_field_capture.valid || g_gpu_field_capture.oam.size() < 1024u) {
+        g_jump.count = 0;
+        return;
+    }
+    const gsr::FieldScene& scene = g_gpu_field_capture.scene;
+    if (scene.frame == g_jump.scene_frame) return;  // the same picture again
+    g_jump.scene_frame = scene.frame;
+    std::rotate(g_jump.frames.begin(), g_jump.frames.begin() + 1,
+                g_jump.frames.end());
+    const std::uint8_t* oam = g_gpu_field_capture.oam.data();
+    for (int i = 0; i < gsr::FieldScene::kObjects; ++i) {
+        const gsr::SceneObject& o = scene.objects[i];
+        JumpObject& j = g_jump.frames.back()[i];
+        j = {};
+        if (!o.present || o.window || o.parked) continue;
+        j.on = true;
+        j.x = o.x;
+        j.y = o.y;
+        j.raw_y = oam[i * 8];
+        j.raw_x = (oam[i * 8 + 2] | (oam[i * 8 + 3] << 8)) & 0x1FF;
+        j.w = o.width;
+        j.h = o.height;
+        j.tile = o.tile;
+        j.affine = o.affine;
+        j.double_size = o.double_size;
+    }
+    if (g_jump.count < g_jump.frames.size()) ++g_jump.count;
+    auto wrapped = [](int d, int range) {
+        return ((d + range / 2) % range + range) % range - range / 2;
+    };
+    auto in_view = [](const JumpObject& o) {
+        const int k = o.affine && o.double_size ? 2 : 1;
+        return o.x < 240 + static_cast<int>(g_golden_sun_wide_extra_right) &&
+               o.x + k * o.w > -static_cast<int>(g_golden_sun_wide_extra_left) &&
+               o.y < 160 + static_cast<int>(g_golden_sun_wide_extra_bottom) &&
+               o.y + k * o.h > -static_cast<int>(g_golden_sun_wide_extra_top);
+    };
+    for (std::size_t span = 1; span <= 2; ++span) {
+        if (g_jump.count < span + 2) continue;
+        const auto& first = g_jump.frames[g_jump.frames.size() - span - 2];
+        const auto& last = g_jump.frames.back();
+        for (int i = 0; i < gsr::FieldScene::kObjects; ++i) {
+            const JumpObject& a = first[i];
+            const JumpObject& c = last[i];
+            if (!a.same_sprite(c) || std::abs(a.x - c.x) > kJumpNear ||
+                std::abs(a.y - c.y) > kJumpNear) continue;
+            const int mx = (a.x + c.x) / 2, my = (a.y + c.y) / 2;
+            bool jumped = true;
+            bool seen = in_view(a) || in_view(c);
+            for (std::size_t m = g_jump.frames.size() - span - 1;
+                 m < g_jump.frames.size() - 1 && jumped; ++m) {
+                const JumpObject& b = g_jump.frames[m][i];
+                jumped = a.same_sprite(b) &&
+                    (std::abs(b.y - my) >= 128 || std::abs(b.x - mx) >= 256) &&
+                    std::abs(wrapped(b.raw_y - a.raw_y, 256)) <= 2 * kJumpNear &&
+                    std::abs(wrapped(b.raw_x - a.raw_x, 512)) <= 2 * kJumpNear;
+                seen = seen || in_view(b);
+            }
+            // Both places outside our view: nothing to see (a shadow at
+            // (356, 191) read as (353, -65) for two frames, gpu_rewind_0082).
+            if (!jumped || !seen) continue;
+            const JumpObject& b = g_jump.frames[g_jump.frames.size() - span - 1][i];
+            char detail[224];
+            std::snprintf(detail, sizeof detail,
+                          "slot %d (%dx%d, tile 0x%03X) was at (%d, %d), drawn "
+                          "at (%d, %d) for %zu shown frame(s), then back at "
+                          "(%d, %d); the handheld moved it smoothly",
+                          i, a.w, a.h, a.tile, a.x, a.y, b.x, b.y, span, c.x, c.y);
+            auto_capture_trigger(AutoCaptureCheck::Jump, detail);
+        }
+    }
 }
 
 // "BUG REPORT SAVED" at the top right, in a small built-in font (the game's
@@ -9712,9 +10341,13 @@ void paint_bug_report_notice(std::uint8_t* rgb, std::uint32_t width,
     static const Glyph kGlyphs[] = {
         {'A', {".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"}},
         {'B', {"####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."}},
+        {'C', {".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."}},
         {'D', {"####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."}},
         {'E', {"#####", "#....", "#....", "####.", "#....", "#....", "#####"}},
         {'G', {".###.", "#...#", "#....", "#.###", "#...#", "#...#", ".####"}},
+        {'H', {"#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"}},
+        {'I', {"#####", "..#..", "..#..", "..#..", "..#..", "..#..", "#####"}},
+        {'L', {"#....", "#....", "#....", "#....", "#....", "#....", "#####"}},
         {'O', {".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."}},
         {'P', {"####.", "#...#", "#...#", "####.", "#....", "#....", "#...."}},
         {'R', {"####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"}},
@@ -9723,8 +10356,8 @@ void paint_bug_report_notice(std::uint8_t* rgb, std::uint32_t width,
         {'U', {"#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."}},
         {'V', {"#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."}},
     };
-    static const char kText[] = "BUG REPORT SAVED";
-    const int text_w = static_cast<int>(sizeof(kText) - 1) * 6 - 1;
+    const char* const kText = g_bug_report_notice_text;
+    const int text_w = static_cast<int>(std::strlen(kText)) * 6 - 1;
     const int box_w = text_w + 8, box_h = 7 + 8;
     const int x0 = static_cast<int>(width) - box_w - 4, y0 = 4;
     auto put = [&](int x, int y, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
@@ -9777,6 +10410,10 @@ void frame_rewind_record(const std::uint8_t* rgb, std::uint32_t width,
     g_rewind_next = (g_rewind_next + 1) % kRewindFrames;
     g_rewind_count = std::min(g_rewind_count + 1, kRewindFrames);
 
+    auto_capture_check_blink(rgb, width, height);
+    auto_capture_check_jumps();
+    auto_capture_write_if_due();
+
     static bool was_down = false;
     const bool down = (GetAsyncKeyState(kVirtualKeyDump) & 0x8000) != 0;
     const bool pressed = down && !was_down;
@@ -9813,6 +10450,10 @@ bool gpu_field_paint_refused(std::uint8_t* rgb, std::uint32_t width,
     static unsigned long long count = 0;
     if (reason != last) { last = reason; count = 0; }
     ++count;
+    // Magenta only shows when the console compositor is off.
+    if (gpu_field_only_enabled())
+        auto_capture_trigger(AutoCaptureCheck::Refused,
+                             reason ? reason : "no reason given");
     if ((count & (count - 1)) == 0) {
         std::fprintf(stderr,
             "[gsr] GPU field refused %llu frame(s) in a row: %s\n",
@@ -9940,10 +10581,13 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
             const auto& asked = captured.stamps;
             gsr::move_probe_on_sparks(sc.frame, effect_layer, asked,
                                       effect_layer >= 0 ? &sc.layers[effect_layer] : nullptr);
-            if (effect_layer >= 0 && !asked.empty()) {
-                renderer.upload_effect_sparks(
-                    asked.data(), static_cast<int>(asked.size()),
-                    captured.artwork.data(), captured.artwork.size(), effect_layer);
+            if (effect_layer >= 0) {
+                // With no sparks this still reads the canvas's tint fill.
+                if (!asked.empty())
+                    renderer.upload_effect_sparks(
+                        asked.data(), static_cast<int>(asked.size()),
+                        captured.artwork.data(), captured.artwork.size(),
+                        effect_layer);
                 renderer.analyse_effect_canvas(g_gpu_field_capture.vram.data(),
                                                g_gpu_field_capture.vram.size(),
                                                sc.layers[effect_layer]);
@@ -10039,7 +10683,7 @@ std::atomic<bool> g_settings_open{false};
 // Window x | y << 8 | width << 16 | height << 24, in tiles.
 std::atomic<std::uint32_t> g_settings_window{0};
 std::atomic<std::uint32_t> g_settings_help_window{0};
-std::atomic<int> g_settings_speed{1};
+std::atomic<int> g_settings_speed{2};
 std::atomic<int> g_settings_view_mode{0};
 std::atomic<int> g_settings_no_slowdown{0};
 // Encounters: Normal / Half / Off, loaded from kOptionsFile at startup and
@@ -10180,9 +10824,10 @@ int settings_page_repeat_keys(std::uint32_t* out_value) {
         if (row < kRowCount - 1) return 0;
         // Last row: withheld, the hand stays.
     } else if ((keys & (kKeyLeft | kKeyRight)) && row == kWalkSpeedRow) {
-        int speed = runtime_get_mem_write_override_enabled();
-        if (speed < 1 || speed > 3) speed = 1;
-        speed = (keys & kKeyRight) ? speed % 3 + 1 : (speed + 1) % 3 + 1;
+        int index = walk_speed_index(runtime_get_mem_write_override_enabled());
+        index = (keys & kKeyRight) ? (index + 1) % kWalkSpeedCount
+                                   : (index + kWalkSpeedCount - 1) % kWalkSpeedCount;
+        const int speed = kWalkSpeedHalves[index];
         runtime_set_mem_write_override_enabled(speed);
         g_settings_speed.store(speed);
     } else if ((keys & (kKeyLeft | kKeyRight)) && row == kEncounterRow) {
@@ -10481,15 +11126,14 @@ std::vector<std::uint8_t> native_page_canvas(int width, int height) {
             x += g_settings_font.widths[code - 0x20u];
         }
     };
-    int speed = g_settings_speed.load();
-    if (speed < 1 || speed > 3) speed = 1;
     const int view_mode = g_settings_view_mode.load() == 0 ? 0 : 1;
     int encounters = g_encounter_rate.load();
     if (encounters < kEncounterNormal || encounters >= kEncounterRateCount)
         encounters = kEncounterNormal;
     const int no_slowdown = g_settings_no_slowdown.load() ? 1 : 0;
     const int field_psynergy = g_field_psynergy_fast.load() ? 1 : 0;
-    const char* const words[kRowCount] = {kWalkingSpeedWords[speed - 1],
+    const int speed = walk_speed_index(g_settings_speed.load());
+    const char* const words[kRowCount] = {kWalkingSpeedWords[speed],
                                           kEncounterWords[encounters],
                                           kScreenWords[view_mode],
                                           kOnOffWords[no_slowdown],
@@ -10559,7 +11203,7 @@ void native_page_frame_end(bool at_capture = false) {
     }
     const std::uint32_t block = bus_read_u32(kWindowBlockSlot);
     const std::uint32_t oam = bus_read_u32(kOamShadowSlot);
-    if ((block >> 24) != 0x02u || (oam >> 24) != 0x03u) return;
+    if ((block >> 24) != 0x02u) return;
     NativeSettingsPage& page = g_native_page;
     int repainted = 0;  // text tiles the game had drawn over
     if (!page.active) {
@@ -10652,6 +11296,10 @@ void native_page_frame_end(bool at_capture = false) {
         }
         return;
     }
+    // The game clears its sprite-list pointer while it redraws the menu
+    // (bug_report_20261001_100121, frames 1033/1072/1129); that used to skip
+    // the text repaint above too. Sprites wait for the next frame.
+    if ((oam >> 24) != 0x03u) return;
 
     // Page one's icons inside the window: every sprite whose top-left lies
     // right of the first interior column (the cursor hand's) and within the
@@ -10669,6 +11317,132 @@ void native_page_frame_end(bool at_capture = false) {
         if (x < left || x >= right || y < top || y >= bottom) continue;
         page.hidden[i] = attr0;
         bus_write_u16(entry, static_cast<std::uint16_t>((attr0 & ~0x0300u) | 0x0200u));
+    }
+}
+
+// Page two in the graphics card's copy of the frame (gpu_field_capture_hook,
+// after VRAM and OAM are copied). The repaint above may not hand out tiles
+// inside guest code, so two cases still showed page one for a frame or two
+// (bug_report_20261001_114130): a cell the game blanked mid-redraw where
+// page two needs text (rewind frame 94, the tips of "< Wide >"), and the
+// captures before page two has started (`not started` in the log, two after
+// each Down from Auto-Sleep). This writes only the host copies, never guest
+// memory: page two's pixels into the text tiles the picture uses, a spare
+// tile for a blank cell that needs text, and page one's icons hidden, with
+// the same rules as the frame wait.
+unsigned g_native_page_patch_logs = 0;
+
+void native_page_patch_capture(std::vector<std::uint8_t>& vram,
+                               std::vector<std::uint8_t>& oam,
+                               gsr::FieldScene& scene) {
+    using namespace gsr::settings_page;
+    const bool open = g_settings_open.load() && !g_settings_closing.load() &&
+                      g_settings_font_loaded.load(std::memory_order_acquire);
+    if (!open || g_settings_page.load() != 2) return;
+    if (vram.size() < 96u * 1024u || oam.size() < 1024u) return;
+    const std::uint32_t block = bus_read_u32(kWindowBlockSlot);
+    if ((block >> 24) != 0x02u) return;
+
+    const std::uint32_t window = g_settings_window.load();
+    const int wx = static_cast<int>(window & 0xFFu);
+    const int wy = static_cast<int>((window >> 8) & 0xFFu);
+    const int ww = static_cast<int>((window >> 16) & 0xFFu);
+    const int wh = static_cast<int>(window >> 24);
+    const int cols = ww - 2, rows = wh - 2;
+    if (cols <= 0 || rows <= 0 || wx + ww > 32 || wy + wh > 32) return;
+    const int width = cols * 8, height = rows * 8;
+    const std::vector<std::uint8_t> canvas = native_page_canvas(width, height);
+
+    const std::size_t char_base = kBg0CharBase - 0x06000000u;
+    const std::size_t screen_base = kBg0ScreenBase - 0x06000000u;
+    auto cell_value = [&](std::uint32_t cell) {
+        const std::size_t at = screen_base + cell * 2u;
+        return static_cast<std::uint16_t>(vram[at] | (vram[at + 1] << 8));
+    };
+    // Spare tiles: free in the game's usage table and used by no cell of
+    // this picture's BG0.
+    std::array<bool, 0x400> used{};
+    for (std::uint32_t cell = 0; cell < 1024u; ++cell)
+        used[cell_value(cell) & 0x3FFu] = true;
+    const bool high_bank = bus_read_u8(block + kTileBankFlagOffset) != 0u;
+    std::uint16_t next_spare = high_bank ? 0x200u : kTextBankFirst;
+    const std::uint16_t last_spare = high_bank ? 0x27Fu : kTextBankLast;
+    auto take_spare = [&]() -> int {
+        while (next_spare <= last_spare) {
+            const std::uint16_t t = next_spare++;
+            if (!used[t] && bus_read_u8(native_page_usage(block, t)) == 0u)
+                return t;
+        }
+        return -1;
+    };
+
+    int text_tiles = 0, blank_cells = 0, sprites = 0;
+    for (int r = 0; r < rows; ++r) {
+        for (int c = 0; c < cols; ++c) {
+            std::array<std::uint8_t, 32> wanted{};
+            bool blank = true;
+            for (int py = 0; py < 8; ++py) {
+                for (int px = 0; px < 8; px += 2) {
+                    const std::size_t at =
+                        static_cast<std::size_t>(r * 8 + py) * width + c * 8 + px;
+                    const std::uint8_t lo = canvas[at], hi = canvas[at + 1];
+                    wanted[py * 4 + px / 2] =
+                        static_cast<std::uint8_t>(lo | (hi << 4));
+                    if (lo != kGlyphBackground || hi != kGlyphBackground)
+                        blank = false;
+                }
+            }
+            const std::uint32_t cell =
+                static_cast<std::uint32_t>((wy + 1 + r) * 32 + (wx + 1 + c));
+            const std::uint16_t value = cell_value(cell);
+            const std::uint16_t tile = value & 0x3FFu;
+            if (native_page_text_tile(block, tile)) {
+                std::uint8_t* pixels = vram.data() + char_base + tile * 32u;
+                if (!std::equal(wanted.begin(), wanted.end(), pixels)) {
+                    std::copy(wanted.begin(), wanted.end(), pixels);
+                    ++text_tiles;
+                }
+                continue;
+            }
+            if (blank || tile != kBlankTile) continue;
+            const int spare = take_spare();
+            if (spare < 0) continue;
+            std::copy(wanted.begin(), wanted.end(),
+                      vram.data() + char_base + static_cast<std::size_t>(spare) * 32u);
+            const std::uint16_t written =
+                static_cast<std::uint16_t>((value & 0xFC00u) | spare);
+            vram[screen_base + cell * 2u] = static_cast<std::uint8_t>(written);
+            vram[screen_base + cell * 2u + 1] = static_cast<std::uint8_t>(written >> 8);
+            ++blank_cells;
+        }
+    }
+
+    const int left = (wx + 2) * 8, right = (wx + ww - 1) * 8;
+    const int top = wy * 8, bottom = (wy + wh - 1) * 8;
+    for (int i = 0; i < 128; ++i) {
+        std::uint8_t* entry = oam.data() + i * 8;
+        const std::uint16_t attr0 = static_cast<std::uint16_t>(entry[0] | (entry[1] << 8));
+        if ((attr0 & 0x0300u) == 0x0200u) continue;  // already hidden
+        int y = attr0 & 0xFF;
+        if (y >= 160) y -= 256;
+        int x = (entry[2] | (entry[3] << 8)) & 0x1FF;
+        if (x >= 256) x -= 512;
+        if (x < left || x >= right || y < top || y >= bottom) continue;
+        const std::uint16_t hidden = static_cast<std::uint16_t>((attr0 & ~0x0300u) | 0x0200u);
+        entry[0] = static_cast<std::uint8_t>(hidden);
+        entry[1] = static_cast<std::uint8_t>(hidden >> 8);
+        // The card draws the scene's decoded objects, not the table.
+        scene.objects[i].present = false;
+        ++sprites;
+    }
+
+    if ((text_tiles || blank_cells || sprites) && g_native_page_patch_logs < 40u) {
+        ++g_native_page_patch_logs;
+        std::fprintf(stderr,
+                     "[settings] page two in the captured picture: %d text "
+                     "tiles, %d blank cells, %d icons (frame %llu, started=%d)\n",
+                     text_tiles, blank_cells, sprites, runtime_current_frame(),
+                     g_native_page.active ? 1 : 0);
     }
 }
 
@@ -10966,6 +11740,7 @@ int battle_speed_wait_mask(std::uint32_t* out_value) {
         g_battle_bg_pending_index = -1;
         g_battle_arena_pending_index = -1;
         gba::g_hblank_dma_latch.store(false, std::memory_order_relaxed);
+        gba::g_hblank_dma_cpu_write_wins.store(false, std::memory_order_relaxed);
     }
     if (!battle_2x && !field_2x) {
         g_battle_skip_this_frame = false;
@@ -10977,6 +11752,12 @@ int battle_speed_wait_mask(std::uint32_t* out_value) {
     if (battle_2x) {
         // Per-line tables are read as they stood at the start of each frame.
         gba::g_hblank_dma_latch.store(true, std::memory_order_relaxed);
+        // A spell that sets its own layer register while the arena's line
+        // table still runs keeps it once the table stops: at 2x the frame
+        // wait between the two can be the dropped one, and Mist, Aqua Sock
+        // and Heat Flash were left showing the table's last value
+        // (gpu_rewind_0122/0123/0125, FACTS.md 2026-10-02).
+        gba::g_hblank_dma_cpu_write_wins.store(true, std::memory_order_relaxed);
         load_menu_font();
         g_battle_speed_seen_frame.store(runtime_current_frame());
         display_paced = battle_speed_display_paced();
@@ -11404,10 +12185,269 @@ int golden_sun_worldmap_range_box(std::uint32_t pc, std::uint32_t original,
     return 1;
 }
 
+// Field camera clamp, Func_10230 (ROM, FACTS.md 2026-10-01). S =
+// [0x03001E70]; the camera's top-left is the focus + (-120, -96), clamped to
+// [S+0xEC, S+0xF4 - 240] in x and [S+0xF0, S+0xF8 - 160] in y (16.16; the
+// 240 and 160 are the literals at 0x08010404 and 0x08010408). Those bounds
+// keep the console's 240x160 inside the room; the expanded view needs the
+// margins inside too, so each side is pulled in by up to the margin. A room
+// narrower than the view gets half the spare width per side, which centres
+// it. Jimmy, 2026-10-01: the camera should not scroll past the map's edge.
+constexpr std::uint32_t kCameraStructPointer = 0x03001E70u;
+constexpr std::uint32_t kCameraMinXBranchPc = 0x08010262u;  // bge, r7 vs r3
+constexpr std::uint32_t kCameraMinXAddPc = 0x08010264u;     // adds r7,r3,#0
+constexpr std::uint32_t kCameraMaxXLiteralPc = 0x0801026Cu; // -240 << 16
+constexpr std::uint32_t kCameraMinYBranchPc = 0x0801027Eu;  // bge, r0 vs r3
+constexpr std::uint32_t kCameraMinYAddPc = 0x08010280u;     // adds r0,r3,#0
+constexpr std::uint32_t kCameraMaxYLiteralPc = 0x08010288u; // -160 << 16
+// Func_10000 (0x08010000), the per-frame follow, clamps the same way with
+// its own literals (0x0801021C/0x08010220): lo = [S+0xEC] + [S+4] in r0,
+// hi = [S+0xF4] - [S+4] - 240 in r1, x in r7, then `cmp r7,r1; ble`;
+// y: lo in lr, hi = [S+0xF8] - [S+8] - 160 in r3, y in r6. Its minimum is a
+// register add, so the hook takes over the final step instead: the ble is
+// forced through to `adds r7,r1,#imm` / `adds r6,r3,#imm` with imm chosen
+// to land on clamp(value, lo + inset, hi). rewinds 0098/0099: camera at the
+// stock limit, the Func_10230 hooks alone never ran while walking.
+constexpr std::uint32_t kFollowMaxXLiteralPc = 0x0801004Au;  // -240 << 16
+constexpr std::uint32_t kFollowMaxYLiteralPc = 0x08010062u;  // -160 << 16
+constexpr std::uint32_t kFollowClampXBranchPc = 0x0801007Cu; // ble, r7 vs r1
+constexpr std::uint32_t kFollowClampXAddPc = 0x0801007Eu;    // adds r7,r1,#0
+constexpr std::uint32_t kFollowClampYBranchPc = 0x08010088u; // ble, r6 vs r3
+constexpr std::uint32_t kFollowClampYAddPc = 0x0801008Au;    // adds r6,r3,#0
+
+struct CameraInset {
+    std::int32_t left = 0, right = 0, top = 0, bottom = 0;  // pixels
+};
+
+// The title screen runs on the field camera too (map number 1, bounds
+// 0..512 in both axes): an inset there moved the logo 60 px left and 40 up
+// and pulled hidden rows of its map into view (gpu_rewind_0100; every map 1
+// capture, maprec "Title" included, is the title or its file menu).
+constexpr std::uint32_t kCameraMapNumberAddr = 0x02000408u;
+
+CameraInset golden_sun_camera_inset() {
+    CameraInset inset;
+    if (!golden_sun_expanded_obj_view_active()) return inset;
+    if (bus_read_u16(kCameraMapNumberAddr) <= 1u) return inset;
+    const std::uint32_t s = bus_read_u32(kCameraStructPointer);
+    const auto word = [&](std::uint32_t off) {
+        return static_cast<std::int32_t>(bus_read_u32(s + off));
+    };
+    const std::int32_t spare_x = ((word(0xF4) - word(0xEC)) >> 16) - 240;
+    const std::int32_t spare_y = ((word(0xF8) - word(0xF0)) >> 16) - 160;
+    const std::int32_t half_x = spare_x > 0 ? spare_x / 2 : 0;
+    const std::int32_t half_y = spare_y > 0 ? spare_y / 2 : 0;
+    inset.left = std::min(half_x, static_cast<std::int32_t>(
+                                      g_golden_sun_wide_extra_left));
+    inset.right = std::min(half_x, static_cast<std::int32_t>(
+                                       g_golden_sun_wide_extra_right));
+    inset.top = std::min(half_y, static_cast<std::int32_t>(
+                                     g_golden_sun_wide_extra_top));
+    inset.bottom = std::min(half_y, static_cast<std::int32_t>(
+                                        g_golden_sun_wide_extra_bottom));
+    return inset;
+}
+
+// Spell spark loops (FACTS.md, 2026-10-02). Ten spell routines share one
+// shape: a particle record is moved, then bounds tests (x past the canvas,
+// y < 0) jump straight to the instruction after the stamp call
+// `bl 0x080072F4` (`bx r4`), so a spark that left the canvas keeps moving
+// but is not drawn. Spark Plasma (0x080D4576) and Supernova (0x080D4BC4)
+// were identified in play from the stack of rewinds 0103/0104; the other
+// eight were found by the same shape over the whole ROM (396 calls to
+// 0x080072F4, exactly these ten have a bounce `b` to the join followed by
+// x and y-bound tests to it). The argument setup between a test and the
+// call differs per spell (sizes, art tables, a divide helper), so instead
+// of a recipe per spell the game's own skipped path is dry-run on a scratch
+// copy of the registers: the remaining bounds tests are treated as passed,
+// every write goes to a scratch overlay, and at the call the stamp's
+// routine (r4), canvas (r0), art (r1), box (r2, r3) and size ([sp],
+// [sp+4]) are handed to the host spark capture. The game's own state and
+// decisions are never changed.
+struct SkippedSparkLoop {
+    std::uint32_t call;                  // bl 0x080072F4
+    std::array<std::uint32_t, 3> tests;  // bounds branches to call + 4
+};
+constexpr SkippedSparkLoop kSkippedSparkLoops[] = {
+    {0x080CE476u, {0x080CE438u, 0x080CE43Cu, 0u}},
+    {0x080D4576u, {0x080D4532u, 0x080D4536u, 0x080D453Au}},  // Spark Plasma
+    {0x080D4BC4u, {0x080D4B7Eu, 0x080D4B82u, 0u}},           // Supernova
+    {0x080D51D8u, {0x080D5190u, 0x080D5196u, 0x080D519Au}},
+    {0x080DB5C6u, {0x080DB592u, 0x080DB596u, 0u}},
+    {0x080DE25Eu, {0x080DE22Au, 0x080DE22Eu, 0u}},
+    {0x080E6C98u, {0x080E6C5Eu, 0x080E6C62u, 0u}},
+    {0x080E98D2u, {0x080E988Eu, 0x080E9892u, 0u}},
+    {0x080E9FEAu, {0x080E9FB6u, 0x080E9FBAu, 0u}},
+    {0x080ECDDAu, {0x080ECD98u, 0x080ECD9Eu, 0x080ECDA2u}},
+};
+
+// Reads come from EWRAM, IWRAM and ROM only; writes land in a small
+// overlay. Anything else ends the dry run, so a path that does more than
+// set up a stamp is simply not drawn.
+struct SparkDryRunBus final : armv4t::Bus {
+    const std::uint8_t* ewram = nullptr;
+    const std::uint8_t* iwram = nullptr;
+    const std::uint8_t* rom = nullptr;
+    std::size_t rom_bytes = 0;
+    std::array<std::pair<std::uint32_t, std::uint8_t>, 64> written{};
+    std::size_t count = 0;
+    bool failed = false;
+
+    std::uint8_t read8(std::uint32_t a) override {
+        for (std::size_t i = count; i-- > 0;)
+            if (written[i].first == a) return written[i].second;
+        if (a >= 0x02000000u && a < 0x02040000u) return ewram[a - 0x02000000u];
+        if (a >= 0x03000000u && a < 0x03008000u) return iwram[a - 0x03000000u];
+        if (a >= 0x08000000u && a - 0x08000000u < rom_bytes)
+            return rom[a - 0x08000000u];
+        failed = true;
+        return 0;
+    }
+    std::uint16_t read16(std::uint32_t a) override {
+        a &= ~1u;
+        return static_cast<std::uint16_t>(read8(a) | (read8(a + 1) << 8));
+    }
+    std::uint32_t read32(std::uint32_t a) override {
+        a &= ~3u;
+        return std::uint32_t(read16(a)) | (std::uint32_t(read16(a + 2)) << 16);
+    }
+    void write8(std::uint32_t a, std::uint8_t v) override {
+        if (count == written.size()) { failed = true; return; }
+        written[count++] = {a, v};
+    }
+    void write16(std::uint32_t a, std::uint16_t v) override {
+        a &= ~1u;
+        write8(a, static_cast<std::uint8_t>(v));
+        write8(a + 1, static_cast<std::uint8_t>(v >> 8));
+    }
+    void write32(std::uint32_t a, std::uint32_t v) override {
+        a &= ~3u;
+        write16(a, static_cast<std::uint16_t>(v));
+        write16(a + 2, static_cast<std::uint16_t>(v >> 16));
+    }
+};
+
+void skipped_spark_capture(std::uint32_t pc, std::uint32_t original) {
+    if (original == 0u || !gsr::effect_capture_enabled()) return;
+    const SkippedSparkLoop* loop = nullptr;
+    for (const auto& l : kSkippedSparkLoops)
+        for (std::uint32_t t : l.tests)
+            if (t != 0u && t == pc) loop = &l;
+    if (!loop) return;
+    auto* bus = gbarecomp::active_bus();
+    if (!bus) return;
+    SparkDryRunBus dry;
+    dry.ewram = bus->ewram_ptr();
+    dry.iwram = bus->iwram_ptr();
+    dry.rom = bus->rom_ptr();
+    dry.rom_bytes = bus->rom_size();
+    armv4t::CPUState cpu{};
+    gbarecomp::load_arm_cpu_into_interp(g_cpu, cpu);
+    cpu.R[15] = pc + 2u;  // the branch not taken
+    cpu.cpsr.t = true;
+    cpu.thumb = true;
+    // The longest path (a divide helper in IWRAM) is a few hundred steps.
+    for (int step = 0; step < 4096; ++step) {
+        const std::uint32_t at = cpu.R[15];
+        if (at == loop->call && cpu.thumb) {
+            const std::uint32_t sp = cpu.R[13];
+            const std::uint32_t width = dry.read32(sp);
+            const std::uint32_t height = dry.read32(sp + 4u);
+            if (dry.failed) return;
+            gsr::effect_capture_skipped_spark(
+                cpu.R[4], cpu.R[0], cpu.R[1],
+                static_cast<std::int32_t>(cpu.R[2]),
+                static_cast<std::int32_t>(cpu.R[3]), width, height,
+                bus->ewram_ptr(), bus->iwram_ptr(), bus->rom_ptr(),
+                bus->rom_size(), runtime_current_frame());
+            return;
+        }
+        if (at == loop->call + 4u) return;
+        if (cpu.thumb && std::find(loop->tests.begin(), loop->tests.end(), at) !=
+                             loop->tests.end()) {
+            cpu.R[15] = at + 2u;  // this test passes too
+            continue;
+        }
+        const armv4t::Instr insn =
+            cpu.thumb ? armv4t::ThumbDecoder::decode(dry.read16(at), at)
+                      : armv4t::ArmDecoder::decode(dry.read32(at), at);
+        if (dry.failed) return;
+        const auto r = armv4t::Interpreter::step(cpu, dry, insn);
+        if (dry.failed || (r != armv4t::Interpreter::Result::Normal &&
+                           r != armv4t::Interpreter::Result::Branched))
+            return;
+    }
+}
+
+// Branch sites: the bge is taken (no clamp) when the camera is at or past
+// the minimum; the minimum moves in by the inset. Returns -1 elsewhere.
+int golden_sun_camera_clamp_branch(std::uint32_t pc, std::uint32_t original,
+                                   std::uint32_t* out_decision) {
+    if (pc == kFollowClampXBranchPc || pc == kFollowClampYBranchPc) {
+        const CameraInset inset = golden_sun_camera_inset();
+        const bool x = pc == kFollowClampXBranchPc;
+        if ((x ? inset.left + inset.right : inset.top + inset.bottom) == 0)
+            return 0;
+        *out_decision = 0u;  // always through the adds below
+        return original != 0u ? 1 : 0;
+    }
+    if (pc != kCameraMinXBranchPc && pc != kCameraMinYBranchPc) return -1;
+    const CameraInset inset = golden_sun_camera_inset();
+    const std::int32_t in = pc == kCameraMinXBranchPc ? inset.left : inset.top;
+    if (in == 0) return 0;
+    const std::int32_t value = static_cast<std::int32_t>(
+        pc == kCameraMinXBranchPc ? g_cpu.R[7] : g_cpu.R[0]);
+    const std::int32_t minimum =
+        static_cast<std::int32_t>(g_cpu.R[3]) + in * 65536;
+    *out_decision = value >= minimum ? 1u : 0u;
+    return *out_decision != original ? 1 : 0;
+}
+
+// ALU and literal sites: the clamped minimum (r3 + inset) and the maximum's
+// view size (240 or 160 plus the inset). Returns -1 elsewhere.
+int golden_sun_camera_clamp_value(std::uint32_t pc, std::uint32_t original,
+                                  std::uint32_t* out_value) {
+    if ((pc == kFollowClampXAddPc || pc == kFollowClampYAddPc) &&
+        original == 0u) {
+        const CameraInset inset = golden_sun_camera_inset();
+        const bool x = pc == kFollowClampXAddPc;
+        if ((x ? inset.left + inset.right : inset.top + inset.bottom) == 0)
+            return 0;
+        const std::int32_t value = static_cast<std::int32_t>(
+            x ? g_cpu.R[7] : g_cpu.R[6]);
+        const std::int32_t lo = static_cast<std::int32_t>(
+            x ? g_cpu.R[0] : g_cpu.R[14]) + (x ? inset.left : inset.top) * 65536;
+        const std::int32_t hi = static_cast<std::int32_t>(
+            x ? g_cpu.R[1] : g_cpu.R[3]);
+        const std::int32_t want = std::min(std::max(value, lo), hi);
+        *out_value = static_cast<std::uint32_t>(want - hi);
+        return 1;
+    }
+    const bool min_x = pc == kCameraMinXAddPc && original == 0u;
+    const bool min_y = pc == kCameraMinYAddPc && original == 0u;
+    const bool max_x = (pc == kCameraMaxXLiteralPc ||
+                        pc == kFollowMaxXLiteralPc) && original == 0xFF100000u;
+    const bool max_y = (pc == kCameraMaxYLiteralPc ||
+                        pc == kFollowMaxYLiteralPc) && original == 0xFF600000u;
+    if (!min_x && !min_y && !max_x && !max_y) return -1;
+    const CameraInset inset = golden_sun_camera_inset();
+    const std::int32_t in = min_x ? inset.left : min_y ? inset.top
+                          : max_x ? inset.right : inset.bottom;
+    if (in == 0) return 0;
+    *out_value = (min_x || min_y)
+        ? static_cast<std::uint32_t>(in * 65536)
+        : original - static_cast<std::uint32_t>(in * 65536);
+    return 1;
+}
+
 int golden_sun_thumb_alu_immediate(std::uint32_t pc, std::uint32_t original,
                                    std::uint32_t* out_value) {
     using namespace gsr::text_speed_cheat;
     if (const int r = golden_sun_worldmap_range_box(pc, original, out_value);
+        r >= 0) {
+        return r;
+    }
+    if (const int r = golden_sun_camera_clamp_value(pc, original, out_value);
         r >= 0) {
         return r;
     }
@@ -11466,6 +12506,10 @@ int golden_sun_thumb_literal(std::uint32_t pc, std::uint32_t original,
                              std::uint32_t* out_value) {
     using namespace gsr::text_speed_cheat;
     if (const int r = golden_sun_worldmap_range_box(pc, original, out_value);
+        r >= 0) {
+        return r;
+    }
+    if (const int r = golden_sun_camera_clamp_value(pc, original, out_value);
         r >= 0) {
         return r;
     }
@@ -11630,6 +12674,12 @@ int golden_sun_conditional_branch(std::uint32_t pc, std::uint32_t original,
     }
     if (const int r = cheat_drop_branch(pc, original, out_decision); r >= 0)
         return r;
+    skipped_spark_capture(pc, original);
+    if (const int r = golden_sun_camera_clamp_branch(pc, original,
+                                                     out_decision);
+        r >= 0) {
+        return r;
+    }
     if (pc == kIconBounceBranchPc) {
         if (g_cpu.R[6] != kMessageSpeedRow ||
             bus_read_u8(g_cpu.R[5] + kScreenMessageSpeedOffset) !=
@@ -12088,7 +13138,7 @@ constexpr gsr::ByteRange kFuncB5138ExcludedRanges[] = {
     {0x000000E0u, 0x00000120u},
 };
 
-const std::array<RelocatableCodeImage, 28> kRelocatableCodeImages{{
+const std::array<RelocatableCodeImage, 29> kRelocatableCodeImages{{
     // Func_2cf4, DMA-copied onto the stack by Func_3a7c. Observed at
     // 0x03007ba4, 0x03007dbc, 0x03007dc4 and 0x03007dc8; the extent, mode and
     // identity are the same at every one of them, and goldensun.elf bounds the
@@ -12524,6 +13574,24 @@ const std::array<RelocatableCodeImage, 28> kRelocatableCodeImages{{
      &gsr_funcb5138_pic_kImageSize,
      gsr_funcb5138_pic_kDispatchTable,
      &gsr_funcb5138_pic_kDispatchTableLen,
+     kFuncB5138ExcludedRanges,
+     2},
+    // Func_f0024, the ending credits' decoder. Session 20261002_134927 hung
+    // at the credits running it through the interpreter: "unknown transient
+    // code identity at 0x0300347C", whose live prefix occurs once in the ROM,
+    // at 0x080f0024. Same layout as Func_b5138 (same 0x230 extent, same two
+    // $d runs, same self-relocated jump table), so it reuses
+    // kFuncB5138ExcludedRanges; the SHA-1 is over [0,0xcc) + [0xd4,0xe0) +
+    // [0x120,0x230) of ROM 0x080f0024. See
+    // config/usa/transient-func-f0024-relocatable.toml.
+    {0x080F0024u,
+     0,
+     "603f4e8cb1f2e0603244cadea88fc355448ebe86",
+     "Func_f0024_relocatable",
+     &gsr_funcf0024_pic_kImageOrigin,
+     &gsr_funcf0024_pic_kImageSize,
+     gsr_funcf0024_pic_kDispatchTable,
+     &gsr_funcf0024_pic_kDispatchTableLen,
      kFuncB5138ExcludedRanges,
      2},
     // Func_a418, previously registered only fixed at 0x03003400 (see

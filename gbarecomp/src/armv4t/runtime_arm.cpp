@@ -1048,7 +1048,8 @@ namespace {
 std::atomic<int> g_additional_debug_logging{0};
 // Generic factor for the optional game-owned memory-write transform seam.
 // The callback itself remains owned and installed by the game runner.
-std::atomic<int> g_mem_write_override_factor{1};
+// The factor is in halves (2 = 1x, 3 = 1.5x, 4 = 2x, 6 = 3x).
+std::atomic<int> g_mem_write_override_factor{2};
 
 // Golden Sun party layout, confirmed for the USA/EU image: four slots at
 // 0x02000534, 0x14C bytes apart. State is host-controlled and intentionally
@@ -1127,7 +1128,7 @@ extern "C" void runtime_apply_infinite_hp_pp(void) {
 }
 
 extern "C" void runtime_set_mem_write_override_enabled(int factor) {
-    if (factor < 1 || factor > 3) factor = 1;
+    if (factor != 2 && factor != 3 && factor != 4 && factor != 6) factor = 2;
     g_mem_write_override_factor.store(factor, std::memory_order_relaxed);
 }
 

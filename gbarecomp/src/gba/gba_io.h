@@ -96,6 +96,15 @@ constexpr uint32_t KEYCNT    = 0x132;  // u16
 // Off (the default) is unchanged hardware behaviour.
 extern std::atomic<bool> g_hblank_dma_latch;
 
+// When set, a CPU write to an IO register that a running HBlank DMA also
+// writes is put back when the game turns that DMA off. On hardware the DMA
+// keeps overwriting it until then. Games rely on a frame wait between
+// "stop the line table" and "set the register directly"; code that runs
+// more than one frame of guest work per VBlank can lose that wait, and the
+// register is then left on the table's last value. Off (the default) is
+// unchanged hardware behaviour.
+extern std::atomic<bool> g_hblank_dma_cpu_write_wins;
+
 class GbaIo {
 public:
     static constexpr std::size_t kIoSize = 0x400;
@@ -259,6 +268,12 @@ private:
     std::vector<uint8_t> hblank_latch_[4];
     uint32_t hblank_latch_base_[4] = {0, 0, 0, 0};
     bool hblank_latch_valid_[4] = {false, false, false, false};
+    // g_hblank_dma_cpu_write_wins: the last CPU write to each HBlank
+    // channel's destination while it ran (one halfword per channel).
+    bool in_timed_dma_ = false;
+    bool hblank_cpu_write_valid_[4] = {false, false, false, false};
+    uint32_t hblank_cpu_write_off_[4] = {0, 0, 0, 0};
+    uint16_t hblank_cpu_write_value_[4] = {0, 0, 0, 0};
 
     // In-flight SIO Normal-mode transfer (internal clock). Armed by a
     // start-bit rising edge written to SIOCNT; counts down to completion.

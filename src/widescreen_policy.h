@@ -1718,6 +1718,28 @@ inline constexpr bool golden_sun_obj_dimensions(unsigned shape,
     return true;
 }
 
+// May a sprite with no earlier on-screen frame enter the bottom margin at
+// OAM row `y` (160..199)? B328's widened fall-through was kept closed for
+// those because a positive Y there is also a wrapped row: a sprite whose
+// box reaches past row 255 shows its bottom at the top of the console's own
+// screen. Admit only boxes that end by row 256 (affine double size counts
+// twice), which cannot wrap. The ship's oars (64x32 affine at 160..199,
+// gpu_rewind_0092) pass; a 32x64 body below row 192 does not.
+inline constexpr bool golden_sun_obj_bottom_margin_cannot_wrap(
+    int y, std::uint16_t attr0, std::uint16_t attr1) {
+    int width = 0, height = 0;
+    if (!golden_sun_obj_dimensions(attr0 >> 14, attr1 >> 14, &width,
+                                   &height)) return false;
+    if ((attr0 & 0x0300u) == 0x0300u) height *= 2;
+    return y >= 160 && y + height <= 256;
+}
+static_assert(golden_sun_obj_bottom_margin_cannot_wrap(199, 0x6100u, 0xC000u),
+              "64x32 affine oar at the margin's last row");
+static_assert(!golden_sun_obj_bottom_margin_cannot_wrap(199, 0x8000u, 0xC000u),
+              "32x64 body would wrap to the top");
+static_assert(!golden_sun_obj_bottom_margin_cannot_wrap(199, 0x6300u, 0xC000u),
+              "double-size 64x32 is 64 tall");
+
 // ---- sprite placement outcomes -------------------------------------------
 //
 // Why this vocabulary exists as policy rather than as loose strings in

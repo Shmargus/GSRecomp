@@ -1,0 +1,131 @@
+# GS-011 POSITION-INDEPENDENT AOT image for Func_f0024.
+#
+# The ending credits' bitstream decoder. It is the same decoder as Func_b5138
+# (transient-func-b5138-relocatable.toml): same 0x230 extent, same $d layout,
+# same self-relocating 8-entry jump table; 88 bytes differ (the shift/add
+# constants of the unpack loop and the table base word).
+#
+# Evidence: session 20261002_134927 reached the credits and reported
+# "unknown transient code identity at 0x0300347C" with live_prefix
+# e04f2de902a0a0e1c0209fe5ec308fe2022043e0c4408fe20850a0e3046093e4. That
+# 32-byte prefix occurs exactly once in the hash-verified ROM, at 0x080f0024.
+# The copier's literal pool at ROM 0x080f0360..0x080f0370 holds
+# 0x00000230, 0x040000D4 (DMA3SAD), 0x080F0024, 0x03001E50: a 0x230-byte
+# DMA3 copy from 0x080f0024, which is goldensun.elf's STT_FUNC Func_f0024,
+# size 0x230. Every PC the session bridged through the interpreter
+# (0x0300347C, 0x03003498, 0x03003550, 0x0300359C..0x0300369C) is inside this
+# extent at base 0x0300347c, and the seven distinct jump-table cases below
+# are exactly the seven case PCs it bridged.
+#
+# Generated with `gba_recompile --relocatable-image 0x0300347c:0x230`.
+# 0x0300347c is the generation ORIGIN only; the runtime registry translates a
+# live PC by subtracting the verified base.
+#
+# ELF: Func_f0024 at 0x080f0024, size 560 (0x230), mode arm.
+# Image SHA-1 (whole extent, before self-relocation)
+# 5b2df8ba8dfdf8614287530fba0c1749ed07f76e.
+
+[program]
+name = "Golden Sun relocatable Func_f0024 RAM image"
+id = "golden_sun_usa_transient_func_f0024_relocatable"
+load_address = 0x08000000
+size = 0x00800000
+entry_pc = 0x0300347c
+speculative_literal_harvest = false
+codegen_shards = 1
+
+[identity]
+sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[code_copy]]
+runtime_start = 0x0300347c
+source_start = 0x080f0024
+size = 0x00000230
+name = "relocatable_Func_f0024_image"
+note = "credits decoder; copier pool at ROM 0x080f0360: 0x230 bytes, DMA3SAD, source 0x080f0024; observed base 0x0300347c in session 20261002_134927; image SHA-1 5b2df8ba8dfdf8614287530fba0c1749ed07f76e"
+
+[[extra_func]]
+addr = 0x0300347c
+mode = "arm"
+name = "Func_f0024_relocatable_image"
+note = "ELF STT_FUNC entry Func_f0024 installed at the observed copy destination"
+
+# Interior entry points. The loop at the entry reads the 8-word table of
+# ROM-absolute addresses at ROM 0x080f0124..0x080f0144
+# {0x080f0144, 0x080f0160, 0x080f0200, 0x080f01b0, 0x080f0144, 0x080f0188,
+# 0x080f0230, 0x080f01d8}, adds the copy bias and writes them into the
+# placeholder table at ROM 0x080f0104..0x080f0124, which
+# `and ip, r3, #7; ldr pc, [pc, ip, lsl #2]` at ROM 0x080f00f8 dispatches
+# through. The seven distinct targets, translated through the image base,
+# are this image's interior entries; all lie in the $a run
+# [0x080f0144, 0x080f0254).
+
+[[extra_func]]
+addr = 0x0300359c
+mode = "arm"
+name = "Func_f0024_relocatable_case_0"
+note = "ROM 0x080f0144: relocated table[0]==table[4]; bridged live at 0x0300359c"
+
+[[extra_func]]
+addr = 0x030035b8
+mode = "arm"
+name = "Func_f0024_relocatable_case_1"
+note = "ROM 0x080f0160: relocated table[1]; bridged live at 0x030035b8"
+
+[[extra_func]]
+addr = 0x030035e0
+mode = "arm"
+name = "Func_f0024_relocatable_case_5"
+note = "ROM 0x080f0188: relocated table[5]; bridged live at 0x030035e0"
+
+[[extra_func]]
+addr = 0x03003608
+mode = "arm"
+name = "Func_f0024_relocatable_case_3"
+note = "ROM 0x080f01b0: relocated table[3]; bridged live at 0x03003608"
+
+[[extra_func]]
+addr = 0x03003630
+mode = "arm"
+name = "Func_f0024_relocatable_case_7"
+note = "ROM 0x080f01d8: relocated table[7]; bridged live at 0x03003630"
+
+[[extra_func]]
+addr = 0x03003658
+mode = "arm"
+name = "Func_f0024_relocatable_case_2"
+note = "ROM 0x080f0200: relocated table[2]; bridged live at 0x03003658"
+
+[[extra_func]]
+addr = 0x03003688
+mode = "arm"
+name = "Func_f0024_relocatable_case_6"
+note = "ROM 0x080f0230: relocated table[6]; bridged live at 0x03003688"
+
+[[resume_range]]
+start = 0x0300347c
+end = 0x03003548
+mode = "arm"
+note = "Func_f0024 code run, ROM 0x080f0024..0x080f00f0"
+
+[[data_range]]
+start = 0x03003548
+end = 0x03003550
+note = "ELF $d run inside Func_f0024, ROM 0x080f00f0..0x080f00f8"
+
+[[resume_range]]
+start = 0x03003550
+end = 0x0300355c
+mode = "arm"
+note = "Func_f0024 code run, ROM 0x080f00f8..0x080f0104"
+
+[[data_range]]
+start = 0x0300355c
+end = 0x0300359c
+note = "ELF $d run inside Func_f0024, ROM 0x080f0104..0x080f0144"
+
+[[resume_range]]
+start = 0x0300359c
+end = 0x030036ac
+mode = "arm"
+note = "Func_f0024 code run, ROM 0x080f0144..0x080f0254"
