@@ -182,6 +182,10 @@ struct GpuSurface::SavedState {
     GLboolean depth_test = GL_FALSE;
     GLboolean scissor = GL_FALSE;
     GLboolean depth_mask = GL_TRUE;
+    // SDL's renderer remembers the clear colour it last set and skips setting
+    // it again, so a colour left behind here becomes its window clear colour
+    // (the margins around the picture).
+    GLfloat clear_color[4] = {0, 0, 0, 1};
     GLint blend_src_rgb = GL_ONE, blend_dst_rgb = GL_ZERO;
     GLint blend_src_alpha = GL_ONE, blend_dst_alpha = GL_ZERO;
 };
@@ -575,6 +579,7 @@ void GpuSurface::begin_frame(float r, float g, float b, float a) {
     saved_->depth_test = glIsEnabled(GL_DEPTH_TEST);
     saved_->scissor = glIsEnabled(GL_SCISSOR_TEST);
     glGetBooleanv(GL_DEPTH_WRITEMASK, &saved_->depth_mask);
+    glGetFloatv(GL_COLOR_CLEAR_VALUE, saved_->clear_color);
     glGetIntegerv(kBlendSrcRgb, &saved_->blend_src_rgb);
     glGetIntegerv(kBlendDstRgb, &saved_->blend_dst_rgb);
     glGetIntegerv(kBlendSrcAlpha, &saved_->blend_src_alpha);
@@ -601,6 +606,8 @@ void GpuSurface::end_frame() {
     if (saved_->depth_test) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     if (saved_->scissor) glEnable(GL_SCISSOR_TEST); else glDisable(GL_SCISSOR_TEST);
     glDepthMask(saved_->depth_mask);
+    glClearColor(saved_->clear_color[0], saved_->clear_color[1],
+                 saved_->clear_color[2], saved_->clear_color[3]);
     glBlendFuncSeparate(static_cast<GLenum>(saved_->blend_src_rgb),
                         static_cast<GLenum>(saved_->blend_dst_rgb),
                         static_cast<GLenum>(saved_->blend_src_alpha),
