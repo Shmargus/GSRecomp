@@ -233,6 +233,19 @@ bool validate_rom(const std::string& path, std::string* error) {
 }
 
 fs::path rom_cache_path() { return g_root / "local" / "launcher-rom.txt"; }
+fs::path auto_start_path() { return g_root / "local" / "launcher-autostart.txt"; }
+constexpr Uint32 kAutoStartMaxWaitMs = 10000;  // for the update check
+
+// The ROM picked last time, when it is still there and still the right ROM;
+// empty otherwise. The launcher then plays it without asking again.
+std::string remembered_rom() {
+    const std::string cached = trim(read_text(rom_cache_path()));
+    if (cached.empty()) return {};
+    std::string error;
+    if (validate_rom(cached, &error)) return cached;
+    launcher_log("Remembered ROM " + cached + " can no longer be used: " + error);
+    return {};
+}
 
 bool have_program(const char* name) {
     const std::string cmd = std::string("command -v ") + name + " >/dev/null 2>&1";
@@ -513,6 +526,7 @@ struct GameResult {
     bool started = false;
     bool crashed = false;
     int exit_code = 0;
+    std::string rom;
     std::string log_path;
     std::vector<std::string> new_rewinds;
 };
@@ -521,6 +535,7 @@ struct GameResult {
 // launcher's) and waits for it.
 GameResult run_game(const std::string& rom) {
     GameResult result;
+    result.rom = rom;
     const fs::path logs_dir = g_root / "logs";
     std::error_code ec;
     fs::create_directories(logs_dir, ec);
@@ -689,6 +704,10 @@ std::vector<fs::path> make_bug_report(const GameResult& game) {
     for (const char* file : {"config.ini", "game_options.ini", "keybinds.ini",
                              "GoldenSunGame.build.txt", "run_state.txt"})
         copy_into_report(g_root / file, staging);
+    // The game's save, kept beside the ROM (runtime.cpp: the ROM path with
+    // .sav), so the problem can be played again from the same place.
+    if (!game.rom.empty())
+        copy_into_report(fs::path(game.rom).replace_extension(".sav"), staging);
     if (game.crashed) copy_into_report(g_root / "crash_report.txt", staging);
     write_text(staging / "report_info.txt",
                std::string("Golden Sun Recompiled bug report\n") +
@@ -763,10 +782,19 @@ int run_capture(const std::vector<std::string>& args, std::string* out) {
 std::mutex g_update_mutex;
 gsr_online::Release g_update;
 std::atomic<bool> g_update_found{false};
+// Set however the update check ends; the automatic start waits for it.
+std::atomic<bool> g_update_check_done{false};
 
 void check_for_update() {
-    if (!gsr_online::update_checks_enabled()) return;
+    if (!gsr_online::update_checks_enabled()) {
+        g_update_check_done = true;
+        return;
+    }
     std::thread([] {
+        // An update found is flagged before this is set.
+        struct MarkDone {
+            ~MarkDone() { g_update_check_done = true; }
+        } mark_done;
         std::string reply;
         const int rc = run_capture({"curl", "-sS", "-f", "-L", "-m", "15", "-H",
                                     std::string("User-Agent: ") + gsr_online::kUserAgent,
@@ -839,7 +867,7 @@ void open_with_desktop(const std::string& target) {
 
 // ---------------------------------------------------------------- window
 
-enum class Dialog { None, Message, TypePath, BugReport, Update };
+enum class Dialog { None, Message, TypePath, BugReport, Update, AskAutoStart };
 
 struct Ui {
     Dialog dialog = Dialog::None;
@@ -855,6 +883,17 @@ struct Ui {
     std::mutex send_mutex;
     std::string send_error;
     std::string pending_rom;   // picked; run or build when the frame ends
+    std::string remembered_rom;  // non-empty: the button says Play and uses it
+    // Start automatically: with the box ticked, a built game and a good
+    // remembered ROM, the game starts as soon as the update check has
+    // answered (at most kAutoStartMaxWaitMs). When an update is offered,
+    // "Not now" starts the game and opening the download page does not. A
+    // needed build never starts by itself. A message or the box unticked
+    // stop it. The player is asked once, after the first build. Kept in
+    // local/launcher-autostart.txt.
+    bool auto_start = false;
+    Uint32 auto_start_began = 0;  // SDL ticks; 0 = not waiting
+    bool auto_start_paused = false;  // waiting on the update question
     bool quit = false;
 } g_ui;
 
@@ -899,7 +938,19 @@ void style_ui() {
 }
 
 // Pick ROM: check it, then build the game code first if needed, else play.
+// Once a ROM was accepted the button says Play and uses it without asking.
 void pick_rom() {
+    if (!g_ui.remembered_rom.empty()) {
+        std::string error;
+        if (validate_rom(g_ui.remembered_rom, &error)) {
+            launcher_log("Play: using the remembered ROM " + g_ui.remembered_rom + ".");
+            g_ui.pending_rom = g_ui.remembered_rom;
+            return;
+        }
+        launcher_log("Remembered ROM " + g_ui.remembered_rom +
+                     " can no longer be used: " + error);
+        g_ui.remembered_rom.clear();
+    }
     const std::string cached = trim(read_text(rom_cache_path()));
     const std::string start_dir = cached.empty() ? std::string()
                                                  : fs::path(cached).parent_path().string();
@@ -923,6 +974,7 @@ void use_rom(const std::string& rom) {
     }
     launcher_log("Pick ROM: " + rom + " - accepted.");
     write_text(rom_cache_path(), rom + "\n");
+    g_ui.remembered_rom = rom;
     g_ui.pending_rom.clear();
     if (!game_code_ready()) {
         launcher_log("The game is not built yet (or is out of date): building it.");
@@ -939,6 +991,8 @@ int main(int, char**) {
     gbarecomp::crash_handler_install(nullptr);
     g_root = exe_dir();
     open_launcher_log();
+    g_ui.remembered_rom = remembered_rom();
+    g_ui.auto_start = trim(read_text(auto_start_path())) == "1";
     check_for_update();
 
     // The game controller too: in Steam Deck Game Mode the pad is the only
@@ -986,6 +1040,10 @@ int main(int, char**) {
 
     bool ready = game_code_ready();
     bool running = true;
+    if (g_ui.auto_start && ready && !g_ui.remembered_rom.empty()) {
+        launcher_log("Start automatically: waiting for the update check.");
+        g_ui.auto_start_began = std::max<Uint32>(1, SDL_GetTicks());
+    }
     while (running && !g_ui.quit) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -1018,6 +1076,9 @@ int main(int, char**) {
                                     : "Build: failed: " + build_error);
             if (ready) {
                 g_ui.pending_rom = "@play:" + g_build_rom;
+                std::error_code exists_ec;
+                if (!fs::exists(auto_start_path(), exists_ec))
+                    g_ui.dialog = Dialog::AskAutoStart;
             } else {
                 show_message("The game could not be prepared",
                              build_error + "\n\nThe full log is builder/work/build-log.txt.",
@@ -1073,10 +1134,48 @@ int main(int, char**) {
         }
         ImGui::PopTextWrapPos();
 
+        // Start automatically once the update check answered. An update
+        // found is flagged before the check is marked done, so it is seen
+        // first and pauses this for the question.
+        if (g_ui.auto_start_began != 0) {
+            if (g_update_found || g_ui.dialog == Dialog::Update) {
+                g_ui.auto_start_began = 0;
+                g_ui.auto_start_paused = true;
+            } else if (g_ui.dialog != Dialog::None || build_running) {
+                launcher_log("Start automatically: stopped (a message).");
+                g_ui.auto_start_began = 0;
+            } else if (g_update_check_done ||
+                       SDL_GetTicks() - g_ui.auto_start_began >= kAutoStartMaxWaitMs) {
+                launcher_log("Start automatically: starting the game.");
+                g_ui.auto_start_began = 0;
+                pick_rom();
+            }
+        }
+
         const ImVec2 button(200.0f, 48.0f);
+        if (ready && !build_running) {
+            const char* label = "Start the game automatically";
+            const float box_w = ImGui::GetFrameHeight() +
+                                ImGui::GetStyle().ItemInnerSpacing.x +
+                                ImGui::CalcTextSize(label).x;
+            ImGui::SetCursorPos(ImVec2((size.x - box_w) * 0.5f, bottom - button.y - 44.0f));
+            if (ImGui::Checkbox(label, &g_ui.auto_start)) {
+                write_text(auto_start_path(), g_ui.auto_start ? "1\n" : "0\n");
+                launcher_log(g_ui.auto_start ? "Start automatically: on."
+                                             : "Start automatically: off.");
+                if (!g_ui.auto_start && g_ui.auto_start_began != 0) {
+                    launcher_log("Start automatically: stopped (box unticked).");
+                    g_ui.auto_start_began = 0;
+                }
+            }
+        }
         ImGui::SetCursorPos(ImVec2(size.x * 0.5f - button.x - 10.0f, bottom - button.y));
         ImGui::BeginDisabled(build_running || g_ui.dialog != Dialog::None);
-        if (ImGui::Button("Pick ROM", button)) pick_rom();
+        if (ImGui::Button(g_ui.remembered_rom.empty() ? "Pick ROM###rom" : "Play###rom",
+                          button)) {
+            g_ui.auto_start_began = 0;
+            pick_rom();
+        }
         ImGui::EndDisabled();
         ImGui::SameLine(0, 20.0f);
         if (ImGui::Button("Quit", button)) running = false;
@@ -1197,12 +1296,38 @@ int main(int, char**) {
                     launcher_log("Update: opened the page of " + release.tag + ".");
                     open_with_desktop(release.page.empty() ? gsr_online::kReleasesPage
                                                            : release.page);
+                    if (g_ui.auto_start_paused)
+                        launcher_log("Start automatically: stopped (going to update).");
+                    g_ui.auto_start_paused = false;
                     g_ui.dialog = Dialog::None;
                     ImGui::CloseCurrentPopup();
                 }
                 ImGui::SameLine();
                 if (ImGui::Button("Not now", ImVec2(140, 0))) {
                     launcher_log("Update: not now.");
+                    if (g_ui.auto_start_paused) {
+                        launcher_log("Start automatically: starting the game.");
+                        pick_rom();
+                    }
+                    g_ui.auto_start_paused = false;
+                    g_ui.dialog = Dialog::None;
+                    ImGui::CloseCurrentPopup();
+                }
+            } else if (g_ui.dialog == Dialog::AskAutoStart) {
+                ImGui::TextUnformatted("The game is ready");
+                ImGui::Separator();
+                ImGui::TextUnformatted(
+                    "Start it automatically from now on when you open the launcher? The "
+                    "launcher still checks for updates first, and the \"Start the game "
+                    "automatically\" box above the Play button changes this later.");
+                const bool yes = ImGui::Button("Yes", ImVec2(120, 0));
+                ImGui::SameLine();
+                const bool no = ImGui::Button("No", ImVec2(120, 0));
+                if (yes || no) {
+                    g_ui.auto_start = yes;
+                    write_text(auto_start_path(), yes ? "1\n" : "0\n");
+                    launcher_log(yes ? "Start automatically: on (asked after the build)."
+                                     : "Start automatically: off (asked after the build).");
                     g_ui.dialog = Dialog::None;
                     ImGui::CloseCurrentPopup();
                 }
@@ -1259,7 +1384,7 @@ int main(int, char**) {
                                  : std::string("the file")) +
                             " (" + std::to_string(std::max<std::uintmax_t>(1, bytes >> 20)) +
                             " MB) to the developer: the game's log and screen captures, your "
-                            "settings and your Linux version. Your user name is taken out. "
+                            "save file, your settings and your Linux version. Your user name is taken out. "
                             "Nothing is sent unless you press Send report.";
                     } else {
                         g_ui.message = "It could not be packed: " +

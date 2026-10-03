@@ -10,6 +10,7 @@
 #include "runtime_arm.h"
 #include "symbol_lookup.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -739,35 +740,59 @@ unsigned long long g_iwram_code_word_frame[kIwramCodeDiagWords];
 //         which says which routine was copied in;
 //   cpu   one entry per (word, frame) for bus/interpreter CPU stores, and for
 //         generated-code stores on registered RAM-code pages;
-//   enter every runtime_dispatch to exactly 0x03002000 (ARM);
+//   enter every runtime_dispatch to exactly 0x03002000 (ARM), with r0, r1,
+//         r6, sp, lr, the game's IWRAM allocator pointer and whether the
+//         dispatch resumed a yield;
+//   yield_resume  a yield restore whose resume pc lies inside the slot
+//         (repeats of the same pc collapse into one entry with a count);
 //   push/ret_match/ret_unwind/cancel  the generated call-return stack
 //         (runtime_call_push_return / _should_return / _cancel_return) when
 //         the return pc lies inside the slot. Tests whether a stale unpacker
 //         return frame is resumed after another routine is copied into the
 //         slot (only the address is compared by the return matcher).
-// One 64-entry ring holds all three kinds; the oldest entry is overwritten.
-// Dumped by the runner's unknown-identity report and the bridge-abort path.
+// CPU stores have their own small ring so a decompressor writing over the slot
+// cannot push the copies, entries and returns out (a player crash on
+// 2026-10-03 lost them that way; FACTS.md). The dump merges both rings in
+// order and adds the last 16 dispatch targets. Dumped by the runner's
+// unknown-identity report and the bridge-abort path.
 extern "C" bool g_frame_present_in_progress = false;  // set by the host bridge
 extern "C" uint32_t g_irq_nest_depth;
 
 namespace {
 constexpr uint32_t kUnpackerSlotOff = 0x2000u;   // within the 32 KiB IWRAM
 constexpr uint32_t kUnpackerSlotLen = 0x2C4u;
-constexpr uint32_t kUnpackerJournalDepth = 64u;
+constexpr uint32_t kUnpackerEventDepth = 256u;  // everything but cpu stores
+constexpr uint32_t kUnpackerCpuDepth = 32u;
+constexpr uint32_t kRecentDispatchDepth = 16u;
+// Golden Sun's IWRAM bump-allocator pointer ([0x03001E50] + 4, Func_4938):
+// where the next copied routine lands.
+constexpr uint32_t kGameIwramHeapPtr = 0x03001E54u;
 constexpr uint32_t kUnpackerSlotWords = kUnpackerSlotLen / 4u;
 enum UnpackerSlotKind : uint8_t {
     kUnpackerDma = 0, kUnpackerCpu = 1, kUnpackerEnter = 2,
     kUnpackerPush = 3, kUnpackerRetMatch = 4, kUnpackerRetUnwind = 5,
-    kUnpackerCancel = 6
+    kUnpackerCancel = 6, kUnpackerYieldResume = 7
 };
 struct UnpackerSlotEntry {
     unsigned long long frame;
+    uint64_t seq;   // order across both rings
     uint32_t dst, src_or_width, count, pc, lr, irq_depth, first_word;
-    uint32_t aux;   // call-return kinds: 1 = matched the top slot
-    uint8_t kind, present;
+    uint32_t aux;   // call-return kinds: 1 = matched the top slot;
+                    // yield_resume: repeat count
+    uint32_t r0, r1, r6, sp, heap;   // enter only
+    uint8_t kind, present, resumed;
 };
-UnpackerSlotEntry g_unpacker_journal[kUnpackerJournalDepth];
-uint64_t g_unpacker_journal_total = 0;
+UnpackerSlotEntry g_unpacker_events[kUnpackerEventDepth];
+UnpackerSlotEntry g_unpacker_cpu[kUnpackerCpuDepth];
+uint64_t g_unpacker_events_total = 0;
+uint64_t g_unpacker_cpu_total = 0;
+uint64_t g_unpacker_seq = 0;
+// Last dispatch targets (pc | thumb bit), oldest at index next.
+uint32_t g_recent_dispatch[kRecentDispatchDepth];
+uint32_t g_recent_dispatch_next = 0;
+// Set by runtime_yield_restore_pc() when it put a resume pc back; the next
+// dispatch reads and clears it.
+bool g_dispatch_is_yield_resume = false;
 unsigned long long g_unpacker_word_frame[kUnpackerSlotWords];
 bool g_unpacker_in_dma = false;
 
@@ -783,9 +808,11 @@ bool unpacker_slot_overlaps(uint32_t addr, uint32_t len) {
 }
 
 UnpackerSlotEntry& unpacker_journal_next(uint8_t kind) {
-    UnpackerSlotEntry& e =
-        g_unpacker_journal[g_unpacker_journal_total++ % kUnpackerJournalDepth];
+    UnpackerSlotEntry& e = kind == kUnpackerCpu
+        ? g_unpacker_cpu[g_unpacker_cpu_total++ % kUnpackerCpuDepth]
+        : g_unpacker_events[g_unpacker_events_total++ % kUnpackerEventDepth];
     e = {};
+    e.seq = g_unpacker_seq++;
     e.frame = g_runtime_vblank_starts;
     e.kind = kind;
     e.pc = g_cpu.R[15];
@@ -858,31 +885,70 @@ extern "C" void runtime_unpacker_slot_dma_end(uint32_t dst, uint32_t src,
     e.first_word = bus_read_u32(0x03000000u + kUnpackerSlotOff);
 }
 
-extern "C" void runtime_unpacker_slot_note_dispatch(void) {
+extern "C" void runtime_unpacker_slot_note_dispatch(bool resumed) {
     UnpackerSlotEntry& e = unpacker_journal_next(kUnpackerEnter);
     e.dst = 0x03000000u + kUnpackerSlotOff;
+    e.first_word = bus_read_u32(0x03000000u + kUnpackerSlotOff);
+    e.r0 = g_cpu.R[0];
+    e.r1 = g_cpu.R[1];
+    e.r6 = g_cpu.R[6];
+    e.sp = g_cpu.R[13];
+    e.heap = bus_read_u32(kGameIwramHeapPtr);
+    e.resumed = resumed ? 1u : 0u;
+}
+
+// A yield restore put `pc` back as the resume pc and it lies in the slot.
+static void unpacker_note_yield_resume(uint32_t pc) {
+    if (g_unpacker_events_total != 0u) {
+        UnpackerSlotEntry& last =
+            g_unpacker_events[(g_unpacker_events_total - 1u) % kUnpackerEventDepth];
+        if (last.kind == kUnpackerYieldResume && last.dst == pc) {
+            ++last.aux;
+            last.frame = g_runtime_vblank_starts;
+            return;
+        }
+    }
+    UnpackerSlotEntry& e = unpacker_journal_next(kUnpackerYieldResume);
+    e.dst = pc;
+    e.aux = 1u;
     e.first_word = bus_read_u32(0x03000000u + kUnpackerSlotOff);
 }
 
 extern "C" void runtime_unpacker_slot_dump(const char* why) {
-    const uint64_t total = g_unpacker_journal_total;
-    const uint64_t shown =
-        total < kUnpackerJournalDepth ? total : kUnpackerJournalDepth;
+    const uint64_t events = g_unpacker_events_total;
+    const uint64_t cpus = g_unpacker_cpu_total;
+    const uint64_t events_shown =
+        events < kUnpackerEventDepth ? events : kUnpackerEventDepth;
+    const uint64_t cpus_shown = cpus < kUnpackerCpuDepth ? cpus : kUnpackerCpuDepth;
     std::fprintf(stderr,
-        "[unpacker-slot] reason=%s frame=%llu entries=%llu of %llu total "
-        "(oldest first; pc/lr are g_cpu at the time and may lag generated "
-        "code)\n",
+        "[unpacker-slot] reason=%s frame=%llu events=%llu of %llu, "
+        "cpu stores=%llu of %llu (oldest first; pc/lr are g_cpu at the time "
+        "and may lag generated code)\n",
         why ? why : "?", static_cast<unsigned long long>(g_runtime_vblank_starts),
-        static_cast<unsigned long long>(shown),
-        static_cast<unsigned long long>(total));
-    for (uint64_t i = total - shown; i < total; ++i) {
-        const UnpackerSlotEntry& e = g_unpacker_journal[i % kUnpackerJournalDepth];
+        static_cast<unsigned long long>(events_shown),
+        static_cast<unsigned long long>(events),
+        static_cast<unsigned long long>(cpus_shown),
+        static_cast<unsigned long long>(cpus));
+    std::vector<const UnpackerSlotEntry*> merged;
+    merged.reserve(static_cast<std::size_t>(events_shown + cpus_shown));
+    for (uint64_t i = events - events_shown; i < events; ++i)
+        merged.push_back(&g_unpacker_events[i % kUnpackerEventDepth]);
+    for (uint64_t i = cpus - cpus_shown; i < cpus; ++i)
+        merged.push_back(&g_unpacker_cpu[i % kUnpackerCpuDepth]);
+    std::sort(merged.begin(), merged.end(),
+              [](const UnpackerSlotEntry* a, const UnpackerSlotEntry* b) {
+                  return a->seq < b->seq;
+              });
+    for (const UnpackerSlotEntry* entry : merged) {
+        const UnpackerSlotEntry& e = *entry;
         const char* kind = e.kind == kUnpackerDma ? "dma"
                          : e.kind == kUnpackerCpu ? "cpu"
                          : e.kind == kUnpackerPush ? "push"
                          : e.kind == kUnpackerRetMatch ? "ret_match"
                          : e.kind == kUnpackerRetUnwind ? "ret_unwind"
-                         : e.kind == kUnpackerCancel ? "cancel" : "enter";
+                         : e.kind == kUnpackerCancel ? "cancel"
+                         : e.kind == kUnpackerYieldResume ? "yield_resume"
+                         : "enter";
         if (e.kind == kUnpackerDma) {
             std::fprintf(stderr,
                 "[unpacker-slot] frame=%llu kind=%s dst=0x%08X src=0x%08X "
@@ -934,15 +1000,29 @@ extern "C" void runtime_unpacker_slot_dump(const char* why) {
                     e.frame, kind, e.dst, e.src_or_width, e.count,
                     e.aux ? "top" : "deeper", e.pc, e.first_word,
                     e.irq_depth, e.present);
+        } else if (e.kind == kUnpackerYieldResume) {
+            std::fprintf(stderr,
+                "[unpacker-slot] frame=%llu kind=%s pc=0x%08X times=%u "
+                "first_word=0x%08X irq_depth=%u present=%u\n",
+                e.frame, kind, e.dst, e.aux, e.first_word, e.irq_depth,
+                e.present);
         } else {
             std::fprintf(stderr,
                 "[unpacker-slot] frame=%llu kind=%s dst=0x%08X "
-                "first_word=0x%08X lr=0x%08X pc=0x%08X irq_depth=%u "
-                "present=%u\n",
-                e.frame, kind, e.dst, e.first_word, e.lr, e.pc,
-                e.irq_depth, e.present);
+                "first_word=0x%08X lr=0x%08X pc=0x%08X r0=0x%08X r1=0x%08X "
+                "r6=0x%08X sp=0x%08X iwram_heap=0x%08X yield_resume=%u "
+                "irq_depth=%u present=%u\n",
+                e.frame, kind, e.dst, e.first_word, e.lr, e.pc, e.r0, e.r1,
+                e.r6, e.sp, e.heap, e.resumed, e.irq_depth, e.present);
         }
     }
+    std::fprintf(stderr, "[unpacker-slot] last dispatches (oldest first):");
+    for (uint32_t i = 0; i < kRecentDispatchDepth; ++i) {
+        const uint32_t target =
+            g_recent_dispatch[(g_recent_dispatch_next + i) % kRecentDispatchDepth];
+        if (target != 0u) std::fprintf(stderr, " 0x%08X", target);
+    }
+    std::fprintf(stderr, "\n");
     unpacker_dump_live_ret();
 }
 
@@ -2270,7 +2350,12 @@ void runtime_dispatch(uint32_t target_pc) {
 
     bool thumb = (g_cpu.cpsr & CPSR_T_BIT) != 0;
     runtime_pool_dispatch_history_record(pc, thumb ? 1 : 0);
-    if (pc == 0x03002000u && !thumb) runtime_unpacker_slot_note_dispatch();
+    g_recent_dispatch[g_recent_dispatch_next] = pc | (thumb ? 1u : 0u);
+    g_recent_dispatch_next = (g_recent_dispatch_next + 1u) % kRecentDispatchDepth;
+    const bool yield_resume = g_dispatch_is_yield_resume;
+    g_dispatch_is_yield_resume = false;
+    if (pc == 0x03002000u && !thumb)
+        runtime_unpacker_slot_note_dispatch(yield_resume);
     if (g_runtime_ram_image_dispatch_probe) {
         g_runtime_ram_image_dispatch_probe(
             g_runtime_vblank_starts, pc, thumb ? 1u : 0u);
@@ -3037,6 +3122,9 @@ extern "C" void runtime_yield_restore_pc(void) {
     if (g_yield_resume_pending) {
         g_cpu.R[15] = g_yield_resume_pc;
         g_yield_resume_pending = false;
+        g_dispatch_is_yield_resume = true;
+        if (unpacker_pc_in_slot(g_yield_resume_pc & ~1u))
+            unpacker_note_yield_resume(g_yield_resume_pc & ~1u);
     }
 }
 

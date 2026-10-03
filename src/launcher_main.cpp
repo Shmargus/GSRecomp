@@ -348,6 +348,10 @@ std::wstring read_cached_path(const fs::path& path) {
 }
 
 void write_cached_path(const fs::path& path, const std::wstring& value) {
+    // A fresh release folder has no local/ yet; without it the path was
+    // silently not kept and the next start asked for the ROM again.
+    std::error_code ec;
+    fs::create_directories(path.parent_path(), ec);
     std::ofstream file(path, std::ios::binary | std::ios::trunc);
     if (file) file << wide_to_utf8(value) << '\n';
 }
@@ -477,6 +481,17 @@ std::wstring choose_rom(const fs::path& root, HWND owner) {
         MessageBoxW(owner, error.c_str(), L"Golden Sun Recompiled",
                     MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
     }
+}
+
+// The ROM picked last time, when it is still there and still the right ROM;
+// empty otherwise. The launcher then plays it without asking again.
+std::wstring remembered_rom(const fs::path& root) {
+    const std::wstring cached = read_cached_path(root / L"local" / L"launcher-rom.txt");
+    if (cached.empty()) return {};
+    std::wstring error;
+    if (validate_rom(cached, &error)) return cached;
+    launcher_log(L"Remembered ROM " + cached + L" can no longer be used: " + error);
+    return {};
 }
 
 // ── Session log capture ────────────────────────────────────────────────
@@ -968,26 +983,37 @@ std::string scrub_user_name(std::string text) {
             if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
         return s;
     };
+    // The account name and the profile folder's name can differ (a Microsoft
+    // account's folder is often cut short), so both are taken out.
+    std::vector<std::string> names;
     wchar_t user[256] = {};
-    if (!GetEnvironmentVariableW(L"USERNAME", user, 256) || !user[0]) return text;
-    const std::string name = wide_to_utf8(user);
-    for (const char* sep : {"\\", "/", "\\\\"}) {
-        const std::string needle = lower(std::string(sep) + "users" + sep + name);
-        const std::string replacement = std::string(sep) + "Users" + sep + "<user>";
-        std::string folded = lower(text);
-        std::size_t at = 0;
-        while ((at = folded.find(needle, at)) != std::string::npos) {
-            const std::size_t after = at + needle.size();
-            // Only the whole folder name: "Jim" must not match "Jimmy".
-            if (after < text.size() && text[after] != '\\' && text[after] != '/' &&
-                text[after] != '"' && text[after] != '\'' && text[after] != ' ' &&
-                text[after] != '\r' && text[after] != '\n') {
-                at = after;
-                continue;
+    if (GetEnvironmentVariableW(L"USERNAME", user, 256) && user[0])
+        names.push_back(wide_to_utf8(user));
+    wchar_t profile[MAX_PATH] = {};
+    if (GetEnvironmentVariableW(L"USERPROFILE", profile, MAX_PATH) && profile[0]) {
+        const std::string folder = wide_to_utf8(fs::path(profile).filename().wstring());
+        if (!folder.empty() && lower(folder) != (names.empty() ? "" : lower(names[0])))
+            names.push_back(folder);
+    }
+    for (const std::string& name : names) {
+        for (const char* sep : {"\\", "/", "\\\\"}) {
+            const std::string needle = lower(std::string(sep) + "users" + sep + name);
+            const std::string replacement = std::string(sep) + "Users" + sep + "<user>";
+            std::string folded = lower(text);
+            std::size_t at = 0;
+            while ((at = folded.find(needle, at)) != std::string::npos) {
+                const std::size_t after = at + needle.size();
+                // Only the whole folder name: "Jim" must not match "Jimmy".
+                if (after < text.size() && text[after] != '\\' && text[after] != '/' &&
+                    text[after] != '"' && text[after] != '\'' && text[after] != ' ' &&
+                    text[after] != '\r' && text[after] != '\n') {
+                    at = after;
+                    continue;
+                }
+                text.replace(at, needle.size(), replacement);
+                folded.replace(at, needle.size(), lower(replacement));
+                at += replacement.size();
             }
-            text.replace(at, needle.size(), replacement);
-            folded.replace(at, needle.size(), lower(replacement));
-            at += replacement.size();
         }
     }
     return text;
@@ -1022,6 +1048,7 @@ void copy_into_report(const fs::path& from, const fs::path& staging) {
 // Returns the zips (one per F12 capture, or one when there was none), or
 // the folder when zipping failed; empty when there was nothing to report.
 std::vector<fs::path> make_bug_report(const fs::path& root, const fs::path& game_dir,
+                                      const std::wstring& rom,
                                       const std::wstring& log_path,
                                       const std::vector<std::wstring>& rewinds,
                                       bool crashed, DWORD exit_code) {
@@ -1052,6 +1079,10 @@ std::vector<fs::path> make_bug_report(const fs::path& root, const fs::path& game
                                 L"keybinds.ini", L"GoldenSunGame.build.txt",
                                 L"run_state.txt"})
         copy_into_report(game_dir / file, staging);
+    // The game's save, kept beside the ROM (runtime.cpp: the ROM path with
+    // .sav), so the problem can be played again from the same place.
+    if (!rom.empty())
+        copy_into_report(fs::path(rom).replace_extension(L".sav"), staging);
     if (crashed) {
         copy_into_report(game_dir / L"crash_report.txt", staging);
         copy_into_report(game_dir / L"crash_dump.dmp", staging);
@@ -1076,8 +1107,12 @@ std::vector<fs::path> make_bug_report(const fs::path& root, const fs::path& game
                       : L"";
         const fs::path zip = reports / (name + suffix + L".zip");
         fs::remove(zip, ec);
+        // Each file by name, not ".": entries stored as "./name" make
+        // Windows' own zip viewer show the zip as empty.
         std::wstring arguments = L"-a -c -f \"" + zip.wstring() + L"\" -C \"" +
-                                 staging.wstring() + L"\" .";
+                                 staging.wstring() + L"\"";
+        for (const auto& entry : fs::directory_iterator(staging, ec))
+            arguments += L" \"" + entry.path().filename().wstring() + L"\"";
         if (!rewinds.empty())
             arguments += L" -C \"" + logs_dir.wstring() + L"\" \"" + rewinds[i] + L"\"";
         if (!run_tar(arguments) || !fs::is_regular_file(zip, ec)) {
@@ -1360,8 +1395,8 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed) {
             std::wstring(reports.size() > 1 ? std::to_wstring(reports.size()) + L" zips"
                                             : std::wstring(L"the zip")) +
             L" (" + std::to_wstring(std::max<std::uint64_t>(1, bytes / (1024 * 1024))) +
-            L" MB) to the developer: the game's log and screen captures, your settings "
-            L"and your Windows version. Your Windows user name is taken out. Nothing is "
+            L" MB) to the developer: the game's log and screen captures, your save "
+            L"file, your settings and your Windows version. Your Windows user name is taken out. Nothing is "
             L"sent unless you press Send report.";
     add(L"STATIC", files, 0, 0, 20, 186, 480, 84);
     state.status = add(L"STATIC", L"", 0, 0, 20, 276, 480, 40);
@@ -1835,7 +1870,7 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
                      (crashed ? L", crashed (crash_report.txt written)" : L"") +
                      L", rewind captures " + std::to_wstring(new_rewinds.size()) + L".");
         if (!new_rewinds.empty() || crashed) {
-            offer_bug_report(make_bug_report(root, game.parent_path(),
+            offer_bug_report(make_bug_report(root, game.parent_path(), rom,
                                              log_path, new_rewinds, crashed,
                                              exit_code),
                              crashed);
@@ -1874,8 +1909,81 @@ constexpr int kFrameRewindButton = 1044;
 constexpr int kBattleBg1RecordButton = 1045;
 constexpr int kModFieldTestButton = 1050;
 constexpr int kAutoCaptureButton = 1051;
+constexpr int kAutoStartButton = 1052;
 
 fs::path g_launcher_root;
+
+// ── Start automatically (player launcher) ──────────────────────────────
+// With the box ticked, a launcher whose game is built and whose remembered
+// ROM is still good starts the game by itself as soon as the update check
+// has answered (at most kAutoStartMaxWaitMs). When an update is offered,
+// "No" starts the game and "Yes" does not. A needed build never starts by
+// itself (begin_auto_start requires a built game). Unticking the box while
+// it waits stops it. The player is asked once, after the first build. Kept
+// in local/launcher-autostart.txt.
+constexpr UINT_PTR kAutoStartTimer = 2;
+constexpr UINT kAutoStartPollMs = 100;
+constexpr ULONGLONG kAutoStartMaxWaitMs = 10000;  // for the update check
+bool g_auto_start = false;
+ULONGLONG g_auto_start_began = 0;      // GetTickCount64 when waiting began
+std::atomic<bool> g_update_check_done{false};
+
+fs::path auto_start_path(const fs::path& root) {
+    return root / L"local" / L"launcher-autostart.txt";
+}
+
+// False until the player has answered the question or used the box.
+bool auto_start_chosen(const fs::path& root) {
+    std::error_code ec;
+    return fs::exists(auto_start_path(root), ec);
+}
+
+bool load_auto_start(const fs::path& root) {
+    return read_text(auto_start_path(root)).rfind("1", 0) == 0;
+}
+
+void save_auto_start(const fs::path& root, bool on) {
+    std::error_code ec;
+    fs::create_directories(auto_start_path(root).parent_path(), ec);
+    std::ofstream file(auto_start_path(root), std::ios::binary | std::ios::trunc);
+    if (file) file << (on ? "1" : "0") << '\n';
+}
+
+// The box is shown only when the game is built and no build is running:
+// otherwise the build text sits where it would be.
+void update_auto_start_box(HWND window) {
+    HWND box = GetDlgItem(window, kAutoStartButton);
+    if (!box) return;
+    bool show = false;
+    {
+        std::lock_guard<std::mutex> lock(g_build.mutex);
+        show = g_build.ready && !g_build.running;
+    }
+    ShowWindow(box, show ? SW_SHOW : SW_HIDE);
+}
+
+void stop_auto_start(HWND window, const wchar_t* why) {
+    if (!KillTimer(window, kAutoStartTimer)) return;
+    launcher_log(std::wstring(L"Start automatically: stopped (") + why + L").");
+}
+
+// Presses Play the way a click does.
+void auto_start_now(HWND window) {
+    launcher_log(L"Start automatically: starting the game.");
+    PostMessageW(window, WM_COMMAND, MAKEWPARAM(kPickRomButton, BN_CLICKED),
+                 reinterpret_cast<LPARAM>(GetDlgItem(window, kPickRomButton)));
+}
+
+void begin_auto_start(HWND window) {
+    if (!kReleaseLauncher || !g_auto_start || !g_build.ready) return;
+    if (remembered_rom(g_launcher_root).empty()) {
+        launcher_log(L"Start automatically: no remembered ROM, waiting for Play.");
+        return;
+    }
+    g_auto_start_began = GetTickCount64();
+    launcher_log(L"Start automatically: waiting for the update check.");
+    SetTimer(window, kAutoStartTimer, kAutoStartPollMs, nullptr);
+}
 std::unique_ptr<Gdiplus::Image> g_splash_image;
 HFONT g_button_font = nullptr;
 HFONT g_body_font = nullptr;
@@ -1906,7 +2014,15 @@ void layout_buttons(HWND window) {
     if (quit) MoveWindow(quit, button_x + button_width + button_gap, button_y,
                          button_width, button_height, TRUE);
     if (kReleaseLauncher) {
-        // Only the two buttons exist: no settings panel behind anything.
+        // Only the two buttons and the Start automatically box exist: no
+        // settings panel behind anything. The box sits in the build text's
+        // line, which is empty whenever the box is shown.
+        if (HWND box = GetDlgItem(window, kAutoStartButton)) {
+            constexpr int box_width = 330;
+            MoveWindow(box, std::max<int>(0, (client.right - box_width) / 2),
+                       std::max<int>(0, button_y - 44), box_width, 30, TRUE);
+            update_auto_start_box(window);
+        }
         g_panel_rect = {};
         InvalidateRect(window, nullptr, FALSE);
         return;
@@ -2409,6 +2525,7 @@ bool* checkbox_state_for_id(int id) {
     case kTurboAudioButton: return &g_audio_settings.turbo_decoupled;
     case kCopySessionIdButton:
         return &g_audio_settings.copy_session_id_to_clipboard;
+    case kAutoStartButton: return &g_auto_start;
     default: return nullptr;
     }
 }
@@ -2697,6 +2814,7 @@ void start_game_build(HWND window, const std::wstring& rom) {
     }
     g_build_rom = rom;
     EnableWindow(GetDlgItem(window, 1001 /* kPickRomButton */), FALSE);
+    update_auto_start_box(window);
     InvalidateRect(window, nullptr, FALSE);
 
     if (g_build_thread.joinable()) g_build_thread.join();
@@ -2756,8 +2874,16 @@ std::mutex g_update_mutex;
 gsr_online::Release g_update;
 
 void check_for_update(HWND window) {
-    if (!kReleaseLauncher || !gsr_online::update_checks_enabled()) return;
+    if (!kReleaseLauncher || !gsr_online::update_checks_enabled()) {
+        g_update_check_done = true;
+        return;
+    }
     std::thread([window] {
+        // Done however the check ends (the auto start waits for it). An
+        // update found is posted before this is set.
+        struct MarkDone {
+            ~MarkDone() { g_update_check_done = true; }
+        } mark_done;
         HttpTarget target;
         target.host = utf8_to_wide(gsr_online::kReleasesApiHost);
         target.path = utf8_to_wide(gsr_online::kReleasesApiPath);
@@ -2810,7 +2936,9 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
         g_test_room_buffer = k_launcher_test_defaults.room_buffer;
         g_test_swi_log = k_launcher_test_defaults.swi_log;
         g_test_mod_field_test = k_launcher_test_defaults.mod_field_test;
-        CreateWindowExW(0, L"BUTTON", L"Pick ROM",
+        // "Play" once a ROM has been picked and is still where it was.
+        CreateWindowExW(0, L"BUTTON",
+                        remembered_rom(g_launcher_root).empty() ? L"Pick ROM" : L"Play",
                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                         0, 0, 0, 0, window,
                         reinterpret_cast<HMENU>(kPickRomButton),
@@ -2823,6 +2951,11 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
         subclass_action_button(GetDlgItem(window, kPickRomButton));
         subclass_action_button(GetDlgItem(window, kQuitButton));
         if (kReleaseLauncher) {
+            CreateWindowExW(0, L"BUTTON", L"Start the game automatically",
+                            WS_CHILD | WS_TABSTOP | BS_OWNERDRAW,
+                            0, 0, 0, 0, window,
+                            reinterpret_cast<HMENU>(kAutoStartButton),
+                            GetModuleHandleW(nullptr), nullptr);
             layout_buttons(window);
             return 0;
         }
@@ -2976,6 +3109,17 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
         return 0;
     }
     case WM_TIMER:
+        if (w_param == kAutoStartTimer) {
+            // An update found is posted before the check is marked done, and
+            // posted messages are handled before WM_TIMER, so the update
+            // question always comes first and stops this timer.
+            if (!g_update_check_done &&
+                GetTickCount64() - g_auto_start_began < kAutoStartMaxWaitMs)
+                return 0;
+            KillTimer(window, kAutoStartTimer);
+            auto_start_now(window);
+            return 0;
+        }
         if (w_param == kProgressTimer) {
             bool running = false;
             {
@@ -3060,6 +3204,12 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             case kCopySessionIdButton:
                 save_launcher_audio_settings(g_launcher_root, g_audio_settings);
                 break;
+            case kAutoStartButton:
+                save_auto_start(g_launcher_root, g_auto_start);
+                launcher_log(g_auto_start ? L"Start automatically: on."
+                                          : L"Start automatically: off.");
+                if (!g_auto_start) stop_auto_start(window, L"box unticked");
+                break;
             case kEnhancedOptionsButton:
                 save_launcher_audio_settings(g_launcher_root, g_audio_settings);
                 break;
@@ -3074,8 +3224,16 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             return 0;
         }
         if (LOWORD(w_param) == kPickRomButton) {
-            const std::wstring rom = choose_rom(g_launcher_root, window);
-            if (rom.empty()) return 0;
+            KillTimer(window, kAutoStartTimer);
+            std::wstring rom = remembered_rom(g_launcher_root);
+            if (!rom.empty()) {
+                launcher_log(L"Play: using the remembered ROM " + rom + L".");
+            } else {
+                SetWindowTextW(GetDlgItem(window, kPickRomButton), L"Pick ROM");
+                rom = choose_rom(g_launcher_root, window);
+                if (rom.empty()) return 0;
+                SetWindowTextW(GetDlgItem(window, kPickRomButton), L"Play");
+            }
             // A release builds the game code from the ROM first, once.
             if (kReleaseLauncher && !game_code_ready(g_launcher_root)) {
                 launcher_log(L"The game is not built yet (or is out of date): building it.");
@@ -3107,6 +3265,9 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             std::lock_guard<std::mutex> lock(g_build.mutex);
             if (g_build.running) return 0;  // asked again on the next start
         }
+        // The automatic start must not fire behind the question: the message
+        // box's own loop would still deliver its timer.
+        const bool was_counting = KillTimer(window, kAutoStartTimer) != 0;
         std::wstring text = L"A new version of Golden Sun Recompiled is out: " +
                             utf8_to_wide(release.tag);
         if (!release.title.empty()) text += L"\n" + utf8_to_wide(release.title);
@@ -3120,8 +3281,11 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             const std::wstring url =
                 utf8_to_wide(release.page.empty() ? gsr_online::kReleasesPage : release.page);
             ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            if (was_counting)
+                launcher_log(L"Start automatically: stopped (going to update).");
         } else {
             launcher_log(L"Update: not now.");
+            if (was_counting) auto_start_now(window);
         }
         return 0;
     }
@@ -3145,6 +3309,7 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             std::lock_guard<std::mutex> lock(g_build.mutex);
             g_build.ready = ready;
         }
+        update_auto_start_box(window);
         launcher_log(ready ? std::wstring(L"Build: finished, the game is ready.")
                      : ok  ? std::wstring(L"Build: finished, but the game files do not "
                                           L"match this release.")
@@ -3157,6 +3322,20 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
                         MB_OK | MB_ICONERROR);
             return 0;
         }
+        if (!auto_start_chosen(g_launcher_root)) {
+            g_auto_start =
+                MessageBoxW(window,
+                            L"The game is ready.\n\nStart it automatically from now on "
+                            L"when you open the launcher? The launcher still checks for "
+                            L"updates first, and the \"Start the game automatically\" box "
+                            L"above the Play button changes this later.",
+                            L"Golden Sun Recompiled",
+                            MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND) == IDYES;
+            save_auto_start(g_launcher_root, g_auto_start);
+            launcher_log(g_auto_start ? L"Start automatically: on (asked after the build)."
+                                      : L"Start automatically: off (asked after the build).");
+            InvalidateRect(GetDlgItem(window, kAutoStartButton), nullptr, FALSE);
+        }
         if (run_game(g_launcher_root, g_build_rom, window) == 0)
             DestroyWindow(window);
         return 0;
@@ -3166,6 +3345,7 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
         return 0;
     case WM_DESTROY:
         KillTimer(window, kProgressTimer);
+        KillTimer(window, kAutoStartTimer);
         // Quit mid-build: closing the job stops the builder and its
         // compilers, which ends the reader thread.
         if (g_build_job) {
@@ -3194,6 +3374,7 @@ int show_launcher(const fs::path& root) {
     g_launcher_root = root;
     open_launcher_log(root);
     if (kReleaseLauncher) g_build.ready = game_code_ready(root);
+    if (kReleaseLauncher) g_auto_start = load_auto_start(root);
     g_audio_settings = kReleaseLauncher ? release_launch_settings()
                                         : load_launcher_audio_settings(root);
     g_strict_static_route = inherited_environment_truthy(
@@ -3289,6 +3470,7 @@ int show_launcher(const fs::path& root) {
     ShowWindow(window, SW_SHOW);
     UpdateWindow(window);
     check_for_update(window);
+    begin_auto_start(window);
 
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {

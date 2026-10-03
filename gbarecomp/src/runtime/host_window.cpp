@@ -118,6 +118,9 @@ enum HostHotkey {
     // pump(). Appended so existing [KeyMap] rows keep their meaning.
     HK_AUTOFIRE_A,
     HK_AUTOFIRE_B,
+    // Quit Game: the F1 menu's Quit Game button on a key. Appended so
+    // existing [KeyMap] rows keep their meaning.
+    HK_QUIT,
     HK_COUNT
 };
 
@@ -637,6 +640,7 @@ const char* const kHotkeyNames[HK_COUNT] = {
     "CheatMenu",
     "AutoFireA",
     "AutoFireB",
+    "QuitGame",
 };
 // UI display labels, same order as kHotkeyNames. Only Turbo (-> "Turbo
 // Held") and the new TurboToggle (-> "Turbo Toggle") differ from the
@@ -650,6 +654,7 @@ const char* const kHotkeyLabels[HK_COUNT] = {
     "Cheat Menu",
     "Auto Fire A",
     "Auto Fire B",
+    "Quit Game",
 };
 const char* const kHotkeyDefaults[HK_COUNT] = {
     "Alt+Return", "Shift+P", "Tab",
@@ -669,6 +674,8 @@ const char* const kHotkeyDefaults[HK_COUNT] = {
     "F11",
     // Auto Fire ships unbound, like Turbo Toggle: the user picks the button.
     "",
+    "",
+    // Quit Game ships unbound so no stray press closes the game.
     "",
 };
 
@@ -775,6 +782,7 @@ void fire_hotkey(int h, Backend* b, HostWindow::Events& ev) {
         // with repeat==0, or SDL_CONTROLLERBUTTONDOWN, both one-shot).
         case HK_TURBO_TOGGLE:   b->turbo_toggle_on = !b->turbo_toggle_on; break;
         case HK_GAME_MENU:      ev.game_menu = true;                     break;
+        case HK_QUIT:           ev.quit = true;                          break;
         default: break;  // HK_TURBO, HK_AUTOFIRE_*: level-triggered, read in pump()
     }
 }

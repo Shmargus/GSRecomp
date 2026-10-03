@@ -71,7 +71,8 @@ public:
     //   * config.ini [KeyMap] — hotkey bindings (SDL keycode names with
     //     Ctrl+/Alt+/Shift+ prefixes): Fullscreen, Pause, Turbo (Turbo
     //     Held in the UI), WindowBigger, WindowSmaller, VolumeUp,
-    //     VolumeDown, DisplayPerf, Menu, TurboToggle (Turbo Toggle).
+    //     VolumeDown, DisplayPerf, Menu, TurboToggle (Turbo Toggle),
+    //     CheatMenu, AutoFireA, AutoFireB, QuitGame.
     //   * config.ini [KeyMap.Pad] (UI-02) — the controller half of the same
     //     rows, same names, SDL game-controller button strings (mirrors
     //     keybinds.ini's [player1]/[player1_pad] split).
