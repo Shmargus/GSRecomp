@@ -345,7 +345,7 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
           </details>
           <details>
             <summary>Is it finished?</summary>
-            <div class="a"><p>Not yet. Test release 0.2.2 is out: <a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">download it from GitHub</a>. Expect some rough edges, and please report what you find.</p></div>
+            <div class="a"><p>Not yet. Test release <span id="release-version">0.3</span> is out: <a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">download it from GitHub</a>. Expect some rough edges, and please report what you find.</p></div>
           </details>
           <details>
             <summary>What does it run on, and what does it cost?</summary>
@@ -359,9 +359,11 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
       <div class="box">
         <h4>Get it</h4>
         <div class="in">
-          <a class="report" href="https://github.com/Shmargus/GSRecomp/releases/download/0.2.2/GoldenSunRecompiled-0.2.2-windows.zip">Download for Windows</a>
-          <a class="report" style="margin-top: 8px" href="https://github.com/Shmargus/GSRecomp/releases/download/0.2.2/GoldenSunRecompiled-0.2.2-linux.zip">Download for Linux (test)</a>
-          <p class="keynote">Test release 0.2.2, 3 October 2026. Windows 10 and 11: 37 MB zip. Linux: 27 MB zip. Unzip it and start <b>GoldenSunLauncher</b>; the first start takes several minutes.</p>
+          <!-- Filled from GitHub's newest release when the page loads (script
+               at the end); these values are the fallback. -->
+          <a class="report" id="download-windows" href="https://github.com/Shmargus/GSRecomp/releases/download/0.3/GoldenSunRecompiled-0.3-windows.zip">Download for Windows</a>
+          <a class="report" id="download-linux" style="margin-top: 8px" href="https://github.com/Shmargus/GSRecomp/releases/download/0.3/GoldenSunRecompiled-0.3-linux.zip">Download for Linux (test)</a>
+          <p class="keynote"><span id="release-line">Test release 0.3, 4 October 2026. Windows 10 and 11: 36 MB zip. Linux: 27 MB zip.</span> Unzip it and start <b>GoldenSunLauncher</b>; the first start takes several minutes.</p>
           <ul class="keys">
             <li><span>All releases</span><a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">GitHub</a></li>
             <li><span>Source code</span><a href="https://github.com/Shmargus/GSRecomp" target="_blank" rel="noopener">GitHub</a></li>
@@ -725,6 +727,37 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
     }
   });
 
+})();
+</script>
+<script>
+// The download box follows GitHub's newest release (pre-releases included,
+// which /releases/latest would skip), so a new release needs no page edit.
+// Offline or rate-limited, the values written in the page stay.
+(function () {
+  fetch("https://api.github.com/repos/Shmargus/GSRecomp/releases?per_page=1")
+    .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+    .then(function (list) {
+      var rel = list && list[0];
+      if (!rel || !rel.tag_name) return;
+      var assets = rel.assets || [];
+      var zip = function (linux) {
+        return assets.filter(function (a) {
+          return /\.zip$/i.test(a.name) && /linux/i.test(a.name) === linux;
+        })[0];
+      };
+      var win = zip(false), lin = zip(true);
+      if (!win || !lin) return;
+      var mb = function (a) { return Math.round(a.size / 1048576) + " MB"; };
+      var date = new Date(rel.published_at || rel.created_at).toLocaleDateString(
+        "en-GB", { day: "numeric", month: "long", year: "numeric" });
+      document.getElementById("download-windows").href = win.browser_download_url;
+      document.getElementById("download-linux").href = lin.browser_download_url;
+      document.getElementById("release-version").textContent = rel.tag_name;
+      document.getElementById("release-line").textContent =
+        "Test release " + rel.tag_name + ", " + date + ". Windows 10 and 11: " +
+        mb(win) + " zip. Linux: " + mb(lin) + " zip.";
+    })
+    .catch(function () {});
 })();
 </script>
 </body>
