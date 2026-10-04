@@ -477,7 +477,11 @@ void prune_old_logs(const fs::path& logs_dir) {
     if (logs.size() < static_cast<std::size_t>(kKeepLogCount)) return;
     std::sort(logs.begin(), logs.end());
     const std::size_t remove = logs.size() - (kKeepLogCount - 1);
-    for (std::size_t i = 0; i < remove; ++i) fs::remove(logs[i], ec);
+    for (std::size_t i = 0; i < remove; ++i) {
+        fs::remove(logs[i], ec);
+        for (const char* ext : {".events.csv", ".phase.csv"})
+            fs::remove(fs::path(logs[i]).replace_extension(ext), ec);
+    }
 }
 
 std::set<std::string> rewind_dirs(const fs::path& logs_dir) {
@@ -550,12 +554,27 @@ GameResult run_game(const std::string& rom) {
         {"GBARECOMP_TURBO_AUDIO", "0"},
         {"GBARECOMP_AUDIO_STEREO", "1"},
         {"GBARECOMP_HEAL_CACHE", (g_root / "recomp_cache").string()},
-        {"GSR_FRAME_REWIND", "1"},
         {"GBARECOMP_EXPERIMENTAL_FIXES", "1"},
         {"GSR_ROOM_BUFFER_RENDER", "1"},
         {"GSR_HOST_EFFECTS", "1"},
         {"GSR_GPU_FIELD", "1"},
-        {"GSR_GPU_FIELD_ONLY", "0"},
+        // Graphics card only, as the Windows player launcher: the console
+        // compositor's fallback picture made widescreen slow on the Deck.
+        {"GSR_GPU_FIELD_ONLY", "1"},
+#ifdef GSR_LINUX_DEV_LAUNCHER
+        // The Windows developer launcher's extras (make_release_linux.sh
+        // --dev): RAM self-heal and the per-frame timing CSVs beside the
+        // session log. Rewind stays on, as for players, so F12 on the Deck
+        // saves the last 2 seconds.
+        {"GBARECOMP_SELFHEAL_RAM", "1"},
+        {"GSR_FRAME_REWIND", "1"},
+        {"GBARECOMP_FRAME_EVENTS",
+         fs::path(result.log_path).replace_extension(".events.csv").string()},
+        {"GBARECOMP_FRAME_PHASE",
+         fs::path(result.log_path).replace_extension(".phase.csv").string()},
+#else
+        {"GSR_FRAME_REWIND", "1"},
+#endif
     };
     // Release: point the game's self-heal at the bundled g++ (absent on dev).
     if (fs::exists(g_root / "builder" / "toolchain" / "bin" / "g++")) {
@@ -569,7 +588,11 @@ GameResult run_game(const std::string& rom) {
 
     SessionLog log;
     log.fd = open(result.log_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    log.line("[launcher] ", "test_variables=OFF set=GSR_FRAME_REWIND");
+#ifdef GSR_LINUX_DEV_LAUNCHER
+    log.line("[launcher] ", "dev launcher: test_variables=ON set=GBARECOMP_SELFHEAL_RAM,GSR_FRAME_REWIND gpu_field_only=1");
+#else
+    log.line("[launcher] ", "test_variables=OFF set=GSR_FRAME_REWIND gpu_field_only=1");
+#endif
 
     const std::string game = (g_root / "GoldenSunRecomp").string();
     const std::string root_s = g_root.string();

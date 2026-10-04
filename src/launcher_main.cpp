@@ -113,6 +113,7 @@ bool g_test_battle_bg1_record = k_launcher_test_defaults.battle_bg1_record;
 // keeps the ring on for it). Off each session, like the other probes.
 bool g_test_auto_capture = false;
 bool g_test_mod_field_test = k_launcher_test_defaults.mod_field_test;
+bool g_test_obj_y_continuity = k_launcher_test_defaults.obj_y_continuity;
 bool g_test_room_buffer = k_launcher_test_defaults.room_buffer;
 bool g_test_swi_log = k_launcher_test_defaults.swi_log;
 
@@ -134,14 +135,16 @@ LauncherAudioSettings g_audio_settings{};
 bool g_strict_static_route = false;
 
 // What a release launch plays with: Enhanced Options (expanded view
-// rendering and spell effects) and the graphics-card field renderer, WITH
-// the console compositor kept as the fallback for any frame the card
-// refuses. Everything experimental or diagnostic stays off.
+// rendering and spell effects) and the graphics-card field renderer ALONE.
+// The console compositor fallback is off: on the Steam Deck it drew a
+// full 360x240 picture per frame that was almost never shown and made
+// widescreen slow (2026-10-04: one refused frame in ~590,000 across the
+// developer sessions). Everything experimental or diagnostic stays off.
 LauncherAudioSettings release_launch_settings() {
     LauncherAudioSettings settings{};
     settings.enhanced_options = true;
     settings.gpu_field = true;
-    settings.gpu_field_only = false;
+    settings.gpu_field_only = true;
     return settings;
 }
 
@@ -1671,6 +1674,8 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
         // First piece of the mod loader: swaps one item icon and one Psynergy
         // animation in the loaded ROM data (src/mod_loader.cpp).
         {L"GSR_MOD_FIELD_TEST", g_test_mod_field_test},
+        // Tall sprites keep the edge they were on (src/obj_y_continuity.h).
+        {L"GSR_OBJ_Y_CONTINUITY", g_test_obj_y_continuity},
     };
     // Record what actually reached the child. Three capture sessions in a row
     // came back missing a diagnostic with no way to tell whether the checkbox
@@ -1942,6 +1947,7 @@ constexpr int kBattleBg1RecordButton = 1045;
 constexpr int kModFieldTestButton = 1050;
 constexpr int kAutoCaptureButton = 1051;
 constexpr int kAutoStartButton = 1052;
+constexpr int kObjYContinuityButton = 1053;
 
 fs::path g_launcher_root;
 
@@ -2189,7 +2195,7 @@ void layout_buttons(HWND window) {
         kBattleBg1RecordButton,
         // right: rendering
         kRoomBufferButton,     kFrameRewindButton,     kAutoCaptureButton,
-        kModFieldTestButton,
+        kModFieldTestButton,   kObjYContinuityButton,
         // right, continued: performance
         kHeadroomProbeButton,  kCostProbeButton,      kHostProfButton,
         kPresentCadenceButton, kRamChurnProbeButton,
@@ -2658,6 +2664,7 @@ bool* checkbox_state_for_id(int id) {
     case kAutoCaptureButton: return &g_test_auto_capture;
     case kBattleBg1RecordButton: return &g_test_battle_bg1_record;
     case kModFieldTestButton: return &g_test_mod_field_test;
+    case kObjYContinuityButton: return &g_test_obj_y_continuity;
     case kRoomBufferButton: return &g_test_room_buffer;
     case kSwiLogButton: return &g_test_swi_log;
     case kTextRecordButton: return &g_test_text_record;
@@ -3098,6 +3105,7 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
         g_test_room_buffer = k_launcher_test_defaults.room_buffer;
         g_test_swi_log = k_launcher_test_defaults.swi_log;
         g_test_mod_field_test = k_launcher_test_defaults.mod_field_test;
+        g_test_obj_y_continuity = k_launcher_test_defaults.obj_y_continuity;
         // "Play" once a ROM has been picked and is still where it was.
         CreateWindowExW(0, L"BUTTON",
                         remembered_rom(g_launcher_root).empty() ? L"Pick ROM" : L"Play",
@@ -3175,6 +3183,10 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             // Also logs [move-probe] lines for battle moves (src/move_probe.cpp):
             // the frame each blow lands and where its sparks are on screen.
             {kModFieldTestButton, L"Mod test: Earth Surge"},
+            // A tall sprite whose height reads two ways keeps the edge it
+            // was on last frame: the Vale boulder no longer blinks into
+            // the bottom margin (src/obj_y_continuity.h).
+            {kObjYContinuityButton, L"Sprite edge continuity"},
             {kRoomBufferButton, L"Room buffer self-check"},
             // F12 saves the frames shown just before it, not only the
             // current one: a one-frame flicker is gone before F12 lands.

@@ -22,6 +22,7 @@
 #include "battle_view.h"
 #include "room_buffer.h"
 #include "field_scene.h"
+#include "obj_y_continuity.h"
 #include "effect_capture.h"
 #include "mod_loader.h"
 #include "earth_surge.h"
@@ -8048,6 +8049,11 @@ int golden_sun_wide_obj_attr_x_provider(int oam_index,
     return 1;
 }
 
+// Slots whose Y the provider below took from the raw-attribute fallback (a
+// guess) since the field capture last cleared it; read by the Sprite edge
+// continuity test option (src/obj_y_continuity.h).
+std::array<bool, gsr::FieldScene::kObjects> g_obj_y_from_fallback{};
+
 int golden_sun_wide_obj_attr_y_provider(int oam_index,
                                         std::uint16_t attr0,
                                         std::uint16_t attr1,
@@ -8238,6 +8244,10 @@ int golden_sun_wide_obj_attr_y_provider(int oam_index,
             int fallback_x = 0, fallback_y = 0;
             if (golden_sun_wide_obj_fallback_position(
                     attr0, attr1, &fallback_x, &fallback_y)) {
+                if (static_cast<std::size_t>(oam_index) <
+                    g_obj_y_from_fallback.size())
+                    g_obj_y_from_fallback[static_cast<std::size_t>(
+                        oam_index)] = true;
                 *out_y = fallback_y;
                 return 1;
             }
@@ -9536,6 +9546,51 @@ void native_page_patch_capture(std::vector<std::uint8_t>& vram,
 void auto_capture_check_sprites(const gsr::FieldScene& scene,
                                 const std::uint8_t* oam);
 
+// Sprite edge continuity (launcher test option, GSR_OBJ_Y_CONTINUITY): see
+// src/obj_y_continuity.h. Field frames in the expanded view only; every
+// change is logged as [obj-y-continuity] (the first 400).
+void apply_obj_y_continuity_if_enabled(gsr::FieldScene* scene,
+                                       const std::uint8_t* oam,
+                                       const std::vector<std::uint8_t>& io) {
+    static const bool enabled = [] {
+        const char* e = std::getenv("GSR_OBJ_Y_CONTINUITY");
+        const bool on = e != nullptr && e[0] != '\0' && e[0] != '0';
+        if (on) std::fprintf(stderr, "[obj-y-continuity] on\n");
+        return on;
+    }();
+    if (!enabled) return;
+    static gsr::ObjYContinuity state;
+    static unsigned reported = 0;
+    const bool field = scene->video_mode == 0 &&
+                       !g_golden_sun_battle_backdrop_state.active &&
+                       golden_sun_expanded_obj_view_active() &&
+                       !world_map_blocks(io);
+    bool guessed[gsr::FieldScene::kObjects];
+    for (int i = 0; i < gsr::FieldScene::kObjects; ++i)
+        guessed[i] = !scene->objects[i].trusted ||
+                     g_obj_y_from_fallback[static_cast<std::size_t>(i)];
+    gsr::apply_obj_y_continuity(
+        scene, oam, guessed, field, &state,
+        [&](const gsr::ObjYContinuityChange& c) {
+            if (reported >= 400) return;
+            ++reported;
+            const char* source =
+                !scene->objects[c.slot].trusted ? "untrusted" : "fallback";
+            if (c.confined)
+                std::fprintf(stderr,
+                    "[obj-y-continuity] frame %llu slot %d raw %d (%s): no "
+                    "previous position, held in the console's window\n",
+                    static_cast<unsigned long long>(scene->frame), c.slot,
+                    c.raw_y, source);
+            else
+                std::fprintf(stderr,
+                    "[obj-y-continuity] frame %llu slot %d raw %d (%s): y %d "
+                    "-> %d, previous %d\n",
+                    static_cast<unsigned long long>(scene->frame), c.slot,
+                    c.raw_y, source, c.from_y, c.to_y, c.previous_y);
+        });
+}
+
 void gpu_field_capture_hook() {
     // Page two of Settings, before anything copies this frame (see there).
     native_page_frame_end(true);
@@ -9603,6 +9658,7 @@ void gpu_field_capture_hook() {
     }
 
     gsr::FieldScene scene{};
+    g_obj_y_from_fallback.fill(false);
     gsr::field_scene_capture(
         &scene, ppu->frame_count(), frame_io.data(), bus->oam_ptr(),
         bus->pal_ptr(), ppu->latched_native_line_io(),
@@ -9617,6 +9673,7 @@ void gpu_field_capture_hook() {
         g_gpu_field_capture.valid = false;
         return;
     }
+    apply_obj_y_continuity_if_enabled(&scene, bus->oam_ptr(), frame_io);
     // Before native_page_patch_capture hides page one's icons on purpose.
     auto_capture_check_sprites(scene, bus->oam_ptr());
     g_gpu_field_capture.scene = scene;

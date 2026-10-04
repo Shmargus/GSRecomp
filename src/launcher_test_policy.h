@@ -26,6 +26,7 @@ struct LauncherTestDefaults {
     bool room_buffer = false;
     bool swi_log = false;
     bool mod_field_test = false;
+    bool obj_y_continuity = false;
 };
 
 constexpr LauncherTestDefaults launcher_test_defaults() {

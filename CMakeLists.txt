@@ -1176,6 +1176,14 @@ if(GSR_BUILD_LOCAL_RUNNER)
             target_compile_definitions(GoldenSunLauncher PRIVATE
                 GSR_RELEASE_VERSION="${GSR_RELEASE_VERSION}"
                 GSR_REPORT_HOST="${GSR_REPORT_HOST}")
+            # make_release_linux.sh --dev: the Windows developer launcher's
+            # play settings instead of the player release's.
+            option(GSR_LINUX_DEV_LAUNCHER
+                "Linux launcher with the developer launcher's defaults" OFF)
+            if(GSR_LINUX_DEV_LAUNCHER)
+                target_compile_definitions(GoldenSunLauncher PRIVATE
+                    GSR_LINUX_DEV_LAUNCHER=1)
+            endif()
             target_link_libraries(GoldenSunLauncher PRIVATE gbarecomp_imgui
                 ZLIB::ZLIB Threads::Threads)
             target_link_options(GoldenSunLauncher PRIVATE
