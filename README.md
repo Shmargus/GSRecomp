@@ -1,48 +1,86 @@
 # GSRecomp
 
-GSRecomp (Golden Sun Recompiled) is a native Windows x86-64 port of **Golden Sun** for the Game
-Boy Advance, made by static recompilation. The game's ARM/Thumb code is translated ahead of time into C++
-by the `gbarecomp` engine included in `gbarecomp/`, then compiled into a regular PC
-executable that runs the game without an emulator's interpreter loop and without a
-GBA BIOS.
+GSRecomp (Golden Sun Recompiled) is a native PC port of **Golden Sun** for the
+Game Boy Advance, made by static recompilation, for Windows and Linux
+(including the Steam Deck). The game's ARM/Thumb code is translated ahead of
+time into C++ by the `gbarecomp` engine included in `gbarecomp/`, then compiled
+into a regular program that runs the game without an emulator's interpreter
+loop and without a GBA BIOS.
 
-No game data is in this repository. You supply your own legally obtained Golden
-Sun (USA/Europe) ROM; the build generates the recompiled code from it on your
-machine, and the launcher checks the ROM's SHA-1 before starting.
+No game data is in this repository or in the releases. You supply your own
+legally obtained Golden Sun (USA/Europe) ROM; the game code is generated from
+it on your machine, and the launcher checks the ROM's SHA-1 first.
 
 > [!WARNING]
-> **Work in progress.** GSRecomp is under active development and is not a
-> finished release. Features may be incomplete or unstable, bugs and
-> visual/audio inaccuracies are still present, and compatibility is not yet
-> guaranteed.
+> **Work in progress.** GSRecomp is in public testing (pre-release builds),
+> not a finished release. Bugs and visual/audio inaccuracies are still
+> present, and compatibility is not yet guaranteed.
+
+## Status
+
+- **Latest release: [0.3.1](https://github.com/Shmargus/GSRecomp/releases)**
+  (pre-release), for Windows and Linux. 0.3.1 is a launcher-only update on
+  top of 0.3: it makes the widescreen view much faster, especially on the
+  Steam Deck.
+- The game is playable from start to the ending credits.
+- Known issues:
+  - A few spell effects (Spark Plasma, Destruct Ray, Supernova, Thor's
+    thunder wave) still stop at the original screen edge in the widescreen
+    view.
+  - Very rarely a single frame flashes pink (a frame the new widescreen
+    drawing cannot handle yet); the game carries on.
+  - The Walk Speed setting does not apply in the Colosso trials (kept on
+    purpose).
+
+## Playing
+
+1. Download the Windows or Linux zip from
+   [Releases](https://github.com/Shmargus/GSRecomp/releases) and unzip it.
+2. Start `GoldenSunLauncher` (`GoldenSunLauncher.exe` on Windows) and pick
+   your Golden Sun ROM. The launcher remembers it.
+3. On first start, and again after an update, the launcher builds the game
+   code from your ROM, with a progress bar. A compiler is included in the
+   download, so nothing else needs to be installed (Linux needs SDL2 and
+   OpenGL from the system; SteamOS and most desktops have both).
+4. Press **Play**, or tick "Start the game automatically".
+
+If something goes wrong, press **F12** in the game right after it: the game
+keeps the last two seconds, and when it closes the launcher packs a bug
+report you can send with **Send report**. The launcher also tells you when a
+newer release is out and shows its notes in a "What's new" box.
+
+The save file sits next to your ROM, with the same name and a `.sav`
+extension. A save from an emulator that the game cannot read gets an
+explanation from the launcher instead of a silent exit.
 
 ## Features
 
 - Native x86-64 build of the game's code, including code the game copies into
-  RAM and its overlays.
+  RAM and its overlays. Code that was not prepared ahead of time is compiled
+  on the spot the first time it is reached, then remembered.
 - Runs without a GBA BIOS.
-- Launcher with a ROM picker and SHA-1 check.
 - Expanded widescreen view drawn by a native GPU renderer (field, world map and
   battles), with spell effects extended into the extra margins.
 - In-window settings menu (F1): fullscreen, window size, sharp pixels,
   flicker reduction, volume, fast forward, an FPS/speed counter, and
-  rebindable controls and hotkeys, including auto fire for A and B.
+  rebindable controls and hotkeys, including auto fire for A and B and a
+  Quit Game hotkey.
 - Optional in-game settings for walking speed, encounter rate, screen size and slowdown
   removal, plus 2x battle speed (Select in battle).
+- **Hard Mode:** enemies have 1.5x HP and 1.25x Attack and Defence. Asked
+  once when starting a new game, changeable in the settings screen, and
+  remembered per save (it replaces Auto-Sleep, which is gone).
 - In-game cheat menu (F11 by default): infinite HP/PP and experience, coin
   and drop-chance multipliers.
 - Block timing: the translated code keeps its cycle count per block instead
   of per instruction, so heavy spells and summons run far faster
   (`tools/block_timing.py`, applied by `build_lto.bat`;
   `build_lto.bat -PerInstruction` builds the old way for comparison).
-- Player release: the launcher prepares the game code from the player's own
-  ROM on first start and again after an update, with a progress bar; F12
-  saves the last two seconds and the launcher packs a bug report when the
-  game closes.
 
 ## Build requirements
 
-- **Windows 10/11 x64.** The build is only set up and tested there.
+- **Windows 10/11 x64** for the development build below. Linux builds are
+  made with `scripts/make_release_linux.sh` (see "Linux" further down).
 - **MSYS2** installed at `C:\msys64` with the MinGW-w64 toolchain
   (`mingw-w64-x86_64-gcc`, `mingw-w64-x86_64-make`) and
   `mingw-w64-x86_64-SDL2`. `scripts/build_lto.ps1` expects
@@ -123,11 +161,29 @@ and a configured build directory. From a fresh clone:
 - `build\gs011_opt\GoldenSunRecomp.exe`: the game.
 - `GoldenSunLauncher.exe`: in the repository root.
 
+### Releases
+
+`make_release.bat` opens a release window that builds the player downloads
+for Windows, Linux (through WSL Ubuntu 24.04) or both, into
+`GSRecomp-Release/`; run `build_lto.bat` first. Each download has the
+launcher, engine, builder, translator and a trimmed compiler, and no game
+code. By default it then builds the game from your ROM using only the
+release's own tools, to prove the download is complete.
+
+- **Linux by hand:** `bash scripts/make_release_linux.sh` on a 64-bit Linux
+  machine or WSL (built and tested on Ubuntu 24.04) with GCC, CMake, Ninja and the
+  SDL2/zlib development packages. It makes
+  `GSRecomp-Release/linux/GoldenSunRecompiled-linux-<date>.zip` with the
+  launcher, the engine, the builder and a trimmed copy of that machine's GCC.
+  `--launcher-only` makes a launcher-only update zip. Players need a glibc at
+  least as new as the build machine's (2.38 on Ubuntu 24.04).
+
 ## Running
 
 Start `GoldenSunLauncher.exe`. On first launch it asks you to select your
 Golden Sun ROM, checks its SHA-1, remembers the path in
 `local\launcher-rom.txt`, and starts the game. No BIOS is needed to play.
+The launcher's activity is logged to `logs\launcher.log`.
 
 ROMs, BIOS files, saves and anything generated from them must never be committed;
 `.gitignore` excludes them.
