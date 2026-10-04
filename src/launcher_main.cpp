@@ -7,6 +7,7 @@
 #include <bcrypt.h>
 #include <commdlg.h>
 #include <gdiplus.h>
+#include <windowsx.h>
 #include <shlwapi.h>
 #include <winhttp.h>
 
@@ -65,6 +66,8 @@ constexpr UINT kBuildUpdateMessage = WM_APP + 1;
 constexpr UINT kBuildFinishedMessage = WM_APP + 2;
 // Updates (launcher_online.h): the start-up check found a newer release.
 constexpr UINT kUpdateFoundMessage = WM_APP + 3;
+// ...and read the newest release's notes (shown whether or not it is newer).
+constexpr UINT kReleaseNotesMessage = WM_APP + 4;
 constexpr char kBuilderVersion[] = "2";  // tools/gsr_builder kBuilderVersion
 
 struct BuildStatus {
@@ -1438,6 +1441,29 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed) {
 }
 
 int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
+    // Golden Sun's flash save is 64 KiB; the engine refuses a larger .sav
+    // (runtime.cpp "save file too large"), so say why instead of exiting.
+    constexpr std::uintmax_t kGameSaveBytes = 0x10000;
+    {
+        const fs::path save = fs::path(rom).replace_extension(L".sav");
+        std::error_code save_ec;
+        const std::uintmax_t save_size = fs::file_size(save, save_ec);
+        if (!save_ec && save_size > kGameSaveBytes) {
+            launcher_log(L"Start game: save file " + save.wstring() + L" is " +
+                         std::to_wstring(save_size) +
+                         L" bytes, larger than 65536: not started.");
+            const std::wstring text =
+                L"This save file can't be used\n\n"
+                L"The save file next to your ROM was made by an emulator or "
+                L"another program, and Golden Sun Recompiled can't read it.\n\n" +
+                save.wstring() +
+                L"\n\nMove it to another folder or delete it, then start the "
+                L"game again. The game will make a new save there.";
+            MessageBoxW(window, text.c_str(), L"Golden Sun Recompiled",
+                        MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
+            return 1;
+        }
+    }
     // Save before spawning so a launch cannot lose a changed checkbox.
     if (!kReleaseLauncher) save_launcher_audio_settings(root, g_audio_settings);
     // The game runs without the BIOS (Jimmy, 2026-09-24): no BIOS path is
@@ -1538,6 +1564,12 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
     child_environment.set(L"GBARECOMP_AUDIO_STEREO", L"1");
     child_environment.set(L"GBARECOMP_HEAL_CACHE",
                           (root / L"recomp_cache").wstring());
+    // Release: point the game's self-heal at the bundled g++ (absent on dev).
+    if (std::filesystem::exists(root / L"builder" / L"mingw64" / L"bin" /
+                                L"g++.exe")) {
+        child_environment.set(L"GBARECOMP_HEAL_TOOLCHAIN",
+                              (root / L"builder" / L"mingw64").wstring());
+    }
 
     // A function-tracer launch must carry its exact user input sequence so
     // the resulting trace can be replayed. Replay and recording are mutually
@@ -1984,6 +2016,35 @@ void begin_auto_start(HWND window) {
     launcher_log(L"Start automatically: waiting for the update check.");
     SetTimer(window, kAutoStartTimer, kAutoStartPollMs, nullptr);
 }
+
+// Relabels the buttons of the question below while it opens.
+HHOOK g_ask_hook = nullptr;
+LRESULT CALLBACK ask_hook_proc(int code, WPARAM wparam, LPARAM lparam) {
+    if (code == HCBT_ACTIVATE) {
+        HWND dialog = reinterpret_cast<HWND>(wparam);
+        SetDlgItemTextW(dialog, IDYES, L"Start now");
+        SetDlgItemTextW(dialog, IDNO, L"What's new");
+        UnhookWindowsHookEx(g_ask_hook);
+        g_ask_hook = nullptr;
+        return 0;
+    }
+    return CallNextHookEx(g_ask_hook, code, wparam, lparam);
+}
+
+// After a build: IDYES = start the game now, IDNO = stay in the launcher.
+int ask_start_or_notes(HWND window) {
+    g_ask_hook = SetWindowsHookExW(WH_CBT, ask_hook_proc, nullptr, GetCurrentThreadId());
+    const int answer = MessageBoxW(
+        window,
+        L"The game is ready.\n\nStart it now, or read what's new in this version first? "
+        L"The Play button starts it whenever you are ready.",
+        L"Golden Sun Recompiled", MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND);
+    if (g_ask_hook) {
+        UnhookWindowsHookEx(g_ask_hook);
+        g_ask_hook = nullptr;
+    }
+    return answer;
+}
 std::unique_ptr<Gdiplus::Image> g_splash_image;
 HFONT g_button_font = nullptr;
 HFONT g_body_font = nullptr;
@@ -1991,6 +2052,15 @@ HFONT g_body_font = nullptr;
 // runs. Kept as client-relative window coordinates so paint_splash can draw
 // it without recomputing the layout itself.
 RECT g_panel_rect{};
+// Release launcher "What's new" box: painted by draw_release_notes, not a
+// control, so the logo shows through it. UI thread only.
+RECT g_notes_rect{};
+std::wstring g_notes_text;
+float g_notes_scroll = 0.0f;
+float g_notes_max_scroll = 0.0f;
+float g_notes_line_height = 18.0f;
+float g_notes_text_height = 0.0f;
+int g_notes_measured_width = -1;
 
 // Every control below is positioned by a single running cursor rather than
 // by hand-tuned offsets between controls, so adding, removing, or hiding a
@@ -2023,6 +2093,11 @@ void layout_buttons(HWND window) {
                        std::max<int>(0, button_y - 44), box_width, 30, TRUE);
             update_auto_start_box(window);
         }
+        // The release notes sit over the logo: the window's side margin
+        // wide, from y 28 down to the bottom band (160 px).
+        g_notes_rect = {40, 28, 40 + std::max<int>(0, client.right - 80),
+                        28 + std::max<int>(0, client.bottom - 160 - 8 - 28)};
+        g_notes_measured_width = -1;
         g_panel_rect = {};
         InvalidateRect(window, nullptr, FALSE);
         return;
@@ -2381,6 +2456,73 @@ void paint_progress_bar(Gdiplus::Graphics& g, int width, int height, int done,
     }
 }
 
+// Paints the "What's new" box: a translucent dark rectangle over the logo with
+// word-wrapped, scrollable text. Drawn on the caller's Graphics so it works
+// for the double-buffered window paint and for child-control backdrops alike.
+void draw_release_notes(Gdiplus::Graphics& graphics, HDC dc) {
+    if (g_notes_text.empty() || g_notes_rect.right <= g_notes_rect.left ||
+        g_notes_rect.bottom <= g_notes_rect.top)
+        return;
+    const int left = g_notes_rect.left, top = g_notes_rect.top;
+    const int box_w = g_notes_rect.right - g_notes_rect.left;
+    const int box_h = g_notes_rect.bottom - g_notes_rect.top;
+    Gdiplus::SolidBrush fill(Gdiplus::Color(165, 10, 8, 18));
+    graphics.FillRectangle(&fill, left, top, box_w, box_h);
+    Gdiplus::Pen border(Gdiplus::Color(90, 255, 220, 150), 1.0f);
+    graphics.DrawRectangle(&border, left, top, box_w - 1, box_h - 1);
+
+    constexpr int kPad = 10;
+    const Gdiplus::REAL inner_w = static_cast<Gdiplus::REAL>(box_w - kPad * 2);
+    const Gdiplus::REAL inner_h = static_cast<Gdiplus::REAL>(box_h - kPad * 2);
+    if (inner_w <= 8.0f || inner_h <= 8.0f) return;
+
+    HGDIOBJ previous = g_body_font ? SelectObject(dc, g_body_font) : nullptr;
+    Gdiplus::Font font(dc);
+    if (previous) SelectObject(dc, previous);
+    if (font.GetLastStatus() != Gdiplus::Ok) return;
+
+    graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
+    Gdiplus::StringFormat format;
+    g_notes_line_height = std::max(1.0f, font.GetHeight(&graphics));
+    if (g_notes_measured_width != static_cast<int>(inner_w)) {
+        Gdiplus::RectF bounds;
+        graphics.MeasureString(g_notes_text.c_str(), -1, &font,
+                               Gdiplus::RectF(0, 0, inner_w, 100000.0f),
+                               &format, &bounds);
+        g_notes_text_height = bounds.Height;
+        g_notes_measured_width = static_cast<int>(inner_w);
+    }
+    g_notes_max_scroll = std::max(0.0f, g_notes_text_height - inner_h);
+    g_notes_scroll = std::min(std::max(g_notes_scroll, 0.0f), g_notes_max_scroll);
+
+    const Gdiplus::RectF inner(static_cast<Gdiplus::REAL>(left + kPad),
+                               static_cast<Gdiplus::REAL>(top + kPad), inner_w,
+                               inner_h);
+    const Gdiplus::GraphicsState saved = graphics.Save();
+    graphics.SetClip(inner, Gdiplus::CombineModeIntersect);
+    Gdiplus::SolidBrush ink(Gdiplus::Color(255, 240, 232, 210));
+    graphics.DrawString(g_notes_text.c_str(), -1, &font,
+                        Gdiplus::RectF(inner.X, inner.Y - g_notes_scroll,
+                                       inner_w, g_notes_text_height + 40.0f),
+                        &format, &ink);
+    graphics.Restore(saved);
+
+    if (g_notes_max_scroll > 0.0f) {
+        const Gdiplus::REAL track = inner_h;
+        Gdiplus::REAL thumb = std::max(24.0f, track * inner_h / g_notes_text_height);
+        thumb = std::min(thumb, track);
+        const Gdiplus::REAL y = inner.Y + (track - thumb) *
+                                (g_notes_scroll / g_notes_max_scroll);
+        const Gdiplus::REAL x = static_cast<Gdiplus::REAL>(left + box_w - 4 - 5);
+        Gdiplus::GraphicsPath path;
+        path.AddArc(x, y, 4.0f, 4.0f, 180.0f, 180.0f);
+        path.AddArc(x, y + thumb - 4.0f, 4.0f, 4.0f, 0.0f, 180.0f);
+        path.CloseFigure();
+        Gdiplus::SolidBrush thumb_brush(Gdiplus::Color(120, 255, 240, 210));
+        graphics.FillPath(&thumb_brush, &path);
+    }
+}
+
 // origin_x/origin_y let this same routine paint into a child control's DC:
 // (0, 0) in that DC is (origin_x, origin_y) in the launcher window's own
 // client coordinates, so passing the child's client-relative position here
@@ -2425,6 +2567,8 @@ void paint_splash(HWND window, HDC dc, int origin_x = 0, int origin_y = 0) {
                                g_panel_rect.top, panel_width - 1,
                                panel_height - 1);
     }
+
+    if (kReleaseLauncher) draw_release_notes(graphics, dc);
 
     // The player launcher's band is taller: it holds the build note, the
     // step line and the bar above the buttons.
@@ -2872,6 +3016,7 @@ void start_game_build(HWND window, const std::wstring& rom) {
 // itself downloads and installs nothing.
 std::mutex g_update_mutex;
 gsr_online::Release g_update;
+std::wstring g_release_notes;  // title line + plain text; under g_update_mutex
 
 void check_for_update(HWND window) {
     if (!kReleaseLauncher || !gsr_online::update_checks_enabled()) {
@@ -2901,6 +3046,23 @@ void check_for_update(HWND window) {
         if (!gsr_online::parse_newest_release(reply, false, &release, &parse_error)) {
             launcher_log(L"Update check: " + utf8_to_wide(parse_error));
             return;
+        }
+        {
+            const std::string notes = gsr_online::notes_to_plain_text(release.notes);
+            if (!notes.empty()) {
+                std::wstring text = L"What's new in " + utf8_to_wide(release.tag) +
+                                    L"\n\n" + utf8_to_wide(notes);
+                std::wstring crlf;
+                for (wchar_t c : text) {
+                    if (c == L'\n') crlf += L'\r';
+                    crlf += c;
+                }
+                {
+                    std::lock_guard<std::mutex> lock(g_update_mutex);
+                    g_release_notes = crlf;
+                }
+                PostMessageW(window, kReleaseNotesMessage, 0, 0);
+            }
         }
         if (!gsr_online::is_newer_release(release)) {
             launcher_log(L"Update check: " + utf8_to_wide(release.tag) + L" is the newest.");
@@ -2956,6 +3118,8 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
                             0, 0, 0, 0, window,
                             reinterpret_cast<HMENU>(kAutoStartButton),
                             GetModuleHandleW(nullptr), nullptr);
+            // The release notes are painted by paint_splash once the update
+            // check has them (see draw_release_notes).
             layout_buttons(window);
             return 0;
         }
@@ -3255,6 +3419,38 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
         InvalidateRect(window, &status, FALSE);
         return 0;
     }
+    case kReleaseNotesMessage: {
+        std::wstring notes;
+        {
+            std::lock_guard<std::mutex> lock(g_update_mutex);
+            notes = g_release_notes;
+        }
+        g_notes_text = notes;
+        g_notes_scroll = 0;
+        g_notes_measured_width = -1;
+        if (g_notes_rect.right > g_notes_rect.left)
+            InvalidateRect(window, &g_notes_rect, FALSE);
+        return 0;
+    }
+    case WM_MOUSEWHEEL: {
+        if (!kReleaseLauncher || g_notes_text.empty() ||
+            g_notes_rect.right <= g_notes_rect.left)
+            break;
+        POINT cursor{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
+        ScreenToClient(window, &cursor);
+        if (!PtInRect(&g_notes_rect, cursor)) break;
+        const int notches = GET_WHEEL_DELTA_WPARAM(w_param);
+        const float step = g_notes_line_height * 3.0f;
+        float next = g_notes_scroll -
+                     step * static_cast<float>(notches) / WHEEL_DELTA;
+        next = std::min(next, g_notes_max_scroll);
+        next = std::max(next, 0.0f);
+        if (next != g_notes_scroll) {
+            g_notes_scroll = next;
+            InvalidateRect(window, &g_notes_rect, FALSE);
+        }
+        return 0;
+    }
     case kUpdateFoundMessage: {
         gsr_online::Release release;
         {
@@ -3336,6 +3532,14 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
                                       : L"Start automatically: off (asked after the build).");
             InvalidateRect(GetDlgItem(window, kAutoStartButton), nullptr, FALSE);
         }
+        KillTimer(window, kAutoStartTimer);
+        if (ask_start_or_notes(window) != IDYES) {
+            launcher_log(L"Build: finished; the player chose to read what's new first.");
+            update_auto_start_box(window);
+            InvalidateRect(window, nullptr, FALSE);
+            return 0;
+        }
+        launcher_log(L"Build: finished; the player chose to start now.");
         if (run_game(g_launcher_root, g_build_rom, window) == 0)
             DestroyWindow(window);
         return 0;

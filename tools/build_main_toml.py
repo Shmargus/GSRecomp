@@ -58,6 +58,7 @@ REVIEWED_CONDITIONAL_BRANCH_OVERRIDES = (
     (0x0800C702, "Func_c62c lower-Y BLE: bypass the direct reject route"),
     (0x0800C708, "Func_c62c upper-Y BGT: bypass the direct reject route"),
     (0x0801CFC6, "Settings screen BLE: skip the icon bounce for Message speed Instant"),
+    (0x080031BC, "Frame wait auto-sleep BEQ: idle timer off (Hard Mode replaces Auto-Sleep)"),
     # Three sprite routines that queue with Func_3dec after an x+16 <= 255,
     # y >= -32 test; world-map towns vanish at the old right edge on one of
     # them (FACTS.md, 2026-09-24). X and lower-Y only.
@@ -114,6 +115,8 @@ REVIEWED_THUMB_ALU_IMMEDIATE_OVERRIDES = (
     (0x08021732, "Icon loader: adds r2,r5,#0 picture source for the OBJ upload"),
     (0x0801D6B8, "Settings screen: Message-speed caption clear x movs #0xA0"),
     (0x0801D6C6, "Settings screen: Message-speed caption draw x movs #0xA0"),
+    (0x0801D706, "Settings screen: Auto-Sleep (Hard Mode) caption clear x movs #0xA0"),
+    (0x0801D716, "Settings screen: Auto-Sleep (Hard Mode) caption draw x movs #0xA0"),
     (0x08010264, "Func_10230 camera min-X adds r7,r3,#0: expanded view minimum"),
     (0x08010280, "Func_10230 camera min-Y adds r0,r3,#0: expanded view minimum"),
     (0x0801007E, "Func_10000 camera adds r7,r1,#0: expanded view clamp X"),
@@ -129,6 +132,9 @@ REVIEWED_THUMB_LITERAL_OVERRIDES = (
     (0x0801D6AE, "Settings screen: Message-speed caption text ID base 0xC0A"),
     (0x0801D39C, "Settings screen setup: Message-speed icon table 0x080367C9"),
     (0x0801D5B6, "Settings screen redraw: Message-speed icon table 0x080367C9"),
+    (0x0801D412, "Settings screen setup: Auto-Sleep (Hard Mode) icon table 0x080367CE"),
+    (0x0801D624, "Settings screen redraw: Auto-Sleep (Hard Mode) icon table 0x080367CE"),
+    (0x0801D6FC, "Settings screen: Auto-Sleep (Hard Mode) caption text ID base 0xC13"),
     (0x0801D772, "Settings loop: pressed-keys word 0x03001C94 (settings page two)"),
     (0x0801D7CA, "Settings loop: repeat-keys word 0x03001B04 (settings page two)"),
     (0x0808AF84, "Encounter step: base 0x02000240 of the counter 0x02000478"),

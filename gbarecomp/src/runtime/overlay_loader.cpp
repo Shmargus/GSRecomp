@@ -841,6 +841,8 @@ HealBackend resolve_backend() {
         if (std::strcmp(be, "auto-no-gcc") == 0) return HealBackend::Tcc;
         // anything else (incl. "auto") → auto-resolve below
     }
+    // The release's bundled g++ (GBARECOMP_HEAL_TOOLCHAIN) counts as gcc.
+    if (!heal_toolchain_root().empty()) return HealBackend::Gcc;
     return gcc_toolchain_available() ? HealBackend::Gcc : HealBackend::Tcc;
 }
 

@@ -29,6 +29,7 @@
 #include "field_scene_renderer.h"
 #include "world_map_source.h"
 #include "cheat_menu.h"
+#include "hard_mode.h"
 #include "gpu_surface.h"
 #include "gba_bus.h"
 #include "gba_ppu.h"
@@ -10689,6 +10690,9 @@ std::atomic<bool> g_settings_font_loaded{false};
 std::atomic<int> g_settings_page{1};
 // Set when A/B/Start closes the screen; cleared by the next screen setup.
 std::atomic<bool> g_settings_closing{false};
+// True from the settings screen's setup to its closing: Hard Mode's label
+// and help text are replaced only then, never in dialogue.
+bool g_settings_screen_text = false;
 // Set by the settings loop's first frame; cleared by the next screen setup
 // and by a savestate load, which can leave the screen without closing it.
 // Not a frame count: a loop frame that runs late must not hide the page.
@@ -11893,7 +11897,30 @@ bool g_cheat_menu_swallow = false;
 std::uint16_t g_cheat_window_palette[16] = {};
 bool g_cheat_window_palette_known = false;
 
+// New-game Hard Mode prompt (hard_mode.h): the cheat menu's window and key
+// capture, opened from the entry to Func_77f40 instead of the hotkey.
+bool g_hard_prompt_open = false;
+int g_hard_prompt_row = 0;
+std::uint16_t g_hard_prompt_held = 0;
+
+void hard_mode_prompt_open() {
+    load_menu_font();
+    g_hard_prompt_open = true;
+    g_hard_prompt_row = 0;
+    g_hard_prompt_held = 0x3FFu;
+}
+
+void hard_mode_prompt_close(bool hard) {
+    using namespace gsr::hard_mode;
+    const std::uint8_t value = hard ? kHardModeValue : 0u;
+    bus_write_u8(kSavedFlag, value);
+    bus_write_u8(kAutoSleepFlag, value);
+    g_hard_prompt_open = false;
+    g_cheat_menu_swallow = true;
+}
+
 void cheat_menu_toggle() {
+    if (g_hard_prompt_open) return;
     load_menu_font();
     g_cheat_menu_open = !g_cheat_menu_open;
     // Keys already held stay with whoever had them: nothing reaches the
@@ -11909,9 +11936,10 @@ void cheat_menu_toggle() {
 }
 
 bool cheat_menu_pause_poll(bool* out_paused) {
-    if (g_cheat_menu_open == g_cheat_menu_requested_pause) return false;
-    g_cheat_menu_requested_pause = g_cheat_menu_open;
-    *out_paused = g_cheat_menu_open;
+    const bool want = g_cheat_menu_open || g_hard_prompt_open;
+    if (want == g_cheat_menu_requested_pause) return false;
+    g_cheat_menu_requested_pause = want;
+    *out_paused = want;
     return true;
 }
 
@@ -11944,6 +11972,16 @@ std::uint16_t cheat_menu_keyinput_filter(std::uint16_t keyinput) {
     using gsr::settings_page::kKeyStart;
     using gsr::settings_page::kKeyUp;
     const std::uint16_t pressed = static_cast<std::uint16_t>(~keyinput & 0x3FFu);
+    if (g_hard_prompt_open) {
+        const std::uint16_t down =
+            static_cast<std::uint16_t>(pressed & ~g_hard_prompt_held);
+        g_hard_prompt_held = pressed;
+        if (down & (kKeyUp | kKeyDown | kKeyLeft | kKeyRight))
+            g_hard_prompt_row = 1 - g_hard_prompt_row;
+        if (down & kKeyA) hard_mode_prompt_close(g_hard_prompt_row == 1);
+        else if (down & kKeyB) hard_mode_prompt_close(false);
+        return 0x3FFu;
+    }
     if (!g_cheat_menu_open) {
         if (g_cheat_menu_swallow) {
             if (pressed != 0) return 0x3FFu;
@@ -11967,12 +12005,13 @@ std::uint16_t cheat_menu_keyinput_filter(std::uint16_t keyinput) {
 
 // The window, drawn over the paused picture in the game's own pieces and
 // colours (src/cheat_menu.h).
-void cheat_menu_paint(std::uint8_t* rgb, std::uint32_t width,
-                      std::uint32_t height) {
+// `content(draw_text, text_width, inner_x, inner_y)` paints inside it; shared
+// by the cheat menu and the Hard Mode prompt.
+template <typename Content>
+void menu_window_paint(std::uint8_t* rgb, std::uint32_t width,
+                       std::uint32_t height, Content content) {
     using namespace gsr::cheat_menu;
-    if (!g_cheat_menu_open ||
-        !g_settings_font_loaded.load(std::memory_order_acquire))
-        return;
+    if (!g_settings_font_loaded.load(std::memory_order_acquire)) return;
     // The live window palette when bank 15 holds it, else the last one
     // seen, else the measured default.
     if (gba::GbaBus* bus = gbarecomp::active_bus()) {
@@ -12047,21 +12086,52 @@ void cheat_menu_paint(std::uint8_t* rgb, std::uint32_t width,
             x += g_settings_font.widths[code - 0x20u];
         }
     };
-    draw_text(kTitle, inner_x + (kWindowTiles - 2) * 4 -
-                          text_width(kTitle) / 2, inner_y);
-    for (int row = 0; row < kRowCount; ++row) {
-        const int y = inner_y + kRowLineY0 + row * kRowPitch;
-        draw_text(kRowLabels[row], inner_x + kLabelX, y);
-        std::string value;
-        if (row == kInfiniteHpRow)
-            value = runtime_get_infinite_hp() ? "On" : "Off";
-        else if (row == kInfinitePpRow)
-            value = runtime_get_infinite_pp() ? "On" : "Off";
-        else
-            value = kStepWords[cheat_menu_step(row)->load()];
-        if (row == g_cheat_menu_row) value = "< " + value + " >";
-        draw_text(value, inner_x + kValueCentreX - text_width(value) / 2, y);
+    content(draw_text, text_width, inner_x, inner_y);
+}
+
+void cheat_menu_paint(std::uint8_t* rgb, std::uint32_t width,
+                      std::uint32_t height) {
+    using namespace gsr::cheat_menu;
+    if (g_hard_prompt_open) {
+        namespace hm = gsr::hard_mode;
+        menu_window_paint(rgb, width, height,
+                          [](auto& draw_text, auto& text_width, int inner_x,
+                             int inner_y) {
+            draw_text(hm::kPromptTitle, inner_x + (kWindowTiles - 2) * 4 -
+                          text_width(hm::kPromptTitle) / 2, inner_y);
+            for (int i = 0; i < 3; ++i)
+                draw_text(hm::kPromptLines[i], inner_x + kLabelX,
+                          inner_y + 14 + i * 12);
+            for (int row = 0; row < 2; ++row) {
+                std::string label = hm::kPromptRows[row];
+                if (row == g_hard_prompt_row) label = "< " + label + " >";
+                draw_text(label,
+                          inner_x + kValueCentreX - text_width(label) / 2,
+                          inner_y + 56 + row * kRowPitch);
+            }
+        });
+        return;
     }
+    if (!g_cheat_menu_open) return;
+    menu_window_paint(rgb, width, height,
+                      [](auto& draw_text, auto& text_width, int inner_x,
+                         int inner_y) {
+        draw_text(kTitle, inner_x + (kWindowTiles - 2) * 4 -
+                              text_width(kTitle) / 2, inner_y);
+        for (int row = 0; row < kRowCount; ++row) {
+            const int y = inner_y + kRowLineY0 + row * kRowPitch;
+            draw_text(kRowLabels[row], inner_x + kLabelX, y);
+            std::string value;
+            if (row == kInfiniteHpRow)
+                value = runtime_get_infinite_hp() ? "On" : "Off";
+            else if (row == kInfinitePpRow)
+                value = runtime_get_infinite_pp() ? "On" : "Off";
+            else
+                value = kStepWords[cheat_menu_step(row)->load()];
+            if (row == g_cheat_menu_row) value = "< " + value + " >";
+            draw_text(value, inner_x + kValueCentreX - text_width(value) / 2, y);
+        }
+    });
 }
 
 // What one tally store adds, scaled by its multiplier. Returns -1 when `pc`
@@ -12138,6 +12208,9 @@ std::uint32_t menu_text_width(const std::string& text) {
 // Message-speed icons still to be uploaded blank, armed by this row's icon
 // table loads on the settings screen.
 std::uint32_t g_blank_icons_pending = 0;
+// The icon IDs of the table that armed it (Message speed's or Hard Mode's).
+std::uint32_t g_blank_icon_first = 0;
+std::uint32_t g_blank_icon_last = 0;
 
 // Page two's help line, printed by the game: while page two shows, the help
 // text it decodes (0xC15 + row, 0x0801E74C) is replaced character by
@@ -12166,6 +12239,37 @@ bool settings_help_character(std::uint32_t original, std::uint32_t* out_value) {
         wanted = static_cast<unsigned char>(text[g_help_pos++]);
     else
         g_help_pos = -1;
+    *out_value = original + (wanted - g_cpu.R[0]);
+    return true;
+}
+
+// Hard Mode's label and help line, written the same way while the settings
+// screen is open. Page two's help is tried first and keeps 0xC19 while it
+// shows.
+int g_hard_text_pos = -1;
+std::uint32_t g_hard_text_id = 0;
+
+bool hard_mode_text_character(std::uint32_t original,
+                              std::uint32_t* out_value) {
+    using namespace gsr::hard_mode;
+    const std::uint32_t text_id = bus_read_u32(
+        g_cpu.R[13] + gsr::text_speed_cheat::kDecoderTextIdStackOffset);
+    const char* text = text_id == kLabelTextId ? kLabelText
+                     : text_id == kHelpTextId  ? kHelpText
+                                               : nullptr;
+    if (!g_settings_screen_text || !text) {
+        g_hard_text_pos = -1;
+        return false;
+    }
+    if (g_hard_text_pos < 0 || text_id != g_hard_text_id) {
+        g_hard_text_pos = 0;
+        g_hard_text_id = text_id;
+    }
+    std::uint32_t wanted = 0u;
+    if (text[g_hard_text_pos] != '\0')
+        wanted = static_cast<unsigned char>(text[g_hard_text_pos++]);
+    else
+        g_hard_text_pos = -1;
     *out_value = original + (wanted - g_cpu.R[0]);
     return true;
 }
@@ -12468,11 +12572,11 @@ int golden_sun_thumb_alu_immediate(std::uint32_t pc, std::uint32_t original,
         *out_value = kChoiceCountWithInstant;
         return original != kChoiceCountWithInstant;
     }
-    if (pc == kCaptionClearXPc) {
+    if (pc == kCaptionClearXPc || pc == gsr::hard_mode::kCaptionClearXPc) {
         *out_value = kCaptionClearX;
         return 1;
     }
-    if (pc == kCaptionDrawXPc) {
+    if (pc == kCaptionDrawXPc || pc == gsr::hard_mode::kCaptionDrawXPc) {
         if (!g_speed_caption_armed) {
             *out_value = kCaptionClearX;
             return 1;
@@ -12484,7 +12588,7 @@ int golden_sun_thumb_alu_immediate(std::uint32_t pc, std::uint32_t original,
     if (pc == kIconSourcePc) {
         if (g_blank_icons_pending == 0u) return 0;
         const std::uint32_t icon = g_cpu.R[6];
-        if (icon < kFirstMessageSpeedIcon || icon > kLastMessageSpeedIcon) {
+        if (icon < g_blank_icon_first || icon > g_blank_icon_last) {
             g_blank_icons_pending = 0u;
             return 0;
         }
@@ -12494,6 +12598,8 @@ int golden_sun_thumb_alu_immediate(std::uint32_t pc, std::uint32_t original,
         return 1;
     }
     if (pc == kDecodedCharPc && settings_help_character(original, out_value))
+        return 1;
+    if (pc == kDecodedCharPc && hard_mode_text_character(original, out_value))
         return 1;
     if (pc != kDecodedCharPc || !g_speed_caption_armed) return 0;
     const std::uint32_t text_id =
@@ -12542,6 +12648,7 @@ int golden_sun_thumb_literal(std::uint32_t pc, std::uint32_t original,
         if (bus_read_u32(kPressedKeys) & (kKeyA | kKeyB | kKeyStart)) {
             // Closing (both pages): draw nothing over the closing window.
             g_settings_closing.store(true);
+            g_settings_screen_text = false;
         }
         return 0;
     }
@@ -12596,6 +12703,36 @@ int golden_sun_thumb_literal(std::uint32_t pc, std::uint32_t original,
         if (original == kMessageSpeedIconTable) {
             g_blank_icons_pending =
                 pc == kSetupIconTableLiteralPc ? kSetupIconCount : 1u;
+            g_blank_icon_first = kFirstMessageSpeedIcon;
+            g_blank_icon_last = kLastMessageSpeedIcon;
+        }
+        return 0;
+    }
+    if ((pc == gsr::hard_mode::kSetupIconTableLiteralPc ||
+         pc == gsr::hard_mode::kRedrawIconTableLiteralPc) &&
+        original == gsr::hard_mode::kIconTable) {
+        // Hard Mode's row is text only, like Message speed.
+        g_blank_icons_pending =
+            pc == gsr::hard_mode::kSetupIconTableLiteralPc
+                ? gsr::hard_mode::kSetupIconCount : 1u;
+        g_blank_icon_first = gsr::hard_mode::kFirstIcon;
+        g_blank_icon_last = gsr::hard_mode::kLastIcon;
+        return 0;
+    }
+    if (pc == gsr::hard_mode::kCaptionBaseLiteralPc) {
+        // Arms the Off/On caption; the text ID itself is unchanged.
+        namespace hm = gsr::hard_mode;
+        const std::uint32_t value = g_cpu.R[2];
+        g_speed_caption_armed = original == hm::kCaptionBase && value <= 1u;
+        if (g_speed_caption_armed) {
+            g_speed_caption = hm::kWords[value];
+            if (g_cpu.R[9] == gsr::settings_page::kAutoSleepRow) {
+                g_speed_caption = gsr::text_speed_cheat::kArrowLeft +
+                                  g_speed_caption +
+                                  gsr::text_speed_cheat::kArrowRight;
+            }
+            g_speed_caption_id = hm::kCaptionBase + value;
+            g_speed_caption_pos = 0;
         }
         return 0;
     }
@@ -12693,6 +12830,11 @@ int golden_sun_conditional_branch(std::uint32_t pc, std::uint32_t original,
         r >= 0) {
         return r;
     }
+    if (pc == gsr::hard_mode::kIdleBranchPc) {
+        // Auto-Sleep's idle timer is gone: always skip the counter.
+        *out_decision = 1u;
+        return original != 1u;
+    }
     if (pc == kIconBounceBranchPc) {
         if (g_cpu.R[6] != kMessageSpeedRow ||
             bus_read_u8(g_cpu.R[5] + kScreenMessageSpeedOffset) !=
@@ -12750,6 +12892,10 @@ struct TransientCodeImage {
     const char* name;
     const DispatchEntry* dispatch_table;
     const unsigned* dispatch_table_len;
+    // Leading bytes the game may overwrite after entering the image. Identity
+    // hashes the ROM bytes in their place, and an entry inside them is served
+    // only while they still equal ROM.
+    std::uint32_t volatile_prefix = 0;
 };
 
 const auto kTransientCodeImages = std::to_array<TransientCodeImage>({
@@ -12788,12 +12934,17 @@ const auto kTransientCodeImages = std::to_array<TransientCodeImage>({
     // GS-011: the allocator reuses 0x03006000 for a second, larger ROM image.
     // DMA3 watch observed src=0x08002808 cnt=315 words; goldensun.elf agrees
     // (Func_2808, size 0x4ec, arm). SHA-1 keeps the two images distinct.
+    // Player report 2026-10-03: live 0x00 vs ROM 0x01 at offset 0, written by
+    // its own output pointer one byte past the buffer while still running; see
+    // FACTS.md "Linux player crash: Func_2808 overwrote its own first byte".
+    // The first ARM instruction only runs on entry, so it is the volatile prefix.
     {0x03006000u, 0x030064ECu, 0x08002808u,
      0,
      "5fd23904086a4129fe3472dbf6658bb5e73f0363",
      "Func_2808_at_03006000",
      gsr_func2808_03006000_kDispatchTable,
-     &gsr_func2808_03006000_kDispatchTableLen},
+     &gsr_func2808_03006000_kDispatchTableLen,
+     4u},
     // Func_6abc's stack thunk used to be registered here at 0x03007df8 and
     // 0x03007bc0. Func_6878 installs it at whatever depth it was entered at,
     // so it is now a single position-independent image below.
@@ -14411,7 +14562,59 @@ void dump_recent_trace() {
 extern "C" int overlay_try_dispatch(std::uint32_t pc, int thumb);
 extern "C" void runtime_dispatch_miss(std::uint32_t target_pc);
 
+// Hard Mode: Func_77428 entered from Func_79460's enemy setup (r6 = unit)
+// with the live flag on. It rebuilds the final stats from the base fields
+// scaled here.
+void hard_mode_scale_enemy() {
+    using namespace gsr::hard_mode;
+    if ((g_cpu.R[14] & ~1u) != kEnemySetupReturn ||
+        bus_read_u8(kAutoSleepFlag) != kHardModeValue) {
+        return;
+    }
+    const std::uint32_t unit = g_cpu.R[6];
+    const auto scale = [unit](std::uint32_t offset, std::uint32_t num,
+                              std::uint32_t den) {
+        std::uint32_t value = bus_read_u16(unit + offset) * num / den;
+        if (value > kStatMax) value = kStatMax;
+        bus_write_u16(unit + offset, static_cast<std::uint16_t>(value));
+    };
+    scale(kBaseHpOffset, kHpNumerator, kHpDenominator);
+    scale(kMaxHpOffset, kHpNumerator, kHpDenominator);
+    scale(kCurrentHpOffset, kHpNumerator, kHpDenominator);
+    scale(kBaseAttackOffset, kStatNumerator, kStatDenominator);
+    scale(kBaseDefenceOffset, kStatNumerator, kStatDenominator);
+}
+
+// Settings screen translation (hard_mode.h): the screen knows 0/1 only.
+std::uint8_t g_hard_mode_saved_byte = 0;
+void hard_mode_settings_setup() {
+    using namespace gsr::hard_mode;
+    g_hard_mode_saved_byte = bus_read_u8(kSavedFlag);
+    bus_write_u8(kSavedFlag, g_hard_mode_saved_byte == kHardModeValue ? 1u : 0u);
+}
+void hard_mode_settings_teardown() {
+    using namespace gsr::hard_mode;
+    if (g_cpu.R[5] != 0u) {
+        bus_write_u8(kSavedFlag, g_hard_mode_saved_byte);
+        return;
+    }
+    const std::uint8_t value =
+        bus_read_u8(kSavedFlag) == 1u ? kHardModeValue : 0u;
+    bus_write_u8(kSavedFlag, value);
+    bus_write_u8(kAutoSleepFlag, value);
+}
+
 void golden_sun_function_entry_observer(std::uint32_t entry_pc) {
+    if (entry_pc == gsr::hard_mode::kSettingsSetupEntryPc) {
+        g_settings_screen_text = true;
+        hard_mode_settings_setup();
+    } else if (entry_pc == gsr::hard_mode::kSettingsTeardownEntryPc) {
+        hard_mode_settings_teardown();
+    } else if (entry_pc == gsr::hard_mode::kNewGameEntryPc) {
+        hard_mode_prompt_open();
+    } else if (entry_pc == gsr::hard_mode::kStatRecalcPc) {
+        hard_mode_scale_enemy();
+    }
     field_psynergy_on_entry(entry_pc);
     gsr::move_probe_on_entry(entry_pc);
     gsr::earth_surge_on_entry(entry_pc);
@@ -14569,6 +14772,30 @@ std::array<std::uint32_t, 4> identity_sparse_words(
     return words;
 }
 
+// SHA-1 of a live image with the candidate's volatile prefix replaced by the
+// ROM bytes, so a game-side overwrite of those bytes does not change identity.
+std::string identity_image_sha1(const TransientCodeImage& candidate,
+                                std::vector<std::uint8_t> image) {
+    if (candidate.volatile_prefix != 0 && candidate.rom_start != 0) {
+        const std::size_t n = std::min<std::size_t>(candidate.volatile_prefix,
+                                                    image.size());
+        for (std::size_t i = 0; i < n; ++i)
+            image[i] = bus_read_u8(candidate.rom_start +
+                                   static_cast<std::uint32_t>(i));
+    }
+    return gba::sha1(image.data(), image.size()).hex();
+}
+
+bool volatile_prefix_matches_rom(const TransientCodeImage& candidate) {
+    if (candidate.volatile_prefix == 0 || candidate.rom_start == 0) return true;
+    for (std::uint32_t i = 0; i < candidate.volatile_prefix; ++i) {
+        if (bus_read_u8(candidate.start + i) !=
+            bus_read_u8(candidate.rom_start + i))
+            return false;
+    }
+    return true;
+}
+
 bool identity_sparse_matches(const TransientCodeImage& candidate,
                              const VerifiedIdentityCacheEntry& identity) {
     return identity_sparse_words(candidate) == identity.sparse_words;
@@ -14621,8 +14848,7 @@ bool refresh_verified_identity(std::size_t candidate_index) {
         std::vector<std::uint8_t> image(candidate.end - candidate.start);
         for (std::uint32_t offset = 0; offset < image.size(); ++offset)
             image[offset] = bus_read_u8(candidate.start + offset);
-        identity.matched =
-            gba::sha1(image.data(), image.size()).hex() == candidate.sha1;
+        identity.matched = identity_image_sha1(candidate, image) == candidate.sha1;
         identity.snapshot = std::move(image);
         identity.known_snapshot = identity.matched && candidate.rom_start == 0u;
         if (identity.known_snapshot)
@@ -15283,8 +15509,7 @@ RuntimeGuestFn verified_ram_dispatch(std::uint32_t pc, int thumb) {
                 std::vector<std::uint8_t> image(candidate.end - candidate.start);
                 for (std::uint32_t offset = 0; offset < image.size(); ++offset)
                     image[offset] = bus_read_u8(candidate.start + offset);
-                const std::string actual =
-                    gba::sha1(image.data(), image.size()).hex();
+                const std::string actual = identity_image_sha1(candidate, image);
                 observed_sha1[candidate_index] = actual;
                 observed_indices.push_back(candidate_index);
                 identity.snapshot = std::move(image);
@@ -15301,14 +15526,23 @@ RuntimeGuestFn verified_ram_dispatch(std::uint32_t pc, int thumb) {
             identity.valid = true;
         } else ++g_verified_identity_cache_hits;
         if (!identity.matched) continue;
+        // An entry inside the volatile prefix is served only while the live
+        // bytes still equal ROM, and is never cached.
+        if (pc < candidate.start + candidate.volatile_prefix &&
+            !volatile_prefix_matches_rom(candidate))
+            continue;
+        const bool cacheable = pc >= candidate.start + candidate.volatile_prefix;
 
         if (candidate.dispatch_table == nullptr) {
             // This identity owns the fixed AOT entry in kDispatchTable.
-            cache_verified(VerifiedRamAction::Static, nullptr, candidate_index);
+            if (cacheable)
+                cache_verified(VerifiedRamAction::Static, nullptr,
+                               candidate_index);
             return nullptr;
         }
         if (void (*fn)(void) = lookup_variant(candidate, pc, thumb)) {
-            cache_verified(VerifiedRamAction::Native, fn, candidate_index);
+            if (cacheable)
+                cache_verified(VerifiedRamAction::Native, fn, candidate_index);
             mark_active();
             return fn;
         }
@@ -15686,6 +15920,8 @@ int main(int argc, char** argv) {
     gbarecomp::set_savestate_load_hook([] {
         gsr::function_tracer_on_savestate_load();
         g_settings_open.store(false);
+        g_settings_screen_text = false;
+        g_hard_prompt_open = false;
         g_settings_page.store(1);
         native_page_end(false);
     });

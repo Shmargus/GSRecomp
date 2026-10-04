@@ -233,6 +233,7 @@ struct Release {
     std::string tag;         // e.g. v0.2-test
     std::string title;       // the release's name
     std::string page;        // its GitHub page
+    std::string notes;       // its release notes (GitHub markdown)
     std::string asset_name;  // this platform's zip
     std::string asset_url;
     std::uint64_t asset_size = 0;
@@ -256,6 +257,7 @@ inline bool parse_newest_release(const std::string& reply, bool linux_build, Rel
     out->tag = rel.str("tag_name");
     out->title = rel.str("name");
     out->page = rel.str("html_url");
+    out->notes = rel.str("body");
     const Json* assets = rel.get("assets");
     if (out->tag.empty() || !assets || assets->kind != Json::Array) {
         *error = "The newest release has no downloads.";
@@ -281,6 +283,71 @@ inline bool parse_newest_release(const std::string& reply, bool linux_build, Rel
 
 inline bool is_newer_release(const Release& r) {
     return update_checks_enabled() && !r.tag.empty() && r.tag != kReleaseVersion;
+}
+
+// Release notes (GitHub markdown) as plain text for display: headings keep
+// their text, bold and code marks go, list items get a bullet (two spaces of
+// indent per nesting level), [text](url) becomes text.
+inline std::string notes_to_plain_text(const std::string& markdown) {
+    std::string text;
+    for (std::size_t i = 0; i < markdown.size(); ++i)
+        if (markdown[i] != '\r') text.push_back(markdown[i]);
+    std::string out;
+    std::size_t pos = 0;
+    while (pos <= text.size()) {
+        std::size_t end = text.find('\n', pos);
+        if (end == std::string::npos) end = text.size();
+        std::string line = text.substr(pos, end - pos);
+        pos = end + 1;
+        std::size_t indent = 0;
+        while (indent < line.size() && (line[indent] == ' ' || line[indent] == '\t')) ++indent;
+        std::string body = line.substr(indent);
+        if (!body.empty() && body[0] == '#') {
+            std::size_t h = 0;
+            while (h < body.size() && body[h] == '#') ++h;
+            while (h < body.size() && body[h] == ' ') ++h;
+            body = body.substr(h);
+            indent = 0;
+        } else if (body.size() > 1 && (body[0] == '-' || body[0] == '*') && body[1] == ' ') {
+            body = "\xE2\x80\xA2 " + body.substr(2);
+            indent = (indent / 2) * 2;
+        } else {
+            indent = 0;
+        }
+        // Inline marks: ** __ ` and [text](url).
+        std::string clean;
+        for (std::size_t i = 0; i < body.size(); ++i) {
+            const char c = body[i];
+            if (c == '`') continue;
+            if ((c == '*' || c == '_') && i + 1 < body.size() && body[i + 1] == c) {
+                ++i;
+                continue;
+            }
+            if (c == '[') {
+                const std::size_t close = body.find("](", i);
+                const std::size_t paren = close == std::string::npos ? close : body.find(')', close);
+                if (paren != std::string::npos) {
+                    clean += body.substr(i + 1, close - i - 1);
+                    i = paren;
+                    continue;
+                }
+            }
+            clean.push_back(c);
+        }
+        out += std::string(indent, ' ') + clean + "\n";
+        if (end == text.size()) break;
+    }
+    // At most one blank line in a row, no blank lines at either end.
+    std::string collapsed;
+    int newlines = 0;
+    for (char c : out) {
+        newlines = c == '\n' ? newlines + 1 : 0;
+        if (newlines <= 2) collapsed.push_back(c);
+    }
+    const std::size_t first = collapsed.find_first_not_of("\n");
+    if (first == std::string::npos) return std::string();
+    const std::size_t last = collapsed.find_last_not_of(" \n");
+    return collapsed.substr(first, last - first + 1);
 }
 
 // ---------------------------------------------------------------- reports

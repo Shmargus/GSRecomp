@@ -34,6 +34,10 @@ enum class HealBackend { Gcc, Tcc };
 
 const char* heal_backend_name(HealBackend b);
 
+// Root of the release-bundled g++ toolchain the launcher passes in
+// GBARECOMP_HEAL_TOOLCHAIN (<root>/bin/g++[.exe] must exist), or "".
+std::string heal_toolchain_root();
+
 // One unit of self-heal work: the entry PC + ISA, plus the contiguous code
 // image it lives in. `bytes[guest_addr - base]` is the byte at guest_addr.
 //

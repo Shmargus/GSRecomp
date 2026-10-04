@@ -32,6 +32,18 @@ namespace fs = std::filesystem;
 
 namespace gbarecomp {
 
+std::string heal_toolchain_root() {
+    const char* e = std::getenv("GBARECOMP_HEAL_TOOLCHAIN");
+    if (!e || !e[0]) return "";
+    std::error_code ec;
+#ifdef _WIN32
+    const fs::path gxx = fs::path(e) / "bin" / "g++.exe";
+#else
+    const fs::path gxx = fs::path(e) / "bin" / "g++";
+#endif
+    return fs::exists(gxx, ec) ? std::string(e) : std::string();
+}
+
 namespace {
 
 constexpr char kPicMetadataMagic[8] = {'G','B','A','P','I','C','5','\0'};
@@ -109,6 +121,15 @@ std::string gxx_path() {
     if (const char* e = std::getenv("GBARECOMP_HEAL_CXX")) {
         if (e[0]) return e;
     }
+    // Release: the g++ bundled beside the launcher (GBARECOMP_HEAL_TOOLCHAIN).
+    const std::string root = heal_toolchain_root();
+    if (!root.empty()) {
+#ifdef _WIN32
+        return (fs::path(root) / "bin" / "g++.exe").generic_string();
+#else
+        return (fs::path(root) / "bin" / "g++").generic_string();
+#endif
+    }
 #ifdef _WIN32
     return "C:/msys64/mingw64/bin/g++.exe";
 #else
@@ -165,6 +186,21 @@ std::string overlay_include_flags() {
 // block until exit, return the exit code (-1 on spawn failure).
 int run_process(const std::string& cmdline, const std::string& logpath,
                 std::string* err) {
+    // The bundled mingw cc1plus needs its own bin\ on PATH for its DLLs.
+    static bool path_ready = false;
+    if (!path_ready) {
+        path_ready = true;
+        const std::string root = heal_toolchain_root();
+        if (!root.empty()) {
+            const std::string bin =
+                (fs::path(root) / "bin").make_preferred().string();
+            char cur[32768];
+            DWORD n = GetEnvironmentVariableA("PATH", cur, sizeof(cur));
+            std::string np = bin + ";";
+            if (n > 0 && n < sizeof(cur)) np += cur;
+            SetEnvironmentVariableA("PATH", np.c_str());
+        }
+    }
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
     sa.bInheritHandle = TRUE;
@@ -252,7 +288,17 @@ bool load_and_resolve(const std::string& dll, uint32_t pc,
 #else
 int run_process(const std::string& cmdline, const std::string& logpath,
                 std::string*) {
-    std::string c = cmdline + " > \"" + logpath + "\" 2>&1";
+    // Bundled toolchain env as shell assignments, so it reaches only the
+    // compiler (hostlib's libz/libzstd must never shadow the game's).
+    std::string envp;
+    const std::string root = heal_toolchain_root();
+    if (!root.empty()) {
+        envp = "PATH=\"" + root + "/bin:$PATH\" ";
+        std::error_code ec;
+        if (fs::is_directory(fs::path(root) / "hostlib", ec))
+            envp += "LD_LIBRARY_PATH=\"" + root + "/hostlib\" ";
+    }
+    std::string c = envp + cmdline + " > \"" + logpath + "\" 2>&1";
     return std::system(c.c_str());
 }
 bool load_and_resolve(const std::string& dll, uint32_t pc,
@@ -398,6 +444,12 @@ bool overlay_compile_one(const OverlayWorkItem& w,
                 " -Wl,--export-all-symbols";
 #else
                 " -fPIC";
+#endif
+#ifndef _WIN32
+            const std::string root = heal_toolchain_root();
+            std::error_code sec;
+            if (!root.empty() && fs::is_directory(fs::path(root) / "sysroot", sec))
+                cmd += " --sysroot=\"" + root + "/sysroot\"";
 #endif
         }
 

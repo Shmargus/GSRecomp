@@ -557,6 +557,11 @@ GameResult run_game(const std::string& rom) {
         {"GSR_GPU_FIELD", "1"},
         {"GSR_GPU_FIELD_ONLY", "0"},
     };
+    // Release: point the game's self-heal at the bundled g++ (absent on dev).
+    if (fs::exists(g_root / "builder" / "toolchain" / "bin" / "g++")) {
+        env.push_back({"GBARECOMP_HEAL_TOOLCHAIN",
+                       (g_root / "builder" / "toolchain").string()});
+    }
     for (const char* name : {"GBARECOMP_SWI_LOG", "GBARECOMP_BIOS_PC_LOG",
                              "GBARECOMP_BIOS_READ_LOG"})
         unsetenv(name);
@@ -646,7 +651,7 @@ std::string scrub_user_name(std::string text) {
         std::size_t at = 0;
         while ((at = text.find(needle, at)) != std::string::npos) {
             const std::size_t after = at + needle.size();
-            // Only the whole folder name: /home/jim must not match /home/jimmy.
+            // Only the whole folder name: user "al" must not match user "alex".
             if (after < text.size() && text[after] != '/' && text[after] != '"' &&
                 text[after] != '\'' && text[after] != ' ' && text[after] != '\n') {
                 at = after;
@@ -782,6 +787,9 @@ int run_capture(const std::vector<std::string>& args, std::string* out) {
 std::mutex g_update_mutex;
 gsr_online::Release g_update;
 std::atomic<bool> g_update_found{false};
+// The newest release's notes, shown over the logo whether or not it is newer.
+std::string g_release_notes;  // title line + plain text; under g_update_mutex
+std::atomic<bool> g_release_notes_ready{false};
 // Set however the update check ends; the automatic start waits for it.
 std::atomic<bool> g_update_check_done{false};
 
@@ -813,6 +821,16 @@ void check_for_update() {
         if (!gsr_online::parse_newest_release(reply, true, &release, &error)) {
             launcher_log("Update check: " + error);
             return;
+        }
+        {
+            const std::string notes = gsr_online::notes_to_plain_text(release.notes);
+            if (!notes.empty()) {
+                {
+                    std::lock_guard<std::mutex> lock(g_update_mutex);
+                    g_release_notes = "What's new in " + release.tag + "\n\n" + notes;
+                }
+                g_release_notes_ready = true;
+            }
         }
         if (!gsr_online::is_newer_release(release)) {
             launcher_log("Update check: " + release.tag + " is the newest.");
@@ -867,7 +885,8 @@ void open_with_desktop(const std::string& target) {
 
 // ---------------------------------------------------------------- window
 
-enum class Dialog { None, Message, TypePath, BugReport, Update, AskAutoStart };
+enum class Dialog { None, Message, TypePath, BugReport, Update, AskAutoStart,
+                  AskStartOrNotes };
 
 struct Ui {
     Dialog dialog = Dialog::None;
@@ -1040,6 +1059,7 @@ int main(int, char**) {
 
     bool ready = game_code_ready();
     bool running = true;
+    std::string release_notes;  // empty until the update check has them
     if (g_ui.auto_start && ready && !g_ui.remembered_rom.empty()) {
         launcher_log("Start automatically: waiting for the update check.");
         g_ui.auto_start_began = std::max<Uint32>(1, SDL_GetTicks());
@@ -1075,10 +1095,12 @@ int main(int, char**) {
                                                   "not match this release.")
                                     : "Build: failed: " + build_error);
             if (ready) {
-                g_ui.pending_rom = "@play:" + g_build_rom;
+                // The game starts only after the player answers the questions.
                 std::error_code exists_ec;
                 if (!fs::exists(auto_start_path(), exists_ec))
                     g_ui.dialog = Dialog::AskAutoStart;
+                else
+                    g_ui.dialog = Dialog::AskStartOrNotes;
             } else {
                 show_message("The game could not be prepared",
                              build_error + "\n\nThe full log is builder/work/build-log.txt.",
@@ -1105,6 +1127,23 @@ int main(int, char**) {
         }
 
         const float bottom = size.y - 40.0f;
+        if (g_release_notes_ready.exchange(false)) {
+            std::lock_guard<std::mutex> lock(g_update_mutex);
+            release_notes = g_release_notes;
+        }
+        // Over the logo, from y 40 down to just above the status text.
+        if (!release_notes.empty()) {
+            ImGui::SetCursorPos(ImVec2(40.0f, 40.0f));
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.03f, 0.02f, 0.08f, 0.88f));
+            if (ImGui::BeginChild("##notes", ImVec2(size.x - 80.0f, bottom - 170.0f - 5.0f - 40.0f),
+                                  true)) {
+                ImGui::PushTextWrapPos(0.0f);
+                ImGui::TextUnformatted(release_notes.c_str());
+                ImGui::PopTextWrapPos();
+            }
+            ImGui::EndChild();
+            ImGui::PopStyleColor();
+        }
         std::string text, note;
         if (build_running) {
             const bool step_two = stage.find("Compiling") != std::string::npos ||
@@ -1328,6 +1367,25 @@ int main(int, char**) {
                     write_text(auto_start_path(), yes ? "1\n" : "0\n");
                     launcher_log(yes ? "Start automatically: on (asked after the build)."
                                      : "Start automatically: off (asked after the build).");
+                    g_ui.dialog = Dialog::AskStartOrNotes;
+                    ImGui::CloseCurrentPopup();
+                }
+            } else if (g_ui.dialog == Dialog::AskStartOrNotes) {
+                ImGui::TextUnformatted("The game is ready");
+                ImGui::Separator();
+                ImGui::TextUnformatted(
+                    "The game is ready.\n\nStart it now, or read what's new in this version "
+                    "first? The Play button starts it whenever you are ready.");
+                const bool start = ImGui::Button("Start now", ImVec2(120, 0));
+                ImGui::SameLine();
+                const bool notes = ImGui::Button("What's new", ImVec2(120, 0));
+                if (start || notes) {
+                    if (start) {
+                        launcher_log("Build: finished; the player chose to start now.");
+                        g_ui.pending_rom = "@play:" + g_build_rom;
+                    } else {
+                        launcher_log("Build: finished; the player chose to read what's new first.");
+                    }
                     g_ui.dialog = Dialog::None;
                     ImGui::CloseCurrentPopup();
                 }
@@ -1347,6 +1405,25 @@ int main(int, char**) {
             const std::string pending = g_ui.pending_rom;
             if (pending.rfind("@play:", 0) == 0) {
                 g_ui.pending_rom.clear();
+                // Golden Sun's flash save is 64 KiB; the engine refuses a larger
+                // .sav (runtime.cpp "save file too large"), so say why.
+                constexpr std::uintmax_t kGameSaveBytes = 0x10000;
+                const fs::path save = fs::path(pending.substr(6)).replace_extension(".sav");
+                std::error_code save_ec;
+                const std::uintmax_t save_size = fs::file_size(save, save_ec);
+                if (!save_ec && save_size > kGameSaveBytes) {
+                    launcher_log("Start game: save file " + save.string() + " is " +
+                                 std::to_string(save_size) +
+                                 " bytes, larger than 65536: not started.");
+                    show_message("This save file can't be used",
+                                 "The save file next to your ROM was made by an emulator "
+                                 "or another program, and Golden Sun Recompiled can't "
+                                 "read it.\n\n" + save.string() +
+                                 "\n\nMove it to another folder or delete it, then start "
+                                 "the game again. The game will make a new save there.",
+                                 true);
+                    continue;
+                }
                 SDL_HideWindow(window);
                 const GameResult game = run_game(pending.substr(6));
                 SDL_ShowWindow(window);

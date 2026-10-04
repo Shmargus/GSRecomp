@@ -9,7 +9,7 @@
 # reviewed section seeds: 2539
 # reviewed interworking resumes: 216
 # derived veneer resumes: 705
-# reviewed conditional branch overrides: 45
+# reviewed conditional branch overrides: 46
 # reviewed resume ranges: 500 from 218 function(s)
 
 [program]
@@ -67,6 +67,10 @@ note = "Func_c62c upper-Y BGT: bypass the direct reject route"
 [[conditional_branch_override]]
 addr = 0x0801cfc6
 note = "Settings screen BLE: skip the icon bounce for Message speed Instant"
+
+[[conditional_branch_override]]
+addr = 0x080031bc
+note = "Frame wait auto-sleep BEQ: idle timer off (Hard Mode replaces Auto-Sleep)"
 
 [[conditional_branch_override]]
 addr = 0x080948bc
@@ -225,6 +229,14 @@ addr = 0x0801d6c6
 note = "Settings screen: Message-speed caption draw x movs #0xA0"
 
 [[thumb_alu_immediate_override]]
+addr = 0x0801d706
+note = "Settings screen: Auto-Sleep (Hard Mode) caption clear x movs #0xA0"
+
+[[thumb_alu_immediate_override]]
+addr = 0x0801d716
+note = "Settings screen: Auto-Sleep (Hard Mode) caption draw x movs #0xA0"
+
+[[thumb_alu_immediate_override]]
 addr = 0x08010264
 note = "Func_10230 camera min-X adds r7,r3,#0: expanded view minimum"
 
@@ -259,6 +271,18 @@ note = "Settings screen setup: Message-speed icon table 0x080367C9"
 [[thumb_literal_override]]
 addr = 0x0801d5b6
 note = "Settings screen redraw: Message-speed icon table 0x080367C9"
+
+[[thumb_literal_override]]
+addr = 0x0801d412
+note = "Settings screen setup: Auto-Sleep (Hard Mode) icon table 0x080367CE"
+
+[[thumb_literal_override]]
+addr = 0x0801d624
+note = "Settings screen redraw: Auto-Sleep (Hard Mode) icon table 0x080367CE"
+
+[[thumb_literal_override]]
+addr = 0x0801d6fc
+note = "Settings screen: Auto-Sleep (Hard Mode) caption text ID base 0xC13"
 
 [[thumb_literal_override]]
 addr = 0x0801d772
