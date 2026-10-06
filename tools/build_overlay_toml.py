@@ -58,6 +58,13 @@ REVIEWED_OVERLAY_OVERRIDES = {
         ("thumb_alu_immediate_override", 0x020085E6,
          "OvlFunc_598 town box: lower z bound movs #200"),
     ),
+    # Sol Sanctum's cloud rows are queued only while on the 240x160 screen
+    # (`cmp r3,#0xAF; bhi`, r3 = y + 16); the expanded view admits the top
+    # margin (FACTS.md, 2026-10-05).
+    "rom_78c76c": (
+        ("conditional_branch_override", 0x02008EEC,
+         "Sol Sanctum cloud rows: screen-Y BHI, admit the top margin"),
+    ),
 }
 
 

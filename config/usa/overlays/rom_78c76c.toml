@@ -508,6 +508,10 @@ start = 0x0200a568
 end = 0x0200a978
 note = "overlay ELF mapping-symbol data or non-executable loaded bytes"
 
+[[conditional_branch_override]]
+addr = 0x02008eec
+note = "Sol Sanctum cloud rows: screen-Y BHI, admit the top margin"
+
 [[extra_func]]
 addr = 0x02008000
 mode = "thumb"

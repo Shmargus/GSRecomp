@@ -1740,6 +1740,40 @@ static_assert(!golden_sun_obj_bottom_margin_cannot_wrap(199, 0x8000u, 0xC000u),
 static_assert(!golden_sun_obj_bottom_margin_cannot_wrap(199, 0x6300u, 0xC000u),
               "double-size 64x32 is 64 tall");
 
+// The row to draw a sprite at when a provided Y would hide what the console
+// shows. A box wholly outside the expanded view, whose own 8-bit OAM reading
+// puts the whole box on the console's 160 rows, is drawn at that reading.
+// Flint on the Djinn-join world map: recorded -176, OAM 80 (gpu_rewind_0012
+// of bug_report_20261005_094058). A box the reading only cuts into at the
+// console's bottom edge is the hardware wrapping a sprite that belongs above
+// the screen; the handheld shows a sliver there, and taking that reading
+// drew the whole sprite in the bottom margin: the Vale storm villagers
+// (recorded -114, 64-row affine double box at OAM 142; gpu_rewind_0001 of
+// bug_report_20261005_122036) and the Sol Sanctum statues (32x64 at OAM
+// 123, recorded -133; logs/gpu_rewind_0134).
+inline constexpr int golden_sun_obj_y_shown_reading(
+    int y, std::uint16_t attr0, std::uint16_t attr1) {
+    int width = 0, height = 0;
+    if (!golden_sun_obj_dimensions(attr0 >> 14, attr1 >> 14, &width,
+                                   &height)) return y;
+    if ((attr0 & 0x0300u) == 0x0300u) height *= 2;
+    if (y < static_cast<int>(kNativeHeight) + kExpandedExtraY &&
+        y + height > -kExpandedExtraY) return y;
+    const int raw = attr0 & 0xFF;
+    if (raw + height > static_cast<int>(kNativeHeight)) return y;
+    return raw;
+}
+static_assert(golden_sun_obj_y_shown_reading(-176, 0x2150u, 0x8000u) == 80,
+              "Flint: 32x32 at OAM 80, recorded -176");
+static_assert(golden_sun_obj_y_shown_reading(-30, 0x20E2u, 0x8000u) == -30,
+              "sprite in the top margin is unchanged");
+static_assert(golden_sun_obj_y_shown_reading(-64, 0x00C0u, 0x0000u) == -64,
+              "parked 8x8 at OAM 192 stays hidden");
+static_assert(golden_sun_obj_y_shown_reading(-114, 0x038Eu, 0x8000u) == -114,
+              "villager above the screen, affine double at OAM 142");
+static_assert(golden_sun_obj_y_shown_reading(-133, 0x807Bu, 0xC000u) == -133,
+              "Sol Sanctum statue above the screen, 32x64 at OAM 123");
+
 // ---- sprite placement outcomes -------------------------------------------
 //
 // Why this vocabulary exists as policy rather than as loose strings in

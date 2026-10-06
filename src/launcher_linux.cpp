@@ -561,12 +561,13 @@ GameResult run_game(const std::string& rom) {
         // Graphics card only, as the Windows player launcher: the console
         // compositor's fallback picture made widescreen slow on the Deck.
         {"GSR_GPU_FIELD_ONLY", "1"},
+        // Mutable-RAM native healing is enabled for both player and dev
+        // launchers; the dev-only extras below remain conditional.
+        {"GBARECOMP_SELFHEAL_RAM", "1"},
 #ifdef GSR_LINUX_DEV_LAUNCHER
         // The Windows developer launcher's extras (make_release_linux.sh
-        // --dev): RAM self-heal and the per-frame timing CSVs beside the
-        // session log. Rewind stays on, as for players, so F12 on the Deck
-        // saves the last 2 seconds.
-        {"GBARECOMP_SELFHEAL_RAM", "1"},
+        // --dev): per-frame timing CSVs beside the session log. Rewind stays
+        // on, as for players, so F12 on the Deck saves the last 2 seconds.
         {"GSR_FRAME_REWIND", "1"},
         {"GBARECOMP_FRAME_EVENTS",
          fs::path(result.log_path).replace_extension(".events.csv").string()},
@@ -591,7 +592,7 @@ GameResult run_game(const std::string& rom) {
 #ifdef GSR_LINUX_DEV_LAUNCHER
     log.line("[launcher] ", "dev launcher: test_variables=ON set=GBARECOMP_SELFHEAL_RAM,GSR_FRAME_REWIND gpu_field_only=1");
 #else
-    log.line("[launcher] ", "test_variables=OFF set=GSR_FRAME_REWIND gpu_field_only=1");
+    log.line("[launcher] ", "test_variables=OFF set=GBARECOMP_SELFHEAL_RAM,GSR_FRAME_REWIND gpu_field_only=1");
 #endif
 
     const std::string game = (g_root / "GoldenSunRecomp").string();

@@ -50,6 +50,60 @@ inline constexpr int kPadTriggerLeftValue  = 21;  // == SDL_CONTROLLER_BUTTON_MA
 inline constexpr int kPadTriggerLeft  = kPadTriggerLeftValue;      // synthetic "L2"
 inline constexpr int kPadTriggerRight = kPadTriggerLeftValue + 1;  // synthetic "R2"
 
+// Synthetic ids for the eight analog stick directions, so a stick can be bound
+// like a button. Same idea as the triggers: SDL reports sticks only as axes.
+// Generated from SDL_CONTROLLERAXISMOTION in host_window.cpp with the same
+// press/release hysteresis as the triggers.
+inline constexpr int kPadLeftStickRight  = kPadTriggerLeftValue + 2;
+inline constexpr int kPadLeftStickLeft   = kPadTriggerLeftValue + 3;
+inline constexpr int kPadLeftStickUp     = kPadTriggerLeftValue + 4;
+inline constexpr int kPadLeftStickDown   = kPadTriggerLeftValue + 5;
+inline constexpr int kPadRightStickRight = kPadTriggerLeftValue + 6;
+inline constexpr int kPadRightStickLeft  = kPadTriggerLeftValue + 7;
+inline constexpr int kPadRightStickUp    = kPadTriggerLeftValue + 8;
+inline constexpr int kPadRightStickDown  = kPadTriggerLeftValue + 9;
+
+inline constexpr bool pad_is_stick(int id) {
+    return id >= kPadLeftStickRight && id <= kPadRightStickDown;
+}
+
+// One name table for the synthetic ids, used by the ini load/save code and the
+// bind-box label. Names are lowercase with no separators, like SDL's own
+// button strings. "lefttrigger"/"righttrigger" are kept for old ini files.
+inline const char* pad_synth_name(int id) {
+    switch (id) {
+    case kPadTriggerLeft:     return "lefttrigger";
+    case kPadTriggerRight:    return "righttrigger";
+    case kPadLeftStickRight:  return "leftstickright";
+    case kPadLeftStickLeft:   return "leftstickleft";
+    case kPadLeftStickUp:     return "leftstickup";
+    case kPadLeftStickDown:   return "leftstickdown";
+    case kPadRightStickRight: return "rightstickright";
+    case kPadRightStickLeft:  return "rightstickleft";
+    case kPadRightStickUp:    return "rightstickup";
+    case kPadRightStickDown:  return "rightstickdown";
+    default:                  return nullptr;
+    }
+}
+
+// Returns the synthetic id for a name (case-insensitive), or -1 if unknown.
+inline int pad_synth_from_name(const char* name) {
+    if (!name) return -1;
+    for (int id = kPadTriggerLeft; id <= kPadRightStickDown; ++id) {
+        const char* n = pad_synth_name(id);
+        const char* a = n;
+        const char* b = name;
+        while (*a && *b) {
+            char c = *b;
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+            if (*a != c) break;
+            ++a; ++b;
+        }
+        if (!*a && !*b) return id;
+    }
+    return -1;
+}
+
 // Cached, host-owned values shown by the optional in-game debug overlay.
 // Runtime code publishes audio state at its normal emulation boundary; the
 // overlay never reads environment variables or guest memory while drawing.
@@ -95,7 +149,7 @@ struct ConfigUiState {
     bool  vsync = true;
     bool  linear_filter = false;    // off = crisp nearest-neighbour
     bool  integer_scale = true;
-    int   screen_kind = 0;          // Raw/Unlit/Frontlit/Backlit/Classic
+    int   screen_kind = 0;          // runtime::ScreenKind (color_lut.h)
     bool  show_fps = false;
 
     // --- audio --------------------------------------------------------------

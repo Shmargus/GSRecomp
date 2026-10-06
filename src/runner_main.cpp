@@ -8198,7 +8198,10 @@ int golden_sun_wide_obj_attr_y_provider(int oam_index,
     switch (gsr::widescreen::golden_sun_obj_y_resolution(
         signed_provenance_matches)) {
     case gsr::widescreen::GoldenSunObjYResolution::SignedProvenance:
-        *out_y = provenance.logical_y;
+        // Never hide what the handheld shows: Flint was recorded at -176
+        // with OAM 80 (gpu_rewind_0012 of bug_report_20261005_094058).
+        *out_y = gsr::widescreen::golden_sun_obj_y_shown_reading(
+            provenance.logical_y, attr0, attr1);
         record_obj(GoldenSunObjYOutcome::AcceptedProvenance);
         trace_golden_sun_obj_y_jump(
             oam_index, raw_y, provenance.logical_y, provenance,
@@ -8234,7 +8237,8 @@ int golden_sun_wide_obj_attr_y_provider(int oam_index,
             int track_x = 0, track_y = 0;
             if (golden_sun_obj_track_lookup(oam_index, attr0, attr1,
                                             &track_x, &track_y)) {
-                *out_y = track_y;
+                *out_y = gsr::widescreen::golden_sun_obj_y_shown_reading(
+                    track_y, attr0, attr1);
                 return 1;
             }
         }
@@ -9185,8 +9189,29 @@ void build_room_vram(const std::vector<std::uint8_t>& vram,
     *out = vram;
     std::copy(g_room_char_copy.begin(), g_room_char_copy.end(), out->begin());
     out_palette->assign(palette.begin(), palette.end());
-    std::copy(g_room_palette_copy.begin(), g_room_palette_copy.end(),
-              out_palette->begin());
+    // A screen-wide palette effect (the Vale storm's lightning flash, a fade,
+    // a tint) changes every used bank of 0-13 (lightning: 211 entries in
+    // banks 0-13, not 14 or 15; gpu_rewind_0004 of
+    // bug_report_20261005_094058). Menus never do: they load their own
+    // colours into a few banks (Status 0, 1, 14; Djinn 0, 1, 4-7, 14; Item
+    // none). Then the margins keep the live colours of banks 0-13; banks 14
+    // and 15 are the windows' own and still come from the copy.
+    bool any_used = false, all_used_changed = true;
+    for (int bank = 0; bank < 14; ++bank) {
+        bool used = false, changed = false;
+        for (int i = bank * 16; i < bank * 16 + 16; ++i) {
+            if (g_room_palette_copy[i] != 0u) used = true;
+            if (palette[i] != g_room_palette_copy[i]) changed = true;
+        }
+        if (!used) continue;
+        any_used = true;
+        if (!changed) all_used_changed = false;
+    }
+    const bool screen_wide = any_used && all_used_changed;
+    const std::size_t restore_from = screen_wide ? 14u * 16u : 0u;
+    std::copy(g_room_palette_copy.begin() + restore_from,
+              g_room_palette_copy.end(),
+              out_palette->begin() + restore_from);
 }
 
 struct GpuFieldCapture {
@@ -9499,7 +9524,10 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     // a few banks (Status 0, 1 and 14; Djinn 0, 1, 4-7 and 14), and
     // following those turned the held margins into noise
     // (logs/gpu_rewind_0062/0063, 2026-10-01). The Psynergy tint changed
-    // every bank but 15, the windows' own (logs/gpu_frame_0102.bin).
+    // every bank but 15, the windows' own (logs/gpu_frame_0102.bin). The
+    // green Djinn-join tint changes banks 0-13 only, not 14 or 15
+    // (gpu_rewind_0013 of bug_report_20261005_094058), so the check covers
+    // banks 0-13: no menu changes all of those.
     const auto& pal = g_gpu_field_capture.pal;
     if (pal.size() < 512) return;
     int delta[256][3];
@@ -9515,7 +9543,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
         if (live != g_world_margin_pal[i]) bank_changed[i / 16] = true;
     }
     bool whole_palette = false;
-    for (int bank = 0; bank < 15; ++bank) {
+    for (int bank = 0; bank < 14; ++bank) {
         if (!bank_used[bank]) continue;
         if (!bank_changed[bank]) return;  // a menu's colours: keep the margins
         whole_palette = true;
@@ -9546,19 +9574,13 @@ void native_page_patch_capture(std::vector<std::uint8_t>& vram,
 void auto_capture_check_sprites(const gsr::FieldScene& scene,
                                 const std::uint8_t* oam);
 
-// Sprite edge continuity (launcher test option, GSR_OBJ_Y_CONTINUITY): see
-// src/obj_y_continuity.h. Field frames in the expanded view only; every
-// change is logged as [obj-y-continuity] (the first 400).
+// Sprite edge continuity: see src/obj_y_continuity.h. On by default since
+// 2026-10-05 (Jimmy; it was the launcher test option GSR_OBJ_Y_CONTINUITY).
+// Field frames in the expanded view only; every change is logged as
+// [obj-y-continuity] (the first 400).
 void apply_obj_y_continuity_if_enabled(gsr::FieldScene* scene,
                                        const std::uint8_t* oam,
                                        const std::vector<std::uint8_t>& io) {
-    static const bool enabled = [] {
-        const char* e = std::getenv("GSR_OBJ_Y_CONTINUITY");
-        const bool on = e != nullptr && e[0] != '\0' && e[0] != '0';
-        if (on) std::fprintf(stderr, "[obj-y-continuity] on\n");
-        return on;
-    }();
-    if (!enabled) return;
     static gsr::ObjYContinuity state;
     static unsigned reported = 0;
     const bool field = scene->video_mode == 0 &&
@@ -12397,12 +12419,20 @@ struct CameraInset {
 // 0..512 in both axes): an inset there moved the logo 60 px left and 40 up
 // and pulled hidden rows of its map into view (gpu_rewind_0100; every map 1
 // capture, maprec "Title" included, is the title or its file menu).
+// The live number is not enough: on the Continue screen it follows the
+// highlighted save (1 -> 111, "Tolbi-bound Ship", gpu_rewind_0143 frame 96)
+// while the title is still showing, as in The Lost Age (TLARecomp be0078e).
+// So the number is taken when a room's camera is set up (Func_10230) and
+// kept until the next room; a live 0 or 1 (boot, title) resets it.
 constexpr std::uint32_t kCameraMapNumberAddr = 0x02000408u;
+static std::uint16_t g_camera_room_map = 0;
 
 CameraInset golden_sun_camera_inset() {
     CameraInset inset;
     if (!golden_sun_expanded_obj_view_active()) return inset;
-    if (bus_read_u16(kCameraMapNumberAddr) <= 1u) return inset;
+    const std::uint16_t live_map = bus_read_u16(kCameraMapNumberAddr);
+    if (live_map <= 1u) g_camera_room_map = live_map;
+    if (g_camera_room_map <= 1u) return inset;
     const std::uint32_t s = bus_read_u32(kCameraStructPointer);
     const auto word = [&](std::uint32_t off) {
         return static_cast<std::int32_t>(bus_read_u32(s + off));
@@ -12566,6 +12596,9 @@ int golden_sun_camera_clamp_branch(std::uint32_t pc, std::uint32_t original,
         return original != 0u ? 1 : 0;
     }
     if (pc != kCameraMinXBranchPc && pc != kCameraMinYBranchPc) return -1;
+    // Func_10230's first hooked site: a room's camera is being set up.
+    if (pc == kCameraMinXBranchPc)
+        g_camera_room_map = bus_read_u16(kCameraMapNumberAddr);
     const CameraInset inset = golden_sun_camera_inset();
     const std::int32_t in = pc == kCameraMinXBranchPc ? inset.left : inset.top;
     if (in == 0) return 0;
@@ -12868,6 +12901,31 @@ int golden_sun_worldmap_sprite_branch(std::uint32_t pc, std::uint32_t original,
     return 1;
 }
 
+// Sol Sanctum's cloud rows (overlay rom_78c76c, loaded at 0x02008000): the
+// room code puts three rows of 32x8 cloud sprites at y = 80 - camera (the
+// third at y + 8) and queues them only while `cmp r3,#0xAF; bhi` passes with
+// r3 = y + 16, i.e. -16 <= y <= 159. In the expanded view the rows vanished
+// while still inside the top margin and popped back in at y -16 (Jimmy,
+// 2026-10-05; logs/gpu_rewind_0141 frames 54-60). Admit the top band down to
+// the rows' last visible line; the lower band is kept for the same 8-bit Y
+// reason as the world-map sprites above. The site is checked against the
+// instruction bytes, so another room's code at this address is untouched.
+constexpr std::uint32_t kSolSanctumCloudBranchPc = 0x02008EECu;
+int golden_sun_overlay_sprite_branch(std::uint32_t pc, std::uint32_t original,
+                                     std::uint32_t* out_decision) {
+    if (pc != kSolSanctumCloudBranchPc) return -1;
+    if (original != 1u || !golden_sun_expanded_obj_view_active()) return 0;
+    if (bus_read_u16(pc - 2u) != 0x2BAFu ||          // cmp r3, #0xAF
+        (bus_read_u16(pc) & 0xFF00u) != 0xD800u)     // bhi
+        return 0;
+    const std::int32_t y = static_cast<std::int32_t>(g_cpu.R[3]) - 16;
+    const std::int32_t top = -static_cast<std::int32_t>(
+        g_golden_sun_wide_extra_top);
+    if (y >= -16 || y + 16 <= top) return 0;
+    *out_decision = 0u;
+    return 1;
+}
+
 // Every reviewed conditional branch in config/usa/main.toml. The widescreen
 // sites act only in the expanded view; the Message-speed icon bounce acts in
 // every view.
@@ -12876,6 +12934,11 @@ int golden_sun_conditional_branch(std::uint32_t pc, std::uint32_t original,
     using namespace gsr::text_speed_cheat;
     if (const int r = golden_sun_worldmap_sprite_branch(pc, original,
                                                         out_decision);
+        r >= 0) {
+        return r;
+    }
+    if (const int r = golden_sun_overlay_sprite_branch(pc, original,
+                                                       out_decision);
         r >= 0) {
         return r;
     }

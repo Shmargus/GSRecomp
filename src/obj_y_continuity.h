@@ -1,6 +1,6 @@
 // Sprite edge continuity: which of a tall field sprite's two Y readings to
-// draw in the expanded view. Test option ("Sprite edge continuity" in the
-// launcher's test variables, GSR_OBJ_Y_CONTINUITY); off by default.
+// draw in the expanded view. Always on since 2026-10-05 (was the launcher
+// test option "Sprite edge continuity", GSR_OBJ_Y_CONTINUITY).
 //
 // OAM keeps Y in 8 bits, so every raw value has two readings 256 apart.
 // The 360x240 view is 240 rows tall, so for a sprite box taller than 56

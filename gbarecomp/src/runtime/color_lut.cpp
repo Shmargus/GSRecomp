@@ -171,6 +171,12 @@ bool screen_kind_from_name(std::string_view name, ScreenKind& out) {
     if (name == "frontlit") { out = ScreenKind::Frontlit; return true; }
     if (name == "backlit")  { out = ScreenKind::Backlit;  return true; }
     if (name == "classic")  { out = ScreenKind::Classic;  return true; }
+    if (name == "handheld") { out = ScreenKind::Handheld; return true; }
+    if (name == "handheld_light") { out = ScreenKind::HandheldLight; return true; }
+    if (name == "soft")     { out = ScreenKind::Soft;     return true; }
+    if (name == "natural")  { out = ScreenKind::Natural;  return true; }
+    if (name == "warm")     { out = ScreenKind::Warm;     return true; }
+    if (name == "deep")     { out = ScreenKind::Deep;     return true; }
     return false;
 }
 
@@ -185,6 +191,66 @@ ColorLut::ColorLut(const ColorSettings& settings) {
             table[px] = {static_cast<uint8_t>(r << 3 | r >> 2),
                          static_cast<uint8_t>(g << 3 | g >> 2),
                          static_cast<uint8_t>(b << 3 | b >> 2)};
+        }
+        return;
+    }
+    if (settings.screen >= ScreenKind::Handheld) {
+        // One colour mix in the game's own (gamma-encoded) values, then an
+        // optional darkening curve. No offset term, so black stays black and
+        // the widescreen margins stay black.
+        //
+        // Handheld was fitted by least squares to a photo of Golden Sun on
+        // an Analogue Pocket beside a GBA SP (Jimmy, 2026-10-06): the window
+        // blue goes steel blue, yellow wood golden-brown, neon green olive.
+        constexpr double kHandheld[3][3] = {{0.489, 0.390, 0.143},
+                                            {-0.021, 0.674, 0.296},
+                                            {-0.052, 0.103, 0.808}};
+        // Soft, Natural, Warm and Deep sit between that and the game's own
+        // colours (chosen by eye on the ship cabin and a cave, 2026-10-06).
+        constexpr double kLuma[3] = {0.299, 0.587, 0.114};
+        // Pulls green toward yellow and cools nothing: the warm one's tint.
+        constexpr double kWarmTint[3][3] = {{0.86, 0.18, -0.04},
+                                            {0.03, 0.90, 0.07},
+                                            {0.00, 0.08, 0.86}};
+        double mix[3][3];
+        double saturation = 1.0, curve = 1.0, handheld = 0.0;
+        bool warm = false;
+        switch (settings.screen) {
+            case ScreenKind::Handheld:      handheld = 1.0; break;
+            case ScreenKind::HandheldLight: handheld = 0.6; break;
+            case ScreenKind::Soft:          handheld = 0.35; break;
+            case ScreenKind::Natural:  saturation = 0.72; curve = 1.1; break;
+            case ScreenKind::Warm:     saturation = 0.8; curve = 1.05;
+                                       warm = true; break;
+            case ScreenKind::Deep:     saturation = 0.88; curve = 1.25; break;
+            default: break;
+        }
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j) {
+                // Saturation around luma, then the handheld blend.
+                const double s = saturation * (i == j ? 1.0 : 0.0) +
+                                 (1.0 - saturation) * kLuma[j];
+                mix[i][j] = handheld * kHandheld[i][j] + (1.0 - handheld) * s;
+            }
+        if (warm) {
+            double t[3][3];
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j)
+                    t[i][j] = kWarmTint[i][0] * mix[0][j] +
+                              kWarmTint[i][1] * mix[1][j] +
+                              kWarmTint[i][2] * mix[2][j];
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j) mix[i][j] = t[i][j];
+        }
+        for (int px = 0; px < 32768; ++px) {
+            const double c[3] = {(px & 31) / 31.0, ((px >> 5) & 31) / 31.0,
+                                 ((px >> 10) & 31) / 31.0};
+            for (int i = 0; i < 3; ++i) {
+                double v = mix[i][0] * c[0] + mix[i][1] * c[1] +
+                           mix[i][2] * c[2];
+                v = v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v);
+                table[px][i] = quantize(curve == 1.0 ? v : std::pow(v, curve));
+            }
         }
         return;
     }

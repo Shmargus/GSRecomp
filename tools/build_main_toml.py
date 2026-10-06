@@ -1202,6 +1202,28 @@ REVIEWED_RESUME_FUNCTIONS = (
     # session_20260923_202001; miss PC lies inside the sized ELF STT_FUNC
     # listed (thumb). Resolved with tools/resolve_miss_functions.py.
     {"addr": 0x080F377C, "mode": "thumb", "note": "observed resume at 0x080f3798 (Func_f377c+0x1c)"},
+    # session_20261005_130544 (intro played with uncapped speed): 40 thumb
+    # PCs bridged at top level, all inside the two sized ELF STT_FUNCs below.
+    # Resolved with tools/resolve_miss_functions.py.
+    {"addr": 0x080AB5E4, "mode": "thumb", "note": "observed resumes at 0x080abda0..0x080ac19c, 32 PCs (Func_ab5e4)"},
+    {"addr": 0x080AD6D4, "mode": "thumb", "note": "observed resumes at 0x080adcd0..0x080addea, 8 PCs (Func_ad6d4)"},
+    # Older heals still served from recomp_cache with no static entry
+    # (cache dated 2026-09-26..09-30, 51 PCs; called 48 times in
+    # session_20261005_135417). Resolved with tools/resolve_miss_functions.py.
+{"addr": 0x080056CC, "mode": "thumb", "note": "observed resumes at 0x0800576a..0x080057f8, 2 PCs (Func_56cc)"},
+    {"addr": 0x08005C08, "mode": "thumb", "note": "observed resume at 0x08005c22 (Func_5c08)"},
+    {"addr": 0x0800FB38, "mode": "thumb", "note": "observed resume at 0x0800fbba (Func_fb38)"},
+    {"addr": 0x08010704, "mode": "thumb", "note": "observed resume at 0x08010754 (Func_10704)"},
+    {"addr": 0x08010E14, "mode": "thumb", "note": "observed resume at 0x08010ebe (Func_10e14)"},
+    {"addr": 0x080158E8, "mode": "arm", "note": "observed resumes at 0x08015998..0x08015a80, 6 PCs (Func_158e8)"},
+    {"addr": 0x0801EDEC, "mode": "thumb", "note": "observed resume at 0x0801ee3e (Func_1edec)"},
+    {"addr": 0x08021A18, "mode": "thumb", "note": "observed resume at 0x08021a6c (Func_21a18)"},
+    {"addr": 0x080AA460, "mode": "thumb", "note": "observed resume at 0x080aa51c (Func_aa460)"},
+    {"addr": 0x080CA60C, "mode": "thumb", "note": "observed resumes at 0x080ca6f8..0x080ca70a, 4 PCs (Func_ca60c)"},
+    {"addr": 0x080D6578, "mode": "thumb", "note": "observed resumes at 0x080d65dc..0x080d6634, 13 PCs (Func_d6578)"},
+    {"addr": 0x080DBC30, "mode": "thumb", "note": "observed resumes at 0x080dbd84..0x080dbd8e, 2 PCs (Func_dbc30)"},
+    {"addr": 0x080DC968, "mode": "thumb", "note": "observed resumes at 0x080dcdc0..0x080dceaa, 11 PCs (Func_dc968)"},
+    {"addr": 0x080DE2F8, "mode": "thumb", "note": "observed resumes at 0x080de4c4..0x080de55a, 6 PCs (Func_de2f8)"},
 )
 
 # Explicit mid-function resume entries require runtime evidence. This PC is the

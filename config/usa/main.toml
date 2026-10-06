@@ -10,7 +10,7 @@
 # reviewed interworking resumes: 216
 # derived veneer resumes: 705
 # reviewed conditional branch overrides: 46
-# reviewed resume ranges: 500 from 218 function(s)
+# reviewed resume ranges: 555 from 234 function(s)
 
 [program]
 name = "Golden Sun (USA/Europe) main image"
@@ -47534,10 +47534,34 @@ mode = "thumb"
 note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_53e8; observed resumes at 0x0800540e and 0x0800542c (Func_53e8)"
 
 [[resume_range]]
+start = 0x080056cc
+end = 0x08005720
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_56cc; observed resumes at 0x0800576a..0x080057f8, 2 PCs (Func_56cc)"
+
+[[resume_range]]
+start = 0x0800572c
+end = 0x08005786
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_56cc; observed resumes at 0x0800576a..0x080057f8, 2 PCs (Func_56cc)"
+
+[[resume_range]]
+start = 0x08005798
+end = 0x0800580e
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_56cc; observed resumes at 0x0800576a..0x080057f8, 2 PCs (Func_56cc)"
+
+[[resume_range]]
 start = 0x08005ae0
 end = 0x08005b1c
 mode = "thumb"
 note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_5ae0; observed resume at 0x08005b16 (Func_5ae0+0x36)"
+
+[[resume_range]]
+start = 0x08005c08
+end = 0x08005c2a
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_5c08; observed resume at 0x08005c22 (Func_5c08)"
 
 [[resume_range]]
 start = 0x08006a00
@@ -47852,6 +47876,18 @@ mode = "thumb"
 note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_f9f4; observed input-driven resume at 0x0800fa5a (Func_f9f4+0x66)"
 
 [[resume_range]]
+start = 0x0800fb38
+end = 0x0800fd22
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_fb38; observed resume at 0x0800fbba (Func_fb38)"
+
+[[resume_range]]
+start = 0x0800fd5c
+end = 0x0800fe70
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_fb38; observed resume at 0x0800fbba (Func_fb38)"
+
+[[resume_range]]
 start = 0x0800fec8
 end = 0x0800ff44
 mode = "thumb"
@@ -47876,10 +47912,22 @@ mode = "thumb"
 note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_10424; observed input-driven resume at 0x080104d4 (Func_10424+0xb0)"
 
 [[resume_range]]
+start = 0x08010704
+end = 0x0801077c
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_10704; observed resume at 0x08010754 (Func_10704)"
+
+[[resume_range]]
 start = 0x080108e4
 end = 0x080109cc
 mode = "thumb"
 note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_108e4; observed resumes at 0x08010968 and 0x0801099a (Func_108e4)"
+
+[[resume_range]]
+start = 0x08010e14
+end = 0x08010f98
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_10e14; observed resume at 0x08010ebe (Func_10e14)"
 
 [[resume_range]]
 start = 0x0801179c
@@ -47910,6 +47958,24 @@ start = 0x080123f4
 end = 0x08012502
 mode = "thumb"
 note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_123f4; observed resume at 0x08012492 (Func_123f4+0x9e)"
+
+[[resume_range]]
+start = 0x080158e8
+end = 0x08015948
+mode = "arm"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_158e8; observed resumes at 0x08015998..0x08015a80, 6 PCs (Func_158e8)"
+
+[[resume_range]]
+start = 0x08015998
+end = 0x08015a0c
+mode = "arm"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_158e8; observed resumes at 0x08015998..0x08015a80, 6 PCs (Func_158e8)"
+
+[[resume_range]]
+start = 0x08015a60
+end = 0x08015afc
+mode = "arm"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_158e8; observed resumes at 0x08015998..0x08015a80, 6 PCs (Func_158e8)"
 
 [[resume_range]]
 start = 0x08015e8c
@@ -48410,6 +48476,18 @@ mode = "thumb"
 note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_1e8b0; observed resume at 0x0801e8ea (Func_1e8b0+0x3a)"
 
 [[resume_range]]
+start = 0x0801edec
+end = 0x0801ee12
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_1edec; observed resume at 0x0801ee3e (Func_1edec)"
+
+[[resume_range]]
+start = 0x0801ee24
+end = 0x0801ee5a
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_1edec; observed resume at 0x0801ee3e (Func_1edec)"
+
+[[resume_range]]
 start = 0x0801f088
 end = 0x0801f1cc
 mode = "thumb"
@@ -48426,6 +48504,12 @@ start = 0x08021950
 end = 0x080219c2
 mode = "thumb"
 note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_21950; observed resume at 0x080219a6 (Func_21950+0x56)"
+
+[[resume_range]]
+start = 0x08021a18
+end = 0x08021aa8
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_21a18; observed resume at 0x08021a6c (Func_21a18)"
 
 [[resume_range]]
 start = 0x08021cb8
@@ -49340,6 +49424,18 @@ mode = "thumb"
 note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_a9f10; observed resume at 0x080a9fcc (Func_a9f10+0xbc)"
 
 [[resume_range]]
+start = 0x080aa460
+end = 0x080aa494
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_aa460; observed resume at 0x080aa51c (Func_aa460)"
+
+[[resume_range]]
+start = 0x080aa514
+end = 0x080aa52e
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_aa460; observed resume at 0x080aa51c (Func_aa460)"
+
+[[resume_range]]
 start = 0x080aa768
 end = 0x080aa7a6
 mode = "thumb"
@@ -49356,6 +49452,84 @@ start = 0x080aaaa4
 end = 0x080aac6e
 mode = "thumb"
 note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_aa768; observed resumes at 0x080aa7fa and 0x080aa812 (Func_aa768)"
+
+[[resume_range]]
+start = 0x080ab5e4
+end = 0x080ab7e2
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ab5e4; observed resumes at 0x080abda0..0x080ac19c, 32 PCs (Func_ab5e4)"
+
+[[resume_range]]
+start = 0x080ab7fc
+end = 0x080abb48
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ab5e4; observed resumes at 0x080abda0..0x080ac19c, 32 PCs (Func_ab5e4)"
+
+[[resume_range]]
+start = 0x080abb7c
+end = 0x080abd2e
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ab5e4; observed resumes at 0x080abda0..0x080ac19c, 32 PCs (Func_ab5e4)"
+
+[[resume_range]]
+start = 0x080abda0
+end = 0x080abfb6
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ab5e4; observed resumes at 0x080abda0..0x080ac19c, 32 PCs (Func_ab5e4)"
+
+[[resume_range]]
+start = 0x080abff8
+end = 0x080ac346
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ab5e4; observed resumes at 0x080abda0..0x080ac19c, 32 PCs (Func_ab5e4)"
+
+[[resume_range]]
+start = 0x080ac36c
+end = 0x080ac706
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ab5e4; observed resumes at 0x080abda0..0x080ac19c, 32 PCs (Func_ab5e4)"
+
+[[resume_range]]
+start = 0x080ac710
+end = 0x080ac8f8
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ab5e4; observed resumes at 0x080abda0..0x080ac19c, 32 PCs (Func_ab5e4)"
+
+[[resume_range]]
+start = 0x080ad6d4
+end = 0x080ad746
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ad6d4; observed resumes at 0x080adcd0..0x080addea, 8 PCs (Func_ad6d4)"
+
+[[resume_range]]
+start = 0x080ad758
+end = 0x080ad79e
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ad6d4; observed resumes at 0x080adcd0..0x080addea, 8 PCs (Func_ad6d4)"
+
+[[resume_range]]
+start = 0x080ad7a4
+end = 0x080adb7e
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ad6d4; observed resumes at 0x080adcd0..0x080addea, 8 PCs (Func_ad6d4)"
+
+[[resume_range]]
+start = 0x080adbb4
+end = 0x080adc76
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ad6d4; observed resumes at 0x080adcd0..0x080addea, 8 PCs (Func_ad6d4)"
+
+[[resume_range]]
+start = 0x080adcc4
+end = 0x080adf1a
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ad6d4; observed resumes at 0x080adcd0..0x080addea, 8 PCs (Func_ad6d4)"
+
+[[resume_range]]
+start = 0x080adf64
+end = 0x080ae2b4
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ad6d4; observed resumes at 0x080adcd0..0x080addea, 8 PCs (Func_ad6d4)"
 
 [[resume_range]]
 start = 0x080b0958
@@ -49754,6 +49928,48 @@ mode = "thumb"
 note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_c9ca8; observed resume at 0x080c9d54 (Func_c9ca8+0xac)"
 
 [[resume_range]]
+start = 0x080ca60c
+end = 0x080ca648
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ca60c; observed resumes at 0x080ca6f8..0x080ca70a, 4 PCs (Func_ca60c)"
+
+[[resume_range]]
+start = 0x080ca650
+end = 0x080ca692
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ca60c; observed resumes at 0x080ca6f8..0x080ca70a, 4 PCs (Func_ca60c)"
+
+[[resume_range]]
+start = 0x080ca6ac
+end = 0x080ca6dc
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ca60c; observed resumes at 0x080ca6f8..0x080ca70a, 4 PCs (Func_ca60c)"
+
+[[resume_range]]
+start = 0x080ca6f4
+end = 0x080caa08
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ca60c; observed resumes at 0x080ca6f8..0x080ca70a, 4 PCs (Func_ca60c)"
+
+[[resume_range]]
+start = 0x080caa64
+end = 0x080cacf6
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ca60c; observed resumes at 0x080ca6f8..0x080ca70a, 4 PCs (Func_ca60c)"
+
+[[resume_range]]
+start = 0x080cad20
+end = 0x080cb080
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ca60c; observed resumes at 0x080ca6f8..0x080ca70a, 4 PCs (Func_ca60c)"
+
+[[resume_range]]
+start = 0x080cb0b8
+end = 0x080cb196
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_ca60c; observed resumes at 0x080ca6f8..0x080ca70a, 4 PCs (Func_ca60c)"
+
+[[resume_range]]
 start = 0x080ccaec
 end = 0x080ccb2a
 mode = "thumb"
@@ -49808,6 +50024,18 @@ mode = "thumb"
 note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_d41a4; observed resumes at 0x080d4434, 0x080d452e and 0x080d457c (Func_d41a4)"
 
 [[resume_range]]
+start = 0x080d6578
+end = 0x080d65aa
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_d6578; observed resumes at 0x080d65dc..0x080d6634, 13 PCs (Func_d6578)"
+
+[[resume_range]]
+start = 0x080d65dc
+end = 0x080d6652
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_d6578; observed resumes at 0x080d65dc..0x080d6634, 13 PCs (Func_d6578)"
+
+[[resume_range]]
 start = 0x080db264
 end = 0x080db29e
 mode = "thumb"
@@ -49836,6 +50064,108 @@ start = 0x080dba78
 end = 0x080dbb12
 mode = "thumb"
 note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_db6e0; observed resumes at 0x080db7fc and 0x080db984 (Func_db6e0)"
+
+[[resume_range]]
+start = 0x080dbc30
+end = 0x080dbc6a
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_dbc30; observed resumes at 0x080dbd84..0x080dbd8e, 2 PCs (Func_dbc30)"
+
+[[resume_range]]
+start = 0x080dbc7c
+end = 0x080dbd3e
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_dbc30; observed resumes at 0x080dbd84..0x080dbd8e, 2 PCs (Func_dbc30)"
+
+[[resume_range]]
+start = 0x080dbd54
+end = 0x080dbd5c
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_dbc30; observed resumes at 0x080dbd84..0x080dbd8e, 2 PCs (Func_dbc30)"
+
+[[resume_range]]
+start = 0x080dbd84
+end = 0x080dbe34
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_dbc30; observed resumes at 0x080dbd84..0x080dbd8e, 2 PCs (Func_dbc30)"
+
+[[resume_range]]
+start = 0x080dbe54
+end = 0x080dbe84
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_dbc30; observed resumes at 0x080dbd84..0x080dbd8e, 2 PCs (Func_dbc30)"
+
+[[resume_range]]
+start = 0x080dbe90
+end = 0x080dc1d8
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_dbc30; observed resumes at 0x080dbd84..0x080dbd8e, 2 PCs (Func_dbc30)"
+
+[[resume_range]]
+start = 0x080dc968
+end = 0x080dc9e8
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_dc968; observed resumes at 0x080dcdc0..0x080dceaa, 11 PCs (Func_dc968)"
+
+[[resume_range]]
+start = 0x080dca08
+end = 0x080dcaee
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_dc968; observed resumes at 0x080dcdc0..0x080dceaa, 11 PCs (Func_dc968)"
+
+[[resume_range]]
+start = 0x080dcb34
+end = 0x080dcbfc
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_dc968; observed resumes at 0x080dcdc0..0x080dceaa, 11 PCs (Func_dc968)"
+
+[[resume_range]]
+start = 0x080dcc14
+end = 0x080dcdac
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_dc968; observed resumes at 0x080dcdc0..0x080dceaa, 11 PCs (Func_dc968)"
+
+[[resume_range]]
+start = 0x080dcdc0
+end = 0x080dcec6
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_dc968; observed resumes at 0x080dcdc0..0x080dceaa, 11 PCs (Func_dc968)"
+
+[[resume_range]]
+start = 0x080dcf08
+end = 0x080dd022
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_dc968; observed resumes at 0x080dcdc0..0x080dceaa, 11 PCs (Func_dc968)"
+
+[[resume_range]]
+start = 0x080dd058
+end = 0x080dd27c
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_dc968; observed resumes at 0x080dcdc0..0x080dceaa, 11 PCs (Func_dc968)"
+
+[[resume_range]]
+start = 0x080de2f8
+end = 0x080de4ae
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_de2f8; observed resumes at 0x080de4c4..0x080de55a, 6 PCs (Func_de2f8)"
+
+[[resume_range]]
+start = 0x080de4c4
+end = 0x080de516
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_de2f8; observed resumes at 0x080de4c4..0x080de55a, 6 PCs (Func_de2f8)"
+
+[[resume_range]]
+start = 0x080de558
+end = 0x080de5c4
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_de2f8; observed resumes at 0x080de4c4..0x080de55a, 6 PCs (Func_de2f8)"
+
+[[resume_range]]
+start = 0x080de5d4
+end = 0x080de93a
+mode = "thumb"
+note = "GS-011 strict-static IRQ resumes inside ELF-bounded Func_de2f8; observed resumes at 0x080de4c4..0x080de55a, 6 PCs (Func_de2f8)"
 
 [[resume_range]]
 start = 0x080df9d0

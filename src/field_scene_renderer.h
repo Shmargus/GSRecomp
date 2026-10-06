@@ -74,6 +74,13 @@ public:
     // own scroll nor its recorded position reaches kRoomCheckMinAgreement.
     bool room_reference_for(const FieldScene& scene, int bg,
                             bool* from_record) const;
+    // Rows of layer `bg` that jump vertically away from the layer's recorded
+    // position while other rows of the same frame sit on it: the game showing
+    // another copy of the area on some rows (Kolima's flood, see the .cpp).
+    bool row_split_vertical(const FieldScene& scene, int bg) const;
+    bool row_jumps_vertically(const FieldScene& scene, int bg, int y) const;
+    // A row within this many pixels of the record sits on it (measured).
+    static constexpr int kRowNearRecord = 9;
     // Percentage of sampled world-map pixels inside the 240x160 window
     // (mode 2 rows, BG2 and BG3) whose tile in the uploaded whole world map
     // equals the console's own affine map entry; -1 if too few compared.
@@ -340,10 +347,18 @@ private:
         bool have_record = false;
     };
     LayerWrap layer_wrap_[4];
+    // Each layer's region_y as it was when the current map loaded
+    // (upload_room). Altin's drain sinks BG1's region 1024 -> 1000; the
+    // margins keep water only where it was at this rest position.
+    int rest_map_ = -1;
+    int rest_region_y_[4] = {0, 0, 0, 0};
     std::vector<std::uint16_t> room_ids_;    // 128*128, low 12 bits
     std::vector<std::uint16_t> room_atlas_;  // 4096*4, id-major
     // The background map blocks as last uploaded (upload_vram).
     std::vector<std::uint8_t> vram_maps_;
+    // The object tiles as last uploaded (upload_vram).
+    std::vector<std::uint8_t> vram_objects_;
+    bool object_is_solid(const SceneObject& O, bool one_dimensional) const;
     // Two-layer depth peel: every quad is drawn twice, once recording the
     // frontmost ("top") candidate at each pixel and once recording the
     // runner-up ("second"), then a resolve pass applies the console's alpha

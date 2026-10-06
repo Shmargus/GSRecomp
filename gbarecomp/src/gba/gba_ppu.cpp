@@ -896,6 +896,16 @@ void render_scanline_internal(uint8_t* rgb,
         uint32_t obj_tile_base = (bg_mode >= 3) ? 0x14000u : 0x10000u;
         bool obj_1d_mapping = (dispcnt & 0x0040u) != 0;
         const uint8_t* obj_pal = pal + 0x200;
+        // The console resolves sprites in OAM order into one line, and a
+        // later sprite of higher priority hands its priority to the pixel
+        // already there even where the later sprite is transparent
+        // (mGBA's SPRITE_DRAW_PIXEL_*_NORMAL). Golden Sun lays an empty
+        // 64x64 priority-1 sprite over the ship cabin's rug so whoever
+        // stands on it is drawn over the rug (BG1, priority 2). Walking
+        // from the last slot down, obj_lift[x] is the best priority that
+        // the transparent pixels of the slots after this one leave at x.
+        uint8_t obj_lift[GbaPpu::kScreenWidth];
+        std::memset(obj_lift, 4, sizeof obj_lift);
         for (int idx = 127; idx >= 0; --idx) {
             const uint8_t* entry = oam + idx * 8;
             uint16_t attr0 = load_u16_le(&entry[0]);
@@ -936,6 +946,7 @@ void render_scanline_internal(uint8_t* rgb,
             auto emit_obj = [&](int tex_x, int tex_y, int screen_x) {
                 if (screen_x < 0 || screen_x >= static_cast<int>(kScreenWidth)) return;
                 if (!layer_enabled(static_cast<uint32_t>(screen_x), 4)) return;
+                const uint32_t ux0 = static_cast<uint32_t>(screen_x);
                 int tile_x_in_sprite = tex_x >> 3;
                 int tile_y_in_sprite = tex_y >> 3;
                 int px_in_tile = tex_x & 7;
@@ -954,13 +965,19 @@ void render_scanline_internal(uint8_t* rgb,
                     uint32_t off = tile_off + py_in_tile * 8 + px_in_tile;
                     if (off + 1 > 96u * 1024u) return;
                     pal_index = vram[off];
-                    if (pal_index == 0) return;
+                    if (pal_index == 0) {
+                        if (priority < obj_lift[ux0]) obj_lift[ux0] = static_cast<uint8_t>(priority);
+                        return;
+                    }
                 } else {
                     uint32_t off = tile_off + py_in_tile * 4 + (px_in_tile / 2);
                     if (off + 1 > 96u * 1024u) return;
                     uint8_t b = vram[off];
                     pal_index = (px_in_tile & 1) ? (b >> 4) : (b & 0x0F);
-                    if (pal_index == 0) return;
+                    if (pal_index == 0) {
+                        if (priority < obj_lift[ux0]) obj_lift[ux0] = static_cast<uint8_t>(priority);
+                        return;
+                    }
                     pal_index = static_cast<uint8_t>(pal_index | (palette_bank << 4));
                 }
                 const uint16_t color = load_u16_le(&obj_pal[pal_index * 2]);
@@ -972,7 +989,9 @@ void render_scanline_internal(uint8_t* rgb,
                 // way (BLDCNT 0x3F90, gpu_rewind_0051, FACTS.md 2026-09-25).
                 bool t1 = blend_enabled(ux) &&
                     (obj_mode == 1 || (first_targets & (1u << 4)) != 0);
-                submit(ux, color, key, 4, t1, obj_target2, obj_mode == 1);
+                const int lifted = std::min(priority, static_cast<int>(obj_lift[ux]));
+                submit(ux, color, lifted * 256 + idx, 4, t1, obj_target2,
+                       obj_mode == 1);
             };
             if (rot_scale) {
                 int bw = disable_or_double ? sw * 2 : sw;
@@ -1907,6 +1926,9 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
         uint32_t obj_tile_base = (bg_mode >= 3) ? 0x14000u : 0x10000u;
         bool obj_1d_mapping = (dispcnt & 0x0040u) != 0;
         const uint8_t* obj_pal = pal + 0x200;
+        // Sprite priority lift, as in render_scanline_internal's OBJ loop.
+        static thread_local std::vector<uint8_t> obj_lift;
+        obj_lift.assign(out_w, 4);
         for (int idx = 127; idx >= 0; --idx) {
             const uint8_t* entry = oam + idx * 8;
             uint16_t attr0 = load_u16_le(&entry[0]);
@@ -2064,6 +2086,14 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
                      out_base >= native_last)) {
                     return;
                 }
+                auto lift_run = [&] {
+                    for (uint32_t sub = 0; sub < pixel_scale; ++sub) {
+                        const int out_x = out_base + static_cast<int>(sub);
+                        if (out_x < 0 || out_x >= static_cast<int>(out_w)) continue;
+                        uint8_t& l = obj_lift[static_cast<std::size_t>(out_x)];
+                        if (priority < l) l = static_cast<uint8_t>(priority);
+                    }
+                };
                 int tile_x_in_sprite = tex_x >> 3;
                 int tile_y_in_sprite = tex_y >> 3;
                 int px_in_tile = tex_x & 7;
@@ -2082,13 +2112,19 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
                     uint32_t off = tile_off + py_in_tile * 8 + px_in_tile;
                     if (off + 1 > 96u * 1024u) return;
                     pal_index = vram[off];
-                    if (pal_index == 0) return;
+                    if (pal_index == 0) {
+                        lift_run();
+                        return;
+                    }
                 } else {
                     uint32_t off = tile_off + py_in_tile * 4 + (px_in_tile / 2);
                     if (off + 1 > 96u * 1024u) return;
                     uint8_t b = vram[off];
                     pal_index = (px_in_tile & 1) ? (b >> 4) : (b & 0x0F);
-                    if (pal_index == 0) return;
+                    if (pal_index == 0) {
+                        lift_run();
+                        return;
+                    }
                     pal_index = static_cast<uint8_t>(pal_index | (palette_bank << 4));
                 }
                 const uint16_t color = load_u16_le(&obj_pal[pal_index * 2]);
@@ -2105,7 +2141,8 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
                     // First target as in render_scanline_internal.
                     const bool t1 = blend_enabled(ux) &&
                         (obj_mode == 1 || (first_targets & (1u << 4)) != 0);
-                    submit(ux, color, key, 4,
+                    const int lifted = std::min(priority, static_cast<int>(obj_lift[ux]));
+                    submit(ux, color, lifted * 256 + idx, 4,
                            static_cast<uint8_t>(kWsMarginSourceObj), t1,
                            obj_target2, obj_mode == 1);
                 }

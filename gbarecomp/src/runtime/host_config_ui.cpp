@@ -17,8 +17,10 @@ bool (*g_config_ui_extra_wants_keyboard)() = nullptr;
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_sdlrenderer2.h"
 #include "imgui_impl_opengl3.h"
@@ -83,13 +85,12 @@ static_assert(kPadTriggerLeftValue == static_cast<int>(SDL_CONTROLLER_BUTTON_MAX
 
 const char* pad_label(int button) {
     if (button < 0) return "(unset)";
-    // UI-02b: L2/R2 are synthetic ids, not a real SDL_GameControllerButton —
-    // label them with SDL's own axis-name strings ("lefttrigger"/
-    // "righttrigger"), matching the lowercase-no-separator convention every
-    // other row in this column already uses (SDL_GameControllerGetStringForButton
-    // output, e.g. "leftshoulder", "dpup").
-    if (button == kPadTriggerLeft)  return "lefttrigger";
-    if (button == kPadTriggerRight) return "righttrigger";
+    // UI-02b: L2/R2 and the stick directions are synthetic ids, not a real
+    // SDL_GameControllerButton — label them from the shared name table
+    // ("lefttrigger", "leftstickup", ...), matching the lowercase-no-separator
+    // convention every other row in this column already uses
+    // (SDL_GameControllerGetStringForButton output, e.g. "leftshoulder", "dpup").
+    if (const char* s = pad_synth_name(button)) return s;
     const char* n = SDL_GameControllerGetStringForButton(
         static_cast<SDL_GameControllerButton>(button));
     return (n && *n) ? n : "(unset)";
@@ -169,14 +170,30 @@ bool bind_row(const char* label, const char* value, bool armed,
     return clicked;
 }
 
+// D-pad Left/Right change a nav-focused (not yet activated) slider directly.
+// Call right after the slider. Returns -1 / +1 per press (with key repeat),
+// else 0. The keys are claimed so nav does not also move focus sideways.
+int dpad_slider_step() {
+    if (!ImGui::IsItemFocused() || ImGui::IsItemActive()) return 0;
+    const ImGuiID id = ImGui::GetItemID();
+    ImGui::SetKeyOwner(ImGuiKey_GamepadDpadLeft, id);
+    ImGui::SetKeyOwner(ImGuiKey_GamepadDpadRight, id);
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, ImGuiInputFlags_Repeat, id))
+        return -1;
+    if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, ImGuiInputFlags_Repeat, id))
+        return 1;
+    return 0;
+}
+
 void draw_controls_page(ConfigUiState* st) {
     section("Buttons");
-    caption("Click a box, then press the key or controller button to use. "
+    caption("Click a box, then press the key, controller button or stick direction to use. "
             "Esc cancels.");
 
     ImGui::BeginChild("controls_bindings_scroll",
                       ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing() * 1.5f),
-                      false, ImGuiWindowFlags_HorizontalScrollbar);
+                      ImGuiChildFlags_NavFlattened,
+                      ImGuiWindowFlags_HorizontalScrollbar);
     if (ImGui::BeginTable("binds", 5,
                           ImGuiTableFlags_SizingFixedFit |
                           ImGuiTableFlags_RowBg)) {
@@ -273,7 +290,8 @@ void draw_hotkeys_page(ConfigUiState* st) {
             "while held.");
     ImGui::BeginChild("hotkeys_scroll",
                       ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing()),
-                      false, ImGuiWindowFlags_HorizontalScrollbar);
+                      ImGuiChildFlags_NavFlattened,
+                      ImGuiWindowFlags_HorizontalScrollbar);
     if (ImGui::BeginTable("hotkeys", 5,
                           ImGuiTableFlags_SizingFixedFit |
                           ImGuiTableFlags_RowBg)) {
@@ -336,6 +354,16 @@ void draw_video_page(ConfigUiState* st) {
     if (st->fullscreen) ImGui::BeginDisabled();
     ImGui::SetNextItemWidth(220.0f);
     ImGui::SliderInt("Window size", &pending_scale, 1, max_scale, "%dx");
+    if (!st->fullscreen) {
+        const int dir = dpad_slider_step();
+        if (dir != 0) {
+            pending_scale = std::clamp(pending_scale + dir, 1, max_scale);
+            if (pending_scale != st->scale) {
+                st->scale = pending_scale;
+                st->video_changed = true;
+            }
+        }
+    }
     scale_active = ImGui::IsItemActive();
     if (ImGui::IsItemDeactivatedAfterEdit() && pending_scale != st->scale) {
         st->scale = pending_scale;
@@ -354,6 +382,29 @@ void draw_video_page(ConfigUiState* st) {
             "fill the window.");
     if (ImGui::Checkbox("V-Sync", &st->vsync)) st->video_changed = true;
     caption("Matches the monitor's refresh to prevent tearing.");
+    // The menu lists only these; screen_kind is a runtime::ScreenKind
+    // (color_lut.h). The GBA screen models stay reachable through
+    // GBARECOMP_SCREEN but are not offered here.
+    static const char kScreenItems[] =
+        "Raw (as the game draws it)\0"
+        "Handheld (muted, warm)\0"
+        "Handheld (lighter)\0"
+        "Soft\0"
+        "Natural\0"
+        "Warm\0"
+        "Deep\0";
+    static constexpr int kScreenKinds[] = {0, 5, 6, 7, 8, 9, 10};
+    int choice = 0;
+    for (int i = 0; i < static_cast<int>(std::size(kScreenKinds)); ++i)
+        if (kScreenKinds[i] == st->screen_kind) choice = i;
+    ImGui::SetNextItemWidth(220.0f);
+    if (ImGui::Combo("Colours", &choice, kScreenItems)) {
+        st->screen_kind = kScreenKinds[choice];
+        st->video_changed = true;
+    }
+    caption("The game's colours were made bright for the dark original GBA "
+            "screen. Handheld tones them down like a modern handheld's GBA "
+            "mode; Soft, Natural, Warm and Deep calm them less.");
 
     section("Performance counter");
     if (ImGui::Checkbox("Show FPS", &st->show_fps)) st->video_changed = true;
@@ -366,6 +417,13 @@ void draw_audio_page(ConfigUiState* st) {
     ImGui::SetNextItemWidth(220.0f);
     if (ImGui::SliderInt("Volume", &st->volume, 0, 100, "%d%%"))
         st->audio_changed = true;
+    if (const int dir = dpad_slider_step()) {
+        const int v = std::clamp(st->volume + dir, 0, 100);
+        if (v != st->volume) {
+            st->volume = v;
+            st->audio_changed = true;
+        }
+    }
     if (ImGui::Checkbox("Mute", &st->mute)) st->audio_changed = true;
 }
 
@@ -377,6 +435,15 @@ void draw_turbo_page(ConfigUiState* st) {
     ImGui::SliderFloat("Speed", &st->turbo_multiplier, 1.0f,
                        kMaxTurboMultiplier, "%.1fx");
     if (ImGui::IsItemDeactivatedAfterEdit()) st->speed_changed = true;
+    if (const int dir = dpad_slider_step()) {
+        // 0.1 is ImGui's own controller step for a "%.1f" float slider.
+        const float v = std::clamp(st->turbo_multiplier + 0.1f * dir, 1.0f,
+                                   static_cast<float>(kMaxTurboMultiplier));
+        if (v != st->turbo_multiplier) {
+            st->turbo_multiplier = v;
+            st->speed_changed = true;
+        }
+    }
     if (ImGui::Checkbox("As fast as possible", &st->uncapped))
         st->speed_changed = true;
     caption("Ignores the speed above and runs as fast as your PC allows.");
@@ -629,6 +696,11 @@ bool config_ui_init(SDL_Window* window, SDL_Renderer* renderer,
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable |
                       ImGuiConfigFlags_NavEnableKeyboard |
                       ImGuiConfigFlags_NavEnableGamepad;
+    // A press beside a slider (on its label or the window's empty space)
+    // used to start dragging the whole menu, so the menu shifted and the
+    // slider seemed to snap away from the mouse (Jimmy, 2026-10-05). Windows
+    // move by their title bar only.
+    io.ConfigWindowsMoveFromTitleBarOnly = true;
     if (use_opengl) {
         // Real multi-viewport: torn-off panels become their own OS windows,
         // each an SDL window + GL context ImGui creates/destroys itself via
@@ -715,7 +787,22 @@ bool config_ui_handle_event(const SDL_Event* e) {
         if (e->type == SDL_CONTROLLERBUTTONDOWN) return true;
     }
 
-    ImGui_ImplSDL2_ProcessEvent(const_cast<SDL_Event*>(e));
+    // SDL_Renderer rewrites the game window's mouse motion into its logical
+    // coordinates whenever a logical size is set (the 240x160 view sets
+    // one). ImGui reads the real desktop position while no button is held
+    // but only these events during a drag, so a dragged slider saw the
+    // pointer jump left by the window scale and snapped toward 0% (Jimmy,
+    // 2026-10-05). Hand ImGui the same real position it reads between drags.
+    SDL_Event event = *e;
+    if (event.type == SDL_MOUSEMOTION && g_window &&
+        event.motion.windowID == SDL_GetWindowID(g_window)) {
+        int global_x = 0, global_y = 0, window_x = 0, window_y = 0;
+        SDL_GetGlobalMouseState(&global_x, &global_y);
+        SDL_GetWindowPosition(g_window, &window_x, &window_y);
+        event.motion.x = global_x - window_x;
+        event.motion.y = global_y - window_y;
+    }
+    ImGui_ImplSDL2_ProcessEvent(&event);
 
     if (!g_visible) {
         // The F1 menu itself is closed, but game-owned extra content (e.g. a
@@ -777,7 +864,8 @@ bool config_ui_capture_pad(ConfigUiState* st, int button) {
     // gameplay input — see UI-02b task notes). A trigger pull while the
     // Controller tab's gameplay pad box is armed is simply not consumed,
     // same as pressing an unrelated key would be; gameplay binding stays
-    // exactly as before this change.
+    // exactly as before this change. Stick directions (also synthetic ids)
+    // are accepted for both gameplay and hotkey boxes.
     const bool is_trigger = (button == kPadTriggerLeft || button == kPadTriggerRight);
     if (g_capture == Capture::Pad) {
         if (is_trigger) return false;
@@ -839,6 +927,11 @@ void config_ui_draw(ConfigUiState* st) {
         ImGui::SetNextWindowSizeConstraints(
             ImVec2(std::min(520.0f, max_w), std::min(360.0f, max_h)),
             ImVec2(FLT_MAX, FLT_MAX));
+        // Keep the menu inside the game window. With multi-viewport on, a
+        // window being moved is lifted into its own OS window for the drag
+        // and merged back afterwards, which made the menu jump and could
+        // swallow the next click while the new window took focus.
+        ImGui::SetNextWindowViewport(viewport->ID);
         bool window_open = true;
         if (ImGui::Begin("Settings###Configuration", &window_open,
                          ImGuiWindowFlags_NoCollapse)) {
@@ -897,7 +990,8 @@ void config_ui_draw(ConfigUiState* st) {
             page = std::clamp(page, 0, kPageCount - 1);
 
             const float footer_h = ImGui::GetFrameHeightWithSpacing() + 8.0f;
-            ImGui::BeginChild("ConfigSidebar", ImVec2(150.0f, -footer_h), true);
+            ImGui::BeginChild("ConfigSidebar", ImVec2(150.0f, -footer_h),
+                              ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
             for (int i = 0; i < kPageCount; ++i) {
                 const bool selected = page == i;
                 if (selected) ImGui::PushStyleColor(ImGuiCol_Text, kGold);
@@ -909,7 +1003,8 @@ void config_ui_draw(ConfigUiState* st) {
             ImGui::EndChild();
             ImGui::SameLine();
 
-            ImGui::BeginChild("ConfigContent", ImVec2(0.0f, -footer_h), true);
+            ImGui::BeginChild("ConfigContent", ImVec2(0.0f, -footer_h),
+                              ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
             ImGui::TextColored(kGold, "%s", kPages[page].name);
             ImGui::PushStyleColor(ImGuiCol_Text, kMutedText);
             ImGui::TextUnformatted(kPages[page].blurb);

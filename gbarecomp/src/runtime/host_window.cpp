@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -88,6 +89,14 @@ bool write_enhancements_ini(const std::string& dir, bool enhanced_timing,
                             int view_mode);
 bool write_cheats_ini(const std::string& dir, bool infinite_hp,
                       bool infinite_pp, int player_speed_multiplier);
+bool write_color_profile_ini(const std::string& dir, int screen_kind);
+
+// config.ini [Enhancements] ColorProfile= tokens, in ScreenKind order
+// (color_lut.h; the same tokens as GBARECOMP_SCREEN).
+constexpr const char* kColorProfileNames[] = {
+    "raw",     "unlit",    "frontlit",       "backlit",
+    "classic", "handheld", "handheld_light", "soft",
+    "natural", "warm",     "deep"};
 
 // System hotkey ids (config.ini [KeyMap] rows this host implements). Reset,
 // PauseDimmed and ToggleRenderer are intentionally absent â€” gbarecomp has no
@@ -147,6 +156,15 @@ static_assert(kPadTriggerLeftValue == static_cast<int>(SDL_CONTROLLER_BUTTON_MAX
 // ~61% travel, release only below ~37%, leaving a dead band between them.
 constexpr Sint16 kTriggerPressThreshold   = 20000;  // ~61% of 32767 -> pressed
 constexpr Sint16 kTriggerReleaseThreshold = 12000;  // ~37% of 32767 -> released
+
+// A bound stick direction (stick_dir_held). 7849 is XInput's documented
+// XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE (the standard value for this exact
+// stick), not a tuned number.
+constexpr float kStickDeadZone = 7849.0f;
+// sin(22.5 deg): the geometry of eight equal 45-degree sectors centred on the
+// axes. A normalised axis past this value presses that direction, and a
+// diagonal presses two.
+constexpr float kStickSectorSin = 0.38268343f;
 
 // â”€â”€ MC-WS-002 present-cadence ring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Always-on (Release too) ring recording EVERY SDL_RenderPresent from window
@@ -437,6 +455,9 @@ struct Backend {
     // dispatch/capture and the level source for a Turbo-Held trigger bind.
     bool           trigger_left_down = false;
     bool           trigger_right_down = false;
+    // Same debounced state for the eight stick directions, indexed by
+    // synthetic id - kPadLeftStickRight (Right, Left, Up, Down per stick).
+    bool           stick_down[8] = {};
     int          scale = 3;             // current integer window scale
     bool         fullscreen = false;
     bool         vsync = true;          // as negotiated with the renderer
@@ -743,6 +764,29 @@ bool hotkey_mods_ok(const HotkeyBind& hb, Uint16 state_mods) {
            want(KMOD_SHIFT) == held(KMOD_SHIFT);
 }
 
+// True while the stick direction `id` (kPadLeftStickRight..kPadRightStickDown)
+// is held: stick magnitude past the dead zone and the direction's component
+// past the sector edge. One definition for the gameplay D-pad, the stick binds
+// and hold-type hotkeys, so they all agree on what "pushed up" means.
+bool stick_dir_held(SDL_GameController* pad, int id) {
+    const int slot = id - kPadLeftStickRight;   // 0..7: Right, Left, Up, Down per stick
+    const bool right_stick = slot >= 4;
+    const float sx = static_cast<float>(SDL_GameControllerGetAxis(
+        pad, right_stick ? SDL_CONTROLLER_AXIS_RIGHTX : SDL_CONTROLLER_AXIS_LEFTX));
+    const float sy = static_cast<float>(SDL_GameControllerGetAxis(
+        pad, right_stick ? SDL_CONTROLLER_AXIS_RIGHTY : SDL_CONTROLLER_AXIS_LEFTY));  // positive = down
+    const float mag = std::sqrt(sx * sx + sy * sy);
+    if (mag <= kStickDeadZone) return false;
+    const float nx = sx / mag;
+    const float ny = sy / mag;
+    switch (slot & 3) {
+    case 0:  return nx >  kStickSectorSin;   // Right
+    case 1:  return nx < -kStickSectorSin;   // Left
+    case 2:  return ny < -kStickSectorSin;   // Up
+    default: return ny >  kStickSectorSin;   // Down
+    }
+}
+
 // Level read of a hotkey binding: its key (with exactly its modifiers) or its
 // controller button is down right now. L2/R2 use the debounced trigger state
 // pump() maintains, since SDL never reports them as buttons (UI-02b).
@@ -756,6 +800,7 @@ bool hotkey_held(const Backend* b, const HotkeyBind& hb, const Uint8* ks) {
     if (!b->pad) return false;
     if (hb.pad_button == kPadTriggerLeft) return b->trigger_left_down;
     if (hb.pad_button == kPadTriggerRight) return b->trigger_right_down;
+    if (pad_is_stick(hb.pad_button)) return stick_dir_held(b->pad, hb.pad_button);
     return hb.pad_button >= 0 && hb.pad_button < SDL_CONTROLLER_BUTTON_MAX &&
            SDL_GameControllerGetButton(
                b->pad, static_cast<SDL_GameControllerButton>(hb.pad_button));
@@ -1722,6 +1767,12 @@ void HostWindow::load_input_config(const char* dir) {
                      [b](const char* key, const char* val) {
         for (const auto& pk : kPadKeys) {
             if (SDL_strcasecmp(key, pk.name) != 0) continue;
+            // Stick directions are synthetic ids with their own names.
+            const int synth = pad_synth_from_name(val);
+            if (synth >= 0) {
+                b->pad_bind[pk.bit] = synth;
+                return;
+            }
             const SDL_GameControllerButton btn =
                 SDL_GameControllerGetButtonFromString(val);
             b->pad_bind[pk.bit] = (btn == SDL_CONTROLLER_BUTTON_INVALID)
@@ -1757,12 +1808,11 @@ void HostWindow::load_input_config(const char* dir) {
             // change never contained these strings, so old files are
             // unaffected and fall through to the button parse exactly as
             // before.
-            if (SDL_strcasecmp(val, "lefttrigger") == 0) {
-                b->hotkeys[h].pad_button = kPadTriggerLeft;
-                return;
-            }
-            if (SDL_strcasecmp(val, "righttrigger") == 0) {
-                b->hotkeys[h].pad_button = kPadTriggerRight;
+            // The stick direction names ("leftstickup", ...) come from the
+            // same shared table.
+            const int synth = pad_synth_from_name(val);
+            if (synth >= 0) {
+                b->hotkeys[h].pad_button = synth;
                 return;
             }
             const SDL_GameControllerButton btn =
@@ -1837,6 +1887,22 @@ void HostWindow::load_input_config(const char* dir) {
                     ? static_cast<int>(parsed - 3)
                     : static_cast<int>(parsed);
                 b->temporal_blend_needs_normalization = parsed >= 4;
+            }
+        } else if (SDL_strcasecmp(key, "ColorProfile") == 0) {
+            // F1 > Video > Colours. GBARECOMP_SCREEN, read when the window
+            // opened, still wins for a launch that sets it.
+            runtime::ScreenKind k;
+            if (!std::getenv("GBARECOMP_SCREEN") &&
+                runtime::screen_kind_from_name(val, k) &&
+                k != b->screen_kind) {
+                b->screen_kind = k;
+                b->cfg.screen_kind = static_cast<int>(k);
+                runtime::ColorSettings settings;
+                settings.screen = k;
+                b->color_lut = std::make_unique<runtime::ColorLut>(settings);
+                if (!b->color_lut->is_passthrough())
+                    b->graded_fb.resize(static_cast<std::size_t>(b->base_w) *
+                                        b->base_h * 3u);
             }
         }
     });
@@ -2331,8 +2397,10 @@ bool write_keybinds_ini(const std::string& dir, const SDL_Scancode* bind_sc,
     for (const auto& pk : kPadKeys) {
         const int pb = pad_bind[pk.bit];
         const char* name = (pb < 0) ? nullptr
-            : SDL_GameControllerGetStringForButton(
-                  static_cast<SDL_GameControllerButton>(pb));
+            : pad_synth_name(pb);
+        if (pb >= 0 && !name)
+            name = SDL_GameControllerGetStringForButton(
+                static_cast<SDL_GameControllerButton>(pb));
         std::fprintf(f, "%s=%s\n", pk.name, (name && *name) ? name : "None");
     }
     std::fclose(f);
@@ -2416,12 +2484,11 @@ bool write_hotkeys_ini(const std::string& dir, const HotkeyBind* hotkeys) {
     };
     auto render_pad = [](const HotkeyBind& hb) -> std::string {
         if (hb.pad_button < 0) return "None";
-        // UI-02b: L2/R2 are synthetic ids (see host_config_ui.h), not real
-        // SDL_GameControllerButton values — persist them under SDL's own
-        // axis-name strings so the round-trip through parse_hotkey's
+        // UI-02b: L2/R2 and the stick directions are synthetic ids (see
+        // host_config_ui.h), not real SDL_GameControllerButton values —
+        // persist them under the shared names so the round-trip through the
         // [KeyMap.Pad] reader above is exact.
-        if (hb.pad_button == kPadTriggerLeft)  return "lefttrigger";
-        if (hb.pad_button == kPadTriggerRight) return "righttrigger";
+        if (const char* s = pad_synth_name(hb.pad_button)) return s;
         const char* n = SDL_GameControllerGetStringForButton(
             static_cast<SDL_GameControllerButton>(hb.pad_button));
         return (n && *n) ? n : "None";
@@ -2618,6 +2685,63 @@ bool write_enhancements_ini(const std::string& dir, bool enhanced_timing,
                      add.begin(), add.end());
     }
 
+    std::FILE* out = std::fopen(path.c_str(), "wb");
+    if (!out) return false;
+    for (const std::string& line : lines)
+        std::fprintf(out, "%s\n", line.c_str());
+    std::fclose(out);
+    return true;
+}
+
+// Update only [Enhancements] ColorProfile=, preserving everything else.
+bool write_color_profile_ini(const std::string& dir, int screen_kind) {
+    if (screen_kind < 0 || screen_kind > 10) return false;
+    const std::string path = dir + "/config.ini";
+    const std::string row =
+        std::string("ColorProfile=") + kColorProfileNames[screen_kind];
+    std::vector<std::string> lines;
+    if (std::FILE* in = std::fopen(path.c_str(), "rb")) {
+        std::string cur;
+        int c;
+        while ((c = std::fgetc(in)) != EOF) {
+            if (c == '\n') { lines.push_back(cur); cur.clear(); }
+            else if (c != '\r') cur.push_back(static_cast<char>(c));
+        }
+        if (!cur.empty()) lines.push_back(cur);
+        std::fclose(in);
+    }
+    bool in_section = false;
+    bool seen_section = false;
+    bool written = false;
+    std::size_t section_end = 0;
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        const std::string& t = lines[i];
+        const std::size_t a = t.find_first_not_of(" \t");
+        if (a == std::string::npos) continue;
+        if (t[a] == '[') {
+            in_section =
+                SDL_strncasecmp(t.c_str() + a, "[Enhancements]", 14) == 0;
+            if (in_section) { seen_section = true; section_end = i + 1; }
+            continue;
+        }
+        if (!in_section || t[a] == ';' || t[a] == '#') continue;
+        section_end = i + 1;
+        if (SDL_strncasecmp(t.c_str() + a, "ColorProfile", 12) == 0 &&
+            t.find('=') != std::string::npos) {
+            lines[i] = row;
+            written = true;
+        }
+    }
+    if (!written) {
+        if (seen_section) {
+            lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(section_end),
+                         row);
+        } else {
+            lines.push_back("");
+            lines.push_back("[Enhancements]");
+            lines.push_back(row);
+        }
+    }
     std::FILE* out = std::fopen(path.c_str(), "wb");
     if (!out) return false;
     for (const std::string& line : lines)
@@ -3039,6 +3163,39 @@ HostWindow::Events HostWindow::pump() {
             } else if (down && e.caxis.value <= kTriggerReleaseThreshold) {
                 down = false;
             }
+        } else if (e.type == SDL_CONTROLLERAXISMOTION &&
+                   (e.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX ||
+                    e.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY ||
+                    e.caxis.axis == SDL_CONTROLLER_AXIS_RIGHTX ||
+                    e.caxis.axis == SDL_CONTROLLER_AXIS_RIGHTY)) {
+            // Stick directions get the same treatment as the triggers. An
+            // axis event concerns one axis, so at most one direction presses.
+            // Slot order per stick: Right, Left, Up, Down (SDL Y is down-positive).
+            const bool is_x = (e.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX ||
+                               e.caxis.axis == SDL_CONTROLLER_AXIS_RIGHTX);
+            const bool is_right_stick = (e.caxis.axis == SDL_CONTROLLER_AXIS_RIGHTX ||
+                                         e.caxis.axis == SDL_CONTROLLER_AXIS_RIGHTY);
+            const int base_slot = (is_right_stick ? 4 : 0) + (is_x ? 0 : 2);
+            bool& pos_down = b->stick_down[base_slot];      // Right / Up slot
+            bool& neg_down = b->stick_down[base_slot + 1];  // Left / Down slot
+            // Slot meaning: X = {Right, Left}; Y = {Up, Down}. Y's positive
+            // value is Down, so swap which flag the value's sign drives.
+            bool& positive_flag = is_x ? pos_down : neg_down;
+            bool& negative_flag = is_x ? neg_down : pos_down;
+            const int positive_id = kPadLeftStickRight + base_slot + (is_x ? 0 : 1);
+            const int negative_id = kPadLeftStickRight + base_slot + (is_x ? 1 : 0);
+            const int v = e.caxis.value;
+            if (positive_flag && v <= kTriggerReleaseThreshold) positive_flag = false;
+            if (negative_flag && v >= -kTriggerReleaseThreshold) negative_flag = false;
+            if (!positive_flag && v >= kTriggerPressThreshold) {
+                positive_flag = true;
+                synth_pad_down = true;
+                synth_pad_button = positive_id;
+            } else if (!negative_flag && v <= -kTriggerPressThreshold) {
+                negative_flag = true;
+                synth_pad_down = true;
+                synth_pad_button = negative_id;
+            }
         }
 
         // The config UI gets first refusal on every event. When a bind box is
@@ -3165,10 +3322,19 @@ HostWindow::Events HostWindow::pump() {
         // Controller is additive with the keyboard: either source can press a
         // button, which is what every emulator does and what a second player
         // on the same pad would expect.
+        // The sticks move nothing by default: the D-pad is the default
+        // movement, and a stick direction works once it is bound on the
+        // Controls page (Jimmy, 2026-10-05).
         if (b->pad) {
             for (int bit = 0; bit < 10; ++bit) {
                 const int pb = b->pad_bind[bit];
                 if (pb < 0) continue;
+                if (pad_is_stick(pb)) {
+                    if (stick_dir_held(b->pad, pb))
+                        keys &= static_cast<uint16_t>(~(1u << bit));
+                    continue;
+                }
+                if (pb >= SDL_CONTROLLER_BUTTON_MAX) continue;  // trigger id: not a gameplay bind
                 if (SDL_GameControllerGetButton(
                         b->pad, static_cast<SDL_GameControllerButton>(pb)))
                     keys &= static_cast<uint16_t>(~(1u << bit));
@@ -3262,7 +3428,7 @@ HostWindow::Events HostWindow::pump() {
                     b->renderer, b->integer_scale ? SDL_TRUE : SDL_FALSE);
             }
             if (b->cfg.screen_kind != static_cast<int>(b->screen_kind)) {
-                b->cfg.screen_kind = std::clamp(b->cfg.screen_kind, 0, 4);
+                b->cfg.screen_kind = std::clamp(b->cfg.screen_kind, 0, 10);
                 b->screen_kind = static_cast<runtime::ScreenKind>(
                     b->cfg.screen_kind);
                 runtime::ColorSettings settings;
@@ -3275,6 +3441,7 @@ HostWindow::Events HostWindow::pump() {
                     b->graded_fb.resize(static_cast<std::size_t>(b->base_w) *
                                         b->base_h * 3u);
                 }
+                write_color_profile_ini(b->config_dir, b->cfg.screen_kind);
             }
             if (b->cfg.native_renderer != b->native_renderer)
                 set_native_renderer_enabled(b->cfg.native_renderer);

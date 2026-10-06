@@ -168,6 +168,8 @@ const char* kBackgroundFragment =
     "uniform vec2 u_camera;\n"          // world offset of the output's origin
     "uniform int u_world_loaded;\n"
     "uniform int u_layer;\n"            // 0-3: this background's window bit
+    "uniform int u_layer_striped;\n"    // 1: enable bit varies line by line
+    "uniform int u_rest_dy;\n"          // rows from now to the rest position
     "uniform int u_compare_top;\n"      // 0 = first pass, 1 = second pass
     "uniform int u_use_room;\n"         // 1: source this layer from the room
     // The layer's own position from the game's record (room_reference_for):
@@ -175,6 +177,9 @@ const char* kBackgroundFragment =
     // from it in -512..511.
     "uniform int u_room_ref_on;\n"
     "uniform vec2 u_room_ref;\n"
+    // Rows that jump vertically off the recorded position read it instead
+    // (row_split_vertical).
+    "uniform int u_split_v;\n"
     // Auto-scrolling layer: region x,y and wrap width,height in pixels
     // (0 = no wrap); see upload_room's layer records.
     "uniform vec4 u_room_wrap;\n"
@@ -254,6 +259,29 @@ const char* kBackgroundFragment =
     "uniform int u_use_world;\n"
     "uint room_vram_byte(int address) {\n"
     "  return texelFetch(u_room_vram, ivec2(address % 1024, address / 1024), 0).r;\n"
+    "}\n"
+    "\n"
+    // The room buffer's colour index at a room pixel, 0 where it has none:
+    // the margin path's lookup in main, for the rest-position test
+    // (u_rest_dy).
+    "int room_index_at(ivec2 source, int char_base, int eight_bit) {\n"
+    "  if (source.x < 0 || source.y < 0) return 0;\n"
+    "  int stx = source.x >> 3;\n"
+    "  int sty = source.y >> 3;\n"
+    "  if ((stx >> 1) >= 128 || (sty >> 1) >= 128) return 0;\n"
+    "  uint id = texelFetch(u_id_grid, ivec2(stx >> 1, sty >> 1), 0).r;\n"
+    "  uint e = texelFetch(u_atlas, ivec2((sty & 1) * 2 + (stx & 1), int(id)),\n"
+    "                      0).r;\n"
+    "  if (e == 0xFFFFu || e == 0xF200u) return 0;\n"
+    "  int tx = source.x & 7;\n"
+    "  int ty = source.y & 7;\n"
+    "  if ((e & 0x400u) != 0u) tx = 7 - tx;\n"
+    "  if ((e & 0x800u) != 0u) ty = 7 - ty;\n"
+    "  int tile = int(e & 0x3FFu);\n"
+    "  if (eight_bit != 0)\n"
+    "    return int(room_vram_byte(char_base + tile * 64 + ty * 8 + tx));\n"
+    "  uint two = room_vram_byte(char_base + tile * 32 + ty * 4 + (tx >> 1));\n"
+    "  return int(((tx & 1) != 0) ? (two >> 4) : (two & 0xFu));\n"
     "}\n"
     "\n"
     // Whether a text background draws anything at this map pixel (already
@@ -370,7 +398,14 @@ const char* kBackgroundFragment =
     // rather than the whole layer standing or falling on the frame's last
     // row -- the same read the reference makes, which takes each row's
     // DISPCNT from that row's own registers.
-    "  if (((row_dispcnt >> uint(8 + u_layer)) & 1u) == 0u) discard;\n"
+    // A layer the game stripes line by line (draw_background's
+    // layer_striped) carries the stripes into the margins: rows outside
+    // 0..159 take the enable bit of row (y mod 160).
+    "  int enable_row = reg_row;\n"
+    "  if (u_layer_striped != 0 && (console_px.y < 0 || console_px.y > 159))\n"
+    "    enable_row = ((console_px.y % 160) + 160) % 160;\n"
+    "  if (((row_u16(enable_row, 0x00) >> uint(8 + u_layer)) & 1u) == 0u)\n"
+    "    discard;\n"
     // BG3's field sky can start its scrolling band on row 1: row 0 still has
     // the room-position scroll, while rows 1 onward carry the sky accumulator.
     // Continue that measured pattern through the expanded top and border row
@@ -444,6 +479,12 @@ const char* kBackgroundFragment =
     "    uint win0v = row_u16(reg_row, 0x44);\n"
     "    int y1 = int((win0v >> 8) & 0xFFu);\n"
     "    int y2 = int(win0v & 0xFFu);\n"
+    // Window 0 switched off: the band no longer limits the rows. The camera's
+    // push-in to the command view does this (DISPCNT 0x1741, WIN0V left at
+    // 0x1088), and the console then shows the arena from row 0, so its first
+    // 16 rows belong to the band too (bug_report_20261005_094058, rewinds
+    // 0002/0006: the left margin stopped at row 16).
+    "    if ((rdisp & 0x2000u) == 0u) y1 = 0;\n"
     // ABOVE the console's own screen, ask the band's FIRST row, not row 0.
     // The band does not always start at the top: Golden Sun opens a battle
     // with WIN0V y1 = 0 and moves it to y1 = 16 once the first turn begins
@@ -482,7 +523,12 @@ const char* kBackgroundFragment =
     "      bool self_limiting = u_affine != 0 && (bgcnt & 0x2000u) == 0u;\n"
     "      bool size_ok = (u_layer != 2) || (((bgcnt >> 14) & 3u) == 1u)\n"
     "                     || self_limiting;\n"
-    "      arena_margin = size_ok && !outside_native_v;\n"
+    // Above the screen only the rotated arena carries on, and only when the
+    // band starts at row 0: its transform is defined there and a map without
+    // wraparound ends in transparency, not in a stripe of unrelated artwork
+    // (the regular backdrop's stripe, gpu_frame_0017, stays excluded).
+    "      arena_margin = size_ok && (!outside_native_v ||\n"
+    "          (console_px.y < 0 && y1 == 0 && u_affine != 0));\n"
     "      hold_edge = effect;\n"
     "    }\n"
     "  }\n"
@@ -495,6 +541,7 @@ const char* kBackgroundFragment =
     // room's own edge is outside the world, and the only honest thing out
     // there is black -- see the discard below.
     "  bool room_covers = false;\n"
+    "  ivec2 room_source = ivec2(-1);\n"
     // True when the GAMEs own canvas has no pixel for this position: the
     // affine sample fell outside its map. That is precisely where a spark
     // it clipped belongs, and the only place we add one.
@@ -850,6 +897,13 @@ const char* kBackgroundFragment =
     "                    room_px.y < int(u_room_max.y);\n"
     "      if (room_covers) {\n"
     "        ivec2 room_scroll = ivec2(int(hofs_raw), int(vofs_raw));\n"
+    // Kolima's flood shows the flooded copy of the area, kept 176 rows
+    // lower in the map, on a growing set of rows (VOFS 312 -> 488). Beside
+    // that copy the map holds unrelated tiles, so those rows read the
+    // layer's own position in the margins (bug_report_20261004_155305).
+    "        if (u_split_v != 0 &&\n"
+    "            abs(((room_scroll.y - int(u_room_ref.y) + 512) & 1023) - 512) > 9)\n"
+    "          room_scroll.y = int(u_room_ref.y);\n"
     // Record reference (room_reference_for): the layer's own position +
     // the row's offset from it folded into -512..511, so the haze's -1
     // (0xFFFF) at a room's left edge stays -1.
@@ -875,6 +929,7 @@ const char* kBackgroundFragment =
     "        if (continue_bg3_sky && source.x < 0) {\n"
     "          source.x = source.x & (width_tiles * 8 - 1);\n"
     "        }\n"
+    "        room_source = source;\n"
     "        if (source.x >= 0 && source.y >= 0) {\n"
     "          int stx = source.x >> 3;\n"
     "          int sty = source.y >> 3;\n"
@@ -940,6 +995,14 @@ const char* kBackgroundFragment =
     "      index = int(((tx & 1) != 0) ? (two >> 4) : (two & 0xFu));\n"
     "      if (index != 0) index += bank * 16;\n"
     "    }\n"
+    // A layer moved a little off its rest position (the Altin drain sinks
+    // the water 24 rows, region 1024 -> 1000, before its stripes start): in
+    // the margins it keeps a pixel only where the layer had one at rest, so
+    // the water never spills onto ground the console's own shoreline hides
+    // (gpu_rewind_0147/0148).
+    "    if (room_copy && u_rest_dy != 0 && index != 0 &&\n"
+    "        room_index_at(room_source + ivec2(0, u_rest_dy), bg_char_base,\n"
+    "                      bg_eight_bit) == 0) index = 0;\n"
     // The map pixel just sampled lies in the canvas block (wrapped over the
     // map): draw nothing there. Uses the sampled pixel, so the margins'
     // held-edge strip is hidden too.
@@ -1069,6 +1132,10 @@ const char* kObjectFragment =
     // so gba_ppu.cpp's emit_obj only ever draws it inside the authentic
     // 240x160 window -- reproduced below by discarding outside it.
     "uniform int u_clip_native;\n"
+    // 1: this draw is the object's lifted copy (draw_object's `lifter`),
+    // kept inside the lifting object's box, in console pixels.
+    "uniform int u_lift;\n"
+    "uniform vec4 u_lift_box;\n"
     "out vec4 o_colour;\n"
     "\n"
     "uint vram_byte(int address) {\n"
@@ -1085,6 +1152,12 @@ const char* kObjectFragment =
     "  int reg_row = clamp(console_px.y, 0, 159);\n"
     "  uint dispcnt = row_u16(reg_row, 0x00);\n"
     "  if (((dispcnt >> 12u) & 1u) == 0u) discard;\n"
+    "  if (u_lift != 0) {\n"
+    "    if (float(console_px.x) < u_lift_box.x ||\n"
+    "        float(console_px.y) < u_lift_box.y ||\n"
+    "        float(console_px.x) >= u_lift_box.z ||\n"
+    "        float(console_px.y) >= u_lift_box.w) discard;\n"
+    "  }\n"
     // Same output-pixel-to-console-pixel convention as kBackgroundFragment:
     // v_screen is this fragment's output pixel (the object quad was placed in
     // that same space -- see draw_object's quad.x = O.x - camera_x), so
@@ -1721,6 +1794,48 @@ void FieldSceneRenderer::upload_vram(const std::uint8_t* vram,
     // Background map blocks only (the first 64 KB): room_layer_agreement()
     // compares the room rule's entries against them.
     vram_maps_.assign(vram, vram + std::min<std::size_t>(vram_bytes, 0x10000));
+    // Object tiles (the last 32 KB): object_is_solid() reads them.
+    if (vram_bytes > 0x10000)
+        vram_objects_.assign(vram + 0x10000,
+                             vram + std::min<std::size_t>(vram_bytes, 0x18000));
+    else
+        vram_objects_.clear();
+}
+
+// Whether every pixel of an unrotated object is the same colour index, read
+// the way kObjectFragment reads it. A cutscene bar is one solid tile; the
+// Sol Sanctum cloud row is not (logs/gpu_rewind_0136).
+bool FieldSceneRenderer::object_is_solid(const SceneObject& O,
+                                         bool one_dimensional) const {
+    if (vram_objects_.size() < 0x8000 || O.width <= 0 || O.height <= 0)
+        return false;
+    const bool eight_bit = O.palette < 0;
+    const int step = eight_bit ? 2 : 1;
+    const int tiles_wide = O.width >> 3;
+    int first = -1;
+    for (int ly = 0; ly < O.height; ++ly) {
+        for (int lx = 0; lx < O.width; ++lx) {
+            const int tile_x = lx >> 3, tile_y = ly >> 3;
+            int tile = one_dimensional
+                ? static_cast<int>(O.tile) + (tile_y * tiles_wide + tile_x) * step
+                : static_cast<int>(O.tile) + tile_y * 32 + tile_x * step;
+            tile &= 0x3FF;
+            const int base = tile * 32;
+            const int tx = lx & 7, ty = ly & 7;
+            int index;
+            if (eight_bit) {
+                index = vram_objects_[static_cast<std::size_t>(
+                    (base + ty * 8 + tx) & 0x7FFF)];
+            } else {
+                const int two = vram_objects_[static_cast<std::size_t>(
+                    (base + ty * 4 + (tx >> 1)) & 0x7FFF)];
+                index = (tx & 1) ? (two >> 4) : (two & 0xF);
+            }
+            if (first < 0) first = index;
+            else if (index != first) return false;
+        }
+    }
+    return true;
 }
 
 bool FieldSceneRenderer::room_entry(int screen_x, int screen_y, int scroll_x,
@@ -1752,7 +1867,11 @@ int FieldSceneRenderer::room_layer_agreement(const FieldScene& scene, int bg,
     const SceneLayer& L = scene.layers[bg];
     if (!room_valid_ || L.affine || vram_maps_.empty()) return -1;
     int total = 0, same = 0;
+    // Rows showing another copy of the area are not the room's own tiles;
+    // the margins read the record for them instead (row_split_vertical).
+    const bool split = row_split_vertical(scene, bg);
     for (int y = 4; y < 160; y += 8) {
+        if (split && row_jumps_vertically(scene, bg, y)) continue;
         const std::uint8_t* io = scene.row_io_valid[y]
             ? scene.row_io[y].data() : scene.io_bytes.data();
         auto rd = [&](std::size_t at) {
@@ -1805,6 +1924,48 @@ int FieldSceneRenderer::room_layer_agreement(const FieldScene& scene, int bg,
 // 2026-10-01 this searched four fixed 1024-px regions around the camera
 // instead, which cannot express regions such as the ship's 960. Try the
 // scroll's own region first, so every room it already fits is untouched.
+// A row's offset from layer `bg`'s recorded position, folded into
+// -512..511 the way the shader folds it.
+static void row_offset_from_record(const FieldScene& scene, int bg, int y,
+                                   int pos_x, int pos_y, int* dx, int* dy) {
+    const std::uint8_t* io = scene.row_io_valid[y]
+        ? scene.row_io[y].data() : scene.io_bytes.data();
+    const std::size_t at = 0x10u + static_cast<std::size_t>(bg) * 4u;
+    const int hofs = io[at] | (io[at + 1] << 8);
+    const int vofs = io[at + 2] | (io[at + 3] << 8);
+    *dx = ((hofs - pos_x + 512) & 1023) - 512;
+    *dy = ((vofs - pos_y + 512) & 1023) - 512;
+}
+
+bool FieldSceneRenderer::row_jumps_vertically(const FieldScene& scene, int bg,
+                                              int y) const {
+    const LayerWrap& rec = layer_wrap_[bg];
+    if (!rec.have_record) return false;
+    int dx = 0, dy = 0;
+    row_offset_from_record(scene, bg, y, rec.pos_x, rec.pos_y, &dx, &dy);
+    return std::abs(dx) <= kRowNearRecord && std::abs(dy) > kRowNearRecord;
+}
+
+// Measured over every saved capture (3,623 mode 0 frames, 2026-10-05): rows
+// sit within 9 px of the record (heat haze, a frame's lag), or the whole
+// frame is offset, or -- Tret's sky only -- some rows jump sideways. A
+// vertical jump on some rows while others sit on the record is Kolima's
+// flood alone (+176, gpu_rewind_0002/0003 of bug_report_20261004_155305).
+bool FieldSceneRenderer::row_split_vertical(const FieldScene& scene,
+                                            int bg) const {
+    const LayerWrap& rec = layer_wrap_[bg];
+    if (!rec.have_record || scene.video_mode != 0) return false;
+    bool near = false, jump = false;
+    for (int y = 0; y < FieldScene::kRows; ++y) {
+        int dx = 0, dy = 0;
+        row_offset_from_record(scene, bg, y, rec.pos_x, rec.pos_y, &dx, &dy);
+        if (std::abs(dx) > kRowNearRecord) continue;
+        if (std::abs(dy) <= kRowNearRecord) near = true;
+        else jump = true;
+    }
+    return near && jump;
+}
+
 bool FieldSceneRenderer::room_reference_for(const FieldScene& scene, int bg,
                                             bool* from_record) const {
     *from_record = false;
@@ -2537,6 +2698,21 @@ bool FieldSceneRenderer::upload_room(const std::uint8_t* ewram,
                      (word(0x10) != 0x10000u || word(0x14) != 0x10000u);
     }
 
+    {
+        // A move of more than 32 rows is a new rest position, not a drift:
+        // the room's first frames can still hold the last room's records
+        // (gpu_rewind_0147: region 0, then 1024 at load, then 1024 -> 1000
+        // as the water sinks).
+        const int map = ewram_u16(ewram, ewram_bytes, kMapIdAddr);
+        for (int bg = 0; bg < 4; ++bg) {
+            const int region = layer_wrap_[bg].region_y;
+            if (map != rest_map_ || rest_region_y_[bg] == 0 ||
+                std::abs(region - rest_region_y_[bg]) > 32)
+                rest_region_y_[bg] = region;
+        }
+        rest_map_ = map;
+    }
+
     room_ids_.resize(static_cast<std::size_t>(kGridSide) * kGridSide);
     for (std::size_t i = 0; i < room_ids_.size(); ++i) {
         const std::uint32_t addr = kIdGridAddr + static_cast<std::uint32_t>(i) * 4u;
@@ -2998,13 +3174,27 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
                     ++j;
                 const SceneObject& first = scene.objects[run[i]];
                 const SceneObject& last = scene.objects[run[j]];
+                // Any row inside the widened view, not only the console's
+                // 160: the Sol Sanctum cloud rows also sit wholly in the top
+                // margin (y -40, gpu_frame_0123) and stopped short of the
+                // sides there.
+                const int view_top = -(output_h_ - 160) / 2;
+                const int view_bottom = 160 + (output_h_ - 160) / 2;
                 if (first.x <= 0 && last.x + last.width >= 240 &&
-                    first.y < 160 && first.y + first.height > 0) {
+                    first.y < view_bottom &&
+                    first.y + first.height > view_top) {
                     strip[run[i]].left = true;
                     strip[run[j]].right = true;
+                    // Up and down only for a solid tile: stacking a patterned
+                    // one makes stripes. The Sol Sanctum cloud row slides to
+                    // y -1 and was stacked up the whole top margin
+                    // (logs/gpu_rewind_0136 frame 90).
+                    const bool solid = object_is_solid(
+                        first, (scene.dispcnt & 0x40u) != 0u);
                     for (int k = i; k <= j; ++k) {
-                        strip[run[k]].up = first.y <= 0;
-                        strip[run[k]].down = first.y + first.height >= 160;
+                        strip[run[k]].up = solid && first.y <= 0;
+                        strip[run[k]].down =
+                            solid && first.y + first.height >= 160;
                     }
                 }
                 i = j + 1;
@@ -3030,6 +3220,25 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
             if (((dispcnt >> (8 + bg)) & 1u) != 0u) layer_wanted[bg] = true;
         }
     }
+    // A layer switched on and off line by line: Altin's water drains as
+    // random scanlines of BG1 going off, fewer each frame (gpu_rewind_0145;
+    // the same stripes in mGBA). Margin rows have no line of their own, and
+    // the nearest line's state left the water solid above and below the
+    // console; they take the enable bit of row (y mod 160) instead. A plain
+    // split (a dialogue box, a cutscene bar) switches only a few times.
+    bool layer_striped[4] = {false, false, false, false};
+    for (int bg = 0; bg < 4; ++bg) {
+        int switches = 0;
+        bool prev = false;
+        for (int y = 0; y < FieldScene::kRows; ++y) {
+            const std::uint8_t* io = scene.row_io_valid[y]
+                ? scene.row_io[y].data() : scene.io_bytes.data();
+            const bool on = ((io[1] >> bg) & 1u) != 0u;
+            if (y > 0 && on != prev) ++switches;
+            prev = on;
+        }
+        layer_striped[bg] = switches >= 16;
+    }
 
     auto draw_background = [&](int bg, bool second_pass) {
         const SceneLayer& L = scene.layers[bg];
@@ -3038,6 +3247,17 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         // fragment now; kept so the draw still carries a sane value.
         const int key = L.priority * 256 + 128 + bg;
         surface_->set_uniform_int(background_, "u_layer", bg);
+        surface_->set_uniform_int(background_, "u_layer_striped",
+                                  layer_striped[bg] ? 1 : 0);
+        // Rows from the layer's region now to its rest region (upload_room;
+        // at most 32, a larger move resets the rest position there). Field
+        // rooms only, and not a wobble under 4 rows: over the capture corpus
+        // the rule then fires only on Altin's drain (map 79), not on map
+        // 188's BG1 (regions 510..513) or the world map's drifting layers.
+        const int rest_dy = rest_region_y_[bg] - layer_wrap_[bg].region_y;
+        surface_->set_uniform_int(
+            background_, "u_rest_dy",
+            scene.video_mode == 0 && std::abs(rest_dy) >= 4 ? rest_dy : 0);
         surface_->set_uniform_int(background_, "u_compare_top",
                                   second_pass ? 1 : 0);
         surface_->set_uniform_int(background_, "u_affine", L.affine ? 1 : 0);
@@ -3087,6 +3307,9 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         surface_->set_uniform_vec2(background_, "u_room_ref",
                                    static_cast<float>(wrap.pos_x),
                                    static_cast<float>(wrap.pos_y));
+        surface_->set_uniform_int(background_, "u_split_v",
+                                  use_room && row_split_vertical(scene, bg)
+                                      ? 1 : 0);
         surface_->set_uniform_vec4(background_, "u_room_wrap",
                                    static_cast<float>(wrap.region_x),
                                    static_cast<float>(wrap.region_y),
@@ -3245,15 +3468,30 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
                              second_pass ? bg_textures3 : bg_textures2, 11);
     };
 
-    auto draw_object = [&](int slot, bool second_pass) {
+    // `lifter` >= 0 draws the object's lifted copy: the console gives an
+    // object's pixel the priority of any later, higher-priority object whose
+    // box covers it, even where that object is transparent (gba_ppu.cpp's
+    // emit_obj). Golden Sun lays an empty 64x64 priority-1 sprite over the
+    // ship cabin's rug so whoever stands on it is drawn over the rug.
+    auto draw_object = [&](int slot, bool second_pass, int lifter) {
         const SceneObject& O = scene.objects[slot];
         // A mode-2 object never draws a visible pixel; it only shapes the
         // object window, which the mask pass below already used it for.
         if (!O.present || O.window) return;
-        const int key = O.priority * 256 + object_rank[slot];
+        const SceneObject* L = lifter >= 0 ? &scene.objects[lifter] : nullptr;
+        // The lifted copy sorts behind every object of the lifter's priority
+        // (rank 127), so where the lifter itself is opaque it still wins.
+        const int key = L ? L->priority * 256 + 127
+                          : O.priority * 256 + object_rank[slot];
         surface_->set_uniform_int(object_, "u_key", key);
         surface_->set_uniform_int(object_, "u_semi_transparent",
-                                  O.blended ? 1 : 0);
+                                  (L ? L->blended : O.blended) ? 1 : 0);
+        surface_->set_uniform_int(object_, "u_lift", L ? 1 : 0);
+        if (L)
+            surface_->set_uniform_vec4(
+                object_, "u_lift_box", static_cast<float>(L->x),
+                static_cast<float>(L->y), static_cast<float>(L->x + L->width),
+                static_cast<float>(L->y + L->height));
         surface_->set_uniform_int(object_, "u_compare_top",
                                   second_pass ? 1 : 0);
         // Only a PARKED slot is held inside the authentic window -- the same
@@ -3320,6 +3558,7 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         surface_->draw_quads(object_, &quad, 1,
                              second_pass ? textures3 : textures2,
                              second_pass ? 5 : 4);
+        if (L) return;
         // A full-width strip carries on to the view's edges (see `strip`).
         const StripReach& reach = strip[static_cast<std::size_t>(slot)];
         if (!(reach.left || reach.right || reach.up || reach.down)) return;
@@ -3397,8 +3636,24 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
     auto draw_pass = [&](bool second_pass) {
         for (int bg = 0; bg < 4; ++bg) draw_background(bg, second_pass);
         if (!objects_on) return;
-        for (int slot = 0; slot < FieldScene::kObjects; ++slot)
-            draw_object(slot, second_pass);
+        for (int slot = 0; slot < FieldScene::kObjects; ++slot) {
+            draw_object(slot, second_pass, -1);
+            const SceneObject& O = scene.objects[slot];
+            if (!O.present || O.window) continue;
+            // Unrotated lifters only: a rotated one lifts only where its
+            // transform lands inside the sprite, which a box cannot say.
+            for (int j = slot + 1; j < FieldScene::kObjects; ++j) {
+                const SceneObject& L = scene.objects[j];
+                if (!L.present || L.window || L.affine ||
+                    L.priority >= O.priority) continue;
+                const int ow = O.affine && O.double_size ? O.width * 2 : O.width;
+                const int oh = O.affine && O.double_size ? O.height * 2 : O.height;
+                if (L.x >= O.x + ow || O.x >= L.x + L.width ||
+                    L.y >= O.y + oh || O.y >= L.y + L.height) continue;
+                draw_object(slot, second_pass, j);
+            }
+        }
+        surface_->set_uniform_int(object_, "u_lift", 0);
     };
 
     // The object window mask and the window control texture are both
