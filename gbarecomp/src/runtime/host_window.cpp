@@ -89,14 +89,15 @@ bool write_enhancements_ini(const std::string& dir, bool enhanced_timing,
                             int view_mode);
 bool write_cheats_ini(const std::string& dir, bool infinite_hp,
                       bool infinite_pp, int player_speed_multiplier);
-bool write_color_profile_ini(const std::string& dir, int screen_kind);
+bool write_color_profile_ini(const std::string& dir, int screen_kind,
+                             int saturation, int hue);
 
 // config.ini [Enhancements] ColorProfile= tokens, in ScreenKind order
 // (color_lut.h; the same tokens as GBARECOMP_SCREEN).
 constexpr const char* kColorProfileNames[] = {
     "raw",     "unlit",    "frontlit",       "backlit",
     "classic", "handheld", "handheld_light", "soft",
-    "natural", "warm",     "deep"};
+    "natural", "warm",     "deep",     "custom"};
 
 // System hotkey ids (config.ini [KeyMap] rows this host implements). Reset,
 // PauseDimmed and ToggleRenderer are intentionally absent â€” gbarecomp has no
@@ -386,6 +387,9 @@ struct Backend {
     // grading), so default behavior is byte-identical to upstream.
     std::unique_ptr<runtime::ColorLut> color_lut;
     runtime::ScreenKind screen_kind = runtime::ScreenKind::Raw;
+    // Custom colours as last built into color_lut (percent, degrees).
+    int applied_saturation = 100;
+    int applied_hue = 0;
     std::vector<uint8_t> graded_fb;  // scratch RGB888 (base_w*base_h*3)
     // Diagnostic-only guest-frame marker. It is armed by the existing sprite
     // recorder switch so a video can be joined to stderr's guest-frame rows.
@@ -883,6 +887,25 @@ runtime::ColorSettings resolve_color_settings(const char* toml_screen) {
         if (runtime::screen_kind_from_name(env, k)) s.screen = k;
     }
     return s;
+}
+
+// Rebuild the colour table from b->screen_kind and the Custom sliders
+// (F1 > Video > Colours), and size the graded frame buffers to match.
+void rebuild_color_lut(Backend* b) {
+    runtime::ColorSettings settings;
+    settings.screen = b->screen_kind;
+    settings.saturation = b->cfg.color_saturation / 100.0;
+    settings.hue_degrees = static_cast<double>(b->cfg.color_hue);
+    b->color_lut = std::make_unique<runtime::ColorLut>(settings);
+    b->applied_saturation = b->cfg.color_saturation;
+    b->applied_hue = b->cfg.color_hue;
+    if (b->color_lut->is_passthrough()) {
+        b->graded_fb.clear();
+        b->native_graded_fb.clear();
+    } else {
+        b->graded_fb.resize(static_cast<std::size_t>(b->base_w) *
+                            b->base_h * 3u);
+    }
 }
 
 // SDL audio pull callback: render exactly `len` bytes of device-rate mono S16
@@ -1897,15 +1920,18 @@ void HostWindow::load_input_config(const char* dir) {
                 k != b->screen_kind) {
                 b->screen_kind = k;
                 b->cfg.screen_kind = static_cast<int>(k);
-                runtime::ColorSettings settings;
-                settings.screen = k;
-                b->color_lut = std::make_unique<runtime::ColorLut>(settings);
-                if (!b->color_lut->is_passthrough())
-                    b->graded_fb.resize(static_cast<std::size_t>(b->base_w) *
-                                        b->base_h * 3u);
+                rebuild_color_lut(b);
             }
+        } else if (SDL_strcasecmp(key, "ColorSaturation") == 0) {
+            b->cfg.color_saturation = std::clamp(
+                static_cast<int>(std::strtol(val, nullptr, 10)), 0, 200);
+        } else if (SDL_strcasecmp(key, "ColorHue") == 0) {
+            b->cfg.color_hue = std::clamp(
+                static_cast<int>(std::strtol(val, nullptr, 10)), -180, 180);
         }
     });
+    // ColorSaturation/ColorHue may follow ColorProfile in the file.
+    if (b->screen_kind == runtime::ScreenKind::Custom) rebuild_color_lut(b);
     // Apply the resolved factor live and mirror it into the UI's combo index:
     // 0 (Off/1x) unless the resolved factor is the 50x ceiling.
     runtime_set_overclock_factor(b->overclock_factor);
@@ -2693,12 +2719,19 @@ bool write_enhancements_ini(const std::string& dir, bool enhanced_timing,
     return true;
 }
 
-// Update only [Enhancements] ColorProfile=, preserving everything else.
-bool write_color_profile_ini(const std::string& dir, int screen_kind) {
-    if (screen_kind < 0 || screen_kind > 10) return false;
+// Update only [Enhancements] ColorProfile=, ColorSaturation= and ColorHue=,
+// preserving everything else.
+bool write_color_profile_ini(const std::string& dir, int screen_kind,
+                             int saturation, int hue) {
+    if (screen_kind < 0 ||
+        screen_kind >= static_cast<int>(std::size(kColorProfileNames)))
+        return false;
     const std::string path = dir + "/config.ini";
-    const std::string row =
-        std::string("ColorProfile=") + kColorProfileNames[screen_kind];
+    const std::string keys[3] = {"ColorProfile", "ColorSaturation", "ColorHue"};
+    const std::string rows[3] = {
+        keys[0] + "=" + kColorProfileNames[screen_kind],
+        keys[1] + "=" + std::to_string(saturation),
+        keys[2] + "=" + std::to_string(hue)};
     std::vector<std::string> lines;
     if (std::FILE* in = std::fopen(path.c_str(), "rb")) {
         std::string cur;
@@ -2712,7 +2745,7 @@ bool write_color_profile_ini(const std::string& dir, int screen_kind) {
     }
     bool in_section = false;
     bool seen_section = false;
-    bool written = false;
+    bool written[3] = {false, false, false};
     std::size_t section_end = 0;
     for (std::size_t i = 0; i < lines.size(); ++i) {
         const std::string& t = lines[i];
@@ -2726,21 +2759,28 @@ bool write_color_profile_ini(const std::string& dir, int screen_kind) {
         }
         if (!in_section || t[a] == ';' || t[a] == '#') continue;
         section_end = i + 1;
-        if (SDL_strncasecmp(t.c_str() + a, "ColorProfile", 12) == 0 &&
-            t.find('=') != std::string::npos) {
-            lines[i] = row;
-            written = true;
+        const std::size_t eq = t.find('=');
+        if (eq == std::string::npos) continue;
+        std::string key = t.substr(a, eq - a);
+        while (!key.empty() && (key.back() == ' ' || key.back() == '\t'))
+            key.pop_back();
+        for (int k = 0; k < 3; ++k) {
+            if (SDL_strcasecmp(key.c_str(), keys[k].c_str()) == 0) {
+                lines[i] = rows[k];
+                written[k] = true;
+            }
         }
     }
-    if (!written) {
-        if (seen_section) {
-            lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(section_end),
-                         row);
-        } else {
-            lines.push_back("");
-            lines.push_back("[Enhancements]");
-            lines.push_back(row);
-        }
+    if (!seen_section) {
+        lines.push_back("");
+        lines.push_back("[Enhancements]");
+        section_end = lines.size();
+    }
+    for (int k = 0; k < 3; ++k) {
+        if (written[k]) continue;
+        lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(section_end),
+                     rows[k]);
+        ++section_end;
     }
     std::FILE* out = std::fopen(path.c_str(), "wb");
     if (!out) return false;
@@ -3427,21 +3467,26 @@ HostWindow::Events HostWindow::pump() {
                 SDL_RenderSetIntegerScale(
                     b->renderer, b->integer_scale ? SDL_TRUE : SDL_FALSE);
             }
-            if (b->cfg.screen_kind != static_cast<int>(b->screen_kind)) {
-                b->cfg.screen_kind = std::clamp(b->cfg.screen_kind, 0, 10);
+            const bool kind_changed =
+                b->cfg.screen_kind != static_cast<int>(b->screen_kind);
+            const bool custom_changed =
+                b->cfg.screen_kind == static_cast<int>(runtime::ScreenKind::Custom) &&
+                (b->cfg.color_saturation != b->applied_saturation ||
+                 b->cfg.color_hue != b->applied_hue);
+            if (kind_changed || custom_changed) {
+                b->cfg.screen_kind = std::clamp(
+                    b->cfg.screen_kind, 0,
+                    static_cast<int>(runtime::ScreenKind::Custom));
                 b->screen_kind = static_cast<runtime::ScreenKind>(
                     b->cfg.screen_kind);
-                runtime::ColorSettings settings;
-                settings.screen = b->screen_kind;
-                b->color_lut = std::make_unique<runtime::ColorLut>(settings);
-                if (b->color_lut->is_passthrough()) {
-                    b->graded_fb.clear();
-                    b->native_graded_fb.clear();
-                } else {
-                    b->graded_fb.resize(static_cast<std::size_t>(b->base_w) *
-                                        b->base_h * 3u);
-                }
-                write_color_profile_ini(b->config_dir, b->cfg.screen_kind);
+                rebuild_color_lut(b);
+            }
+            // A slider saves when let go, not on every step of a drag.
+            if (kind_changed || b->cfg.color_save) {
+                write_color_profile_ini(b->config_dir, b->cfg.screen_kind,
+                                        b->cfg.color_saturation,
+                                        b->cfg.color_hue);
+                b->cfg.color_save = false;
             }
             if (b->cfg.native_renderer != b->native_renderer)
                 set_native_renderer_enabled(b->cfg.native_renderer);

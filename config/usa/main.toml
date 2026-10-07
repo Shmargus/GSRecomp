@@ -252,6 +252,22 @@ note = "Func_10000 camera adds r7,r1,#0: expanded view clamp X"
 addr = 0x0801008a
 note = "Func_10000 camera adds r6,r3,#0: expanded view clamp Y"
 
+[[thumb_alu_immediate_override]]
+addr = 0x0808faf4
+note = "Func_8f52c iris row adds r3,r5,#0: no wrap below the screen"
+
+[[thumb_alu_immediate_override]]
+addr = 0x0808fbca
+note = "Func_8f52c iris row adds r3,r5,#0: no wrap below the screen"
+
+[[thumb_alu_immediate_override]]
+addr = 0x0808fcc6
+note = "Func_8f52c iris row adds r3,r5,#0: no wrap below the screen"
+
+[[thumb_alu_immediate_override]]
+addr = 0x0808fdca
+note = "Func_8f52c iris row adds r3,r5,#0: no wrap below the screen"
+
 [[thumb_literal_override]]
 addr = 0x08016e56
 note = "Dialogue delay table 0x08073808 load, indexed by Message speed"

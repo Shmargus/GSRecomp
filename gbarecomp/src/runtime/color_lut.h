@@ -42,6 +42,7 @@ enum class ScreenKind {
     Natural,   // less saturated, slightly darker
     Warm,      // less saturated, greens toward yellow
     Deep,      // a little less saturated, darker
+    Custom,    // the player's own saturation and hue (ColorSettings)
 };
 
 // Display colorspace the emitted bytes are interpreted in.
@@ -54,6 +55,10 @@ struct ColorSettings {
     ScreenKind    screen = ScreenKind::Raw;
     double        darken = -1.0;  // <0 = per-screen default
     DisplayTarget target = DisplayTarget::Srgb;
+    // Custom only: 1.0 = the game's own saturation, 0 = grey; hue turned
+    // around the grey axis in degrees.
+    double        saturation = 1.0;
+    double        hue_degrees = 0.0;
 };
 
 // A baked BGR555 → RGB888 table. Build once per settings change; apply per

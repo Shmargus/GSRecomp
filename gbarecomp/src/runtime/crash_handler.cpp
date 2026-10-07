@@ -536,13 +536,15 @@ void write_crash_report(const char* reason, EXCEPTION_POINTERS* ep) {
     buf.appendf("Backtrace (%u frames):\n", static_cast<unsigned>(frame_count));
     append_backtrace(buf, frames, frame_count);
 
+    // The report goes to disk before the extra writer runs, so a second fault
+    // while writing the extra files cannot lose it; it is rewritten with the
+    // "Also written" line afterwards.
+    raw_write_file(g_report_path, buf.data, buf.len);
     if (g_extra_writer) {
         const char* extra = g_extra_writer(g_dir);
-        buf.appendf("\nGame trail: %s\n",
-                    extra ? extra : "(off -- enable Crash log in the F1 menu)");
+        buf.appendf("\nAlso written: %s\n", extra ? extra : "(nothing)");
+        raw_write_file(g_report_path, buf.data, buf.len);
     }
-
-    raw_write_file(g_report_path, buf.data, buf.len);
     write_minidump(ep);
 }
 

@@ -392,8 +392,9 @@ void draw_video_page(ConfigUiState* st) {
         "Soft\0"
         "Natural\0"
         "Warm\0"
-        "Deep\0";
-    static constexpr int kScreenKinds[] = {0, 5, 6, 7, 8, 9, 10};
+        "Deep\0"
+        "Custom\0";
+    static constexpr int kScreenKinds[] = {0, 5, 6, 7, 8, 9, 10, 11};
     int choice = 0;
     for (int i = 0; i < static_cast<int>(std::size(kScreenKinds)); ++i)
         if (kScreenKinds[i] == st->screen_kind) choice = i;
@@ -404,7 +405,38 @@ void draw_video_page(ConfigUiState* st) {
     }
     caption("The game's colours were made bright for the dark original GBA "
             "screen. Handheld tones them down like a modern handheld's GBA "
-            "mode; Soft, Natural, Warm and Deep calm them less.");
+            "mode; Soft, Natural, Warm and Deep calm them less. Custom lets "
+            "you set them yourself.");
+    if (st->screen_kind == 11) {
+        ImGui::SetNextItemWidth(220.0f);
+        if (ImGui::SliderInt("Saturation", &st->color_saturation, 0, 200,
+                             "%d%%"))
+            st->video_changed = true;
+        if (ImGui::IsItemDeactivatedAfterEdit()) st->color_save = true;
+        if (const int dir = dpad_slider_step()) {
+            const int v = std::clamp(st->color_saturation + dir, 0, 200);
+            if (v != st->color_saturation) {
+                st->color_saturation = v;
+                st->video_changed = true;
+                st->color_save = true;
+            }
+        }
+        caption("100% is the game's own colours, 0% is black and white.");
+        ImGui::SetNextItemWidth(220.0f);
+        if (ImGui::SliderInt("Hue", &st->color_hue, -180, 180, "%d"))
+            st->video_changed = true;
+        if (ImGui::IsItemDeactivatedAfterEdit()) st->color_save = true;
+        if (const int dir = dpad_slider_step()) {
+            const int v = std::clamp(st->color_hue + dir, -180, 180);
+            if (v != st->color_hue) {
+                st->color_hue = v;
+                st->video_changed = true;
+                st->color_save = true;
+            }
+        }
+        caption("Turns every colour around the colour wheel. 0 is the "
+                "game's own.");
+    }
 
     section("Performance counter");
     if (ImGui::Checkbox("Show FPS", &st->show_fps)) st->video_changed = true;
@@ -927,11 +959,20 @@ void config_ui_draw(ConfigUiState* st) {
         ImGui::SetNextWindowSizeConstraints(
             ImVec2(std::min(520.0f, max_w), std::min(360.0f, max_h)),
             ImVec2(FLT_MAX, FLT_MAX));
-        // Keep the menu inside the game window. With multi-viewport on, a
-        // window being moved is lifted into its own OS window for the drag
-        // and merged back afterwards, which made the menu jump and could
-        // swallow the next click while the new window took focus.
-        ImGui::SetNextWindowViewport(viewport->ID);
+        // Windowed, the menu is its own OS window from the moment it opens
+        // and never merges back, so it can be dragged off the game to see
+        // the picture behind it (Jimmy, 2026-10-07). Merging back was what
+        // made it jump and swallow a click (2026-10-05): a window lifted out
+        // only for the drag. Fullscreen (and without the OpenGL backend) it
+        // stays inside the game window: there is nowhere else to put it, and
+        // the Steam Deck shows one window only.
+        if (g_use_opengl && !st->fullscreen) {
+            ImGuiWindowClass own_window;
+            own_window.ViewportFlagsOverrideSet = ImGuiViewportFlags_NoAutoMerge;
+            ImGui::SetNextWindowClass(&own_window);
+        } else {
+            ImGui::SetNextWindowViewport(viewport->ID);
+        }
         bool window_open = true;
         if (ImGui::Begin("Settings###Configuration", &window_open,
                          ImGuiWindowFlags_NoCollapse)) {

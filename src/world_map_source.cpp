@@ -170,7 +170,7 @@ bool WorldMapSource::update(const std::uint8_t* ewram, std::size_t ewram_bytes,
     key = fnv(key, reinterpret_cast<const std::uint8_t*>(&directory), 4);
     key = fnv(key, grid, 256 * 2);
     key = fnv(key, entries, 0x10000);
-    if (key == built_key_ && !tiles_.empty()) {
+    if ((key == built_key_ || key == rejected_key_) && !tiles_.empty()) {
         valid_ = true;
         return true;
     }
@@ -202,10 +202,22 @@ bool WorldMapSource::update(const std::uint8_t* ewram, std::size_t ewram_bytes,
             }
         }
     }
+    previous_tiles_.swap(tiles_);
+    previous_key_ = built_key_;
     tiles_.swap(tiles);
     built_key_ = key;
     ++generation_;
     valid_ = true;
+    return true;
+}
+
+bool WorldMapSource::restore_previous() {
+    if (previous_tiles_.empty()) return false;
+    tiles_.swap(previous_tiles_);
+    previous_tiles_.clear();
+    rejected_key_ = built_key_;
+    built_key_ = previous_key_;
+    ++generation_;
     return true;
 }
 

@@ -121,6 +121,10 @@ REVIEWED_THUMB_ALU_IMMEDIATE_OVERRIDES = (
     (0x08010280, "Func_10230 camera min-Y adds r0,r3,#0: expanded view minimum"),
     (0x0801007E, "Func_10000 camera adds r7,r1,#0: expanded view clamp X"),
     (0x0801008A, "Func_10000 camera adds r6,r3,#0: expanded view clamp Y"),
+    (0x0808FAF4, "Func_8f52c iris row adds r3,r5,#0: no wrap below the screen"),
+    (0x0808FBCA, "Func_8f52c iris row adds r3,r5,#0: no wrap below the screen"),
+    (0x0808FCC6, "Func_8f52c iris row adds r3,r5,#0: no wrap below the screen"),
+    (0x0808FDCA, "Func_8f52c iris row adds r3,r5,#0: no wrap below the screen"),
 )
 
 # The ROM speed tables hold three entries; index 3 reads the next table's

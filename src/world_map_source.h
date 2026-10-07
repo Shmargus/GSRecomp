@@ -39,6 +39,13 @@ public:
     // per byte, exactly what the console's map would hold there.
     const std::vector<std::uint8_t>& tiles() const { return tiles_; }
 
+    // Go back to the map built before the latest rebuild, and keep it while
+    // the game's memory stays as it is now. For a rebuild that disagrees
+    // with the screen: cutscenes and the pause menu reuse part of the tile
+    // table at 0x02010000 while the screen still shows the old world
+    // (FACTS.md 2026-10-07). False when there is no earlier map.
+    bool restore_previous();
+
 private:
     const std::vector<std::uint8_t>* piece(std::uint32_t directory,
                                            unsigned id,
@@ -48,6 +55,9 @@ private:
     bool valid_ = false;
     std::uint32_t generation_ = 0;
     std::uint64_t built_key_ = 0;
+    std::uint64_t previous_key_ = 0;
+    std::uint64_t rejected_key_ = 0;
+    std::vector<std::uint8_t> previous_tiles_;
     std::uint32_t cached_directory_ = 0;
     std::vector<std::uint8_t> tiles_;
     // Decoded pieces, 1024 bytes each (16x16 cells of 4 bytes), by id.

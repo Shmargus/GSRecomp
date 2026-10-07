@@ -177,6 +177,7 @@ bool screen_kind_from_name(std::string_view name, ScreenKind& out) {
     if (name == "natural")  { out = ScreenKind::Natural;  return true; }
     if (name == "warm")     { out = ScreenKind::Warm;     return true; }
     if (name == "deep")     { out = ScreenKind::Deep;     return true; }
+    if (name == "custom")   { out = ScreenKind::Custom;   return true; }
     return false;
 }
 
@@ -223,6 +224,7 @@ ColorLut::ColorLut(const ColorSettings& settings) {
             case ScreenKind::Warm:     saturation = 0.8; curve = 1.05;
                                        warm = true; break;
             case ScreenKind::Deep:     saturation = 0.88; curve = 1.25; break;
+            case ScreenKind::Custom:   saturation = settings.saturation; break;
             default: break;
         }
         for (int i = 0; i < 3; ++i)
@@ -232,6 +234,27 @@ ColorLut::ColorLut(const ColorSettings& settings) {
                                  (1.0 - saturation) * kLuma[j];
                 mix[i][j] = handheld * kHandheld[i][j] + (1.0 - handheld) * s;
             }
+        if (settings.screen == ScreenKind::Custom &&
+            settings.hue_degrees != 0.0) {
+            // Hue rotation that keeps brightness (the SVG/CSS hue-rotate
+            // matrix); like the rest, no offset, so black stays black.
+            const double a = settings.hue_degrees * 3.14159265358979 / 180.0;
+            const double cs = std::cos(a), sn = std::sin(a);
+            const double rot[3][3] = {
+                {0.213 + cs * 0.787 - sn * 0.213, 0.715 - cs * 0.715 - sn * 0.715,
+                 0.072 - cs * 0.072 + sn * 0.928},
+                {0.213 - cs * 0.213 + sn * 0.143, 0.715 + cs * 0.285 + sn * 0.140,
+                 0.072 - cs * 0.072 - sn * 0.283},
+                {0.213 - cs * 0.213 - sn * 0.787, 0.715 - cs * 0.715 + sn * 0.715,
+                 0.072 + cs * 0.928 + sn * 0.072}};
+            double t[3][3];
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j)
+                    t[i][j] = rot[i][0] * mix[0][j] + rot[i][1] * mix[1][j] +
+                              rot[i][2] * mix[2][j];
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j) mix[i][j] = t[i][j];
+        }
         if (warm) {
             double t[3][3];
             for (int i = 0; i < 3; ++i)

@@ -150,6 +150,9 @@ struct ConfigUiState {
     bool  linear_filter = false;    // off = crisp nearest-neighbour
     bool  integer_scale = true;
     int   screen_kind = 0;          // runtime::ScreenKind (color_lut.h)
+    int   color_saturation = 100;   // Custom colours: percent, 0..200
+    int   color_hue = 0;            // Custom colours: degrees, -180..180
+    bool  color_save = false;       // a Custom slider was let go: save it
     bool  show_fps = false;
 
     // --- audio --------------------------------------------------------------

@@ -546,6 +546,9 @@ GameResult run_game(const std::string& rom) {
     prune_old_logs(logs_dir);
     result.log_path = (logs_dir / make_session_log_name()).string();
     const std::set<std::string> rewinds_before = rewind_dirs(logs_dir);
+    // A crash file left by an earlier run must not end up in this run's report.
+    fs::remove(g_root / "crash_memory.bin", ec);
+    fs::remove(g_root / "crash_trail.csv", ec);
     const auto launch_time = fs::file_time_type::clock::now();
 
     std::vector<std::pair<std::string, std::string>> env = {
@@ -737,7 +740,11 @@ std::vector<fs::path> make_bug_report(const GameResult& game) {
     // .sav), so the problem can be played again from the same place.
     if (!game.rom.empty())
         copy_into_report(fs::path(game.rom).replace_extension(".sav"), staging);
-    if (game.crashed) copy_into_report(g_root / "crash_report.txt", staging);
+    if (game.crashed) {
+        copy_into_report(g_root / "crash_report.txt", staging);
+        copy_into_report(g_root / "crash_memory.bin", staging);
+        copy_into_report(g_root / "crash_trail.csv", staging);
+    }
     write_text(staging / "report_info.txt",
                std::string("Golden Sun Recompiled bug report\n") +
                "Launcher built: " + __DATE__ + " " + __TIME__ + "\n" +

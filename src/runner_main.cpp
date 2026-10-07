@@ -10635,8 +10635,23 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
                              cap.iwram.data(), cap.iwram.size(),
                              cap.rom, cap.rom_bytes)) {
             g_world_map_source_ok = true;
+            static std::uint32_t checked_generation = 0;
             renderer.upload_world_map(world_map.tiles().data(),
                                       world_map.generation());
+            // A rebuild the screen does not agree with, when an earlier map
+            // exists: keep the earlier one (FACTS.md 2026-10-07). Checked on
+            // the first frame that can be compared (a mode 2 world frame).
+            if (world_map.generation() != checked_generation) {
+                const int agree =
+                    renderer.world_map_agreement(cap.scene, nullptr);
+                if (agree >= 0 &&
+                    agree < gsr::FieldSceneRenderer::kRoomCheckMinAgreement &&
+                    world_map.restore_previous()) {
+                    renderer.upload_world_map(world_map.tiles().data(),
+                                              world_map.generation());
+                }
+                if (agree >= 0) checked_generation = world_map.generation();
+            }
         } else {
             g_world_map_source_ok = false;
             renderer.upload_world_map(nullptr, 0);
@@ -12647,10 +12662,44 @@ int golden_sun_camera_clamp_value(std::uint32_t pc, std::uint32_t original,
     return 1;
 }
 
+// Iris rows (FACTS.md 2026-10-07, "Iris close leaves a full-width strip").
+// The window effects in Func_8f52c build each row's WIN0H from
+// sqrt(R^2 << 16 - (3 * d * d) << s), d = row - centre, R <= 160. The camera
+// inset can put the centre (the player) below the console screen; past
+// 3 * d * d << s >= 2^31 the term wraps and far rows come out full width.
+// At `adds r3,r5,#0` (r5 = d, then `muls r3,r5,r3`) such a row gets
+// r3 = sign(d) * ceil(target / |d|), so the product lands just above
+// target: past R's ellipse (always empty) and below the wrap. Rows that do
+// not wrap are untouched.
+struct IrisRowSite { std::uint32_t pc; unsigned shift; std::int64_t target; };
+constexpr IrisRowSite kIrisRowSites[] = {
+    {0x0808FAF4u, 15u, 19500}, {0x0808FBCAu, 15u, 19500},
+    {0x0808FCC6u, 15u, 19500}, {0x0808FDCAu, 14u, 39000},
+};
+
+int golden_sun_iris_row_value(std::uint32_t pc, std::uint32_t original,
+                              std::uint32_t* out_value) {
+    for (const IrisRowSite& site : kIrisRowSites) {
+        if (pc != site.pc) continue;
+        if (original != 0u || !golden_sun_expanded_obj_view_active()) return 0;
+        const std::int64_t d = static_cast<std::int32_t>(g_cpu.R[5]);
+        if ((3 * d * d) << site.shift < (std::int64_t{1} << 31)) return 0;
+        const std::int64_t mag = d < 0 ? -d : d;
+        const std::int64_t q = (site.target + mag - 1) / mag;
+        *out_value = static_cast<std::uint32_t>((d < 0 ? -q : q) - d);
+        return 1;
+    }
+    return -1;
+}
+
 int golden_sun_thumb_alu_immediate(std::uint32_t pc, std::uint32_t original,
                                    std::uint32_t* out_value) {
     using namespace gsr::text_speed_cheat;
     if (const int r = golden_sun_worldmap_range_box(pc, original, out_value);
+        r >= 0) {
+        return r;
+    }
+    if (const int r = golden_sun_iris_row_value(pc, original, out_value);
         r >= 0) {
         return r;
     }
@@ -13057,14 +13106,17 @@ const auto kTransientCodeImages = std::to_array<TransientCodeImage>({
     // Player report 2026-10-03: live 0x00 vs ROM 0x01 at offset 0, written by
     // its own output pointer one byte past the buffer while still running; see
     // FACTS.md "Linux player crash: Func_2808 overwrote its own first byte".
-    // The first ARM instruction only runs on entry, so it is the volatile prefix.
+    // Player report 2026-10-07 (CRASH-03 at Goma): offsets 0..4 overwritten,
+    // FACTS.md "CRASH-03 recurred with no savestate loads". The volatile prefix
+    // is the whole entry-only format check (ldrb/cmp/movne/bxne, +0x0..+0xF);
+    // no branch in the routine targets below +0x10.
     {0x03006000u, 0x030064ECu, 0x08002808u,
      0,
      "5fd23904086a4129fe3472dbf6658bb5e73f0363",
      "Func_2808_at_03006000",
      gsr_func2808_03006000_kDispatchTable,
      &gsr_func2808_03006000_kDispatchTableLen,
-     4u},
+     16u},
     // Func_6abc's stack thunk used to be registered here at 0x03007df8 and
     // 0x03007bc0. Func_6878 installs it at whatever depth it was entered at,
     // so it is now a single position-independent image below.
@@ -15977,12 +16029,67 @@ int main(int argc, char** argv) {
     gbarecomp::crash_handler_install(nullptr);
     // F1 "Crash log": a crash report also gets the game's last instructions
     // (freezes get the same trail from the hang watchdog, hang_fp_tail.csv).
+    // Every crash also writes crash_memory.bin, a snapshot of the GBA's
+    // memory and CPU registers (zero cost during play). Format, little-endian:
+    //   char magic[8] = "GSRMEM1\0"; u32 region_count;
+    //   per region: char name[8] (zero padded); u32 gba_address; u32 size;
+    //               u8 data[size];
+    // Regions in order: FRAME (addr 0, u64 frame counter), CPU (addr 0, raw
+    // g_cpu bytes), IO 0x04000000 0x400, IWRAM 0x03000000 32K, EWRAM
+    // 0x02000000 256K, PAL 0x05000000 1K, VRAM 0x06000000 96K, OAM 0x07000000
+    // 1K. Only FRAME and CPU are written when no bus is active.
     gbarecomp::crash_handler_set_extra_writer([](const char* dir) -> const char* {
-        if (runtime_fp_count() == 0) return nullptr;
+        static char desc[160];
         char path[300];
-        std::snprintf(path, sizeof(path), "%s\\crash_trail.csv", dir);
-        return runtime_fp_save_tail_csv(path, 20000) ? "crash_trail.csv"
-                                                     : nullptr;
+        std::snprintf(path, sizeof(path), "%s/crash_memory.bin", dir);
+        bool wrote_mem = false;
+        if (std::FILE* f = std::fopen(path, "wb")) {
+            const gba::GbaBus* bus = gbarecomp::active_bus();
+            auto put32 = [&](std::uint32_t v) {
+                const unsigned char b[4] = {
+                    (unsigned char)(v), (unsigned char)(v >> 8),
+                    (unsigned char)(v >> 16), (unsigned char)(v >> 24)};
+                std::fwrite(b, 1, 4, f);
+            };
+            auto region = [&](const char* name, std::uint32_t addr,
+                              const void* data, std::uint32_t size) {
+                char nm[8] = {};
+                for (int i = 0; i < 8 && name[i]; ++i) nm[i] = name[i];
+                std::fwrite(nm, 1, 8, f);
+                put32(addr);
+                put32(size);
+                std::fwrite(data, 1, size, f);
+            };
+            static const char magic[8] = {'G','S','R','M','E','M','1','\0'};
+            std::fwrite(magic, 1, 8, f);
+            put32(bus ? 8u : 2u);
+            const std::uint64_t frame = runtime_current_frame();
+            unsigned char fb[8];
+            for (int i = 0; i < 8; ++i) fb[i] = (unsigned char)(frame >> (8 * i));
+            region("FRAME", 0, fb, 8);
+            region("CPU", 0, &g_cpu, (std::uint32_t)sizeof(g_cpu));
+            if (bus) {
+                region("IO", 0x04000000u, bus->io().raw(), 0x400);
+                region("IWRAM", 0x03000000u, bus->iwram_ptr(), 32u * 1024u);
+                region("EWRAM", 0x02000000u, bus->ewram_ptr(), 256u * 1024u);
+                region("PAL", 0x05000000u, bus->pal_ptr(), 1024u);
+                region("VRAM", 0x06000000u, bus->vram_ptr(), 96u * 1024u);
+                region("OAM", 0x07000000u, bus->oam_ptr(), 1024u);
+            }
+            wrote_mem = std::fclose(f) == 0;
+        }
+        const char* mem = wrote_mem ? "crash_memory.bin" : "crash_memory.bin FAILED";
+        if (runtime_fp_count() == 0) {
+            std::snprintf(desc, sizeof(desc),
+                          "%s (no game trail: Crash log is off in the F1 menu)",
+                          mem);
+        } else {
+            std::snprintf(path, sizeof(path), "%s/crash_trail.csv", dir);
+            const bool trail = runtime_fp_save_tail_csv(path, 20000);
+            std::snprintf(desc, sizeof(desc), "%s, %s", mem,
+                          trail ? "crash_trail.csv" : "crash_trail.csv FAILED");
+        }
+        return desc;
     });
     // The field atlas source is now part of the evidence-backed widescreen
     // policy. Keep the payload-free producer trace opt-in for future source
@@ -16044,6 +16151,11 @@ int main(int argc, char** argv) {
         g_hard_prompt_open = false;
         g_settings_page.store(1);
         native_page_end(false);
+        // The camera inset keys off the map number taken at the last room
+        // setup; a state loaded from the title screen skips that setup, so
+        // the inset stayed off and the view showed 60/40 px past the room's
+        // edge (gpu_frame_0129/0130, 2026-10-07). Take the loaded room's.
+        g_camera_room_map = bus_read_u16(kCameraMapNumberAddr);
     });
     // Two fresh, single-purpose gbarecomp hooks (nothing else installs
     // either), so no chaining is needed: gpu_field_capture_hook copies this

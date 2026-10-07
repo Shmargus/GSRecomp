@@ -176,10 +176,15 @@ const char* kBackgroundFragment =
     // when on, each row's scroll is read as that position plus its offset
     // from it in -512..511.
     "uniform int u_room_ref_on;\n"
+    "uniform int u_haze_room;\n"
     "uniform vec2 u_room_ref;\n"
     // Rows that jump vertically off the recorded position read it instead
     // (row_split_vertical).
     "uniform int u_split_v;\n"
+    // Where the other state of a split layer lies, from its own position
+    // (split_row_offset); u_split_found 0 = not found, read the record.
+    "uniform int u_split_found;\n"
+    "uniform vec2 u_split_offset;\n"
     // Auto-scrolling layer: region x,y and wrap width,height in pixels
     // (0 = no wrap); see upload_room's layer records.
     "uniform vec4 u_room_wrap;\n"
@@ -425,7 +430,16 @@ const char* kBackgroundFragment =
     "      continue_bg3_sky = true;\n"
     "    }\n"
     "  }\n"
-    "  uint hofs_raw = row_u16(scroll_row, 0x10 + u_layer * 4);\n"
+    // Lamakan's heat haze is each row's small offset from the layer's
+  // record; rows above and below the console held row 0's, so the shimmer
+  // stopped at the screen edge (Jimmy, gpu_frame_0127/0128). A layer read
+  // through its record takes the offset of the console row mirrored across
+  // the edge (row 0 itself is the desert's odd one, so the top starts at 1).
+  "  if (u_room_ref_on != 0 && !continue_bg3_sky && console_px.y < 0)\n"
+  "    scroll_row = min(-console_px.y, 159);\n"
+  "  if (u_room_ref_on != 0 && !continue_bg3_sky && console_px.y > 159)\n"
+  "    scroll_row = max(318 - console_px.y, 0);\n"
+  "  uint hofs_raw = row_u16(scroll_row, 0x10 + u_layer * 4);\n"
     "  uint vofs_raw = row_u16(scroll_row, 0x10 + u_layer * 4 + 2);\n"
     // The accumulator's high bits name no room position; its low nine bits
     // are the actual BG3 sample coordinate. Use those for the room-backed
@@ -638,23 +652,37 @@ const char* kBackgroundFragment =
     // Repeating that row draws the same line of the map over and over, which
     // is the vertical banding the expanded world map showed above and below
     // the authentic 160 rows. Keep walking instead, one step per row, where
-    // the step is measured between the edge row and its neighbour. PB/PD are
-    // NOT the step to use: the game reloads the reference itself every
-    // scanline on the world map, and leaves PB at zero while doing it, so a
-    // PB walk would not move at all. This is the rule the emulated path uses
-    // for the same rows (gba_ppu.cpp, render_vertical_margin_rows).
+    // the step is the trend over the last 16 rows, for the reference and
+    // for PA/PC alike. PB/PD are NOT the step to use: the game reloads the
+    // reference itself every scanline on the world map, and leaves PB at
+    // zero while doing it, so a PB walk would not move at all. Nor is the
+    // edge row's single step: the world map's PA drops one unit every few
+    // rows and the reference jumps 120/256 px sideways with it to keep the
+    // centre column still, so a step taken across such a row, repeated
+    // with PA held, sheared the margin sideways (gpu_rewind_0151/0152,
+    // FACTS.md 2026-10-07). Rows 0..159 keep the exact integer walk.
     "    int rows_past = aff_px.y - aff_row;\n"
+    "    int tex_x;\n"
+    "    int tex_y;\n"
     "    if (rows_past != 0) {\n"
-    "      int neighbour = (aff_px.y < 0) ? 1 : 158;\n"
-    "      int nx = row_affine_ref(neighbour, ref_slot);\n"
-    "      int ny = row_affine_ref(neighbour, ref_slot + 1);\n"
-    "      int step_x = (aff_px.y < 0) ? (nx - ref_x) : (ref_x - nx);\n"
-    "      int step_y = (aff_px.y < 0) ? (ny - ref_y) : (ref_y - ny);\n"
-    "      ref_x += rows_past * step_x;\n"
-    "      ref_y += rows_past * step_y;\n"
+    "      int far_row = (aff_px.y < 0) ? 16 : 143;\n"
+    "      float run = float(rows_past) / float(aff_row - far_row);\n"
+    "      float ex = float(ref_x) + run *\n"
+    "          float(ref_x - row_affine_ref(far_row, ref_slot));\n"
+    "      float ey = float(ref_y) + run *\n"
+    "          float(ref_y - row_affine_ref(far_row, ref_slot + 1));\n"
+    "      float epa = float(pa) + run *\n"
+    "          float(pa - row_s16(far_row, param_off));\n"
+    "      float epc = float(pc) + run *\n"
+    "          float(pc - row_s16(far_row, param_off + 4));\n"
+    "      if (epa * float(pa) < 0.0) epa = 0.0;\n"
+    "      tex_x = int(floor((ex + float(aff_px.x) * epa) / 256.0));\n"
+    "      tex_y = int(floor((ey + float(aff_px.x) * epc) / 256.0));\n"
+    "      ref_x = int(floor(ex));\n"
+    "    } else {\n"
+    "      tex_x = (ref_x + aff_px.x * pa) >> 8;\n"
+    "      tex_y = (ref_y + aff_px.x * pc) >> 8;\n"
     "    }\n"
-    "    int tex_x = (ref_x + aff_px.x * pa) >> 8;\n"
-    "    int tex_y = (ref_y + aff_px.x * pc) >> 8;\n"
     // A battle spell drawn on a WRAPPING 256-pixel affine layer at 1:1
     // (Ray: BG2CNT 0x6785, PA 256, PC 0, gpu_rewind_0046) repeats its
     // left-hand bolts in the right margin, because past map column 255 the
@@ -889,7 +917,17 @@ const char* kBackgroundFragment =
     // the wrong grid region -- Lamakan Desert, whose BG2/BG3 scroll 1024 px
     // off the camera, drew 29,544 of 38,400 native pixels wrong
     // (logs/gpu_frame_0106.bin, 2026-09-30).
-    "    if (room_row_authorized && outside_native) {\n"
+    // One exception inside the window: Lamakan's haze lifts the top rows up
+    // to 3 px above the layer's own row 0, into map rows above our raised
+    // camera (the inset) that the game never streamed into VRAM, which drew
+    // rows 1-2 black (gpu_frame_0127/0131/0132, the room's top edge). In a
+    // frame read through the layer records, those pixels come from the room.
+    "    bool haze_above = false;\n"
+    "    if (room_row_authorized && !outside_native && u_haze_room != 0) {\n"
+    "      int haze_dy = ((int(vofs_raw) - int(u_room_ref.y) + 512) & 1023) - 512;\n"
+    "      haze_above = console_px.y + haze_dy < 0;\n"
+    "    }\n"
+    "    if (room_row_authorized && (outside_native || haze_above)) {\n"
     "      ivec2 room_px = console_px + ivec2(u_ewram_camera);\n"
     "      room_covers = room_px.x >= int(u_room_min.x) &&\n"
     "                    room_px.y >= int(u_room_min.y) &&\n"
@@ -901,9 +939,27 @@ const char* kBackgroundFragment =
     // lower in the map, on a growing set of rows (VOFS 312 -> 488). Beside
     // that copy the map holds unrelated tiles, so those rows read the
     // layer's own position in the margins (bug_report_20261004_155305).
-    "        if (u_split_v != 0 &&\n"
-    "            abs(((room_scroll.y - int(u_room_ref.y) + 512) & 1023) - 512) > 9)\n"
-    "          room_scroll.y = int(u_room_ref.y);\n"
+    // While it drains or refills, the other state of the whole room is
+    // elsewhere in the grid (drain: 512 px left, 1024 down; refill: 512
+    // left, 512 down; the bottom layer does not change), found by
+    // split_row_offset. Then a jumping row reads it there, and rows above
+    // and below the console take the jump of the console row mirrored
+    // across the edge, so the margins stripe like the rows beside them
+    // (the pond sits at the top of the screen; FACTS.md 2026-10-07).
+    "        bool split_jump = false;\n"
+    "        if (u_split_v != 0) {\n"
+    "          int jump_row = reg_row;\n"
+    "          if (u_split_found != 0 && console_px.y < 0)\n"
+    "            jump_row = min(-console_px.y - 1, 159);\n"
+    "          if (u_split_found != 0 && console_px.y > 159)\n"
+    "            jump_row = max(319 - console_px.y, 0);\n"
+    "          int jump_vofs = int(row_u16(jump_row, 0x10 + u_layer * 4 + 2));\n"
+    "          split_jump =\n"
+    "              abs(((jump_vofs - int(u_room_ref.y) + 512) & 1023) - 512) > 9;\n"
+    "          if (split_jump ||\n"
+    "              abs(((room_scroll.y - int(u_room_ref.y) + 512) & 1023) - 512) > 9)\n"
+    "            room_scroll.y = int(u_room_ref.y);\n"
+    "        }\n"
     // Record reference (room_reference_for): the layer's own position +
     // the row's offset from it folded into -512..511, so the haze's -1
     // (0xFFFF) at a room's left edge stays -1.
@@ -911,6 +967,8 @@ const char* kBackgroundFragment =
     "          ivec2 ref = ivec2(u_room_ref);\n"
     "          room_scroll = ref + (((room_scroll - ref + 512) & 1023) - 512);\n"
     "        }\n"
+    "        if (split_jump && u_split_found != 0)\n"
+    "          room_scroll += ivec2(u_split_offset);\n"
     "        ivec2 source = console_px + room_scroll;\n"
     // The crow's nest sky (gpu_rewind_0093): above the sky art its region
     // holds one filler tile (the brown band); carry the art's top row up.
@@ -1966,6 +2024,66 @@ bool FieldSceneRenderer::row_split_vertical(const FieldScene& scene,
     return near && jump;
 }
 
+// Kolima's drain and refill (map 43, gpu_rewind_0154-0157, FACTS.md
+// 2026-10-07): the jumping rows show the other state of the pond, which the
+// room grid holds for the whole room 512 px left and 1024 (drain) or 512
+// (refill) down of the layer's own region; the bottom layer is the same in
+// both states (offset 0). Match the console's tiles on the jumping rows
+// against each 512-px offset and take the best, if it agrees.
+bool FieldSceneRenderer::split_row_offset(const FieldScene& scene, int bg,
+                                          int* off_x, int* off_y) const {
+    const LayerWrap& rec = layer_wrap_[bg];
+    if (!room_valid_ || vram_maps_.empty() || !rec.have_record) return false;
+    int best = -1, best_x = 0, best_y = 0, best_total = 0;
+    for (int oy = -1536; oy <= 1536; oy += 512) {
+        for (int ox = -1536; ox <= 1536; ox += 512) {
+            int total = 0, same = 0;
+            for (int y = 4; y < 160; y += 8) {
+                if (!row_jumps_vertically(scene, bg, y)) continue;
+                const std::uint8_t* io = scene.row_io_valid[y]
+                    ? scene.row_io[y].data() : scene.io_bytes.data();
+                auto rd = [&](std::size_t at) {
+                    return static_cast<int>(io[at] | (io[at + 1] << 8));
+                };
+                const int bgcnt = rd(0x08u + static_cast<std::size_t>(bg) * 2u);
+                const int scroll_x = rd(0x10u + static_cast<std::size_t>(bg) * 4u);
+                const int scroll_y = rd(0x12u + static_cast<std::size_t>(bg) * 4u);
+                const int size_code = (bgcnt >> 14) & 3;
+                const std::size_t screen_base =
+                    static_cast<std::size_t>((bgcnt >> 8) & 31) * 2048u;
+                const int w = (size_code & 1) ? 64 : 32;
+                const int h = (size_code & 2) ? 64 : 32;
+                const int room_sx = rec.pos_x + ox +
+                    (((scroll_x - rec.pos_x + 512) & 1023) - 512);
+                const int room_sy = rec.pos_y + oy;
+                for (int x = 4; x < 240; x += 8) {
+                    std::uint16_t want = 0;
+                    if (!room_entry(x, y, room_sx, room_sy, &want)) continue;
+                    const int tx = (((x + scroll_x) & 511) >> 3) & (w - 1);
+                    const int ty = (((y + scroll_y) & 511) >> 3) & (h - 1);
+                    int block = 0;
+                    if (w == 64 && tx >= 32) block += 1;
+                    if (h == 64 && ty >= 32) block += (w == 64) ? 2 : 1;
+                    const std::size_t at = screen_base +
+                        static_cast<std::size_t>(block) * 2048u +
+                        static_cast<std::size_t>(((ty & 31) * 32 + (tx & 31)) * 2);
+                    if (at + 1 >= vram_maps_.size()) continue;
+                    const std::uint16_t have = static_cast<std::uint16_t>(
+                        vram_maps_[at] | (vram_maps_[at + 1] << 8));
+                    ++total;
+                    if (have == want) ++same;
+                }
+            }
+            if (total < kRoomCheckMinTiles) continue;
+            if (same > best) { best = same; best_x = ox; best_y = oy; best_total = total; }
+        }
+    }
+    if (best < 0 || best * 100 < kRoomCheckMinAgreement * best_total) return false;
+    *off_x = best_x;
+    *off_y = best_y;
+    return true;
+}
+
 bool FieldSceneRenderer::room_reference_for(const FieldScene& scene, int bg,
                                             bool* from_record) const {
     *from_record = false;
@@ -2254,7 +2372,10 @@ EffectCanvasLayout effect_canvas_layout(const std::uint8_t* vram,
 // c2 y^2 to under a pixel on every frame of the capture (an ellipse 1.22
 // times as wide as tall, centred on the player closing, on the screen
 // opening). Too few such rows, a centre that moves, or a worse fit: no
-// iris, and the window works as before.
+// iris, and the window works as before. Once the centre is known, rows with
+// only one edge inside count too (gpu_rewind_0153: the player near the left
+// edge leaves 4-7 two-edge rows at the circle's top, too few to place its
+// bottom, and the bottom margin flickered).
 struct IrisWindow {
     bool found = false;
     float cx = 0.0f, cy = 0.0f;   // console pixels
@@ -2266,21 +2387,40 @@ IrisWindow fit_iris_window(const FieldScene& scene) {
     double s[5] = {}, t[3] = {};  // sums of y^k, and of w^2 * y^k
     int rows = 0, centre2 = -1;
     std::array<std::pair<int, double>, FieldScene::kRows> seen{};
-    for (int y = 0; y < FieldScene::kRows; ++y) {
+    auto row_edges = [&](int y, int* x1, int* x2) {
         const std::uint8_t* io = scene.row_io_valid[y]
             ? scene.row_io[y].data() : scene.io_bytes.data();
         const unsigned dispcnt = io[0] | (io[1] << 8);
-        if (((dispcnt >> 13) & 1u) == 0u) continue;
-        const int x1 = io[0x41], x2 = io[0x40];
-        if (x1 <= 0 || x2 >= 240 || x1 >= x2) continue;
-        if (centre2 < 0) centre2 = x1 + x2;
-        if (std::abs(x1 + x2 - centre2) > 1) return out;
-        const double w = (x2 - x1) * 0.5, w2 = w * w;
+        if (((dispcnt >> 13) & 1u) == 0u) return false;
+        *x1 = io[0x41];
+        *x2 = io[0x40];
+        return *x1 < *x2;
+    };
+    auto add_row = [&](int y, double w) {
+        const double w2 = w * w;
         double yk = 1.0;
         for (int k = 0; k < 5; ++k) { s[k] += yk; if (k < 3) t[k] += w2 * yk; yk *= y; }
         seen[static_cast<std::size_t>(rows++)] = {y, w};
+    };
+    int two_edge_rows = 0;
+    for (int y = 0; y < FieldScene::kRows; ++y) {
+        int x1 = 0, x2 = 0;
+        if (!row_edges(y, &x1, &x2) || x1 <= 0 || x2 >= 240) continue;
+        if (centre2 < 0) centre2 = x1 + x2;
+        if (std::abs(x1 + x2 - centre2) > 1) return out;
+        add_row(y, (x2 - x1) * 0.5);
+        ++two_edge_rows;
     }
-    if (rows < 3) return out;
+    if (two_edge_rows < 3) return out;
+    for (int y = 0; y < FieldScene::kRows; ++y) {
+        int x1 = 0, x2 = 0;
+        if (!row_edges(y, &x1, &x2)) continue;
+        const bool left_only = x1 > 0 && x2 >= 240;
+        const bool right_only = x1 <= 0 && x2 < 240;
+        if (!left_only && !right_only) continue;
+        const double w = left_only ? centre2 * 0.5 - x1 : x2 - centre2 * 0.5;
+        if (w > 0.0) add_row(y, w);
+    }
     // Normal equations for (c0, c1, c2), by Cramer's rule.
     const double m[3][3] = {{s[0], s[1], s[2]}, {s[1], s[2], s[3]}, {s[2], s[3], s[4]}};
     auto det3 = [](const double a[3][3]) {
@@ -2850,6 +2990,24 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
                             static_cast<std::size_t>(y) * FieldScene::kLineIoBytes,
                         src, FieldScene::kLineIoBytes);
         }
+        // Lamakan Desert's row 0 swaps BG1 and BG3's +1024 (every frame of
+        // gpu_rewind_0158-0160; over all captures only maps 89-91), so the
+        // console's top line misses the haze: a thin line across the middle
+        // of the widened picture. Jimmy, 2026-10-07: draw it with row 1's
+        // scroll. This changes native row 0, deliberately.
+        if (scene.video_mode == 0) {
+            std::uint8_t* r0 = row_bytes.data();
+            const std::uint8_t* r1 = r0 + FieldScene::kLineIoBytes;
+            bool swapped = false;
+            for (int bg = 1; bg <= 3; ++bg) {
+                const int at = 0x12 + 4 * bg;
+                const int v0 = r0[at] | (r0[at + 1] << 8);
+                const int v1 = r1[at] | (r1[at + 1] << 8);
+                const int d = std::abs(((v0 - v1 + 0x8000) & 0xFFFF) - 0x8000);
+                if (d >= 1022 && d <= 1026) swapped = true;
+            }
+            if (swapped) std::memcpy(r0 + 0x14, r1 + 0x14, 12);
+        }
         surface_->update_texture(row_io_, 0, 0,
                                  static_cast<int>(FieldScene::kLineIoBytes),
                                  static_cast<int>(FieldScene::kRows),
@@ -3239,6 +3397,18 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         }
         layer_striped[bg] = switches >= 16;
     }
+    // A frame where some field layer is read through its record (Lamakan's
+    // swapped regions): the haze-above rule then covers every room layer,
+    // the sandfall's own-scroll BG2 included (gpu_frame_0131/0132).
+    bool haze_room = false;
+    if (room_source_enabled_ && room_valid_ && scene.video_mode == 0) {
+        for (int bg = 1; bg <= 3; ++bg) {
+            bool rec = false;
+            if (!scene.layers[bg].affine &&
+                room_reference_for(scene, bg, &rec) && rec)
+                haze_room = true;
+        }
+    }
 
     auto draw_background = [&](int bg, bool second_pass) {
         const SceneLayer& L = scene.layers[bg];
@@ -3302,14 +3472,23 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
             use_room = false;
         const LayerWrap& wrap = layer_wrap_[bg];
         surface_->set_uniform_int(background_, "u_use_room", use_room ? 1 : 0);
+        surface_->set_uniform_int(background_, "u_haze_room",
+                                  haze_room ? 1 : 0);
         surface_->set_uniform_int(background_, "u_room_ref_on",
                                   use_room && from_record ? 1 : 0);
         surface_->set_uniform_vec2(background_, "u_room_ref",
                                    static_cast<float>(wrap.pos_x),
                                    static_cast<float>(wrap.pos_y));
-        surface_->set_uniform_int(background_, "u_split_v",
-                                  use_room && row_split_vertical(scene, bg)
-                                      ? 1 : 0);
+        const bool split_v = use_room && row_split_vertical(scene, bg);
+        surface_->set_uniform_int(background_, "u_split_v", split_v ? 1 : 0);
+        int split_x = 0, split_y = 0;
+        const bool split_found =
+            split_v && split_row_offset(scene, bg, &split_x, &split_y);
+        surface_->set_uniform_int(background_, "u_split_found",
+                                  split_found ? 1 : 0);
+        surface_->set_uniform_vec2(background_, "u_split_offset",
+                                   static_cast<float>(split_x),
+                                   static_cast<float>(split_y));
         surface_->set_uniform_vec4(background_, "u_room_wrap",
                                    static_cast<float>(wrap.region_x),
                                    static_cast<float>(wrap.region_y),

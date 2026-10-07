@@ -1091,6 +1091,8 @@ std::vector<fs::path> make_bug_report(const fs::path& root, const fs::path& game
     if (crashed) {
         copy_into_report(game_dir / L"crash_report.txt", staging);
         copy_into_report(game_dir / L"crash_dump.dmp", staging);
+        copy_into_report(game_dir / L"crash_memory.bin", staging);
+        copy_into_report(game_dir / L"crash_trail.csv", staging);
     }
     {
         std::ofstream info(staging / L"report_info.txt", std::ios::binary);
@@ -1832,6 +1834,12 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
     }
 
     const std::set<std::wstring> rewinds_before = rewind_dirs(logs_dir);
+    // A crash file left by an earlier run must not end up in this run's report.
+    {
+        std::error_code stale_ec;
+        fs::remove(game.parent_path() / L"crash_memory.bin", stale_ec);
+        fs::remove(game.parent_path() / L"crash_trail.csv", stale_ec);
+    }
     const auto launch_time = fs::file_time_type::clock::now();
 
     PROCESS_INFORMATION process{};

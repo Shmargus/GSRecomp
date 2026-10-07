@@ -79,6 +79,12 @@ public:
     // another copy of the area on some rows (Kolima's flood, see the .cpp).
     bool row_split_vertical(const FieldScene& scene, int bg) const;
     bool row_jumps_vertically(const FieldScene& scene, int bg, int y) const;
+    // For a split layer: the grid offset from the layer's recorded position
+    // at which the room holds what the jumping rows show (the other state of
+    // Kolima's pond, whole room). Multiples of 512 px; false when no offset
+    // reaches kRoomCheckMinAgreement on those rows.
+    bool split_row_offset(const FieldScene& scene, int bg, int* off_x,
+                          int* off_y) const;
     // A row within this many pixels of the record sits on it (measured).
     static constexpr int kRowNearRecord = 9;
     // Percentage of sampled world-map pixels inside the 240x160 window
