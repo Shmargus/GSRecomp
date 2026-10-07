@@ -186,7 +186,19 @@ BLOG_POST*.html
 !/scripts/build_lto.ps1
 !/scripts/gs.ps1
 !/scripts/make_release_linux.sh
+!/scripts/make_release.ps1
+!/scripts/release_tool.ps1
 /tools/*
+!/tools/audit_public_repo.py
+!/tools/verify_rom.py
+!/tools/analyze_effect_canvas.py
+!/tools/build_transient_image_config.py
+!/tools/field_scene_check.cpp
+!/tools/gpu_surface_smoke.cpp
+!/tools/ppu_bench.cpp
+!/tools/replay_compare.py
+!/tools/resolve_miss_functions.py
+!/tools/scene_renderer_check.cpp
 !/tools/build_main_toml.py
 !/tools/import_main_symbols.py
 !/tools/validate_symbol_corpus.py
@@ -207,6 +219,7 @@ BLOG_POST*.html
 /config/usa/overlay-observed-entries.json
 /gbarecomp/*.md
 !/gbarecomp/THIRD_PARTY_ATTRIBUTION.md
+!/gbarecomp/MODIFICATIONS.md
 /gbarecomp/docs/
 /gbarecomp/bios/
 /gbarecomp/third_party/
@@ -217,9 +230,8 @@ BLOG_POST*.html
 !/gbarecomp/tools/symbol_import/
 !/gbarecomp/tools/test_rom_runner/
 
-# Local player releases (make_release.bat) and the script that makes them.
+# Local player releases (made by make_release.bat).
 /GSRecomp-Release/
-/make_release.bat
 /build_nolto_test.bat
 /build_lto_nosymbols.bat
 /build_lto_o2.bat
