@@ -18,10 +18,11 @@ it on your machine, and the launcher checks the ROM's SHA-1 first.
 
 ## Status
 
-- **Latest release: [0.3.1](https://github.com/Shmargus/GSRecomp/releases)**
-  (pre-release), for Windows and Linux. 0.3.1 is a launcher-only update on
-  top of 0.3: it makes the widescreen view much faster, especially on the
-  Steam Deck.
+- **Latest release: [0.4](https://github.com/Shmargus/GSRecomp/releases)**
+  (pre-release), for Windows and Linux. 0.4 adds colour profiles with
+  Custom sliders, a 4:3 picture, experimental screen filters, a memory
+  snapshot in bug reports after a crash, and a fix for the black bars on the
+  world map with AMD graphics on Linux.
 - The game is playable from start to the ending credits.
 - Known issues:
   - A few spell effects (Spark Plasma, Destruct Ray, Supernova, Thor's
@@ -31,6 +32,10 @@ it on your machine, and the launcher checks the ROM's SHA-1 first.
     drawing cannot handle yet); the game carries on.
   - The Walk Speed setting does not apply in the Colosso trials (kept on
     purpose).
+  - A crash in the Vale storm opening or during a battle has been reported
+    a few times; the cause is not found yet. Press **Send report** if it
+    happens.
+  - The Mars Star looks garbled when you take it out in Sol Sanctum.
 
 ## Playing
 
@@ -62,7 +67,11 @@ explanation from the launcher instead of a silent exit.
 - Expanded widescreen view drawn by a native GPU renderer (field, world map and
   battles), with spell effects extended into the extra margins.
 - In-window settings menu (F1): fullscreen, window size, sharp pixels,
-  flicker reduction, volume, fast forward, an FPS/speed counter, and
+  flicker reduction, colour profiles (Raw, Handheld, Handheld lighter,
+  Soft, Natural, Warm, Deep, and Custom with Saturation, Hue, Brightness,
+  Warmth and Darkening sliders), a 4:3 aspect ratio (the middle of the
+  wide view), experimental screen filters (LCD3x, CRT Lottes, xBR, ScaleFX;
+  need OpenGL), volume, fast forward, an FPS/speed counter, and
   rebindable controls and hotkeys, including auto fire for A and B and a
   Quit Game hotkey.
 - Optional in-game settings for walking speed, encounter rate, screen size and slowdown
@@ -168,7 +177,9 @@ for Windows, Linux (through WSL Ubuntu 24.04) or both, into
 `GSRecomp-Release/`; run `build_lto.bat` first. Each download has the
 launcher, engine, builder, translator and a trimmed compiler, and no game
 code. By default it then builds the game from your ROM using only the
-release's own tools, to prove the download is complete.
+release's own tools, to prove the download is complete. The release scripts
+read the bug-report service address from `local/report_host.txt` (not in
+git); without it the launcher has no Send report button.
 
 - **Linux by hand:** `bash scripts/make_release_linux.sh` on a 64-bit Linux
   machine or WSL (built and tested on Ubuntu 24.04) with GCC, CMake, Ninja and the
