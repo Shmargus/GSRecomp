@@ -223,7 +223,7 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
     <main>
       <section id="about">
         <h2 class="section">What is this?</h2>
-        <p class="intro">Golden Sun Recompiled turns the 2001 Game Boy Advance game into a program that runs straight on Windows (and, as a test, on Linux). It isn't an emulator. The game's own code is translated into PC code, so you get the same adventure with a wider screen, a proper settings menu and a handful of optional extras.</p>
+        <p class="intro">Golden Sun Recompiled turns the 2001 Game Boy Advance game into a program that runs straight on Windows and Linux, including the Steam Deck. It isn't an emulator. The game's own code is translated into PC code, so you get the same adventure with a wider screen, a proper settings menu and a handful of optional extras.</p>
         <p>You bring your own copy of the game. Nothing from the game comes with this project, and your game file is never changed.</p>
         <div class="note"><b>Heads up:</b> this is still being worked on. It's tested by playing through the game, and a few things may still look or sound slightly off.</div>
       </section>
@@ -234,6 +234,10 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
           <div><h3>Widescreen</h3><p>See more around you in towns, dungeons, on the world map and in battle.</p><span class="where">Settings page two → <b>Screen: Wide</b></span></div>
           <div><h3>Spells fill the screen</h3><p>Psynergy and summons carry on into the extra space instead of stopping at the old edge.</p><span class="where">Automatic in <b>Wide</b></span></div>
           <div><h3>Sharp pixels</h3><p>Keeps the pixel art crisp at any window size.</p><span class="where"><b>F1</b> → Video</span></div>
+          <div><h3>Colour profiles</h3><p>The game's colours were made bright for the original GBA screen. Pick Raw, Handheld, Soft, Natural, Warm or Deep.</p><span class="where"><b>F1</b> → Video</span></div>
+          <div><h3>Your own colours</h3><p>Custom gives you sliders for saturation, hue, brightness, warmth and darkening. The picture changes as you drag.</p><span class="where"><b>F1</b> → Video → Custom</span></div>
+          <div><h3>4:3 picture</h3><p>Shows the middle of the wide view for 4:3 screens, with nothing stretched.</p><span class="where"><b>F1</b> → Video, with <b>Screen: Wide</b></span></div>
+          <div><h3>Screen filters (test)</h3><p>An LCD grid, an old-TV CRT look, or smoothed pixel art (xBR, ScaleFX). Still a test.</p><span class="where"><b>F1</b> → Video</span></div>
           <div><h3>Flicker reduction</h3><p>Smooths out effects the original drew by flashing them on and off.</p><span class="where"><b>F1</b> menu</span></div>
           <div><h3>Any window size</h3><p>Resize the window freely or play fullscreen.</p><span class="where"><b>Alt+Enter</b> or <b>F1</b> → Video</span></div>
           <div><h3>FPS counter</h3><p>Shows the frame rate and game speed in a corner.</p><span class="where">Press <b>F</b></span></div>
@@ -315,7 +319,7 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
                 <li>Keep playing if you like, and press <kbd>F12</kbd> again for any other problem.</li>
                 <li>Close the game. A bug report window opens: write a few words about what happened and where, and press <b>Send report</b>. No account or form needed.</li>
               </ol>
-              <p>If the game crashes, the same window opens without you pressing F12. Nothing is ever sent unless you press <b>Send report</b>; otherwise the report stays on your computer in <b>logs\bug_reports</b>. A report holds the game's log and screen captures, your settings files and your Windows or Linux version, with your user name taken out. Only the developer sees it.</p>
+              <p>If the game crashes, the same window opens without you pressing F12. Nothing is ever sent unless you press <b>Send report</b>; otherwise the report stays on your computer in <b>logs\bug_reports</b>. A report holds the game's log and screen captures, your settings files and your Windows or Linux version, with your user name taken out. After a crash it also holds a snapshot of the game's memory. Only the developer sees it.</p>
               <p>If sending doesn't work, the window offers the <a href="https://docs.google.com/forms/d/e/1FAIpQLScTmnmH6_BXYsYVfIKtjDsN-gLx59mv4pVjYx4ITbH2YGktBw/viewform" target="_blank" rel="noopener">bug report form</a> instead, where you can add the report by hand. On 0.1-test the launcher still uses that form.</p>
             </div>
           </details>
@@ -345,11 +349,11 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
           </details>
           <details>
             <summary>Is it finished?</summary>
-            <div class="a"><p>Not yet. Test release <span id="release-version">0.3</span> is out: <a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">download it from GitHub</a>. Expect some rough edges, and please report what you find.</p></div>
+            <div class="a"><p>Not yet. Test release <span id="release-version">0.4</span> is out: <a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">download it from GitHub</a>. Expect some rough edges, and please report what you find.</p></div>
           </details>
           <details>
             <summary>What does it run on, and what does it cost?</summary>
-            <div class="a"><p>Windows 10 and 11. New in 0.2 and still a test: a recent 64-bit Linux, for example Ubuntu 24.04, Debian 13, Fedora 40 or Arch, with SDL2 installed. It hasn't been tested on Steam Deck yet. It's a free, noncommercial fan project.</p></div>
+            <div class="a"><p>Windows 10 and 11, and a recent 64-bit Linux, for example Ubuntu 24.04, Debian 13, Fedora 40 or Arch, with SDL2 installed. It runs on the Steam Deck too. It's a free, noncommercial fan project.</p></div>
           </details>
         </div>
       </section>
@@ -361,9 +365,9 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
         <div class="in">
           <!-- Filled from GitHub's newest release when the page loads (script
                at the end); these values are the fallback. -->
-          <a class="report" id="download-windows" href="https://github.com/Shmargus/GSRecomp/releases/download/0.3/GoldenSunRecompiled-0.3-windows.zip">Download for Windows</a>
-          <a class="report" id="download-linux" style="margin-top: 8px" href="https://github.com/Shmargus/GSRecomp/releases/download/0.3/GoldenSunRecompiled-0.3-linux.zip">Download for Linux (test)</a>
-          <p class="keynote"><span id="release-line">Test release 0.3, 4 October 2026. Windows 10 and 11: 36 MB zip. Linux: 27 MB zip.</span> Unzip it and start <b>GoldenSunLauncher</b>; the first start takes several minutes.</p>
+          <a class="report" id="download-windows" href="https://github.com/Shmargus/GSRecomp/releases/download/0.4/GoldenSunRecompiled-0.4-windows.zip">Download for Windows</a>
+          <a class="report" id="download-linux" style="margin-top: 8px" href="https://github.com/Shmargus/GSRecomp/releases/download/0.4/GoldenSunRecompiled-0.4-linux.zip">Download for Linux</a>
+          <p class="keynote"><span id="release-line">Test release 0.4, 7 October 2026. Windows 10 and 11: 37 MB zip. Linux: 27 MB zip.</span> Unzip it and start <b>GoldenSunLauncher</b>; the first start takes several minutes.</p>
           <ul class="keys">
             <li><span>All releases</span><a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">GitHub</a></li>
             <li><span>Source code</span><a href="https://github.com/Shmargus/GSRecomp" target="_blank" rel="noopener">GitHub</a></li>
