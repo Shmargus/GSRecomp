@@ -39,6 +39,7 @@ extern "C" unsigned long long g_cost_irq_handler_ns;
 extern "C" unsigned long long g_cost_irq_handler_calls;
 
 #include "asset_picker.h"
+#include "env_flag.h"
 #include "bios_hle.h"
 #include "gba_bios.h"
 #include "gba_bus.h"
@@ -958,8 +959,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     }
 
     if (opts.no_bios_by_default && !args.bios_from_cli) args.no_bios = true;
-    if (const char* e = std::getenv("GBARECOMP_NO_BIOS"))
-        args.no_bios = (e[0] && e[0] != '0');
+    args.no_bios = gbarecomp::env_flag("GBARECOMP_NO_BIOS", args.no_bios);
 #if !defined(GBARECOMP_HAVE_BIOS_RECOMP)
     // This build carries no recompiled BIOS, so a BIOS-backed run cannot
     // execute. Say so instead of starting one that would stop at boot.
@@ -1115,10 +1115,9 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     // (0 forces LLE, any other value forces HLE). Installs the runtime_swi hook.
     // The boot-skip decision (below, after reset_recomp_cpu) reads args.bios_hle
     // + args.bios_hle_keep_intro, so resolve the env overrides into args here.
-    if (const char* e = std::getenv("GBARECOMP_BIOS_HLE"))
-        args.bios_hle = (e[0] && e[0] != '0');
-    if (const char* e = std::getenv("GBARECOMP_BIOS_HLE_KEEP_INTRO"))
-        args.bios_hle_keep_intro = (e[0] && e[0] != '0');
+    args.bios_hle = gbarecomp::env_flag("GBARECOMP_BIOS_HLE", args.bios_hle);
+    args.bios_hle_keep_intro = gbarecomp::env_flag(
+        "GBARECOMP_BIOS_HLE_KEEP_INTRO", args.bios_hle_keep_intro);
     // No-BIOS mode needs the HLE SWIs and has no intro to keep.
     if (args.no_bios) {
         args.bios_hle = true;
@@ -1140,11 +1139,8 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     // the interp side of the recomp-vs-interp first-divergence oracle; the recomp
     // side is the same binary with the flag unset. See COSIM_ORACLE.md §1.
     g_force_interp = 0;
-    if (const char* fi = std::getenv("GBARECOMP_FORCE_INTERP"))
-        g_force_interp = (fi[0] && fi[0] != '0') ? 1 : 0;
-    const char* strict_env = std::getenv("GBARECOMP_STRICT_STATIC");
-    const bool strict_requested =
-        strict_env && strict_env[0] != '\0' && strict_env[0] != '0';
+    if (gbarecomp::env_flag("GBARECOMP_FORCE_INTERP")) g_force_interp = 1;
+    const bool strict_requested = gbarecomp::env_flag("GBARECOMP_STRICT_STATIC");
     const char* frame_capture_env = std::getenv("GBARECOMP_FRAMEDUMP_DIR");
     const bool explicit_capture = !args.dump_bmp.empty() ||
                                   !args.dump_png.empty();
@@ -1172,12 +1168,9 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     cosim_init();
 #endif
 
-    const char* ws_wip_env = std::getenv("GBARECOMP_WS_WIP");
-    const bool ws_wip_enabled =
-        ws_wip_env && ws_wip_env[0] && ws_wip_env[0] != '0';
+    const bool ws_wip_enabled = gbarecomp::env_flag("GBARECOMP_WS_WIP");
 
-    if (const char* e = std::getenv("GBARECOMP_RESIZE_VIEW"))
-        args.resize_view = e[0] && e[0] != '0';
+    args.resize_view = gbarecomp::env_flag("GBARECOMP_RESIZE_VIEW", args.resize_view);
     const bool resize_view_enabled =
         args.resize_view && opts.resize_driven_view &&
         (opts.max_resize_view_width > 240 ||
@@ -1312,12 +1305,10 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                 static_cast<unsigned>(ppu.view_extra_right()));
         }
     }
-    const char* native_audio_env = std::getenv("GBARECOMP_AUDIO_NATIVE");
+    const bool native_audio_env_on = gbarecomp::env_flag("GBARECOMP_AUDIO_NATIVE");
     const bool native_audio_requested =
-        native_audio_env && native_audio_env[0] && native_audio_env[0] != '0' &&
-        !strict_requested;
-    if (native_audio_env && native_audio_env[0] && native_audio_env[0] != '0' &&
-        strict_requested) {
+        native_audio_env_on && !strict_requested;
+    if (native_audio_env_on && strict_requested) {
         std::fprintf(stderr,
                      "[audio] native output forced OFF by strict-static acceptance\n");
     }

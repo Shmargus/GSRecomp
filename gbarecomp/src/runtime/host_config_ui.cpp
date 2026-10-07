@@ -24,6 +24,7 @@ bool (*g_config_ui_extra_wants_keyboard)() = nullptr;
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_sdlrenderer2.h"
 #include "imgui_impl_opengl3.h"
+#include "color_lut.h"
 #include "frame_timing.h"
 #include "temporal_blend.h"
 
@@ -183,6 +184,37 @@ int dpad_slider_step() {
     if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, ImGuiInputFlags_Repeat, id))
         return 1;
     return 0;
+}
+
+// What a slider did this frame: `changed` on any new value (drag or D-pad),
+// `committed` when the player let go of a drag or stepped with the D-pad.
+struct SliderEdit {
+    bool changed = false;
+    bool committed = false;
+};
+
+// The D-pad half of a slider; call right after the ImGui slider.
+template <typename T>
+SliderEdit finish_slider(bool dragged, T* value, T lo, T hi, T step) {
+    SliderEdit edit{dragged, ImGui::IsItemDeactivatedAfterEdit()};
+    if (const int dir = dpad_slider_step()) {
+        const T v = std::clamp(static_cast<T>(*value + step * dir), lo, hi);
+        if (v != *value) {
+            *value = v;
+            edit.changed = edit.committed = true;
+        }
+    }
+    return edit;
+}
+
+SliderEdit slider_int(const char* label, int* value, int lo, int hi, const char* format) {
+    ImGui::SetNextItemWidth(220.0f);
+    return finish_slider(ImGui::SliderInt(label, value, lo, hi, format), value, lo, hi, 1);
+}
+
+SliderEdit slider_float(const char* label, float* value, float lo, float hi, float step, const char* format) {
+    ImGui::SetNextItemWidth(220.0f);
+    return finish_slider(ImGui::SliderFloat(label, value, lo, hi, format), value, lo, hi, step);
 }
 
 void draw_controls_page(ConfigUiState* st) {
@@ -385,57 +417,105 @@ void draw_video_page(ConfigUiState* st) {
     // The menu lists only these; screen_kind is a runtime::ScreenKind
     // (color_lut.h). The GBA screen models stay reachable through
     // GBARECOMP_SCREEN but are not offered here.
-    static const char kScreenItems[] =
-        "Raw (as the game draws it)\0"
-        "Handheld (muted, warm)\0"
-        "Handheld (lighter)\0"
-        "Soft\0"
-        "Natural\0"
-        "Warm\0"
-        "Deep\0"
-        "Custom\0";
-    static constexpr int kScreenKinds[] = {0, 5, 6, 7, 8, 9, 10, 11};
+    struct ScreenChoice {
+        runtime::ScreenKind kind;
+        const char* label;
+    };
+    static constexpr ScreenChoice kScreenChoices[] = {
+        {runtime::ScreenKind::Raw, "Raw (as the game draws it)"},
+        {runtime::ScreenKind::Handheld, "Handheld (muted, warm)"},
+        {runtime::ScreenKind::HandheldLight, "Handheld (lighter)"},
+        {runtime::ScreenKind::Soft, "Soft"},
+        {runtime::ScreenKind::Natural, "Natural"},
+        {runtime::ScreenKind::Warm, "Warm"},
+        {runtime::ScreenKind::Deep, "Deep"},
+        {runtime::ScreenKind::Custom, "Custom"},
+    };
     int choice = 0;
-    for (int i = 0; i < static_cast<int>(std::size(kScreenKinds)); ++i)
-        if (kScreenKinds[i] == st->screen_kind) choice = i;
+    for (int i = 0; i < static_cast<int>(std::size(kScreenChoices)); ++i)
+        if (static_cast<int>(kScreenChoices[i].kind) == st->screen_kind) choice = i;
     ImGui::SetNextItemWidth(220.0f);
-    if (ImGui::Combo("Colours", &choice, kScreenItems)) {
-        st->screen_kind = kScreenKinds[choice];
-        st->video_changed = true;
+    if (ImGui::BeginCombo("Colours", kScreenChoices[choice].label)) {
+        for (int i = 0; i < static_cast<int>(std::size(kScreenChoices)); ++i) {
+            if (ImGui::Selectable(kScreenChoices[i].label, i == choice)) {
+                st->screen_kind = static_cast<int>(kScreenChoices[i].kind);
+                st->video_changed = true;
+            }
+            if (i == choice) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
     }
     caption("The game's colours were made bright for the dark original GBA "
             "screen. Handheld tones them down like a modern handheld's GBA "
             "mode; Soft, Natural, Warm and Deep calm them less. Custom lets "
             "you set them yourself.");
-    if (st->screen_kind == 11) {
-        ImGui::SetNextItemWidth(220.0f);
-        if (ImGui::SliderInt("Saturation", &st->color_saturation, 0, 200,
-                             "%d%%"))
-            st->video_changed = true;
-        if (ImGui::IsItemDeactivatedAfterEdit()) st->color_save = true;
-        if (const int dir = dpad_slider_step()) {
-            const int v = std::clamp(st->color_saturation + dir, 0, 200);
-            if (v != st->color_saturation) {
-                st->color_saturation = v;
-                st->video_changed = true;
-                st->color_save = true;
-            }
-        }
+    if (st->screen_kind == static_cast<int>(runtime::ScreenKind::Custom)) {
+        const SliderEdit sat =
+            slider_int("Saturation", &st->color_saturation, 0, 200, "%d%%");
+        if (sat.changed) st->video_changed = true;
+        if (sat.committed) st->color_save = true;
         caption("100% is the game's own colours, 0% is black and white.");
-        ImGui::SetNextItemWidth(220.0f);
-        if (ImGui::SliderInt("Hue", &st->color_hue, -180, 180, "%d"))
-            st->video_changed = true;
-        if (ImGui::IsItemDeactivatedAfterEdit()) st->color_save = true;
-        if (const int dir = dpad_slider_step()) {
-            const int v = std::clamp(st->color_hue + dir, -180, 180);
-            if (v != st->color_hue) {
-                st->color_hue = v;
-                st->video_changed = true;
-                st->color_save = true;
-            }
-        }
+        const SliderEdit hue = slider_int("Hue", &st->color_hue, -180, 180, "%d");
+        if (hue.changed) st->video_changed = true;
+        if (hue.committed) st->color_save = true;
         caption("Turns every colour around the colour wheel. 0 is the "
                 "game's own.");
+        const SliderEdit bri =
+            slider_int("Brightness", &st->color_brightness, 50, 150, "%d%%");
+        if (bri.changed) st->video_changed = true;
+        if (bri.committed) st->color_save = true;
+        caption("100% is the game's own brightness.");
+        const SliderEdit warm =
+            slider_int("Warmth", &st->color_warmth, 0, 100, "%d%%");
+        if (warm.changed) st->video_changed = true;
+        if (warm.committed) st->color_save = true;
+        caption("Pulls greens toward yellow, like the Warm profile (100%).");
+        const SliderEdit dark =
+            slider_int("Darkening", &st->color_darken, 0, 50, "%d%%");
+        if (dark.changed) st->video_changed = true;
+        if (dark.committed) st->color_save = true;
+        caption("Deepens the darker colours. Natural uses 10%, Deep 25%.");
+    }
+    // Only changes the picture in Expanded View (a wider-than-3:2 view).
+    const bool aspect_active = st->widescreen_available && st->widescreen;
+    static constexpr const char* kAspectLabels[] = {"3:2 (original)", "4:3"};
+    const int aspect_choice = st->aspect == 1 ? 1 : 0;
+    if (!aspect_active) ImGui::BeginDisabled();
+    ImGui::SetNextItemWidth(220.0f);
+    if (ImGui::BeginCombo("Aspect ratio", kAspectLabels[aspect_choice])) {
+        for (int i = 0; i < 2; ++i) {
+            if (ImGui::Selectable(kAspectLabels[i], i == aspect_choice)) {
+                st->aspect = i;
+                st->video_changed = true;
+            }
+            if (i == aspect_choice) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    if (!aspect_active) ImGui::EndDisabled();
+    caption(aspect_active
+        ? "4:3 shows the middle of the wide picture, for 4:3 screens. 3:2 is "
+          "the full width."
+        : "Only with Expanded View.");
+    if (st->screen_filters_available) {
+        static constexpr const char* kFilterLabels[] = {"Off", "LCD3x", "xBR",
+                                                       "CRT Lottes", "ScaleFX"};
+        const int filter_choice =
+            st->screen_filter >= 1 && st->screen_filter <= 4
+                ? st->screen_filter : 0;
+        ImGui::SetNextItemWidth(220.0f);
+        if (ImGui::BeginCombo("Filter (test)", kFilterLabels[filter_choice])) {
+            for (int i = 0; i < 5; ++i) {
+                if (ImGui::Selectable(kFilterLabels[i], i == filter_choice)) {
+                    st->screen_filter = i;
+                    st->video_changed = true;
+                }
+                if (i == filter_choice) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        caption("Test option. LCD3x imitates the GBA screen's grid, CRT Lottes "
+                "an old TV; xBR and ScaleFX smooth the pixel art.");
     }
 
     section("Performance counter");
@@ -446,16 +526,8 @@ void draw_video_page(ConfigUiState* st) {
 
 void draw_audio_page(ConfigUiState* st) {
     section("Sound");
-    ImGui::SetNextItemWidth(220.0f);
-    if (ImGui::SliderInt("Volume", &st->volume, 0, 100, "%d%%"))
+    if (slider_int("Volume", &st->volume, 0, 100, "%d%%").changed)
         st->audio_changed = true;
-    if (const int dir = dpad_slider_step()) {
-        const int v = std::clamp(st->volume + dir, 0, 100);
-        if (v != st->volume) {
-            st->volume = v;
-            st->audio_changed = true;
-        }
-    }
     if (ImGui::Checkbox("Mute", &st->mute)) st->audio_changed = true;
 }
 
@@ -463,19 +535,11 @@ void draw_turbo_page(ConfigUiState* st) {
     section("Fast Forward");
     caption("Set the Fast Forward buttons on the Hotkeys page. Hold runs "
             "fast while pressed; Toggle switches it on and off.");
-    ImGui::SetNextItemWidth(220.0f);
-    ImGui::SliderFloat("Speed", &st->turbo_multiplier, 1.0f,
-                       kMaxTurboMultiplier, "%.1fx");
-    if (ImGui::IsItemDeactivatedAfterEdit()) st->speed_changed = true;
-    if (const int dir = dpad_slider_step()) {
-        // 0.1 is ImGui's own controller step for a "%.1f" float slider.
-        const float v = std::clamp(st->turbo_multiplier + 0.1f * dir, 1.0f,
-                                   static_cast<float>(kMaxTurboMultiplier));
-        if (v != st->turbo_multiplier) {
-            st->turbo_multiplier = v;
-            st->speed_changed = true;
-        }
-    }
+    // 0.1 is ImGui's own controller step for a "%.1f" float slider.
+    if (slider_float("Speed", &st->turbo_multiplier, 1.0f,
+                     static_cast<float>(kMaxTurboMultiplier), 0.1f, "%.1fx")
+            .committed)
+        st->speed_changed = true;
     if (ImGui::Checkbox("As fast as possible", &st->uncapped))
         st->speed_changed = true;
     caption("Ignores the speed above and runs as fast as your PC allows.");

@@ -9,6 +9,7 @@
 
 #include "runtime_arm.h"
 #include "symbol_lookup.h"
+#include "env_flag.h"
 
 #include <algorithm>
 #include <atomic>
@@ -1361,10 +1362,9 @@ extern "C" void runtime_trace_event(uint32_t kind, uint32_t pc,
     // explicit native/shadow request; faithful runs remain untouched.
     static int mp2k_watch = -1;
     if (mp2k_watch < 0) {
-        const char* native = std::getenv("GBARECOMP_AUDIO_NATIVE");
         const char* shadow = std::getenv("GBARECOMP_AUDIO_SHADOW");
         const bool requested =
-            (native && native[0] && native[0] != '0') ||
+            gbarecomp::env_flag("GBARECOMP_AUDIO_NATIVE") ||
             (shadow && shadow[0] && !(shadow[0] == '0' && shadow[1] == '\0'));
         mp2k_watch = requested ? 1 : 0;
     }
@@ -1652,8 +1652,7 @@ extern "C" void runtime_trace_reset(void) {
     // compact mode/address set instead of allocating the large fingerprint
     // ring. Its nonzero value still arms the generated call site; runtime_fp
     // distinguishes the lightweight mode below.
-    const char* bpc = std::getenv("GBARECOMP_BIOS_PC_LOG");
-    g_bios_pc_log_armed = bpc && bpc[0] && bpc[0] != '0';
+    g_bios_pc_log_armed = gbarecomp::env_flag("GBARECOMP_BIOS_PC_LOG");
     if (g_bios_pc_log_armed) {
         g_bios_pc_seen.assign(static_cast<std::size_t>(kBiosPcRegionEnd), 0u);
         g_bios_pc_samples = 0;
@@ -1662,8 +1661,7 @@ extern "C" void runtime_trace_reset(void) {
         g_bios_pc_samples = 0;
     }
     g_bios_pc_handed_off = false;
-    const char* it = std::getenv("GBARECOMP_INSN_TRACE");
-    g_insn_trace_from_env = it && it[0] && it[0] != '0';
+    g_insn_trace_from_env = gbarecomp::env_flag("GBARECOMP_INSN_TRACE");
     g_runtime_insn_trace = g_bios_pc_log_armed
         ? 2u : ((g_insn_trace_from_env || g_crash_log) ? 1u : 0u);
     runtime_fp_reset();

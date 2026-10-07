@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "frame_timing.h"
+#include "env_flag.h"
 #include "gba_bus.h"
 #include "gba_ppu.h"
 #include "gba_vram_trace.h"
@@ -1810,10 +1811,8 @@ void text_trace_budget_store(std::uint32_t pc, std::uint32_t address,
 }
 
 void function_tracer_init() {
-    const char* e = std::getenv("GBARECOMP_FN_TRACER");
-    g_enabled = e != nullptr && e[0] != '\0' && e[0] != '0';
-    const char* text = std::getenv("GSR_TEXT_RECORD");
-    g_text_record = text != nullptr && text[0] != '\0' && text[0] != '0';
+    g_enabled = gbarecomp::env_flag("GBARECOMP_FN_TRACER");
+    g_text_record = gbarecomp::env_flag("GSR_TEXT_RECORD");
     if (!g_enabled) return;
 
     // The tracer answers "what happened between frames"; the expanded view's

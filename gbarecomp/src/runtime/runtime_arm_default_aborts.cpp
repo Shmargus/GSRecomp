@@ -26,6 +26,7 @@
 
 #include "runtime_arm.h"
 #include "symbol_lookup.h"
+#include "env_flag.h"
 #include "self_heal.h"
 #include "overlay_loader.h"
 #include "arm_cpu_bridge.h"
@@ -1373,9 +1374,8 @@ extern "C" void runtime_dispatch_miss(uint32_t target_pc) {
     // sample: of the 80 such samples, **76 are this function** -- 42 at one
     // call site and 34 at the other, which are exactly these two getenv
     // calls. Nothing else in the process accounted for more than one.
-    static const char* const strict_env = std::getenv("GBARECOMP_STRICT_STATIC");
-    const bool strict_static =
-        strict_env && strict_env[0] != '\0' && strict_env[0] != '0';
+    static const bool strict_static =
+        gbarecomp::env_flag("GBARECOMP_STRICT_STATIC");
     if (strict_static) {
         std::fprintf(stderr,
             "runtime_arm: STRICT_STATIC dispatch miss for pc=0x%08X (%s) — "

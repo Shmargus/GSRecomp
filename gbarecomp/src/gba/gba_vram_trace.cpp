@@ -7,6 +7,7 @@
 #include <string>
 
 #include "gba_io.h"
+#include "env_flag.h"
 #include "bus.h"
 
 extern "C" unsigned long long g_runtime_cycles;
@@ -378,8 +379,7 @@ bool effect_trace_enabled() {
     // profile once already.
     if (!g_effect_env_read) {
         g_effect_env_read = true;
-        const char* env = std::getenv("GSR_EFFECT_TRACE");
-        g_effect_enabled = env != nullptr && env[0] != '\0' && env[0] != '0';
+        g_effect_enabled = gbarecomp::env_flag("GSR_EFFECT_TRACE");
     }
     return g_effect_enabled;
 }
@@ -967,12 +967,8 @@ unsigned g_oam_dma_records = 0;
 bool oam_shadow_trace_enabled() {
     static int cached = -1;
     if (cached < 0) {
-        const char* shadow_env = std::getenv("GSR_OAM_SHADOW_TRACE");
-        const char* wide_env = std::getenv("GBARECOMP_VRAM_MAP_TRACE");
-        const bool shadow = shadow_env && shadow_env[0] != '\0' &&
-            shadow_env[0] != '0';
-        const bool wide = wide_env && wide_env[0] != '\0' &&
-            wide_env[0] != '0';
+        const bool shadow = gbarecomp::env_flag("GSR_OAM_SHADOW_TRACE");
+        const bool wide = gbarecomp::env_flag("GBARECOMP_VRAM_MAP_TRACE");
         // The WIDE-01 launcher toggle arms the complete payload-free object
         // capture. Keep the older standalone OAM toggle as a compatible alias.
         cached = (shadow || wide) ? 1 : 0;

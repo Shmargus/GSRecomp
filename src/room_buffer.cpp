@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "gba_bus.h"
+#include "env_flag.h"
 #include "gba_ppu.h"
 #include "host_config_ui.h"
 #include "runtime_bus_bridge.h"
@@ -787,14 +788,12 @@ void report_at_exit() {
 bool room_buffer_rendering() { return g_rendering; }
 
 void room_buffer_init() {
-    const char* e = std::getenv("GSR_ROOM_BUFFER");
-    g_enabled = e != nullptr && e[0] != '\0' && e[0] != '0';
+    g_enabled = gbarecomp::env_flag("GSR_ROOM_BUFFER");
     // Rendering from the buffer is a second, separate opt-in. The check runs
     // without it, so the buffer can be measured against the hardware path in
     // the same session that decides whether to trust it -- and drawing runs
     // without the check, which is how it is normally played.
-    const char* r = std::getenv("GSR_ROOM_BUFFER_RENDER");
-    if (r != nullptr && r[0] != '\0' && r[0] != '0') {
+    if (gbarecomp::env_flag("GSR_ROOM_BUFFER_RENDER")) {
         gba::g_ws_field_tilemap_source = &gsr_field_tilemap_source;
         gba::g_ws_field_tilemap_source_begin =
             &gsr_field_tilemap_source_begin;

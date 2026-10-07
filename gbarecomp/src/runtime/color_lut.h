@@ -44,12 +44,15 @@ enum class ScreenKind {
     Deep,      // a little less saturated, darker
     Custom,    // the player's own saturation and hue (ColorSettings)
 };
+constexpr int kScreenKindCount = static_cast<int>(ScreenKind::Custom) + 1;
 
 // Display colorspace the emitted bytes are interpreted in.
 enum class DisplayTarget { Srgb, DisplayP3 };
 
 // Parse a config/env token; returns false if unrecognized.
 bool screen_kind_from_name(std::string_view name, ScreenKind& out);
+// The config/env token for a kind; nullptr when out of range.
+const char* screen_kind_name(ScreenKind kind);
 
 struct ColorSettings {
     ScreenKind    screen = ScreenKind::Raw;
@@ -59,6 +62,9 @@ struct ColorSettings {
     // around the grey axis in degrees.
     double        saturation = 1.0;
     double        hue_degrees = 0.0;
+    double        brightness = 1.0;  // Custom only: gain, 1 = unchanged
+    double        warmth = 0.0;  // 0..1, share of the Warm tint
+    double        curve = 1.0;  // darkening exponent, 1 = none
 };
 
 // A baked BGR555 → RGB888 table. Build once per settings change; apply per

@@ -15,11 +15,13 @@
 #include <vector>
 
 #include "color_lut.h"
+#include "env_flag.h"
 #include "host_config_ui.h"
 #include "host_overlay.h"
 #include "frame_timing.h"
 #include "host_prof_phase.h"
 #include "presentation_layout.h"
+#include "screen_filter.h"
 #include "player_walk_run_speed_config.h"
 #include "temporal_blend.h"
 // runtime_set_overclock_factor / runtime_get_overclock_factor (TURBO-B2-UI).
@@ -53,15 +55,6 @@ namespace gbarecomp {
 
 namespace {
 
-bool cached_env_flag(const char* name) {
-    const char* value = std::getenv(name);
-    if (!value || value[0] == '\0') return false;
-    return SDL_strcasecmp(value, "0") != 0 &&
-           SDL_strcasecmp(value, "false") != 0 &&
-           SDL_strcasecmp(value, "off") != 0 &&
-           SDL_strcasecmp(value, "no") != 0;
-}
-
 bool host_pump_timing_enabled() {
     static const bool enabled = [] {
         const char* phase = std::getenv("GBARECOMP_FRAME_PHASE");
@@ -89,15 +82,18 @@ bool write_enhancements_ini(const std::string& dir, bool enhanced_timing,
                             int view_mode);
 bool write_cheats_ini(const std::string& dir, bool infinite_hp,
                       bool infinite_pp, int player_speed_multiplier);
-bool write_color_profile_ini(const std::string& dir, int screen_kind,
-                             int saturation, int hue);
-
-// config.ini [Enhancements] ColorProfile= tokens, in ScreenKind order
-// (color_lut.h; the same tokens as GBARECOMP_SCREEN).
-constexpr const char* kColorProfileNames[] = {
-    "raw",     "unlit",    "frontlit",       "backlit",
-    "classic", "handheld", "handheld_light", "soft",
-    "natural", "warm",     "deep",     "custom"};
+// The Custom colour sliders (F1 > Video > Colours), as ints.
+struct CustomColors {
+    int saturation = 100, hue = 0, brightness = 100, warmth = 0, darken = 0;
+    bool operator==(const CustomColors& o) const {
+        return saturation == o.saturation && hue == o.hue &&
+               brightness == o.brightness && warmth == o.warmth &&
+               darken == o.darken;
+    }
+    bool operator!=(const CustomColors& o) const { return !(*this == o); }
+};
+bool write_picture_ini(const std::string& dir, int screen_kind,
+                       const CustomColors& custom, int aspect);
 
 // System hotkey ids (config.ini [KeyMap] rows this host implements). Reset,
 // PauseDimmed and ToggleRenderer are intentionally absent â€” gbarecomp has no
@@ -205,8 +201,7 @@ struct PresentCadence {
     void init() {
         ring.resize(kCadenceRingSize);
         qpc_freq = SDL_GetPerformanceFrequency();
-        const char* e = std::getenv("GBARECOMP_PRESENT_CADENCE");
-        verbose = e && *e && *e != '0';
+        verbose = env_flag("GBARECOMP_PRESENT_CADENCE");
         const char* d = std::getenv("GBARECOMP_PRESENT_CADENCE_DUMP");
         dump_path = (d && *d) ? d : "_present_cadence.csv";
 #if defined(_WIN32)
@@ -388,8 +383,7 @@ struct Backend {
     std::unique_ptr<runtime::ColorLut> color_lut;
     runtime::ScreenKind screen_kind = runtime::ScreenKind::Raw;
     // Custom colours as last built into color_lut (percent, degrees).
-    int applied_saturation = 100;
-    int applied_hue = 0;
+    CustomColors applied_custom;
     std::vector<uint8_t> graded_fb;  // scratch RGB888 (base_w*base_h*3)
     // Diagnostic-only guest-frame marker. It is armed by the existing sprite
     // recorder switch so a video can be joined to stderr's guest-frame rows.
@@ -399,6 +393,12 @@ struct Backend {
     int base_w = 240;   // logical surface width  (240 faithful, wider if expanded)
     int base_h = 160;   // logical surface height (160 faithful, taller if expanded)
     bool expanded_view = false;  // native games retain the historical SDL path
+    bool aspect_4_3 = false;     // present only the middle 4:3 of a wider view
+    // Test-only screen filters (launcher "Screen filters" box). Off unless the
+    // box is on AND SDL really created the opengl renderer; Off never calls
+    // into screen_filter.cpp.
+    ScreenFilter screen_filter = ScreenFilter::Off;
+    bool screen_filters_on = false;
     bool resize_driven_view = false;
     bool linear_filter = false;
     bool native_renderer = false;
@@ -601,6 +601,28 @@ void set_native_window_mode(Backend* b, bool enabled) {
         SDL_RenderSetIntegerScale(
             b->renderer, b->integer_scale ? SDL_TRUE : SDL_FALSE);
     }
+}
+
+// The width actually shown for a w x h picture: with 4:3 chosen, the
+// Expanded View's middle h*4/3 columns (320 of 360); otherwise all of it.
+// Native 240x160 is never cropped.
+int shown_width(const Backend* b, int w, int h) {
+    if (!b->aspect_4_3 || !b->expanded_view || b->resize_driven_view ||
+        w * 3 <= h * 4)
+        return w;
+    return h * 4 / 3;
+}
+
+// Resize and re-centre the window to the current shown width at the current
+// scale. Fullscreen and resize-driven views own their geometry.
+void apply_aspect_window_size(Backend* b) {
+    if (b->resize_driven_view || b->fullscreen || !b->window) return;
+    if (SDL_GetWindowFlags(b->window) & SDL_WINDOW_MAXIMIZED)
+        SDL_RestoreWindow(b->window);
+    SDL_SetWindowSize(b->window, shown_width(b, b->base_w, b->base_h) * b->scale,
+                      b->base_h * b->scale);
+    SDL_SetWindowPosition(b->window, SDL_WINDOWPOS_CENTERED,
+                          SDL_WINDOWPOS_CENTERED);
 }
 
 void native_upscale_nearest(const uint8_t* src, int src_w, int src_h,
@@ -889,6 +911,11 @@ runtime::ColorSettings resolve_color_settings(const char* toml_screen) {
     return s;
 }
 
+CustomColors custom_colors_of(const ConfigUiState& cfg) {
+    return {cfg.color_saturation, cfg.color_hue, cfg.color_brightness,
+            cfg.color_warmth, cfg.color_darken};
+}
+
 // Rebuild the colour table from b->screen_kind and the Custom sliders
 // (F1 > Video > Colours), and size the graded frame buffers to match.
 void rebuild_color_lut(Backend* b) {
@@ -896,9 +923,11 @@ void rebuild_color_lut(Backend* b) {
     settings.screen = b->screen_kind;
     settings.saturation = b->cfg.color_saturation / 100.0;
     settings.hue_degrees = static_cast<double>(b->cfg.color_hue);
+    settings.brightness = b->cfg.color_brightness / 100.0;
+    settings.warmth = b->cfg.color_warmth / 100.0;
+    settings.curve = 1.0 + b->cfg.color_darken / 100.0;
     b->color_lut = std::make_unique<runtime::ColorLut>(settings);
-    b->applied_saturation = b->cfg.color_saturation;
-    b->applied_hue = b->cfg.color_hue;
+    b->applied_custom = custom_colors_of(b->cfg);
     if (b->color_lut->is_passthrough()) {
         b->graded_fb.clear();
         b->native_graded_fb.clear();
@@ -965,9 +994,8 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     b->linear_filter = linear_filter;
     b->scale = scale;
     b->native_scale = native_scale_from_env();
-    b->strict_static = cached_env_flag("GBARECOMP_STRICT_STATIC");
-    if (const char* e = std::getenv("GBARECOMP_NATIVE_RENDERER"))
-        b->native_renderer = e[0] && e[0] != '0';
+    b->strict_static = env_flag("GBARECOMP_STRICT_STATIC");
+    b->native_renderer = env_flag("GBARECOMP_NATIVE_RENDERER", b->native_renderer);
     b->title = title ? title : "gbarecomp";
     // Gamepad. A host-side convenience: if it fails to come up the emulator
     // runs exactly as before, just without pad input. (The config UI is
@@ -1000,7 +1028,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
         b->hotkeys[h] = parse_hotkey(kHotkeyDefaults[h]);
     // Linear vs nearest scaling is a texture-creation-time hint.
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, linear_filter ? "linear" : "nearest");
-    const int win_w = base_w * scale;
+    const int win_w = shown_width(b, base_w, base_h) * scale;
     const int win_h = base_h * scale;
     // Keep the host window user-resizable for both canonical and enhanced
     // presentations. Canonical mode still preserves a 240x160 logical image;
@@ -1040,9 +1068,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     // it by default on Windows; SDL_RENDER_DRIVER in the environment still
     // overrides. GBARECOMP_NO_VSYNC=1 restores the historical
     // unsynchronized present for A/B.
-    const char* no_vsync_env = std::getenv("GBARECOMP_NO_VSYNC");
-    const bool want_vsync =
-        !(no_vsync_env && *no_vsync_env && *no_vsync_env != '0');
+    const bool want_vsync = !env_flag("GBARECOMP_NO_VSYNC");
     const Uint32 renderer_flags = SDL_RENDERER_ACCELERATED |
         (want_vsync ? static_cast<Uint32>(SDL_RENDERER_PRESENTVSYNC)
                     : Uint32{0});
@@ -1114,13 +1140,15 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     // runtime/launcher. Cache their display values once at window bring-up;
     // the overlay never performs getenv during a frame.
     b->cfg.debug_overlay_state.self_heal_ram =
-        !b->strict_static && cached_env_flag("GBARECOMP_SELFHEAL_RAM");
+        !b->strict_static && env_flag("GBARECOMP_SELFHEAL_RAM");
     b->cfg.debug_overlay_state.cost_probe =
-        cached_env_flag("GBARECOMP_COST_PROBE");
+        env_flag("GBARECOMP_COST_PROBE");
     b->cfg.debug_overlay_state.present_cadence = b->cadence.verbose;
     b->cfg.debug_overlay_state.ram_churn_probe =
-        cached_env_flag("GSR_RAM_CHURN_PROBE");
-    b->obj_record_frame_marker = cached_env_flag("GSR_OBJ_RECORD");
+        env_flag("GSR_RAM_CHURN_PROBE");
+    b->obj_record_frame_marker = env_flag("GSR_OBJ_RECORD");
+    b->screen_filters_on =
+        env_flag("GSR_SCREEN_FILTERS") && b->renderer_is_opengl;
     if (b->expanded_view || b->resize_driven_view) {
         // The destination viewport is computed explicitly in present() so
         // resizing maximally fills the drawable at the selected widescreen
@@ -1241,8 +1269,7 @@ uint64_t overlay_game_thread_compile_ns();
 static void probe_stereo_audio_push(Backend* b, std::size_t count) {
     static int s_probe = -1;
     if (s_probe < 0) {
-        const char* e = std::getenv("GBARECOMP_AUDIO_PROBE");
-        s_probe = (e && *e && *e != '0') ? 1 : 0;
+        s_probe = env_flag("GBARECOMP_AUDIO_PROBE") ? 1 : 0;
     }
     if (!s_probe) return;
     static unsigned long long s_pushes = 0, s_samples = 0;
@@ -1316,7 +1343,7 @@ void HostWindow::push_audio_samples(const int16_t* samples, std::size_t count) {
     // (the post-fix equivalent of SDL queue underruns) so a before/after is
     // directly comparable. Expect ~0 underruns once primed.
     static int s_probe = -1;
-    if (s_probe < 0) { const char* e = std::getenv("GBARECOMP_AUDIO_PROBE"); s_probe = (e && *e && *e != '0') ? 1 : 0; }
+    if (s_probe < 0) { s_probe = env_flag("GBARECOMP_AUDIO_PROBE") ? 1 : 0; }
     if (s_probe) {
         static unsigned long long s_pushes = 0, s_samples = 0;
         s_pushes++; s_samples += count;
@@ -1367,6 +1394,7 @@ void HostWindow::close() {
     }
     if (b->texture)   SDL_DestroyTexture(b->texture);
     destroy_native_texture(b);
+    screen_filter_shutdown();
     if (b->renderer)  SDL_DestroyRenderer(b->renderer);
     if (b->window)    SDL_DestroyWindow(b->window);
     delete b;
@@ -1414,7 +1442,8 @@ bool HostWindow::set_surface_size(int base_w, int base_h) {
     // the old 240x160-sized window. Fullscreen and adaptive resizing own
     // their geometry and must not be changed here.
     if (!b->resize_driven_view && !b->fullscreen && b->window) {
-        SDL_SetWindowSize(b->window, b->base_w * b->scale,
+        SDL_SetWindowSize(b->window,
+                          shown_width(b, b->base_w, b->base_h) * b->scale,
                           b->base_h * b->scale);
         SDL_SetWindowPosition(b->window, SDL_WINDOWPOS_CENTERED,
                               SDL_WINDOWPOS_CENTERED);
@@ -1619,7 +1648,26 @@ void HostWindow::present(const uint8_t* rgb888) {
     }
     SDL_RenderClear(b->renderer);
     if (!b->expanded_view && !b->resize_driven_view && !use_native) {
-        SDL_RenderCopy(b->renderer, frame_texture, nullptr, nullptr);
+        // Native 240x160: SDL's logical size scales this copy. A filter draws
+        // with raw GL in output pixels, so it is placed by the same layout.
+        bool filtered = false;
+        if (b->screen_filter != ScreenFilter::Off) {
+            int out_w = 0, out_h = 0;
+            SDL_GetRendererOutputSize(b->renderer, &out_w, &out_h);
+            const PresentationLayout layout = compute_presentation_layout(
+                out_w, out_h, b->base_w, b->base_h,
+                b->integer_scale ? ScalingMode::IntegerLetterbox
+                                 : ScalingMode::AspectFill);
+            const SDL_Rect whole = {0, 0, b->base_w, b->base_h};
+            const SDL_Rect destination = {
+                layout.x, layout.y, layout.width, layout.height};
+            filtered = layout.width > 0 && layout.height > 0 &&
+                       screen_filter_draw(b->renderer, frame_texture,
+                                          b->screen_filter, whole, b->base_w,
+                                          b->base_h, destination);
+        }
+        if (!filtered)
+            SDL_RenderCopy(b->renderer, frame_texture, nullptr, nullptr);
     } else {
         int drawable_w = 0;
         int drawable_h = 0;
@@ -1643,8 +1691,9 @@ void HostWindow::present(const uint8_t* rgb888) {
         // it — before this, the checkbox was on by default and silently did
         // nothing on the path that actually presents the frame, so every
         // non-multiple window size got unevenly duplicated pixels.
+        const int shown_w = shown_width(b, frame_w, frame_h);
         const PresentationLayout layout = compute_presentation_layout(
-            drawable_w, drawable_h, frame_w, frame_h,
+            drawable_w, drawable_h, shown_w, frame_h,
             b->integer_scale ? ScalingMode::IntegerLetterbox
                              : ScalingMode::AspectFill);
         if (layout.width > 0 && layout.height > 0) {
@@ -1654,7 +1703,7 @@ void HostWindow::present(const uint8_t* rgb888) {
                 // factor above 1x: otherwise 2x-9x enlarge with nearest while
                 // 10x downsamples with linear, which makes the intermediate
                 // factors show hard scanline/edge artifacts.
-                const bool downsampling = layout.width < frame_w ||
+                const bool downsampling = layout.width < shown_w ||
                     layout.height < frame_h;
                 const bool native_filter = b->native_scale > 1;
                 SDL_SetTextureScaleMode(
@@ -1664,7 +1713,21 @@ void HostWindow::present(const uint8_t* rgb888) {
             }
             const SDL_Rect destination = {
                 layout.x, layout.y, layout.width, layout.height};
-            SDL_RenderCopy(b->renderer, frame_texture, nullptr, &destination);
+            const SDL_Rect source = {(frame_w - shown_w) / 2, 0, shown_w,
+                                     frame_h};
+            // Test-only screen filter; falls back to the plain copy below
+            // whenever it cannot draw.
+            const bool filtered =
+                b->screen_filter != ScreenFilter::Off &&
+                screen_filter_draw(b->renderer, frame_texture,
+                                   b->screen_filter, source,
+                                   shown_width(b, b->base_w, b->base_h),
+                                   b->base_h, destination);
+            // 3:2 copies the whole texture, exactly as before 4:3 existed.
+            if (!filtered)
+                SDL_RenderCopy(b->renderer, frame_texture,
+                               shown_w < frame_w ? &source : nullptr,
+                               &destination);
         }
     }
     // MC-WS-002: time the present itself (vsync blocks here â€” or doesn't)
@@ -1922,16 +1985,32 @@ void HostWindow::load_input_config(const char* dir) {
                 b->cfg.screen_kind = static_cast<int>(k);
                 rebuild_color_lut(b);
             }
+        } else if (SDL_strcasecmp(key, "AspectRatio") == 0) {
+            // F1 > Video > Aspect ratio. Anything but 4:3 is the original 3:2.
+            b->aspect_4_3 = SDL_strcasecmp(val, "4:3") == 0;
+            b->cfg.aspect = b->aspect_4_3 ? 1 : 0;
         } else if (SDL_strcasecmp(key, "ColorSaturation") == 0) {
             b->cfg.color_saturation = std::clamp(
                 static_cast<int>(std::strtol(val, nullptr, 10)), 0, 200);
         } else if (SDL_strcasecmp(key, "ColorHue") == 0) {
             b->cfg.color_hue = std::clamp(
                 static_cast<int>(std::strtol(val, nullptr, 10)), -180, 180);
+        } else if (SDL_strcasecmp(key, "ColorBrightness") == 0) {
+            b->cfg.color_brightness = std::clamp(
+                static_cast<int>(std::strtol(val, nullptr, 10)), 50, 150);
+        } else if (SDL_strcasecmp(key, "ColorWarmth") == 0) {
+            b->cfg.color_warmth = std::clamp(
+                static_cast<int>(std::strtol(val, nullptr, 10)), 0, 100);
+        } else if (SDL_strcasecmp(key, "ColorDarken") == 0) {
+            b->cfg.color_darken = std::clamp(
+                static_cast<int>(std::strtol(val, nullptr, 10)), 0, 50);
         }
     });
-    // ColorSaturation/ColorHue may follow ColorProfile in the file.
+    // The Custom colour keys may follow ColorProfile in the file.
     if (b->screen_kind == runtime::ScreenKind::Custom) rebuild_color_lut(b);
+    // The window opened before this file was read: size it for a saved 4:3.
+    // (A later set_surface_size sizes it the same way if the view changes.)
+    if (b->aspect_4_3) apply_aspect_window_size(b);
     // Apply the resolved factor live and mirror it into the UI's combo index:
     // 0 (Off/1x) unless the resolved factor is the 50x ceiling.
     runtime_set_overclock_factor(b->overclock_factor);
@@ -2073,7 +2152,8 @@ void HostWindow::adjust_scale(int delta) {
     // chosen size actually takes.
     if (SDL_GetWindowFlags(b->window) & SDL_WINDOW_MAXIMIZED)
         SDL_RestoreWindow(b->window);
-    SDL_SetWindowSize(b->window, b->base_w * s, b->base_h * s);
+    SDL_SetWindowSize(b->window, shown_width(b, b->base_w, b->base_h) * s,
+                      b->base_h * s);
     SDL_SetWindowPosition(b->window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 }
 
@@ -2719,19 +2799,26 @@ bool write_enhancements_ini(const std::string& dir, bool enhanced_timing,
     return true;
 }
 
-// Update only [Enhancements] ColorProfile=, ColorSaturation= and ColorHue=,
-// preserving everything else.
-bool write_color_profile_ini(const std::string& dir, int screen_kind,
-                             int saturation, int hue) {
-    if (screen_kind < 0 ||
-        screen_kind >= static_cast<int>(std::size(kColorProfileNames)))
+// Update only [Enhancements] ColorProfile=, ColorSaturation=, ColorHue=,
+// ColorBrightness=, ColorWarmth=, ColorDarken= and AspectRatio=, preserving
+// everything else.
+bool write_picture_ini(const std::string& dir, int screen_kind,
+                       const CustomColors& custom, int aspect) {
+    if (screen_kind < 0 || screen_kind >= runtime::kScreenKindCount)
         return false;
     const std::string path = dir + "/config.ini";
-    const std::string keys[3] = {"ColorProfile", "ColorSaturation", "ColorHue"};
-    const std::string rows[3] = {
-        keys[0] + "=" + kColorProfileNames[screen_kind],
-        keys[1] + "=" + std::to_string(saturation),
-        keys[2] + "=" + std::to_string(hue)};
+    const std::string keys[7] = {"ColorProfile", "ColorSaturation", "ColorHue",
+                                 "ColorBrightness", "ColorWarmth",
+                                 "ColorDarken", "AspectRatio"};
+    const std::string rows[7] = {
+        keys[0] + "=" +
+            runtime::screen_kind_name(static_cast<runtime::ScreenKind>(screen_kind)),
+        keys[1] + "=" + std::to_string(custom.saturation),
+        keys[2] + "=" + std::to_string(custom.hue),
+        keys[3] + "=" + std::to_string(custom.brightness),
+        keys[4] + "=" + std::to_string(custom.warmth),
+        keys[5] + "=" + std::to_string(custom.darken),
+        keys[6] + "=" + (aspect == 1 ? "4:3" : "3:2")};
     std::vector<std::string> lines;
     if (std::FILE* in = std::fopen(path.c_str(), "rb")) {
         std::string cur;
@@ -2745,7 +2832,7 @@ bool write_color_profile_ini(const std::string& dir, int screen_kind,
     }
     bool in_section = false;
     bool seen_section = false;
-    bool written[3] = {false, false, false};
+    bool written[7] = {false, false, false, false, false, false, false};
     std::size_t section_end = 0;
     for (std::size_t i = 0; i < lines.size(); ++i) {
         const std::string& t = lines[i];
@@ -2764,7 +2851,7 @@ bool write_color_profile_ini(const std::string& dir, int screen_kind,
         std::string key = t.substr(a, eq - a);
         while (!key.empty() && (key.back() == ' ' || key.back() == '\t'))
             key.pop_back();
-        for (int k = 0; k < 3; ++k) {
+        for (int k = 0; k < 7; ++k) {
             if (SDL_strcasecmp(key.c_str(), keys[k].c_str()) == 0) {
                 lines[i] = rows[k];
                 written[k] = true;
@@ -2776,7 +2863,7 @@ bool write_color_profile_ini(const std::string& dir, int screen_kind,
         lines.push_back("[Enhancements]");
         section_end = lines.size();
     }
-    for (int k = 0; k < 3; ++k) {
+    for (int k = 0; k < 7; ++k) {
         if (written[k]) continue;
         lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(section_end),
                      rows[k]);
@@ -3062,7 +3149,8 @@ HostWindow::Events HostWindow::pump() {
         const int display = SDL_GetWindowDisplayIndex(b->window);
         if (display >= 0 && b->base_w > 0 && b->base_h > 0 &&
             SDL_GetDisplayUsableBounds(display, &usable) == 0) {
-            max_scale = std::clamp(std::min(usable.w / b->base_w,
+            max_scale = std::clamp(std::min(usable.w /
+                                                shown_width(b, b->base_w, b->base_h),
                                             usable.h / b->base_h), 1, 8);
         }
         b->cfg.max_scale = std::max(max_scale, b->scale);
@@ -3075,7 +3163,10 @@ HostWindow::Events HostWindow::pump() {
         b->cfg.linear_filter = b->linear_filter;
         b->cfg.integer_scale = b->integer_scale;
         b->cfg.screen_kind = static_cast<int>(b->screen_kind);
+        b->cfg.aspect = b->aspect_4_3 ? 1 : 0;
         b->cfg.native_scale = b->native_scale;
+        b->cfg.screen_filters_available = b->screen_filters_on;
+        b->cfg.screen_filter = static_cast<int>(b->screen_filter);
     }
     if (!b->cfg.audio_changed && !b->cfg.mute) {
         b->cfg.volume = b->volume;
@@ -3471,8 +3562,7 @@ HostWindow::Events HostWindow::pump() {
                 b->cfg.screen_kind != static_cast<int>(b->screen_kind);
             const bool custom_changed =
                 b->cfg.screen_kind == static_cast<int>(runtime::ScreenKind::Custom) &&
-                (b->cfg.color_saturation != b->applied_saturation ||
-                 b->cfg.color_hue != b->applied_hue);
+                custom_colors_of(b->cfg) != b->applied_custom;
             if (kind_changed || custom_changed) {
                 b->cfg.screen_kind = std::clamp(
                     b->cfg.screen_kind, 0,
@@ -3482,10 +3572,23 @@ HostWindow::Events HostWindow::pump() {
                 rebuild_color_lut(b);
             }
             // A slider saves when let go, not on every step of a drag.
-            if (kind_changed || b->cfg.color_save) {
-                write_color_profile_ini(b->config_dir, b->cfg.screen_kind,
-                                        b->cfg.color_saturation,
-                                        b->cfg.color_hue);
+            const bool aspect_changed =
+                (b->cfg.aspect == 1) != b->aspect_4_3;
+            if (aspect_changed) {
+                b->aspect_4_3 = b->cfg.aspect == 1;
+                apply_aspect_window_size(b);
+            }
+            // Test-only, never saved.
+            if (b->screen_filters_on)
+                b->screen_filter = b->cfg.screen_filter == 1
+                    ? ScreenFilter::Lcd3x
+                    : b->cfg.screen_filter == 2 ? ScreenFilter::Xbr
+                    : b->cfg.screen_filter == 3 ? ScreenFilter::CrtLottes
+                    : b->cfg.screen_filter == 4 ? ScreenFilter::ScaleFx
+                                                : ScreenFilter::Off;
+            if (kind_changed || aspect_changed || b->cfg.color_save) {
+                write_picture_ini(b->config_dir, b->cfg.screen_kind,
+                                  custom_colors_of(b->cfg), b->cfg.aspect);
                 b->cfg.color_save = false;
             }
             if (b->cfg.native_renderer != b->native_renderer)

@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "crc32.h"
+#include "env_flag.h"
 #include "gba_bus.h"
 #include "gba_ppu.h"
 #include "gba_vram_trace.h"
@@ -783,8 +784,7 @@ void ensure_ewram_observer_installed() {
 void write_writer_args();
 
 void map_recorder_init() {
-    const char* e = std::getenv("GSR_MAP_RECORD");
-    g_enabled = e != nullptr && e[0] != '\0' && e[0] != '0';
+    g_enabled = gbarecomp::env_flag("GSR_MAP_RECORD");
     if (!g_enabled) return;
 
     ensure_session_dir();

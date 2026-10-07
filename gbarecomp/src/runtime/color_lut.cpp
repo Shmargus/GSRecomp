@@ -165,20 +165,28 @@ const Primaries& target_primaries(DisplayTarget t) {
 
 }  // namespace
 
+// Config/env tokens, in ScreenKind order.
+static constexpr const char* kScreenKindNames[] = {
+    "raw",     "unlit",    "frontlit",       "backlit",
+    "classic", "handheld", "handheld_light", "soft",
+    "natural", "warm",     "deep",           "custom"};
+static_assert(sizeof(kScreenKindNames) / sizeof(kScreenKindNames[0]) ==
+                  static_cast<size_t>(kScreenKindCount),
+              "kScreenKindNames must list every ScreenKind");
+
 bool screen_kind_from_name(std::string_view name, ScreenKind& out) {
-    if (name == "raw")      { out = ScreenKind::Raw;      return true; }
-    if (name == "unlit")    { out = ScreenKind::Unlit;    return true; }
-    if (name == "frontlit") { out = ScreenKind::Frontlit; return true; }
-    if (name == "backlit")  { out = ScreenKind::Backlit;  return true; }
-    if (name == "classic")  { out = ScreenKind::Classic;  return true; }
-    if (name == "handheld") { out = ScreenKind::Handheld; return true; }
-    if (name == "handheld_light") { out = ScreenKind::HandheldLight; return true; }
-    if (name == "soft")     { out = ScreenKind::Soft;     return true; }
-    if (name == "natural")  { out = ScreenKind::Natural;  return true; }
-    if (name == "warm")     { out = ScreenKind::Warm;     return true; }
-    if (name == "deep")     { out = ScreenKind::Deep;     return true; }
-    if (name == "custom")   { out = ScreenKind::Custom;   return true; }
+    for (int i = 0; i < kScreenKindCount; ++i) {
+        if (name == kScreenKindNames[i]) {
+            out = static_cast<ScreenKind>(i);
+            return true;
+        }
+    }
     return false;
+}
+
+const char* screen_kind_name(ScreenKind kind) {
+    const int i = static_cast<int>(kind);
+    return (i >= 0 && i < kScreenKindCount) ? kScreenKindNames[i] : nullptr;
 }
 
 ColorLut::ColorLut(const ColorSettings& settings) {
@@ -215,16 +223,21 @@ ColorLut::ColorLut(const ColorSettings& settings) {
                                             {0.00, 0.08, 0.86}};
         double mix[3][3];
         double saturation = 1.0, curve = 1.0, handheld = 0.0;
-        bool warm = false;
+        double warmth = 0.0, brightness = 1.0;
         switch (settings.screen) {
             case ScreenKind::Handheld:      handheld = 1.0; break;
             case ScreenKind::HandheldLight: handheld = 0.6; break;
             case ScreenKind::Soft:          handheld = 0.35; break;
             case ScreenKind::Natural:  saturation = 0.72; curve = 1.1; break;
             case ScreenKind::Warm:     saturation = 0.8; curve = 1.05;
-                                       warm = true; break;
+                                       warmth = 1.0; break;
             case ScreenKind::Deep:     saturation = 0.88; curve = 1.25; break;
-            case ScreenKind::Custom:   saturation = settings.saturation; break;
+            case ScreenKind::Custom:
+                saturation = settings.saturation;
+                brightness = settings.brightness;
+                warmth = settings.warmth;
+                curve = settings.curve;
+                break;
             default: break;
         }
         for (int i = 0; i < 3; ++i)
@@ -255,13 +268,19 @@ ColorLut::ColorLut(const ColorSettings& settings) {
             for (int i = 0; i < 3; ++i)
                 for (int j = 0; j < 3; ++j) mix[i][j] = t[i][j];
         }
-        if (warm) {
+        if (warmth > 0.0) {
+            // Blend identity -> warm tint by `warmth` (1 gives kWarmTint).
+            double tint[3][3];
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j)
+                    tint[i][j] = (1.0 - warmth) * (i == j ? 1.0 : 0.0) +
+                                 warmth * kWarmTint[i][j];
             double t[3][3];
             for (int i = 0; i < 3; ++i)
                 for (int j = 0; j < 3; ++j)
-                    t[i][j] = kWarmTint[i][0] * mix[0][j] +
-                              kWarmTint[i][1] * mix[1][j] +
-                              kWarmTint[i][2] * mix[2][j];
+                    t[i][j] = tint[i][0] * mix[0][j] +
+                              tint[i][1] * mix[1][j] +
+                              tint[i][2] * mix[2][j];
             for (int i = 0; i < 3; ++i)
                 for (int j = 0; j < 3; ++j) mix[i][j] = t[i][j];
         }
@@ -271,6 +290,7 @@ ColorLut::ColorLut(const ColorSettings& settings) {
             for (int i = 0; i < 3; ++i) {
                 double v = mix[i][0] * c[0] + mix[i][1] * c[1] +
                            mix[i][2] * c[2];
+                if (brightness != 1.0) v *= brightness;  // gain, no offset
                 v = v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v);
                 table[px][i] = quantize(curve == 1.0 ? v : std::pow(v, curve));
             }

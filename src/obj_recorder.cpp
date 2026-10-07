@@ -1,6 +1,7 @@
 // obj_recorder.cpp — see obj_recorder.h.
 
 #include "obj_recorder.h"
+#include "env_flag.h"
 
 #include <array>
 #include <cstdio>
@@ -632,8 +633,7 @@ void write_all() {
 }  // namespace
 
 void obj_recorder_init() {
-    const char* e = std::getenv("GSR_OBJ_RECORD");
-    g_enabled = e != nullptr && e[0] != '\0' && e[0] != '0';
+    g_enabled = gbarecomp::env_flag("GSR_OBJ_RECORD");
     if (!g_enabled) return;
     ensure_session_dir();
     std::atexit(write_all);

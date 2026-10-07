@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "overlay_abi.h"
+#include "env_flag.h"
 #include "overlay_compile.h"      // overlay_compile_one, HealBackend, heal_backend_name
 #include "hot_queue_policy.h"
 #include "runtime_arm.h"          // g_cpu, g_runtime_*, every runtime/bus/arm fn
@@ -1538,9 +1539,7 @@ void overlay_loader_init(const std::string& cache_root,
         g_runtime_ram_image_boundary_probe = &ram_image_lifecycle_boundary;
         g_runtime_ram_image_dispatch_probe = &ram_image_lifecycle_dispatch;
     }
-    const char* strict_env = std::getenv("GBARECOMP_STRICT_STATIC");
-    const bool strict_static =
-        strict_env && strict_env[0] != '\0' && strict_env[0] != '0';
+    const bool strict_static = gbarecomp::env_flag("GBARECOMP_STRICT_STATIC");
     if (strict_static) {
         s_active = false;
         std::printf("strict_static=ENABLED self_heal_recompile=DISABLED "

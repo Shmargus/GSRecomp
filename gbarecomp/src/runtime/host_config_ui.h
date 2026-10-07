@@ -152,7 +152,13 @@ struct ConfigUiState {
     int   screen_kind = 0;          // runtime::ScreenKind (color_lut.h)
     int   color_saturation = 100;   // Custom colours: percent, 0..200
     int   color_hue = 0;            // Custom colours: degrees, -180..180
+    int   color_brightness = 100;   // Custom: percent, 50..150
+    int   color_warmth = 0;         // Custom: percent, 0..100
+    int   color_darken = 0;         // Custom: percent, 0..50 (curve 1 + pct/100)
     bool  color_save = false;       // a Custom slider was let go: save it
+    int   aspect = 0;               // 0 = 3:2 (original), 1 = 4:3 (Expanded View only)
+    bool  screen_filters_available = false;  // test: launcher box on + opengl renderer
+    int   screen_filter = 0;        // test: 0 off, 1 LCD3x, 2 xBR, 3 CRT Lottes, 4 ScaleFX
     bool  show_fps = false;
 
     // --- audio --------------------------------------------------------------

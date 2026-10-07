@@ -8,6 +8,7 @@
 
 #include "gba_bus.h"
 #include "gba_vram_trace.h"
+#include "env_flag.h"
 
 #include <cstdlib>
 #include <cstdio>
@@ -49,8 +50,7 @@ unsigned long long g_bios_read_dropped = 0;
 
 bool bios_read_log_armed() {
     static const bool armed = [] {
-        const char* p = std::getenv("GBARECOMP_BIOS_READ_LOG");
-        return p != nullptr && p[0] != '\0' && p[0] != '0';
+        return gbarecomp::env_flag("GBARECOMP_BIOS_READ_LOG");
     }();
     return armed;
 }

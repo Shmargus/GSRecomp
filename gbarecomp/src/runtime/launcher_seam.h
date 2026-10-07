@@ -40,6 +40,7 @@
 #include "runtime.h"
 
 #include "recomp_launcher.h"    // recomp-ui C ABI (include dir via recomp_ui.cmake)
+#include "env_flag.h"
 #include "launcher_profile.h"   // launcher_profile_apply("gba", ...)
 
 #include <cstdio>
@@ -325,8 +326,7 @@ inline int gbarecomp_launcher_preboot(std::vector<std::string>& args,
         }
         args.swap(filtered);
     }
-    if (const char* env = std::getenv("GBARECOMP_NO_LAUNCHER"))
-        if (env[0] && env[0] != '0') skip_once = true;
+    if (gbarecomp::env_flag("GBARECOMP_NO_LAUNCHER")) skip_once = true;
     if (headless || (skip_once && !force_launcher)) return 0;
 
     const std::string dir = exe_dir(args);

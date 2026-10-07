@@ -276,6 +276,7 @@ add_library(gbarecomp_runtime STATIC
     src/runtime/host_platform.cpp
     src/runtime/crash_handler.cpp
     src/runtime/host_window.cpp
+    src/runtime/screen_filter.cpp
     src/runtime/host_overlay.cpp
     src/runtime/host_config_ui.cpp
     src/runtime/frame_timing.cpp

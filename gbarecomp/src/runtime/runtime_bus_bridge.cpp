@@ -7,6 +7,7 @@
 
 #include "../armv4t/runtime_arm.h"
 #include "../armv4t/arm_ir.h"
+#include "../armv4t/env_flag.h"
 #include "../armv4t/symbol_lookup.h"
 #include "../gba/gba_bus.h"
 #include "../gba/gba_irq.h"
@@ -831,9 +832,8 @@ void host_prof_end_idle() {
 // UI has loaded config.ini): flipping the toggle later in the same run
 // cannot retroactively start this background sampler thread.
 static bool sample_requested() {
-    const char* env = std::getenv("GBARECOMP_SAMPLE");
-    return env ? (env[0] != '\0' && env[0] != '0')
-               : (gsr_additional_debug_logging() != 0);
+    return gbarecomp::env_flag("GBARECOMP_SAMPLE",
+                               gsr_additional_debug_logging() != 0);
 }
 
 static void start_sampler() {

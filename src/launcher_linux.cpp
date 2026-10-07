@@ -49,34 +49,26 @@
 #include <unistd.h>
 
 #include "crash_handler.h"
+#include "launcher_common.h"
 #include "launcher_logo.h"
 #include "launcher_online.h"
 #include "sha1.h"
 
 namespace fs = std::filesystem;
+using namespace gsr_launcher;
 
 namespace {
 
-constexpr const char* kExpectedRomSha1 = "5c4695205413df7db52b9a184815a07783999971";
-constexpr const char* kBuilderVersion = "2";  // tools/gsr_builder kBuilderVersion
 constexpr const char* kTitle = "Golden Sun Recompiled";
 // Where players can still upload a report by hand when sending fails: the
 // Google Form the project page links; only the developer sees the answers.
 constexpr const char* kBugReportUrl =
     "https://docs.google.com/forms/d/e/"
     "1FAIpQLScTmnmH6_BXYsYVfIKtjDsN-gLx59mv4pVjYx4ITbH2YGktBw/viewform";
-constexpr int kKeepLogCount = 20;
 
 fs::path g_root;
 
 // ---------------------------------------------------------------- files
-
-std::string read_text(const fs::path& path) {
-    std::ifstream in(path, std::ios::binary);
-    std::ostringstream text;
-    text << in.rdbuf();
-    return text.str();
-}
 
 void write_text(const fs::path& path, const std::string& text) {
     std::error_code ec;
@@ -111,6 +103,9 @@ void open_launcher_log() {
                  __DATE__ + " " + __TIME__ + ") in " + g_root.string());
 }
 
+}  // namespace
+namespace gsr_launcher {
+
 bool sha1_file(const fs::path& path, std::string* out) {
     std::ifstream in(path, std::ios::binary);
     if (!in) return false;
@@ -119,6 +114,9 @@ bool sha1_file(const fs::path& path, std::string* out) {
     *out = gba::sha1(bytes.data(), bytes.size()).hex();
     return true;
 }
+
+}  // namespace gsr_launcher
+namespace {
 
 fs::path exe_dir() {
     std::error_code ec;
@@ -212,26 +210,6 @@ bool decode_png(const unsigned char* data, std::size_t size,
 
 // ---------------------------------------------------------------- the ROM
 
-bool validate_rom(const std::string& path, std::string* error) {
-    std::error_code ec;
-    if (!fs::is_regular_file(path, ec)) {
-        *error = "That file could not be opened.";
-        return false;
-    }
-    std::string actual;
-    if (!sha1_file(path, &actual)) {
-        *error = "The ROM could not be read.";
-        return false;
-    }
-    if (actual != kExpectedRomSha1) {
-        *error = std::string("That is not the required Golden Sun USA/Europe ROM.\n\n"
-                             "Expected SHA-1:\n") + kExpectedRomSha1 +
-                 "\n\nFound SHA-1:\n" + actual;
-        return false;
-    }
-    return true;
-}
-
 fs::path rom_cache_path() { return g_root / "local" / "launcher-rom.txt"; }
 fs::path auto_start_path() { return g_root / "local" / "launcher-autostart.txt"; }
 constexpr Uint32 kAutoStartMaxWaitMs = 10000;  // for the update check
@@ -293,50 +271,6 @@ std::string pick_rom_with_dialog(const std::string& start_dir, bool* no_dialog) 
 }
 
 // ---------------------------------------------------------------- game code
-
-// Whether libGoldenSunGame.so beside the game was built from the supported
-// ROM by this release's builder against this release's engine (the same
-// test as the Windows launcher's game_code_ready).
-std::string release_fingerprint() {
-    std::vector<fs::path> files = {g_root / "GoldenSunRecomp",
-                                   g_root / "builder" / "gsr_builder",
-                                   g_root / "builder" / "gba_recompile"};
-    std::error_code ec;
-    for (const char* dir : {"data", "engine"}) {
-        std::vector<fs::path> found;
-        for (const auto& entry :
-             fs::recursive_directory_iterator(g_root / "builder" / dir, ec)) {
-            if (entry.is_regular_file(ec)) found.push_back(entry.path());
-        }
-        std::sort(found.begin(), found.end());
-        files.insert(files.end(), found.begin(), found.end());
-    }
-    std::string text;
-    for (const fs::path& file : files) {
-        std::string digest;
-        if (!sha1_file(file, &digest)) digest = "missing";
-        text += fs::relative(file, g_root, ec).generic_string() + " " + digest + "\n";
-    }
-    return text;
-}
-
-bool game_code_ready() {
-    std::error_code ec;
-    if (!fs::is_regular_file(g_root / "libGoldenSunGame.so", ec)) return false;
-    if (read_text(g_root / "GoldenSunGame.release.txt") != release_fingerprint())
-        return false;
-    std::istringstream in(read_text(g_root / "GoldenSunGame.build.txt"));
-    std::string line, rom, builder, engine;
-    while (std::getline(in, line)) {
-        if (line.rfind("rom_sha1=", 0) == 0) rom = line.substr(9);
-        else if (line.rfind("builder=", 0) == 0) builder = line.substr(8);
-        else if (line.rfind("engine_sha1=", 0) == 0) engine = line.substr(12);
-    }
-    std::string engine_now;
-    if (!sha1_file(g_root / "GoldenSunRecomp", &engine_now)) return false;
-    return rom == kExpectedRomSha1 && builder == kBuilderVersion &&
-           engine == engine_now;
-}
 
 // The builder runs in the background; the window shows its progress lines.
 struct BuildState {
@@ -465,36 +399,6 @@ std::string make_session_log_name() {
     return name;
 }
 
-void prune_old_logs(const fs::path& logs_dir) {
-    std::error_code ec;
-    std::vector<fs::path> logs;
-    for (const auto& entry : fs::directory_iterator(logs_dir, ec)) {
-        const std::string name = entry.path().filename().string();
-        if (entry.is_regular_file(ec) && name.rfind("session_", 0) == 0 &&
-            entry.path().extension() == ".log")
-            logs.push_back(entry.path());
-    }
-    if (logs.size() < static_cast<std::size_t>(kKeepLogCount)) return;
-    std::sort(logs.begin(), logs.end());
-    const std::size_t remove = logs.size() - (kKeepLogCount - 1);
-    for (std::size_t i = 0; i < remove; ++i) {
-        fs::remove(logs[i], ec);
-        for (const char* ext : {".events.csv", ".phase.csv"})
-            fs::remove(fs::path(logs[i]).replace_extension(ext), ec);
-    }
-}
-
-std::set<std::string> rewind_dirs(const fs::path& logs_dir) {
-    std::set<std::string> dirs;
-    std::error_code ec;
-    for (const auto& entry : fs::directory_iterator(logs_dir, ec)) {
-        const std::string name = entry.path().filename().string();
-        if (entry.is_directory(ec) && name.rfind("gpu_rewind_", 0) == 0)
-            dirs.insert(name);
-    }
-    return dirs;
-}
-
 // Tags each line of one of the game's output streams and appends it to the
 // session log, flushed line by line so a hang or kill keeps everything.
 struct SessionLog {
@@ -567,6 +471,8 @@ GameResult run_game(const std::string& rom) {
         // Mutable-RAM native healing is enabled for both player and dev
         // launchers; the dev-only extras below remain conditional.
         {"GBARECOMP_SELFHEAL_RAM", "1"},
+        // F1 > Video's experimental screen filters, as the Windows launcher.
+        {"GSR_SCREEN_FILTERS", "1"},
 #ifdef GSR_LINUX_DEV_LAUNCHER
         // The Windows developer launcher's extras (make_release_linux.sh
         // --dev): per-frame timing CSVs beside the session log. Rewind stays
@@ -665,6 +571,9 @@ std::string os_release_name() {
     return "?";
 }
 
+}  // namespace
+namespace gsr_launcher {
+
 // The text in a report with the player's home folder taken out of paths
 // (/home/name/... becomes /home/<user>/...), so a report never shows who
 // sent it.
@@ -674,43 +583,11 @@ std::string scrub_user_name(std::string text) {
         swaps.emplace_back(home, "/home/<user>");
     if (const char* user = std::getenv("USER"); user && *user)
         swaps.emplace_back(std::string("/home/") + user, "/home/<user>");
-    for (const auto& [needle, replacement] : swaps) {
-        std::size_t at = 0;
-        while ((at = text.find(needle, at)) != std::string::npos) {
-            const std::size_t after = at + needle.size();
-            // Only the whole folder name: user "al" must not match user "alex".
-            if (after < text.size() && text[after] != '/' && text[after] != '"' &&
-                text[after] != '\'' && text[after] != ' ' && text[after] != '\n') {
-                at = after;
-                continue;
-            }
-            text.replace(at, needle.size(), replacement);
-            at += replacement.size();
-        }
-    }
-    return text;
+    return scrub_paths(std::move(text), swaps);
 }
 
-// Copies a log or settings file into the report, user name taken out. A
-// very long session log keeps its first 256 KB and its last 3 MB.
-void copy_into_report(const fs::path& from, const fs::path& staging) {
-    std::error_code ec;
-    if (!fs::is_regular_file(from, ec)) return;
-    const std::string ext = from.extension().string();
-    if (ext != ".log" && ext != ".txt" && ext != ".ini" && ext != ".csv") {
-        fs::copy_file(from, staging / from.filename(),
-                      fs::copy_options::overwrite_existing, ec);
-        return;
-    }
-    std::string content = read_text(from);
-    constexpr std::size_t kHead = 256 * 1024, kTail = 3 * 1024 * 1024;
-    if (content.size() > kHead + kTail) {
-        content = content.substr(0, kHead) +
-                  "\n\n[... the middle of this log was left out of the bug report ...]\n\n" +
-                  content.substr(content.size() - kTail);
-    }
-    write_text(staging / from.filename(), scrub_user_name(content));
-}
+}  // namespace gsr_launcher
+namespace {
 
 // The Windows launcher's make_bug_report: the session log, the settings
 // files and the crash files in every archive, plus at most ONE F12 capture
@@ -1026,7 +903,7 @@ void use_rom(const std::string& rom) {
     write_text(rom_cache_path(), rom + "\n");
     g_ui.remembered_rom = rom;
     g_ui.pending_rom.clear();
-    if (!game_code_ready()) {
+    if (!game_code_ready(g_root)) {
         launcher_log("The game is not built yet (or is out of date): building it.");
         start_game_build(rom);
         return;
@@ -1088,7 +965,7 @@ int main(int, char**) {
         }
     }
 
-    bool ready = game_code_ready();
+    bool ready = game_code_ready(g_root);
     bool running = true;
     std::string release_notes;  // empty until the update check has them
     if (g_ui.auto_start && ready && !g_ui.remembered_rom.empty()) {
@@ -1119,8 +996,8 @@ int main(int, char**) {
         }
         if (build_finished) {
             if (g_build_thread.joinable()) g_build_thread.join();
-            if (build_ok) write_text(g_root / "GoldenSunGame.release.txt", release_fingerprint());
-            ready = build_ok && game_code_ready();
+            if (build_ok) write_text(g_root / "GoldenSunGame.release.txt", release_fingerprint(g_root));
+            ready = build_ok && game_code_ready(g_root);
             launcher_log(ready      ? std::string("Build: finished, the game is ready.")
                          : build_ok ? std::string("Build: finished, but the game files do "
                                                   "not match this release.")

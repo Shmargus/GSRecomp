@@ -595,6 +595,12 @@ const char* kBackgroundFragment =
     "  int hofs_s = int(hofs_raw); if (hofs_s >= 32768) hofs_s -= 65536;\n"
     "  int vofs_s = int(vofs_raw); if (vofs_s >= 32768) vofs_s -= 65536;\n"
     "  bool scroll_beyond_map = abs(hofs_s) >= 2048 || abs(vofs_s) >= 2048;\n"
+    // A margin pixel this layer leaves empty is dropped by the one discard
+    // at the end, not by an early discard inside a branch: radeonsi's LLVM
+    // compiler (Mesa 25, Radeon 740M) also killed neighbouring world-map
+    // pixels that never took the branch -- 4 px black bars beside the
+    // console's screen (FACTS.md 2026-10-07).
+    "  bool drop_pixel = false;\n"
     "  int index;\n"
     "  if (u_affine != 0) {\n"
     // Affine background (mode 1's BG2, mode 2's BG2/BG3): the console walks
@@ -766,7 +772,8 @@ const char* kBackgroundFragment =
     // walk the transform from; same rule the regular-layer path below uses,
     // and the same battle-arena exception.
     "    if (outside_native && !arena_margin && u_effect_extra == 0 &&\n"
-    "        u_effect_fill_beyond == 0 && u_effect_repeats == 0) discard;\n"
+    "        u_effect_fill_beyond == 0 && u_effect_repeats == 0)\n"
+    "      drop_pixel = true;\n"
     // One byte per map entry: the whole byte is the tile index. Affine maps
     // carry no flip bits and no palette bank (gba_ppu.cpp, render_affine_bg).
     "    if (!beyond_game_canvas) {\n"
@@ -1099,7 +1106,7 @@ const char* kBackgroundFragment =
     "    }\n"
     "  }\n"
     // Index 0 is the console's transparent colour, in every path.
-    "  if (index == 0) discard;\n"
+    "  if (drop_pixel || index == 0) discard;\n"
     "\n"
     // Bits 0-3 of the window control are BG0-3's own enable. An arena pixel
     // out in the side margin skips this: the game's windows are written in

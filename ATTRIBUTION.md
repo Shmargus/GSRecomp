@@ -70,6 +70,24 @@ The engine itself ports code from two other projects, credited in full in
   only the re-implemented files above are here, and mGBA's own source is at the
   link. The oracle target that would link mGBA is not part of this copy either.
 
+### Screen filters (test option)
+
+Four GLSL shaders from libretro's
+[glsl-shaders](https://github.com/libretro/glsl-shaders) are ported into
+`gbarecomp/src/runtime/screen_filter.cpp`. They only run when the developer
+launcher's "Screen filters" test box is on.
+
+- **LCD3x**, by Gigaherz — public domain. Its header reads "Author: Gigaherz,
+  License: Public domain".
+- **xBR-lv2**, by Hyllian — Copyright (C) 2011-2016 Hyllian
+  (sergiogdb@gmail.com), **MIT**. The full licence notice is kept verbatim
+  above the shader in `screen_filter.cpp`, as the licence requires.
+- **CRT Lottes**, by Timothy Lottes — public domain. Its header reads "PUBLIC
+  DOMAIN CRT STYLED SCAN-LINE SHADER".
+- **ScaleFX**, by Sp00kyFox — Copyright (c) 2016 Sp00kyFox
+  (ScaleFX@web.de), **MIT**. Five passes; the full licence notice is kept
+  verbatim above the shaders in `screen_filter.cpp`, as the licence requires.
+
 ## Our own code
 
 `src/`, `tools/`, `tests/`, `config/`, `scripts/`, and the documentation are

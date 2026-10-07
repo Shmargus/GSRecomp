@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "crc32.h"
+#include "env_flag.h"
 #include "crash_handler.h"
 #include "function_tracer.h"
 #include "map_recorder.h"
@@ -3917,8 +3918,7 @@ void begin_golden_sun_field_auth_epoch();
 // payload-free map investigation. The default is deliberately off in main().
 bool golden_sun_wide_diagnostics_enabled() {
     static const bool enabled = [] {
-        const char* env = std::getenv("GBARECOMP_VRAM_MAP_TRACE");
-        return env != nullptr && env[0] != '\0' && env[0] != '0';
+        return gbarecomp::env_flag("GBARECOMP_VRAM_MAP_TRACE");
     }();
     return enabled;
 }
@@ -3929,8 +3929,7 @@ bool golden_sun_wide_diagnostics_enabled() {
 // expanded-sprite and shadow guards below.
 bool golden_sun_experimental_fixes_enabled() {
     static const bool enabled = [] {
-        const char* env = std::getenv("GBARECOMP_EXPERIMENTAL_FIXES");
-        return env != nullptr && env[0] != '\0' && env[0] != '0';
+        return gbarecomp::env_flag("GBARECOMP_EXPERIMENTAL_FIXES");
     }();
     return enabled;
 }
@@ -9041,8 +9040,7 @@ constexpr std::uint32_t kMessageSpeedIndexAddress =
 
 bool text_delay_logging_enabled() {
     static const bool enabled = [] {
-        const char* e = std::getenv("GSR_TEXT_RECORD");
-        return e != nullptr && e[0] != '\0' && e[0] != '0';
+        return gbarecomp::env_flag("GSR_TEXT_RECORD");
     }();
     return enabled;
 }
@@ -9084,8 +9082,7 @@ void observe_text_delay_store(std::uint32_t pc, std::uint32_t addr,
 // exactly as it does today.
 bool gpu_field_enabled() {
     static const bool enabled = [] {
-        const char* e = std::getenv("GSR_GPU_FIELD");
-        return e != nullptr && e[0] != '\0' && e[0] != '0';
+        return gbarecomp::env_flag("GSR_GPU_FIELD");
     }();
     return enabled;
 }
@@ -9105,8 +9102,7 @@ bool gpu_field_enabled() {
 bool gpu_field_only_enabled() {
     static const bool enabled = [] {
         if (!gpu_field_enabled()) return false;
-        const char* e = std::getenv("GSR_GPU_FIELD_ONLY");
-        return e != nullptr && e[0] != '\0' && e[0] != '0';
+        return gbarecomp::env_flag("GSR_GPU_FIELD_ONLY");
     }();
     return enabled;
 }
@@ -9958,8 +9954,7 @@ bool auto_capture_enabled();
 
 bool frame_rewind_enabled() {
     static const bool enabled = [] {
-        const char* e = std::getenv("GSR_FRAME_REWIND");
-        return (e != nullptr && e[0] != '\0' && e[0] != '0') ||
+        return gbarecomp::env_flag("GSR_FRAME_REWIND") ||
                auto_capture_enabled();
     }();
     return enabled;
@@ -10066,8 +10061,7 @@ void frame_rewind_write(const std::string& note = {}) {
 // shows what followed; findings from that wait go into the same note.
 bool auto_capture_enabled() {
     static const bool enabled = [] {
-        const char* e = std::getenv("GSR_AUTO_CAPTURE");
-        return e != nullptr && e[0] != '\0' && e[0] != '0';
+        return gbarecomp::env_flag("GSR_AUTO_CAPTURE");
     }();
     return enabled;
 }
@@ -10587,9 +10581,7 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
             // regardless.
             renderer.set_room_source_enabled(true);
             // Capture spell stamp calls only when the launcher enables it.
-            const char* effects = std::getenv("GSR_HOST_EFFECTS");
-            const bool host_effects =
-                effects != nullptr && effects[0] != '\0' && effects[0] != '0';
+            const bool host_effects = gbarecomp::env_flag("GSR_HOST_EFFECTS");
             renderer.set_effect_renderer_enabled(host_effects);
             gsr::effect_capture_set_enabled(host_effects);
         } else {
@@ -11640,8 +11632,7 @@ std::map<BattleBg1Key, BattleBg1Totals> g_bg1_frame_writes;
 
 bool battle_bg1_record_enabled() {
     static const bool enabled = [] {
-        const char* e = std::getenv("GSR_BATTLE_BG1_RECORD");
-        return e != nullptr && e[0] != '\0' && e[0] != '0';
+        return gbarecomp::env_flag("GSR_BATTLE_BG1_RECORD");
     }();
     return enabled;
 }
@@ -14123,9 +14114,8 @@ std::uint32_t g_relocatable_profile_active_max = 0;
 // (cached after that, matching the existing once-per-run idiom).
 bool relocatable_profile_enabled() {
     static const bool enabled = [] {
-        const char* env = std::getenv("GBARECOMP_RELOCATABLE_PROFILE");
-        return env ? (env[0] != '\0' && env[0] != '0')
-                   : (gsr_additional_debug_logging() != 0);
+        return gbarecomp::env_flag("GBARECOMP_RELOCATABLE_PROFILE",
+                                   gsr_additional_debug_logging() != 0);
     }();
     return enabled;
 }
@@ -14200,9 +14190,8 @@ void report_relocatable_profile() {
 // above.
 bool relocatable_log_enabled() {
     static const bool enabled = [] {
-        const char* env = std::getenv("GBARECOMP_RELOCATABLE_LOG");
-        return env ? (env[0] != '\0' && env[0] != '0')
-                   : (gsr_additional_debug_logging() != 0);
+        return gbarecomp::env_flag("GBARECOMP_RELOCATABLE_LOG",
+                                   gsr_additional_debug_logging() != 0);
     }();
     return enabled;
 }
@@ -14816,8 +14805,7 @@ void golden_sun_function_entry_observer(std::uint32_t entry_pc) {
 
 bool strict_static_run() {
     static const bool strict = [] {
-        const char* env = std::getenv("GBARECOMP_STRICT_STATIC");
-        return env != nullptr && env[0] != '\0' && env[0] != '0';
+        return gbarecomp::env_flag("GBARECOMP_STRICT_STATIC");
     }();
     return strict;
 }

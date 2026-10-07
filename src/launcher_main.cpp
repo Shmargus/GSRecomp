@@ -18,6 +18,7 @@
 #include "launcher_test_policy.h"
 #include "launcher_widescreen_diagnostics_policy.h"
 #include "launcher_logo.h"  // generated from assets/launcher_logo.png
+#include "launcher_common.h"
 #include "launcher_online.h"
 
 #include <algorithm>
@@ -39,6 +40,7 @@
 #include <vector>
 
 namespace fs = std::filesystem;
+using namespace gsr_launcher;
 
 // GSR_RELEASE_LAUNCHER (CMake option of the same name, used by
 // make_release.bat): a player build with only Pick ROM and Quit. No
@@ -51,9 +53,6 @@ constexpr bool kReleaseLauncher = false;
 #endif
 
 namespace {
-
-constexpr char kExpectedRomSha1[] =
-    "5c4695205413df7db52b9a184815a07783999971";
 
 // ── Release: first-run game build ─────────────────────────────────────
 // A release holds no game code. The first time the player picks their ROM
@@ -68,7 +67,6 @@ constexpr UINT kBuildFinishedMessage = WM_APP + 2;
 constexpr UINT kUpdateFoundMessage = WM_APP + 3;
 // ...and read the newest release's notes (shown whether or not it is newer).
 constexpr UINT kReleaseNotesMessage = WM_APP + 4;
-constexpr char kBuilderVersion[] = "2";  // tools/gsr_builder kBuilderVersion
 
 struct BuildStatus {
     std::mutex mutex;
@@ -112,6 +110,9 @@ bool g_test_battle_bg1_record = k_launcher_test_defaults.battle_bg1_record;
 // but we draw nowhere, or a refused frame (GSR_AUTO_CAPTURE; the runner
 // keeps the ring on for it). Off each session, like the other probes.
 bool g_test_auto_capture = false;
+// Adds LCD3x and xBR screen filters to F1 > Video (GSR_SCREEN_FILTERS). A
+// test option: off each session, never saved.
+bool g_test_screen_filters = false;
 bool g_test_mod_field_test = k_launcher_test_defaults.mod_field_test;
 bool g_test_room_buffer = k_launcher_test_defaults.room_buffer;
 bool g_test_swi_log = k_launcher_test_defaults.swi_log;
@@ -339,13 +340,6 @@ void open_launcher_log(const fs::path& root) {
                  L" started (built " __DATE__ " " __TIME__ ") in " + root.wstring());
 }
 
-std::string read_text(const fs::path& path) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) return {};
-    return {std::istreambuf_iterator<char>(file),
-            std::istreambuf_iterator<char>()};
-}
-
 std::wstring read_cached_path(const fs::path& path) {
     const std::string line = read_text(path);
     const std::size_t end = line.find_first_of("\r\n");
@@ -360,6 +354,9 @@ void write_cached_path(const fs::path& path, const std::wstring& value) {
     std::ofstream file(path, std::ios::binary | std::ios::trunc);
     if (file) file << wide_to_utf8(value) << '\n';
 }
+
+}  // namespace
+namespace gsr_launcher {
 
 bool sha1_file(const fs::path& path, std::string* out) {
     BCRYPT_ALG_HANDLE algorithm = nullptr;
@@ -418,6 +415,9 @@ bool sha1_file(const fs::path& path, std::string* out) {
     return ok;
 }
 
+}  // namespace gsr_launcher
+namespace {
+
 std::wstring pick_file(const wchar_t* title, const wchar_t* filter,
                        const std::wstring& initial_directory = {},
                        HWND owner = nullptr) {
@@ -434,28 +434,6 @@ std::wstring pick_file(const wchar_t* title, const wchar_t* filter,
     dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
     if (!GetOpenFileNameW(&dialog)) return {};
     return buffer;
-}
-
-bool validate_rom(const std::wstring& path, std::wstring* error) {
-    std::error_code ec;
-    if (!fs::is_regular_file(path, ec)) {
-        *error = L"That file could not be opened.";
-        return false;
-    }
-    std::string actual;
-    if (!sha1_file(path, &actual)) {
-        *error = L"The ROM could not be read.";
-        return false;
-    }
-    if (actual != kExpectedRomSha1) {
-        *error = L"That is not the required Golden Sun USA/Europe ROM.\n\n"
-                 L"Expected SHA-1:\n";
-        *error += utf8_to_wide(kExpectedRomSha1);
-        *error += L"\n\nFound SHA-1:\n";
-        *error += utf8_to_wide(actual);
-        return false;
-    }
-    return true;
 }
 
 // `owner` is the launcher window: the file dialog and the "not the right
@@ -476,12 +454,13 @@ std::wstring choose_rom(const fs::path& root, HWND owner) {
             return {};
         }
 
-        std::wstring error;
-        if (validate_rom(candidate, &error)) {
+        std::string error_utf8;
+        if (validate_rom(candidate, &error_utf8)) {
             launcher_log(L"Pick ROM: " + candidate + L" - accepted.");
             write_cached_path(cache, candidate);
             return candidate;
         }
+        const std::wstring error = utf8_to_wide(error_utf8);
         launcher_log(L"Pick ROM: " + candidate + L" - refused: " + error);
         MessageBoxW(owner, error.c_str(), L"Golden Sun Recompiled",
                     MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
@@ -493,9 +472,10 @@ std::wstring choose_rom(const fs::path& root, HWND owner) {
 std::wstring remembered_rom(const fs::path& root) {
     const std::wstring cached = read_cached_path(root / L"local" / L"launcher-rom.txt");
     if (cached.empty()) return {};
-    std::wstring error;
+    std::string error;
     if (validate_rom(cached, &error)) return cached;
-    launcher_log(L"Remembered ROM " + cached + L" can no longer be used: " + error);
+    launcher_log(L"Remembered ROM " + cached + L" can no longer be used: " +
+                 utf8_to_wide(error));
     return {};
 }
 
@@ -516,8 +496,6 @@ std::wstring remembered_rom(const fs::path& root) {
 // chronological, greppable log is easier for the user to hand over than two
 // files they'd have to interleave by eye, and the tag keeps the streams
 // distinguishable.
-constexpr int kKeepLogCount = 20;  // recent sessions kept; older ones pruned
-
 std::wstring make_session_log_path(const fs::path& logs_dir) {
     SYSTEMTIME st{};
     GetLocalTime(&st);
@@ -562,50 +540,6 @@ bool copy_session_id_to_clipboard(HWND owner, const std::wstring& log_path) {
     CloseClipboard();
     if (memory) GlobalFree(memory);
     return copied;
-}
-
-// Keeps the newest (kKeepLogCount - 1) existing logs so this session's new
-// file brings the total back up to kKeepLogCount. session_YYYYMMDD_HHMMSS
-// sorts lexicographically in chronological order, so no parsing is needed.
-void prune_old_logs(const fs::path& logs_dir) {
-    std::error_code ec;
-    std::vector<fs::path> logs;
-    for (const auto& entry : fs::directory_iterator(logs_dir, ec)) {
-        if (!entry.is_regular_file(ec)) continue;
-        const std::wstring name = entry.path().filename().wstring();
-        if (name.rfind(L"session_", 0) == 0 &&
-            name.size() > 4 && name.compare(name.size() - 4, 4, L".log") == 0) {
-            logs.push_back(entry.path());
-        }
-    }
-    if (logs.size() < static_cast<std::size_t>(kKeepLogCount)) return;
-    std::sort(logs.begin(), logs.end());
-    const std::size_t remove_count =
-        logs.size() - (static_cast<std::size_t>(kKeepLogCount) - 1);
-    for (std::size_t i = 0; i < remove_count; ++i) {
-        fs::path events = logs[i];
-        fs::path phase = logs[i];
-        events.replace_extension(L".events.csv");
-        phase.replace_extension(L".phase.csv");
-        const fs::path misses = events.wstring() + L".misses.csv";
-        const fs::path recursion = events.wstring() + L".recursion.csv";
-        const fs::path ram_churn = events.wstring() + L".ram-churn.csv";
-        const fs::path input = logs[i].wstring().substr(
-            0, logs[i].wstring().size() - 4) + L".input";
-        fs::remove(logs[i], ec);
-        fs::remove(events, ec);
-        fs::remove(misses, ec);
-        fs::remove(recursion, ec);
-        fs::remove(ram_churn, ec);
-        fs::remove(phase, ec);
-        fs::remove(input, ec);
-        for (unsigned suffix = 1; suffix < 1000; ++suffix) {
-            const fs::path suffixed = logs[i].wstring().substr(
-                0, logs[i].wstring().size() - 4) + L"_" +
-                std::to_wstring(suffix) + L".input";
-            fs::remove(suffixed, ec);
-        }
-    }
 }
 
 bool create_empty_file_exclusive(const fs::path& path) {
@@ -787,17 +721,6 @@ private:
 // every capture from that session, or the crash files if it crashed, with
 // the session log, the settings files and a short system note into one zip
 // in logs/bug_reports, and points the player at it.
-std::set<std::wstring> rewind_dirs(const fs::path& logs_dir) {
-    std::set<std::wstring> dirs;
-    std::error_code ec;
-    for (const auto& entry : fs::directory_iterator(logs_dir, ec)) {
-        const std::wstring name = entry.path().filename().wstring();
-        if (entry.is_directory(ec) && name.rfind(L"gpu_rewind_", 0) == 0)
-            dirs.insert(name);
-    }
-    return dirs;
-}
-
 std::string registry_text(const wchar_t* value) {
     wchar_t buffer[256] = {};
     DWORD size = sizeof(buffer);
@@ -979,6 +902,9 @@ int http_request(const wchar_t* verb, const HttpTarget& target,
 // ONE F12 capture (about 7 MB zipped), so each upload stays small; a session
 // with three captures makes three zips.
 
+}  // namespace
+namespace gsr_launcher {
+
 // The text in a report with the player's Windows user name taken out of
 // paths (C:\Users\Name\... becomes C:\Users\<user>\...), so a report never
 // shows who sent it.
@@ -1000,55 +926,18 @@ std::string scrub_user_name(std::string text) {
         if (!folder.empty() && lower(folder) != (names.empty() ? "" : lower(names[0])))
             names.push_back(folder);
     }
+    std::vector<std::pair<std::string, std::string>> swaps;
     for (const std::string& name : names) {
         for (const char* sep : {"\\", "/", "\\\\"}) {
-            const std::string needle = lower(std::string(sep) + "users" + sep + name);
-            const std::string replacement = std::string(sep) + "Users" + sep + "<user>";
-            std::string folded = lower(text);
-            std::size_t at = 0;
-            while ((at = folded.find(needle, at)) != std::string::npos) {
-                const std::size_t after = at + needle.size();
-                // Only the whole folder name: "Jim" must not match "Jimmy".
-                if (after < text.size() && text[after] != '\\' && text[after] != '/' &&
-                    text[after] != '"' && text[after] != '\'' && text[after] != ' ' &&
-                    text[after] != '\r' && text[after] != '\n') {
-                    at = after;
-                    continue;
-                }
-                text.replace(at, needle.size(), replacement);
-                folded.replace(at, needle.size(), lower(replacement));
-                at += replacement.size();
-            }
+            swaps.emplace_back(std::string(sep) + "users" + sep + name,
+                               std::string(sep) + "Users" + sep + "<user>");
         }
     }
-    return text;
+    return scrub_paths(std::move(text), swaps);
 }
 
-// Copies a log or settings file into the report, user name taken out. A
-// very long session log keeps its first 256 KB and its last 3 MB: the start
-// says how the game was set up, the end is where the problem is.
-void copy_into_report(const fs::path& from, const fs::path& staging) {
-    std::error_code ec;
-    if (!fs::is_regular_file(from, ec)) return;
-    std::wstring ext = from.extension().wstring();
-    for (wchar_t& c : ext) c = static_cast<wchar_t>(towlower(c));
-    const bool text = ext == L".log" || ext == L".txt" || ext == L".ini" ||
-                      ext == L".csv";
-    if (!text) {
-        fs::copy_file(from, staging / from.filename(),
-                      fs::copy_options::overwrite_existing, ec);
-        return;
-    }
-    std::string content = read_text(from);
-    constexpr std::size_t kHead = 256 * 1024, kTail = 3 * 1024 * 1024;
-    if (content.size() > kHead + kTail) {
-        content = content.substr(0, kHead) +
-                  "\n\n[... the middle of this log was left out of the bug report ...]\n\n" +
-                  content.substr(content.size() - kTail);
-    }
-    std::ofstream out(staging / from.filename(), std::ios::binary | std::ios::trunc);
-    out << scrub_user_name(content);
-}
+}  // namespace gsr_launcher
+namespace {
 
 // Returns the zips (one per F12 capture, or one when there was none), or
 // the folder when zipping failed; empty when there was nothing to report.
@@ -1445,6 +1334,14 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed) {
 }
 
 int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
+    HANDLE log_file = INVALID_HANDLE_VALUE;
+    // Close the session log if it is open, say why, and give up the start.
+    auto fail = [&](const std::wstring& text, UINT icon = MB_ICONERROR) {
+        if (log_file != INVALID_HANDLE_VALUE) CloseHandle(log_file);
+        MessageBoxW(window, text.c_str(), L"Golden Sun Recompiled",
+                    MB_OK | icon | MB_SETFOREGROUND);
+        return 1;
+    };
     // Golden Sun's flash save is 64 KiB; the engine refuses a larger .sav
     // (runtime.cpp "save file too large"), so say why instead of exiting.
     constexpr std::uintmax_t kGameSaveBytes = 0x10000;
@@ -1463,9 +1360,7 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
                 save.wstring() +
                 L"\n\nMove it to another folder or delete it, then start the "
                 L"game again. The game will make a new save there.";
-            MessageBoxW(window, text.c_str(), L"Golden Sun Recompiled",
-                        MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
-            return 1;
+            return fail(text, MB_ICONWARNING);
         }
     }
     // Save before spawning so a launch cannot lose a changed checkbox.
@@ -1493,10 +1388,7 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
     }
     if (!fs::is_regular_file(game)) {
         launcher_log(L"Start game: GoldenSunRecomp.exe not found.");
-        MessageBoxW(window,
-                    L"GoldenSunRecomp.exe was not found. Run the build first.",
-                    L"Golden Sun Recompiled", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
-        return 1;
+        return fail(L"GoldenSunRecomp.exe was not found. Run the build first.");
     }
 
     fs::create_directories(root / L"recomp_cache");
@@ -1504,7 +1396,6 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
     const fs::path logs_dir = root / L"logs";
     std::error_code dir_ec;
     fs::create_directories(logs_dir, dir_ec);
-    HANDLE log_file = INVALID_HANDLE_VALUE;
     std::wstring log_path;
     if (!dir_ec) {
         prune_old_logs(logs_dir);
@@ -1540,11 +1431,8 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
 
     ChildEnvironment child_environment;
     if (!child_environment.valid()) {
-        if (log_file != INVALID_HANDLE_VALUE) CloseHandle(log_file);
         launcher_log(L"Start game: the game environment could not be prepared.");
-        MessageBoxW(window, L"The game environment could not be prepared.",
-                    L"Golden Sun Recompiled", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
-        return 1;
+        return fail(L"The game environment could not be prepared.");
     }
 
     // Golden Sun's Camelot intro overflows the Windows host stack with the
@@ -1596,22 +1484,14 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
         (g_test_function_tracer || g_test_text_record), explicit_input_record,
             !input_replay.empty(), automatic_input_path);
     if (input_record_policy.replay_conflict) {
-        if (log_file != INVALID_HANDLE_VALUE) CloseHandle(log_file);
-        MessageBoxW(window,
-                    L"GBARECOMP_INPUT_RECORD cannot be used together with "
-                    L"GBARECOMP_INPUT_REPLAY.",
-                    L"Golden Sun Recompiled", MB_OK | MB_ICONERROR);
-        return 1;
+        return fail(L"GBARECOMP_INPUT_RECORD cannot be used together with "
+                    L"GBARECOMP_INPUT_REPLAY.");
     }
     if ((g_test_function_tracer || g_test_text_record) &&
         input_replay.empty() &&
         explicit_input_record.empty() && !input_record_policy.enabled) {
-        if (log_file != INVALID_HANDLE_VALUE) CloseHandle(log_file);
-        MessageBoxW(window,
-                    L"Function tracer could not create its input recording "
-                    L"path.",
-                    L"Golden Sun Recompiled", MB_OK | MB_ICONERROR);
-        return 1;
+        return fail(L"Function tracer could not create its input recording "
+                    L"path.");
     }
     if (input_record_policy.enabled) {
         const fs::path input_path(input_record_policy.path);
@@ -1620,12 +1500,8 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
             fs::create_directories(input_path.parent_path(), input_ec);
         if (input_ec || fs::exists(input_path) ||
             !create_empty_file_exclusive(input_path)) {
-            if (log_file != INVALID_HANDLE_VALUE) CloseHandle(log_file);
-            MessageBoxW(window,
-                        L"The input recording path could not be created "
-                        L"without overwriting an existing file.",
-                        L"Golden Sun Recompiled", MB_OK | MB_ICONERROR);
-            return 1;
+            return fail(L"The input recording path could not be created "
+                        L"without overwriting an existing file.");
         }
         child_environment.set(L"GBARECOMP_INPUT_RECORD",
                               input_record_policy.path);
@@ -1670,6 +1546,7 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
         {L"GSR_EFFECT_TRACE", g_test_effect_trace},
         {L"GSR_FRAME_REWIND", g_test_frame_rewind},
         {L"GSR_AUTO_CAPTURE", g_test_auto_capture},
+        {L"GSR_SCREEN_FILTERS", g_test_screen_filters},
         {L"GSR_BATTLE_BG1_RECORD", g_test_battle_bg1_record},
         {L"GSR_ROOM_BUFFER", g_test_room_buffer},
         // First piece of the mod loader: swaps one item icon and one Psynergy
@@ -1706,11 +1583,13 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
             child_environment.unset(variable.name);
         }
     }
-    // Players: F12 always saves the last 2 seconds for a bug report.
+    // Players: F12 always saves the last 2 seconds for a bug report, and
+    // F1 > Video offers the experimental screen filters (Jimmy, 2026-10-07).
     if (kReleaseLauncher) {
         child_environment.set(L"GSR_FRAME_REWIND", L"1");
+        child_environment.set(L"GSR_SCREEN_FILTERS", L"1");
         if (!enabled_list.empty()) enabled_list += ",";
-        enabled_list += "GSR_FRAME_REWIND";
+        enabled_list += "GSR_FRAME_REWIND,GSR_SCREEN_FILTERS";
     }
     if (logging) {
         const std::string line =
@@ -1858,12 +1737,9 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
         if (out_write) CloseHandle(out_write);
         if (err_read) CloseHandle(err_read);
         if (err_write) CloseHandle(err_write);
-        if (log_file != INVALID_HANDLE_VALUE) CloseHandle(log_file);
         launcher_log(L"Start game: Windows could not start " + game.wstring() +
                      L" (error " + std::to_wstring(start_error) + L").");
-        MessageBoxW(window, L"Windows could not start the recompiled game.",
-                    L"Golden Sun Recompiled", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
-        return 1;
+        return fail(L"Windows could not start the recompiled game.");
     }
     CloseHandle(process.hThread);
     launcher_log(L"Start game: running " + game.wstring() + L", session log " +
@@ -1952,6 +1828,7 @@ constexpr int kBattleBg1RecordButton = 1045;
 constexpr int kModFieldTestButton = 1050;
 constexpr int kAutoCaptureButton = 1051;
 constexpr int kAutoStartButton = 1052;
+constexpr int kScreenFiltersButton = 1053;
 
 fs::path g_launcher_root;
 
@@ -2199,7 +2076,7 @@ void layout_buttons(HWND window) {
         kBattleBg1RecordButton,
         // right: rendering
         kRoomBufferButton,     kFrameRewindButton,     kAutoCaptureButton,
-        kModFieldTestButton,
+        kModFieldTestButton,    kScreenFiltersButton,
         // right, continued: performance
         kHeadroomProbeButton,  kCostProbeButton,      kHostProfButton,
         kPresentCadenceButton, kRamChurnProbeButton,
@@ -2666,6 +2543,7 @@ bool* checkbox_state_for_id(int id) {
     case kEffectTraceButton: return &g_test_effect_trace;
     case kFrameRewindButton: return &g_test_frame_rewind;
     case kAutoCaptureButton: return &g_test_auto_capture;
+    case kScreenFiltersButton: return &g_test_screen_filters;
     case kBattleBg1RecordButton: return &g_test_battle_bg1_record;
     case kModFieldTestButton: return &g_test_mod_field_test;
     case kRoomBufferButton: return &g_test_room_buffer;
@@ -2840,62 +2718,6 @@ void draw_action_button(const DRAWITEMSTRUCT& item) {
     SelectObject(dc, old_bitmap);
     DeleteObject(bitmap);
     DeleteDC(dc);
-}
-
-// What the game code in a release is built from, one "path sha1" line per
-// file: the engine, the builder, the translator and everything in
-// builder\data and builder\engine. Written beside GoldenSunGame.dll after a
-// build (GoldenSunGame.release.txt); any difference, such as a new release
-// unzipped over an old one, means building again. The engine check below
-// already caught a new engine; this also catches a release that changes only
-// the builder, the translator or its data. The toolchain is left out: it is
-// large, and it only changes together with the builder.
-std::string release_fingerprint(const fs::path& root) {
-    std::vector<fs::path> files = {root / L"GoldenSunRecomp.exe",
-                                   root / L"builder" / L"gsr_builder.exe",
-                                   root / L"builder" / L"gba_recompile.exe"};
-    std::error_code ec;
-    for (const wchar_t* dir : {L"data", L"engine"}) {
-        std::vector<fs::path> found;
-        for (const auto& entry :
-             fs::recursive_directory_iterator(root / L"builder" / dir, ec)) {
-            if (entry.is_regular_file(ec)) found.push_back(entry.path());
-        }
-        std::sort(found.begin(), found.end());
-        files.insert(files.end(), found.begin(), found.end());
-    }
-    std::string text;
-    for (const fs::path& file : files) {
-        std::string digest;
-        if (!sha1_file(file, &digest)) digest = "missing";
-        text += fs::relative(file, root, ec).generic_string() + " " + digest + "\n";
-    }
-    return text;
-}
-
-// Whether GoldenSunGame.dll beside the game was built from the supported
-// ROM by this release's builder against this release's engine.
-bool game_code_ready(const fs::path& root) {
-    std::error_code ec;
-    if (!fs::is_regular_file(root / L"GoldenSunGame.dll", ec)) return false;
-    {
-        std::ifstream recorded(root / L"GoldenSunGame.release.txt",
-                               std::ios::binary);
-        std::ostringstream text;
-        text << recorded.rdbuf();
-        if (!recorded || text.str() != release_fingerprint(root)) return false;
-    }
-    std::ifstream in(root / L"GoldenSunGame.build.txt");
-    std::string line, rom, builder, engine;
-    while (std::getline(in, line)) {
-        if (line.rfind("rom_sha1=", 0) == 0) rom = line.substr(9);
-        else if (line.rfind("builder=", 0) == 0) builder = line.substr(8);
-        else if (line.rfind("engine_sha1=", 0) == 0) engine = line.substr(12);
-    }
-    std::string engine_now;
-    if (!sha1_file(root / L"GoldenSunRecomp.exe", &engine_now)) return false;
-    return rom == kExpectedRomSha1 && builder == kBuilderVersion &&
-           engine == engine_now;
 }
 
 // Run builder\gsr_builder.exe for `rom` in the background; progress arrives
@@ -3192,6 +3014,8 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             // Saves those 2 s by itself when a glitch check fires; the
             // reason goes to auto_capture.txt in the capture folder.
             {kAutoCaptureButton, L"Auto-capture glitches"},
+            // Adds a Filter (test) choice with LCD3x and xBR to F1 > Video.
+            {kScreenFiltersButton, L"Screen filters (F1 > Video)"},
             {kSwiLogButton, L"Record BIOS SWI calls"},
             // Restored 2026-09-13: the battle/effect slowdown cannot be
             // attributed without it, and handing over a raw environment
@@ -3719,7 +3543,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         // scripted replay can still enter through GoldenSunLauncher.exe.
         const fs::path cached_path = root / L"local" / L"launcher-rom.txt";
         const std::wstring cached_rom = read_cached_path(cached_path);
-        std::wstring error;
+        std::string error;
         if (!cached_rom.empty() && validate_rom(cached_rom, &error)) {
             g_audio_settings = load_launcher_audio_settings(root);
             g_strict_static_route = inherited_environment_truthy(
