@@ -185,6 +185,7 @@ BLOG_POST*.html
 /scripts/*
 !/scripts/build_lto.ps1
 !/scripts/gs.ps1
+!/scripts/make_release_linux.sh
 /tools/*
 !/tools/build_main_toml.py
 !/tools/import_main_symbols.py
