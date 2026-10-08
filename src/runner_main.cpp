@@ -28,6 +28,7 @@
 #include "mod_loader.h"
 #include "earth_surge.h"
 #include "move_probe.h"
+#include "unpacker_catch.h"
 #include "field_scene_renderer.h"
 #include "world_map_source.h"
 #include "cheat_menu.h"
@@ -16010,6 +16011,56 @@ extern "C" bool gsr_map_record_identity(std::uint32_t* room_ptr,
     return false;
 }
 
+// A snapshot of the GBA's memory and CPU registers, written by every crash
+// (crash_memory.bin) and by the unpacker catcher (src/unpacker_catch.cpp).
+// Format, little-endian:
+//   char magic[8] = "GSRMEM1\0"; u32 region_count;
+//   per region: char name[8] (zero padded); u32 gba_address; u32 size;
+//               u8 data[size];
+// Regions in order: FRAME (addr 0, u64 frame counter), CPU (addr 0, raw
+// g_cpu bytes), IO 0x04000000 0x400, IWRAM 0x03000000 32K, EWRAM
+// 0x02000000 256K, PAL 0x05000000 1K, VRAM 0x06000000 96K, OAM 0x07000000
+// 1K. Only FRAME and CPU are written when no bus is active.
+extern "C" bool gsr_write_memory_snapshot(const char* path) {
+    bool wrote_mem = false;
+    if (std::FILE* f = std::fopen(path, "wb")) {
+        const gba::GbaBus* bus = gbarecomp::active_bus();
+        auto put32 = [&](std::uint32_t v) {
+            const unsigned char b[4] = {
+                (unsigned char)(v), (unsigned char)(v >> 8),
+                (unsigned char)(v >> 16), (unsigned char)(v >> 24)};
+            std::fwrite(b, 1, 4, f);
+        };
+        auto region = [&](const char* name, std::uint32_t addr,
+                          const void* data, std::uint32_t size) {
+            char nm[8] = {};
+            for (int i = 0; i < 8 && name[i]; ++i) nm[i] = name[i];
+            std::fwrite(nm, 1, 8, f);
+            put32(addr);
+            put32(size);
+            std::fwrite(data, 1, size, f);
+        };
+        static const char magic[8] = {'G','S','R','M','E','M','1','\0'};
+        std::fwrite(magic, 1, 8, f);
+        put32(bus ? 8u : 2u);
+        const std::uint64_t frame = runtime_current_frame();
+        unsigned char fb[8];
+        for (int i = 0; i < 8; ++i) fb[i] = (unsigned char)(frame >> (8 * i));
+        region("FRAME", 0, fb, 8);
+        region("CPU", 0, &g_cpu, (std::uint32_t)sizeof(g_cpu));
+        if (bus) {
+            region("IO", 0x04000000u, bus->io().raw(), 0x400);
+            region("IWRAM", 0x03000000u, bus->iwram_ptr(), 32u * 1024u);
+            region("EWRAM", 0x02000000u, bus->ewram_ptr(), 256u * 1024u);
+            region("PAL", 0x05000000u, bus->pal_ptr(), 1024u);
+            region("VRAM", 0x06000000u, bus->vram_ptr(), 96u * 1024u);
+            region("OAM", 0x07000000u, bus->oam_ptr(), 1024u);
+        }
+        wrote_mem = std::fclose(f) == 0;
+    }
+    return wrote_mem;
+}
+
 int main(int argc, char** argv) {
     // Must be the FIRST thing in main, before SDL init or any other
     // subsystem, so as much of the run as possible is covered. nullptr =
@@ -16017,55 +16068,13 @@ int main(int argc, char** argv) {
     gbarecomp::crash_handler_install(nullptr);
     // F1 "Crash log": a crash report also gets the game's last instructions
     // (freezes get the same trail from the hang watchdog, hang_fp_tail.csv).
-    // Every crash also writes crash_memory.bin, a snapshot of the GBA's
-    // memory and CPU registers (zero cost during play). Format, little-endian:
-    //   char magic[8] = "GSRMEM1\0"; u32 region_count;
-    //   per region: char name[8] (zero padded); u32 gba_address; u32 size;
-    //               u8 data[size];
-    // Regions in order: FRAME (addr 0, u64 frame counter), CPU (addr 0, raw
-    // g_cpu bytes), IO 0x04000000 0x400, IWRAM 0x03000000 32K, EWRAM
-    // 0x02000000 256K, PAL 0x05000000 1K, VRAM 0x06000000 96K, OAM 0x07000000
-    // 1K. Only FRAME and CPU are written when no bus is active.
+    // Every crash also writes crash_memory.bin (gsr_write_memory_snapshot,
+    // zero cost during play).
     gbarecomp::crash_handler_set_extra_writer([](const char* dir) -> const char* {
         static char desc[160];
         char path[300];
         std::snprintf(path, sizeof(path), "%s/crash_memory.bin", dir);
-        bool wrote_mem = false;
-        if (std::FILE* f = std::fopen(path, "wb")) {
-            const gba::GbaBus* bus = gbarecomp::active_bus();
-            auto put32 = [&](std::uint32_t v) {
-                const unsigned char b[4] = {
-                    (unsigned char)(v), (unsigned char)(v >> 8),
-                    (unsigned char)(v >> 16), (unsigned char)(v >> 24)};
-                std::fwrite(b, 1, 4, f);
-            };
-            auto region = [&](const char* name, std::uint32_t addr,
-                              const void* data, std::uint32_t size) {
-                char nm[8] = {};
-                for (int i = 0; i < 8 && name[i]; ++i) nm[i] = name[i];
-                std::fwrite(nm, 1, 8, f);
-                put32(addr);
-                put32(size);
-                std::fwrite(data, 1, size, f);
-            };
-            static const char magic[8] = {'G','S','R','M','E','M','1','\0'};
-            std::fwrite(magic, 1, 8, f);
-            put32(bus ? 8u : 2u);
-            const std::uint64_t frame = runtime_current_frame();
-            unsigned char fb[8];
-            for (int i = 0; i < 8; ++i) fb[i] = (unsigned char)(frame >> (8 * i));
-            region("FRAME", 0, fb, 8);
-            region("CPU", 0, &g_cpu, (std::uint32_t)sizeof(g_cpu));
-            if (bus) {
-                region("IO", 0x04000000u, bus->io().raw(), 0x400);
-                region("IWRAM", 0x03000000u, bus->iwram_ptr(), 32u * 1024u);
-                region("EWRAM", 0x02000000u, bus->ewram_ptr(), 256u * 1024u);
-                region("PAL", 0x05000000u, bus->pal_ptr(), 1024u);
-                region("VRAM", 0x06000000u, bus->vram_ptr(), 96u * 1024u);
-                region("OAM", 0x07000000u, bus->oam_ptr(), 1024u);
-            }
-            wrote_mem = std::fclose(f) == 0;
-        }
+        const bool wrote_mem = gsr_write_memory_snapshot(path);
         const char* mem = wrote_mem ? "crash_memory.bin" : "crash_memory.bin FAILED";
         if (runtime_fp_count() == 0) {
             std::snprintf(desc, sizeof(desc),
@@ -16079,6 +16088,7 @@ int main(int argc, char** argv) {
         }
         return desc;
     });
+    gsr::unpacker_catch_install();
     // The field atlas source is now part of the evidence-backed widescreen
     // policy. Keep the payload-free producer trace opt-in for future source
     // investigations; set GBARECOMP_VRAM_MAP_TRACE=1 when needed.

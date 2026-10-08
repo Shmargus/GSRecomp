@@ -18,11 +18,14 @@ it on your machine, and the launcher checks the ROM's SHA-1 first.
 
 ## Status
 
-- **Latest release: [0.4](https://github.com/Shmargus/GSRecomp/releases)**
-  (pre-release), for Windows and Linux. 0.4 adds colour profiles with
-  Custom sliders, a 4:3 picture, experimental screen filters, a memory
-  snapshot in bug reports after a crash, and a fix for the black bars on the
-  world map with AMD graphics on Linux.
+- **Latest release: [0.4.1](https://github.com/Shmargus/GSRecomp/releases)**
+  (pre-release), for Windows and Linux. 0.4.1 adds a crash catcher for a
+  rare crash when leaving a room (seen leaving Sol Sanctum): it saves what
+  the game was doing the moment it goes wrong and adds it to the bug
+  report. 0.4 added colour profiles with Custom sliders, a 4:3 picture,
+  experimental screen filters, a memory snapshot in bug reports after a
+  crash, and a fix for the black bars on the world map with AMD graphics on
+  Linux.
 - The game is playable from start to the ending credits.
 - Known issues:
   - A few spell effects (Spark Plasma, Destruct Ray, Supernova, Thor's

@@ -558,3 +558,14 @@ and whether the dispatch resumed a yield. A new `yield_resume` kind records
 yield restores whose resume PC is in the slot (repeats collapse into a count).
 The dump ends with the last 16 `runtime_dispatch` targets, kept by
 `runtime_dispatch` in a 16-entry ring (one store per dispatch).
+
+## RAM fallback probe and resume marks on the dispatch ring (2026-10-08)
+
+`runtime_arm_default_aborts.cpp` exports `g_runtime_ram_fallback_probe`, a
+null-by-default hook that `runtime_mutable_ram_code_miss` and
+`runtime_dispatch_miss` call first, with the pc execution will continue at,
+the pc that was asked for, the mode and which path it is. The game installs
+it only for its "Catch unpacker faults" test toggle. The 16-entry dispatch
+ring in `runtime_arm.cpp` now also keeps, per entry, whether that dispatch
+resumed a scheduler yield (one byte store per dispatch), and
+`runtime_recent_dispatch_copy` returns the ring oldest first.

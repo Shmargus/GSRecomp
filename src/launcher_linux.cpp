@@ -453,6 +453,9 @@ GameResult run_game(const std::string& rom) {
     // A crash file left by an earlier run must not end up in this run's report.
     fs::remove(g_root / "crash_memory.bin", ec);
     fs::remove(g_root / "crash_trail.csv", ec);
+    // The unpacker catcher's pair (src/unpacker_catch.h): only this run's.
+    fs::remove(g_root / "unpacker_catch.txt", ec);
+    fs::remove(g_root / "unpacker_catch.bin", ec);
     const auto launch_time = fs::file_time_type::clock::now();
 
     std::vector<std::pair<std::string, std::string>> env = {
@@ -473,6 +476,9 @@ GameResult run_game(const std::string& rom) {
         {"GBARECOMP_SELFHEAL_RAM", "1"},
         // F1 > Video's experimental screen filters, as the Windows launcher.
         {"GSR_SCREEN_FILTERS", "1"},
+        // Saves the moment the data unpacker is entered wrongly (the Sol
+        // Sanctum crash); nothing until then.
+        {"GSR_UNPACKER_CATCH", "1"},
 #ifdef GSR_LINUX_DEV_LAUNCHER
         // The Windows developer launcher's extras (make_release_linux.sh
         // --dev): per-frame timing CSVs beside the session log. Rewind stays
@@ -499,9 +505,9 @@ GameResult run_game(const std::string& rom) {
     SessionLog log;
     log.fd = open(result.log_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 #ifdef GSR_LINUX_DEV_LAUNCHER
-    log.line("[launcher] ", "dev launcher: test_variables=ON set=GBARECOMP_SELFHEAL_RAM,GSR_FRAME_REWIND gpu_field_only=1");
+    log.line("[launcher] ", "dev launcher: test_variables=ON set=GBARECOMP_SELFHEAL_RAM,GSR_FRAME_REWIND,GSR_UNPACKER_CATCH gpu_field_only=1");
 #else
-    log.line("[launcher] ", "test_variables=OFF set=GBARECOMP_SELFHEAL_RAM,GSR_FRAME_REWIND gpu_field_only=1");
+    log.line("[launcher] ", "test_variables=OFF set=GBARECOMP_SELFHEAL_RAM,GSR_FRAME_REWIND,GSR_UNPACKER_CATCH gpu_field_only=1");
 #endif
 
     const std::string game = (g_root / "GoldenSunRecomp").string();
@@ -622,6 +628,8 @@ std::vector<fs::path> make_bug_report(const GameResult& game) {
         copy_into_report(g_root / "crash_memory.bin", staging);
         copy_into_report(g_root / "crash_trail.csv", staging);
     }
+    copy_into_report(g_root / "unpacker_catch.txt", staging);
+    copy_into_report(g_root / "unpacker_catch.bin", staging);
     write_text(staging / "report_info.txt",
                std::string("Golden Sun Recompiled bug report\n") +
                "Launcher built: " + __DATE__ + " " + __TIME__ + "\n" +

@@ -750,6 +750,7 @@ if(GSR_BUILD_LOCAL_RUNNER)
         src/mod_loader.cpp
         src/gs_text_encode.cpp
         src/move_probe.cpp
+        src/unpacker_catch.cpp
         src/earth_surge.cpp
         src/effect_burst.cpp
         "${GBARECOMP_ROOT}/src/runtime/gpu_surface.cpp")

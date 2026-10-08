@@ -593,12 +593,24 @@ extern "C" int runtime_ram_code_guard(uint32_t start, uint32_t end,
     return guard.matched ? 1 : 0;
 }
 
+// Optional game-side observer of the two RAM fallback paths below
+// (runtime_mutable_ram_code_miss, runtime_dispatch_miss), called before
+// either acts, with the live g_cpu untouched. `entry_pc` is the pc the caller
+// asked for; `pc` is where execution will actually continue (an alias resume
+// pc can replace it). Null unless the game installs one.
+extern "C" void (*g_runtime_ram_fallback_probe)(uint32_t pc, uint32_t entry_pc,
+                                                int thumb, const char* why) =
+    nullptr;
+
 extern "C" void runtime_mutable_ram_code_miss(uint32_t entry_pc, int thumb) {
     uint32_t actual_pc = entry_pc & ~1u;
     if (g_runtime_resume_pc != 0u) {
         actual_pc = g_runtime_resume_pc & ~1u;
         g_runtime_resume_pc = 0u;
     }
+    if (g_runtime_ram_fallback_probe)
+        g_runtime_ram_fallback_probe(actual_pc, entry_pc & ~1u, thumb,
+                                     "mutable-ram-code");
     ++g_ram_smc_fallbacks;
     gbarecomp::overlay_note_smc_fallback(actual_pc, thumb != 0);
     if (g_ram_smc_fallbacks == 1u) {
@@ -1323,6 +1335,9 @@ extern "C" void runtime_force_interp_step(void) {
 extern "C" void runtime_dispatch_miss(uint32_t target_pc) {
     const std::uint32_t entry_pc = target_pc & ~1u;
     const bool entry_thumb = (g_cpu.cpsr & CPSR_T_BIT) != 0;
+    if (g_runtime_ram_fallback_probe)
+        g_runtime_ram_fallback_probe(entry_pc, entry_pc, entry_thumb ? 1 : 0,
+                                     "dispatch-miss");
     // Pool history is for the final escaped control target, not ordinary
     // self-heal misses.  The latter are common during startup and world-map
     // entry; dumping 16 rows for each one made the diagnostic itself stall

@@ -110,6 +110,11 @@ bool g_test_battle_bg1_record = k_launcher_test_defaults.battle_bg1_record;
 // but we draw nowhere, or a refused frame (GSR_AUTO_CAPTURE; the runner
 // keeps the ring on for it). Off each session, like the other probes.
 bool g_test_auto_capture = false;
+// Saves registers, memory and the host call chain the first time the engine
+// falls back to the interpreter inside the data unpacker (GSR_UNPACKER_CATCH,
+// src/unpacker_catch.h). Always on in the player launcher; off each session
+// here, like the other probes.
+bool g_test_unpacker_catch = false;
 // Adds LCD3x and xBR screen filters to F1 > Video (GSR_SCREEN_FILTERS). A
 // test option: off each session, never saved.
 bool g_test_screen_filters = false;
@@ -983,6 +988,9 @@ std::vector<fs::path> make_bug_report(const fs::path& root, const fs::path& game
         copy_into_report(game_dir / L"crash_memory.bin", staging);
         copy_into_report(game_dir / L"crash_trail.csv", staging);
     }
+    // Only this run's: the launcher deletes the pair before every start.
+    copy_into_report(root / L"unpacker_catch.txt", staging);
+    copy_into_report(root / L"unpacker_catch.bin", staging);
     {
         std::ofstream info(staging / L"report_info.txt", std::ios::binary);
         info << "Golden Sun Recompiled bug report\n"
@@ -1546,6 +1554,7 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
         {L"GSR_EFFECT_TRACE", g_test_effect_trace},
         {L"GSR_FRAME_REWIND", g_test_frame_rewind},
         {L"GSR_AUTO_CAPTURE", g_test_auto_capture},
+        {L"GSR_UNPACKER_CATCH", g_test_unpacker_catch},
         {L"GSR_SCREEN_FILTERS", g_test_screen_filters},
         {L"GSR_BATTLE_BG1_RECORD", g_test_battle_bg1_record},
         {L"GSR_ROOM_BUFFER", g_test_room_buffer},
@@ -1585,11 +1594,14 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
     }
     // Players: F12 always saves the last 2 seconds for a bug report, and
     // F1 > Video offers the experimental screen filters (Jimmy, 2026-10-07).
+    // The unpacker catcher too (Jimmy, 2026-10-08): it costs nothing until
+    // the Sol Sanctum fault, then writes one pair the launcher cleans up.
     if (kReleaseLauncher) {
         child_environment.set(L"GSR_FRAME_REWIND", L"1");
         child_environment.set(L"GSR_SCREEN_FILTERS", L"1");
+        child_environment.set(L"GSR_UNPACKER_CATCH", L"1");
         if (!enabled_list.empty()) enabled_list += ",";
-        enabled_list += "GSR_FRAME_REWIND,GSR_SCREEN_FILTERS";
+        enabled_list += "GSR_FRAME_REWIND,GSR_SCREEN_FILTERS,GSR_UNPACKER_CATCH";
     }
     if (logging) {
         const std::string line =
@@ -1718,6 +1730,10 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
         std::error_code stale_ec;
         fs::remove(game.parent_path() / L"crash_memory.bin", stale_ec);
         fs::remove(game.parent_path() / L"crash_trail.csv", stale_ec);
+        // The unpacker catcher's pair (src/unpacker_catch.h), written in the
+        // game's working folder: at most one pair ever exists, from this run.
+        fs::remove(root / L"unpacker_catch.txt", stale_ec);
+        fs::remove(root / L"unpacker_catch.bin", stale_ec);
     }
     const auto launch_time = fs::file_time_type::clock::now();
 
@@ -1829,6 +1845,7 @@ constexpr int kModFieldTestButton = 1050;
 constexpr int kAutoCaptureButton = 1051;
 constexpr int kAutoStartButton = 1052;
 constexpr int kScreenFiltersButton = 1053;
+constexpr int kUnpackerCatchButton = 1054;
 
 fs::path g_launcher_root;
 
@@ -2070,7 +2087,7 @@ void layout_buttons(HWND window) {
     const int child_ids[] = {
         // left: capture something to a file
         kMapRecordButton,      kObjRecordButton,      kTextRecordButton,
-        kSwiLogButton,
+        kSwiLogButton,         kUnpackerCatchButton,
         // left, continued: traces
         kFunctionTracerButton, kVramMapTraceButton,   kEffectTraceButton,
         kBattleBg1RecordButton,
@@ -2543,6 +2560,7 @@ bool* checkbox_state_for_id(int id) {
     case kEffectTraceButton: return &g_test_effect_trace;
     case kFrameRewindButton: return &g_test_frame_rewind;
     case kAutoCaptureButton: return &g_test_auto_capture;
+    case kUnpackerCatchButton: return &g_test_unpacker_catch;
     case kScreenFiltersButton: return &g_test_screen_filters;
     case kBattleBg1RecordButton: return &g_test_battle_bg1_record;
     case kModFieldTestButton: return &g_test_mod_field_test;
@@ -3017,6 +3035,9 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             // Adds a Filter (test) choice with LCD3x and xBR to F1 > Video.
             {kScreenFiltersButton, L"Screen filters (F1 > Video)"},
             {kSwiLogButton, L"Record BIOS SWI calls"},
+            // Saves unpacker_catch.txt/.bin the moment the data unpacker
+            // is entered wrongly (the Sol Sanctum crash, 2026-10-07).
+            {kUnpackerCatchButton, L"Catch unpacker faults"},
             // Restored 2026-09-13: the battle/effect slowdown cannot be
             // attributed without it, and handing over a raw environment
             // variable is not how this project ships a debug option.

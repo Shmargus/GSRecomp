@@ -790,6 +790,8 @@ uint64_t g_unpacker_cpu_total = 0;
 uint64_t g_unpacker_seq = 0;
 // Last dispatch targets (pc | thumb bit), oldest at index next.
 uint32_t g_recent_dispatch[kRecentDispatchDepth];
+// Per entry above: 1 when that dispatch was a scheduler-yield resume.
+uint8_t g_recent_dispatch_resume[kRecentDispatchDepth];
 uint32_t g_recent_dispatch_next = 0;
 // Set by runtime_yield_restore_pc() when it put a resume pc back; the next
 // dispatch reads and clears it.
@@ -1025,6 +1027,22 @@ extern "C" void runtime_unpacker_slot_dump(const char* why) {
     }
     std::fprintf(stderr, "\n");
     unpacker_dump_live_ret();
+}
+
+// The last dispatch targets, oldest first (pc | thumb bit), with whether each
+// was a scheduler-yield resume. Returns how many were written (at most max).
+extern "C" uint32_t runtime_recent_dispatch_copy(uint32_t* pcs,
+                                                 uint8_t* resumes,
+                                                 uint32_t max) {
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < kRecentDispatchDepth && n < max; ++i) {
+        const uint32_t slot = (g_recent_dispatch_next + i) % kRecentDispatchDepth;
+        if (g_recent_dispatch[slot] == 0u) continue;
+        pcs[n] = g_recent_dispatch[slot];
+        resumes[n] = g_recent_dispatch_resume[slot];
+        ++n;
+    }
+    return n;
 }
 
 extern "C" void runtime_iwram_code_write_dump(const char* why) {
@@ -2348,10 +2366,11 @@ void runtime_dispatch(uint32_t target_pc) {
 
     bool thumb = (g_cpu.cpsr & CPSR_T_BIT) != 0;
     runtime_pool_dispatch_history_record(pc, thumb ? 1 : 0);
-    g_recent_dispatch[g_recent_dispatch_next] = pc | (thumb ? 1u : 0u);
-    g_recent_dispatch_next = (g_recent_dispatch_next + 1u) % kRecentDispatchDepth;
     const bool yield_resume = g_dispatch_is_yield_resume;
     g_dispatch_is_yield_resume = false;
+    g_recent_dispatch[g_recent_dispatch_next] = pc | (thumb ? 1u : 0u);
+    g_recent_dispatch_resume[g_recent_dispatch_next] = yield_resume ? 1u : 0u;
+    g_recent_dispatch_next = (g_recent_dispatch_next + 1u) % kRecentDispatchDepth;
     if (pc == 0x03002000u && !thumb)
         runtime_unpacker_slot_note_dispatch(yield_resume);
     if (g_runtime_ram_image_dispatch_probe) {
