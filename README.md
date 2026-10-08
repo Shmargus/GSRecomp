@@ -18,11 +18,13 @@ it on your machine, and the launcher checks the ROM's SHA-1 first.
 
 ## Status
 
-- **Latest release: [0.4.1](https://github.com/Shmargus/GSRecomp/releases)**
-  (pre-release), for Windows and Linux. 0.4.1 adds a crash catcher for a
-  rare crash when leaving a room (seen leaving Sol Sanctum): it saves what
-  the game was doing the moment it goes wrong and adds it to the bug
-  report. 0.4 added colour profiles with Custom sliders, a 4:3 picture,
+- **Latest release: [0.4.2](https://github.com/Shmargus/GSRecomp/releases)**
+  (pre-release), for Windows and Linux. 0.4.2 catches the rare crash after
+  a battle with Psynergy (the game's data unpacker jumping into the picture
+  it was unpacking): the game redoes the unpacking safely, carries on, and
+  asks for a bug report when you close it. Please send those reports; they
+  are how we find the real cause. 0.4.1 added a crash catcher for the same
+  crash. 0.4 added colour profiles with Custom sliders, a 4:3 picture,
   experimental screen filters, a memory snapshot in bug reports after a
   crash, and a fix for the black bars on the world map with AMD graphics on
   Linux.
@@ -38,6 +40,8 @@ it on your machine, and the launcher checks the ROM's SHA-1 first.
   - A crash in the Vale storm opening or during a battle has been reported
     a few times; the cause is not found yet. Press **Send report** if it
     happens.
+  - The data unpacker crash after a Psynergy battle is caught, not fixed
+    yet. Press **Send report** when the launcher asks.
   - The Mars Star looks garbled when you take it out in Sol Sanctum.
 
 ## Playing

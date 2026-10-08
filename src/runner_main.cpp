@@ -29,6 +29,7 @@
 #include "earth_surge.h"
 #include "move_probe.h"
 #include "unpacker_catch.h"
+#include "unpacker_guard.h"
 #include "field_scene_renderer.h"
 #include "world_map_source.h"
 #include "cheat_menu.h"
@@ -10501,6 +10502,11 @@ void frame_rewind_record(const std::uint8_t* rgb, std::uint32_t width,
     auto_capture_check_blink(rgb, width, height);
     auto_capture_check_jumps();
     auto_capture_write_if_due();
+    std::string unpacker_note;
+    if (gsr::unpacker_guard_capture_due(&unpacker_note)) {
+        frame_rewind_write(unpacker_note);
+        g_bug_report_notice_text = "CRASH CAUGHT REPORT SAVED";
+    }
 
     static bool was_down = false;
     const bool down = dump_key_down();
@@ -14463,6 +14469,10 @@ void sample_known_active_relocatable_placements() {
     }
 }
 
+// Which branch of verified_ram_dispatch answered, for the unpacker guard's
+// journal (src/unpacker_guard.h).
+gsr::RamResolvePath g_ram_resolve_path = gsr::RamResolvePath::None;
+
 struct RelocatableOpcodeCandidate {
     std::uint32_t opcode;
     std::uint16_t image_index;
@@ -14591,6 +14601,7 @@ RuntimeGuestFn try_relocatable_dispatch(std::uint32_t pc, int thumb) {
         }
         g_relocatable_base_hint[index] = {base, true};
         g_runtime_image_base = base;
+        g_ram_resolve_path = gsr::RamResolvePath::Relocatable;
         return fn;
     };
 
@@ -15144,7 +15155,10 @@ RuntimeGuestFn stamp_entry(const StampPlacement& placement, std::uint32_t pc) {
     RuntimeGuestFn fn = lookup_entry(gsr_stamps_kDispatchTable,
                                      gsr_stamps_kDispatchTableLen,
                                      gsr_stamps_kImageOrigin + image_offset, 0);
-    if (fn) g_runtime_image_base = placement.base - placement.variant->offset;
+    if (fn) {
+        g_runtime_image_base = placement.base - placement.variant->offset;
+        g_ram_resolve_path = gsr::RamResolvePath::Stamp;
+    }
     return fn;
 }
 
@@ -15268,6 +15282,7 @@ RuntimeGuestFn try_stamp_dispatch(std::uint32_t pc, int thumb) {
 // Run an unexplained RAM PC: resolve healed native first, else bridge through
 // the interpreter (which also enqueues the heal keyed by live bytes' CRC).
 RuntimeGuestFn dispatch_dynamic_ram(std::uint32_t pc, int thumb) {
+    g_ram_resolve_path = gsr::RamResolvePath::Dynamic;
     if (RuntimeGuestFn fn = try_stamp_dispatch(pc, thumb)) {
         verified_ram_mark_active(pc, thumb);
         return fn;
@@ -15441,6 +15456,7 @@ struct VerifiedRamActiveGuard {
 
 void verified_ram_dispatch_return_hook(std::uint32_t return_pc,
                                        std::uint32_t call_stack_depth) {
+    gsr::unpacker_guard_note_return(return_pc);
     // A guest return truncates the runtime call stack. Every marker created
     // below that new depth belongs to a callee that has now returned. Remove
     // by swap; ordering is only diagnostic/protection state, not guest state.
@@ -15489,7 +15505,7 @@ void verified_ram_dispatch_outer_boundary() {
         g_verified_ram_active_depth = 0;
 }
 
-RuntimeGuestFn verified_ram_dispatch(std::uint32_t pc, int thumb) {
+RuntimeGuestFn verified_ram_dispatch_resolve(std::uint32_t pc, int thumb) {
     // A PC already classified as generated code short-circuits everything
     // below. This must come FIRST: the identity scan re-hashes the whole
     // containing candidate image (SHA-1 over ~1.2 KB) and then every
@@ -15572,9 +15588,11 @@ RuntimeGuestFn verified_ram_dispatch(std::uint32_t pc, int thumb) {
             if (cached->second.action == VerifiedRamAction::Native &&
                 cached->second.fn != nullptr) {
                 mark_active();
+                g_ram_resolve_path = gsr::RamResolvePath::CacheNative;
                 return cached->second.fn;
             }
             // A fixed identity owns the ordinary static dispatch entry.
+            g_ram_resolve_path = gsr::RamResolvePath::CacheStatic;
             return nullptr;
         }
         // The page epoch may have changed because of an unrelated write in
@@ -15602,8 +15620,10 @@ RuntimeGuestFn verified_ram_dispatch(std::uint32_t pc, int thumb) {
                 if (cached->second.action == VerifiedRamAction::Native &&
                     cached->second.fn != nullptr) {
                     mark_active();
+                    g_ram_resolve_path = gsr::RamResolvePath::CacheNative;
                     return cached->second.fn;
                 }
+                g_ram_resolve_path = gsr::RamResolvePath::CacheStatic;
                 return nullptr;
             }
         }
@@ -15699,12 +15719,14 @@ RuntimeGuestFn verified_ram_dispatch(std::uint32_t pc, int thumb) {
             if (cacheable)
                 cache_verified(VerifiedRamAction::Static, nullptr,
                                candidate_index);
+            g_ram_resolve_path = gsr::RamResolvePath::IdentityStatic;
             return nullptr;
         }
         if (void (*fn)(void) = lookup_variant(candidate, pc, thumb)) {
             if (cacheable)
                 cache_verified(VerifiedRamAction::Native, fn, candidate_index);
             mark_active();
+            g_ram_resolve_path = gsr::RamResolvePath::IdentityNative;
             return fn;
         }
         if (dynamic_ram_pc_repeat(pc)) {
@@ -15930,6 +15952,31 @@ RuntimeGuestFn verified_ram_dispatch(std::uint32_t pc, int thumb) {
     std::abort();
 }
 
+// The unpacker's own generated entry for pc (Func_2808 at 0x03006000), or
+// null: what the guard's journal compares each answer with.
+RuntimeGuestFn unpacker_own_entry(std::uint32_t pc) {
+    static const TransientCodeImage* const image = [] {
+        for (const auto& candidate : kTransientCodeImages)
+            if (candidate.start == 0x03006000u && !candidate.thumb &&
+                candidate.dispatch_table != nullptr)
+                return &candidate;
+        return static_cast<const TransientCodeImage*>(nullptr);
+    }();
+    return image ? lookup_variant(*image, pc, 0) : nullptr;
+}
+
+RuntimeGuestFn verified_ram_dispatch(std::uint32_t pc, int thumb) {
+    if (thumb) return verified_ram_dispatch_resolve(pc, thumb);
+    if (pc == 0x03006000u) gsr::unpacker_guard_note_entry(pc);
+    if (!gsr::g_unpacker_guard_pending)
+        return verified_ram_dispatch_resolve(pc, thumb);
+    g_ram_resolve_path = gsr::RamResolvePath::None;
+    const RuntimeGuestFn fn = verified_ram_dispatch_resolve(pc, thumb);
+    gsr::unpacker_guard_note_dispatch(pc, fn, unpacker_own_entry(pc),
+                                      g_ram_resolve_path);
+    return fn;
+}
+
 // The static kDispatchTable already has a fixed AOT entry for this
 // transient-RAM pc, but runtime_ram_code_range_dirty() found a write
 // recorded somewhere in its containing 4 KiB page since boot/load — the
@@ -16089,6 +16136,7 @@ int main(int argc, char** argv) {
         return desc;
     });
     gsr::unpacker_catch_install();
+    gsr::unpacker_guard_install();
     // The field atlas source is now part of the evidence-backed widescreen
     // policy. Keep the payload-free producer trace opt-in for future source
     // investigations; set GBARECOMP_VRAM_MAP_TRACE=1 when needed.

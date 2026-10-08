@@ -569,3 +569,14 @@ it only for its "Catch unpacker faults" test toggle. The 16-entry dispatch
 ring in `runtime_arm.cpp` now also keeps, per entry, whether that dispatch
 resumed a scheduler yield (one byte store per dispatch), and
 `runtime_recent_dispatch_copy` returns the ring oldest first.
+
+## Unmatched-return hook (2026-10-08)
+
+`runtime_arm.cpp` exports `g_runtime_unmatched_return_hook`, null by default.
+`runtime_call_should_return` calls it with the target when a return idiom
+matches no live call-return entry, after the existing return hook and probe
+and before the deep-unwind check. A nonzero answer makes the call report
+"return": the hook has already set g_cpu (R15 included) and the call-return
+stack to where the guest really continues, and the generated call sites above
+cancel or continue by comparing R15, as after a yield. The game uses it for
+its unpacker safety net (`src/unpacker_guard.h`).

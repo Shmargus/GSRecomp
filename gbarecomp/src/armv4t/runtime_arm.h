@@ -165,6 +165,16 @@ typedef void (*RuntimeCallReturnHook)(uint32_t return_pc,
                                      uint32_t call_stack_depth);
 extern RuntimeCallReturnHook g_runtime_call_return_hook;
 
+// Optional game check of a return idiom (`bx lr`, `pop {pc}`) whose target
+// matches no live call-return entry, called before it becomes a nested
+// dispatch. Returning nonzero makes runtime_call_should_return report
+// "return": the hook has set g_cpu (R15 included) to where the guest really
+// continues and the call-return stack to match, and each generated call
+// site above then cancels or continues by comparing R15, as for a yield.
+// Zero (or a null hook) keeps the normal path.
+typedef int (*RuntimeUnmatchedReturnHook)(uint32_t target_pc);
+extern RuntimeUnmatchedReturnHook g_runtime_unmatched_return_hook;
+
 // Optional notification at the outer runner's host dispatch boundary. A
 // generated body may return to the runner for scheduling (yield/SWI) without
 // executing a guest BX-LR, so return-hook bookkeeping cannot retire a

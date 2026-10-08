@@ -433,6 +433,9 @@ void pump(int read_fd, const char* tag, SessionLog* log) {
 struct GameResult {
     bool started = false;
     bool crashed = false;
+    // The unpacker guard caught its crash (unpacker_recovered.txt,
+    // src/unpacker_guard.h).
+    bool unpacker = false;
     int exit_code = 0;
     std::string rom;
     std::string log_path;
@@ -456,6 +459,9 @@ GameResult run_game(const std::string& rom) {
     // The unpacker catcher's pair (src/unpacker_catch.h): only this run's.
     fs::remove(g_root / "unpacker_catch.txt", ec);
     fs::remove(g_root / "unpacker_catch.bin", ec);
+    // The unpacker guard's pair, the same way.
+    fs::remove(g_root / "unpacker_recovered.txt", ec);
+    fs::remove(g_root / "unpacker_recovered.bin", ec);
     const auto launch_time = fs::file_time_type::clock::now();
 
     std::vector<std::pair<std::string, std::string>> env = {
@@ -555,9 +561,11 @@ GameResult run_game(const std::string& rom) {
     const fs::path crash_report = g_root / "crash_report.txt";
     result.crashed = fs::is_regular_file(crash_report, ec) &&
                      fs::last_write_time(crash_report, ec) >= launch_time;
+    result.unpacker = fs::is_regular_file(g_root / "unpacker_recovered.txt", ec);
     launcher_log("Game ended: exit code " + std::to_string(result.exit_code) +
                  (result.exit_code == 127 ? " (GoldenSunRecomp could not be run)" : "") +
                  (result.crashed ? ", crashed (crash_report.txt written)" : "") +
+                 (result.unpacker ? ", unpacker crash caught (unpacker_recovered.txt)" : "") +
                  ", rewind captures " + std::to_string(result.new_rewinds.size()) + ".");
     return result;
 }
@@ -630,12 +638,15 @@ std::vector<fs::path> make_bug_report(const GameResult& game) {
     }
     copy_into_report(g_root / "unpacker_catch.txt", staging);
     copy_into_report(g_root / "unpacker_catch.bin", staging);
+    copy_into_report(g_root / "unpacker_recovered.txt", staging);
+    copy_into_report(g_root / "unpacker_recovered.bin", staging);
     write_text(staging / "report_info.txt",
                std::string("Golden Sun Recompiled bug report\n") +
                "Launcher built: " + __DATE__ + " " + __TIME__ + "\n" +
                "System: Linux, " + os_release_name() + "\n" +
                "F12 captures: " + std::to_string(game.new_rewinds.size()) + "\n" +
                "Game crashed: " + (game.crashed ? "yes" : "no") + "\n" +
+               "Unpacker crash caught: " + (game.unpacker ? "yes" : "no") + "\n" +
                "Game exit code: " + std::to_string(game.exit_code) + "\n");
 
     std::vector<fs::path> archives;
@@ -1346,7 +1357,7 @@ int main(int, char**) {
                 if (!game.started) {
                     show_message("The game could not start",
                                  "GoldenSunRecomp could not be started.", true);
-                } else if (!game.new_rewinds.empty() || game.crashed) {
+                } else if (!game.new_rewinds.empty() || game.crashed || game.unpacker) {
                     g_ui.reports = make_bug_report(game);
                     if (g_ui.reports.empty()) {
                         running = false;
@@ -1356,9 +1367,18 @@ int main(int, char**) {
                     g_ui.reports_packed = packed;
                     g_ui.send_state = 0;
                     g_ui.description[0] = '\0';
-                    g_ui.title = game.crashed
-                        ? "The game closed unexpectedly. A bug report was saved."
-                        : "Your bug report was saved.";
+                    g_ui.title =
+                        game.unpacker && game.crashed
+                            ? "The game's data unpacker hit a crash and could not recover.\n"
+                              "A bug report was saved; sending it helps a lot in finding\n"
+                              "the proper fix."
+                        : game.unpacker
+                            ? "The game's data unpacker hit a crash. It was caught and the\n"
+                              "game kept running, and a bug report was saved. Sending it\n"
+                              "helps a lot in finding the proper fix."
+                        : game.crashed
+                            ? "The game closed unexpectedly. A bug report was saved."
+                            : "Your bug report was saved.";
                     std::error_code size_ec;
                     std::uintmax_t bytes = 0;
                     for (const fs::path& report : g_ui.reports)

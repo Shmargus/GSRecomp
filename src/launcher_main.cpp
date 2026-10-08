@@ -991,6 +991,10 @@ std::vector<fs::path> make_bug_report(const fs::path& root, const fs::path& game
     // Only this run's: the launcher deletes the pair before every start.
     copy_into_report(root / L"unpacker_catch.txt", staging);
     copy_into_report(root / L"unpacker_catch.bin", staging);
+    // The unpacker guard's pair (src/unpacker_guard.h), also only this run's.
+    const bool unpacker_caught = fs::is_regular_file(root / L"unpacker_recovered.txt", ec);
+    copy_into_report(root / L"unpacker_recovered.txt", staging);
+    copy_into_report(root / L"unpacker_recovered.bin", staging);
     {
         std::ofstream info(staging / L"report_info.txt", std::ios::binary);
         info << "Golden Sun Recompiled bug report\n"
@@ -1000,6 +1004,7 @@ std::vector<fs::path> make_bug_report(const fs::path& root, const fs::path& game
              << registry_text(L"CurrentBuild") << ")\n"
              << "F12 captures: " << rewinds.size() << "\n"
              << "Game crashed: " << (crashed ? "yes" : "no") << "\n"
+             << "Unpacker crash caught: " << (unpacker_caught ? "yes" : "no") << "\n"
              << "Game exit code: " << exit_code << "\n";
     }
 
@@ -1200,7 +1205,21 @@ LRESULT CALLBACK report_window_proc(HWND window, UINT message, WPARAM w_param,
     return DefWindowProcW(window, message, w_param, l_param);
 }
 
-void offer_bug_report(const std::vector<fs::path>& reports, bool crashed) {
+// The report window's opening sentence. `unpacker` is the unpacker guard's
+// unpacker_recovered.txt (src/unpacker_guard.h).
+std::wstring report_heading(bool crashed, bool unpacker) {
+    if (unpacker && crashed)
+        return L"The game's data unpacker hit a crash and could not recover. A bug "
+               L"report was saved; sending it helps a lot in finding the proper fix.";
+    if (unpacker)
+        return L"The game's data unpacker hit a crash. It was caught and the game kept "
+               L"running, and a bug report was saved. Sending it helps a lot in "
+               L"finding the proper fix.";
+    return crashed ? L"The game closed unexpectedly. A bug report was saved."
+                   : L"Your bug report was saved.";
+}
+
+void offer_bug_report(const std::vector<fs::path>& reports, bool crashed, bool unpacker) {
     if (reports.empty()) return;
     ReportWindow state;
     state.reports = reports;
@@ -1224,9 +1243,7 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed) {
     if (!gsr_online::report_upload_enabled()) {
         // A launcher built without the report service (a fork, a developer
         // build): the zips and the form, as before the Send button.
-        std::wstring text = crashed
-            ? L"The game closed unexpectedly. A bug report was saved:\n\n"
-            : L"Your bug report was saved:\n\n";
+        std::wstring text = report_heading(crashed, unpacker) + L"\n\n";
         for (const fs::path& report : reports) text += report.filename().wstring() + L"\n";
         text += L"in " + reports.front().parent_path().wstring() +
                 L"\n\nPress OK to open the bug report form and this folder, write a few "
@@ -1234,7 +1251,7 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed) {
                 L"without sending anything.";
         if (MessageBoxW(nullptr, text.c_str(), L"Golden Sun Recompiled",
                         MB_OKCANCEL | MB_SETFOREGROUND |
-                            (crashed ? MB_ICONWARNING : MB_ICONINFORMATION)) == IDOK) {
+                            (crashed || unpacker ? MB_ICONWARNING : MB_ICONINFORMATION)) == IDOK) {
             ShellExecuteW(nullptr, L"open", kBugReportFormUrl, nullptr, nullptr, SW_SHOWNORMAL);
             const std::wstring select = L"/select,\"" + reports.front().wstring() + L"\"";
             ShellExecuteW(nullptr, L"open", L"explorer.exe", select.c_str(), nullptr,
@@ -1257,7 +1274,9 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed) {
     window_class.hbrBackground = GetSysColorBrush(COLOR_WINDOW);
     RegisterClassW(&window_class);
 
-    const int width = px(520), height = px(400);
+    // The unpacker's heading runs to three lines; everything below moves down.
+    const int dy = unpacker ? 40 : 0;
+    const int width = px(520), height = px(400 + dy);
     RECT frame{0, 0, width, height};
     const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
     AdjustWindowRectEx(&frame, style, FALSE, WS_EX_APPWINDOW);
@@ -1283,13 +1302,12 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed) {
         return child;
     };
 
-    std::wstring heading = crashed ? L"The game closed unexpectedly. A bug report was saved."
-                                   : L"Your bug report was saved.";
+    std::wstring heading = report_heading(crashed, unpacker);
     heading += L"\nWhat happened, and where in the game? A few words help a lot:";
-    add(L"STATIC", heading, 0, 0, 20, 16, 480, 44);
+    add(L"STATIC", heading, 0, 0, 20, 16, 480, 44 + dy);
     state.edit = add(L"EDIT", L"",
                      ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | WS_VSCROLL | WS_TABSTOP,
-                     kReportEdit, 20, 66, 480, 110);
+                     kReportEdit, 20, 66 + dy, 480, 110);
     SendMessageW(state.edit, EM_SETLIMITTEXT, 500, 0);
     std::wstring files;
     std::uint64_t bytes = 0;
@@ -1302,12 +1320,13 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed) {
             L" MB) to the developer: the game's log and screen captures, your save "
             L"file, your settings and your Windows version. Your Windows user name is taken out. Nothing is "
             L"sent unless you press Send report.";
-    add(L"STATIC", files, 0, 0, 20, 186, 480, 84);
-    state.status = add(L"STATIC", L"", 0, 0, 20, 276, 480, 40);
+    add(L"STATIC", files, 0, 0, 20, 186 + dy, 480, 84);
+    state.status = add(L"STATIC", L"", 0, 0, 20, 276 + dy, 480, 40);
     state.send = add(L"BUTTON", L"Send report", BS_DEFPUSHBUTTON | WS_TABSTOP, kReportSend, 20,
-                     330, 150, 40);
-    state.close = add(L"BUTTON", L"Don't send", WS_TABSTOP, kReportClose, 180, 330, 130, 40);
-    add(L"BUTTON", L"Open folder", WS_TABSTOP, kReportFolder, 370, 330, 130, 40);
+                     330 + dy, 150, 40);
+    state.close = add(L"BUTTON", L"Don't send", WS_TABSTOP, kReportClose, 180, 330 + dy, 130,
+                      40);
+    add(L"BUTTON", L"Open folder", WS_TABSTOP, kReportFolder, 370, 330 + dy, 130, 40);
 
     ShowWindow(window, SW_SHOW);
     SetForegroundWindow(window);
@@ -1734,6 +1753,9 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
         // game's working folder: at most one pair ever exists, from this run.
         fs::remove(root / L"unpacker_catch.txt", stale_ec);
         fs::remove(root / L"unpacker_catch.bin", stale_ec);
+        // The unpacker guard's pair (src/unpacker_guard.h), the same way.
+        fs::remove(root / L"unpacker_recovered.txt", stale_ec);
+        fs::remove(root / L"unpacker_recovered.bin", stale_ec);
     }
     const auto launch_time = fs::file_time_type::clock::now();
 
@@ -1800,14 +1822,16 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
         const fs::path crash_report = game.parent_path() / L"crash_report.txt";
         const bool crashed = fs::is_regular_file(crash_report, time_ec) &&
             fs::last_write_time(crash_report, time_ec) >= launch_time;
+        const bool unpacker = fs::is_regular_file(root / L"unpacker_recovered.txt", time_ec);
         launcher_log(L"Game ended: exit code " + std::to_wstring(exit_code) +
                      (crashed ? L", crashed (crash_report.txt written)" : L"") +
+                     (unpacker ? L", unpacker crash caught (unpacker_recovered.txt)" : L"") +
                      L", rewind captures " + std::to_wstring(new_rewinds.size()) + L".");
-        if (!new_rewinds.empty() || crashed) {
+        if (!new_rewinds.empty() || crashed || unpacker) {
             offer_bug_report(make_bug_report(root, game.parent_path(), rom,
                                              log_path, new_rewinds, crashed,
                                              exit_code),
-                             crashed);
+                             crashed, unpacker);
         }
     }
     return 0;

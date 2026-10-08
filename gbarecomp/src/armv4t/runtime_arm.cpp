@@ -134,6 +134,7 @@ extern "C" RuntimeRamDispatchHook g_runtime_ram_dispatch_hook = nullptr;
 extern "C" RuntimeRamIdentityConfirmedHook
     g_runtime_ram_identity_confirmed_hook = nullptr;
 extern "C" RuntimeCallReturnHook g_runtime_call_return_hook = nullptr;
+extern "C" RuntimeUnmatchedReturnHook g_runtime_unmatched_return_hook = nullptr;
 extern "C" RuntimeGuestStepBoundaryHook
     g_runtime_guest_step_boundary_hook = nullptr;
 extern "C" RuntimeMp2kWriteHook g_runtime_mp2k_write_hook = nullptr;
@@ -2551,6 +2552,8 @@ extern "C" int runtime_call_should_return(uint32_t target_pc) {
         g_runtime_call_return_hook(pc, g_call_return_depth);
     if (g_runtime_ram_image_boundary_probe)
         g_runtime_ram_image_boundary_probe(0u, pc, g_call_return_depth);
+    if (g_runtime_unmatched_return_hook && g_runtime_unmatched_return_hook(pc))
+        return 1;
     // An unmatched return normally dispatches its target nested inside the
     // returning C frame. A callee that rewrites its own return address
     // (`sub lr, pc, #imm` before `bx lr`) and is called in a loop therefore
