@@ -11,6 +11,32 @@ Do not mistake this for upstream. It diverged from upstream commit `af51d0e`
 
 ## What was changed
 
+- **GPU surface: cheaper uniforms, readback without waiting (2026-10-09)** —
+  from joostg's profile and patch (Shmargus/GSRecomp#3, Intel UHD 630,
+  render time 10.4 → 4.4 ms per frame). `gpu_surface.cpp` caches uniform
+  locations and last values per program and sets them with
+  `glProgramUniform*` (GL 4.1), falling back to bind/set/restore.
+  `begin_texture_readback`/`finish_texture_readback` copy the picture into
+  one of two pixel-pack buffers behind a fence (GL 3.2) and hand back the
+  previous frame's, so the CPU no longer waits for the GPU; the caller
+  falls back to `read_texture_rgb` whenever no earlier copy is ready. The
+  optional GL groups share one loader and version check, and every
+  readback shares one pack-state guard.
+
+- **Optional release badge (2026-10-09)** — the host reads
+  `edition_badge.txt` (caption and ASCII flourish) and `edition_badge.bmp`
+  beside the executable. When both are supplied, F1 reserves space at the
+  bottom right for the caption and image, with SDL and OpenGL texture paths.
+  Missing files retain the normal menu. Release artwork and edition choices
+  belong to this repository's packaging scripts, outside the generic engine.
+
+- **F1 preference persistence (2026-10-09)** — `host_window.cpp` reads and
+  writes `[Video]` window scale, fullscreen, V-Sync, linear/integer scaling,
+  screen-filter preference and FPS display in `config.ini`, preserving other
+  sections. Filter preferences survive launches that cannot enable filters.
+  Custom colour slider releases now reach the existing picture save handler
+  even when the release itself does not change the value.
+
 12 commits, roughly 47,000 added lines across 130 files. By area:
 
 - **PPU** (`src/gba/gba_ppu.{cpp,h}`) — the expanded view: per-layer

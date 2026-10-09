@@ -93,6 +93,13 @@ $launcherOnly.AutoSize = $true
 $launcherOnly.Location = New-Object System.Drawing.Point(450, 56)
 $form.Controls.Add($launcherOnly)
 
+# A per-release choice: never remembered, so ordinary releases stay ordinary.
+$ashleyEdition = New-Object System.Windows.Forms.CheckBox
+$ashleyEdition.Text = 'Ashley Edition'
+$ashleyEdition.AutoSize = $true
+$ashleyEdition.Location = New-Object System.Drawing.Point(590, 56)
+$form.Controls.Add($ashleyEdition)
+
 $versionLabel = New-Object System.Windows.Forms.Label
 $versionLabel.Text = 'Version:'
 $versionLabel.AutoSize = $true
@@ -121,6 +128,8 @@ $form.Controls.Add($info)
 function Update-Info {
     $lines = @()
     $test.Enabled = [bool]$rom -and -not $launcherOnly.Checked
+    $ashleyEdition.Enabled = -not $launcherOnly.Checked
+    if ($launcherOnly.Checked) { $ashleyEdition.Checked = $false }
     if ($launcherOnly.Checked) {
         $lines += 'Only the launchers, zipped on their own, for players to drop over their old one. The game and engine are not built.'
     } elseif ($rom) {
@@ -193,6 +202,7 @@ function Set-Running([bool]$running) {
     $version.Enabled = -not $running
     $test.Enabled = (-not $running) -and [bool]$rom -and -not $launcherOnly.Checked
     $launcherOnly.Enabled = -not $running
+    $ashleyEdition.Enabled = (-not $running) -and -not $launcherOnly.Checked
 }
 
 function Read-Log {
@@ -244,6 +254,7 @@ $makeBtn.Add_Click({
     if ($target -eq 'Linux') { $switches += '-NoWindows' }
     if (-not $test.Checked) { $switches += '-NoTest' }
     if ($launcherOnly.Checked) { $switches += '-LauncherOnly' }
+    if ($ashleyEdition.Checked) { $switches += '-AshleyEdition' }
     $versionText = $version.Text.Trim()
     if ($versionText -and $versionText -notmatch '^[A-Za-z0-9._-]+$') {
         [void][System.Windows.Forms.MessageBox]::Show($form,

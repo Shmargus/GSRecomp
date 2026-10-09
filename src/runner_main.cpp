@@ -10515,6 +10515,10 @@ void frame_rewind_record(const std::uint8_t* rgb, std::uint32_t width,
     if (pressed) frame_rewind_write();
 }
 
+// True when the previous presented frame queued an asynchronous readback of
+// its picture (gpu_field_present_override).
+bool g_readback_chain = false;
+
 // gbarecomp::set_frame_present_override_hook's callback. Draws the frame
 // gpu_field_capture_hook() just captured and reads the finished picture back
 // into `rgb` -- a full GPU round trip every drawn frame, accepted for this
@@ -10562,6 +10566,10 @@ extern std::atomic<int> g_field_psynergy_fast;
 
 bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
                                 std::uint32_t height) {
+    // Set only by a frame that reaches its readback; any other return breaks
+    // the chain, so a queued copy is never shown after a skipped frame.
+    const bool readback_chained = g_readback_chain;
+    g_readback_chain = false;
     if (!gpu_field_enabled()) return false;
     if (!g_gpu_field_capture.valid) {
         if (gpu_field_only_enabled())
@@ -10741,9 +10749,25 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
                      width, height);
     }
 
-    surface.read_texture_rgb(renderer.output_texture(),
-                             static_cast<int>(width), static_cast<int>(height),
-                             rgb);
+    // The GPU needs several milliseconds to finish this frame, and a direct
+    // read waits all of them. Instead this frame's copy is queued and the
+    // previous frame's -- finished long since -- is shown, one frame behind.
+    // A direct read whenever there is no previous frame to show (first
+    // frame, or the last one was refused or not drawn here), always on the
+    // world map, whose margin hold below works on this frame's state, and
+    // whenever a capture is recording, so a saved picture always belongs to
+    // the scene saved with it (rewind, auto capture, F12 dump).
+    const bool async_readback =
+        !frame_rewind_enabled() && !dump_key_down() &&
+        !world_map_blocks(g_gpu_field_capture.io);
+    const gbarecomp::GpuTexture picture = renderer.output_texture();
+    const int picture_w = static_cast<int>(width);
+    const int picture_h = static_cast<int>(height);
+    if (!(async_readback && readback_chained &&
+          surface.finish_texture_readback(picture_w, picture_h, rgb)))
+        surface.read_texture_rgb(picture, picture_w, picture_h, rgb);
+    g_readback_chain = async_readback &&
+        surface.begin_texture_readback(picture, picture_w, picture_h);
     // A decode the console's own picture disagrees with was not drawn, so
     // it must not be held either (the pause menu's first frame,
     // logs/gpu_rewind_0058 frame 14).
@@ -10820,6 +10844,15 @@ void load_game_options(const char* argv0) {
         if (exe.has_parent_path())
             g_options_path = (exe.parent_path() / kOptionsFile).string();
     }
+    const char* project = std::getenv("GSR_STUDIO_MOD");
+    const char* gate = std::getenv("GSR_MOD_FIELD_TEST");
+#ifdef _WIN32
+    const wchar_t* session = _wgetenv(L"GSR_STUDIO_SESSION");
+#else
+    const char* session = std::getenv("GSR_STUDIO_SESSION");
+#endif
+    if (project && *project && gate && std::strcmp(gate,"1")==0 && session && *session)
+        g_options_path=(std::filesystem::path(session)/kOptionsFile).string();
     FILE* f = std::fopen(g_options_path.c_str(), "r");
     if (!f) return;
     char line[128];

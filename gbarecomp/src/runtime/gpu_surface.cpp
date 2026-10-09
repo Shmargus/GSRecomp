@@ -11,6 +11,9 @@
 
 #include <cstdio>
 #include <cstring>
+#include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #if defined(_WIN32)
@@ -64,6 +67,11 @@ constexpr GLenum kBlendDstRgb          = 0x80C8;
 constexpr GLenum kBlendSrcRgb          = 0x80C9;
 constexpr GLenum kBlendDstAlpha        = 0x80CA;
 constexpr GLenum kBlendSrcAlpha        = 0x80CB;
+constexpr GLenum kStreamRead           = 0x88E1;
+constexpr GLenum kSyncGpuCommandsComplete = 0x9117;
+constexpr GLenum kSyncFlushCommandsBit = 0x00000001;
+constexpr GLenum kAlreadySignaled      = 0x911A;
+constexpr GLenum kConditionSatisfied   = 0x911C;
 
 // ── the entry points we need ────────────────────────────────────────────────
 #define GPU_GL_FUNCTIONS(X)                                                    \
@@ -116,16 +124,109 @@ constexpr GLenum kBlendSrcAlpha        = 0x80CB;
 GPU_GL_FUNCTIONS(GPU_DECLARE)
 #undef GPU_DECLARE
 
+// Fills every gl* pointer in one GPU_GL_*_FUNCTIONS group. False when any is
+// missing.
+#define GPU_LOAD(ret, name, args)                                                  gl##name = reinterpret_cast<ret (APIENTRY*) args>(                                 SDL_GL_GetProcAddress("gl" #name));                                        if (!gl##name) ok = false;
+
 bool load_all() {
     bool ok = true;
-#define GPU_LOAD(ret, name, args)                                              \
-    gl##name = reinterpret_cast<ret (APIENTRY*) args>(                         \
-        SDL_GL_GetProcAddress("gl" #name));                                    \
-    if (!gl##name) ok = false;
     GPU_GL_FUNCTIONS(GPU_LOAD)
-#undef GPU_LOAD
     return ok;
 }
+
+// GLX hands out a pointer for any name, supported or not, so the context's
+// version decides whether an optional group is used, not the lookup alone.
+bool gl_version_at_least(int want_major, int want_minor) {
+    int major = 0, minor = 0;
+    const char* version = reinterpret_cast<const char*>(glGetString(GL_VERSION));
+    return version && std::sscanf(version, "%d.%d", &major, &minor) == 2 &&
+           (major > want_major || (major == want_major && minor >= want_minor));
+}
+
+// Optional: set a uniform without binding its program (OpenGL 4.1 /
+// ARB_separate_shader_objects). Without them the setters fall back to
+// binding the program around the set.
+#define GPU_GL_PROGRAM_UNIFORM_FUNCTIONS(X)                                        X(void,    ProgramUniform1i, (GLuint, GLint, GLint))                           X(void,    ProgramUniform1f, (GLuint, GLint, GLfloat))                         X(void,    ProgramUniform2f, (GLuint, GLint, GLfloat, GLfloat))                X(void,    ProgramUniform4f, (GLuint, GLint, GLfloat, GLfloat, GLfloat, GLfloat))     X(void,    ProgramUniformMatrix4fv,(GLuint, GLint, GLsizei, GLboolean, const GLfloat*))
+
+// Optional: asynchronous readback (OpenGL 3.2 sync objects). GLsync is an
+// opaque pointer; Windows' 1.1 headers do not declare it.
+using GpuSync = void*;
+#define GPU_GL_READBACK_FUNCTIONS(X)                                               X(GpuSync, FenceSync,       (GLenum, GLbitfield))                              X(GLenum,  ClientWaitSync,  (GpuSync, GLbitfield, std::uint64_t))              X(void,    DeleteSync,      (GpuSync))                                         X(void,    GetBufferSubData,(GLenum, ptrdiff_t, ptrdiff_t, void*))
+
+#define GPU_DECLARE(ret, name, args) ret (APIENTRY* gl##name) args = nullptr;
+GPU_GL_PROGRAM_UNIFORM_FUNCTIONS(GPU_DECLARE)
+GPU_GL_READBACK_FUNCTIONS(GPU_DECLARE)
+#undef GPU_DECLARE
+
+bool g_program_uniforms = false;
+bool g_async_readback = false;
+
+bool load_program_uniforms() {
+    const char* extensions =
+        reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
+    if (!gl_version_at_least(4, 1) &&
+        !(extensions && std::strstr(extensions, "GL_ARB_separate_shader_objects")))
+        return false;
+    bool ok = true;
+    GPU_GL_PROGRAM_UNIFORM_FUNCTIONS(GPU_LOAD)
+    return ok;
+}
+
+bool load_async_readback() {
+    if (!gl_version_at_least(3, 2)) return false;
+    bool ok = true;
+    GPU_GL_READBACK_FUNCTIONS(GPU_LOAD)
+    return ok;
+}
+#undef GPU_LOAD
+
+// GL's row 0 is the bottom of the image; flip while dropping alpha so the
+// result matches the reference compositor's top-down RGB888 layout.
+void rgba_bottom_up_to_rgb(const std::uint8_t* rgba, int width, int height,
+                           std::uint8_t* out_rgb) {
+    for (int y = 0; y < height; ++y) {
+        const std::uint8_t* src =
+            rgba + static_cast<std::size_t>(height - 1 - y) * width * 4u;
+        std::uint8_t* dst = out_rgb + static_cast<std::size_t>(y) * width * 3u;
+        for (int x = 0; x < width; ++x) {
+            dst[x * 3 + 0] = src[x * 4 + 0];
+            dst[x * 3 + 1] = src[x * 4 + 1];
+            dst[x * 3 + 2] = src[x * 4 + 2];
+        }
+    }
+}
+
+// Pixel-transfer state that changes where a pack lands: a stale pack row
+// length or a bound pack buffer would have GL write outside the caller's
+// memory. Set to plain defaults (no pack buffer) for one readback and put
+// back, with the 2D texture binding, when the guard leaves scope.
+struct PackState {
+    GLint alignment = 4, row_length = 0, skip_rows = 0, skip_pixels = 0;
+    GLint pack_buffer = 0, texture = 0;
+    PackState() {
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
+        glGetIntegerv(GL_PACK_ALIGNMENT, &alignment);
+        glGetIntegerv(kPackRowLength, &row_length);
+        glGetIntegerv(kPackSkipRows, &skip_rows);
+        glGetIntegerv(kPackSkipPixels, &skip_pixels);
+        glGetIntegerv(kPixelPackBufferBinding, &pack_buffer);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glPixelStorei(kPackRowLength, 0);
+        glPixelStorei(kPackSkipRows, 0);
+        glPixelStorei(kPackSkipPixels, 0);
+        if (pack_buffer) glBindBuffer(kPixelPackBuffer, 0);
+    }
+    ~PackState() {
+        glPixelStorei(GL_PACK_ALIGNMENT, alignment);
+        glPixelStorei(kPackRowLength, row_length);
+        glPixelStorei(kPackSkipRows, skip_rows);
+        glPixelStorei(kPackSkipPixels, skip_pixels);
+        glBindBuffer(kPixelPackBuffer, static_cast<GLuint>(pack_buffer));
+        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(texture));
+    }
+    PackState(const PackState&) = delete;
+    PackState& operator=(const PackState&) = delete;
+};
 
 // Every quad becomes two triangles; each vertex carries position, texture
 // coordinate, depth and tint.
@@ -190,6 +291,36 @@ struct GpuSurface::SavedState {
     GLint blend_src_alpha = GL_ONE, blend_dst_alpha = GL_ZERO;
 };
 
+struct GpuSurface::UniformSlot {
+    GLint location = -1;
+    bool known = false;  // `value` holds what the program last received
+    float value[4] = {};
+};
+
+struct GpuSurface::UniformCache {
+    struct NameHash {
+        using is_transparent = void;
+        std::size_t operator()(std::string_view s) const noexcept {
+            return std::hash<std::string_view>{}(s);
+        }
+    };
+    using Slots = std::unordered_map<std::string, UniformSlot, NameHash,
+                                     std::equal_to<>>;
+    std::unordered_map<GpuProgram, Slots> programs;
+};
+
+struct GpuSurface::Readback {
+    struct Slot {
+        GLuint buffer = 0;
+        std::size_t capacity = 0;
+        GpuSync fence = nullptr;
+        int width = 0, height = 0;
+    };
+    Slot slots[2];
+    int last = -1;  // slot of the most recent begin, -1 when none is queued
+    std::vector<std::uint8_t> rgba;
+};
+
 GpuSurface::~GpuSurface() { release(); }
 
 bool GpuSurface::init() {
@@ -211,6 +342,10 @@ bool GpuSurface::init() {
     }
 
     saved_ = new SavedState();
+    uniforms_ = new UniformCache();
+    g_program_uniforms = load_program_uniforms();
+    g_async_readback = load_async_readback();
+    readback_ = new Readback();
 
     glGenVertexArrays(1, &vao_);
     glGenBuffers(1, &vbo_);
@@ -236,7 +371,11 @@ bool GpuSurface::init() {
 }
 
 void GpuSurface::release() {
-    if (blit_program_) { glDeleteProgram(blit_program_); blit_program_ = 0; }
+    if (blit_program_) {
+        forget_program_uniforms(blit_program_);
+        glDeleteProgram(blit_program_);
+        blit_program_ = 0;
+    }
     if (target_tex_) { glDeleteTextures(1, &target_tex_); target_tex_ = 0; }
     if (depth_rb_) { glDeleteRenderbuffers(1, &depth_rb_); depth_rb_ = 0; }
     if (fbo_) { glDeleteFramebuffers(1, &fbo_); fbo_ = 0; }
@@ -244,6 +383,16 @@ void GpuSurface::release() {
     if (vao_) { glDeleteVertexArrays(1, &vao_); vao_ = 0; }
     delete saved_;
     saved_ = nullptr;
+    delete uniforms_;
+    uniforms_ = nullptr;
+    if (readback_) {
+        for (auto& slot : readback_->slots) {
+            if (slot.fence) glDeleteSync(slot.fence);
+            if (slot.buffer) glDeleteBuffers(1, &slot.buffer);
+        }
+        delete readback_;
+        readback_ = nullptr;
+    }
     ready_ = false;
 }
 
@@ -412,14 +561,16 @@ GpuProgram GpuSurface::create_program(const char* vertex_source,
 }
 
 void GpuSurface::destroy_program(GpuProgram program) {
+    forget_program_uniforms(program);
     if (program) glDeleteProgram(program);
 }
 
-// Uniform setters bind the program, set, and put the previous one back, so a
-// caller can prepare several programs without tracking what is current.
+// Uniform setters leave the current program as they found it, so a caller can
+// prepare several programs without tracking what is current. With
+// glProgramUniform* nothing is bound at all; otherwise the program is bound
+// around the set.
 #define GPU_WITH_PROGRAM(p, body)                                              \
     do {                                                                       \
-        if (!(p)) break;                                                       \
         GLint previous = 0;                                                    \
         glGetIntegerv(kCurrentProgram, &previous);                             \
         glUseProgram(p);                                                       \
@@ -427,38 +578,71 @@ void GpuSurface::destroy_program(GpuProgram program) {
         glUseProgram(static_cast<GLuint>(previous));                           \
     } while (false)
 
+GpuSurface::UniformSlot* GpuSurface::uniform_slot(GpuProgram p,
+                                                  const char* name) {
+    if (!p || !name || !uniforms_) return nullptr;
+    auto& slots = uniforms_->programs[p];
+    auto it = slots.find(std::string_view(name));
+    if (it == slots.end()) {
+        UniformSlot slot;
+        slot.location = glGetUniformLocation(p, name);
+        it = slots.emplace(name, slot).first;
+    }
+    return it->second.location >= 0 ? &it->second : nullptr;
+}
+
+void GpuSurface::forget_program_uniforms(GpuProgram p) {
+    if (uniforms_) uniforms_->programs.erase(p);
+}
+
+namespace {
+// True when `slot` already holds these values; otherwise records them.
+bool unchanged(float* cached, bool& known, const float* v, int n) {
+    if (known && std::memcmp(cached, v, sizeof(float) * n) == 0) return true;
+    std::memcpy(cached, v, sizeof(float) * n);
+    known = true;
+    return false;
+}
+}  // namespace
+
 void GpuSurface::set_uniform_int(GpuProgram p, const char* name, int v) {
-    GPU_WITH_PROGRAM(p, {
-        const GLint loc = glGetUniformLocation(p, name);
-        if (loc >= 0) glUniform1i(loc, v);
-    });
+    UniformSlot* s = uniform_slot(p, name);
+    if (!s) return;
+    float bits;
+    std::memcpy(&bits, &v, sizeof bits);
+    if (unchanged(s->value, s->known, &bits, 1)) return;
+    if (g_program_uniforms) glProgramUniform1i(p, s->location, v);
+    else GPU_WITH_PROGRAM(p, glUniform1i(s->location, v));
 }
 void GpuSurface::set_uniform_float(GpuProgram p, const char* name, float v) {
-    GPU_WITH_PROGRAM(p, {
-        const GLint loc = glGetUniformLocation(p, name);
-        if (loc >= 0) glUniform1f(loc, v);
-    });
+    UniformSlot* s = uniform_slot(p, name);
+    if (!s || unchanged(s->value, s->known, &v, 1)) return;
+    if (g_program_uniforms) glProgramUniform1f(p, s->location, v);
+    else GPU_WITH_PROGRAM(p, glUniform1f(s->location, v));
 }
 void GpuSurface::set_uniform_vec2(GpuProgram p, const char* name,
                                   float x, float y) {
-    GPU_WITH_PROGRAM(p, {
-        const GLint loc = glGetUniformLocation(p, name);
-        if (loc >= 0) glUniform2f(loc, x, y);
-    });
+    UniformSlot* s = uniform_slot(p, name);
+    const float v[2] = {x, y};
+    if (!s || unchanged(s->value, s->known, v, 2)) return;
+    if (g_program_uniforms) glProgramUniform2f(p, s->location, x, y);
+    else GPU_WITH_PROGRAM(p, glUniform2f(s->location, x, y));
 }
 void GpuSurface::set_uniform_vec4(GpuProgram p, const char* name,
                                   float x, float y, float z, float w) {
-    GPU_WITH_PROGRAM(p, {
-        const GLint loc = glGetUniformLocation(p, name);
-        if (loc >= 0) glUniform4f(loc, x, y, z, w);
-    });
+    UniformSlot* s = uniform_slot(p, name);
+    const float v[4] = {x, y, z, w};
+    if (!s || unchanged(s->value, s->known, v, 4)) return;
+    if (g_program_uniforms) glProgramUniform4f(p, s->location, x, y, z, w);
+    else GPU_WITH_PROGRAM(p, glUniform4f(s->location, x, y, z, w));
 }
 void GpuSurface::set_uniform_mat4(GpuProgram p, const char* name,
                                   const float* m) {
-    GPU_WITH_PROGRAM(p, {
-        const GLint loc = glGetUniformLocation(p, name);
-        if (loc >= 0) glUniformMatrix4fv(loc, 1, GL_FALSE, m);
-    });
+    UniformSlot* s = uniform_slot(p, name);
+    if (!s) return;
+    if (g_program_uniforms)
+        glProgramUniformMatrix4fv(p, s->location, 1, GL_FALSE, m);
+    else GPU_WITH_PROGRAM(p, glUniformMatrix4fv(s->location, 1, GL_FALSE, m));
 }
 #undef GPU_WITH_PROGRAM
 
@@ -502,24 +686,11 @@ void GpuSurface::log_texture_r8ui(GpuTexture texture, unsigned unit,
     if (texture && expected && width > 0 && height > 0 &&
         actual_w == width && actual_h == height && format == GLint(kR8UI)) {
         std::vector<std::uint8_t> pixels(std::size_t(width) * height);
-        GLint alignment = 0, row_length = 0, skip_rows = 0, skip_pixels = 0;
-        GLint pack_buffer = 0;
-        glGetIntegerv(GL_PACK_ALIGNMENT, &alignment);
-        glGetIntegerv(kPackRowLength, &row_length);
-        glGetIntegerv(kPackSkipRows, &skip_rows);
-        glGetIntegerv(kPackSkipPixels, &skip_pixels);
-        glGetIntegerv(kPixelPackBufferBinding, &pack_buffer);
-        glPixelStorei(GL_PACK_ALIGNMENT, 1);
-        glPixelStorei(kPackRowLength, 0);
-        glPixelStorei(kPackSkipRows, 0);
-        glPixelStorei(kPackSkipPixels, 0);
-        if (pack_buffer) glBindBuffer(kPixelPackBuffer, 0);
-        glGetTexImage(GL_TEXTURE_2D, 0, kRedInteger, GL_UNSIGNED_BYTE, pixels.data());
-        glPixelStorei(GL_PACK_ALIGNMENT, alignment);
-        glPixelStorei(kPackRowLength, row_length);
-        glPixelStorei(kPackSkipRows, skip_rows);
-        glPixelStorei(kPackSkipPixels, skip_pixels);
-        if (pack_buffer) glBindBuffer(kPixelPackBuffer, GLuint(pack_buffer));
+        {
+            PackState pack;
+            glGetTexImage(GL_TEXTURE_2D, 0, kRedInteger, GL_UNSIGNED_BYTE,
+                          pixels.data());
+        }
         for (std::size_t i = 0; i < pixels.size(); ++i) {
             nonzero += pixels[i] != 0;
             differing += pixels[i] != expected[i];
@@ -807,44 +978,72 @@ void GpuSurface::read_texture_rgb(GpuTexture texture, int width, int height,
     if (!ready_ || !texture || width <= 0 || height <= 0 || !out_rgb) return;
 
     std::vector<std::uint8_t> rgba(static_cast<std::size_t>(width) * height * 4u);
-    GLint previous_texture = 0;
-    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_texture);
-    glBindTexture(GL_TEXTURE_2D, texture);
-    // Same hazard as update_texture, in the other direction: a stale pack row
-    // length or a bound pack buffer would have GL write outside `rgba`.
-    GLint prev_alignment = 4, prev_row_length = 0, prev_skip_rows = 0;
-    GLint prev_skip_pixels = 0, prev_pack_buffer = 0;
-    glGetIntegerv(GL_PACK_ALIGNMENT, &prev_alignment);
-    glGetIntegerv(kPackRowLength, &prev_row_length);
-    glGetIntegerv(kPackSkipRows, &prev_skip_rows);
-    glGetIntegerv(kPackSkipPixels, &prev_skip_pixels);
-    glGetIntegerv(kPixelPackBufferBinding, &prev_pack_buffer);
-    glPixelStorei(GL_PACK_ALIGNMENT, 1);
-    glPixelStorei(kPackRowLength, 0);
-    glPixelStorei(kPackSkipRows, 0);
-    glPixelStorei(kPackSkipPixels, 0);
-    if (prev_pack_buffer) glBindBuffer(kPixelPackBuffer, 0);
-    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
-    glPixelStorei(GL_PACK_ALIGNMENT, prev_alignment);
-    glPixelStorei(kPackRowLength, prev_row_length);
-    glPixelStorei(kPackSkipRows, prev_skip_rows);
-    glPixelStorei(kPackSkipPixels, prev_skip_pixels);
-    if (prev_pack_buffer)
-        glBindBuffer(kPixelPackBuffer, static_cast<GLuint>(prev_pack_buffer));
-    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previous_texture));
-
-    // GL's row 0 is the bottom of the image; flip while dropping alpha so the
-    // result matches the reference compositor's top-down RGB888 layout.
-    for (int y = 0; y < height; ++y) {
-        const std::uint8_t* src =
-            rgba.data() + static_cast<std::size_t>(height - 1 - y) * width * 4u;
-        std::uint8_t* dst = out_rgb + static_cast<std::size_t>(y) * width * 3u;
-        for (int x = 0; x < width; ++x) {
-            dst[x * 3 + 0] = src[x * 4 + 0];
-            dst[x * 3 + 1] = src[x * 4 + 1];
-            dst[x * 3 + 2] = src[x * 4 + 2];
-        }
+    {
+        PackState pack;
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
     }
+    rgba_bottom_up_to_rgb(rgba.data(), width, height, out_rgb);
+}
+
+bool GpuSurface::begin_texture_readback(GpuTexture texture, int width,
+                                        int height) {
+    if (!ready_ || !g_async_readback || !readback_ || !texture ||
+        width <= 0 || height <= 0)
+        return false;
+    const int index = readback_->last == 0 ? 1 : 0;
+    Readback::Slot& slot = readback_->slots[index];
+    if (slot.fence) {
+        glDeleteSync(slot.fence);
+        slot.fence = nullptr;
+    }
+    const std::size_t bytes = static_cast<std::size_t>(width) * height * 4u;
+    {
+        PackState pack;
+        if (!slot.buffer) glGenBuffers(1, &slot.buffer);
+        glBindBuffer(kPixelPackBuffer, slot.buffer);
+        if (slot.capacity != bytes) {
+            glBufferData(kPixelPackBuffer, static_cast<ptrdiff_t>(bytes),
+                         nullptr, kStreamRead);
+            slot.capacity = bytes;
+        }
+        glBindTexture(GL_TEXTURE_2D, texture);
+        // With a pack buffer bound the pointer is an offset into it: the
+        // copy is queued on the GPU and nothing here waits for it.
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    }
+    slot.fence = glFenceSync(kSyncGpuCommandsComplete, 0);
+    slot.width = width;
+    slot.height = height;
+    readback_->last = slot.fence ? index : -1;
+    return slot.fence != nullptr;
+}
+
+bool GpuSurface::finish_texture_readback(int width, int height,
+                                         std::uint8_t* out_rgb) {
+    if (!ready_ || !readback_ || readback_->last < 0 || !out_rgb) return false;
+    Readback::Slot& slot = readback_->slots[readback_->last];
+    readback_->last = -1;
+    if (!slot.fence || slot.width != width || slot.height != height)
+        return false;
+    // Queued a frame ago, so normally already done. A GPU that is still
+    // busy after 50 ms gets the caller's synchronous read instead.
+    const GLenum waited = glClientWaitSync(slot.fence, kSyncFlushCommandsBit,
+                                           50'000'000ull);
+    glDeleteSync(slot.fence);
+    slot.fence = nullptr;
+    if (waited != kAlreadySignaled && waited != kConditionSatisfied)
+        return false;
+    const std::size_t bytes = static_cast<std::size_t>(width) * height * 4u;
+    readback_->rgba.resize(bytes);
+    {
+        PackState pack;
+        glBindBuffer(kPixelPackBuffer, slot.buffer);
+        glGetBufferSubData(kPixelPackBuffer, 0, static_cast<ptrdiff_t>(bytes),
+                           readback_->rgba.data());
+    }
+    rgba_bottom_up_to_rgb(readback_->rgba.data(), width, height, out_rgb);
+    return true;
 }
 
 }  // namespace gbarecomp

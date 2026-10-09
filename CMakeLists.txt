@@ -755,6 +755,13 @@ if(GSR_BUILD_LOCAL_RUNNER)
         src/earth_surge.cpp
         src/effect_burst.cpp
         "${GBARECOMP_ROOT}/src/runtime/gpu_surface.cpp")
+    # Golden Sun Studio is kept out of the repository; build its project
+    # loader only where the folder is present.
+    set(GSR_STUDIO_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/Golden Sun Studio/runtime/studio_mod.cpp")
+    if(EXISTS "${GSR_STUDIO_SOURCE}")
+        list(APPEND GSR_ENGINE_SOURCES "${GSR_STUDIO_SOURCE}")
+        add_compile_definitions(GSR_HAVE_STUDIO=1)
+    endif()
     set(GSR_GAME_SOURCES
         ${GSR_GENERATED_SOURCES}
         ${GSR_TRANSIENT_FUNC2D5C_SOURCES}
@@ -1117,7 +1124,7 @@ if(GSR_BUILD_LOCAL_RUNNER)
             GSR_RELEASE_VERSION="${GSR_RELEASE_VERSION}"
             GSR_REPORT_HOST="${GSR_REPORT_HOST}")
         target_link_libraries(GoldenSunLauncher PRIVATE bcrypt comdlg32 gdiplus
-            shlwapi winhttp)
+            shlwapi winhttp shell32)
         # make_release.bat: a player launcher with only Pick ROM and Quit,
         # built into its own build tree so it never replaces the developer
         # launcher in the repository root.

@@ -8,7 +8,8 @@ rem trimmed compiler. Linux: the same in GSRecomp-Release\linux, built in WSL
 rem Ubuntu-24.04. The test builds the game from the ROM using only the
 rem release's own tools.
 rem With options it runs in this console instead, no window:
-rem   make_release.bat [-NoTest] [-NoWindows] [-NoLinux]
+rem   make_release.bat [-NoTest] [-NoWindows] [-NoLinux] [-AshleyEdition]
+rem The release window offers Ashley Edition; ordinary releases have no badge.
 set "GS_POWERSHELL=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if defined PROCESSOR_ARCHITEW6432 set "GS_POWERSHELL=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
 if "%~1"=="" (

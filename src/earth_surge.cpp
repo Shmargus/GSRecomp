@@ -69,6 +69,8 @@ constexpr float kTrailStartMove = 6.0f;  // px; the jump moves ~9-27 per frame
 
 bool enabled() {
     static const bool on = [] {
+        const char* project = std::getenv("GSR_STUDIO_MOD");
+        if (project && project[0]) return false;
         const char* v = std::getenv("GSR_MOD_FIELD_TEST");
         return v && v[0] && !(v[0] == '0' && v[1] == '\0');
     }();

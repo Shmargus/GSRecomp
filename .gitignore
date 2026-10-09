@@ -178,6 +178,11 @@ BLOG_POST*.html
 /symbols/
 /assets/*
 !/assets/launcher_logo.png
+# User-supplied decoration, packaged only by the Ashley Edition release option.
+!/assets/ashley_edition/
+/assets/ashley_edition/*
+!/assets/ashley_edition/edition_badge.bmp
+!/assets/ashley_edition/edition_badge.txt
 /generated/
 /roms/
 /tests/*
@@ -237,3 +242,6 @@ BLOG_POST*.html
 /build_lto_o2.bat
 # Downloaded Python packages (e.g. the unicorn wheel for build_stamp_variants.py).
 *.whl
+
+# Golden Sun Studio (kept local)
+/Golden Sun Studio/

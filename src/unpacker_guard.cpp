@@ -29,6 +29,9 @@ constexpr std::uint32_t kUnpackerRom = 0x08002808u;
 // Every return target inside the unpacker lies at or above its prologue;
 // 0x03006000..0x0300600F is its entry-only format check.
 constexpr std::uint32_t kUnpackerBody = 0x03006010u;
+// The main loop head, after a literal's `pop {r5,sb}`: only the prologue's
+// frame is on the stack here.
+constexpr std::uint32_t kLoopHead = 0x03006108u;
 // The prologue pushes r5-fp and lr; a literal adds `push {r5,sb}`.
 constexpr std::uint32_t kEntryFrame = 0x20u;
 constexpr std::uint32_t kLiteralFrame = 0x08u;
@@ -36,7 +39,7 @@ constexpr std::uint32_t kLiteralFrame = 0x08u;
 constexpr std::uint64_t kRedoBudget = 4'000'000u;
 constexpr unsigned kCapturesMax = 3;
 constexpr unsigned long long kCaptureAfter = 30;
-constexpr std::size_t kJournal = 64;
+constexpr std::size_t kJournal = 128;
 constexpr const char* kTextFile = "unpacker_recovered.txt";
 constexpr const char* kMemoryFile = "unpacker_recovered.bin";
 
@@ -53,6 +56,9 @@ Entry g_entry;
 struct JournalEvent {
     std::uint32_t pc = 0, r1 = 0, sp = 0, sb = 0, lr = 0;
     std::uint32_t call_depth = 0;  // runtime call-return stack
+    // g_runtime_resume_pc as the resolver is asked: an alias sets it only
+    // after this, so any value here was left over by an earlier entry.
+    std::uint32_t stale_resume = 0;
     unsigned long long irq_entries = 0;
     unsigned long long vblanks = 0;  // a change means a frame began meanwhile
     char path = '?';
@@ -101,10 +107,13 @@ void journal_each(const std::array<JournalEvent, kJournal>& ring, std::size_t ne
 void print_event(std::FILE* f, const JournalEvent& e) {
     std::fprintf(f,
         "  pc=0x%08X path=%c own=%d out=0x%08X (offset 0x%X) sp=0x%08X "
-        "(entry-0x%X) sb=0x%08X lr=0x%08X irqs=+%llu frames=+%llu depth=%u%s\n",
+        "(entry-0x%X) sb=0x%08X lr=0x%08X irqs=+%llu frames=+%llu depth=%u%s",
         e.pc, e.path, e.own ? 1 : 0, e.r1, e.r1 - g_entry.r[1] + 1u, e.sp,
         g_entry.r[13] - e.sp, e.sb, e.lr, e.irq_entries - g_entry.irq_entries,
         e.vblanks - g_entry.vblanks, e.call_depth, e.resumed ? " RESUMED" : "");
+    if (e.stale_resume != 0u)
+        std::fprintf(f, " STALE-RESUME=0x%08X", e.stale_resume);
+    std::fputc('\n', f);
 }
 
 int unmatched_return(std::uint32_t target);
@@ -145,6 +154,7 @@ void unpacker_guard_note_dispatch(std::uint32_t pc, GuardGuestFn fn,
     e.irq_entries = g_runtime_irq_entries;
     e.vblanks = g_runtime_vblank_starts;
     e.call_depth = runtime_call_stack_depth();
+    e.stale_resume = g_runtime_resume_pc;
     // runtime_dispatch logged this dispatch, with its resume mark, just
     // before asking the resolver; the copy is oldest first.
     std::uint32_t recent_pcs[16];
@@ -165,9 +175,15 @@ void unpacker_guard_note_dispatch(std::uint32_t pc, GuardGuestFn fn,
         }
     }
     const std::uint32_t entry_sp = g_entry.r[13];
-    const bool possible = e.sp == entry_sp - kEntryFrame ||
-                          e.sp == entry_sp - kEntryFrame - kLiteralFrame;
-    if (!possible && !j.frozen && pc != kUnpackerStart) {
+    // 0x03006000 (format check) and 0x03006010 (the prologue's push) run
+    // before the entry frame exists.
+    const bool possible = pc <= kUnpackerBody
+        ? e.sp == entry_sp
+        : pc == kLoopHead
+        ? e.sp == entry_sp - kEntryFrame
+        : e.sp == entry_sp - kEntryFrame ||
+          e.sp == entry_sp - kEntryFrame - kLiteralFrame;
+    if (!possible && !j.frozen) {
         j.frozen = true;
         j.frozen_ring = j.ring;
         j.frozen_count = j.count;

@@ -94,6 +94,8 @@ struct CustomColors {
 };
 bool write_picture_ini(const std::string& dir, int screen_kind,
                        const CustomColors& custom, int aspect);
+struct Backend;
+bool write_video_ini(const Backend* b);
 
 // System hotkey ids (config.ini [KeyMap] rows this host implements). Reset,
 // PauseDimmed and ToggleRenderer are intentionally absent â€” gbarecomp has no
@@ -398,6 +400,7 @@ struct Backend {
     // box is on AND SDL really created the opengl renderer; Off never calls
     // into screen_filter.cpp.
     ScreenFilter screen_filter = ScreenFilter::Off;
+    ScreenFilter preferred_screen_filter = ScreenFilter::Off;
     bool screen_filters_on = false;
     bool resize_driven_view = false;
     bool linear_filter = false;
@@ -519,6 +522,23 @@ struct Backend {
     // MC-WS-002: always-on per-present timing/scanout ring (see above).
     PresentCadence cadence;
 };
+
+void apply_vsync(Backend* b, bool on) {
+    if (on == b->vsync) return;
+#if SDL_VERSION_ATLEAST(2, 0, 18)
+    if (SDL_RenderSetVSync(b->renderer, on ? 1 : 0) == 0) {
+        b->vsync = on;
+    } else {
+        std::fprintf(stderr, "host_window: SDL_RenderSetVSync failed: %s\n",
+                     SDL_GetError());
+    }
+#else
+    std::fprintf(stderr, "host_window: built against SDL %d.%d.%d; "
+                 "V-Sync cannot be changed after startup\n",
+                 SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_PATCHLEVEL);
+#endif
+    b->cfg.vsync = b->vsync;
+}
 
 void apply_audio_timing(Backend* b) {
     if (!b || !b->bridge_ready || !b->audio_mtx) return;
@@ -1836,6 +1856,48 @@ void HostWindow::load_input_config(const char* dir) {
     // read from, rather than into whatever the process CWD happens to be.
     b->config_dir = dir;
 
+    // Only special release packages supply this decoration. Ordinary and
+    // developer packages have neither file and keep the existing F1 menu.
+    if (std::FILE* badge = std::fopen((base + "edition_badge.txt").c_str(), "rb")) {
+        char caption[256] = {}, flourish[256] = {};
+        if (std::fgets(caption, sizeof(caption), badge)) {
+            std::fgets(flourish, sizeof(flourish), badge);
+            caption[std::strcspn(caption, "\r\n")] = '\0';
+            flourish[std::strcspn(flourish, "\r\n")] = '\0';
+            config_ui_set_edition_badge((base + "edition_badge.bmp").c_str(),
+                                        caption, flourish);
+        }
+        std::fclose(badge);
+    }
+
+    // Missing video keys retain the window's startup defaults.
+    b->cfg.scale = b->scale;
+    b->cfg.fullscreen = b->fullscreen;
+    b->cfg.show_fps = b->fps_readout;
+    ini_scan_section((base + "config.ini").c_str(), "Video",
+                     [b](const char* key, const char* val) {
+        const bool on = SDL_strcasecmp(val, "true") == 0 ||
+                        std::strcmp(val, "1") == 0;
+        if (SDL_strcasecmp(key, "WindowScale") == 0) {
+            const long scale = std::strtol(val, nullptr, 10);
+            if (scale >= 1 && scale <= 8) b->cfg.scale = static_cast<int>(scale);
+        } else if (SDL_strcasecmp(key, "Fullscreen") == 0) {
+            b->cfg.fullscreen = on;
+        } else if (SDL_strcasecmp(key, "ShowFPS") == 0) {
+            b->cfg.show_fps = on;
+        } else if (SDL_strcasecmp(key, "VSync") == 0) {
+            b->cfg.vsync = on;
+        } else if (SDL_strcasecmp(key, "LinearFilter") == 0) {
+            b->cfg.linear_filter = on;
+        } else if (SDL_strcasecmp(key, "IntegerScale") == 0) {
+            b->cfg.integer_scale = on;
+        } else if (SDL_strcasecmp(key, "ScreenFilter") == 0) {
+            const long filter = std::strtol(val, nullptr, 10);
+            if (filter >= 0 && filter <= static_cast<int>(ScreenFilter::ScaleFx))
+                b->preferred_screen_filter = static_cast<ScreenFilter>(filter);
+        }
+    });
+
     // keybinds.ini [player1] (recomp-ui generic format, scancode names).
     ini_scan_section((base + "keybinds.ini").c_str(), "player1",
                      [b](const char* key, const char* val) {
@@ -2011,6 +2073,18 @@ void HostWindow::load_input_config(const char* dir) {
     // The window opened before this file was read: size it for a saved 4:3.
     // (A later set_surface_size sizes it the same way if the view changes.)
     if (b->aspect_4_3) apply_aspect_window_size(b);
+    // Restore size before fullscreen; fullscreen owns the desktop geometry.
+    adjust_scale(b->cfg.scale - b->scale);
+    set_fullscreen(b->cfg.fullscreen);
+    set_fps_readout(b->cfg.show_fps);
+    apply_vsync(b, b->cfg.vsync);
+    b->linear_filter = b->cfg.linear_filter;
+    SDL_SetTextureScaleMode(b->texture, b->linear_filter ? SDL_ScaleModeLinear
+                                                      : SDL_ScaleModeNearest);
+    b->integer_scale = b->cfg.integer_scale;
+    SDL_RenderSetIntegerScale(b->renderer, b->integer_scale ? SDL_TRUE : SDL_FALSE);
+    b->screen_filter = b->screen_filters_on ? b->preferred_screen_filter
+                                          : ScreenFilter::Off;
     // Apply the resolved factor live and mirror it into the UI's combo index:
     // 0 (Off/1x) unless the resolved factor is the 50x ceiling.
     runtime_set_overclock_factor(b->overclock_factor);
@@ -2631,6 +2705,40 @@ bool write_hotkeys_ini(const std::string& dir, const HotkeyBind* hotkeys) {
     return true;
 }
 
+// Update only [Video], preserving launcher settings and unknown sections.
+bool write_video_ini(const Backend* b) {
+    const std::string path = b->config_dir + "/config.ini";
+    std::vector<std::string> lines;
+    if (std::FILE* in = std::fopen(path.c_str(), "rb")) {
+        std::string cur;
+        int c;
+        while ((c = std::fgetc(in)) != EOF) {
+            if (c == '\n') { lines.push_back(cur); cur.clear(); }
+            else if (c != '\r') cur.push_back(static_cast<char>(c));
+        }
+        if (!cur.empty()) lines.push_back(cur);
+        std::fclose(in);
+    }
+    static const char* const names[] = {
+        "WindowScale", "Fullscreen", "VSync", "LinearFilter",
+        "IntegerScale", "ScreenFilter", "ShowFPS"
+    };
+    const std::string values[] = {
+        std::to_string(b->scale), b->fullscreen ? "true" : "false",
+        b->vsync ? "true" : "false", b->linear_filter ? "true" : "false",
+        b->integer_scale ? "true" : "false",
+        std::to_string(static_cast<int>(b->preferred_screen_filter)),
+        b->fps_readout ? "true" : "false"
+    };
+    rewrite_ini_section(lines, "Video", names, values, static_cast<int>(std::size(names)));
+    std::FILE* out = std::fopen(path.c_str(), "wb");
+    if (!out) return false;
+    bool ok = true;
+    for (const std::string& line : lines)
+        if (std::fprintf(out, "%s\n", line.c_str()) < 0) ok = false;
+    return std::fclose(out) == 0 && ok;
+}
+
 // Update only [Speed], preserving launcher settings and unknown sections.
 bool write_speed_ini(const std::string& dir, float multiplier,
                      bool mute_during_turbo, bool uncapped) {
@@ -3166,7 +3274,7 @@ HostWindow::Events HostWindow::pump() {
         b->cfg.aspect = b->aspect_4_3 ? 1 : 0;
         b->cfg.native_scale = b->native_scale;
         b->cfg.screen_filters_available = b->screen_filters_on;
-        b->cfg.screen_filter = static_cast<int>(b->screen_filter);
+        b->cfg.screen_filter = static_cast<int>(b->preferred_screen_filter);
     }
     if (!b->cfg.audio_changed && !b->cfg.mute) {
         b->cfg.volume = b->volume;
@@ -3510,33 +3618,19 @@ HostWindow::Events HostWindow::pump() {
             }
             b->cfg.binds_changed = false;
         }
-        if (b->cfg.video_changed) {
+        if (b->cfg.video_changed || b->cfg.color_save) {
+            const bool video_settings_changed =
+                b->cfg.fullscreen != b->fullscreen || b->cfg.scale != b->scale ||
+                b->cfg.show_fps != b->fps_readout || b->cfg.vsync != b->vsync ||
+                b->cfg.linear_filter != b->linear_filter ||
+                b->cfg.integer_scale != b->integer_scale ||
+                b->cfg.screen_filter != static_cast<int>(b->preferred_screen_filter);
             if (b->cfg.fullscreen != b->fullscreen)
                 set_fullscreen(b->cfg.fullscreen);
             if (b->cfg.scale != b->scale)
                 adjust_scale(b->cfg.scale - b->scale);
-            if (b->cfg.show_fps != b->fps_readout) ev.toggle_fps = true;
-            if (b->cfg.vsync != b->vsync) {
-                // SDL_RenderSetVSync is 2.0.18+. On older SDL the renderer's
-                // vsync flag is fixed at creation, so the toggle would lie —
-                // say so instead of silently doing nothing.
-#if SDL_VERSION_ATLEAST(2, 0, 18)
-                if (SDL_RenderSetVSync(b->renderer, b->cfg.vsync ? 1 : 0) == 0) {
-                    b->vsync = b->cfg.vsync;
-                } else {
-                    std::fprintf(stderr,
-                                 "host_window: SDL_RenderSetVSync failed: %s\n",
-                                 SDL_GetError());
-                    b->cfg.vsync = b->vsync;
-                }
-#else
-                std::fprintf(stderr, "host_window: built against SDL %d.%d.%d; "
-                             "V-Sync cannot be changed after startup\n",
-                             SDL_MAJOR_VERSION, SDL_MINOR_VERSION,
-                             SDL_PATCHLEVEL);
-                b->cfg.vsync = b->vsync;
-#endif
-            }
+            set_fps_readout(b->cfg.show_fps);
+            apply_vsync(b, b->cfg.vsync);
             if (b->cfg.linear_filter != b->linear_filter) {
                 b->linear_filter = b->cfg.linear_filter;
                 SDL_SetTextureScaleMode(b->texture,
@@ -3578,18 +3672,21 @@ HostWindow::Events HostWindow::pump() {
                 b->aspect_4_3 = b->cfg.aspect == 1;
                 apply_aspect_window_size(b);
             }
-            // Test-only, never saved.
-            if (b->screen_filters_on)
-                b->screen_filter = b->cfg.screen_filter == 1
-                    ? ScreenFilter::Lcd3x
-                    : b->cfg.screen_filter == 2 ? ScreenFilter::Xbr
-                    : b->cfg.screen_filter == 3 ? ScreenFilter::CrtLottes
-                    : b->cfg.screen_filter == 4 ? ScreenFilter::ScaleFx
-                                                : ScreenFilter::Off;
+            // Keep the preference even when this launch cannot use filters.
+            b->preferred_screen_filter = static_cast<ScreenFilter>(std::clamp(
+                b->cfg.screen_filter, 0, static_cast<int>(ScreenFilter::ScaleFx)));
+            b->screen_filter = b->screen_filters_on ? b->preferred_screen_filter
+                                                  : ScreenFilter::Off;
+            if (video_settings_changed && !write_video_ini(b))
+                std::fprintf(stderr, "host_window: could not write %s/config.ini\n",
+                             b->config_dir.c_str());
             if (kind_changed || aspect_changed || b->cfg.color_save) {
-                write_picture_ini(b->config_dir, b->cfg.screen_kind,
-                                  custom_colors_of(b->cfg), b->cfg.aspect);
-                b->cfg.color_save = false;
+                b->cfg.color_save = !write_picture_ini(
+                    b->config_dir, b->cfg.screen_kind,
+                    custom_colors_of(b->cfg), b->cfg.aspect);
+                if (b->cfg.color_save)
+                    std::fprintf(stderr, "host_window: could not write %s/config.ini\n",
+                                 b->config_dir.c_str());
             }
             if (b->cfg.native_renderer != b->native_renderer)
                 set_native_renderer_enabled(b->cfg.native_renderer);

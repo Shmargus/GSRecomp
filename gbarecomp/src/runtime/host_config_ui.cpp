@@ -12,6 +12,7 @@ bool (*g_config_ui_extra_wants_keyboard)() = nullptr;
 #ifdef GBARECOMP_HAVE_IMGUI
 
 #include <SDL.h>
+#include <SDL_opengl.h>
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -49,6 +50,19 @@ SDL_GLContext g_gl_context = nullptr;
 // config_ui_draw()/config_ui_shutdown() between imgui_impl_opengl3 (real
 // multi-viewport) and imgui_impl_sdlrenderer2 (docking only).
 bool g_use_opengl = false;
+SDL_Texture* g_badge_sdl_texture = nullptr;
+GLuint g_badge_gl_texture = 0;
+ImVec2 g_badge_size;
+char g_badge_caption[256] = {};
+char g_badge_flourish[256] = {};
+
+void clear_edition_badge() {
+    if (g_badge_gl_texture) glDeleteTextures(1, &g_badge_gl_texture);
+    if (g_badge_sdl_texture) SDL_DestroyTexture(g_badge_sdl_texture);
+    g_badge_gl_texture = 0;
+    g_badge_sdl_texture = nullptr;
+    g_badge_caption[0] = g_badge_flourish[0] = '\0';
+}
 
 // Which bind box is armed, if any. Exactly one capture can be live at a time,
 // and while it is, every key/pad press is swallowed and consumed as the bind.
@@ -844,11 +858,13 @@ void config_ui_shutdown() {
         if (g_window && g_gl_context) {
             SDL_GL_MakeCurrent(g_window, g_gl_context);
         }
+        clear_edition_badge();
         if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
             ImGui::DestroyPlatformWindows();
         }
         ImGui_ImplOpenGL3_Shutdown();
     } else {
+        clear_edition_badge();
         ImGui_ImplSDLRenderer2_Shutdown();
     }
     ImGui_ImplSDL2_Shutdown();
@@ -859,6 +875,46 @@ void config_ui_shutdown() {
     g_use_opengl = false;
     g_config_window_recover = false;
     g_ready = false;
+}
+
+void config_ui_set_edition_badge(const char* bitmap_path, const char* caption,
+                                 const char* flourish) {
+    if (!g_ready) return;
+    clear_edition_badge();
+    if (!bitmap_path || !caption || !*caption) return;
+    SDL_Surface* bitmap = SDL_LoadBMP(bitmap_path);
+    if (!bitmap) return;
+    SDL_Surface* rgba = SDL_ConvertSurfaceFormat(bitmap, SDL_PIXELFORMAT_RGBA32, 0);
+    SDL_FreeSurface(bitmap);
+    if (!rgba) return;
+    if (g_use_opengl) {
+        GLint old_texture = 0, old_alignment = 0, old_row_length = 0;
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &old_texture);
+        glGetIntegerv(GL_UNPACK_ALIGNMENT, &old_alignment);
+        glGetIntegerv(GL_UNPACK_ROW_LENGTH, &old_row_length);
+        glGenTextures(1, &g_badge_gl_texture);
+        glBindTexture(GL_TEXTURE_2D, g_badge_gl_texture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, rgba->w, rgba->h, 0,
+                     GL_RGBA, GL_UNSIGNED_BYTE, rgba->pixels);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, old_alignment);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, old_row_length);
+        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(old_texture));
+    } else {
+        g_badge_sdl_texture = SDL_CreateTextureFromSurface(g_renderer, rgba);
+        if (g_badge_sdl_texture)
+            SDL_SetTextureBlendMode(g_badge_sdl_texture, SDL_BLENDMODE_BLEND);
+    }
+    // Half the supplied bitmap's native size keeps the footer compact.
+    g_badge_size = ImVec2(rgba->w / 2.0f, rgba->h / 2.0f);
+    SDL_FreeSurface(rgba);
+    if (!g_badge_gl_texture && !g_badge_sdl_texture) return;
+    std::snprintf(g_badge_caption, sizeof(g_badge_caption), "%s", caption);
+    std::snprintf(g_badge_flourish, sizeof(g_badge_flourish), "%s",
+                  flourish ? flourish : "");
 }
 
 bool config_ui_visible() { return g_ready && g_visible; }
@@ -1094,7 +1150,11 @@ void config_ui_draw(ConfigUiState* st) {
             static int page = 0;
             page = std::clamp(page, 0, kPageCount - 1);
 
-            const float footer_h = ImGui::GetFrameHeightWithSpacing() + 8.0f;
+            const bool have_badge = g_badge_caption[0] != '\0';
+            const float badge_h = have_badge
+                ? std::max(g_badge_size.y, ImGui::GetTextLineHeightWithSpacing() * 2)
+                  + ImGui::GetStyle().ItemSpacing.y : 0.0f;
+            const float footer_h = ImGui::GetFrameHeightWithSpacing() + 8.0f + badge_h;
             ImGui::BeginChild("ConfigSidebar", ImVec2(150.0f, -footer_h),
                               ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
             for (int i = 0; i < kPageCount; ++i) {
@@ -1137,6 +1197,27 @@ void config_ui_draw(ConfigUiState* st) {
                                  ImGui::GetStyle().FramePadding.x * 2.0f;
             ImGui::SameLine(ImGui::GetContentRegionMax().x - quit_w);
             if (ImGui::Button(quit_label)) st->request_quit = true;
+
+            if (have_badge) {
+                const float gap = ImGui::GetStyle().ItemSpacing.x;
+                const float text_w = std::max(ImGui::CalcTextSize(g_badge_caption).x,
+                                             ImGui::CalcTextSize(g_badge_flourish).x);
+                const float badge_w = text_w + gap + g_badge_size.x;
+                ImGui::SetCursorPosX(std::max(ImGui::GetStyle().WindowPadding.x,
+                    ImGui::GetContentRegionMax().x - badge_w));
+                ImGui::BeginGroup();
+                ImGui::Dummy(ImVec2(0, std::max(0.0f,
+                    (g_badge_size.y - ImGui::GetTextLineHeightWithSpacing() * 2) / 2)));
+                ImGui::TextColored(kGold, "%s", g_badge_caption);
+                ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.83f, 1.0f), "%s",
+                                   g_badge_flourish);
+                ImGui::EndGroup();
+                ImGui::SameLine();
+                const ImTextureID texture = g_use_opengl
+                    ? static_cast<ImTextureID>(g_badge_gl_texture)
+                    : static_cast<ImTextureID>(reinterpret_cast<uintptr_t>(g_badge_sdl_texture));
+                ImGui::Image(texture, g_badge_size);
+            }
 
             // Esc closes the menu, unless it is cancelling a bind capture.
             if (g_capture == Capture::None &&
@@ -1185,6 +1266,7 @@ void config_ui_draw(ConfigUiState* st) {
 namespace gbarecomp {
 bool config_ui_init(SDL_Window*, SDL_Renderer*, bool) { return false; }
 void config_ui_shutdown() {}
+void config_ui_set_edition_badge(const char*, const char*, const char*) {}
 bool config_ui_handle_event(const SDL_Event*) { return false; }
 bool config_ui_visible() { return false; }
 void config_ui_toggle() {}

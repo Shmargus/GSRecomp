@@ -8,9 +8,26 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace gbarecomp {
+
+// Optional host tooling, polled only by the ordinary runner at clean outer
+// dispatch boundaries. Game adapters own IPC/authentication and snapshot paths.
+enum class ToolingCommand { Play, Pause, Step, SaveCheckpoint, RestoreCheckpoint };
+enum class ToolingPhase { Idle, Acknowledged, Completed, Ended };
+struct ToolingRequest {
+    std::uint64_t id = 0;
+    ToolingCommand command = ToolingCommand::Pause;
+    std::string checkpoint_path;
+};
+struct ToolingState {
+    std::uint64_t frame = 0;
+    bool paused = false;
+    bool stepping = false;
+    bool menu_paused = false;
+};
 
 // Per-game built-in defaults baked into a game runner at compile time.
 // Lets a standalone release .exe (e.g. MinishCapRecomp.exe) ship
@@ -64,6 +81,12 @@ struct RunOptions {
     // change; return false to make no request this pump. nullptr keeps the
     // normal fast path (one null-pointer check).
     bool (*pause_request_poll)(bool* out_paused) = nullptr;
+
+    bool (*tooling_active)() = nullptr;
+    bool (*tooling_poll)(ToolingRequest* request) = nullptr;
+    void (*tooling_status)(const ToolingState& state, std::uint64_t request_id,
+                           ToolingPhase phase, const char* error) = nullptr;
+    bool (*tooling_menu_paused)() = nullptr;
 
     // A game-owned menu drawn by the game over the paused picture (Golden
     // Sun's cheat menu). game_menu_toggle runs when the Cheat Menu hotkey

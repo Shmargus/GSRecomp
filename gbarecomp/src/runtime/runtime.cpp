@@ -132,6 +132,7 @@ struct Args {
     std::string rom_sha1;
     std::uint32_t rom_crc32 = 0;  // 0 = no CRC check (per-game TOML fills)
     std::string save_path;
+    std::string user_directory; // explicit config and save-state isolation
     std::size_t save_size = 0;
     int steps = 16;
     int frames = -1;
@@ -574,7 +575,7 @@ void find_config_arg(int argc, char** argv, Args* args) {
              s == "--dump-png" || s == "--load-state" ||
               s == "--view-width" || s == "--view-height" ||
               s == "--widescreen" ||
-             s == "--save" || s == "--save-path") &&
+             s == "--save" || s == "--save-path" || s == "--user-directory") &&
             i + 1 < argc) {
             ++i;
             continue;
@@ -753,6 +754,12 @@ bool parse_cli(int argc, char** argv, Args* args, std::string* err) {
                 if (err) *err = "invalid --widescreen value (expected >= 0)";
                 return false;
             }
+            continue;
+        }
+        if (s == "--user-directory") {
+            const char* v = need_value("--user-directory"); if (!v) return false;
+            args->user_directory = v;
+            if (!std::filesystem::path(v).is_absolute()) { if (err) *err = "--user-directory must be absolute"; return false; }
             continue;
         }
         if (s == "--save" || s == "--save-path") {
@@ -1313,7 +1320,13 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                      "[audio] native output forced OFF by strict-static acceptance\n");
     }
     bus.request_native_audio(native_audio_requested);
-    if (opts.rom_patch) opts.rom_patch(&rom);
+    try { if (opts.rom_patch) opts.rom_patch(&rom); }
+    catch (const std::exception& error) {
+        std::fprintf(stderr,"[gbarecomp:runtime] ROM data patch rejected: %s\n",error.what());
+        gbarecomp::overlay_loader_shutdown();
+        runtime_shutdown();
+        return 1;
+    }
     bus.set_rom(rom.data(), rom.size());
     if (header.save_type == gba::SaveType::SRAM) {
         std::size_t sram_bytes = args.save_size ? args.save_size : (32 * 1024);
@@ -2767,7 +2780,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                 std::filesystem::path p(argv[0]);
                 if (p.has_parent_path()) exe_dir = p.parent_path().string();
             }
-            win.load_input_config(exe_dir.c_str());
+            win.load_input_config(args.user_directory.empty() ? exe_dir.c_str() : args.user_directory.c_str());
         }
         const int active_view_mode = fixed_mode_for_dimensions(
             ppu.render_width(), ppu.render_height());
@@ -2818,7 +2831,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     // Host-window save-state slots: the ROM path with a .stateN
     // extension (N = 1..9). Shift+Fn writes slot N, Fn restores it.
     auto slot_path = [&](int slot) -> std::string {
-        std::filesystem::path p(args.rom);
+        std::filesystem::path p = args.user_directory.empty() ? std::filesystem::path(args.rom) : std::filesystem::path(args.user_directory) / "game";
         p.replace_extension(".state" + std::to_string(slot));
         return p.string();
     };

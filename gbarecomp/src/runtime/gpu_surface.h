@@ -170,6 +170,17 @@ public:
     void read_texture_rgb(GpuTexture texture, int width, int height,
                           std::uint8_t* out_rgb);
 
+    // The same readback split in two, so the CPU does not sit waiting for
+    // the GPU to finish drawing. begin_texture_readback queues a copy of the
+    // texture into host-readable memory and returns at once (false when the
+    // context cannot do that, OpenGL 3.2 sync objects being required).
+    // finish_texture_readback delivers the copy queued by the PREVIOUS begin,
+    // in read_texture_rgb's layout -- normally long finished by then -- and
+    // returns false if there is none of this size or the GPU did not finish
+    // it in time. A caller presenting the result runs one frame behind.
+    bool begin_texture_readback(GpuTexture texture, int width, int height);
+    bool finish_texture_readback(int width, int height, std::uint8_t* out_rgb);
+
 private:
     bool load_entry_points();
     // Keeps the depth buffer the same size as the colour attachment.
@@ -194,6 +205,19 @@ private:
     struct SavedState;
     SavedState* saved_ = nullptr;
     bool in_frame_ = false;
+
+    // Per-program uniform locations and last values set, so a setter costs
+    // one GL call (or none, when the value is unchanged) instead of a program
+    // query, two program switches, a name lookup and the set itself.
+    struct UniformSlot;
+    struct UniformCache;
+    UniformCache* uniforms_ = nullptr;
+
+    // Two pixel-pack buffers used in turn by begin/finish_texture_readback.
+    struct Readback;
+    Readback* readback_ = nullptr;
+    UniformSlot* uniform_slot(GpuProgram p, const char* name);
+    void forget_program_uniforms(GpuProgram p);
 };
 
 }  // namespace gbarecomp

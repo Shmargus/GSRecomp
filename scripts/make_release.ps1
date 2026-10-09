@@ -49,6 +49,8 @@ param(
     [switch]$NoLinux,
     # Only the player launchers (see above).
     [switch]$LauncherOnly,
+    # Include Ashley's F1 sticker and dedication in this full release only.
+    [switch]$AshleyEdition,
     # Limits for the engine build (step 1), passed on to build_lto.ps1.
     [ValidateRange(1, 100)][int]$CpuPercent = 90,
     [ValidateRange(1, 100)][int]$RamPercent = 90
@@ -72,6 +74,7 @@ try {
         -ErrorAction SilentlyContinue
     if ($busy) { throw 'Another build is running. Wait for it to finish, then run this again.' }
     if ($NoWindows -and $NoLinux) { throw 'Nothing to make: both -NoWindows and -NoLinux were given.' }
+    if ($AshleyEdition -and $LauncherOnly) { throw 'Ashley Edition needs a full release; turn off Launcher only.' }
     $releaseVersion = if ($Version.Trim()) { $Version.Trim() } else { 'dev' }
     if ($releaseVersion -notmatch '^[A-Za-z0-9._-]+$') { throw "Version '$releaseVersion' may only use letters, digits, '.', '-' and '_'." }
     if ($releaseVersion -eq 'dev') {
@@ -174,6 +177,10 @@ try {
         }
         Copy-Item -LiteralPath $launcher  -Destination $outDir
         Copy-Item -LiteralPath $engineExe -Destination $outDir
+        if ($AshleyEdition) {
+            Copy-Item -LiteralPath (Join-Path $repo 'assets/ashley_edition/edition_badge.bmp'),
+                                  (Join-Path $repo 'assets/ashley_edition/edition_badge.txt') -Destination $outDir
+        }
         foreach ($dll in @('SDL2.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll')) {
             Copy-Item -LiteralPath (Join-Path $mingw $dll) -Destination $outDir
         }
@@ -342,7 +349,8 @@ $($packages -join "`r`n")
         }
 
         # ---- 7. Zip ------------------------------------------------------------------
-        $zip = Join-Path $releaseRoot ('GoldenSunRecompiled-{0}.zip' -f (Get-Date -Format 'yyyy-MM-dd'))
+        $editionSuffix = if ($AshleyEdition) { '-Ashley' } else { '' }
+        $zip = Join-Path $releaseRoot ('GoldenSunRecompiled{0}-{1}.zip' -f $editionSuffix, (Get-Date -Format 'yyyy-MM-dd'))
         if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
         Compress-Archive -Path $outDir -DestinationPath $zip -CompressionLevel Optimal
         Write-Host ''
@@ -369,6 +377,7 @@ $($packages -join "`r`n")
             Write-Host ''
             Write-Host "Linux release (WSL $distro)."
             $linuxArgs = @('scripts/make_release_linux.sh', '--version', $releaseVersion)
+            if ($AshleyEdition) { $linuxArgs += '--ashley-edition' }
             if ($LauncherOnly) {
                 $linuxArgs += '--launcher-only'
             } elseif ($NoTest) {

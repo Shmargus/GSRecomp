@@ -54,6 +54,7 @@ version=${GSR_RELEASE_VERSION:-dev}
 test_build=1
 dev=0
 launcher_only=0
+ashley_edition=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --rom) rom=$2; shift 2 ;;
@@ -61,9 +62,14 @@ while [ $# -gt 0 ]; do
         --version) version=$2; shift 2 ;;
         --dev) dev=1; launcher_only=1; shift ;;
         --launcher-only) launcher_only=1; shift ;;
-        *) echo "usage: $0 [--rom <path>] [--no-test] [--version <GitHub release tag>] [--launcher-only | --dev]" >&2; exit 2 ;;
+        --ashley-edition) ashley_edition=1; shift ;;
+        *) echo "usage: $0 [--rom <path>] [--no-test] [--version <GitHub release tag>] [--ashley-edition] [--launcher-only | --dev]" >&2; exit 2 ;;
     esac
 done
+if [ "$ashley_edition" = 1 ] && [ "$launcher_only" = 1 ]; then
+    echo "Ashley Edition needs a full release; turn off launcher only." >&2
+    exit 2
+fi
 
 # The bug report service's address (tools/report_service) stays out of the
 # public source, as in make_release.ps1: it is read from local/report_host.txt
@@ -143,6 +149,10 @@ data=$builder/data
 tc=$builder/toolchain
 mkdir -p "$data/overlays" "$builder/engine/include" "$tc"
 install -m 755 -s "$build/GoldenSunLauncher" "$build/GoldenSunRecomp" "$out/"
+if [ "$ashley_edition" = 1 ]; then
+    cp "$repo/assets/ashley_edition/edition_badge.bmp" \
+       "$repo/assets/ashley_edition/edition_badge.txt" "$out/"
+fi
 install -m 755 -s "$build/gsr_builder" "$recompiler" "$builder/"
 
 usa=$repo/config/usa
@@ -352,7 +362,9 @@ fi
 
 # ---- 6. The download ---------------------------------------------------------
 stamp=$(date +%Y-%m-%d)
-archive=$release_root/GoldenSunRecompiled-linux-$stamp.zip
+edition_suffix=
+if [ "$ashley_edition" = 1 ]; then edition_suffix=-Ashley; fi
+archive=$release_root/GoldenSunRecompiled-linux$edition_suffix-$stamp.zip
 mkdir -p "$release_root"
 rm -f "$archive"
 links=$(find "$out" -type l)

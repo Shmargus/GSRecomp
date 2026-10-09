@@ -4,6 +4,7 @@
 // verifies the exact USA/Europe image, and starts the already-built runner.
 
 #include <windows.h>
+#include <shellapi.h>
 #include <bcrypt.h>
 #include <commdlg.h>
 #include <gdiplus.h>
@@ -35,6 +36,7 @@
 #include <mutex>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -119,6 +121,10 @@ bool g_test_unpacker_catch = false;
 // test option: off each session, never saved.
 bool g_test_screen_filters = false;
 bool g_test_mod_field_test = k_launcher_test_defaults.mod_field_test;
+fs::path g_studio_project;
+fs::path g_studio_session;
+bool g_studio_explicit = false;
+int g_studio_exit = 1;
 bool g_test_room_buffer = k_launcher_test_defaults.room_buffer;
 bool g_test_swi_log = k_launcher_test_defaults.swi_log;
 
@@ -1360,7 +1366,61 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed, bool u
     if (launcher_quit) PostQuitMessage(launcher_exit_code);
 }
 
+std::wstring quote_studio_arg(const std::wstring& value) {
+    std::wstring result=L"\"";unsigned slashes=0;
+    for (wchar_t c:value) {
+        if (c==L'\\') {++slashes;continue;}
+        if (c==L'"') {result.append(slashes*2+1,L'\\');result+=c;}
+        else {result.append(slashes,L'\\');result+=c;}slashes=0;
+    }
+    result.append(slashes*2,L'\\');result+=L'"';return result;
+}
+fs::path studio_session_for(const fs::path& root,const fs::path& project) {
+    const auto text=wide_to_utf8(fs::canonical(project).wstring());
+    BCRYPT_ALG_HANDLE algorithm=nullptr;BCRYPT_HASH_HANDLE hash=nullptr;unsigned char digest[20]{};
+    if (BCryptOpenAlgorithmProvider(&algorithm,BCRYPT_SHA1_ALGORITHM,nullptr,0)<0) throw std::runtime_error("Cannot identify Studio session");
+    DWORD object_length=0,result_length=0;
+    auto status=BCryptGetProperty(algorithm,BCRYPT_OBJECT_LENGTH,reinterpret_cast<PUCHAR>(&object_length),sizeof(object_length),&result_length,0);
+    std::vector<UCHAR> object(object_length);
+    if (status>=0) status=BCryptCreateHash(algorithm,&hash,object.data(),object_length,nullptr,0,0);
+    if (status>=0) status=BCryptHashData(hash,reinterpret_cast<PUCHAR>(const_cast<char*>(text.data())),static_cast<ULONG>(text.size()),0);
+    if (status>=0) status=BCryptFinishHash(hash,digest,sizeof digest,0);
+    if (hash) BCryptDestroyHash(hash);
+    BCryptCloseAlgorithmProvider(algorithm,0);
+    if (status<0) throw std::runtime_error("Cannot identify Studio session");
+    std::wstring key;constexpr wchar_t hex[]=L"0123456789abcdef";
+    for (auto byte:digest) {key+=hex[byte>>4];key+=hex[byte&15];}
+    return root/L"local"/L"studio-sessions"/key;
+}
+void prepare_studio_session(const fs::path& root) {
+    auto extension=g_studio_project.extension().wstring();
+    std::transform(extension.begin(),extension.end(),extension.begin(),[](wchar_t c){return std::towlower(c);});
+    if (!g_studio_project.is_absolute() || !fs::is_regular_file(g_studio_project) || extension!=L".mod") throw std::runtime_error("Choose an absolute .mod project path");
+    g_studio_project=fs::canonical(g_studio_project);
+    if (g_studio_session.empty()) g_studio_session=studio_session_for(root,g_studio_project);
+    if (!g_studio_session.is_absolute()) throw std::runtime_error("Studio session path must be absolute");
+    const auto allowed=fs::weakly_canonical(root/L"local"/L"studio-sessions");
+    const auto session=fs::weakly_canonical(g_studio_session);
+    const auto relative=session.lexically_relative(allowed);
+    const auto inside_root=allowed.lexically_relative(fs::canonical(root));
+    if (relative.empty() || relative==L"." || *relative.begin()==L".." || inside_root.empty() || *inside_root.begin()==L"..") throw std::runtime_error("Studio saves must be inside the launcher's local/studio-sessions folder");
+    g_studio_session=session;const auto marker=session/L"studio-project.txt";
+    if (fs::exists(session)) {
+        if (fs::exists(marker)) {
+            auto owner=read_cached_path(marker);
+            if (owner.empty() || !fs::exists(fs::path(owner)) || !fs::equivalent(fs::path(owner),g_studio_project)) throw std::runtime_error("Studio session belongs to another project");
+        } else if (!fs::is_empty(session)) throw std::runtime_error("Studio session folder already contains unrelated files");
+    }
+    fs::create_directories(session);write_cached_path(marker,g_studio_project.wstring());
+    if (read_cached_path(marker)!=g_studio_project.wstring()) throw std::runtime_error("Cannot record Studio session ownership");
+}
+
 int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
+    const bool studio = g_test_variables && g_test_mod_field_test && !g_studio_project.empty();
+    if (studio) {
+        try { prepare_studio_session(root); }
+        catch (const std::exception& e) { MessageBoxW(window,utf8_to_wide(e.what()).c_str(),L"Golden Sun Studio",MB_OK|MB_ICONERROR);return 1; }
+    }
     HANDLE log_file = INVALID_HANDLE_VALUE;
     // Close the session log if it is open, say why, and give up the start.
     auto fail = [&](const std::wstring& text, UINT icon = MB_ICONERROR) {
@@ -1373,7 +1433,7 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
     // (runtime.cpp "save file too large"), so say why instead of exiting.
     constexpr std::uintmax_t kGameSaveBytes = 0x10000;
     {
-        const fs::path save = fs::path(rom).replace_extension(L".sav");
+        const fs::path save = studio ? g_studio_session/L"game.sav" : fs::path(rom).replace_extension(L".sav");
         std::error_code save_ec;
         const std::uintmax_t save_size = fs::file_size(save, save_ec);
         if (!save_ec && save_size > kGameSaveBytes) {
@@ -1457,6 +1517,13 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
     }
 
     ChildEnvironment child_environment;
+    child_environment.unset(L"GSR_STUDIO_MOD");
+    child_environment.unset(L"GSR_STUDIO_SESSION");
+    if (studio) {
+        child_environment.set(L"GSR_STUDIO_MOD",g_studio_project.wstring());
+        child_environment.set(L"GSR_STUDIO_SESSION",g_studio_session.wstring());
+        for (const auto* key:{L"GBARECOMP_LOAD_STATE",L"GBARECOMP_INPUT_REPLAY",L"GBARECOMP_INPUT_RECORD"}) child_environment.unset(key);
+    }
     if (!child_environment.valid()) {
         launcher_log(L"Start game: the game environment could not be prepared.");
         return fail(L"The game environment could not be prepared.");
@@ -1494,9 +1561,9 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
     // the resulting trace can be replayed. Replay and recording are mutually
     // exclusive in the runner; reject an explicit conflict before spawning
     // rather than allowing a partial, misleading session.
-    const std::wstring explicit_input_record =
+    const std::wstring explicit_input_record = studio ? L"" :
         inherited_environment_value(L"GBARECOMP_INPUT_RECORD");
-    const std::wstring input_replay =
+    const std::wstring input_replay = studio ? L"" :
         inherited_environment_value(L"GBARECOMP_INPUT_REPLAY");
     std::wstring automatic_input_path;
     if (logging && input_replay.empty() && explicit_input_record.empty() &&
@@ -1705,7 +1772,10 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
     // when these inherited variables are absent. Input replay is already
     // inherited by ChildEnvironment; these controls only bridge the state
     // path and an optional windowed frame budget to the runner CLI.
-    gsr::append_developer_replay_arguments(
+    if (studio) {
+        command += L" --window --save " + quote_studio_arg((g_studio_session/L"game.sav").wstring());
+        command += L" --user-directory " + quote_studio_arg(g_studio_session.wstring());
+    } else gsr::append_developer_replay_arguments(
         command, inherited_environment_value(L"GBARECOMP_LOAD_STATE"),
         inherited_environment_value(L"GBARECOMP_REPLAY_FRAMES"));
     std::vector<wchar_t> mutable_command(command.begin(), command.end());
@@ -1809,9 +1879,11 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
         out_thread.join();
         err_thread.join();
     }
+    WaitForSingleObject(process.hProcess,INFINITE);
     DWORD exit_code = 0;
     GetExitCodeProcess(process.hProcess, &exit_code);
     if (log_file != INVALID_HANDLE_VALUE) CloseHandle(log_file);
+    log_file=INVALID_HANDLE_VALUE;
     CloseHandle(process.hProcess);
 
     if (kReleaseLauncher) {
@@ -1833,6 +1905,14 @@ int run_game(const fs::path& root, const std::wstring& rom, HWND window) {
                                              exit_code),
                              crashed, unpacker);
         }
+    }
+    if (studio && exit_code!=0) {
+        std::ifstream file(fs::path(log_path),std::ios::binary);std::string line,reason;
+        while (std::getline(file,line)) if (line.find("ROM data patch rejected:")!=std::string::npos) reason=line;
+        if (reason.empty()) reason="Build the current game and root launcher before using Studio projects.";
+        const auto message=L"Studio preview could not start.\n\n"+utf8_to_wide(reason)+L"\n\nSession log: "+log_path;
+        MessageBoxW(nullptr,message.c_str(),L"Golden Sun Studio",MB_OK|MB_ICONERROR|MB_SETFOREGROUND);
+        return static_cast<int>(exit_code);
     }
     return 0;
 }
@@ -1870,6 +1950,8 @@ constexpr int kAutoCaptureButton = 1051;
 constexpr int kAutoStartButton = 1052;
 constexpr int kScreenFiltersButton = 1053;
 constexpr int kUnpackerCatchButton = 1054;
+constexpr int kStudioProjectButton = 1055;
+constexpr int kStudioProjectPath = 1056;
 
 fs::path g_launcher_root;
 
@@ -2117,7 +2199,7 @@ void layout_buttons(HWND window) {
         kBattleBg1RecordButton,
         // right: rendering
         kRoomBufferButton,     kFrameRewindButton,     kAutoCaptureButton,
-        kModFieldTestButton,    kScreenFiltersButton,
+        kModFieldTestButton,    kStudioProjectButton, kStudioProjectPath, kScreenFiltersButton,
         // right, continued: performance
         kHeadroomProbeButton,  kCostProbeButton,      kHostProfButton,
         kPresentCadenceButton, kRamChurnProbeButton,
@@ -2216,6 +2298,7 @@ void layout_buttons(HWND window) {
             content_x + kIndent + column * (child_width + kColumnGap);
         MoveWindow(child, child_x, child_y, child_width, kRowHeight, TRUE);
         ShowWindow(child, g_test_variables ? SW_SHOW : SW_HIDE);
+        if (child_ids[i]==kStudioProjectButton || child_ids[i]==kStudioProjectPath) EnableWindow(child,g_test_variables && g_test_mod_field_test);
     }
 
     // The panel's extent just changed; repaint the backdrop under it.
@@ -2972,6 +3055,7 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
         g_test_room_buffer = k_launcher_test_defaults.room_buffer;
         g_test_swi_log = k_launcher_test_defaults.swi_log;
         g_test_mod_field_test = k_launcher_test_defaults.mod_field_test;
+        if (g_studio_explicit) { g_test_variables=true;g_test_mod_field_test=true; }
         // "Play" once a ROM has been picked and is still where it was.
         CreateWindowExW(0, L"BUTTON",
                         remembered_rom(g_launcher_root).empty() ? L"Pick ROM" : L"Play",
@@ -2997,6 +3081,8 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             layout_buttons(window);
             return 0;
         }
+        CreateWindowExW(0,L"BUTTON",L"Choose .mod project",WS_CHILD|WS_TABSTOP|BS_PUSHBUTTON,0,0,0,0,window,reinterpret_cast<HMENU>(kStudioProjectButton),GetModuleHandleW(nullptr),nullptr);
+        CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",g_studio_project.empty()?L"No project (legacy Earth Surge test)":g_studio_project.c_str(),WS_CHILD|WS_TABSTOP|ES_READONLY|ES_AUTOHSCROLL,0,0,0,0,window,reinterpret_cast<HMENU>(kStudioProjectPath),GetModuleHandleW(nullptr),nullptr);
         // Every checkbox below is BS_OWNERDRAW (drawn by draw_checkbox_item,
         // state read from checkbox_state_for_id) rather than BS_AUTOCHECKBOX
         // so it can sit on the panel's real background instead of painting
@@ -3048,7 +3134,7 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             // the host spell effects on.
             // Also logs [move-probe] lines for battle moves (src/move_probe.cpp):
             // the frame each blow lands and where its sparks are on screen.
-            {kModFieldTestButton, L"Mod test: Earth Surge"},
+            {kModFieldTestButton, L"Enable Mod test"},
             {kRoomBufferButton, L"Room buffer self-check"},
             // F12 saves the frames shown just before it, not only the
             // current one: a one-frame flicker is gone before F12 lands.
@@ -3256,6 +3342,7 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             case kEnhancedOptionsButton:
                 save_launcher_audio_settings(g_launcher_root, g_audio_settings);
                 break;
+            case kModFieldTestButton:
             case kTestVariablesButton:
                 layout_buttons(window);
                 break;
@@ -3264,6 +3351,18 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             }
             HWND clicked = GetDlgItem(window, LOWORD(w_param));
             if (clicked) InvalidateRect(clicked, nullptr, FALSE);
+            return 0;
+        }
+        if (LOWORD(w_param)==kStudioProjectButton && g_test_variables && g_test_mod_field_test) {
+            const auto selected=pick_file(L"Choose Golden Sun Studio project",L"Golden Sun project (*.mod)\0*.mod\0\0",{},window);
+            if (!selected.empty()) {
+                try {
+                    g_studio_project=fs::canonical(fs::path(selected));g_studio_session.clear();
+                    SetWindowTextW(GetDlgItem(window,kStudioProjectPath),g_studio_project.c_str());
+                } catch (const std::exception& e) {
+                    MessageBoxW(window,utf8_to_wide(e.what()).c_str(),L"Golden Sun Studio",MB_OK|MB_ICONERROR);
+                }
+            }
             return 0;
         }
         if (LOWORD(w_param) == kPickRomButton) {
@@ -3284,7 +3383,9 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
                 return 0;
             }
             launcher_log(L"Starting the game.");
-            if (run_game(g_launcher_root, rom, window) == 0) {
+            const int result=run_game(g_launcher_root, rom, window);
+            if (g_studio_explicit) g_studio_exit=result;
+            if (result == 0) {
                 DestroyWindow(window);  // no-op if run_game already destroyed it
             }
             return 0;
@@ -3419,7 +3520,9 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             return 0;
         }
         launcher_log(L"Build: finished; the player chose to start now.");
-        if (run_game(g_launcher_root, g_build_rom, window) == 0)
+        const int result=run_game(g_launcher_root, g_build_rom, window);
+        if (g_studio_explicit) g_studio_exit=result;
+        if (result == 0)
             DestroyWindow(window);
         return 0;
     }
@@ -3552,8 +3655,8 @@ int show_launcher(const fs::path& root) {
     if (kReleaseLauncher) SetTimer(window, kProgressTimer, 33, nullptr);
     ShowWindow(window, SW_SHOW);
     UpdateWindow(window);
-    check_for_update(window);
-    begin_auto_start(window);
+    if (g_studio_explicit) PostMessageW(window,WM_COMMAND,MAKEWPARAM(kPickRomButton,BN_CLICKED),0);
+    else { check_for_update(window);begin_auto_start(window); }
 
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {
@@ -3569,18 +3672,37 @@ int show_launcher(const fs::path& root) {
     g_backdrop.bitmap.reset();
     UnregisterClassW(class_name, GetModuleHandleW(nullptr));
     Gdiplus::GdiplusShutdown(gdiplus_token);
-    return static_cast<int>(message.wParam);
+    return g_studio_explicit ? g_studio_exit : static_cast<int>(message.wParam);
 }
 
 }  // namespace
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
-    // Must be the FIRST thing in WinMain, before any other subsystem.
+    int argc=0;LPWSTR* argv=CommandLineToArgvW(GetCommandLineW(),&argc);
+    if (!argv) return 1;
+    if (argc==2 && std::wstring(argv[1])==L"--studio-capabilities") {
+        constexpr char capability[]="GSR_STUDIO_CAPABILITIES_1\n";
+        DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),capability,sizeof(capability)-1,&written,nullptr);
+        LocalFree(argv);return written==sizeof(capability)-1?0:1;
+    }
+    bool bad=false;std::set<std::wstring> supplied;
+    for (int i=1;i<argc;++i) {
+        const std::wstring key=argv[i];
+        if ((key!=L"--studio-project" && key!=L"--studio-session") || i+1>=argc || !supplied.insert(key).second) {bad=true;break;}
+        if (key==L"--studio-project") g_studio_project=fs::path(argv[++i]);else g_studio_session=fs::path(argv[++i]);
+    }
+    LocalFree(argv);
+    if (bad || (!supplied.empty() && (supplied.size()!=2 || g_studio_project.empty() || g_studio_session.empty()))) {MessageBoxW(nullptr,L"Studio launch requires --studio-project and --studio-session absolute paths.",L"Golden Sun Studio",MB_OK|MB_ICONERROR);return 1;}
+    if (!g_studio_project.empty()) {
+        try {prepare_studio_session(module_dir());g_studio_explicit=true;}
+        catch (const std::exception& e) {MessageBoxW(nullptr,utf8_to_wide(e.what()).c_str(),L"Golden Sun Studio",MB_OK|MB_ICONERROR);return 1;}
+    }
+    // The side-effect-free capability query exits before crash logging.
     // nullptr = default to the directory this executable lives in.
     gbarecomp::crash_handler_install(nullptr);
 
     const fs::path root = module_dir();
-    const bool developer_auto_launch = !kReleaseLauncher &&
+    const bool developer_auto_launch = !g_studio_explicit && !kReleaseLauncher &&
         inherited_environment_truthy(L"GBARECOMP_AUTO_LAUNCH");
     if (developer_auto_launch) {
         // This path is deliberately opt-in and uses the same cached ROM plus

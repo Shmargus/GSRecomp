@@ -1,6 +1,5 @@
-// The mod loader. For now it holds one thing: a launcher test ("Mod test:
-// Earth Surge", env GSR_MOD_FIELD_TEST) that adds a Psynergy in one of the
-// game's empty slots by changing data tables in memory. Design:
+// The mod loader: gated Studio projects, or the original Earth Surge launcher
+// test when no project is selected. Both change only in-memory data. Design:
 // docs/features/MODDING.md.
 //
 // Evidence (FACTS.md, 2026-09-30):
@@ -21,6 +20,11 @@
 // ROM offset = address - 0x08000000. Only the in-memory copy is changed; the
 // ROM file on disk and its SHA-1 check are untouched.
 #include "mod_loader.h"
+#ifdef GSR_HAVE_STUDIO
+#include "../Golden Sun Studio/runtime/studio_mod.h"
+#endif
+#include <filesystem>
+#include <stdexcept>
 
 #include <map>
 #include <string>
@@ -140,7 +144,30 @@ void patch_text(std::vector<std::uint8_t>* rom) {
 }
 
 void patch_rom(std::vector<std::uint8_t>* rom_vector) {
-    if (!rom_vector || !test_enabled()) return;
+    if (!rom_vector) return;
+#ifdef _WIN32
+    const wchar_t* project = _wgetenv(L"GSR_STUDIO_MOD");
+#else
+    const char* project = std::getenv("GSR_STUDIO_MOD");
+#endif
+    if (project && project[0]) {
+        const char* gate=std::getenv("GSR_MOD_FIELD_TEST");
+        if (!gate || std::string(gate)!="1") throw std::runtime_error("Studio project requires Enable Mod test");
+#ifdef _WIN32
+        const wchar_t* session = _wgetenv(L"GSR_STUDIO_SESSION");
+#else
+        const char* session = std::getenv("GSR_STUDIO_SESSION");
+#endif
+        if (!session || !session[0] || !std::filesystem::path(session).is_absolute()) throw std::runtime_error("Studio project requires its isolated session directory");
+#ifdef GSR_HAVE_STUDIO
+        gsr::studio::load_project(*rom_vector,std::filesystem::path(project));
+        std::fprintf(stderr,"[studio] project loaded transactionally; legacy Earth Surge test disabled\n");
+        return;
+#else
+        throw std::runtime_error("this build has no Golden Sun Studio support (the folder was absent when it was built)");
+#endif
+    }
+    if (!test_enabled()) return;
     std::uint8_t* rom = rom_vector->data();
     const std::size_t size = rom_vector->size();
     if (kClassTable + kClassScanLimit * kClassStride > size ||

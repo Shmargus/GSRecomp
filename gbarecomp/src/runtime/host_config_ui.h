@@ -260,6 +260,11 @@ bool config_ui_init(SDL_Window* window, SDL_Renderer* renderer,
                      bool use_opengl);
 void config_ui_shutdown();
 
+// Optional release decoration, supplied beside the executable. No badge is
+// shown unless the game supplies both the bitmap and its caption.
+void config_ui_set_edition_badge(const char* bitmap_path, const char* caption,
+                                 const char* flourish);
+
 // Feed every SDL event here BEFORE the host window interprets it. Returns true
 // when the UI consumed the event and the host/guest must ignore it — true
 // whenever the menu is visible and the event is mouse/keyboard input.
