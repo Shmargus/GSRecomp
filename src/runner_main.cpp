@@ -16005,8 +16005,9 @@ RuntimeGuestFn verified_ram_dispatch(std::uint32_t pc, int thumb) {
         return verified_ram_dispatch_resolve(pc, thumb);
     g_ram_resolve_path = gsr::RamResolvePath::None;
     const RuntimeGuestFn fn = verified_ram_dispatch_resolve(pc, thumb);
-    gsr::unpacker_guard_note_dispatch(pc, fn, unpacker_own_entry(pc),
-                                      g_ram_resolve_path);
+    if (gsr::unpacker_guard_note_dispatch(pc, fn, unpacker_own_entry(pc),
+                                          g_ram_resolve_path))
+        return &verified_ram_dispatch_noop;  // redone; g_cpu is at the caller
     return fn;
 }
 

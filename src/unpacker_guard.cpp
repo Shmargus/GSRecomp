@@ -32,6 +32,8 @@ constexpr std::uint32_t kUnpackerBody = 0x03006010u;
 // The main loop head, after a literal's `pop {r5,sb}`: only the prologue's
 // frame is on the stack here.
 constexpr std::uint32_t kLoopHead = 0x03006108u;
+// The final `bx lr`, after `pop {r5-fp,lr}`: the stack is back at entry.
+constexpr std::uint32_t kExit = 0x030062FCu;
 // The prologue pushes r5-fp and lr; a literal adds `push {r5,sb}`.
 constexpr std::uint32_t kEntryFrame = 0x20u;
 constexpr std::uint32_t kLiteralFrame = 0x08u;
@@ -117,6 +119,7 @@ void print_event(std::FILE* f, const JournalEvent& e) {
 }
 
 int unmatched_return(std::uint32_t target);
+int recover(std::uint32_t at, std::uint32_t frames, bool early);
 
 }  // namespace
 
@@ -140,10 +143,10 @@ void unpacker_guard_note_entry(std::uint32_t pc) {
     g_unpacker_guard_pending = true;
 }
 
-void unpacker_guard_note_dispatch(std::uint32_t pc, GuardGuestFn fn,
+bool unpacker_guard_note_dispatch(std::uint32_t pc, GuardGuestFn fn,
                                   GuardGuestFn expected, RamResolvePath path) {
-    if (!g_unpacker_guard_pending || g_irq_nest_depth != 0u) return;
-    if (pc < kUnpackerStart || pc >= kUnpackerEnd) return;
+    if (!g_unpacker_guard_pending || g_irq_nest_depth != 0u) return false;
+    if (pc < kUnpackerStart || pc >= kUnpackerEnd) return false;
     Journal& j = g_journal;
     JournalEvent& e = j.ring[j.next];
     e.pc = pc;
@@ -176,8 +179,11 @@ void unpacker_guard_note_dispatch(std::uint32_t pc, GuardGuestFn fn,
     }
     const std::uint32_t entry_sp = g_entry.r[13];
     // 0x03006000 (format check) and 0x03006010 (the prologue's push) run
-    // before the entry frame exists.
-    const bool possible = pc <= kUnpackerBody
+    // before the entry frame exists, the final `bx lr` after it is gone.
+    // Checked at every instruction of four correct unpacks under Unicorn
+    // (~924,000 steps, no exception); with the fault injected (byte 0x3E's
+    // strb+pop skipped) the next table jump breaks it, at output 0x3E.
+    const bool possible = pc <= kUnpackerBody || pc == kExit
         ? e.sp == entry_sp
         : pc == kLoopHead
         ? e.sp == entry_sp - kEntryFrame
@@ -189,7 +195,9 @@ void unpacker_guard_note_dispatch(std::uint32_t pc, GuardGuestFn fn,
         j.frozen_count = j.count;
         j.frozen_next = j.next;
         j.frozen_at = j.dispatches;
+        return recover(pc, 0u, true) != 0;
     }
+    return false;
 }
 
 void unpacker_guard_note_return(std::uint32_t return_pc) {
@@ -210,15 +218,25 @@ bool unpacker_guard_capture_due(std::string* note) {
 namespace {
 
 void write_report(std::FILE* f, std::uint32_t target, std::uint32_t frames,
-                  std::uint32_t bad_out, const std::uint32_t* bad_regs,
-                  std::uint32_t bad_cpsr) {
-    std::fprintf(f,
-        "Golden Sun Recompiled -- unpacker crash caught (recovery %u)\n"
-        "The data unpacker (0x%08X..0x%08X) tried to return to 0x%08X instead "
-        "of its caller 0x%08X, with %u extra stack frame(s) of 8 bytes. The "
-        "unpack was redone on the interpreter; result below.\n\n",
-        g_recoveries, kUnpackerStart, kUnpackerEnd, target, g_entry.r[14] & ~1u,
-        frames);
+                  bool early, std::uint32_t bad_out,
+                  const std::uint32_t* bad_regs, std::uint32_t bad_cpsr) {
+    if (early) {
+        std::fprintf(f,
+            "Golden Sun Recompiled -- unpacker crash caught early (recovery %u)\n"
+            "The data unpacker (0x%08X..0x%08X) dispatched 0x%08X with sp "
+            "0x%08X (entry sp 0x%08X), a stack it cannot have. The unpack was "
+            "redone on the interpreter; result below.\n\n",
+            g_recoveries, kUnpackerStart, kUnpackerEnd, target, bad_regs[13],
+            g_entry.r[13]);
+    } else {
+        std::fprintf(f,
+            "Golden Sun Recompiled -- unpacker crash caught (recovery %u)\n"
+            "The data unpacker (0x%08X..0x%08X) tried to return to 0x%08X instead "
+            "of its caller 0x%08X, with %u extra stack frame(s) of 8 bytes. The "
+            "unpack was redone on the interpreter; result below.\n\n",
+            g_recoveries, kUnpackerStart, kUnpackerEnd, target, g_entry.r[14] & ~1u,
+            frames);
+    }
     std::fprintf(f, "entry: frame=%llu src=0x%08X dst=0x%08X sp=0x%08X lr=0x%08X "
                     "cpsr=0x%08X call_stack_depth=%zu\n",
                  g_entry.frame, g_entry.r[0], g_entry.r[1], g_entry.r[13],
@@ -284,24 +302,39 @@ int unmatched_return(std::uint32_t target) {
             "recovered\n", target, caller, sp, entry_sp);
         return 0;
     }
+    return recover(target, (entry_sp - sp) / kLiteralFrame, false);
+}
 
+// `at` is the bad return target, or for an early catch the dispatched pc.
+int recover(std::uint32_t at, std::uint32_t frames, bool early) {
+    g_unpacker_guard_pending = false;
     ++g_recoveries;
-    const std::uint32_t frames = (entry_sp - sp) / kLiteralFrame;
+    const std::uint32_t caller = g_entry.r[14] & ~1u;
+    const std::uint32_t entry_sp = g_entry.r[13];
     const std::uint32_t bad_out = g_cpu.R[1];
     std::uint32_t bad_regs[16];
     for (int r = 0; r < 16; ++r) bad_regs[r] = g_cpu.R[r];
     const std::uint32_t bad_cpsr = g_cpu.cpsr;
-    std::fprintf(stderr,
-        "[unpacker-guard] CAUGHT: the data unpacker returned to 0x%08X instead "
-        "of 0x%08X (%u extra stack frame(s), output stopped at offset 0x%X of "
-        "0x%08X); redoing the unpack on the interpreter (recovery %u)\n",
-        target, caller, frames, bad_out - g_entry.r[1] + 1u, g_entry.r[1],
-        g_recoveries);
+    if (early) {
+        std::fprintf(stderr,
+            "[unpacker-guard] CAUGHT EARLY: the data unpacker dispatched 0x%08X "
+            "with sp 0x%08X (entry sp 0x%08X), output at offset 0x%X of "
+            "0x%08X; redoing the unpack on the interpreter (recovery %u)\n",
+            at, bad_regs[13], entry_sp, bad_out - g_entry.r[1] + 1u,
+            g_entry.r[1], g_recoveries);
+    } else {
+        std::fprintf(stderr,
+            "[unpacker-guard] CAUGHT: the data unpacker returned to 0x%08X instead "
+            "of 0x%08X (%u extra stack frame(s), output stopped at offset 0x%X of "
+            "0x%08X); redoing the unpack on the interpreter (recovery %u)\n",
+            at, caller, frames, bad_out - g_entry.r[1] + 1u, g_entry.r[1],
+            g_recoveries);
+    }
     const bool memory = g_recoveries == 1u && gsr_write_memory_snapshot(kMemoryFile);
     std::FILE* f = std::fopen(kTextFile, g_recoveries == 1u ? "wb" : "ab");
     if (f) {
         if (g_recoveries > 1u) std::fprintf(f, "\n\n");
-        write_report(f, target, frames, bad_out, bad_regs, bad_cpsr);
+        write_report(f, at, frames, early, bad_out, bad_regs, bad_cpsr);
         if (g_recoveries == 1u)
             std::fprintf(f, "\n%s: %s\n", kMemoryFile, memory ? "written" : "FAILED");
         std::fflush(f);
@@ -359,16 +392,26 @@ int unmatched_return(std::uint32_t target) {
         ++g_captures;
         g_capture_at = runtime_current_frame() + kCaptureAfter;
         char note[256];
-        std::snprintf(note, sizeof note,
-            "unpacker crash caught at frame %llu: returned to 0x%08X instead of "
-            "0x%08X with %u extra frame(s); output offset 0x%X of 0x%08X; redone "
-            "on the interpreter (see unpacker_recovered.txt)\n",
-            runtime_current_frame(), target, caller, frames,
-            bad_out - g_entry.r[1] + 1u, g_entry.r[1]);
+        if (early) {
+            std::snprintf(note, sizeof note,
+                "unpacker crash caught early at frame %llu: dispatched 0x%08X "
+                "with sp 0x%08X (entry sp 0x%08X); output offset 0x%X of "
+                "0x%08X; redone on the interpreter (see unpacker_recovered.txt)\n",
+                runtime_current_frame(), at, bad_regs[13], entry_sp,
+                bad_out - g_entry.r[1] + 1u, g_entry.r[1]);
+        } else {
+            std::snprintf(note, sizeof note,
+                "unpacker crash caught at frame %llu: returned to 0x%08X instead of "
+                "0x%08X with %u extra frame(s); output offset 0x%X of 0x%08X; redone "
+                "on the interpreter (see unpacker_recovered.txt)\n",
+                runtime_current_frame(), at, caller, frames,
+                bad_out - g_entry.r[1] + 1u, g_entry.r[1]);
+        }
         g_capture_note = note;
     }
     // R15 is the caller's return address: the generated call site that
-    // pushed it continues, every one above it cancels.
+    // pushed it continues, every one above it cancels. An early catch's
+    // dispatch runs nothing and unwinds the same way.
     return 1;
 }
 

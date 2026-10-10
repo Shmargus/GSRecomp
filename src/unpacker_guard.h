@@ -24,7 +24,10 @@
 // resolver path answered, whether the function equals the unpacker's own
 // generated entry, and r1/sp/sb, frozen at the first dispatch whose sp is
 // neither of the two the unpacker can have. That journal is the evidence for
-// the real fix.
+// the real fix. That first impossible sp is also the earliest sign of the
+// fault (the next table jump after the lost byte): the same redo runs there,
+// before the bad run can write past its output into its own code (FACTS.md
+// "0.4.3 player crash: same byte 0x3E, third data set").
 namespace gsr {
 
 using GuardGuestFn = void (*)(void);
@@ -46,9 +49,11 @@ inline bool g_unpacker_guard_pending = false;
 
 void unpacker_guard_install();
 
-// verified_ram_dispatch, for every ARM dispatch it handles.
+// verified_ram_dispatch, for every ARM dispatch it handles. note_dispatch
+// returns true when it redid the unpack: g_cpu is then at the caller and the
+// dispatch must run nothing.
 void unpacker_guard_note_entry(std::uint32_t pc);
-void unpacker_guard_note_dispatch(std::uint32_t pc, GuardGuestFn fn,
+bool unpacker_guard_note_dispatch(std::uint32_t pc, GuardGuestFn fn,
                                   GuardGuestFn expected, RamResolvePath path);
 // The call-return hook (verified_ram_dispatch_return_hook).
 void unpacker_guard_note_return(std::uint32_t return_pc);
