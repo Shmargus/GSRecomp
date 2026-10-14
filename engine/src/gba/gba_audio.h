@@ -1,0 +1,420 @@
+// gba_audio.h — GBA sound channels + sample mixer.
+//
+// Implemented and mixed into the output: SOUND1 (square + sweep),
+// SOUND2 (square), SOUND3 (wave RAM), SOUND4 (noise), and the
+// DMA-driven Direct Sound A / B FIFOs (the streamed-PCM path the
+// MP2K/m4a music driver uses) — fed via timer_overflow() + DMA refill,
+// mixed in mix_one_sample(). The mixer generates 16-bit signed samples;
+// the rate follows SOUNDBIAS resolution (32768 Hz default, 65536 Hz
+// when the BIOS raises it).
+//
+// SOUND3/SOUND4 drive many sound EFFECTS (door open, bumps, menu blips,
+// percussion); they were previously decoded but silent, so those SFX
+// were missing. Now implemented per GBATEK. Audio correctness vs the
+// mGBA oracle is validated separately (differential audio sweeps).
+//
+// References:
+//   GBATEK § "GBA Sound Channel 2 - Tone"
+//   GBATEK § "GBA Sound Channels 1-4 — Tone Generation"
+//   GBATEK § "GBA Sound Controller" (SOUNDCNT_L/H/X master)
+
+#pragma once
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <vector>
+
+namespace gbarecomp::debug { class SnapshotWriter; class SnapshotReader; }
+
+namespace gba {
+
+struct DirectSoundRouteState {
+    bool a_left = false;
+    bool a_right = false;
+    bool a_full_volume = false;
+    bool b_left = false;
+    bool b_right = false;
+    bool b_full_volume = false;
+    uint16_t soundbias = 0x0200;
+};
+
+// Output is in the signed 16-bit host domain before final integer packing.
+// route_a/route_b are normalized signed FIFO bytes: byte / 128.0f.
+struct DirectSoundOutput {
+    float left = 0.0f;
+    float right = 0.0f;
+};
+
+DirectSoundOutput mix_direct_sound_output(
+    float route_a, float route_b, int32_t psg_left, int32_t psg_right,
+    const DirectSoundRouteState& state);
+
+// Raw per-channel PSG samples (pre-scale, hardware-domain amplitude) for
+// one mix step. Same units for all four channels.
+struct PsgChannelSamples {
+    int32_t ch1 = 0;
+    int32_t ch2 = 0;
+    int32_t ch3 = 0;
+    int32_t ch4 = 0;
+};
+
+// SOUND1-4 left/right routing (SOUNDCNT_L PSG-to-side enable bits).
+struct PsgChannelRouting {
+    bool ch1_left = false;
+    bool ch1_right = false;
+    bool ch2_left = false;
+    bool ch2_right = false;
+    bool ch3_left = false;
+    bool ch3_right = false;
+    bool ch4_left = false;
+    bool ch4_right = false;
+};
+
+struct PsgMixResult {
+    int32_t left = 0;
+    int32_t right = 0;
+};
+
+// Combines the four PSG channels into left/right totals the way mGBA's
+// GBAAudioSamplePSG does: ch1+ch2+ch3 are summed and the combined sum is
+// shifted left by 3; ch4 is pre-shifted left by 3 and added separately
+// (third_party/mgba/src/gb/audio.c:752-763). Left shift distributes over
+// addition, so scaling each channel by <<3 individually before summing
+// (as done here) is arithmetically identical to mGBA's sum-then-shift and
+// gives all four channels the same ×8 scale. Does not apply the DMG
+// volume-ratio shift or SOUNDCNT_L master volume multiply — callers in
+// GbaAudio::mix_one_sample apply those to the result afterward.
+PsgMixResult mix_psg_samples(const PsgChannelSamples& samples,
+                             const PsgChannelRouting& routing);
+
+class GbaAudio {
+public:
+    GbaAudio();
+    ~GbaAudio();
+
+    // GBA runs at 16.777216 MHz; we sample at exactly 16777216 / 512 =
+    // 32768 Hz so timing math is integer-clean.
+    static constexpr uint32_t kSystemHz       = 16777216u;
+    static constexpr uint32_t kDefaultSampleRate = 32768u;
+    static constexpr uint32_t kDefaultCyclesPerSample =
+        kSystemHz / kDefaultSampleRate;  // 512
+    static constexpr uint32_t kSampleEventCycles = 1024u;
+    static constexpr uint32_t kMaxSamplesPerEvent = 16u;
+
+    // Reset all channel state. Called by the bus on power-on.
+    void reset();
+
+    // Write to an audio IO register. `off` is relative to 0x04000000
+    // (so SOUND1CNT_L is 0x060, SOUND2CNT_L is 0x068, etc.). The
+    // backing IO array still stores the byte; this method updates
+    // the channel state machines for side effects (envelope reload,
+    // length reset, frequency re-trigger).
+    void write_io8 (uint32_t off, uint8_t  v, uint64_t cycles = 0);
+    void write_io16(uint32_t off, uint16_t v, uint64_t cycles = 0);
+    void write_io32(uint32_t off, uint32_t v, uint64_t cycles = 0);
+
+    // Advance the audio subsystem by `cycles` system cycles.
+    // Generates samples into the output ring whenever the cycle
+    // accumulator crosses the active SOUNDBIAS sample interval.
+    void tick(uint32_t cycles);
+    uint32_t cycles_until_next_sample() const;
+
+    // Drain up to `max` samples from the ring into `out`. Returns
+    // the number actually written. Used by the host audio backend
+    // and by the TCP audio_samples command.
+    std::size_t drain_samples(int16_t* out, std::size_t max);
+    // Canonical stereo output (opt-in via GBARECOMP_AUDIO_STEREO). The
+    // guest/hardware state remains canonical; this only preserves the two
+    // Direct Sound output buses.
+    std::size_t drain_stereo_fallback_samples(int16_t* out, std::size_t max);
+
+    uint32_t sample_rate() const { return kSystemHz / cycles_per_sample_; }
+
+    // Total samples generated since reset — useful for sync diff.
+    uint64_t samples_generated() const { return samples_generated_; }
+
+    // ── Always-on, non-destructive audio capture ring (observability) ──
+    // The playback FIFO (ring_) is consume-once and is drained by BOTH the
+    // SDL host pump and the legacy audio_samples TCP cmd (they compete). THIS
+    // ring is never drained: it records every generated mixed sample plus the
+    // raw per-channel PSG and Direct-Sound FIFO ([-128,127])
+    // contributions, keyed by the absolute samples_generated_ index. Probes
+    // QUERY a [start,count] window backward from the live head — never arm,
+    // never drain (project ring-buffer discipline). Sample-generation is
+    // cycle-deterministic, so PSG channels are bit-reproducible across runs.
+    struct CapSample {
+        bool canonical_valid = false;
+        uint32_t sample_rate = 0;
+        int16_t mixed = 0;     // final mono mixer output (what playback hears)
+        int16_t ch[4] = {};    // SOUND1..4 raw hardware-domain synthesis value
+        int16_t direct_a = 0;  // Direct-Sound FIFO A raw byte for this slot
+        int16_t direct_b = 0;  // Direct-Sound FIFO B raw byte for this slot
+        int32_t psg_left_input = 0;  // pre-bias PSG input for this slot
+        int32_t psg_right_input = 0;
+        DirectSoundRouteState direct_route{};
+    };
+    static constexpr std::size_t kCapRingSize = 1u << 18;  // 262144 (~8 s @32k)
+
+    // Earliest absolute sample index still retained in the capture ring.
+    uint64_t capture_oldest_index() const {
+        return samples_generated_ > kCapRingSize
+                   ? samples_generated_ - kCapRingSize
+                   : 0;
+    }
+    // Copy up to `count` capture samples starting at absolute index `start`
+    // (clamped into the retained window) into `out`. Returns the number
+    // copied; sets `out_first` to the absolute index of out[0]. Non-mutating.
+    std::size_t query_capture(uint64_t start, std::size_t count,
+                              CapSample* out, uint64_t& out_first) const;
+
+    struct FifoDebugState {
+        uint8_t write = 0;
+        uint8_t read = 0;
+        uint8_t count = 0;
+        uint32_t shift_word = 0;
+        uint8_t bytes_remaining = 0;
+        int8_t samples[kMaxSamplesPerEvent] = {};
+    };
+    FifoDebugState debug_fifo_state(int fifo_id) const;
+    uint32_t debug_cycle_accumulator() const { return cycle_accumulator_; }
+    uint32_t debug_samples_per_event() const { return samples_per_event(); }
+    uint32_t debug_cycles_until_event() const {
+        return cycles_until_next_sample_event();
+    }
+    uint16_t debug_soundbias() const { return soundbias_; }
+
+    struct FifoTrace {
+        uint64_t sample_base = 0;
+        uint8_t fifo_id = 0;
+        uint32_t until_cycles = 0;
+        uint32_t start_slot = 0;
+        uint32_t slots = 0;
+        uint8_t count = 0;
+        uint8_t bytes_remaining = 0;
+        int8_t sample = 0;
+    };
+    static constexpr uint32_t kFifoTraceSize = 1024u;
+    uint32_t debug_trace_count() const { return trace_count_; }
+    FifoTrace debug_trace_entry(uint32_t index) const;
+
+    // Timer overflow hook for direct sound FIFO A/B. `timer_id` is
+    // 0 or 1; SOUNDCNT_H selects which timer clocks each FIFO.
+    void timer_overflow(int timer_id, uint64_t cycles = 0);
+    bool fifo_needs_dma(int fifo_id) const;
+
+    // Read GBARECOMP_AUDIO_STEREO to decide whether the canonical stereo
+    // ring is filled. The bus calls this from set_rom.
+    void configure_stereo();
+    bool stereo_audio_requested() const { return canonical_stereo_requested_; }
+
+    // Save-state serialization. Captures the full guest mixer state
+    // (channels, FIFOs, master, soundbias, sample accumulator) plus the
+    // pending host output ring so playback resumes seamlessly. The
+    // diagnostic FIFO trace ring is NOT serialized. See debug/snapshot.h.
+    void serialize(gbarecomp::debug::SnapshotWriter& w) const;
+    void deserialize(gbarecomp::debug::SnapshotReader& r,
+                     const uint8_t* legacy_io = nullptr,
+                     std::size_t legacy_io_len = 0);
+
+private:
+    // ── Channel 1: square wave with frequency sweep ──────────────
+    struct Sound1 {
+        bool     active = false;
+        uint8_t  duty = 2;
+        uint8_t  length = 64;
+        bool     length_enabled = false;
+        uint8_t  envelope_initial = 0;
+        bool     envelope_increase = false;
+        uint8_t  envelope_step  = 0;
+        uint8_t  volume = 0;
+        uint16_t frequency = 0;
+        uint32_t waveform_cycles = 0;
+        uint8_t  waveform_phase  = 0;
+        uint32_t envelope_cycles = 0;
+        uint32_t length_cycles   = 0;
+        // Sweep state (SOUND1 only — the BIOS chime uses sweep).
+        uint8_t  sweep_shift     = 0;   // 0..7
+        bool     sweep_decrease  = false;
+        uint8_t  sweep_time      = 0;   // 0..7 (0 = disabled)
+        uint32_t sweep_cycles    = 0;
+    };
+    Sound1 ch1_{};
+
+    // ── Channel 2: square wave ────────────────────────────────────
+    struct Sound2 {
+        // Live envelope + length state.
+        bool     active = false;            // playing
+        uint8_t  duty = 2;                  // 0..3 (12.5/25/50/75 % high)
+        uint8_t  length = 64;               // remaining length (0..64); 0 = stop if length_enabled
+        bool     length_enabled = false;    // bit 14 of SOUND2CNT_H
+        uint8_t  envelope_initial = 0;      // 0..15 starting volume
+        bool     envelope_increase = false; // direction
+        uint8_t  envelope_step  = 0;        // 0..7 (period in 1/64 s steps)
+        uint8_t  volume = 0;                // current envelope volume 0..15
+        uint16_t frequency = 0;             // 11-bit "frequency" field
+        // Internal cycle accumulators (in 1/kSampleRate units for the
+        // length / envelope clocks, in dot units for the waveform).
+        uint32_t waveform_cycles = 0;
+        uint8_t  waveform_phase  = 0;       // 0..7 within the duty pattern
+        uint32_t envelope_cycles = 0;
+        uint32_t length_cycles   = 0;
+    };
+    Sound2 ch2_{};
+
+    // ── Channel 3: wave RAM (4-bit PCM, 32/64 digits) ─────────────
+    struct Sound3 {
+        bool     active = false;
+        bool     dac_on = false;          // SOUND3CNT_L bit7 (0=stop, 1=play)
+        bool     two_banks = false;       // bit5 (0=32 digits, 1=64 digits)
+        uint8_t  bank = 0;                 // bit6 (bank selected for playback)
+        uint16_t length = 256;             // 0..256 (256-N); 256Hz clock
+        bool     length_enabled = false;   // SOUND3CNT_X bit14
+        uint8_t  volume_code = 0;          // bits13..14 (0=mute,1=100,2=50,3=25)
+        bool     force_volume = false;     // bit15 (force 75%)
+        uint16_t frequency = 0;            // 11-bit rate field
+        uint32_t wave_cycles = 0;          // per-digit cycle accumulator
+        uint8_t  wave_pos = 0;             // 0..63 current digit
+        uint32_t length_cycles = 0;
+    };
+    Sound3 ch3_{};
+    // Two 16-byte banks = 64 4-bit digits. CPU access at 0x090-0x09F maps to
+    // the bank NOT selected for playback (Bit 6), so a game can fill the next
+    // bank while the current plays (mGBA model).
+    uint8_t wave_ram_[32] = {};
+
+    // ── Channel 4: noise (LFSR) ───────────────────────────────────
+    struct Sound4 {
+        bool     active = false;
+        uint8_t  length = 64;              // 0..64 (64-N); 256Hz clock
+        bool     length_enabled = false;   // SOUND4CNT_H bit14
+        uint8_t  envelope_initial = 0;
+        bool     envelope_increase = false;
+        uint8_t  envelope_step  = 0;
+        uint8_t  volume = 0;
+        uint8_t  divisor_code = 0;         // SOUND4CNT_H bits0..2 (r)
+        bool     width_7bit = false;       // bit3 (0=15-bit, 1=7-bit LFSR)
+        uint8_t  shift = 0;                // bits4..7 (s)
+        uint16_t lfsr = 0x7FFF;            // 15-bit linear-feedback shift reg
+        uint32_t noise_cycles = 0;         // per-LFSR-step cycle accumulator
+        uint32_t envelope_cycles = 0;
+        uint32_t length_cycles   = 0;
+    };
+    Sound4 ch4_{};
+    // Runtime-only; kept outside Sound4 so the append-only savestate layout
+    // remains compatible with states written before the PSG extension grew.
+    int8_t ch4_output_sample_ = 0;
+
+    // ── Master state ──────────────────────────────────────────────
+    bool    master_enable_ = false;  // SOUNDCNT_X bit 7
+    uint8_t volume_l_ = 0;           // SOUNDCNT_L master volume left (0..7)
+    uint8_t volume_r_ = 0;           // SOUNDCNT_L master volume right (0..7)
+    bool    ch1_left_enable_  = false;
+    bool    ch1_right_enable_ = false;
+    bool    ch2_left_enable_  = false;
+    bool    ch2_right_enable_ = false;
+    bool    ch3_left_enable_  = false;
+    bool    ch3_right_enable_ = false;
+    bool    ch4_left_enable_  = false;
+    bool    ch4_right_enable_ = false;
+    // SOUNDCNT_H (0x082..0x083) bits 0..1: PSG volume shift selector.
+    // mGBA applies this as `sample >> (4 - volume)` before the GBA bias
+    // stage; values above 3 are reserved and clamp to 3.
+    uint8_t dmg_volume_ratio_ = 0;
+
+    struct DirectFifo {
+        uint32_t words[8] = {};
+        uint8_t write = 0;
+        uint8_t read = 0;
+        uint8_t count = 0;
+        uint32_t shift_word = 0;
+        uint8_t bytes_remaining = 0;
+        int8_t samples[kMaxSamplesPerEvent] = {};
+    };
+
+    DirectFifo fifo_a_{};
+    DirectFifo fifo_b_{};
+    bool direct_a_left_ = false;
+    bool direct_a_right_ = false;
+    bool direct_a_timer1_ = false;
+    bool direct_a_full_volume_ = false;
+    bool direct_b_left_ = false;
+    bool direct_b_right_ = false;
+    bool direct_b_timer1_ = false;
+    bool direct_b_full_volume_ = false;
+    uint16_t soundbias_ = 0x0200;
+    uint32_t cycles_per_sample_ = kDefaultCyclesPerSample;
+
+    // Accumulates toward mGBA's 1024-cycle audio event. Each event
+    // posts 2, 4, 8, or 16 samples depending on SOUNDBIAS resolution.
+    uint32_t cycle_accumulator_ = 0;
+
+    // Output ring. Mono int16_t samples at kSampleRate. The host
+    // audio backend pulls from this in chunks.
+    std::vector<int16_t> ring_;
+    std::size_t ring_head_ = 0;
+    std::size_t ring_tail_ = 0;
+    uint64_t    samples_generated_ = 0;
+
+    // Interleaved canonical stereo ring (opt-in).
+    std::vector<int16_t> stereo_fallback_ring_;
+    std::size_t stereo_fallback_head_ = 0;
+    std::size_t stereo_fallback_tail_ = 0;
+
+    // Always-on capture ring (see CapSample / query_capture above). Indexed
+    // by (absolute sample index % kCapRingSize). Allocated lazily on reset.
+    std::vector<CapSample> cap_ring_;
+    void cap_push(const CapSample& s);
+    int16_t current_samples_[kMaxSamplesPerEvent] = {};
+    uint32_t sample_index_ = 0;
+    FifoTrace trace_[kFifoTraceSize] = {};
+    uint32_t trace_write_ = 0;
+    uint32_t trace_count_ = 0;
+
+    void ring_push(int16_t s);
+    void write_io8_impl(uint32_t off, uint8_t v);
+    void fifo_push_word(DirectFifo& fifo, int fifo_id, uint32_t word);
+    void fifo_clear_queue(DirectFifo& fifo);
+    void fifo_reset(DirectFifo& fifo);
+    void fifo_timer_step(DirectFifo& fifo, int fifo_id, uint64_t cycles);
+    void update_soundbias(uint16_t value);
+    void restore_legacy_psg_from_io(const uint8_t* io, std::size_t len);
+    uint32_t samples_per_event() const;
+    uint32_t cycles_until_next_sample_event() const;
+    void sample_until_current_time();
+    void run_sample_event();
+    void ch1_trigger();
+    void ch2_trigger();
+    void ch3_trigger();
+    void ch4_trigger();
+    // include_direct=false omits the Direct Sound FIFO contribution (PSG
+    // only).
+    // `tap`, if non-null, receives the raw per-channel breakdown for the
+    // always-on capture ring (does not affect the returned mixed sample).
+    struct ChannelTap {
+        bool canonical_valid = false;
+        uint32_t sample_rate = 0;
+        int16_t ch[4] = {};
+        int16_t direct_a = 0;
+        int16_t direct_b = 0;
+        int32_t direct_mix = 0;
+        int32_t direct_left_mix = 0;
+        int32_t direct_right_mix = 0;
+        int16_t psg_left = 0;
+        int16_t psg_right = 0;
+        int16_t canonical_left = 0;
+        int16_t canonical_right = 0;
+        int16_t psg_mono = 0;
+        int32_t psg_left_input = 0;
+        int32_t psg_right_input = 0;
+        DirectSoundRouteState direct_route{};
+    };
+    int16_t mix_one_sample(uint32_t direct_slot, bool include_direct = true,
+                           ChannelTap* tap = nullptr);
+
+    bool       canonical_stereo_requested_ = false;
+    void stereo_fallback_push(int16_t left, int16_t right);
+    void clear_stereo_fallback();
+};
+
+}  // namespace gba

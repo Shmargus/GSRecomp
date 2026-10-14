@@ -1,0 +1,24 @@
+# Compiled developer inputs; paths are collection-relative, literal UTF-8.
+# Recursive directories skip dot-prefixed components, .bak components and __pycache__.
+Both	engine/src
+Both	engine/CMakeLists.txt
+Both	scripts/developer_build_inputs.txt
+Both	scripts/developer_build_stamp.py
+Both	scripts/build_dev.ps1
+Both	scripts/build_game.ps1
+Both	scripts/block_timing.py
+Both	player_builder/guest_call.cpp
+Both	player_builder/guest_call.h
+BrokenSeal	The Broken Seal/src
+BrokenSeal	The Broken Seal/cmake
+BrokenSeal	The Broken Seal/CMakeLists.txt
+BrokenSeal	The Broken Seal/config/usa/overlay-registry.inc
+BrokenSeal	The Broken Seal/local/gs011
+LostAge	The Lost Age/src
+LostAge	The Broken Seal/src/unpacker_guard.cpp
+LostAge	The Broken Seal/src/unpacker_guard.h
+LostAge	The Lost Age/cmake
+LostAge	The Lost Age/CMakeLists.txt
+LostAge	The Lost Age/scripts/tla_build.sh
+LostAge	The Lost Age/local/{tla_corpus}/main
+LostAge	The Lost Age/local/{tla_corpus}/reloc

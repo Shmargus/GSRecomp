@@ -1,15 +1,7 @@
 @echo off
 setlocal
-rem Opens the release window (scripts\release_tool.ps1): build the player
-rem release for Windows, Linux or both, with or without the test build.
-rem Windows: clean player folder + zip with no game code: engine from
-rem build_lto.bat (run that first), launcher, builder, translator and a
-rem trimmed compiler. Linux: the same in GSRecomp-Release\linux, built in WSL
-rem Ubuntu-24.04. The test builds the game from the ROM using only the
-rem release's own tools.
-rem With options it runs in this console instead, no window:
-rem   make_release.bat [-NoTest] [-NoWindows] [-NoLinux] [-AshleyEdition]
-rem The release window offers Ashley Edition; ordinary releases have no badge.
+rem Builds the combined player release for both games.
+rem With no options, opens the existing release window.
 set "GS_POWERSHELL=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if defined PROCESSOR_ARCHITEW6432 set "GS_POWERSHELL=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
 if "%~1"=="" (
@@ -20,5 +12,7 @@ if "%~1"=="" (
 set "GS_RESULT=%ERRORLEVEL%"
 echo.
 if "%GS_RESULT%"=="0" (echo Release completed.) else (echo Release failed. Exit code: %GS_RESULT%)
-pause
+set "skip_pause="
+for %%A in (%*) do if /I "%%~A"=="-CheckOnly" set "skip_pause=1"
+if not defined skip_pause pause
 exit /b %GS_RESULT%

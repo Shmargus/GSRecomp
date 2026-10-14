@@ -1,56 +1,20 @@
 #!/usr/bin/env bash
-# Makes the Linux player release, the counterpart of make_release.ps1. Run it
-# on a Linux machine (or WSL) with GCC, CMake, Ninja and the SDL2/zlib
-# development packages installed:
-#
-#   bash scripts/make_release_linux.sh [--rom <Golden Sun ROM>] [--no-test]
-#                                      [--version <GitHub release tag>]
-#   bash scripts/make_release_linux.sh --launcher-only [--version <tag>]
-#   bash scripts/make_release_linux.sh --dev
-#
-# --launcher-only builds only the player launcher, zipped as
-# GSRecomp-Release/linux/GoldenSunLauncher-linux-<version>.zip. Players drop
-# it over GoldenSunLauncher in their folder; the launcher is not part of the
-# game code's fingerprint, so nothing rebuilds.
-# --dev does the same with the Windows developer launcher's extras (RAM
-# self-heal, per-frame timing CSVs) into GSRecomp-Release/linux/dev/.
-#
-# The version (default "dev") is built into the launcher, which tells players
-# when GitHub's newest release has a different tag (launcher_online.h).
-#
-# Result, in GSRecomp-Release/linux/:
-#   GoldenSunRecompiled-linux-<date>.zip   the download (made on Linux, so it
-#                                          keeps the programs' executable bit)
-#   Golden Sun Recompiled/                 a copy of the folder to look at; on
-#                                          a Windows drive its files lose that
-#                                          bit, so give players the zip
-# The folder is assembled in the Linux work directory ($GSR_LINUX_WORK,
-# default ~/gsr-linux-release/release) for the same reason.
-#
-#   GoldenSunLauncher          the Linux launcher (Pick ROM, first-run build)
-#   GoldenSunRecomp            the engine
-#   builder/gsr_builder        ROM -> libGoldenSunGame.so
-#   builder/gba_recompile      the translator
-#   builder/data/              main/transient/overlay configs, the build plan
-#   builder/engine/include/    the two headers the game code includes
-#   builder/toolchain/         this machine's GCC, trimmed to the files the
-#                              game code's compile and link open, with its
-#                              own libraries (hostlib/) and the C library
-#                              headers and link stubs (sysroot/)
-#   overlay_toolchain/include/ the three overlay shim headers the engine's
-#                              runtime self-heal compile includes
-#
-# Not included: libGoldenSunGame.so, any generated code, the ROM, the BIOS.
-# The player's system provides glibc, SDL2 and OpenGL.
-#
-# With a ROM (--rom, or $GSR_ROM) it then builds the game code using ONLY the
-# release folder's builder and toolchain, with the system compiler hidden, to
-# prove the release is complete.
+# Combined Linux release: one root launcher/artwork and both game engines.
+# Uses the existing local/gs011_block and TLA local/tla_linux_block corpora.
+# --launcher-only updates the root launcher/artwork.
+# --rom / --tla-rom (or GSR_ROM / TLA_ROM) select optional builder-test ROMs.
+# --no-test skips both tests; --dev preserves developer-launcher updates.
+# Linux builds and archive staging stay on the Linux filesystem so executable
+# permissions survive. No ROM, BIOS, game DLL/SO or generated code ships.
 set -euo pipefail
 
-repo=$(cd "$(dirname "$0")/.." && pwd)
+collection_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+repo="$collection_root/The Broken Seal"
+engine="$collection_root/engine"
 rom=${GSR_ROM:-}
+tla_rom=${TLA_ROM:-}
 version=${GSR_RELEASE_VERSION:-dev}
+repository=${GSR_RELEASE_REPOSITORY:-Shmargus/GSRecomp}
 test_build=1
 dev=0
 launcher_only=0
@@ -58,14 +22,18 @@ ashley_edition=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --rom) rom=$2; shift 2 ;;
+        --tla-rom) tla_rom=$2; shift 2 ;;
         --no-test) test_build=0; shift ;;
         --version) version=$2; shift 2 ;;
+        --repository) repository=$2; shift 2 ;;
         --dev) dev=1; launcher_only=1; shift ;;
         --launcher-only) launcher_only=1; shift ;;
         --ashley-edition) ashley_edition=1; shift ;;
-        *) echo "usage: $0 [--rom <path>] [--no-test] [--version <GitHub release tag>] [--ashley-edition] [--launcher-only | --dev]" >&2; exit 2 ;;
+        *) echo "usage: $0 [--rom <path>] [--tla-rom <path>] [--no-test] [--version <GitHub release tag>] [--repository <owner/repo>] [--ashley-edition] [--launcher-only | --dev]" >&2; exit 2 ;;
     esac
 done
+[[ "$version" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "Version may only contain letters, digits, '.', '-' and '_'." >&2; exit 2; }
+[[ "$repository" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$ ]] || { echo 'Repository must be a GitHub owner/repository name.' >&2; exit 2; }
 if [ "$ashley_edition" = 1 ] && [ "$launcher_only" = 1 ]; then
     echo "Ashley Edition needs a full release; turn off launcher only." >&2
     exit 2
@@ -84,28 +52,60 @@ fi
 
 # Build trees on the Linux file system: a Windows drive under WSL is slow.
 work=${GSR_LINUX_WORK:-$HOME/gsr-linux-release}
-build=$work/build
+build=$work/build-collection
+tla_repo=$(cd "$repo/../The Lost Age" && pwd)
+tla_build=$work/build-tla
+tla_corpus=$tla_repo/local/tla_linux_block
 corpus=$repo/local/gs011_block
-release_root=$repo/GSRecomp-Release/linux
+release_root=$collection_root/Releases/linux
 stage=$work/release
-out=$stage/"Golden Sun Recompiled"
+collection=$stage/"Golden Sun Recompiled"
+out=$collection/games/"The Broken Seal"
+tla_out=$collection/games/"The Lost Age"
+
+# Every recursive cleanup must resolve inside the work or release directory.
+work=$(realpath -m "$work")
+release_root=$(realpath -m "$release_root")
+[ "$work" != / ] && [ "$release_root" != / ] || { echo "Unsafe release path." >&2; exit 1; }
+safe_remove() {
+    local resolved
+    resolved=$(realpath -m "$1")
+    case "$resolved" in "$work"/*|"$release_root"/*) rm -rf -- "$resolved" ;;
+        *) echo "Refusing to remove outside release directories: $resolved" >&2; exit 1 ;;
+    esac
+}
+copy_collection() {
+    local destination=$1
+    mkdir -p "$destination/assets"
+    install -m 755 -s "$build/GoldenSunCollection" "$destination/GoldenSunLauncher"
+    for asset in launcher_logo.png cartridge_broken_seal.png cartridge_lost_age.png; do
+        cp "$collection_root/assets/$asset" "$destination/assets/"
+    done
+}
 
 # make: GCC runs the parallel LTO link (-flto=N) through it; without it the
 # link falls back to one job at a time.
-for tool in g++ cmake ninja make objdump readelf ldd zip; do
+for tool in g++ cmake ninja make objdump readelf ldd zip python3; do
     command -v "$tool" >/dev/null || { echo "Missing $tool." >&2; exit 1; }
 done
 [ -f "$corpus/main/dispatch_table.cpp" ] || {
-    echo "Missing $corpus. Run build_lto.bat (or scripts/gs.ps1 -To recompile and" >&2
-    echo "tools/block_timing.py) on Windows first." >&2
+    echo "Missing $corpus. Run build_dev.bat -Game BrokenSeal (or scripts/gs.ps1 -To recompile and" >&2
+    echo "scripts/block_timing.py) on Windows first." >&2
     exit 1
 }
+
+if [ "$launcher_only" != 1 ]; then
+[ -f "$tla_corpus/main/dispatch_table.cpp" ] || {
+    echo "Missing $tla_corpus. Prepare The Lost Age Linux corpus first." >&2; exit 1;
+}
+fi
 
 # ---- 1. Engine, launcher, builder, translator ------------------------------
 # The engine links against a library built from the block-timing corpus;
 # only the engine ships. Players build their own library from their ROM.
 echo "Configuring $build"
 cmake -S "$repo" -B "$build" -G Ninja \
+    "-DGBARECOMP_ROOT=$engine" \
     -DCMAKE_BUILD_TYPE=Release \
     "-DCMAKE_CXX_FLAGS_RELEASE=-O2 -DNDEBUG" \
     "-DCMAKE_C_FLAGS_RELEASE=-O2 -DNDEBUG" \
@@ -119,39 +119,73 @@ cmake -S "$repo" -B "$build" -G Ninja \
     -DGSR_ENABLE_LTO=ON \
     -DGSR_DEBUG_SYMBOLS=OFF \
     "-DGSR_RELEASE_VERSION=$version" \
+    "-DGSR_RELEASE_REPOSITORY=$repository" \
     "-DGSR_REPORT_HOST=$report_host" \
     "-DGSR_LINUX_DEV_LAUNCHER=$([ "$dev" = 1 ] && echo ON || echo OFF)" >/dev/null
+if [ "$launcher_only" != 1 ]; then
+dependency_source() {
+    local name=$1 directory=$2 source vendored=$2
+    source=$(sed -n -E "s/^FETCHCONTENT_SOURCE_DIR_${name}:(PATH|STRING)=//p" "$build/CMakeCache.txt" | head -1)
+    if [ -n "$source" ] && [ -d "$source" ]; then printf '%s\n' "$source"; return; fi
+    if [ "$name" = TOMLPLUSPLUS ]; then vendored=tomlpp; fi
+    for source in "$build/_deps/$directory-src" "$engine/third_party/$vendored"; do
+        if [ -d "$source" ]; then printf '%s\n' "$source"; return; fi
+    done
+    echo "The $name source directory is missing from the configured release dependencies." >&2; return 1
+}
+imgui_source=$(dependency_source IMGUI imgui)
+toml_source=$(dependency_source TOMLPLUSPLUS tomlplusplus)
+# A fresh release tree avoids stale absolute paths in the developer build.
+# Use the existing Linux block corpus; never regenerate it through Windows.
+cmake -S "$tla_repo" -B "$tla_build" -G Ninja \
+    "-DGBARECOMP_ROOT=$engine" \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    "-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=-O2 -DNDEBUG" \
+    "-DCMAKE_C_FLAGS_RELWITHDEBINFO=-O2 -DNDEBUG" \
+    "-DTLA_GENERATED_DIR=$tla_corpus/main" \
+    -DTLA_SPLIT_GAME_CODE=ON -DTLA_GAME_CODE_OPT=-Og \
+    -DTLA_ENABLE_LTO=ON \
+    -DTLA_RELEASE_LAUNCHER=ON \
+    "-DGSR_LINUX_DEV_LAUNCHER=$([ "$dev" = 1 ] && echo ON || echo OFF)" \
+    -DTLA_PLAYER_RELEASE=ON \
+    "-DFETCHCONTENT_SOURCE_DIR_IMGUI=$imgui_source" \
+    "-DFETCHCONTENT_SOURCE_DIR_TOMLPLUSPLUS=$toml_source" \
+    "-DGSR_RELEASE_VERSION=$version" "-DGSR_REPORT_HOST=$report_host" \
+    "-DGSR_RELEASE_REPOSITORY=$repository" >/dev/null
+fi
 if [ "$launcher_only" = 1 ]; then
-    cmake --build "$build" --target GoldenSunLauncher
+    cmake --build "$build" --target GoldenSunCollection
     if [ "$dev" = 1 ]; then dest=$release_root/dev; name=GoldenSunLauncher-dev.zip
     else dest=$release_root; name=GoldenSunLauncher-linux-$version.zip; fi
     # Zipped on the Linux file system so the launcher keeps its executable bit.
     zipdir=$work/launcher-zip
-    rm -rf "$zipdir"; mkdir -p "$zipdir" "$dest"
-    install -m 755 -s "$build/GoldenSunLauncher" "$zipdir/"
-    (cd "$zipdir" && zip -q -9 "$name" GoldenSunLauncher)
+    safe_remove "$zipdir"; mkdir -p "$zipdir" "$dest"
+    copy_collection "$zipdir"
+    (cd "$zipdir" && zip -qr -9 "$name" GoldenSunLauncher assets)
     cp "$zipdir/$name" "$dest/"
-    rm -rf "$zipdir"
+    safe_remove "$zipdir"
     echo "Launcher: $dest/$name"
     exit 0
 fi
 echo "Building (the game code part takes a while the first time)"
-cmake --build "$build" --target GoldenSunRecomp GoldenSunLauncher gsr_builder gba_recompile
+cmake --build "$build" --target GoldenSunRecomp GoldenSunCollection gsr_builder gba_recompile
+cmake --build "$tla_build" --target TLARecomp tla_builder gba_recompile
 recompiler=$(find "$build" -name gba_recompile -type f -perm -u+x | head -1)
-for f in "$build/GoldenSunRecomp" "$build/GoldenSunLauncher" "$build/gsr_builder" "$recompiler"; do
+for f in "$build/GoldenSunRecomp" "$build/GoldenSunCollection" "$build/gsr_builder" "$recompiler"; do
     [ -x "$f" ] || { echo "Build output missing: $f" >&2; exit 1; }
 done
 
 # ---- 2. A clean release folder ---------------------------------------------
-rm -rf "$out"
+safe_remove "$collection"
+copy_collection "$collection"
 builder=$out/builder
 data=$builder/data
 tc=$builder/toolchain
 mkdir -p "$data/overlays" "$builder/engine/include" "$tc"
-install -m 755 -s "$build/GoldenSunLauncher" "$build/GoldenSunRecomp" "$out/"
+install -m 755 -s "$build/GoldenSunRecomp" "$out/"
 if [ "$ashley_edition" = 1 ]; then
-    cp "$repo/assets/ashley_edition/edition_badge.bmp" \
-       "$repo/assets/ashley_edition/edition_badge.txt" "$out/"
+    cp "$collection_root/assets/ashley_edition/edition_badge.bmp" \
+       "$collection_root/assets/ashley_edition/edition_badge.txt" "$out/"
 fi
 install -m 755 -s "$build/gsr_builder" "$recompiler" "$builder/"
 
@@ -161,14 +195,14 @@ sed 's/#.*//' "$usa/game_code_plan.txt" | while read -r kind _ toml _; do
     if [ "$kind" = transient ]; then cp "$usa/$toml" "$data/"; fi
 done
 cp "$usa"/overlays/*.toml "$data/overlays/"
-cp "$repo/gbarecomp/src/armv4t/runtime_arm.h" "$repo/gbarecomp/src/armv4t/runtime_arm_types.h" \
+cp "$engine/src/armv4t/runtime_arm.h" "$engine/src/armv4t/runtime_arm_types.h" \
     "$builder/engine/include/"
 
 # Self-heal: the overlay shim headers the engine's runtime compile includes.
 mkdir -p "$out/overlay_toolchain/include"
 for h in src/runtime/overlay_runtime_arm.h src/runtime/overlay_abi.h src/armv4t/runtime_arm_types.h; do
-    [ -f "$repo/gbarecomp/$h" ] || { echo "Overlay header missing: $h" >&2; exit 1; }
-    cp "$repo/gbarecomp/$h" "$out/overlay_toolchain/include/"
+    [ -f "$engine/$h" ] || { echo "Overlay header missing: $h" >&2; exit 1; }
+    cp "$engine/$h" "$out/overlay_toolchain/include/"
 done
 
 # ---- 3. Trimmed GCC ----------------------------------------------------------
@@ -236,8 +270,8 @@ done
 # Headers: every system header any generated file can include. One file that
 # includes every distinct #include line of the corpus, listed with -M.
 probe=$work/probe
-rm -rf "$probe"; mkdir -p "$probe"
-grep -rhE '^[[:space:]]*#[[:space:]]*include[[:space:]]*<' "$corpus" --include='*.cpp' --include='*.h' \
+safe_remove "$probe"; mkdir -p "$probe"
+grep -rhE '^[[:space:]]*#[[:space:]]*include[[:space:]]*<' "$corpus" "$tla_corpus" --include='*.cpp' --include='*.h' \
     | sed 's/^[[:space:]]*//' | sort -u > "$probe/all_includes.cpp"
 cxxflags=(-O2 -g -DNDEBUG -std=c++20 -Og -g0 -DGBARECOMP_OUTLINE_BUS=1 -fPIC -fno-semantic-interposition)
 g++ "${cxxflags[@]}" -I"$builder/engine/include" -M "$probe/all_includes.cpp" \
@@ -246,6 +280,19 @@ g++ "${cxxflags[@]}" -I"$builder/engine/include" -M "$probe/all_includes.cpp" \
 for f in main/dispatch_table.cpp main/symbol_map.cpp main/recompiled_000.cpp stamps/stamp_registry.cpp; do
     [ -f "$corpus/$f" ] || continue
     g++ "${cxxflags[@]}" -I"$corpus/main" -I"$builder/engine/include" -M "$corpus/$f" \
+        | tr -d '\\' | tr ' ' '\n' | grep '^/usr/' | sort -u | while read -r h; do tc_copy "$h"; done
+done
+
+# TLA's runtime header may open different system headers than GS1's.
+for f in main/dispatch_table.cpp main/symbol_map.cpp main/recompiled_000.cpp; do
+    [ -f "$tla_corpus/$f" ] || continue
+    g++ "${cxxflags[@]}" -I"$tla_corpus/main" -I"$engine/src/armv4t" -M "$tla_corpus/$f" \
+        | tr -d '\\' | tr ' ' '\n' | grep '^/usr/' | sort -u | while read -r h; do tc_copy "$h"; done
+done
+for kind in recompiled.cpp dispatch_table.cpp expected.cpp; do
+    src=$(find "$tla_corpus/reloc" -name "$kind" -type f -print -quit)
+    [ -n "$src" ] || continue
+    g++ "${cxxflags[@]}" -I"$(dirname "$src")" -I"$engine/src/armv4t" -M "$src" \
         | tr -d '\\' | tr ' ' '\n' | grep '^/usr/' | sort -u | while read -r h; do tc_copy "$h"; done
 done
 
@@ -287,13 +334,9 @@ cat > "$out/README.txt" <<'TXT'
 Golden Sun Recompiled (Linux)
 =============================
 
-1. Start GoldenSunLauncher (double-click it, or ./GoldenSunLauncher in a
-   terminal from this folder).
-2. Click "Pick ROM" and choose your own Golden Sun (USA, Europe) ROM.
-3. The first time, the game is prepared from your ROM. This takes a few
-   minutes and happens only once. Then the game starts.
-
-After that, "Pick ROM" starts the game straight away.
+Start GoldenSunLauncher in the collection's top folder and select
+The Broken Seal. On first play, choose your own Golden Sun (USA, Europe) ROM.
+Preparation happens once; later selections start the game directly.
 
 Needs: a 64-bit Linux with SDL2 and OpenGL (installed on SteamOS and on most
 desktop distributions). If the launcher does not open, install your
@@ -332,32 +375,114 @@ Package versions:
 $packages
 TXT
 
+# The Lost Age packages only its own config, translator, headers and engine.
+tla_builder=$tla_out/builder
+tla_recompiler=$(find "$tla_build" -name gba_recompile -type f -perm -u+x | head -1)
+for f in "$tla_build/TLARecomp" "$tla_build/tla_builder" "$tla_recompiler"; do
+    [ -x "$f" ] || { echo "The Lost Age output missing: $f" >&2; exit 1; }
+done
+mkdir -p "$tla_builder/data/reloc" "$tla_builder/engine/include"
+install -m 755 -s "$tla_build/TLARecomp" "$tla_out/"
+if [ "$ashley_edition" = 1 ]; then
+    cp "$collection_root/assets/ashley_edition/edition_badge.bmp" \
+       "$collection_root/assets/ashley_edition/edition_badge.txt" "$tla_out/"
+fi
+install -m 755 -s "$tla_build/tla_builder" "$tla_builder/gsr_builder"
+install -m 755 -s "$tla_recompiler" "$tla_builder/"
+cp "$tla_repo/config/tla/main.toml" "$tla_builder/data/"
+cp "$tla_repo"/config/tla/reloc/*.toml "$tla_builder/data/reloc/"
+cp "$engine/src/armv4t/runtime_arm.h" "$engine/src/armv4t/runtime_arm_types.h" "$tla_builder/engine/include/"
+mkdir -p "$tla_out/overlay_toolchain/include"
+for h in src/runtime/overlay_runtime_arm.h src/runtime/overlay_abi.h src/armv4t/runtime_arm_types.h; do
+    cp "$engine/$h" "$tla_out/overlay_toolchain/include/"
+done
+cp -r "$tc" "$tla_builder/"
+cp "$out/THIRD-PARTY.txt" "$collection/"
+cat > "$collection/README.txt" <<'TXT'
+Golden Sun Recompiled (Linux)
+=============================
+
+Start GoldenSunLauncher and click The Broken Seal or The Lost Age.
+The selected cartridge breathes and glows. On first play, accept the preparation
+prompt and choose your own matching USA/Europe ROM. Later selections start
+the game directly. New releases are offered before starting either game.
+Selected .gba files are copied into ROMs beside the launcher. Existing matching
+.sav files and savestates are copied into Saves; the originals are kept.
+Conflicting imports are preserved in Saves/Imported. Each game keeps its own
+settings in its folder under games/.
+The root launcher handles preparation, updates and starting both games.
+Keep the games folders beside it; each contains that game's engine and tools.
+Needs a 64-bit Linux system with SDL2 and OpenGL.
+Settings: press F1 in the game.
+This download contains no game code, ROM, BIOS or generated game library.
+TXT
+
+# Resolve a moved checkout's local ROM path without changing local settings.
+resolve_test_rom() {
+    python3 - "$1" "$2" <<'PY'
+import json, pathlib, re, sys
+repo = pathlib.Path(sys.argv[1])
+specified = sys.argv[2]
+if specified:
+    candidate = pathlib.Path(specified)
+    if not candidate.is_file():
+        raise SystemExit(f"Test ROM does not exist: {candidate}")
+    print(candidate.resolve())
+else:
+    try:
+        value = json.loads((repo / 'config/local.json').read_text()).get('rom', '')
+    except (OSError, ValueError):
+        value = ''
+    if re.match(r'^[A-Za-z]:[/\\]', value):
+        value = '/mnt/' + value[0].lower() + value[2:].replace('\\', '/')
+    candidate = pathlib.Path(value)
+    if value and not candidate.is_absolute():
+        candidate = repo / candidate
+    if value and candidate.is_file():
+        print(candidate.resolve())
+    else:
+        matches = list(repo.glob('*.gba'))
+        if len(matches) == 1:
+            print(matches[0].resolve())
+PY
+}
+
 # ---- 5. Test: build the game code with only the release's own tools ---------
-if [ "$test_build" = 1 ] && [ -n "$rom" ]; then
-    echo "Testing: building the game code in a scratch copy of the release, with"
-    echo "only its own builder and compiler (the release itself stays without it)."
+if [ "$test_build" = 1 ]; then
+    rom=$(resolve_test_rom "$repo" "$rom")
+    tla_rom=$(resolve_test_rom "$tla_repo" "$tla_rom")
     scratch=$work/test
-    rm -rf "$scratch"; mkdir -p "$scratch"
-    cp -a "$out" "$scratch/"
-    test_root=$scratch/"Golden Sun Recompiled"
+    safe_remove "$scratch"; mkdir -p "$scratch"
     # Hide the system compiler: its programs, headers and libgcc.
     hide=(/usr/include /usr/lib/gcc /usr/libexec/gcc)
     hide_files=()
     for p in g++ gcc c++ cc as ld; do
         f=$(command -v "$p" || true); [ -n "$f" ] && hide_files+=("$(readlink -f "$f")")
     done
-    unshare -m bash -c '
-        set -e
-        for d in '"${hide[*]}"'; do mount -t tmpfs none "$d"; done
-        for f in '"${hide_files[*]}"'; do mount --bind /dev/null "$f"; done
-        "$1/builder/gsr_builder" --rom "$2"
-    ' _ "$test_root" "$rom" | grep --line-buffered -E '^@(stage|error|done)' | sed -u 's/^@/  test: /' || true
-    [ -f "$test_root/libGoldenSunGame.so" ] || {
-        echo "The test build failed. Log: $test_root/builder/work/build-log.txt" >&2; exit 1; }
-    rm -rf "$scratch"
-    echo "  The release builds the game from the ROM on its own (test copy removed)."
-elif [ "$test_build" = 1 ]; then
-    echo "No ROM given (--rom or GSR_ROM): skipped the test build."
+    test_game() {
+        local source=$1 test_rom=$2 library=$3 name=$4 test_root=$scratch/game
+        if [ -z "$test_rom" ]; then
+            echo "No ROM available for $name: skipped its test build."; return
+        fi
+        safe_remove "$test_root"
+        cp -a "$source" "$test_root"
+        echo "Testing $name with only its packaged builder and compiler."
+        if ! unshare -m bash -c '
+            set -e
+            for d in '"${hide[*]}"'; do mount -t tmpfs none "$d"; done
+            for f in '"${hide_files[*]}"'; do mount --bind /dev/null "$f"; done
+            "$1/builder/gsr_builder" --rom "$2"
+        ' _ "$test_root" "$test_rom" | grep --line-buffered -E '^@(stage|error|done)' | sed -u 's/^@/  test: /'; then
+            echo "The $name test failed. Log: $test_root/builder/work/build-log.txt" >&2; exit 1
+        fi
+        [ -f "$test_root/$library" ] || {
+            echo "The $name test produced no $library. Log: $test_root/builder/work/build-log.txt" >&2; exit 1; }
+        safe_remove "$test_root"
+        echo "  $name builds its game from the ROM on its own."
+    }
+    test_game "$out" "$rom" libGoldenSunGame.so "The Broken Seal"
+    test_game "$tla_out" "$tla_rom" libTLAGame.so "The Lost Age"
+    safe_remove "$scratch"
 fi
 
 # ---- 6. The download ---------------------------------------------------------
@@ -367,14 +492,19 @@ if [ "$ashley_edition" = 1 ]; then edition_suffix=-Ashley; fi
 archive=$release_root/GoldenSunRecompiled-linux$edition_suffix-$stamp.zip
 mkdir -p "$release_root"
 rm -f "$archive"
-links=$(find "$out" -type l)
+# Audit both games before the archive is assembled.
+for forbidden in GoldenSunGame.dll TLAGame.dll libGoldenSunGame.so libTLAGame.so gssplash.jpg '*.gba' '*.sav' '*.state*' '*.ini' 'recompiled*.cpp' 'bios*.bin'; do
+    hit=$(find "$collection" -type f -iname "$forbidden" -print -quit)
+    [ -z "$hit" ] || { echo "Forbidden release file: $hit" >&2; exit 1; }
+done
+links=$(find "$collection" -type l)
 if [ -n "$links" ]; then
     echo "The release must not contain links (they break when copied):" >&2
     echo "$links" >&2
     exit 1
 fi
 (cd "$stage" && zip -qr -9 "$archive" "Golden Sun Recompiled")
-rm -rf "$release_root/Golden Sun Recompiled"
-cp -r "$out" "$release_root/"
-echo "Release folder: $release_root/Golden Sun Recompiled ($(du -sh "$out" | cut -f1))"
+safe_remove "$release_root/Golden Sun Recompiled"
+cp -r "$collection" "$release_root/"
+echo "Release folder: $release_root/Golden Sun Recompiled ($(du -sh "$collection" | cut -f1))"
 echo "Download:       $archive ($(du -h "$archive" | cut -f1))"

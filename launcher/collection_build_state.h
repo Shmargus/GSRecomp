@@ -1,0 +1,121 @@
+#pragma once
+#include "launcher_common.h"
+#include <algorithm>
+#include <atomic>
+#include <map>
+#include <stdexcept>
+#include <stop_token>
+#include <thread>
+#include <utility>
+#include <vector>
+
+namespace gsr_collection {
+namespace fs = std::filesystem;
+
+// These paths are development inputs, never player ROMs, progress or settings.
+// The build writer reads the same rules, so additions/deletions also invalidate
+// a record. Contents, rather than timestamps, identify the build.
+inline bool ignored_build_path(const fs::path& path) {
+    for (const auto& part : path) {
+        const auto name = part.generic_string();
+        if ((!name.empty() && name.front() == '.') ||
+            name.find(".bak") != std::string::npos || name == "__pycache__") return true;
+    }
+    return false;
+}
+
+inline std::string build_path_text(const fs::path& path) {
+    const auto text = path.generic_u8string();
+    return {reinterpret_cast<const char*>(text.data()), text.size()};
+}
+
+inline bool developer_build_ready(const fs::path& game_root, int choice,
+                                  const fs::path& engine, std::stop_token stop = {}) {
+    try {
+        const auto record = gsr_launcher::read_text(engine.parent_path() / "collection-build.txt");
+        if (record.rfind("developer_build=1\n", 0) != 0) return false;
+        const auto root = fs::canonical(game_root.parent_path());
+        std::map<std::string, std::string> files;
+        std::vector<std::pair<std::string, fs::path>> inputs;
+        auto add = [&](const fs::path& file) {
+            if (stop.stop_requested()) throw std::runtime_error("Build check cancelled.");
+            const auto relative = fs::canonical(file).lexically_relative(root);
+            if (relative.empty() || relative.is_absolute()) throw std::runtime_error("Invalid build input.");
+            for (const auto& part : relative)
+                if (part == "..") throw std::runtime_error("Build input outside collection.");
+            const auto name = build_path_text(relative);
+            if (name.find_first_of("\t\r\n") != std::string::npos) throw std::runtime_error("Invalid build path.");
+            inputs.emplace_back(name, file);
+        };
+        const auto spec = gsr_launcher::read_text(root / "scripts" / "developer_build_inputs.txt");
+        if (spec.empty()) return false;
+        std::istringstream lines(spec);
+        std::string line;
+        while (std::getline(lines, line)) {
+            if (stop.stop_requested()) return false;
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line.find_first_not_of(" \t\r\n") == std::string::npos || line.front() == '#') continue;
+            const auto tab = line.find('\t');
+            if (tab == std::string::npos) return false;
+            const auto game = line.substr(0, tab);
+            if (game != "Both" && game != "BrokenSeal" && game != "LostAge") return false;
+            if (game != "Both" && game != (choice ? "LostAge" : "BrokenSeal")) continue;
+            auto name = line.substr(tab + 1);
+            if (const auto corpus = name.find("{tla_corpus}"); corpus != std::string::npos)
+#ifdef _WIN32
+                name.replace(corpus, 12, "tla");
+#else
+                name.replace(corpus, 12, "tla_linux");
+#endif
+            if (name.empty() || name.find_first_of("\\:\t\r\n") != std::string::npos) return false;
+            const fs::path relative(std::u8string(name.begin(), name.end()));
+            if (relative.empty() || relative.is_absolute()) return false;
+            for (const auto& part : relative) if (part == "." || part == "..") return false;
+            const auto input = root / relative;
+            if (fs::is_symlink(input)) return false;
+            if (fs::is_directory(input)) {
+                for (auto at = fs::recursive_directory_iterator(input);
+                     at != fs::recursive_directory_iterator(); ++at) {
+                    if (stop.stop_requested()) return false;
+                    if (ignored_build_path(at->path().lexically_relative(input))) {
+                        if (at->is_directory()) at.disable_recursion_pending();
+                        continue;
+                    }
+                    if (at->is_symlink()) return false;
+                    if (at->is_regular_file()) add(at->path());
+                    else if (!at->is_directory()) return false;
+                }
+            } else if (fs::is_regular_file(input)) add(input);
+            else return false;
+        }
+#ifdef _WIN32
+        const char* library = choice ? "TLAGame.dll" : "GoldenSunGame.dll";
+#else
+        const char* library = choice ? "libTLAGame.so" : "libGoldenSunGame.so";
+#endif
+        const auto dll = engine.parent_path() / library;
+        if (fs::is_symlink(engine) || fs::is_symlink(dll) ||
+            !fs::is_regular_file(engine) || !fs::is_regular_file(dll) ||
+            fs::file_size(engine) == 0 || fs::file_size(dll) == 0) return false;
+        add(engine); add(dll); add(engine.parent_path() / "CMakeCache.txt");
+        // Hashing one file at a time took ~10 s for both games; spread it over
+        // every core (measured ~0.3 s warm).
+        std::vector<std::string> digests(inputs.size());
+        std::atomic<std::size_t> next{0};
+        std::atomic<bool> failed{false};
+        {
+            std::vector<std::jthread> pool(std::max(1u, std::thread::hardware_concurrency()));
+            for (auto& thread : pool) thread = std::jthread([&] {
+                for (std::size_t at; !failed && (at = next++) < inputs.size();)
+                    if (stop.stop_requested() || !gsr_launcher::sha1_file(inputs[at].second, &digests[at]))
+                        failed = true;
+            });
+        }
+        if (failed) return false;
+        for (std::size_t at = 0; at < inputs.size(); ++at) files[inputs[at].first] = std::move(digests[at]);
+        std::string current = "developer_build=1\n";
+        for (const auto& [path, hash] : files) current += hash + "\t" + path + "\n";
+        return current == record;
+    } catch (const std::exception&) { return false; }
+}
+} // namespace gsr_collection

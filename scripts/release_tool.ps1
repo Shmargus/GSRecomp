@@ -1,5 +1,5 @@
-# The release window, opened by make_release.bat: pick Windows, Linux or
-# both, with or without the test build, and watch make_release.ps1 run.
+# The combined release window: select Windows, Linux or both. Each platform
+# builds The Broken Seal followed by The Lost Age, then packages the selector.
 # Nothing builds until "Make release" is clicked.
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
@@ -8,9 +8,10 @@ Add-Type -Namespace Gsr -Name Dpi -MemberDefinition '[DllImport("user32.dll")] p
 [void][Gsr.Dpi]::SetProcessDPIAware()
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
-$repo = Split-Path -Parent $PSScriptRoot
-$releaseRoot = Join-Path $repo 'GSRecomp-Release'
-$settingsPath = Join-Path $repo 'local/release_tool.json'
+$collectionRoot = Split-Path -Parent $PSScriptRoot
+$repo = Join-Path $collectionRoot 'The Broken Seal'
+$releaseRoot = Join-Path $collectionRoot 'Releases'
+$settingsPath = Join-Path $collectionRoot 'local/release_tool.json'
 $logPath = Join-Path $releaseRoot 'make_release.log'
 $distro = 'Ubuntu-24.04'
 $wsl = Join-Path $env:SystemRoot 'System32\wsl.exe'
@@ -21,11 +22,20 @@ if (Test-Path -LiteralPath $wsl) {
     $names = (& $wsl --list --quiet 2>$null) -replace "`0", ''
     $haveWsl = [bool]($names | Where-Object { $_.Trim() -eq $distro })
 }
-$rom = $null
-try {
-    $local = Get-Content -Raw -LiteralPath (Join-Path $repo 'config/local.json') | ConvertFrom-Json
-    if ($local.rom -and (Test-Path -LiteralPath $local.rom)) { $rom = $local.rom }
-} catch { }
+$rom = $true
+foreach ($gameRepo in @($repo, (Join-Path $collectionRoot 'The Lost Age'))) {
+    $haveRom = $false
+    try {
+        $local = Get-Content -Raw -LiteralPath (Join-Path $gameRepo 'config/local.json') | ConvertFrom-Json
+        $candidate = [string]$local.rom
+        if ($candidate -and -not [IO.Path]::IsPathRooted($candidate)) { $candidate = Join-Path $gameRepo $candidate }
+        $haveRom = $candidate -and (Test-Path -LiteralPath $candidate)
+    } catch { }
+    if (-not $haveRom -and (Test-Path -LiteralPath $gameRepo)) {
+        $haveRom = @(Get-ChildItem -LiteralPath $gameRepo -File -Filter '*.gba').Count -eq 1
+    }
+    $rom = $rom -and $haveRom
+}
 
 # Last choices.
 $saved = @{ target = 'Both'; test = $true; version = '' }
@@ -47,7 +57,7 @@ $form.ClientSize = New-Object System.Drawing.Size(760, 600)
 $form.MinimumSize = New-Object System.Drawing.Size(620, 480)
 
 $title = New-Object System.Windows.Forms.Label
-$title.Text = 'Make a player release'
+$title.Text = 'Make a combined player release'
 $title.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
 $title.AutoSize = $true
 $title.Location = New-Object System.Drawing.Point(16, 12)
@@ -85,7 +95,7 @@ $test.Checked = $saved.test -and [bool]$rom
 $test.Enabled = [bool]$rom
 $form.Controls.Add($test)
 
-# Only the player launchers: players drop the new one over their own and
+# Only the root launcher: players drop the new one over their own and
 # nothing rebuilds. Never remembered, so a full release is the default.
 $launcherOnly = New-Object System.Windows.Forms.CheckBox
 $launcherOnly.Text = 'Launcher only'
@@ -131,16 +141,16 @@ function Update-Info {
     $ashleyEdition.Enabled = -not $launcherOnly.Checked
     if ($launcherOnly.Checked) { $ashleyEdition.Checked = $false }
     if ($launcherOnly.Checked) {
-        $lines += 'Only the launchers, zipped on their own, for players to drop over their old one. The game and engine are not built.'
+        $lines += 'Updates the root launcher and artwork for both games. Players extract the zip over their collection.'
     } elseif ($rom) {
-        $lines += 'The test builds the game once from your ROM with only the release''s own tools, about 4 minutes per platform. It is deleted afterwards.'
+        $lines += 'Each platform builds both games in order. The test prepares both games from your ROMs using only their packaged tools, then deletes the test copies.'
     } else {
-        $lines += 'No test: config\local.json names no ROM that exists.'
+        $lines += 'Tests need a valid ROM for each game in its config\local.json or its game folder.'
     }
     if (-not $haveWsl) {
         $lines += "Linux needs WSL $distro, which is not installed."
     } elseif ($radios['Linux'].Checked) {
-        $lines += 'Linux only uses the game code of your last Windows build (build_lto.bat).'
+        $lines += 'Linux uses the existing block-timing code for both games.'
     }
     $info.Text = $lines -join "`r`n`r`n"
 }
@@ -264,7 +274,7 @@ $makeBtn.Add_Click({
     }
     if (-not $versionText) {
         $answer = [System.Windows.Forms.MessageBox]::Show($form,
-            "No version filled in. The launchers will then never tell players about updates.`r`n`r`nMake the release anyway?",
+            "No version filled in. The launcher will then never tell players about updates.`r`n`r`nMake the release anyway?",
             'Make release', 'YesNo', 'Question')
         if ($answer -ne 'Yes') { return }
     } else {
@@ -282,7 +292,7 @@ $makeBtn.Add_Click({
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = Join-Path $env:SystemRoot 'System32\cmd.exe'
     $psi.Arguments = '/d /s /c "' + $inner + '"'
-    $psi.WorkingDirectory = $repo
+    $psi.WorkingDirectory = $collectionRoot
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
     $script:proc = [System.Diagnostics.Process]::Start($psi)
@@ -307,7 +317,7 @@ function Stop-Release {
 
 $stopBtn.Add_Click({
     $answer = [System.Windows.Forms.MessageBox]::Show($form,
-        "Stop the release build?`r`n`r`nStopping while the Windows engine links can leave a broken GoldenSunRecomp.exe in build\gs011_opt; build_lto.bat makes it again.",
+        "Stop the release build?`r`n`r`nStopping while the Windows engine links can leave a broken GoldenSunRecomp.exe in build\gs011_opt; build_dev.bat makes it again.",
         'Make release', 'YesNo', 'Warning')
     if ($answer -eq 'Yes') { Stop-Release }
 })

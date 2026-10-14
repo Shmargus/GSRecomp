@@ -1,0 +1,8674 @@
+# Golden Sun: The Lost Age (USA/Europe) main image.
+#
+# No outside symbol list: every function is found by gba_recompile walking the
+# code from the reset vector. Pointers sitting in data are NOT treated as code
+# (speculative_literal_harvest = false): a missed function becomes a loud
+# dispatch miss at runtime, which we then add here with evidence, instead of
+# decoding data as code. Regenerate with scripts/tla_recompile.ps1.
+
+[program]
+name = "Golden Sun: The Lost Age (USA/Europe) main image"
+id = "golden_sun_tla_usa_main"
+load_address = 0x08000000
+size = 0x01000000
+entry_pc = 0x08000000
+speculative_literal_harvest = false
+codegen_shards = 32
+
+[identity]
+sha1 = "b500663220cb9bf56b9f8e8c0c544f1d6fa3a824"
+
+# Boot copies the IRQ handler and the fast IWRAM routines into IWRAM:
+# Func 0x080133c4 DMA3s 0x400 words from 0x080006b8 to 0x03000100 (literals at
+# 0x08013418/0x0801341c/0x08013420 = src/dst/0x84000400) and stores 0x03000100
+# at 0x03007ffc (the IRQ vector). It then DMAs 14 words from 0x080178b4 to
+# 0x030001e4 -- the handler's table of IRQ routine pointers (data, not code).
+[[code_copy]]
+runtime_start = 0x03000100
+source_start = 0x080006b8
+size = 0x00001000
+name = "iwram_copy_03000100"
+note = "DMA3 in 0x080133c4, measured from its literal pool"
+
+# The IRQ handler: the address the boot code stores at 0x03007ffc. First run
+# (2026-10-03) missed it and the interpreter bridge could not run it.
+[[extra_func]]
+addr = 0x03000100
+mode = "arm"
+name = "IrqHandler"
+
+# Entry points reached only through Thumb veneers `ldr rX,[pc,#0]; bx rX`
+# whose literal points into the copy (bit 0 clear = ARM, set = Thumb).
+[[extra_func]]
+addr = 0x03000508
+mode = "arm"
+name = "Iwram_508"
+note = "veneer at 0x08002064"
+
+[[extra_func]]
+addr = 0x03000514
+mode = "arm"
+name = "Iwram_514"
+note = "veneer at 0x0800206c"
+
+[[extra_func]]
+addr = 0x03000528
+mode = "arm"
+name = "Iwram_528"
+note = "veneer at 0x08002054; first run missed it"
+
+[[extra_func]]
+addr = 0x03000534
+mode = "arm"
+name = "Iwram_534"
+note = "veneer at 0x0800205c"
+
+[[extra_func]]
+addr = 0x030007b4
+mode = "thumb"
+name = "Iwram_7b4"
+note = "veneer at 0x080006a0 (literal 0x030007b5)"
+
+# IRQ routine pointers the boot code DMAs from 0x080178b4 to 0x030001e4
+# (14 words, all THUMB): 0x080133c1 (a bare `bx lr`) and 0x08013b41.
+[[extra_func]]
+addr = 0x080133c0
+mode = "thumb"
+name = "IrqNone"
+note = "0x080178b4 table, 13 of 14 slots"
+
+[[extra_func]]
+addr = 0x08013b40
+mode = "thumb"
+name = "Irq_13b40"
+note = "0x080178b4 table, slot 12"
+
+# Reached only through a pointer; second run (2026-10-03) missed it. Starts
+# with `push {r5, r6, r7, lr}` right after 0x08013988's literal pool.
+[[extra_func]]
+addr = 0x0801399c
+mode = "thumb"
+name = "Func_1399c"
+
+# ---------------------------------------------------------------------------
+# Round 1 of folding the first run's misses (2026-10-03 headless run, 1200
+# frames, recomp_master_misses_AGFE.toml.frag). Every address below was a
+# logged dispatch miss or is the function/table that contains one.
+
+# Switch statements the walk could not size. The compiler's form is
+# `cmp rI,#N; b{hi,ls}; ldr rB,=table; lsls rT,rI,#2; ldr rT,[rT,rB];
+# mov pc,rT` (the walk only recognizes an ADD or a scaled load there).
+# `mov pc` stays in Thumb, so the table words are Thumb case labels with
+# bit 0 clear. Count = N+1 from the guard compare.
+[[jump_table]]
+addr = 0x0803AB4C
+stride = 4
+count = 27
+format = "abs32"
+entries_mode = "thumb"
+note = "dispatcher 0x0803AB3E: cmp r1,#0x1a; bls; ldr r2,=0x0803AB4C (literal 0x0803AC58); ldr r3,[r3,r2]; mov pc,r3. Run missed case 0x0803ABB8"
+
+[[jump_table]]
+addr = 0x0803B9A4
+stride = 4
+count = 29
+format = "abs32"
+entries_mode = "thumb"
+note = "dispatcher 0x0803B996: cmp r2,#0x1c; bhi; ip=0x0803B9A4 (literal 0x0803BAD0); ldr r3,[r3,r2]; mov pc,r3. Run missed case 0x0803BA90"
+
+[[jump_table]]
+addr = 0x08041CD8
+stride = 4
+count = 16
+format = "abs32"
+entries_mode = "thumb"
+note = "dispatcher 0x08041CCA: cmp r3,#0xf; bhi; ldr r2,=0x08041CD8 (literal 0x08041F58); ldr r3,[r3,r2]; mov pc,r3. Run missed case 0x08041D18"
+
+[[jump_table]]
+addr = 0x080AD994
+stride = 4
+count = 8
+format = "abs32"
+entries_mode = "thumb"
+note = "dispatcher 0x080AD988: cmp r3,#7; bhi; ldr r2,=0x080AD994 (literal 0x080ADBE8); ldr r3,[r3,r2]; mov pc,r3. Run missed cases 0x080AD9B4..0x080AD9D4"
+
+[[jump_table]]
+addr = 0x080D01F8
+stride = 4
+count = 5
+format = "abs32"
+entries_mode = "thumb"
+note = "dispatcher 0x080D01E8: cmp r2,#4; bls; ldr r2,=0x080D01F8 (literal 0x080D0278); ldr r3,[r3,r2]; mov pc,r3. Run missed cases 0x080D020C, 0x080D021E"
+
+# Sound engine command table: 36 consecutive Thumb pointers into
+# 0x081C16B4..0x081C28E0, bounded by small integers before (0x64 at
+# 0x081C3438) and byte data after (0xE3E2E1E0 at 0x081C34CC). The run missed
+# 0x081C17AC (pointer at 0x081C344C) and code inside 0x081C17E8..0x081C18C8.
+[[jump_table]]
+addr = 0x081C343C
+stride = 4
+count = 36
+format = "abs32"
+entries_mode = "auto"
+note = "36 Thumb code pointers 0x081C343C..0x081C34CC; run missed 0x081C17AC and 0x081C17EE..0x081C18BA inside entries"
+
+# Functions reached only through a pointer in a literal pool. Each starts
+# right after a return or literal pool and opens with a push or a leaf body;
+# bit 0 of every pointer is set (Thumb).
+[[extra_func]]
+addr = 0x0802386C
+mode = "thumb"
+note = "pointers at 0x08023198/0x08023838/0x08023860; after bx lr; run missed x743"
+
+[[extra_func]]
+addr = 0x08023F9C
+mode = "thumb"
+note = "pointer at 0x0802318C; after pop {pc}; run missed x743"
+
+[[extra_func]]
+addr = 0x080246B8
+mode = "thumb"
+note = "pointer at 0x08023190; after literal pool; run missed x743"
+
+[[extra_func]]
+addr = 0x0802D23C
+mode = "thumb"
+note = "pointer at 0x0802EFC4; after literal pool; run missed x6"
+
+[[extra_func]]
+addr = 0x080390B8
+mode = "thumb"
+note = "pointers at 0x08038FA4/0x080390B4; after literal pool; run missed x791"
+
+[[extra_func]]
+addr = 0x0803A8C8
+mode = "thumb"
+note = "pointers at 0x0803A4AC/0x0803A528; after pop {pc}; run missed x743"
+
+[[extra_func]]
+addr = 0x080D0CA0
+mode = "thumb"
+note = "pointers at 0x080D16F4/0x080D1708; after literal pool; run missed x743"
+
+[[extra_func]]
+addr = 0x081C09D0
+mode = "thumb"
+note = "pointer at 0x081C26F0 (next to the 'Smsh' sound ident); after literal pool; run missed it x145 and 0x081C09DA inside it x8432"
+
+[[extra_func]]
+addr = 0x081C2AF4
+mode = "thumb"
+note = "pointer at 0x081C22FC; after bx r0; run missed it x218 and 0x081C2B18/0x081C2B1E inside it"
+
+# Thumb entry stubs in the boot IWRAM copy: `bx pc` (0x4778) + 0x0200, then
+# ARM code at +4. Callers load the word-aligned address from a literal and
+# call it with `mov lr,rX; bl lr` (0xF800), which stays in Thumb -- e.g.
+# 0x080148CE/0x080148D0 with r6 = 0x0300021C from literal 0x080148E4. The run
+# dispatched each of these in Thumb.
+[[extra_func]]
+addr = 0x0300021C
+mode = "thumb"
+note = "bx pc stub (ROM 0x080007D4); literals 0x080148E4 and others; run missed x4486"
+
+[[extra_func]]
+addr = 0x03000230
+mode = "thumb"
+note = "bx pc stub (ROM 0x080007E8); literals 0x08015760/0x0802142C and others; round-2 run missed x138"
+
+[[extra_func]]
+addr = 0x03000258
+mode = "thumb"
+note = "bx pc stub (ROM 0x08000810); literals 0x08014014 and others; run missed x1097"
+
+[[extra_func]]
+addr = 0x03000260
+mode = "thumb"
+note = "bx pc stub (ROM 0x08000818); literals 0x080019F0 and others; run missed x2"
+
+[[extra_func]]
+addr = 0x030002D4
+mode = "thumb"
+note = "bx pc stub (ROM 0x0800088C); literals 0x080149EC and others; run missed x2204"
+
+[[extra_func]]
+addr = 0x03000314
+mode = "thumb"
+note = "bx pc stub (ROM 0x080008CC); literal 0x0803AA9C; run missed x10"
+
+[[extra_func]]
+addr = 0x03000730
+mode = "thumb"
+note = "bx pc stub (ROM 0x08000CE8); literals 0x0802A63C and others; run missed x10"
+
+[[extra_func]]
+addr = 0x03000D40
+mode = "thumb"
+note = "bx pc stub (ROM 0x080012F8); literals 0x0801355C/0x08013B24; run missed x1170"
+
+# Sound mixer computed return: 0x03000B70 `blle 0x03000BA4`, and 0x03000BB8
+# `addne pc, lr, #8` returns to 0x03000B74 + 8 = 0x03000B7C. Run missed x3364.
+[[extra_func]]
+addr = 0x03000B7C
+mode = "arm"
+resume = true
+note = "return target of addne pc,lr,#8 at 0x03000BB8 (call at 0x03000B70)"
+
+# ---------------------------------------------------------------------------
+# Resume points (2026-10-03 headless run, 1200 frames). The engine pauses
+# translated code at yield points and later re-dispatches the exact PC it
+# stopped at; these PCs were logged as dispatch misses inside functions the
+# walk already translated. Each range is the host function's extent from the
+# generated code (local/tla/main, "/* 0x.. end=0x.. */" headers).
+
+[[resume_range]]
+start = 0x0801338A
+end = 0x080133B0
+mode = "thumb"
+note = "host 0x0801338A..0x080133B0; observed resume 0x080133AA x1"
+
+[[resume_range]]
+start = 0x0801353A
+end = 0x08013544
+mode = "thumb"
+note = "host 0x0801353A..0x08013544; observed resume 0x0801353C x68, 0x0801353E x34, 0x08013540 x101, 0x08013542 x16"
+
+[[resume_range]]
+start = 0x08014376
+end = 0x0801438A
+mode = "thumb"
+note = "host 0x08014376..0x0801438A; observed resume 0x0801437A x1"
+
+[[resume_range]]
+start = 0x080145CA
+end = 0x080145DC
+mode = "thumb"
+note = "host 0x080145CA..0x080145DC; observed resume 0x080145CC x1"
+
+[[resume_range]]
+start = 0x08014878
+end = 0x08014892
+mode = "thumb"
+note = "host 0x08014878..0x08014892; observed resume 0x0801487A x1"
+
+[[resume_range]]
+start = 0x08015890
+end = 0x080158B8
+mode = "thumb"
+note = "host 0x08015890..0x080158B8; observed resume 0x080158B0 x5"
+
+[[resume_range]]
+start = 0x080158E0
+end = 0x08015908
+mode = "thumb"
+note = "host 0x080158E0..0x08015908; observed resume 0x08015900 x6"
+
+[[resume_range]]
+start = 0x08015EE0
+end = 0x08015F0A
+mode = "thumb"
+note = "host 0x08015EE0..0x08015F0A; observed resume 0x08015EE2 x1, 0x08015F02 x1"
+
+[[resume_range]]
+start = 0x08016CA4
+end = 0x08016CB6
+mode = "thumb"
+note = "host 0x08016CA4..0x08016CB6; observed resume 0x08016CA8 x1"
+
+[[resume_range]]
+start = 0x08016CE4
+end = 0x08016CF8
+mode = "thumb"
+note = "host 0x08016CE4..0x08016CF8; observed resume 0x08016CEC x1"
+
+[[resume_range]]
+start = 0x08016E90
+end = 0x08016EA2
+mode = "thumb"
+note = "host 0x08016E90..0x08016EA2; observed resume 0x08016E96 x1"
+
+[[resume_range]]
+start = 0x08023106
+end = 0x0802313C
+mode = "thumb"
+note = "host 0x08023106..0x0802313C; observed resume 0x0802311A x1"
+
+[[resume_range]]
+start = 0x0802A5F4
+end = 0x0802A608
+mode = "thumb"
+note = "host 0x0802A5F4..0x0802A608; observed resume 0x0802A600 x1"
+
+[[resume_range]]
+start = 0x0802A608
+end = 0x0802A630
+mode = "thumb"
+note = "host 0x0802A608..0x0802A630; observed resume 0x0802A62A x2"
+
+[[resume_range]]
+start = 0x080AD452
+end = 0x080AD480
+mode = "thumb"
+note = "host 0x080AD452..0x080AD480; observed resume 0x080AD464 x1"
+
+[[resume_range]]
+start = 0x080AD524
+end = 0x080AD538
+mode = "thumb"
+note = "host 0x080AD524..0x080AD538; observed resume 0x080AD52C x1"
+
+[[resume_range]]
+start = 0x080AD558
+end = 0x080AD572
+mode = "thumb"
+note = "host 0x080AD558..0x080AD572; observed resume 0x080AD570 x1"
+
+[[resume_range]]
+start = 0x080AD572
+end = 0x080AD58C
+mode = "thumb"
+note = "host 0x080AD572..0x080AD58C; observed resume 0x080AD574 x1"
+
+[[resume_range]]
+start = 0x080AD58C
+end = 0x080AD594
+mode = "thumb"
+note = "host 0x080AD58C..0x080AD594; observed resume 0x080AD58E x1"
+
+[[resume_range]]
+start = 0x080AD6F2
+end = 0x080AD708
+mode = "thumb"
+note = "host 0x080AD6F2..0x080AD708; observed resume 0x080AD6F6 x2"
+
+[[resume_range]]
+start = 0x080AD7C6
+end = 0x080AD7DE
+mode = "thumb"
+note = "host 0x080AD7C6..0x080AD7DE; observed resume 0x080AD7D8 x1"
+
+[[resume_range]]
+start = 0x080AD8C0
+end = 0x080AD8CA
+mode = "thumb"
+note = "host 0x080AD8C0..0x080AD8CA; observed resume 0x080AD8C8 x1"
+
+[[resume_range]]
+start = 0x080AD95A
+end = 0x080AD994
+mode = "thumb"
+note = "host 0x080AD95A..0x080AD994; observed resume 0x080AD96A x1"
+
+[[resume_range]]
+start = 0x080ADC4E
+end = 0x080ADC62
+mode = "thumb"
+note = "host 0x080ADC4E..0x080ADC62; observed resume 0x080ADC54 x1"
+
+[[resume_range]]
+start = 0x080AEC04
+end = 0x080AEC18
+mode = "thumb"
+note = "host 0x080AEC04..0x080AEC18; observed resume 0x080AEC14 x1"
+
+[[resume_range]]
+start = 0x080AF55A
+end = 0x080AF568
+mode = "thumb"
+note = "host 0x080AF55A..0x080AF568; observed resume 0x080AF55C x1"
+
+[[resume_range]]
+start = 0x080AF5A8
+end = 0x080AF5BC
+mode = "thumb"
+note = "host 0x080AF5A8..0x080AF5BC; observed resume 0x080AF5AA x1, 0x080AF5B4 x1, 0x080AF5B8 x2"
+
+[[resume_range]]
+start = 0x080AF608
+end = 0x080AF622
+mode = "thumb"
+note = "host 0x080AF608..0x080AF622; observed resume 0x080AF610 x1, 0x080AF618 x1"
+
+[[resume_range]]
+start = 0x080AF6A4
+end = 0x080AF6B4
+mode = "thumb"
+note = "host 0x080AF6A4..0x080AF6B4; observed resume 0x080AF6AA x1"
+
+[[resume_range]]
+start = 0x080AF8D8
+end = 0x080AF912
+mode = "thumb"
+note = "host 0x080AF8D8..0x080AF912; observed resume 0x080AF8DC x1"
+
+[[resume_range]]
+start = 0x080AFA0C
+end = 0x080AFA24
+mode = "thumb"
+note = "host 0x080AFA0C..0x080AFA24; observed resume 0x080AFA0E x1"
+
+[[resume_range]]
+start = 0x080B00F0
+end = 0x080B00FA
+mode = "thumb"
+note = "host 0x080B00F0..0x080B00FA; observed resume 0x080B00F6 x1"
+
+[[resume_range]]
+start = 0x080B0112
+end = 0x080B012E
+mode = "thumb"
+note = "host 0x080B0112..0x080B012E; observed resume 0x080B011A x1"
+
+[[resume_range]]
+start = 0x080B0214
+end = 0x080B0238
+mode = "thumb"
+note = "host 0x080B0214..0x080B0238; observed resume 0x080B0216 x1, 0x080B0218 x2"
+
+[[resume_range]]
+start = 0x080B0254
+end = 0x080B0262
+mode = "thumb"
+note = "host 0x080B0254..0x080B0262; observed resume 0x080B0258 x1, 0x080B025A x2, 0x080B0260 x1"
+
+[[resume_range]]
+start = 0x081C26D4
+end = 0x081C26E0
+mode = "thumb"
+note = "host 0x081C26D4..0x081C26E0; observed resume 0x081C26DA x1"
+
+
+# ---------------------------------------------------------------------------
+# Veneer tables. The ROM is built from separately linked modules; each starts
+# with a contiguous table of 8-byte Thumb veneers `ldr r4,[pc,#0]; bx r4;
+# .word target` (bytes 00 4C 20 47 + word). Measured 2026-10-03 by scanning the
+# ROM for that word-aligned pattern: 901 veneers in 15 tables, every target in
+# ROM with bit 0 set (Thumb). The walk followed only 237 of them; the run
+# missed several targets (e.g. 0x080432A4, 0x08044558, 0x081A7518). Seeding
+# each veneer lets the walk follow its `bx r4` to the target.
+
+# veneer table 0x080000C0..0x08000428 (109 veneers)
+[[extra_func]]
+addr = 0x080000C0
+mode = "thumb"
+note = "veneer -> 0x08013561"
+
+[[extra_func]]
+addr = 0x080000C8
+mode = "thumb"
+note = "veneer -> 0x080144C1"
+
+[[extra_func]]
+addr = 0x080000D0
+mode = "thumb"
+note = "veneer -> 0x080145A9"
+
+[[extra_func]]
+addr = 0x080000D8
+mode = "thumb"
+note = "veneer -> 0x08014645"
+
+[[extra_func]]
+addr = 0x080000E0
+mode = "thumb"
+note = "veneer -> 0x08014695"
+
+[[extra_func]]
+addr = 0x080000E8
+mode = "thumb"
+note = "veneer -> 0x0801475D"
+
+[[extra_func]]
+addr = 0x080000F0
+mode = "thumb"
+note = "veneer -> 0x080147D9"
+
+[[extra_func]]
+addr = 0x080000F8
+mode = "thumb"
+note = "veneer -> 0x08014879"
+
+[[extra_func]]
+addr = 0x08000100
+mode = "thumb"
+note = "veneer -> 0x080148E9"
+
+[[extra_func]]
+addr = 0x08000108
+mode = "thumb"
+note = "veneer -> 0x080149B5"
+
+[[extra_func]]
+addr = 0x08000110
+mode = "thumb"
+note = "veneer -> 0x080149E1"
+
+[[extra_func]]
+addr = 0x08000118
+mode = "thumb"
+note = "veneer -> 0x08002097"
+
+[[extra_func]]
+addr = 0x08000120
+mode = "thumb"
+note = "veneer -> 0x08002091"
+
+[[extra_func]]
+addr = 0x08000128
+mode = "thumb"
+note = "veneer -> 0x0801489D"
+
+[[extra_func]]
+addr = 0x08000130
+mode = "thumb"
+note = "veneer -> 0x08013439"
+
+[[extra_func]]
+addr = 0x08000138
+mode = "thumb"
+note = "veneer -> 0x08014C6D"
+
+[[extra_func]]
+addr = 0x08000140
+mode = "thumb"
+note = "veneer -> 0x08014CC1"
+
+[[extra_func]]
+addr = 0x08000148
+mode = "thumb"
+note = "veneer -> 0x08014D01"
+
+[[extra_func]]
+addr = 0x08000150
+mode = "thumb"
+note = "veneer -> 0x0801314D"
+
+[[extra_func]]
+addr = 0x08000158
+mode = "thumb"
+note = "veneer -> 0x08014CA1"
+
+[[extra_func]]
+addr = 0x08000160
+mode = "thumb"
+note = "veneer -> 0x08014CB1"
+
+[[extra_func]]
+addr = 0x08000168
+mode = "thumb"
+note = "veneer -> 0x08014D79"
+
+[[extra_func]]
+addr = 0x08000170
+mode = "thumb"
+note = "veneer -> 0x08014DAD"
+
+[[extra_func]]
+addr = 0x08000178
+mode = "thumb"
+note = "veneer -> 0x08013165"
+
+[[extra_func]]
+addr = 0x08000180
+mode = "thumb"
+note = "veneer -> 0x08014AE1"
+
+[[extra_func]]
+addr = 0x08000188
+mode = "thumb"
+note = "veneer -> 0x08014B31"
+
+[[extra_func]]
+addr = 0x08000190
+mode = "thumb"
+note = "veneer -> 0x08014B51"
+
+[[extra_func]]
+addr = 0x08000198
+mode = "thumb"
+note = "veneer -> 0x08014AA9"
+
+[[extra_func]]
+addr = 0x080001A0
+mode = "thumb"
+note = "veneer -> 0x0801591D"
+
+[[extra_func]]
+addr = 0x080001A8
+mode = "thumb"
+note = "veneer -> 0x0801587D"
+
+[[extra_func]]
+addr = 0x080001B0
+mode = "thumb"
+note = "veneer -> 0x08014369"
+
+[[extra_func]]
+addr = 0x080001B8
+mode = "thumb"
+note = "veneer -> 0x08014275"
+
+[[extra_func]]
+addr = 0x080001C0
+mode = "thumb"
+note = "veneer -> 0x080142AD"
+
+[[extra_func]]
+addr = 0x080001C8
+mode = "thumb"
+note = "veneer -> 0x080142D5"
+
+[[extra_func]]
+addr = 0x080001D0
+mode = "thumb"
+note = "veneer -> 0x080143AD"
+
+[[extra_func]]
+addr = 0x080001D8
+mode = "thumb"
+note = "veneer -> 0x08014B71"
+
+[[extra_func]]
+addr = 0x080001E0
+mode = "thumb"
+note = "veneer -> 0x0801401D"
+
+[[extra_func]]
+addr = 0x080001E8
+mode = "thumb"
+note = "veneer -> 0x080140D9"
+
+[[extra_func]]
+addr = 0x080001F0
+mode = "thumb"
+note = "veneer -> 0x08014BAD"
+
+[[extra_func]]
+addr = 0x080001F8
+mode = "thumb"
+note = "veneer -> 0x08014C4D"
+
+[[extra_func]]
+addr = 0x08000200
+mode = "thumb"
+note = "veneer -> 0x08014DE5"
+
+[[extra_func]]
+addr = 0x08000208
+mode = "thumb"
+note = "veneer -> 0x08014EE1"
+
+[[extra_func]]
+addr = 0x08000210
+mode = "thumb"
+note = "veneer -> 0x08014E39"
+
+[[extra_func]]
+addr = 0x08000218
+mode = "thumb"
+note = "veneer -> 0x08014EA9"
+
+[[extra_func]]
+addr = 0x08000220
+mode = "thumb"
+note = "veneer -> 0x08014EFD"
+
+[[extra_func]]
+addr = 0x08000228
+mode = "thumb"
+note = "veneer -> 0x08015025"
+
+[[extra_func]]
+addr = 0x08000230
+mode = "thumb"
+note = "veneer -> 0x08015069"
+
+[[extra_func]]
+addr = 0x08000238
+mode = "thumb"
+note = "veneer -> 0x080150E5"
+
+[[extra_func]]
+addr = 0x08000240
+mode = "thumb"
+note = "veneer -> 0x08015129"
+
+[[extra_func]]
+addr = 0x08000248
+mode = "thumb"
+note = "veneer -> 0x080151AD"
+
+[[extra_func]]
+addr = 0x08000250
+mode = "thumb"
+note = "veneer -> 0x0801524D"
+
+[[extra_func]]
+addr = 0x08000258
+mode = "thumb"
+note = "veneer -> 0x08015385"
+
+[[extra_func]]
+addr = 0x08000260
+mode = "thumb"
+note = "veneer -> 0x080156E9"
+
+[[extra_func]]
+addr = 0x08000268
+mode = "thumb"
+note = "veneer -> 0x08015779"
+
+[[extra_func]]
+addr = 0x08000270
+mode = "thumb"
+note = "veneer -> 0x08015715"
+
+[[extra_func]]
+addr = 0x08000278
+mode = "thumb"
+note = "veneer -> 0x08015769"
+
+[[extra_func]]
+addr = 0x08000280
+mode = "thumb"
+note = "veneer -> 0x080132D1"
+
+[[extra_func]]
+addr = 0x08000288
+mode = "thumb"
+note = "veneer -> 0x080132CD"
+
+[[extra_func]]
+addr = 0x08000290
+mode = "thumb"
+note = "veneer -> 0x08013301"
+
+[[extra_func]]
+addr = 0x08000298
+mode = "thumb"
+note = "veneer -> 0x080132FD"
+
+[[extra_func]]
+addr = 0x080002A0
+mode = "thumb"
+note = "veneer -> 0x0801336D"
+
+[[extra_func]]
+addr = 0x080002A8
+mode = "thumb"
+note = "veneer -> 0x08013E71"
+
+[[extra_func]]
+addr = 0x080002B0
+mode = "thumb"
+note = "veneer -> 0x08013EB5"
+
+[[extra_func]]
+addr = 0x080002B8
+mode = "thumb"
+note = "veneer -> 0x08013EF9"
+
+[[extra_func]]
+addr = 0x080002C0
+mode = "thumb"
+note = "veneer -> 0x08013F3D"
+
+[[extra_func]]
+addr = 0x080002C8
+mode = "thumb"
+note = "veneer -> 0x08013F81"
+
+[[extra_func]]
+addr = 0x080002D0
+mode = "thumb"
+note = "veneer -> 0x08013FDD"
+
+[[extra_func]]
+addr = 0x080002D8
+mode = "thumb"
+note = "veneer -> 0x080132B9"
+
+[[extra_func]]
+addr = 0x080002E0
+mode = "thumb"
+note = "veneer -> 0x080132BD"
+
+[[extra_func]]
+addr = 0x080002E8
+mode = "thumb"
+note = "veneer -> 0x080132C1"
+
+[[extra_func]]
+addr = 0x080002F0
+mode = "thumb"
+note = "veneer -> 0x080132C5"
+
+[[extra_func]]
+addr = 0x080002F8
+mode = "thumb"
+note = "veneer -> 0x080132C9"
+
+[[extra_func]]
+addr = 0x08000300
+mode = "thumb"
+note = "veneer -> 0x08016181"
+
+[[extra_func]]
+addr = 0x08000308
+mode = "thumb"
+note = "veneer -> 0x08016349"
+
+[[extra_func]]
+addr = 0x08000310
+mode = "thumb"
+note = "veneer -> 0x08013B69"
+
+[[extra_func]]
+addr = 0x08000318
+mode = "thumb"
+note = "veneer -> 0x08013BA5"
+
+[[extra_func]]
+addr = 0x08000320
+mode = "thumb"
+note = "veneer -> 0x08013BE1"
+
+[[extra_func]]
+addr = 0x08000328
+mode = "thumb"
+note = "veneer -> 0x08013C1D"
+
+[[extra_func]]
+addr = 0x08000330
+mode = "thumb"
+note = "veneer -> 0x08013C59"
+
+[[extra_func]]
+addr = 0x08000338
+mode = "thumb"
+note = "veneer -> 0x08013C95"
+
+[[extra_func]]
+addr = 0x08000340
+mode = "thumb"
+note = "veneer -> 0x08013CD1"
+
+[[extra_func]]
+addr = 0x08000348
+mode = "thumb"
+note = "veneer -> 0x08013D0D"
+
+[[extra_func]]
+addr = 0x08000350
+mode = "thumb"
+note = "veneer -> 0x08013D49"
+
+[[extra_func]]
+addr = 0x08000358
+mode = "thumb"
+note = "veneer -> 0x080138A9"
+
+[[extra_func]]
+addr = 0x08000360
+mode = "thumb"
+note = "veneer -> 0x080156F9"
+
+[[extra_func]]
+addr = 0x08000368
+mode = "thumb"
+note = "veneer -> 0x080167D9"
+
+[[extra_func]]
+addr = 0x08000370
+mode = "thumb"
+note = "veneer -> 0x080167AD"
+
+[[extra_func]]
+addr = 0x08000378
+mode = "thumb"
+note = "veneer -> 0x08013B31"
+
+[[extra_func]]
+addr = 0x08000380
+mode = "thumb"
+note = "veneer -> 0x0801680D"
+
+[[extra_func]]
+addr = 0x08000388
+mode = "thumb"
+note = "veneer -> 0x08016855"
+
+[[extra_func]]
+addr = 0x08000390
+mode = "thumb"
+note = "veneer -> 0x080168A1"
+
+[[extra_func]]
+addr = 0x08000398
+mode = "thumb"
+note = "veneer -> 0x080168CD"
+
+[[extra_func]]
+addr = 0x080003A0
+mode = "thumb"
+note = "veneer -> 0x080168F9"
+
+[[extra_func]]
+addr = 0x080003A8
+mode = "thumb"
+note = "veneer -> 0x0801692D"
+
+[[extra_func]]
+addr = 0x080003B0
+mode = "thumb"
+note = "veneer -> 0x08016991"
+
+[[extra_func]]
+addr = 0x080003B8
+mode = "thumb"
+note = "veneer -> 0x0801471D"
+
+[[extra_func]]
+addr = 0x080003C0
+mode = "thumb"
+note = "veneer -> 0x08016CA5"
+
+[[extra_func]]
+addr = 0x080003C8
+mode = "thumb"
+note = "veneer -> 0x08016CE5"
+
+[[extra_func]]
+addr = 0x080003D0
+mode = "thumb"
+note = "veneer -> 0x08016CFD"
+
+[[extra_func]]
+addr = 0x080003D8
+mode = "thumb"
+note = "veneer -> 0x08016D19"
+
+[[extra_func]]
+addr = 0x080003E0
+mode = "thumb"
+note = "veneer -> 0x08016D35"
+
+[[extra_func]]
+addr = 0x080003E8
+mode = "thumb"
+note = "veneer -> 0x08016D5D"
+
+[[extra_func]]
+addr = 0x080003F0
+mode = "thumb"
+note = "veneer -> 0x08016D6D"
+
+[[extra_func]]
+addr = 0x080003F8
+mode = "thumb"
+note = "veneer -> 0x08016D7D"
+
+[[extra_func]]
+addr = 0x08000400
+mode = "thumb"
+note = "veneer -> 0x08016D99"
+
+[[extra_func]]
+addr = 0x08000408
+mode = "thumb"
+note = "veneer -> 0x08016DB5"
+
+[[extra_func]]
+addr = 0x08000410
+mode = "thumb"
+note = "veneer -> 0x08016DD1"
+
+[[extra_func]]
+addr = 0x08000418
+mode = "thumb"
+note = "veneer -> 0x0801456D"
+
+[[extra_func]]
+addr = 0x08000420
+mode = "thumb"
+note = "veneer -> 0x08014221"
+
+# veneer table 0x08020000..0x080203A8 (117 veneers)
+[[extra_func]]
+addr = 0x08020000
+mode = "thumb"
+note = "veneer -> 0x08021919"
+
+[[extra_func]]
+addr = 0x08020008
+mode = "thumb"
+note = "veneer -> 0x08022BD9"
+
+[[extra_func]]
+addr = 0x08020010
+mode = "thumb"
+note = "veneer -> 0x080220F1"
+
+[[extra_func]]
+addr = 0x08020018
+mode = "thumb"
+note = "veneer -> 0x08022319"
+
+[[extra_func]]
+addr = 0x08020020
+mode = "thumb"
+note = "veneer -> 0x0802254D"
+
+[[extra_func]]
+addr = 0x08020028
+mode = "thumb"
+note = "veneer -> 0x080228E1"
+
+[[extra_func]]
+addr = 0x08020030
+mode = "thumb"
+note = "veneer -> 0x08022B05"
+
+[[extra_func]]
+addr = 0x08020038
+mode = "thumb"
+note = "veneer -> 0x08022B81"
+
+[[extra_func]]
+addr = 0x08020040
+mode = "thumb"
+note = "veneer -> 0x08022D41"
+
+[[extra_func]]
+addr = 0x08020048
+mode = "thumb"
+note = "veneer -> 0x08022E91"
+
+[[extra_func]]
+addr = 0x08020050
+mode = "thumb"
+note = "veneer -> 0x08022011"
+
+[[extra_func]]
+addr = 0x08020058
+mode = "thumb"
+note = "veneer -> 0x080229AD"
+
+[[extra_func]]
+addr = 0x08020060
+mode = "thumb"
+note = "veneer -> 0x08022A25"
+
+[[extra_func]]
+addr = 0x08020068
+mode = "thumb"
+note = "veneer -> 0x08022A85"
+
+[[extra_func]]
+addr = 0x08020070
+mode = "thumb"
+note = "veneer -> 0x08022D1D"
+
+[[extra_func]]
+addr = 0x08020078
+mode = "thumb"
+note = "veneer -> 0x0802296D"
+
+[[extra_func]]
+addr = 0x08020080
+mode = "thumb"
+note = "veneer -> 0x08022ACD"
+
+[[extra_func]]
+addr = 0x08020088
+mode = "thumb"
+note = "veneer -> 0x080230E1"
+
+[[extra_func]]
+addr = 0x08020090
+mode = "thumb"
+note = "veneer -> 0x080233D1"
+
+[[extra_func]]
+addr = 0x08020098
+mode = "thumb"
+note = "veneer -> 0x08023411"
+
+[[extra_func]]
+addr = 0x080200A0
+mode = "thumb"
+note = "veneer -> 0x08023451"
+
+[[extra_func]]
+addr = 0x080200A8
+mode = "thumb"
+note = "veneer -> 0x080233A9"
+
+[[extra_func]]
+addr = 0x080200B0
+mode = "thumb"
+note = "veneer -> 0x08023525"
+
+[[extra_func]]
+addr = 0x080200B8
+mode = "thumb"
+note = "veneer -> 0x080231A5"
+
+[[extra_func]]
+addr = 0x080200C0
+mode = "thumb"
+note = "veneer -> 0x08023221"
+
+[[extra_func]]
+addr = 0x080200C8
+mode = "thumb"
+note = "veneer -> 0x080231C9"
+
+[[extra_func]]
+addr = 0x080200D0
+mode = "thumb"
+note = "veneer -> 0x080234B1"
+
+[[extra_func]]
+addr = 0x080200D8
+mode = "thumb"
+note = "veneer -> 0x08023609"
+
+[[extra_func]]
+addr = 0x080200E0
+mode = "thumb"
+note = "veneer -> 0x08023511"
+
+[[extra_func]]
+addr = 0x080200E8
+mode = "thumb"
+note = "veneer -> 0x0802471D"
+
+[[extra_func]]
+addr = 0x080200F0
+mode = "thumb"
+note = "veneer -> 0x08022F65"
+
+[[extra_func]]
+addr = 0x080200F8
+mode = "thumb"
+note = "veneer -> 0x08022FE9"
+
+[[extra_func]]
+addr = 0x08020100
+mode = "thumb"
+note = "veneer -> 0x0802301D"
+
+[[extra_func]]
+addr = 0x08020108
+mode = "thumb"
+note = "veneer -> 0x0802A6B9"
+
+[[extra_func]]
+addr = 0x08020110
+mode = "thumb"
+note = "veneer -> 0x0802B999"
+
+[[extra_func]]
+addr = 0x08020118
+mode = "thumb"
+note = "veneer -> 0x0802AF9D"
+
+[[extra_func]]
+addr = 0x08020120
+mode = "thumb"
+note = "veneer -> 0x0802AA75"
+
+[[extra_func]]
+addr = 0x08020128
+mode = "thumb"
+note = "veneer -> 0x0802C4D9"
+
+[[extra_func]]
+addr = 0x08020130
+mode = "thumb"
+note = "veneer -> 0x0802BE4D"
+
+[[extra_func]]
+addr = 0x08020138
+mode = "thumb"
+note = "veneer -> 0x080235F9"
+
+[[extra_func]]
+addr = 0x08020140
+mode = "thumb"
+note = "veneer -> 0x08023635"
+
+[[extra_func]]
+addr = 0x08020148
+mode = "thumb"
+note = "veneer -> 0x08024739"
+
+[[extra_func]]
+addr = 0x08020150
+mode = "thumb"
+note = "veneer -> 0x08023F3D"
+
+[[extra_func]]
+addr = 0x08020158
+mode = "thumb"
+note = "veneer -> 0x08023089"
+
+[[extra_func]]
+addr = 0x08020160
+mode = "thumb"
+note = "veneer -> 0x0802C241"
+
+[[extra_func]]
+addr = 0x08020168
+mode = "thumb"
+note = "veneer -> 0x0802CB09"
+
+[[extra_func]]
+addr = 0x08020170
+mode = "thumb"
+note = "veneer -> 0x0802B2D5"
+
+[[extra_func]]
+addr = 0x08020178
+mode = "thumb"
+note = "veneer -> 0x0802B1A1"
+
+[[extra_func]]
+addr = 0x08020180
+mode = "thumb"
+note = "veneer -> 0x0802B63D"
+
+[[extra_func]]
+addr = 0x08020188
+mode = "thumb"
+note = "veneer -> 0x0802B701"
+
+[[extra_func]]
+addr = 0x08020190
+mode = "thumb"
+note = "veneer -> 0x0802B71D"
+
+[[extra_func]]
+addr = 0x08020198
+mode = "thumb"
+note = "veneer -> 0x0802CC75"
+
+[[extra_func]]
+addr = 0x080201A0
+mode = "thumb"
+note = "veneer -> 0x0802CC89"
+
+[[extra_func]]
+addr = 0x080201A8
+mode = "thumb"
+note = "veneer -> 0x0802CEB1"
+
+[[extra_func]]
+addr = 0x080201B0
+mode = "thumb"
+note = "veneer -> 0x0802CEA1"
+
+[[extra_func]]
+addr = 0x080201B8
+mode = "thumb"
+note = "veneer -> 0x0802CE4D"
+
+[[extra_func]]
+addr = 0x080201C0
+mode = "thumb"
+note = "veneer -> 0x0802D45D"
+
+[[extra_func]]
+addr = 0x080201C8
+mode = "thumb"
+note = "veneer -> 0x0802D6B1"
+
+[[extra_func]]
+addr = 0x080201D0
+mode = "thumb"
+note = "veneer -> 0x0802D4D9"
+
+[[extra_func]]
+addr = 0x080201D8
+mode = "thumb"
+note = "veneer -> 0x0802D531"
+
+[[extra_func]]
+addr = 0x080201E0
+mode = "thumb"
+note = "veneer -> 0x0802B345"
+
+[[extra_func]]
+addr = 0x080201E8
+mode = "thumb"
+note = "veneer -> 0x0802B38D"
+
+[[extra_func]]
+addr = 0x080201F0
+mode = "thumb"
+note = "veneer -> 0x0802B451"
+
+[[extra_func]]
+addr = 0x080201F8
+mode = "thumb"
+note = "veneer -> 0x0802B591"
+
+[[extra_func]]
+addr = 0x08020200
+mode = "thumb"
+note = "veneer -> 0x0802BD09"
+
+[[extra_func]]
+addr = 0x08020208
+mode = "thumb"
+note = "veneer -> 0x0802BDD1"
+
+[[extra_func]]
+addr = 0x08020210
+mode = "thumb"
+note = "veneer -> 0x0802D87D"
+
+[[extra_func]]
+addr = 0x08020218
+mode = "thumb"
+note = "veneer -> 0x08023665"
+
+[[extra_func]]
+addr = 0x08020220
+mode = "thumb"
+note = "veneer -> 0x08023681"
+
+[[extra_func]]
+addr = 0x08020228
+mode = "thumb"
+note = "veneer -> 0x0802DCBD"
+
+[[extra_func]]
+addr = 0x08020230
+mode = "thumb"
+note = "veneer -> 0x0802DCD9"
+
+[[extra_func]]
+addr = 0x08020238
+mode = "thumb"
+note = "veneer -> 0x080234CD"
+
+[[extra_func]]
+addr = 0x08020240
+mode = "thumb"
+note = "veneer -> 0x080237F9"
+
+[[extra_func]]
+addr = 0x08020248
+mode = "thumb"
+note = "veneer -> 0x08023841"
+
+[[extra_func]]
+addr = 0x08020250
+mode = "thumb"
+note = "veneer -> 0x080236A9"
+
+[[extra_func]]
+addr = 0x08020258
+mode = "thumb"
+note = "veneer -> 0x0802DA25"
+
+[[extra_func]]
+addr = 0x08020260
+mode = "thumb"
+note = "veneer -> 0x080234F1"
+
+[[extra_func]]
+addr = 0x08020268
+mode = "thumb"
+note = "veneer -> 0x0802C8A1"
+
+[[extra_func]]
+addr = 0x08020270
+mode = "thumb"
+note = "veneer -> 0x0802C9C9"
+
+[[extra_func]]
+addr = 0x08020278
+mode = "thumb"
+note = "veneer -> 0x080236D1"
+
+[[extra_func]]
+addr = 0x08020280
+mode = "thumb"
+note = "veneer -> 0x080227B1"
+
+[[extra_func]]
+addr = 0x08020288
+mode = "thumb"
+note = "veneer -> 0x080227A1"
+
+[[extra_func]]
+addr = 0x08020290
+mode = "thumb"
+note = "veneer -> 0x080236E9"
+
+[[extra_func]]
+addr = 0x08020298
+mode = "thumb"
+note = "veneer -> 0x08024F21"
+
+[[extra_func]]
+addr = 0x080202A0
+mode = "thumb"
+note = "veneer -> 0x0802B621"
+
+[[extra_func]]
+addr = 0x080202A8
+mode = "thumb"
+note = "veneer -> 0x08022ED9"
+
+[[extra_func]]
+addr = 0x080202B0
+mode = "thumb"
+note = "veneer -> 0x0802DC49"
+
+[[extra_func]]
+addr = 0x080202B8
+mode = "thumb"
+note = "veneer -> 0x080227E1"
+
+[[extra_func]]
+addr = 0x080202C0
+mode = "thumb"
+note = "veneer -> 0x0802D6E9"
+
+[[extra_func]]
+addr = 0x080202C8
+mode = "thumb"
+note = "veneer -> 0x08022BAD"
+
+[[extra_func]]
+addr = 0x080202D0
+mode = "thumb"
+note = "veneer -> 0x0802A52D"
+
+[[extra_func]]
+addr = 0x080202D8
+mode = "thumb"
+note = "veneer -> 0x0802CD4D"
+
+[[extra_func]]
+addr = 0x080202E0
+mode = "thumb"
+note = "veneer -> 0x0802CD71"
+
+[[extra_func]]
+addr = 0x080202E8
+mode = "thumb"
+note = "veneer -> 0x08024F81"
+
+[[extra_func]]
+addr = 0x080202F0
+mode = "thumb"
+note = "veneer -> 0x0802D659"
+
+[[extra_func]]
+addr = 0x080202F8
+mode = "thumb"
+note = "veneer -> 0x08023F95"
+
+[[extra_func]]
+addr = 0x08020300
+mode = "thumb"
+note = "veneer -> 0x0802372D"
+
+[[extra_func]]
+addr = 0x08020308
+mode = "thumb"
+note = "veneer -> 0x0802D7B1"
+
+[[extra_func]]
+addr = 0x08020310
+mode = "thumb"
+note = "veneer -> 0x0802D71D"
+
+[[extra_func]]
+addr = 0x08020318
+mode = "thumb"
+note = "veneer -> 0x0802DB65"
+
+[[extra_func]]
+addr = 0x08020320
+mode = "thumb"
+note = "veneer -> 0x0802DB89"
+
+[[extra_func]]
+addr = 0x08020328
+mode = "thumb"
+note = "veneer -> 0x0802B7E1"
+
+[[extra_func]]
+addr = 0x08020330
+mode = "thumb"
+note = "veneer -> 0x080237C9"
+
+[[extra_func]]
+addr = 0x08020338
+mode = "thumb"
+note = "veneer -> 0x08022F25"
+
+[[extra_func]]
+addr = 0x08020340
+mode = "thumb"
+note = "veneer -> 0x080237E9"
+
+[[extra_func]]
+addr = 0x08020348
+mode = "thumb"
+note = "veneer -> 0x08026F81"
+
+[[extra_func]]
+addr = 0x08020350
+mode = "thumb"
+note = "veneer -> 0x0802DA89"
+
+[[extra_func]]
+addr = 0x08020358
+mode = "thumb"
+note = "veneer -> 0x0802DAC1"
+
+[[extra_func]]
+addr = 0x08020360
+mode = "thumb"
+note = "veneer -> 0x0802D601"
+
+[[extra_func]]
+addr = 0x08020368
+mode = "thumb"
+note = "veneer -> 0x0802D645"
+
+[[extra_func]]
+addr = 0x08020370
+mode = "thumb"
+note = "veneer -> 0x080219CD"
+
+[[extra_func]]
+addr = 0x08020378
+mode = "thumb"
+note = "veneer -> 0x0802B829"
+
+[[extra_func]]
+addr = 0x08020380
+mode = "thumb"
+note = "veneer -> 0x08022C79"
+
+[[extra_func]]
+addr = 0x08020388
+mode = "thumb"
+note = "veneer -> 0x08022C85"
+
+[[extra_func]]
+addr = 0x08020390
+mode = "thumb"
+note = "veneer -> 0x0802A651"
+
+[[extra_func]]
+addr = 0x08020398
+mode = "thumb"
+note = "veneer -> 0x0802DE8D"
+
+[[extra_func]]
+addr = 0x080203A0
+mode = "thumb"
+note = "veneer -> 0x08026FC9"
+
+# veneer table 0x08038000..0x08038438 (135 veneers)
+[[extra_func]]
+addr = 0x08038000
+mode = "thumb"
+note = "veneer -> 0x08038F41"
+
+[[extra_func]]
+addr = 0x08038008
+mode = "thumb"
+note = "veneer -> 0x08039005"
+
+[[extra_func]]
+addr = 0x08038010
+mode = "thumb"
+note = "veneer -> 0x08039261"
+
+[[extra_func]]
+addr = 0x08038018
+mode = "thumb"
+note = "veneer -> 0x0803939D"
+
+[[extra_func]]
+addr = 0x08038020
+mode = "thumb"
+note = "veneer -> 0x0803C9AD"
+
+[[extra_func]]
+addr = 0x08038028
+mode = "thumb"
+note = "veneer -> 0x0803CA21"
+
+[[extra_func]]
+addr = 0x08038030
+mode = "thumb"
+note = "veneer -> 0x0803C9BD"
+
+[[extra_func]]
+addr = 0x08038038
+mode = "thumb"
+note = "veneer -> 0x0803A69D"
+
+[[extra_func]]
+addr = 0x08038040
+mode = "thumb"
+note = "veneer -> 0x0803A7AD"
+
+[[extra_func]]
+addr = 0x08038048
+mode = "thumb"
+note = "veneer -> 0x0803A3B9"
+
+[[extra_func]]
+addr = 0x08038050
+mode = "thumb"
+note = "veneer -> 0x0803A3E5"
+
+[[extra_func]]
+addr = 0x08038058
+mode = "thumb"
+note = "veneer -> 0x0803A669"
+
+[[extra_func]]
+addr = 0x08038060
+mode = "thumb"
+note = "veneer -> 0x080393FD"
+
+[[extra_func]]
+addr = 0x08038068
+mode = "thumb"
+note = "veneer -> 0x08039455"
+
+[[extra_func]]
+addr = 0x08038070
+mode = "thumb"
+note = "veneer -> 0x08041C55"
+
+[[extra_func]]
+addr = 0x08038078
+mode = "thumb"
+note = "veneer -> 0x08041FA5"
+
+[[extra_func]]
+addr = 0x08038080
+mode = "thumb"
+note = "veneer -> 0x08042011"
+
+[[extra_func]]
+addr = 0x08038088
+mode = "thumb"
+note = "veneer -> 0x080420A9"
+
+[[extra_func]]
+addr = 0x08038090
+mode = "thumb"
+note = "veneer -> 0x080420FD"
+
+[[extra_func]]
+addr = 0x08038098
+mode = "thumb"
+note = "veneer -> 0x08042189"
+
+[[extra_func]]
+addr = 0x080380A0
+mode = "thumb"
+note = "veneer -> 0x080421E5"
+
+[[extra_func]]
+addr = 0x080380A8
+mode = "thumb"
+note = "veneer -> 0x08042215"
+
+[[extra_func]]
+addr = 0x080380B0
+mode = "thumb"
+note = "veneer -> 0x08042245"
+
+[[extra_func]]
+addr = 0x080380B8
+mode = "thumb"
+note = "veneer -> 0x08041F71"
+
+[[extra_func]]
+addr = 0x080380C0
+mode = "thumb"
+note = "veneer -> 0x08041F91"
+
+[[extra_func]]
+addr = 0x080380C8
+mode = "thumb"
+note = "veneer -> 0x08042315"
+
+[[extra_func]]
+addr = 0x080380D0
+mode = "thumb"
+note = "veneer -> 0x0804239D"
+
+[[extra_func]]
+addr = 0x080380D8
+mode = "thumb"
+note = "veneer -> 0x08042451"
+
+[[extra_func]]
+addr = 0x080380E0
+mode = "thumb"
+note = "veneer -> 0x08042509"
+
+[[extra_func]]
+addr = 0x080380E8
+mode = "thumb"
+note = "veneer -> 0x0804256D"
+
+[[extra_func]]
+addr = 0x080380F0
+mode = "thumb"
+note = "veneer -> 0x0804257D"
+
+[[extra_func]]
+addr = 0x080380F8
+mode = "thumb"
+note = "veneer -> 0x0803D3C1"
+
+[[extra_func]]
+addr = 0x08038100
+mode = "thumb"
+note = "veneer -> 0x0803D451"
+
+[[extra_func]]
+addr = 0x08038108
+mode = "thumb"
+note = "veneer -> 0x0803B881"
+
+[[extra_func]]
+addr = 0x08038110
+mode = "thumb"
+note = "veneer -> 0x0803B8CD"
+
+[[extra_func]]
+addr = 0x08038118
+mode = "thumb"
+note = "veneer -> 0x0803CCA9"
+
+[[extra_func]]
+addr = 0x08038120
+mode = "thumb"
+note = "veneer -> 0x0803CCD1"
+
+[[extra_func]]
+addr = 0x08038128
+mode = "thumb"
+note = "veneer -> 0x08042691"
+
+[[extra_func]]
+addr = 0x08038130
+mode = "thumb"
+note = "veneer -> 0x0804297D"
+
+[[extra_func]]
+addr = 0x08038138
+mode = "thumb"
+note = "veneer -> 0x08042DAD"
+
+[[extra_func]]
+addr = 0x08038140
+mode = "thumb"
+note = "veneer -> 0x0803CE1D"
+
+[[extra_func]]
+addr = 0x08038148
+mode = "thumb"
+note = "veneer -> 0x0803CB1D"
+
+[[extra_func]]
+addr = 0x08038150
+mode = "thumb"
+note = "veneer -> 0x0803DC1D"
+
+[[extra_func]]
+addr = 0x08038158
+mode = "thumb"
+note = "veneer -> 0x0803DD25"
+
+[[extra_func]]
+addr = 0x08038160
+mode = "thumb"
+note = "veneer -> 0x0803DD69"
+
+[[extra_func]]
+addr = 0x08038168
+mode = "thumb"
+note = "veneer -> 0x0803DF01"
+
+[[extra_func]]
+addr = 0x08038170
+mode = "thumb"
+note = "veneer -> 0x0803DF15"
+
+[[extra_func]]
+addr = 0x08038178
+mode = "thumb"
+note = "veneer -> 0x0803E5A9"
+
+[[extra_func]]
+addr = 0x08038180
+mode = "thumb"
+note = "veneer -> 0x0803E6D9"
+
+[[extra_func]]
+addr = 0x08038188
+mode = "thumb"
+note = "veneer -> 0x0803E7AD"
+
+[[extra_func]]
+addr = 0x08038190
+mode = "thumb"
+note = "veneer -> 0x0803E919"
+
+[[extra_func]]
+addr = 0x08038198
+mode = "thumb"
+note = "veneer -> 0x0803E999"
+
+[[extra_func]]
+addr = 0x080381A0
+mode = "thumb"
+note = "veneer -> 0x0803F611"
+
+[[extra_func]]
+addr = 0x080381A8
+mode = "thumb"
+note = "veneer -> 0x0803F615"
+
+[[extra_func]]
+addr = 0x080381B0
+mode = "thumb"
+note = "veneer -> 0x0803DD99"
+
+[[extra_func]]
+addr = 0x080381B8
+mode = "thumb"
+note = "veneer -> 0x0803DEA9"
+
+[[extra_func]]
+addr = 0x080381C0
+mode = "thumb"
+note = "veneer -> 0x0804BC09"
+
+[[extra_func]]
+addr = 0x080381C8
+mode = "thumb"
+note = "veneer -> 0x0803A5E1"
+
+[[extra_func]]
+addr = 0x080381D0
+mode = "thumb"
+note = "veneer -> 0x0803A54D"
+
+[[extra_func]]
+addr = 0x080381D8
+mode = "thumb"
+note = "veneer -> 0x0803F621"
+
+[[extra_func]]
+addr = 0x080381E0
+mode = "thumb"
+note = "veneer -> 0x0803D2F1"
+
+[[extra_func]]
+addr = 0x080381E8
+mode = "thumb"
+note = "veneer -> 0x0803F779"
+
+[[extra_func]]
+addr = 0x080381F0
+mode = "thumb"
+note = "veneer -> 0x0804D5AD"
+
+[[extra_func]]
+addr = 0x080381F8
+mode = "thumb"
+note = "veneer -> 0x0804D7FD"
+
+[[extra_func]]
+addr = 0x08038200
+mode = "thumb"
+note = "veneer -> 0x0803F86D"
+
+[[extra_func]]
+addr = 0x08038208
+mode = "thumb"
+note = "veneer -> 0x0803F93D"
+
+[[extra_func]]
+addr = 0x08038210
+mode = "thumb"
+note = "veneer -> 0x0803CE65"
+
+[[extra_func]]
+addr = 0x08038218
+mode = "thumb"
+note = "veneer -> 0x0803A531"
+
+[[extra_func]]
+addr = 0x08038220
+mode = "thumb"
+note = "veneer -> 0x080396DD"
+
+[[extra_func]]
+addr = 0x08038228
+mode = "thumb"
+note = "veneer -> 0x0803F625"
+
+[[extra_func]]
+addr = 0x08038230
+mode = "thumb"
+note = "veneer -> 0x0803F699"
+
+[[extra_func]]
+addr = 0x08038238
+mode = "thumb"
+note = "veneer -> 0x0803F6C1"
+
+[[extra_func]]
+addr = 0x08038240
+mode = "thumb"
+note = "veneer -> 0x0803F969"
+
+[[extra_func]]
+addr = 0x08038248
+mode = "thumb"
+note = "veneer -> 0x0803D92D"
+
+[[extra_func]]
+addr = 0x08038250
+mode = "thumb"
+note = "veneer -> 0x0803AAE5"
+
+[[extra_func]]
+addr = 0x08038258
+mode = "thumb"
+note = "veneer -> 0x08042589"
+
+[[extra_func]]
+addr = 0x08038260
+mode = "thumb"
+note = "veneer -> 0x08039419"
+
+[[extra_func]]
+addr = 0x08038268
+mode = "thumb"
+note = "veneer -> 0x08039431"
+
+[[extra_func]]
+addr = 0x08038270
+mode = "thumb"
+note = "veneer -> 0x0803C379"
+
+[[extra_func]]
+addr = 0x08038278
+mode = "thumb"
+note = "veneer -> 0x0804DB75"
+
+[[extra_func]]
+addr = 0x08038280
+mode = "thumb"
+note = "veneer -> 0x0804DDC9"
+
+[[extra_func]]
+addr = 0x08038288
+mode = "thumb"
+note = "veneer -> 0x0803F235"
+
+[[extra_func]]
+addr = 0x08038290
+mode = "thumb"
+note = "veneer -> 0x08041B69"
+
+[[extra_func]]
+addr = 0x08038298
+mode = "thumb"
+note = "veneer -> 0x0803D681"
+
+[[extra_func]]
+addr = 0x080382A0
+mode = "thumb"
+note = "veneer -> 0x080461C9"
+
+[[extra_func]]
+addr = 0x080382A8
+mode = "thumb"
+note = "veneer -> 0x0803D5C5"
+
+[[extra_func]]
+addr = 0x080382B0
+mode = "thumb"
+note = "veneer -> 0x0803D9BD"
+
+[[extra_func]]
+addr = 0x080382B8
+mode = "thumb"
+note = "veneer -> 0x080423C5"
+
+[[extra_func]]
+addr = 0x080382C0
+mode = "thumb"
+note = "veneer -> 0x08043691"
+
+[[extra_func]]
+addr = 0x080382C8
+mode = "thumb"
+note = "veneer -> 0x08043775"
+
+[[extra_func]]
+addr = 0x080382D0
+mode = "thumb"
+note = "veneer -> 0x0804380D"
+
+[[extra_func]]
+addr = 0x080382D8
+mode = "thumb"
+note = "veneer -> 0x080438C9"
+
+[[extra_func]]
+addr = 0x080382E0
+mode = "thumb"
+note = "veneer -> 0x08043535"
+
+[[extra_func]]
+addr = 0x080382E8
+mode = "thumb"
+note = "veneer -> 0x080434ED"
+
+[[extra_func]]
+addr = 0x080382F0
+mode = "thumb"
+note = "veneer -> 0x080432A5"
+
+[[extra_func]]
+addr = 0x080382F8
+mode = "thumb"
+note = "veneer -> 0x08044559"
+
+[[extra_func]]
+addr = 0x08038300
+mode = "thumb"
+note = "veneer -> 0x08044479"
+
+[[extra_func]]
+addr = 0x08038308
+mode = "thumb"
+note = "veneer -> 0x08044489"
+
+[[extra_func]]
+addr = 0x08038310
+mode = "thumb"
+note = "veneer -> 0x0803E775"
+
+[[extra_func]]
+addr = 0x08038318
+mode = "thumb"
+note = "veneer -> 0x0804E1D9"
+
+[[extra_func]]
+addr = 0x08038320
+mode = "thumb"
+note = "veneer -> 0x0804E3F5"
+
+[[extra_func]]
+addr = 0x08038328
+mode = "thumb"
+note = "veneer -> 0x08044A59"
+
+[[extra_func]]
+addr = 0x08038330
+mode = "thumb"
+note = "veneer -> 0x08044B99"
+
+[[extra_func]]
+addr = 0x08038338
+mode = "thumb"
+note = "veneer -> 0x08044C81"
+
+[[extra_func]]
+addr = 0x08038340
+mode = "thumb"
+note = "veneer -> 0x08044DC9"
+
+[[extra_func]]
+addr = 0x08038348
+mode = "thumb"
+note = "veneer -> 0x0803F9C1"
+
+[[extra_func]]
+addr = 0x08038350
+mode = "thumb"
+note = "veneer -> 0x080400E9"
+
+[[extra_func]]
+addr = 0x08038358
+mode = "thumb"
+note = "veneer -> 0x0804E0D1"
+
+[[extra_func]]
+addr = 0x08038360
+mode = "thumb"
+note = "veneer -> 0x080425FD"
+
+[[extra_func]]
+addr = 0x08038368
+mode = "thumb"
+note = "veneer -> 0x0804D969"
+
+[[extra_func]]
+addr = 0x08038370
+mode = "thumb"
+note = "veneer -> 0x0804D9A5"
+
+[[extra_func]]
+addr = 0x08038378
+mode = "thumb"
+note = "veneer -> 0x0804D9E1"
+
+[[extra_func]]
+addr = 0x08038380
+mode = "thumb"
+note = "veneer -> 0x0804DA8D"
+
+[[extra_func]]
+addr = 0x08038388
+mode = "thumb"
+note = "veneer -> 0x08044A55"
+
+[[extra_func]]
+addr = 0x08038390
+mode = "thumb"
+note = "veneer -> 0x0804DA3D"
+
+[[extra_func]]
+addr = 0x08038398
+mode = "thumb"
+note = "veneer -> 0x08044461"
+
+[[extra_func]]
+addr = 0x080383A0
+mode = "thumb"
+note = "veneer -> 0x0803B869"
+
+[[extra_func]]
+addr = 0x080383A8
+mode = "thumb"
+note = "veneer -> 0x08046135"
+
+[[extra_func]]
+addr = 0x080383B0
+mode = "thumb"
+note = "veneer -> 0x0803D98D"
+
+[[extra_func]]
+addr = 0x080383B8
+mode = "thumb"
+note = "veneer -> 0x080453D1"
+
+[[extra_func]]
+addr = 0x080383C0
+mode = "thumb"
+note = "veneer -> 0x08041C0D"
+
+[[extra_func]]
+addr = 0x080383C8
+mode = "thumb"
+note = "veneer -> 0x0804D571"
+
+[[extra_func]]
+addr = 0x080383D0
+mode = "thumb"
+note = "veneer -> 0x08045551"
+
+[[extra_func]]
+addr = 0x080383D8
+mode = "thumb"
+note = "veneer -> 0x0803A60D"
+
+[[extra_func]]
+addr = 0x080383E0
+mode = "thumb"
+note = "veneer -> 0x0804325D"
+
+[[extra_func]]
+addr = 0x080383E8
+mode = "thumb"
+note = "veneer -> 0x0803A085"
+
+[[extra_func]]
+addr = 0x080383F0
+mode = "thumb"
+note = "veneer -> 0x0803911D"
+
+[[extra_func]]
+addr = 0x080383F8
+mode = "thumb"
+note = "veneer -> 0x08045331"
+
+[[extra_func]]
+addr = 0x08038400
+mode = "thumb"
+note = "veneer -> 0x080430C5"
+
+[[extra_func]]
+addr = 0x08038408
+mode = "thumb"
+note = "veneer -> 0x080435FD"
+
+[[extra_func]]
+addr = 0x08038410
+mode = "thumb"
+note = "veneer -> 0x0803D8AD"
+
+[[extra_func]]
+addr = 0x08038418
+mode = "thumb"
+note = "veneer -> 0x0803D021"
+
+[[extra_func]]
+addr = 0x08038420
+mode = "thumb"
+note = "veneer -> 0x0803C069"
+
+[[extra_func]]
+addr = 0x08038428
+mode = "thumb"
+note = "veneer -> 0x0803C171"
+
+[[extra_func]]
+addr = 0x08038430
+mode = "thumb"
+note = "veneer -> 0x0803C199"
+
+# veneer table 0x080AD000..0x080AD338 (103 veneers)
+[[extra_func]]
+addr = 0x080AD000
+mode = "thumb"
+note = "veneer -> 0x080AD349"
+
+[[extra_func]]
+addr = 0x080AD008
+mode = "thumb"
+note = "veneer -> 0x080AD3F9"
+
+[[extra_func]]
+addr = 0x080AD010
+mode = "thumb"
+note = "veneer -> 0x080AEC05"
+
+[[extra_func]]
+addr = 0x080AD018
+mode = "thumb"
+note = "veneer -> 0x080AECA5"
+
+[[extra_func]]
+addr = 0x080AD020
+mode = "thumb"
+note = "veneer -> 0x080AED6D"
+
+[[extra_func]]
+addr = 0x080AD028
+mode = "thumb"
+note = "veneer -> 0x080AEDF9"
+
+[[extra_func]]
+addr = 0x080AD030
+mode = "thumb"
+note = "veneer -> 0x080AEE99"
+
+[[extra_func]]
+addr = 0x080AD038
+mode = "thumb"
+note = "veneer -> 0x080AEEC9"
+
+[[extra_func]]
+addr = 0x080AD040
+mode = "thumb"
+note = "veneer -> 0x080AF299"
+
+[[extra_func]]
+addr = 0x080AD048
+mode = "thumb"
+note = "veneer -> 0x080AEF35"
+
+[[extra_func]]
+addr = 0x080AD050
+mode = "thumb"
+note = "veneer -> 0x080AF149"
+
+[[extra_func]]
+addr = 0x080AD058
+mode = "thumb"
+note = "veneer -> 0x080AF2E9"
+
+[[extra_func]]
+addr = 0x080AD060
+mode = "thumb"
+note = "veneer -> 0x080AF311"
+
+[[extra_func]]
+addr = 0x080AD068
+mode = "thumb"
+note = "veneer -> 0x080AF339"
+
+[[extra_func]]
+addr = 0x080AD070
+mode = "thumb"
+note = "veneer -> 0x080AF095"
+
+[[extra_func]]
+addr = 0x080AD078
+mode = "thumb"
+note = "veneer -> 0x080AF43D"
+
+[[extra_func]]
+addr = 0x080AD080
+mode = "thumb"
+note = "veneer -> 0x080AF6F5"
+
+[[extra_func]]
+addr = 0x080AD088
+mode = "thumb"
+note = "veneer -> 0x080AF4B9"
+
+[[extra_func]]
+addr = 0x080AD090
+mode = "thumb"
+note = "veneer -> 0x080ADDF1"
+
+[[extra_func]]
+addr = 0x080AD098
+mode = "thumb"
+note = "veneer -> 0x080AF795"
+
+[[extra_func]]
+addr = 0x080AD0A0
+mode = "thumb"
+note = "veneer -> 0x080AF7AD"
+
+[[extra_func]]
+addr = 0x080AD0A8
+mode = "thumb"
+note = "veneer -> 0x080AF8CD"
+
+[[extra_func]]
+addr = 0x080AD0B0
+mode = "thumb"
+note = "veneer -> 0x080AFB81"
+
+[[extra_func]]
+addr = 0x080AD0B8
+mode = "thumb"
+note = "veneer -> 0x080AD339"
+
+[[extra_func]]
+addr = 0x080AD0C0
+mode = "thumb"
+note = "veneer -> 0x080AEB9D"
+
+[[extra_func]]
+addr = 0x080AD0C8
+mode = "thumb"
+note = "veneer -> 0x080AEBD1"
+
+[[extra_func]]
+addr = 0x080AD0D0
+mode = "thumb"
+note = "veneer -> 0x080AEA31"
+
+[[extra_func]]
+addr = 0x080AD0D8
+mode = "thumb"
+note = "veneer -> 0x080AEAA1"
+
+[[extra_func]]
+addr = 0x080AD0E0
+mode = "thumb"
+note = "veneer -> 0x080AEB1D"
+
+[[extra_func]]
+addr = 0x080AD0E8
+mode = "thumb"
+note = "veneer -> 0x080AFBED"
+
+[[extra_func]]
+addr = 0x080AD0F0
+mode = "thumb"
+note = "veneer -> 0x080AFDBD"
+
+[[extra_func]]
+addr = 0x080AD0F8
+mode = "thumb"
+note = "veneer -> 0x080AFDD9"
+
+[[extra_func]]
+addr = 0x080AD100
+mode = "thumb"
+note = "veneer -> 0x080AFE79"
+
+[[extra_func]]
+addr = 0x080AD108
+mode = "thumb"
+note = "veneer -> 0x080B04BD"
+
+[[extra_func]]
+addr = 0x080AD110
+mode = "thumb"
+note = "veneer -> 0x080AFE1D"
+
+[[extra_func]]
+addr = 0x080AD118
+mode = "thumb"
+note = "veneer -> 0x080B0435"
+
+[[extra_func]]
+addr = 0x080AD120
+mode = "thumb"
+note = "veneer -> 0x080B075D"
+
+[[extra_func]]
+addr = 0x080AD128
+mode = "thumb"
+note = "veneer -> 0x080B03AD"
+
+[[extra_func]]
+addr = 0x080AD130
+mode = "thumb"
+note = "veneer -> 0x080B03E1"
+
+[[extra_func]]
+addr = 0x080AD138
+mode = "thumb"
+note = "veneer -> 0x080B0409"
+
+[[extra_func]]
+addr = 0x080AD140
+mode = "thumb"
+note = "veneer -> 0x080AD3A9"
+
+[[extra_func]]
+addr = 0x080AD148
+mode = "thumb"
+note = "veneer -> 0x080B0379"
+
+[[extra_func]]
+addr = 0x080AD150
+mode = "thumb"
+note = "veneer -> 0x080B0B79"
+
+[[extra_func]]
+addr = 0x080AD158
+mode = "thumb"
+note = "veneer -> 0x080B0C9D"
+
+[[extra_func]]
+addr = 0x080AD160
+mode = "thumb"
+note = "veneer -> 0x080B0D05"
+
+[[extra_func]]
+addr = 0x080AD168
+mode = "thumb"
+note = "veneer -> 0x080B0D59"
+
+[[extra_func]]
+addr = 0x080AD170
+mode = "thumb"
+note = "veneer -> 0x080B0E05"
+
+[[extra_func]]
+addr = 0x080AD178
+mode = "thumb"
+note = "veneer -> 0x080B0E41"
+
+[[extra_func]]
+addr = 0x080AD180
+mode = "thumb"
+note = "veneer -> 0x080AFF29"
+
+[[extra_func]]
+addr = 0x080AD188
+mode = "thumb"
+note = "veneer -> 0x080AFF7D"
+
+[[extra_func]]
+addr = 0x080AD190
+mode = "thumb"
+note = "veneer -> 0x080B0F51"
+
+[[extra_func]]
+addr = 0x080AD198
+mode = "thumb"
+note = "veneer -> 0x080AFBB5"
+
+[[extra_func]]
+addr = 0x080AD1A0
+mode = "thumb"
+note = "veneer -> 0x080B0029"
+
+[[extra_func]]
+addr = 0x080AD1A8
+mode = "thumb"
+note = "veneer -> 0x080B0EF5"
+
+[[extra_func]]
+addr = 0x080AD1B0
+mode = "thumb"
+note = "veneer -> 0x080B0C79"
+
+[[extra_func]]
+addr = 0x080AD1B8
+mode = "thumb"
+note = "veneer -> 0x080B0BB9"
+
+[[extra_func]]
+addr = 0x080AD1C0
+mode = "thumb"
+note = "veneer -> 0x080AEC1D"
+
+[[extra_func]]
+addr = 0x080AD1C8
+mode = "thumb"
+note = "veneer -> 0x080AEC49"
+
+[[extra_func]]
+addr = 0x080AD1D0
+mode = "thumb"
+note = "veneer -> 0x080AF009"
+
+[[extra_func]]
+addr = 0x080AD1D8
+mode = "thumb"
+note = "veneer -> 0x080AFEB1"
+
+[[extra_func]]
+addr = 0x080AD1E0
+mode = "thumb"
+note = "veneer -> 0x080AEC69"
+
+[[extra_func]]
+addr = 0x080AD1E8
+mode = "thumb"
+note = "veneer -> 0x080AF379"
+
+[[extra_func]]
+addr = 0x080AD1F0
+mode = "thumb"
+note = "veneer -> 0x080AECC9"
+
+[[extra_func]]
+addr = 0x080AD1F8
+mode = "thumb"
+note = "veneer -> 0x080AECED"
+
+[[extra_func]]
+addr = 0x080AD200
+mode = "thumb"
+note = "veneer -> 0x080AF8D1"
+
+[[extra_func]]
+addr = 0x080AD208
+mode = "thumb"
+note = "veneer -> 0x080AE16D"
+
+[[extra_func]]
+addr = 0x080AD210
+mode = "thumb"
+note = "veneer -> 0x080AE221"
+
+[[extra_func]]
+addr = 0x080AD218
+mode = "thumb"
+note = "veneer -> 0x080AE0DD"
+
+[[extra_func]]
+addr = 0x080AD220
+mode = "thumb"
+note = "veneer -> 0x080AE0F1"
+
+[[extra_func]]
+addr = 0x080AD228
+mode = "thumb"
+note = "veneer -> 0x080AE119"
+
+[[extra_func]]
+addr = 0x080AD230
+mode = "thumb"
+note = "veneer -> 0x080AE831"
+
+[[extra_func]]
+addr = 0x080AD238
+mode = "thumb"
+note = "veneer -> 0x080AE411"
+
+[[extra_func]]
+addr = 0x080AD240
+mode = "thumb"
+note = "veneer -> 0x080AE6E5"
+
+[[extra_func]]
+addr = 0x080AD248
+mode = "thumb"
+note = "veneer -> 0x080B0AB9"
+
+[[extra_func]]
+addr = 0x080AD250
+mode = "thumb"
+note = "veneer -> 0x080B0F9D"
+
+[[extra_func]]
+addr = 0x080AD258
+mode = "thumb"
+note = "veneer -> 0x080AFED5"
+
+[[extra_func]]
+addr = 0x080AD260
+mode = "thumb"
+note = "veneer -> 0x080AFF01"
+
+[[extra_func]]
+addr = 0x080AD268
+mode = "thumb"
+note = "veneer -> 0x080AF245"
+
+[[extra_func]]
+addr = 0x080AD270
+mode = "thumb"
+note = "veneer -> 0x080AF1FD"
+
+[[extra_func]]
+addr = 0x080AD278
+mode = "thumb"
+note = "veneer -> 0x080AF1C9"
+
+[[extra_func]]
+addr = 0x080AD280
+mode = "thumb"
+note = "veneer -> 0x080B0741"
+
+[[extra_func]]
+addr = 0x080AD288
+mode = "thumb"
+note = "veneer -> 0x080B02D5"
+
+[[extra_func]]
+addr = 0x080AD290
+mode = "thumb"
+note = "veneer -> 0x080AD361"
+
+[[extra_func]]
+addr = 0x080AD298
+mode = "thumb"
+note = "veneer -> 0x080B0299"
+
+[[extra_func]]
+addr = 0x080AD2A0
+mode = "thumb"
+note = "veneer -> 0x080AF3A1"
+
+[[extra_func]]
+addr = 0x080AD2A8
+mode = "thumb"
+note = "veneer -> 0x080AF405"
+
+[[extra_func]]
+addr = 0x080AD2B0
+mode = "thumb"
+note = "veneer -> 0x080AF2C1"
+
+[[extra_func]]
+addr = 0x080AD2B8
+mode = "thumb"
+note = "veneer -> 0x080ADBED"
+
+[[extra_func]]
+addr = 0x080AD2C0
+mode = "thumb"
+note = "veneer -> 0x080B0461"
+
+[[extra_func]]
+addr = 0x080AD2C8
+mode = "thumb"
+note = "veneer -> 0x080ADD75"
+
+[[extra_func]]
+addr = 0x080AD2D0
+mode = "thumb"
+note = "veneer -> 0x080AED39"
+
+[[extra_func]]
+addr = 0x080AD2D8
+mode = "thumb"
+note = "veneer -> 0x080B1089"
+
+[[extra_func]]
+addr = 0x080AD2E0
+mode = "thumb"
+note = "veneer -> 0x080B11F9"
+
+[[extra_func]]
+addr = 0x080AD2E8
+mode = "thumb"
+note = "veneer -> 0x080AF465"
+
+[[extra_func]]
+addr = 0x080AD2F0
+mode = "thumb"
+note = "veneer -> 0x080AEE41"
+
+[[extra_func]]
+addr = 0x080AD2F8
+mode = "thumb"
+note = "veneer -> 0x080AFF95"
+
+[[extra_func]]
+addr = 0x080AD300
+mode = "thumb"
+note = "veneer -> 0x080B1005"
+
+[[extra_func]]
+addr = 0x080AD308
+mode = "thumb"
+note = "veneer -> 0x080AF0E5"
+
+[[extra_func]]
+addr = 0x080AD310
+mode = "thumb"
+note = "veneer -> 0x080ADD5D"
+
+[[extra_func]]
+addr = 0x080AD318
+mode = "thumb"
+note = "veneer -> 0x080ADC91"
+
+[[extra_func]]
+addr = 0x080AD320
+mode = "thumb"
+note = "veneer -> 0x080AE869"
+
+[[extra_func]]
+addr = 0x080AD328
+mode = "thumb"
+note = "veneer -> 0x080B0F5D"
+
+[[extra_func]]
+addr = 0x080AD330
+mode = "thumb"
+note = "veneer -> 0x080AE5FD"
+
+# veneer table 0x080C8000..0x080C8978 (303 veneers)
+[[extra_func]]
+addr = 0x080C8000
+mode = "thumb"
+note = "veneer -> 0x080CB91D"
+
+[[extra_func]]
+addr = 0x080C8008
+mode = "thumb"
+note = "veneer -> 0x080C9945"
+
+[[extra_func]]
+addr = 0x080C8010
+mode = "thumb"
+note = "veneer -> 0x080D2241"
+
+[[extra_func]]
+addr = 0x080C8018
+mode = "thumb"
+note = "veneer -> 0x080D22A9"
+
+[[extra_func]]
+addr = 0x080C8020
+mode = "thumb"
+note = "veneer -> 0x080D2351"
+
+[[extra_func]]
+addr = 0x080C8028
+mode = "thumb"
+note = "veneer -> 0x080D2399"
+
+[[extra_func]]
+addr = 0x080C8030
+mode = "thumb"
+note = "veneer -> 0x080D23B9"
+
+[[extra_func]]
+addr = 0x080C8038
+mode = "thumb"
+note = "veneer -> 0x080CACED"
+
+[[extra_func]]
+addr = 0x080C8040
+mode = "thumb"
+note = "veneer -> 0x080D23CD"
+
+[[extra_func]]
+addr = 0x080C8048
+mode = "thumb"
+note = "veneer -> 0x080D23D9"
+
+[[extra_func]]
+addr = 0x080C8050
+mode = "thumb"
+note = "veneer -> 0x080D23F9"
+
+[[extra_func]]
+addr = 0x080C8058
+mode = "thumb"
+note = "veneer -> 0x080D2489"
+
+[[extra_func]]
+addr = 0x080C8060
+mode = "thumb"
+note = "veneer -> 0x080D260D"
+
+[[extra_func]]
+addr = 0x080C8068
+mode = "thumb"
+note = "veneer -> 0x080D27ED"
+
+[[extra_func]]
+addr = 0x080C8070
+mode = "thumb"
+note = "veneer -> 0x080D2841"
+
+[[extra_func]]
+addr = 0x080C8078
+mode = "thumb"
+note = "veneer -> 0x080D296D"
+
+[[extra_func]]
+addr = 0x080C8080
+mode = "thumb"
+note = "veneer -> 0x080D2A0D"
+
+[[extra_func]]
+addr = 0x080C8088
+mode = "thumb"
+note = "veneer -> 0x080D2D85"
+
+[[extra_func]]
+addr = 0x080C8090
+mode = "thumb"
+note = "veneer -> 0x080D36A9"
+
+[[extra_func]]
+addr = 0x080C8098
+mode = "thumb"
+note = "veneer -> 0x080D2D95"
+
+[[extra_func]]
+addr = 0x080C80A0
+mode = "thumb"
+note = "veneer -> 0x080D2DA9"
+
+[[extra_func]]
+addr = 0x080C80A8
+mode = "thumb"
+note = "veneer -> 0x080D2E41"
+
+[[extra_func]]
+addr = 0x080C80B0
+mode = "thumb"
+note = "veneer -> 0x080D2DC9"
+
+[[extra_func]]
+addr = 0x080C80B8
+mode = "thumb"
+note = "veneer -> 0x080D2E51"
+
+[[extra_func]]
+addr = 0x080C80C0
+mode = "thumb"
+note = "veneer -> 0x080D2E79"
+
+[[extra_func]]
+addr = 0x080C80C8
+mode = "thumb"
+note = "veneer -> 0x080D2EA5"
+
+[[extra_func]]
+addr = 0x080C80D0
+mode = "thumb"
+note = "veneer -> 0x080D2ED5"
+
+[[extra_func]]
+addr = 0x080C80D8
+mode = "thumb"
+note = "veneer -> 0x080D2F09"
+
+[[extra_func]]
+addr = 0x080C80E0
+mode = "thumb"
+note = "veneer -> 0x080D2F49"
+
+[[extra_func]]
+addr = 0x080C80E8
+mode = "thumb"
+note = "veneer -> 0x080D2FC9"
+
+[[extra_func]]
+addr = 0x080C80F0
+mode = "thumb"
+note = "veneer -> 0x080D30FD"
+
+[[extra_func]]
+addr = 0x080C80F8
+mode = "thumb"
+note = "veneer -> 0x080D3119"
+
+[[extra_func]]
+addr = 0x080C8100
+mode = "thumb"
+note = "veneer -> 0x080D3165"
+
+[[extra_func]]
+addr = 0x080C8108
+mode = "thumb"
+note = "veneer -> 0x080D31C1"
+
+[[extra_func]]
+addr = 0x080C8110
+mode = "thumb"
+note = "veneer -> 0x080D3215"
+
+[[extra_func]]
+addr = 0x080C8118
+mode = "thumb"
+note = "veneer -> 0x080D3241"
+
+[[extra_func]]
+addr = 0x080C8120
+mode = "thumb"
+note = "veneer -> 0x080D3255"
+
+[[extra_func]]
+addr = 0x080C8128
+mode = "thumb"
+note = "veneer -> 0x080D32B9"
+
+[[extra_func]]
+addr = 0x080C8130
+mode = "thumb"
+note = "veneer -> 0x080D3269"
+
+[[extra_func]]
+addr = 0x080C8138
+mode = "thumb"
+note = "veneer -> 0x080D32C9"
+
+[[extra_func]]
+addr = 0x080C8140
+mode = "thumb"
+note = "veneer -> 0x080D3301"
+
+[[extra_func]]
+addr = 0x080C8148
+mode = "thumb"
+note = "veneer -> 0x080D332D"
+
+[[extra_func]]
+addr = 0x080C8150
+mode = "thumb"
+note = "veneer -> 0x080D3461"
+
+[[extra_func]]
+addr = 0x080C8158
+mode = "thumb"
+note = "veneer -> 0x080D359D"
+
+[[extra_func]]
+addr = 0x080C8160
+mode = "thumb"
+note = "veneer -> 0x080D35D5"
+
+[[extra_func]]
+addr = 0x080C8168
+mode = "thumb"
+note = "veneer -> 0x080D36C9"
+
+[[extra_func]]
+addr = 0x080C8170
+mode = "thumb"
+note = "veneer -> 0x080D3745"
+
+[[extra_func]]
+addr = 0x080C8178
+mode = "thumb"
+note = "veneer -> 0x080D3781"
+
+[[extra_func]]
+addr = 0x080C8180
+mode = "thumb"
+note = "veneer -> 0x080D3BE9"
+
+[[extra_func]]
+addr = 0x080C8188
+mode = "thumb"
+note = "veneer -> 0x080D3C89"
+
+[[extra_func]]
+addr = 0x080C8190
+mode = "thumb"
+note = "veneer -> 0x080D3FB1"
+
+[[extra_func]]
+addr = 0x080C8198
+mode = "thumb"
+note = "veneer -> 0x080D406D"
+
+[[extra_func]]
+addr = 0x080C81A0
+mode = "thumb"
+note = "veneer -> 0x080D407D"
+
+[[extra_func]]
+addr = 0x080C81A8
+mode = "thumb"
+note = "veneer -> 0x080D4085"
+
+[[extra_func]]
+addr = 0x080C81B0
+mode = "thumb"
+note = "veneer -> 0x080D40D9"
+
+[[extra_func]]
+addr = 0x080C81B8
+mode = "thumb"
+note = "veneer -> 0x080D40DD"
+
+[[extra_func]]
+addr = 0x080C81C0
+mode = "thumb"
+note = "veneer -> 0x080D4179"
+
+[[extra_func]]
+addr = 0x080C81C8
+mode = "thumb"
+note = "veneer -> 0x080D4181"
+
+[[extra_func]]
+addr = 0x080C81D0
+mode = "thumb"
+note = "veneer -> 0x080D3839"
+
+[[extra_func]]
+addr = 0x080C81D8
+mode = "thumb"
+note = "veneer -> 0x080D3861"
+
+[[extra_func]]
+addr = 0x080C81E0
+mode = "thumb"
+note = "veneer -> 0x080D3815"
+
+[[extra_func]]
+addr = 0x080C81E8
+mode = "thumb"
+note = "veneer -> 0x080D41E9"
+
+[[extra_func]]
+addr = 0x080C81F0
+mode = "thumb"
+note = "veneer -> 0x080D41FD"
+
+[[extra_func]]
+addr = 0x080C81F8
+mode = "thumb"
+note = "veneer -> 0x080D4331"
+
+[[extra_func]]
+addr = 0x080C8200
+mode = "thumb"
+note = "veneer -> 0x080D3889"
+
+[[extra_func]]
+addr = 0x080C8208
+mode = "thumb"
+note = "veneer -> 0x080D390D"
+
+[[extra_func]]
+addr = 0x080C8210
+mode = "thumb"
+note = "veneer -> 0x080D47B5"
+
+[[extra_func]]
+addr = 0x080C8218
+mode = "thumb"
+note = "veneer -> 0x080D489D"
+
+[[extra_func]]
+addr = 0x080C8220
+mode = "thumb"
+note = "veneer -> 0x080D38D5"
+
+[[extra_func]]
+addr = 0x080C8228
+mode = "thumb"
+note = "veneer -> 0x080D4385"
+
+[[extra_func]]
+addr = 0x080C8230
+mode = "thumb"
+note = "veneer -> 0x080D43ED"
+
+[[extra_func]]
+addr = 0x080C8238
+mode = "thumb"
+note = "veneer -> 0x080D440D"
+
+[[extra_func]]
+addr = 0x080C8240
+mode = "thumb"
+note = "veneer -> 0x080D4549"
+
+[[extra_func]]
+addr = 0x080C8248
+mode = "thumb"
+note = "veneer -> 0x080D450D"
+
+[[extra_func]]
+addr = 0x080C8250
+mode = "thumb"
+note = "veneer -> 0x080D452D"
+
+[[extra_func]]
+addr = 0x080C8258
+mode = "thumb"
+note = "veneer -> 0x080D4569"
+
+[[extra_func]]
+addr = 0x080C8260
+mode = "thumb"
+note = "veneer -> 0x080D45B9"
+
+[[extra_func]]
+addr = 0x080C8268
+mode = "thumb"
+note = "veneer -> 0x080D2AA5"
+
+[[extra_func]]
+addr = 0x080C8270
+mode = "thumb"
+note = "veneer -> 0x080D2AD1"
+
+[[extra_func]]
+addr = 0x080C8278
+mode = "thumb"
+note = "veneer -> 0x080D2AFD"
+
+[[extra_func]]
+addr = 0x080C8280
+mode = "thumb"
+note = "veneer -> 0x080D2B0D"
+
+[[extra_func]]
+addr = 0x080C8288
+mode = "thumb"
+note = "veneer -> 0x080D2B4D"
+
+[[extra_func]]
+addr = 0x080C8290
+mode = "thumb"
+note = "veneer -> 0x080D2C05"
+
+[[extra_func]]
+addr = 0x080C8298
+mode = "thumb"
+note = "veneer -> 0x080D2C1D"
+
+[[extra_func]]
+addr = 0x080C82A0
+mode = "thumb"
+note = "veneer -> 0x080D2C35"
+
+[[extra_func]]
+addr = 0x080C82A8
+mode = "thumb"
+note = "veneer -> 0x080D5BED"
+
+[[extra_func]]
+addr = 0x080C82B0
+mode = "thumb"
+note = "veneer -> 0x080CC54D"
+
+[[extra_func]]
+addr = 0x080C82B8
+mode = "thumb"
+note = "veneer -> 0x080CA6A5"
+
+[[extra_func]]
+addr = 0x080C82C0
+mode = "thumb"
+note = "veneer -> 0x080CD91D"
+
+[[extra_func]]
+addr = 0x080C82C8
+mode = "thumb"
+note = "veneer -> 0x080DD055"
+
+[[extra_func]]
+addr = 0x080C82D0
+mode = "thumb"
+note = "veneer -> 0x080DECB9"
+
+[[extra_func]]
+addr = 0x080C82D8
+mode = "thumb"
+note = "veneer -> 0x080CDBF9"
+
+[[extra_func]]
+addr = 0x080C82E0
+mode = "thumb"
+note = "veneer -> 0x080D4D09"
+
+[[extra_func]]
+addr = 0x080C82E8
+mode = "thumb"
+note = "veneer -> 0x080D50F9"
+
+[[extra_func]]
+addr = 0x080C82F0
+mode = "thumb"
+note = "veneer -> 0x080D53B9"
+
+[[extra_func]]
+addr = 0x080C82F8
+mode = "thumb"
+note = "veneer -> 0x080D2261"
+
+[[extra_func]]
+addr = 0x080C8300
+mode = "thumb"
+note = "veneer -> 0x080D690D"
+
+[[extra_func]]
+addr = 0x080C8308
+mode = "thumb"
+note = "veneer -> 0x080D7305"
+
+[[extra_func]]
+addr = 0x080C8310
+mode = "thumb"
+note = "veneer -> 0x080D73B5"
+
+[[extra_func]]
+addr = 0x080C8318
+mode = "thumb"
+note = "veneer -> 0x080D73E1"
+
+[[extra_func]]
+addr = 0x080C8320
+mode = "thumb"
+note = "veneer -> 0x080D7409"
+
+[[extra_func]]
+addr = 0x080C8328
+mode = "thumb"
+note = "veneer -> 0x080D7431"
+
+[[extra_func]]
+addr = 0x080C8330
+mode = "thumb"
+note = "veneer -> 0x080D6B91"
+
+[[extra_func]]
+addr = 0x080C8338
+mode = "thumb"
+note = "veneer -> 0x080D7241"
+
+[[extra_func]]
+addr = 0x080C8340
+mode = "thumb"
+note = "veneer -> 0x080D00F9"
+
+[[extra_func]]
+addr = 0x080C8348
+mode = "thumb"
+note = "veneer -> 0x080D0BED"
+
+[[extra_func]]
+addr = 0x080C8350
+mode = "thumb"
+note = "veneer -> 0x080D01CD"
+
+[[extra_func]]
+addr = 0x080C8358
+mode = "thumb"
+note = "veneer -> 0x080D0521"
+
+[[extra_func]]
+addr = 0x080C8360
+mode = "thumb"
+note = "veneer -> 0x080D0749"
+
+[[extra_func]]
+addr = 0x080C8368
+mode = "thumb"
+note = "veneer -> 0x080CCEC9"
+
+[[extra_func]]
+addr = 0x080C8370
+mode = "thumb"
+note = "veneer -> 0x080D1685"
+
+[[extra_func]]
+addr = 0x080C8378
+mode = "thumb"
+note = "veneer -> 0x080D170D"
+
+[[extra_func]]
+addr = 0x080C8380
+mode = "thumb"
+note = "veneer -> 0x080D172D"
+
+[[extra_func]]
+addr = 0x080C8388
+mode = "thumb"
+note = "veneer -> 0x080D0C51"
+
+[[extra_func]]
+addr = 0x080C8390
+mode = "thumb"
+note = "veneer -> 0x080D17AD"
+
+[[extra_func]]
+addr = 0x080C8398
+mode = "thumb"
+note = "veneer -> 0x080D16F9"
+
+[[extra_func]]
+addr = 0x080C83A0
+mode = "thumb"
+note = "veneer -> 0x080D174D"
+
+[[extra_func]]
+addr = 0x080C83A8
+mode = "thumb"
+note = "veneer -> 0x080D2A3D"
+
+[[extra_func]]
+addr = 0x080C83B0
+mode = "thumb"
+note = "veneer -> 0x080D2A65"
+
+[[extra_func]]
+addr = 0x080C83B8
+mode = "thumb"
+note = "veneer -> 0x080D2A8D"
+
+[[extra_func]]
+addr = 0x080C83C0
+mode = "thumb"
+note = "veneer -> 0x080D6409"
+
+[[extra_func]]
+addr = 0x080C83C8
+mode = "thumb"
+note = "veneer -> 0x080D64B9"
+
+[[extra_func]]
+addr = 0x080C83D0
+mode = "thumb"
+note = "veneer -> 0x080CDC41"
+
+[[extra_func]]
+addr = 0x080C83D8
+mode = "thumb"
+note = "veneer -> 0x080CF3B5"
+
+[[extra_func]]
+addr = 0x080C83E0
+mode = "thumb"
+note = "veneer -> 0x080CF425"
+
+[[extra_func]]
+addr = 0x080C83E8
+mode = "thumb"
+note = "veneer -> 0x080CEFFD"
+
+[[extra_func]]
+addr = 0x080C83F0
+mode = "thumb"
+note = "veneer -> 0x080CEFB5"
+
+[[extra_func]]
+addr = 0x080C83F8
+mode = "thumb"
+note = "veneer -> 0x080CEF69"
+
+[[extra_func]]
+addr = 0x080C8400
+mode = "thumb"
+note = "veneer -> 0x080CEFD1"
+
+[[extra_func]]
+addr = 0x080C8408
+mode = "thumb"
+note = "veneer -> 0x080CF00D"
+
+[[extra_func]]
+addr = 0x080C8410
+mode = "thumb"
+note = "veneer -> 0x080CF005"
+
+[[extra_func]]
+addr = 0x080C8418
+mode = "thumb"
+note = "veneer -> 0x080CF051"
+
+[[extra_func]]
+addr = 0x080C8420
+mode = "thumb"
+note = "veneer -> 0x080CEE41"
+
+[[extra_func]]
+addr = 0x080C8428
+mode = "thumb"
+note = "veneer -> 0x080CEEC9"
+
+[[extra_func]]
+addr = 0x080C8430
+mode = "thumb"
+note = "veneer -> 0x080CB82D"
+
+[[extra_func]]
+addr = 0x080C8438
+mode = "thumb"
+note = "veneer -> 0x080CB8A5"
+
+[[extra_func]]
+addr = 0x080C8440
+mode = "thumb"
+note = "veneer -> 0x080CAA4D"
+
+[[extra_func]]
+addr = 0x080C8448
+mode = "thumb"
+note = "veneer -> 0x080CA6E9"
+
+[[extra_func]]
+addr = 0x080C8450
+mode = "thumb"
+note = "veneer -> 0x080CAA2D"
+
+[[extra_func]]
+addr = 0x080C8458
+mode = "thumb"
+note = "veneer -> 0x080CAD85"
+
+[[extra_func]]
+addr = 0x080C8460
+mode = "thumb"
+note = "veneer -> 0x080CA9CD"
+
+[[extra_func]]
+addr = 0x080C8468
+mode = "thumb"
+note = "veneer -> 0x080D1A19"
+
+[[extra_func]]
+addr = 0x080C8470
+mode = "thumb"
+note = "veneer -> 0x080D1AC5"
+
+[[extra_func]]
+addr = 0x080C8478
+mode = "thumb"
+note = "veneer -> 0x080D1AD5"
+
+[[extra_func]]
+addr = 0x080C8480
+mode = "thumb"
+note = "veneer -> 0x080D1CC1"
+
+[[extra_func]]
+addr = 0x080C8488
+mode = "thumb"
+note = "veneer -> 0x080D1D35"
+
+[[extra_func]]
+addr = 0x080C8490
+mode = "thumb"
+note = "veneer -> 0x080D1D45"
+
+[[extra_func]]
+addr = 0x080C8498
+mode = "thumb"
+note = "veneer -> 0x080DB48D"
+
+[[extra_func]]
+addr = 0x080C84A0
+mode = "thumb"
+note = "veneer -> 0x080DC411"
+
+[[extra_func]]
+addr = 0x080C84A8
+mode = "thumb"
+note = "veneer -> 0x080DC62D"
+
+[[extra_func]]
+addr = 0x080C84B0
+mode = "thumb"
+note = "veneer -> 0x080DC7CD"
+
+[[extra_func]]
+addr = 0x080C84B8
+mode = "thumb"
+note = "veneer -> 0x080DC7E9"
+
+[[extra_func]]
+addr = 0x080C84C0
+mode = "thumb"
+note = "veneer -> 0x080DC6D9"
+
+[[extra_func]]
+addr = 0x080C84C8
+mode = "thumb"
+note = "veneer -> 0x080DC295"
+
+[[extra_func]]
+addr = 0x080C84D0
+mode = "thumb"
+note = "veneer -> 0x080DC385"
+
+[[extra_func]]
+addr = 0x080C84D8
+mode = "thumb"
+note = "veneer -> 0x080CDEC9"
+
+[[extra_func]]
+addr = 0x080C84E0
+mode = "thumb"
+note = "veneer -> 0x080CDED5"
+
+[[extra_func]]
+addr = 0x080C84E8
+mode = "thumb"
+note = "veneer -> 0x080DC979"
+
+[[extra_func]]
+addr = 0x080C84F0
+mode = "thumb"
+note = "veneer -> 0x080DCA51"
+
+[[extra_func]]
+addr = 0x080C84F8
+mode = "thumb"
+note = "veneer -> 0x080DCA85"
+
+[[extra_func]]
+addr = 0x080C8500
+mode = "thumb"
+note = "veneer -> 0x080DCADD"
+
+[[extra_func]]
+addr = 0x080C8508
+mode = "thumb"
+note = "veneer -> 0x080CEB59"
+
+[[extra_func]]
+addr = 0x080C8510
+mode = "thumb"
+note = "veneer -> 0x080CEB81"
+
+[[extra_func]]
+addr = 0x080C8518
+mode = "thumb"
+note = "veneer -> 0x080DC0D9"
+
+[[extra_func]]
+addr = 0x080C8520
+mode = "thumb"
+note = "veneer -> 0x080CA495"
+
+[[extra_func]]
+addr = 0x080C8528
+mode = "thumb"
+note = "veneer -> 0x080DD529"
+
+[[extra_func]]
+addr = 0x080C8530
+mode = "thumb"
+note = "veneer -> 0x080DD63D"
+
+[[extra_func]]
+addr = 0x080C8538
+mode = "thumb"
+note = "veneer -> 0x080DD669"
+
+[[extra_func]]
+addr = 0x080C8540
+mode = "thumb"
+note = "veneer -> 0x080CB6C9"
+
+[[extra_func]]
+addr = 0x080C8548
+mode = "thumb"
+note = "veneer -> 0x080CB6F5"
+
+[[extra_func]]
+addr = 0x080C8550
+mode = "thumb"
+note = "veneer -> 0x080DC0B9"
+
+[[extra_func]]
+addr = 0x080C8558
+mode = "thumb"
+note = "veneer -> 0x080D295D"
+
+[[extra_func]]
+addr = 0x080C8560
+mode = "thumb"
+note = "veneer -> 0x080CA18D"
+
+[[extra_func]]
+addr = 0x080C8568
+mode = "thumb"
+note = "veneer -> 0x080CA1A5"
+
+[[extra_func]]
+addr = 0x080C8570
+mode = "thumb"
+note = "veneer -> 0x080C9DC9"
+
+[[extra_func]]
+addr = 0x080C8578
+mode = "thumb"
+note = "veneer -> 0x080CA1BD"
+
+[[extra_func]]
+addr = 0x080C8580
+mode = "thumb"
+note = "veneer -> 0x080D7789"
+
+[[extra_func]]
+addr = 0x080C8588
+mode = "thumb"
+note = "veneer -> 0x080EBC31"
+
+[[extra_func]]
+addr = 0x080C8590
+mode = "thumb"
+note = "veneer -> 0x080EBE71"
+
+[[extra_func]]
+addr = 0x080C8598
+mode = "thumb"
+note = "veneer -> 0x080EBE95"
+
+[[extra_func]]
+addr = 0x080C85A0
+mode = "thumb"
+note = "veneer -> 0x080EBEA9"
+
+[[extra_func]]
+addr = 0x080C85A8
+mode = "thumb"
+note = "veneer -> 0x080EBEB5"
+
+[[extra_func]]
+addr = 0x080C85B0
+mode = "thumb"
+note = "veneer -> 0x080EBEC9"
+
+[[extra_func]]
+addr = 0x080C85B8
+mode = "thumb"
+note = "veneer -> 0x080EBF69"
+
+[[extra_func]]
+addr = 0x080C85C0
+mode = "thumb"
+note = "veneer -> 0x080DC391"
+
+[[extra_func]]
+addr = 0x080C85C8
+mode = "thumb"
+note = "veneer -> 0x080D1EAD"
+
+[[extra_func]]
+addr = 0x080C85D0
+mode = "thumb"
+note = "veneer -> 0x080D2455"
+
+[[extra_func]]
+addr = 0x080C85D8
+mode = "thumb"
+note = "veneer -> 0x080D7A79"
+
+[[extra_func]]
+addr = 0x080C85E0
+mode = "thumb"
+note = "veneer -> 0x080D7AB5"
+
+[[extra_func]]
+addr = 0x080C85E8
+mode = "thumb"
+note = "veneer -> 0x080D3071"
+
+[[extra_func]]
+addr = 0x080C85F0
+mode = "thumb"
+note = "veneer -> 0x080D2FFD"
+
+[[extra_func]]
+addr = 0x080C85F8
+mode = "thumb"
+note = "veneer -> 0x080D303D"
+
+[[extra_func]]
+addr = 0x080C8600
+mode = "thumb"
+note = "veneer -> 0x080D2E1D"
+
+[[extra_func]]
+addr = 0x080C8608
+mode = "thumb"
+note = "veneer -> 0x080E0309"
+
+[[extra_func]]
+addr = 0x080C8610
+mode = "thumb"
+note = "veneer -> 0x080E035D"
+
+[[extra_func]]
+addr = 0x080C8618
+mode = "thumb"
+note = "veneer -> 0x080D3C2D"
+
+[[extra_func]]
+addr = 0x080C8620
+mode = "thumb"
+note = "veneer -> 0x080D3BF9"
+
+[[extra_func]]
+addr = 0x080C8628
+mode = "thumb"
+note = "veneer -> 0x080CAD9D"
+
+[[extra_func]]
+addr = 0x080C8630
+mode = "thumb"
+note = "veneer -> 0x080CAE5D"
+
+[[extra_func]]
+addr = 0x080C8638
+mode = "thumb"
+note = "veneer -> 0x080D46A5"
+
+[[extra_func]]
+addr = 0x080C8640
+mode = "thumb"
+note = "veneer -> 0x080D4715"
+
+[[extra_func]]
+addr = 0x080C8648
+mode = "thumb"
+note = "veneer -> 0x080CA281"
+
+[[extra_func]]
+addr = 0x080C8650
+mode = "thumb"
+note = "veneer -> 0x080D1EE9"
+
+[[extra_func]]
+addr = 0x080C8658
+mode = "thumb"
+note = "veneer -> 0x080D1F0D"
+
+[[extra_func]]
+addr = 0x080C8660
+mode = "thumb"
+note = "veneer -> 0x080D1F19"
+
+[[extra_func]]
+addr = 0x080C8668
+mode = "thumb"
+note = "veneer -> 0x080D1F21"
+
+[[extra_func]]
+addr = 0x080C8670
+mode = "thumb"
+note = "veneer -> 0x080D2085"
+
+[[extra_func]]
+addr = 0x080C8678
+mode = "thumb"
+note = "veneer -> 0x080D20FD"
+
+[[extra_func]]
+addr = 0x080C8680
+mode = "thumb"
+note = "veneer -> 0x080D4B0D"
+
+[[extra_func]]
+addr = 0x080C8688
+mode = "thumb"
+note = "veneer -> 0x080D2C65"
+
+[[extra_func]]
+addr = 0x080C8690
+mode = "thumb"
+note = "veneer -> 0x080D2C99"
+
+[[extra_func]]
+addr = 0x080C8698
+mode = "thumb"
+note = "veneer -> 0x080D2C9D"
+
+[[extra_func]]
+addr = 0x080C86A0
+mode = "thumb"
+note = "veneer -> 0x080CA6E5"
+
+[[extra_func]]
+addr = 0x080C86A8
+mode = "thumb"
+note = "veneer -> 0x080D897D"
+
+[[extra_func]]
+addr = 0x080C86B0
+mode = "thumb"
+note = "veneer -> 0x080D8D69"
+
+[[extra_func]]
+addr = 0x080C86B8
+mode = "thumb"
+note = "veneer -> 0x080D9105"
+
+[[extra_func]]
+addr = 0x080C86C0
+mode = "thumb"
+note = "veneer -> 0x080D92D5"
+
+[[extra_func]]
+addr = 0x080C86C8
+mode = "thumb"
+note = "veneer -> 0x080D9711"
+
+[[extra_func]]
+addr = 0x080C86D0
+mode = "thumb"
+note = "veneer -> 0x080D9B09"
+
+[[extra_func]]
+addr = 0x080C86D8
+mode = "thumb"
+note = "veneer -> 0x080D9E99"
+
+[[extra_func]]
+addr = 0x080C86E0
+mode = "thumb"
+note = "veneer -> 0x080D9AB1"
+
+[[extra_func]]
+addr = 0x080C86E8
+mode = "thumb"
+note = "veneer -> 0x080D9AD1"
+
+[[extra_func]]
+addr = 0x080C86F0
+mode = "thumb"
+note = "veneer -> 0x080ED805"
+
+[[extra_func]]
+addr = 0x080C86F8
+mode = "thumb"
+note = "veneer -> 0x080EA7C1"
+
+[[extra_func]]
+addr = 0x080C8700
+mode = "thumb"
+note = "veneer -> 0x080EA8D5"
+
+[[extra_func]]
+addr = 0x080C8708
+mode = "thumb"
+note = "veneer -> 0x080EAA15"
+
+[[extra_func]]
+addr = 0x080C8710
+mode = "thumb"
+note = "veneer -> 0x080EAB71"
+
+[[extra_func]]
+addr = 0x080C8718
+mode = "thumb"
+note = "veneer -> 0x080EABD1"
+
+[[extra_func]]
+addr = 0x080C8720
+mode = "thumb"
+note = "veneer -> 0x080EACE9"
+
+[[extra_func]]
+addr = 0x080C8728
+mode = "thumb"
+note = "veneer -> 0x080EADFD"
+
+[[extra_func]]
+addr = 0x080C8730
+mode = "thumb"
+note = "veneer -> 0x080EAB99"
+
+[[extra_func]]
+addr = 0x080C8738
+mode = "thumb"
+note = "veneer -> 0x080EAF29"
+
+[[extra_func]]
+addr = 0x080C8740
+mode = "thumb"
+note = "veneer -> 0x080CDC75"
+
+[[extra_func]]
+addr = 0x080C8748
+mode = "thumb"
+note = "veneer -> 0x080CDD81"
+
+[[extra_func]]
+addr = 0x080C8750
+mode = "thumb"
+note = "veneer -> 0x080EAEB5"
+
+[[extra_func]]
+addr = 0x080C8758
+mode = "thumb"
+note = "veneer -> 0x080DC10D"
+
+[[extra_func]]
+addr = 0x080C8760
+mode = "thumb"
+note = "veneer -> 0x080E25E9"
+
+[[extra_func]]
+addr = 0x080C8768
+mode = "thumb"
+note = "veneer -> 0x080DBCD9"
+
+[[extra_func]]
+addr = 0x080C8770
+mode = "thumb"
+note = "veneer -> 0x080DBD49"
+
+[[extra_func]]
+addr = 0x080C8778
+mode = "thumb"
+note = "veneer -> 0x080CDF5D"
+
+[[extra_func]]
+addr = 0x080C8780
+mode = "thumb"
+note = "veneer -> 0x080DB445"
+
+[[extra_func]]
+addr = 0x080C8788
+mode = "thumb"
+note = "veneer -> 0x080DAECD"
+
+[[extra_func]]
+addr = 0x080C8790
+mode = "thumb"
+note = "veneer -> 0x080DB0B1"
+
+[[extra_func]]
+addr = 0x080C8798
+mode = "thumb"
+note = "veneer -> 0x080D5D71"
+
+[[extra_func]]
+addr = 0x080C87A0
+mode = "thumb"
+note = "veneer -> 0x080EB961"
+
+[[extra_func]]
+addr = 0x080C87A8
+mode = "thumb"
+note = "veneer -> 0x080D3929"
+
+[[extra_func]]
+addr = 0x080C87B0
+mode = "thumb"
+note = "veneer -> 0x080D3941"
+
+[[extra_func]]
+addr = 0x080C87B8
+mode = "thumb"
+note = "veneer -> 0x080D3A11"
+
+[[extra_func]]
+addr = 0x080C87C0
+mode = "thumb"
+note = "veneer -> 0x080EAF99"
+
+[[extra_func]]
+addr = 0x080C87C8
+mode = "thumb"
+note = "veneer -> 0x080EB01D"
+
+[[extra_func]]
+addr = 0x080C87D0
+mode = "thumb"
+note = "veneer -> 0x080EB299"
+
+[[extra_func]]
+addr = 0x080C87D8
+mode = "thumb"
+note = "veneer -> 0x080EB2C9"
+
+[[extra_func]]
+addr = 0x080C87E0
+mode = "thumb"
+note = "veneer -> 0x080EB2D1"
+
+[[extra_func]]
+addr = 0x080C87E8
+mode = "thumb"
+note = "veneer -> 0x080DB9C1"
+
+[[extra_func]]
+addr = 0x080C87F0
+mode = "thumb"
+note = "veneer -> 0x080DB9CD"
+
+[[extra_func]]
+addr = 0x080C87F8
+mode = "thumb"
+note = "veneer -> 0x080DC1B1"
+
+[[extra_func]]
+addr = 0x080C8800
+mode = "thumb"
+note = "veneer -> 0x080DC245"
+
+[[extra_func]]
+addr = 0x080C8808
+mode = "thumb"
+note = "veneer -> 0x080E15FD"
+
+[[extra_func]]
+addr = 0x080C8810
+mode = "thumb"
+note = "veneer -> 0x080E1651"
+
+[[extra_func]]
+addr = 0x080C8818
+mode = "thumb"
+note = "veneer -> 0x080E137D"
+
+[[extra_func]]
+addr = 0x080C8820
+mode = "thumb"
+note = "veneer -> 0x080E1421"
+
+[[extra_func]]
+addr = 0x080C8828
+mode = "thumb"
+note = "veneer -> 0x080E4245"
+
+[[extra_func]]
+addr = 0x080C8830
+mode = "thumb"
+note = "veneer -> 0x080DBDC9"
+
+[[extra_func]]
+addr = 0x080C8838
+mode = "thumb"
+note = "veneer -> 0x080DBDE9"
+
+[[extra_func]]
+addr = 0x080C8840
+mode = "thumb"
+note = "veneer -> 0x080DBDD5"
+
+[[extra_func]]
+addr = 0x080C8848
+mode = "thumb"
+note = "veneer -> 0x080DBDF5"
+
+[[extra_func]]
+addr = 0x080C8850
+mode = "thumb"
+note = "veneer -> 0x080DBE09"
+
+[[extra_func]]
+addr = 0x080C8858
+mode = "thumb"
+note = "veneer -> 0x080DBE45"
+
+[[extra_func]]
+addr = 0x080C8860
+mode = "thumb"
+note = "veneer -> 0x080D3B29"
+
+[[extra_func]]
+addr = 0x080C8868
+mode = "thumb"
+note = "veneer -> 0x080DA909"
+
+[[extra_func]]
+addr = 0x080C8870
+mode = "thumb"
+note = "veneer -> 0x080DA939"
+
+[[extra_func]]
+addr = 0x080C8878
+mode = "thumb"
+note = "veneer -> 0x080D4AB5"
+
+[[extra_func]]
+addr = 0x080C8880
+mode = "thumb"
+note = "veneer -> 0x080E3699"
+
+[[extra_func]]
+addr = 0x080C8888
+mode = "thumb"
+note = "veneer -> 0x080E37E1"
+
+[[extra_func]]
+addr = 0x080C8890
+mode = "thumb"
+note = "veneer -> 0x080E70F9"
+
+[[extra_func]]
+addr = 0x080C8898
+mode = "thumb"
+note = "veneer -> 0x080D2CC5"
+
+[[extra_func]]
+addr = 0x080C88A0
+mode = "thumb"
+note = "veneer -> 0x080D1D55"
+
+[[extra_func]]
+addr = 0x080C88A8
+mode = "thumb"
+note = "veneer -> 0x080D1DAD"
+
+[[extra_func]]
+addr = 0x080C88B0
+mode = "thumb"
+note = "veneer -> 0x080D1DF1"
+
+[[extra_func]]
+addr = 0x080C88B8
+mode = "thumb"
+note = "veneer -> 0x080D1E19"
+
+[[extra_func]]
+addr = 0x080C88C0
+mode = "thumb"
+note = "veneer -> 0x080DB91D"
+
+[[extra_func]]
+addr = 0x080C88C8
+mode = "thumb"
+note = "veneer -> 0x080D2D09"
+
+[[extra_func]]
+addr = 0x080C88D0
+mode = "thumb"
+note = "veneer -> 0x080E2775"
+
+[[extra_func]]
+addr = 0x080C88D8
+mode = "thumb"
+note = "veneer -> 0x080E7239"
+
+[[extra_func]]
+addr = 0x080C88E0
+mode = "thumb"
+note = "veneer -> 0x080E7805"
+
+[[extra_func]]
+addr = 0x080C88E8
+mode = "thumb"
+note = "veneer -> 0x080E74D9"
+
+[[extra_func]]
+addr = 0x080C88F0
+mode = "thumb"
+note = "veneer -> 0x080D4AA9"
+
+[[extra_func]]
+addr = 0x080C88F8
+mode = "thumb"
+note = "veneer -> 0x080D2DE5"
+
+[[extra_func]]
+addr = 0x080C8900
+mode = "thumb"
+note = "veneer -> 0x080D5E51"
+
+[[extra_func]]
+addr = 0x080C8908
+mode = "thumb"
+note = "veneer -> 0x080D5E65"
+
+[[extra_func]]
+addr = 0x080C8910
+mode = "thumb"
+note = "veneer -> 0x080D6E59"
+
+[[extra_func]]
+addr = 0x080C8918
+mode = "thumb"
+note = "veneer -> 0x080D6F35"
+
+[[extra_func]]
+addr = 0x080C8920
+mode = "thumb"
+note = "veneer -> 0x080D7025"
+
+[[extra_func]]
+addr = 0x080C8928
+mode = "thumb"
+note = "veneer -> 0x080EA14D"
+
+[[extra_func]]
+addr = 0x080C8930
+mode = "thumb"
+note = "veneer -> 0x080D2D71"
+
+[[extra_func]]
+addr = 0x080C8938
+mode = "thumb"
+note = "veneer -> 0x080CA369"
+
+[[extra_func]]
+addr = 0x080C8940
+mode = "thumb"
+note = "veneer -> 0x080CA3F5"
+
+[[extra_func]]
+addr = 0x080C8948
+mode = "thumb"
+note = "veneer -> 0x080E28D5"
+
+[[extra_func]]
+addr = 0x080C8950
+mode = "thumb"
+note = "veneer -> 0x080D072D"
+
+[[extra_func]]
+addr = 0x080C8958
+mode = "thumb"
+note = "veneer -> 0x080D25C9"
+
+[[extra_func]]
+addr = 0x080C8960
+mode = "thumb"
+note = "veneer -> 0x080CCD79"
+
+[[extra_func]]
+addr = 0x080C8968
+mode = "thumb"
+note = "veneer -> 0x080D1761"
+
+[[extra_func]]
+addr = 0x080C8970
+mode = "thumb"
+note = "veneer -> 0x080D17E9"
+
+# veneer table 0x080F8000..0x080F80A8 (21 veneers)
+[[extra_func]]
+addr = 0x080F8000
+mode = "thumb"
+note = "veneer -> 0x080F94A5"
+
+[[extra_func]]
+addr = 0x080F8008
+mode = "thumb"
+note = "veneer -> 0x080FCAB9"
+
+[[extra_func]]
+addr = 0x080F8010
+mode = "thumb"
+note = "veneer -> 0x080FE275"
+
+[[extra_func]]
+addr = 0x080F8018
+mode = "thumb"
+note = "veneer -> 0x080FE185"
+
+[[extra_func]]
+addr = 0x080F8020
+mode = "thumb"
+note = "veneer -> 0x080F8841"
+
+[[extra_func]]
+addr = 0x080F8028
+mode = "thumb"
+note = "veneer -> 0x080F8889"
+
+[[extra_func]]
+addr = 0x080F8030
+mode = "thumb"
+note = "veneer -> 0x08100E7D"
+
+[[extra_func]]
+addr = 0x080F8038
+mode = "thumb"
+note = "veneer -> 0x080FB8AD"
+
+[[extra_func]]
+addr = 0x080F8040
+mode = "thumb"
+note = "veneer -> 0x080FB8B9"
+
+[[extra_func]]
+addr = 0x080F8048
+mode = "thumb"
+note = "veneer -> 0x080F92AD"
+
+[[extra_func]]
+addr = 0x080F8050
+mode = "thumb"
+note = "veneer -> 0x08104DA9"
+
+[[extra_func]]
+addr = 0x080F8058
+mode = "thumb"
+note = "veneer -> 0x08104EF9"
+
+[[extra_func]]
+addr = 0x080F8060
+mode = "thumb"
+note = "veneer -> 0x08104FE1"
+
+[[extra_func]]
+addr = 0x080F8068
+mode = "thumb"
+note = "veneer -> 0x0810508D"
+
+[[extra_func]]
+addr = 0x080F8070
+mode = "thumb"
+note = "veneer -> 0x081051A9"
+
+[[extra_func]]
+addr = 0x080F8078
+mode = "thumb"
+note = "veneer -> 0x0810526D"
+
+[[extra_func]]
+addr = 0x080F8080
+mode = "thumb"
+note = "veneer -> 0x081050B9"
+
+[[extra_func]]
+addr = 0x080F8088
+mode = "thumb"
+note = "veneer -> 0x081052AD"
+
+[[extra_func]]
+addr = 0x080F8090
+mode = "thumb"
+note = "veneer -> 0x08105301"
+
+[[extra_func]]
+addr = 0x080F8098
+mode = "thumb"
+note = "veneer -> 0x0810532D"
+
+[[extra_func]]
+addr = 0x080F80A0
+mode = "thumb"
+note = "veneer -> 0x08105351"
+
+# veneer table 0x08108000..0x081080A8 (21 veneers)
+[[extra_func]]
+addr = 0x08108000
+mode = "thumb"
+note = "veneer -> 0x08108465"
+
+[[extra_func]]
+addr = 0x08108008
+mode = "thumb"
+note = "veneer -> 0x081082C5"
+
+[[extra_func]]
+addr = 0x08108010
+mode = "thumb"
+note = "veneer -> 0x0810AA81"
+
+[[extra_func]]
+addr = 0x08108018
+mode = "thumb"
+note = "veneer -> 0x0810B419"
+
+[[extra_func]]
+addr = 0x08108020
+mode = "thumb"
+note = "veneer -> 0x0810B5C5"
+
+[[extra_func]]
+addr = 0x08108028
+mode = "thumb"
+note = "veneer -> 0x0810B3ED"
+
+[[extra_func]]
+addr = 0x08108030
+mode = "thumb"
+note = "veneer -> 0x08108949"
+
+[[extra_func]]
+addr = 0x08108038
+mode = "thumb"
+note = "veneer -> 0x081089E5"
+
+[[extra_func]]
+addr = 0x08108040
+mode = "thumb"
+note = "veneer -> 0x08108A89"
+
+[[extra_func]]
+addr = 0x08108048
+mode = "thumb"
+note = "veneer -> 0x08108AA9"
+
+[[extra_func]]
+addr = 0x08108050
+mode = "thumb"
+note = "veneer -> 0x0810875D"
+
+[[extra_func]]
+addr = 0x08108058
+mode = "thumb"
+note = "veneer -> 0x081088D9"
+
+[[extra_func]]
+addr = 0x08108060
+mode = "thumb"
+note = "veneer -> 0x08108929"
+
+[[extra_func]]
+addr = 0x08108068
+mode = "thumb"
+note = "veneer -> 0x0810B7A9"
+
+[[extra_func]]
+addr = 0x08108070
+mode = "thumb"
+note = "veneer -> 0x0810B79D"
+
+[[extra_func]]
+addr = 0x08108078
+mode = "thumb"
+note = "veneer -> 0x081084E1"
+
+[[extra_func]]
+addr = 0x08108080
+mode = "thumb"
+note = "veneer -> 0x0810B521"
+
+[[extra_func]]
+addr = 0x08108088
+mode = "thumb"
+note = "veneer -> 0x08108B35"
+
+[[extra_func]]
+addr = 0x08108090
+mode = "thumb"
+note = "veneer -> 0x0810A805"
+
+[[extra_func]]
+addr = 0x08108098
+mode = "thumb"
+note = "veneer -> 0x0810A835"
+
+[[extra_func]]
+addr = 0x081080A0
+mode = "thumb"
+note = "veneer -> 0x0810A84D"
+
+# veneer table 0x08118000..0x08118160 (44 veneers)
+[[extra_func]]
+addr = 0x08118000
+mode = "thumb"
+note = "veneer -> 0x08118959"
+
+[[extra_func]]
+addr = 0x08118008
+mode = "thumb"
+note = "veneer -> 0x08125AA1"
+
+[[extra_func]]
+addr = 0x08118010
+mode = "thumb"
+note = "veneer -> 0x0811B9D5"
+
+[[extra_func]]
+addr = 0x08118018
+mode = "thumb"
+note = "veneer -> 0x08126945"
+
+[[extra_func]]
+addr = 0x08118020
+mode = "thumb"
+note = "veneer -> 0x08126979"
+
+[[extra_func]]
+addr = 0x08118028
+mode = "thumb"
+note = "veneer -> 0x08126805"
+
+[[extra_func]]
+addr = 0x08118030
+mode = "thumb"
+note = "veneer -> 0x08126905"
+
+[[extra_func]]
+addr = 0x08118038
+mode = "thumb"
+note = "veneer -> 0x0812628D"
+
+[[extra_func]]
+addr = 0x08118040
+mode = "thumb"
+note = "veneer -> 0x081263FD"
+
+[[extra_func]]
+addr = 0x08118048
+mode = "thumb"
+note = "veneer -> 0x08126219"
+
+[[extra_func]]
+addr = 0x08118050
+mode = "thumb"
+note = "veneer -> 0x08128195"
+
+[[extra_func]]
+addr = 0x08118058
+mode = "thumb"
+note = "veneer -> 0x08128175"
+
+[[extra_func]]
+addr = 0x08118060
+mode = "thumb"
+note = "veneer -> 0x0812814D"
+
+[[extra_func]]
+addr = 0x08118068
+mode = "thumb"
+note = "veneer -> 0x081280FD"
+
+[[extra_func]]
+addr = 0x08118070
+mode = "thumb"
+note = "veneer -> 0x0811C37D"
+
+[[extra_func]]
+addr = 0x08118078
+mode = "thumb"
+note = "veneer -> 0x0811C121"
+
+[[extra_func]]
+addr = 0x08118080
+mode = "thumb"
+note = "veneer -> 0x0811C01D"
+
+[[extra_func]]
+addr = 0x08118088
+mode = "thumb"
+note = "veneer -> 0x0811C075"
+
+[[extra_func]]
+addr = 0x08118090
+mode = "thumb"
+note = "veneer -> 0x0811A31D"
+
+[[extra_func]]
+addr = 0x08118098
+mode = "thumb"
+note = "veneer -> 0x0811BE3D"
+
+[[extra_func]]
+addr = 0x081180A0
+mode = "thumb"
+note = "veneer -> 0x081197F1"
+
+[[extra_func]]
+addr = 0x081180A8
+mode = "thumb"
+note = "veneer -> 0x0811BD51"
+
+[[extra_func]]
+addr = 0x081180B0
+mode = "thumb"
+note = "veneer -> 0x0811C2B5"
+
+[[extra_func]]
+addr = 0x081180B8
+mode = "thumb"
+note = "veneer -> 0x0811C315"
+
+[[extra_func]]
+addr = 0x081180C0
+mode = "thumb"
+note = "veneer -> 0x0811A189"
+
+[[extra_func]]
+addr = 0x081180C8
+mode = "thumb"
+note = "veneer -> 0x0811A039"
+
+[[extra_func]]
+addr = 0x081180D0
+mode = "thumb"
+note = "veneer -> 0x0811CD7D"
+
+[[extra_func]]
+addr = 0x081180D8
+mode = "thumb"
+note = "veneer -> 0x0811BDB1"
+
+[[extra_func]]
+addr = 0x081180E0
+mode = "thumb"
+note = "veneer -> 0x08126CFD"
+
+[[extra_func]]
+addr = 0x081180E8
+mode = "thumb"
+note = "veneer -> 0x08122C4D"
+
+[[extra_func]]
+addr = 0x081180F0
+mode = "thumb"
+note = "veneer -> 0x08118411"
+
+[[extra_func]]
+addr = 0x081180F8
+mode = "thumb"
+note = "veneer -> 0x08124BFD"
+
+[[extra_func]]
+addr = 0x08118100
+mode = "thumb"
+note = "veneer -> 0x0811A485"
+
+[[extra_func]]
+addr = 0x08118108
+mode = "thumb"
+note = "veneer -> 0x08124CAD"
+
+[[extra_func]]
+addr = 0x08118110
+mode = "thumb"
+note = "veneer -> 0x08118739"
+
+[[extra_func]]
+addr = 0x08118118
+mode = "thumb"
+note = "veneer -> 0x0811A44D"
+
+[[extra_func]]
+addr = 0x08118120
+mode = "thumb"
+note = "veneer -> 0x0811B725"
+
+[[extra_func]]
+addr = 0x08118128
+mode = "thumb"
+note = "veneer -> 0x08120061"
+
+[[extra_func]]
+addr = 0x08118130
+mode = "thumb"
+note = "veneer -> 0x08123575"
+
+[[extra_func]]
+addr = 0x08118138
+mode = "thumb"
+note = "veneer -> 0x0811A0B1"
+
+[[extra_func]]
+addr = 0x08118140
+mode = "thumb"
+note = "veneer -> 0x0811A39D"
+
+[[extra_func]]
+addr = 0x08118148
+mode = "thumb"
+note = "veneer -> 0x0811B75D"
+
+[[extra_func]]
+addr = 0x08118150
+mode = "thumb"
+note = "veneer -> 0x08119735"
+
+[[extra_func]]
+addr = 0x08118158
+mode = "thumb"
+note = "veneer -> 0x08118F6D"
+
+# veneer table 0x08138000..0x08138058 (11 veneers)
+[[extra_func]]
+addr = 0x08138000
+mode = "thumb"
+note = "veneer -> 0x08196405"
+
+[[extra_func]]
+addr = 0x08138008
+mode = "thumb"
+note = "veneer -> 0x0815E321"
+
+[[extra_func]]
+addr = 0x08138010
+mode = "thumb"
+note = "veneer -> 0x0814C995"
+
+[[extra_func]]
+addr = 0x08138018
+mode = "thumb"
+note = "veneer -> 0x0814CB61"
+
+[[extra_func]]
+addr = 0x08138020
+mode = "thumb"
+note = "veneer -> 0x0813E3D1"
+
+[[extra_func]]
+addr = 0x08138028
+mode = "thumb"
+note = "veneer -> 0x0813EB71"
+
+[[extra_func]]
+addr = 0x08138030
+mode = "thumb"
+note = "veneer -> 0x0813F519"
+
+[[extra_func]]
+addr = 0x08138038
+mode = "thumb"
+note = "veneer -> 0x0813FA89"
+
+[[extra_func]]
+addr = 0x08138040
+mode = "thumb"
+note = "veneer -> 0x0813FD41"
+
+[[extra_func]]
+addr = 0x08138048
+mode = "thumb"
+note = "veneer -> 0x081963ED"
+
+[[extra_func]]
+addr = 0x08138050
+mode = "thumb"
+note = "veneer -> 0x08142945"
+
+# veneer table 0x081A0000..0x081A0030 (6 veneers)
+[[extra_func]]
+addr = 0x081A0000
+mode = "thumb"
+note = "veneer -> 0x081A06E1"
+
+[[extra_func]]
+addr = 0x081A0008
+mode = "thumb"
+note = "veneer -> 0x081A150D"
+
+[[extra_func]]
+addr = 0x081A0010
+mode = "thumb"
+note = "veneer -> 0x081A15DD"
+
+[[extra_func]]
+addr = 0x081A0018
+mode = "thumb"
+note = "veneer -> 0x081A1289"
+
+[[extra_func]]
+addr = 0x081A0020
+mode = "thumb"
+note = "veneer -> 0x081A17D1"
+
+[[extra_func]]
+addr = 0x081A0028
+mode = "thumb"
+note = "veneer -> 0x081A18F9"
+
+# veneer table 0x081A6000..0x081A6030 (6 veneers)
+[[extra_func]]
+addr = 0x081A6000
+mode = "thumb"
+note = "veneer -> 0x081A729D"
+
+[[extra_func]]
+addr = 0x081A6008
+mode = "thumb"
+note = "veneer -> 0x081A786D"
+
+[[extra_func]]
+addr = 0x081A6010
+mode = "thumb"
+note = "veneer -> 0x081A7515"
+
+[[extra_func]]
+addr = 0x081A6018
+mode = "thumb"
+note = "veneer -> 0x081A7519"
+
+[[extra_func]]
+addr = 0x081A6020
+mode = "thumb"
+note = "veneer -> 0x081A76F9"
+
+[[extra_func]]
+addr = 0x081A6028
+mode = "thumb"
+note = "veneer -> 0x081A71C9"
+
+# veneer table 0x081AC000..0x081AC008 (1 veneers)
+[[extra_func]]
+addr = 0x081AC000
+mode = "thumb"
+note = "veneer -> 0x081AC009"
+
+# veneer table 0x081B2000..0x081B2008 (1 veneers)
+[[extra_func]]
+addr = 0x081B2000
+mode = "thumb"
+note = "veneer -> 0x081B2009"
+
+# veneer table 0x081B8000..0x081B8008 (1 veneers)
+[[extra_func]]
+addr = 0x081B8000
+mode = "thumb"
+note = "veneer -> 0x081B8009"
+
+# veneer table 0x081C0000..0x081C00B0 (22 veneers)
+[[extra_func]]
+addr = 0x081C0000
+mode = "thumb"
+note = "veneer -> 0x081C1FB5"
+
+[[extra_func]]
+addr = 0x081C0008
+mode = "thumb"
+note = "veneer -> 0x081C0C1D"
+
+[[extra_func]]
+addr = 0x081C0010
+mode = "thumb"
+note = "veneer -> 0x081C0CB1"
+
+[[extra_func]]
+addr = 0x081C0018
+mode = "thumb"
+note = "veneer -> 0x081C0F3D"
+
+[[extra_func]]
+addr = 0x081C0020
+mode = "thumb"
+note = "veneer -> 0x081C0F45"
+
+[[extra_func]]
+addr = 0x081C0028
+mode = "thumb"
+note = "veneer -> 0x081C0F59"
+
+[[extra_func]]
+addr = 0x081C0030
+mode = "thumb"
+note = "veneer -> 0x081C0F71"
+
+[[extra_func]]
+addr = 0x081C0038
+mode = "thumb"
+note = "veneer -> 0x081C0F85"
+
+[[extra_func]]
+addr = 0x081C0040
+mode = "thumb"
+note = "veneer -> 0x081C0FAD"
+
+[[extra_func]]
+addr = 0x081C0048
+mode = "thumb"
+note = "veneer -> 0x081C0FD1"
+
+[[extra_func]]
+addr = 0x081C0050
+mode = "thumb"
+note = "veneer -> 0x081C1015"
+
+[[extra_func]]
+addr = 0x081C0058
+mode = "thumb"
+note = "veneer -> 0x081C0FC1"
+
+[[extra_func]]
+addr = 0x081C0060
+mode = "thumb"
+note = "veneer -> 0x081C0FC9"
+
+[[extra_func]]
+addr = 0x081C0068
+mode = "thumb"
+note = "veneer -> 0x081C1159"
+
+[[extra_func]]
+addr = 0x081C0070
+mode = "thumb"
+note = "veneer -> 0x081C117D"
+
+[[extra_func]]
+addr = 0x081C0078
+mode = "thumb"
+note = "veneer -> 0x081C0FDD"
+
+[[extra_func]]
+addr = 0x081C0080
+mode = "thumb"
+note = "veneer -> 0x081C1001"
+
+[[extra_func]]
+addr = 0x081C0088
+mode = "thumb"
+note = "veneer -> 0x081C0E31"
+
+[[extra_func]]
+addr = 0x081C0090
+mode = "thumb"
+note = "veneer -> 0x081C1189"
+
+[[extra_func]]
+addr = 0x081C0098
+mode = "thumb"
+note = "veneer -> 0x081C11AD"
+
+[[extra_func]]
+addr = 0x081C00A0
+mode = "thumb"
+note = "veneer -> 0x081C11CD"
+
+[[extra_func]]
+addr = 0x081C00A8
+mode = "thumb"
+note = "veneer -> 0x081C0C19"
+
+
+# ---------------------------------------------------------------------------
+# Round 2 (2026-10-03 headless run after round 1: 103 misses left).
+
+[[jump_table]]
+addr = 0x08041D3C
+stride = 4
+count = 17
+format = "abs32"
+entries_mode = "thumb"
+note = "dispatcher 0x08041D30: cmp r3,#0x10; bhi; ldr r2,=0x08041D3C (literal 0x08041F5C); ldr r3,[r3,r2]; mov pc,r3. Run missed case 0x08041D80"
+
+# Table of 95 consecutive Thumb code pointers 0x0802F204..0x0802F380 into
+# 0x08023xxx..0x0802Axxx, bounded by 0x11 before and halfword pairs
+# (0x00010000, 0x00030002, ...) after. The run called entries 0x08024C50,
+# 0x08024D14, 0x08024DDC and 0x08025160 (and code inside them).
+[[jump_table]]
+addr = 0x0802F204
+stride = 4
+count = 95
+format = "abs32"
+entries_mode = "auto"
+note = "95 Thumb code pointers; run dispatched 4 entries ~300-500x each"
+
+[[extra_func]]
+addr = 0x081C2994
+mode = "thumb"
+note = "pointer at 0x081C2304 (sound engine literal pool); after bx r0; run missed x2"
+
+# Unrolled fill/copy loops in the boot IWRAM copy jump into their own body:
+# 0x0300028C `add pc, pc, ip, lsr #3` with ip = 0xE0 - (r1 & 0xE0) lands on
+# 0x03000294..0x030002B0 (step 4); 0x03000740 `add pc, pc, ip, lsr #2` with
+# ip = 0xF0 - (r2 & 0xE0) lands on 0x0300074C..0x03000784 (step 8). The run
+# missed 0x03000298/29C/2A0/2A8/2AC/2B0 and 0x03000754/0x03000784.
+[[resume_range]]
+start = 0x03000290
+end = 0x030002B8
+mode = "arm"
+note = "computed jump at 0x0300028C into the 8x stm fill loop (bx pc stub 0x03000260)"
+
+[[resume_range]]
+start = 0x03000744
+end = 0x0300078C
+mode = "arm"
+note = "computed jump at 0x03000740 into the 8x ldm/stm copy loop (bx pc stub 0x03000730)"
+
+# ---------------------------------------------------------------------------
+# Switch tables found by a ROM-wide scan (2026-10-03) for the form the walk
+# misses: `[cmp rI,#N; b{hi,ls,cs,cc}] ldr rB,=table (or mov rB,hi);
+# lsls rT,rI,#2; ldr rT,[rT,rB]; mov pc,rT`. Count from the guard compare;
+# every entry checked to be an even ROM address within 64 KiB of the
+# dispatcher. Only dispatchers inside already-translated code are added; the
+# scan was repeated after each regeneration until it found nothing new. The
+# scan reproduces the six hand-sized tables above exactly.
+[[jump_table]]
+addr = 0x08021A10
+stride = 4
+count = 17
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08021A0E (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08021B30
+stride = 4
+count = 17
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08021B2E (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08021BE8
+stride = 4
+count = 22
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08021BE4 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08023540
+stride = 4
+count = 13
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0802353E (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0802C6EC
+stride = 4
+count = 12
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0802C6EA (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08039910
+stride = 4
+count = 31
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0803990C (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0803AD50
+stride = 4
+count = 27
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0803AD4C (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0803BC08
+stride = 4
+count = 29
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0803BC06 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0803C598
+stride = 4
+count = 17
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0803C596 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0803D0B4
+stride = 4
+count = 26
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0803D0B0 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0803D308
+stride = 4
+count = 8
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0803D306 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0803F26C
+stride = 4
+count = 8
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0803F26A (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0803F7A0
+stride = 4
+count = 5
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0803F79C (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08041788
+stride = 4
+count = 27
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08041786 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08041DA0
+stride = 4
+count = 6
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08041D9E (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08041E3C
+stride = 4
+count = 18
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08041E38 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08041EA8
+stride = 4
+count = 19
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08041EA6 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08041F14
+stride = 4
+count = 7
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08041F12 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08048370
+stride = 4
+count = 11
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0804836E (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0804A9F0
+stride = 4
+count = 6
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0804A9EC (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0804AE9C
+stride = 4
+count = 7
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0804AE9A (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080AD594
+stride = 4
+count = 27
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080AD592 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080AD808
+stride = 4
+count = 8
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080AD804 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080B0528
+stride = 4
+count = 78
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080B0524 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080B08E4
+stride = 4
+count = 65
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080B08E0 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080CA524
+stride = 4
+count = 12
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080CA522 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080D0544
+stride = 4
+count = 5
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080D0540 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080D0EE0
+stride = 4
+count = 9
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080D0EDE (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080D4B20
+stride = 4
+count = 11
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080D4B1C (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080DB1E8
+stride = 4
+count = 19
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080DB1E6 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080DB8A0
+stride = 4
+count = 21
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080DB89E (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080F9684
+stride = 4
+count = 13
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080F9682 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080FB9BC
+stride = 4
+count = 28
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080FB9BA (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080FCC0C
+stride = 4
+count = 5
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080FCC08 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x081010B0
+stride = 4
+count = 16
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x081010AC (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0811A6B4
+stride = 4
+count = 8
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0811A6B0 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0811A834
+stride = 4
+count = 8
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0811A830 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0811D7B0
+stride = 4
+count = 8
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0811D7AC (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0811DADC
+stride = 4
+count = 18
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0811DAD8 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0811F7AC
+stride = 4
+count = 89
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0811F7A8 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0811FBC8
+stride = 4
+count = 11
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0811FBC6 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x081201F8
+stride = 4
+count = 16
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x081201F4 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08122728
+stride = 4
+count = 7
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08122724 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08122864
+stride = 4
+count = 43
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08122862 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08123A1C
+stride = 4
+count = 100
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08123A1A (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x081245E4
+stride = 4
+count = 5
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x081245E2 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0813FC94
+stride = 4
+count = 5
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0813FC92 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0814C9EC
+stride = 4
+count = 29
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0814C9EA (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08155A60
+stride = 4
+count = 11
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08155A5C (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0815E4B8
+stride = 4
+count = 7
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0815E4B6 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0815F5D8
+stride = 4
+count = 101
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0815F5D4 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0816037C
+stride = 4
+count = 99
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08160378 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x081614A8
+stride = 4
+count = 7
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x081614A6 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08196AA0
+stride = 4
+count = 11
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08196A9E (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x081A7AEC
+stride = 4
+count = 7
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x081A7AE8 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x081B96C0
+stride = 4
+count = 6
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x081B96BC (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080F82F0
+stride = 4
+count = 10
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080F82EE (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080FAEE8
+stride = 4
+count = 12
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080FAEE6 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080FB31C
+stride = 4
+count = 6
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080FB318 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08100898
+stride = 4
+count = 11
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08100894 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08100A88
+stride = 4
+count = 57
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08100A86 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08100D8C
+stride = 4
+count = 32
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08100D8A (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08102628
+stride = 4
+count = 28
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08102624 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08103EF8
+stride = 4
+count = 19
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08103EF6 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0811E418
+stride = 4
+count = 32
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0811E416 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08120A58
+stride = 4
+count = 13
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08120A56 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08121510
+stride = 4
+count = 86
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0812150C (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x081543B4
+stride = 4
+count = 5
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x081543B0 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08164470
+stride = 4
+count = 7
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0816446E (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08100998
+stride = 4
+count = 6
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08100996 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+
+# ---------------------------------------------------------------------------
+# Flash save library (2026-10-03 launcher session: saving spent ~18 s in the
+# interpreter at frames 19020-19139). Per-chip descriptor structs at
+# 0x08017E14, 0x08017E40, 0x08017EC4, 0x08017EF0, 0x08017F3C, 0x08017F68 each
+# start with four Thumb routine pointers (program, erase chip, erase sector,
+# wait), and 0x08017E84/0x08017E88 hold two more.
+[[extra_func]]
+addr = 0x080173B8
+mode = "thumb"
+note = "flash routine pointer at 0x08017E14/0x08017E40"
+
+[[extra_func]]
+addr = 0x08017270
+mode = "thumb"
+note = "flash routine pointer at 0x08017E18/E44/EC8/EF4"
+
+[[extra_func]]
+addr = 0x080172E4
+mode = "thumb"
+note = "flash routine pointer at 0x08017E1C/E48/ECC/EF8"
+
+[[extra_func]]
+addr = 0x0801708C
+mode = "thumb"
+note = "flash routine pointer at 0x08017E20/E4C/ED0/EFC/F48/F74"
+
+[[extra_func]]
+addr = 0x08017518
+mode = "thumb"
+note = "flash routine pointer at 0x08017EC4/0x08017EF0"
+
+[[extra_func]]
+addr = 0x080177B4
+mode = "thumb"
+note = "flash routine pointer at 0x08017F3C"
+
+[[extra_func]]
+addr = 0x080175BC
+mode = "thumb"
+note = "flash routine pointer at 0x08017F40/0x08017F6C"
+
+[[extra_func]]
+addr = 0x080176B0
+mode = "thumb"
+note = "flash routine pointer at 0x08017F44"
+
+[[extra_func]]
+addr = 0x0801773C
+mode = "thumb"
+note = "flash routine pointer at 0x08017F68"
+
+[[extra_func]]
+addr = 0x0801762C
+mode = "thumb"
+note = "flash routine pointer at 0x08017F70"
+
+[[extra_func]]
+addr = 0x080174DC
+mode = "thumb"
+note = "flash routine pointer at 0x08017E84"
+
+[[extra_func]]
+addr = 0x08017500
+mode = "thumb"
+note = "flash routine pointer at 0x08017E88"
+
+
+# ---------------------------------------------------------------------------
+# Task and interrupt routines (2026-10-03). The game keeps a 24-slot task
+# list (8-byte entries {routine, flags}); 0x080145A8 adds a routine,
+# 0x08014644 removes it, 0x0801475C/0x08014694 toggle its flags. 0x08013438
+# installs an interrupt routine (r0 = slot <= 13, r2 = routine). Each entry
+# below is a Thumb literal loaded into the argument register and passed to
+# one of them with no write to that register in between (capstone check),
+# inside already-translated code. Session misses among them: 0x0802CB64,
+# 0x0802CD94, 0x0803F900, 0x0803FB60, ... Repeated with regeneration until
+# nothing new.
+[[extra_func]]
+addr = 0x08023E18
+mode = "thumb"
+note = "task enable routine: literal 0x08023864 loaded at 0x08023848 and passed to 0x0801475C (3 site(s))"
+
+[[extra_func]]
+addr = 0x0802493C
+mode = "thumb"
+note = "task add routine: literal 0x08023188 loaded at 0x08023134 and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x0802AD84
+mode = "thumb"
+note = "task add routine: literal 0x0802AA70 loaded at 0x0802AA3A and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x0802C088
+mode = "thumb"
+note = "task add routine: literal 0x0802BD04 loaded at 0x0802BC92 and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x0802CB64
+mode = "thumb"
+note = "task enable routine: literal 0x0802CB60 loaded at 0x0802CB40 and passed to 0x0801475C (5 site(s))"
+
+[[extra_func]]
+addr = 0x0802CD94
+mode = "thumb"
+note = "task disable routine: literal 0x0802CEAC loaded at 0x0802CEA2 and passed to 0x08014694 (3 site(s))"
+
+[[extra_func]]
+addr = 0x0802E7A8
+mode = "thumb"
+note = "task add routine: literal 0x0802E284 loaded at 0x0802E05A and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x0803A8D8
+mode = "thumb"
+note = "task add routine: literal 0x0803A52C loaded at 0x0803A51E and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x0803DF24
+mode = "thumb"
+note = "task remove routine: literal 0x0803DF20 loaded at 0x0803DF16 and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x0803F900
+mode = "thumb"
+note = "task add routine: literal 0x0803F8FC loaded at 0x0803F8EA and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x0803FB60
+mode = "thumb"
+note = "task remove routine: literal 0x0803FD24 loaded at 0x0803FD16 and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080405AC
+mode = "thumb"
+note = "task add routine: literal 0x08040610 loaded at 0x08040602 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x08043978
+mode = "thumb"
+note = "task remove routine: literal 0x080439E4 loaded at 0x080439DA and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x08043B70
+mode = "thumb"
+note = "task add routine: literal 0x08043B30 loaded at 0x08043B1C and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x08045768
+mode = "thumb"
+note = "task remove routine: literal 0x08046128 loaded at 0x080460C0 and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x08045780
+mode = "thumb"
+note = "IRQ handler set routine: literal 0x08045B00 loaded at 0x08045A74 and passed to 0x08013438 (1 site(s))"
+
+[[extra_func]]
+addr = 0x0804B6A0
+mode = "thumb"
+note = "task remove routine: literal 0x0804CC84 loaded at 0x0804CC64 and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x0804CDA8
+mode = "thumb"
+note = "task remove routine: literal 0x0804D168 loaded at 0x0804D122 and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x0804D678
+mode = "thumb"
+note = "task add routine: literal 0x0804D958 loaded at 0x0804D858 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x0804D754
+mode = "thumb"
+note = "task remove routine: literal 0x0804D960 loaded at 0x0804D91E and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080CF6FC
+mode = "thumb"
+note = "task add routine: literal 0x080D05E8 loaded at 0x080D05D2 and passed to 0x080145A8 (3 site(s))"
+
+[[extra_func]]
+addr = 0x080CF78C
+mode = "thumb"
+note = "task add routine: literal 0x080D0300 loaded at 0x080D02D2 and passed to 0x080145A8 (3 site(s))"
+
+[[extra_func]]
+addr = 0x080D0788
+mode = "thumb"
+note = "task add routine: literal 0x080D0450 loaded at 0x080D043A and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080D085C
+mode = "thumb"
+note = "task add routine: literal 0x080D0510 loaded at 0x080D0492 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080D0954
+mode = "thumb"
+note = "IRQ handler set routine: literal 0x080D0724 loaded at 0x080D06BC and passed to 0x08013438 (3 site(s))"
+
+[[extra_func]]
+addr = 0x080D0A28
+mode = "thumb"
+note = "task add routine: literal 0x080D0C4C loaded at 0x080D0C34 and passed to 0x080145A8 (3 site(s))"
+
+[[extra_func]]
+addr = 0x080D1840
+mode = "thumb"
+note = "task disable routine: literal 0x080D1AD0 loaded at 0x080D1AC6 and passed to 0x08014694 (3 site(s))"
+
+[[extra_func]]
+addr = 0x080D1AE4
+mode = "thumb"
+note = "task add routine: literal 0x080D1D2C loaded at 0x080D1D02 and passed to 0x080145A8 (3 site(s))"
+
+[[extra_func]]
+addr = 0x080D21F4
+mode = "thumb"
+note = "task add routine: literal 0x080D2348 loaded at 0x080D2320 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080D45D8
+mode = "thumb"
+note = "task add routine: literal 0x080D4710 loaded at 0x080D4702 and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x080D5FF8
+mode = "thumb"
+note = "task remove routine: literal 0x080D64E8 loaded at 0x080D64BA and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080D607C
+mode = "thumb"
+note = "task remove routine: literal 0x080D64EC loaded at 0x080D64C0 and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080D6674
+mode = "thumb"
+note = "task add routine: literal 0x080D7008 loaded at 0x080D6FEC and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080D67E8
+mode = "thumb"
+note = "task add routine: literal 0x080D73B0 loaded at 0x080D739C and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080D69F4
+mode = "thumb"
+note = "task add routine: literal 0x080D6C5C loaded at 0x080D6C40 and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x080D6C60
+mode = "thumb"
+note = "task add routine: literal 0x080D6F28 loaded at 0x080D6F0C and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x080D7034
+mode = "thumb"
+note = "task add routine: literal 0x080D72F8 loaded at 0x080D72DE and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x080D7A58
+mode = "thumb"
+note = "task add routine: literal 0x080D7AB0 loaded at 0x080D7AA0 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080D8A00
+mode = "thumb"
+note = "task add routine: literal 0x080D89F8 loaded at 0x080D89D0 and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x080D8C10
+mode = "thumb"
+note = "task add routine: literal 0x080D89FC loaded at 0x080D89DC and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x080D9B80
+mode = "thumb"
+note = "task add routine: literal 0x080D9B78 loaded at 0x080D9B54 and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x080D9D40
+mode = "thumb"
+note = "task add routine: literal 0x080D9B7C loaded at 0x080D9B60 and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x080DAAB0
+mode = "thumb"
+note = "task add routine: literal 0x080DAAA8 loaded at 0x080DAA64 and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x080DACB8
+mode = "thumb"
+note = "task add routine: literal 0x080DAAAC loaded at 0x080DAA70 and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x080DBA44
+mode = "thumb"
+note = "task remove routine: literal 0x080DBB74 loaded at 0x080DBB5E and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080DC3F0
+mode = "thumb"
+note = "task remove routine: literal 0x080DC950 loaded at 0x080DC8C2 and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080DCB44
+mode = "thumb"
+note = "task add routine: literal 0x080DCA4C loaded at 0x080DCA3C and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080DCDC8
+mode = "thumb"
+note = "task add routine: literal 0x080DCAD4 loaded at 0x080DCAC4 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080DD754
+mode = "thumb"
+note = "task remove routine: literal 0x080DDA24 loaded at 0x080DD97C and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080DEBA4
+mode = "thumb"
+note = "task add routine: literal 0x080DECB4 loaded at 0x080DECA4 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080DF174
+mode = "thumb"
+note = "task add routine: literal 0x080DF544 loaded at 0x080DF2F6 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080E0618
+mode = "thumb"
+note = "task add routine: literal 0x080E0C80 loaded at 0x080E0BCA and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080E150C
+mode = "thumb"
+note = "task add routine: literal 0x080E164C loaded at 0x080E163E and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080E1678
+mode = "thumb"
+note = "task add routine: literal 0x080E2260 loaded at 0x080E21CE and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080E2C38
+mode = "thumb"
+note = "task add routine: literal 0x080E2C34 loaded at 0x080E2C1C and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080E2D64
+mode = "thumb"
+note = "task remove routine: literal 0x080E3618 loaded at 0x080E3530 and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080E2EC0
+mode = "thumb"
+note = "task remove routine: literal 0x080E3438 loaded at 0x080E340A and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080E38C8
+mode = "thumb"
+note = "task remove routine: literal 0x080E4240 loaded at 0x080E4210 and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080E42D4
+mode = "thumb"
+note = "task add routine: literal 0x080E4D98 loaded at 0x080E4D3E and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080E4D9C
+mode = "thumb"
+note = "task add routine: literal 0x080E5A60 loaded at 0x080E59BA and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080E5A64
+mode = "thumb"
+note = "task add routine: literal 0x080E62F0 loaded at 0x080E6208 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080E5CF0
+mode = "thumb"
+note = "task add routine: literal 0x080E61A4 loaded at 0x080E616C and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080E6400
+mode = "thumb"
+note = "task add routine: literal 0x080E70F4 loaded at 0x080E6FC8 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080E807C
+mode = "thumb"
+note = "task remove routine: literal 0x080E8978 loaded at 0x080E8818 and passed to 0x08014644 (3 site(s))"
+
+[[extra_func]]
+addr = 0x080E9940
+mode = "thumb"
+note = "task remove routine: literal 0x080E9DAC loaded at 0x080E9CD6 and passed to 0x08014644 (3 site(s))"
+
+[[extra_func]]
+addr = 0x080E9F68
+mode = "thumb"
+note = "task add routine: literal 0x080EA390 loaded at 0x080EA356 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080EB594
+mode = "thumb"
+note = "task add routine: literal 0x080EB92C loaded at 0x080EB912 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080EB6A0
+mode = "thumb"
+note = "task add routine: literal 0x080EB928 loaded at 0x080EB906 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080F93C4
+mode = "thumb"
+note = "task add routine: literal 0x080F9460 loaded at 0x080F9456 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x080FABE0
+mode = "thumb"
+note = "task add routine: literal 0x080FA8E4 loaded at 0x080FA8D0 and passed to 0x080145A8 (3 site(s))"
+
+[[extra_func]]
+addr = 0x08104DA8
+mode = "thumb"
+note = "task add routine: literal 0x08102004 loaded at 0x08101FDC and passed to 0x080145A8 (7 site(s))"
+
+[[extra_func]]
+addr = 0x081050CC
+mode = "thumb"
+note = "task remove routine: literal 0x081052A8 loaded at 0x0810529A and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x08105370
+mode = "thumb"
+note = "task add routine: literal 0x08105464 loaded at 0x08105450 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x08108130
+mode = "thumb"
+note = "task remove routine: literal 0x081082C0 loaded at 0x0810825A and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x0810B168
+mode = "thumb"
+note = "task remove routine: literal 0x0810B36C loaded at 0x0810B328 and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x0810BDB0
+mode = "thumb"
+note = "task add routine: literal 0x0810BE34 loaded at 0x0810BE26 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x08118ADC
+mode = "thumb"
+note = "task add routine: literal 0x08119ACC loaded at 0x081199B4 and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x0811B9FC
+mode = "thumb"
+note = "task add routine: literal 0x08119CD0 loaded at 0x08119B26 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x08122D10
+mode = "thumb"
+note = "task add routine: literal 0x0811F028 loaded at 0x0811EE78 and passed to 0x080145A8 (6 site(s))"
+
+[[extra_func]]
+addr = 0x08125C0C
+mode = "thumb"
+note = "task add routine: literal 0x08126544 loaded at 0x081264F4 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x08125C94
+mode = "thumb"
+note = "task add routine: literal 0x08125FB0 loaded at 0x08125F26 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x08125CFC
+mode = "thumb"
+note = "task remove routine: literal 0x08125FB4 loaded at 0x08125F98 and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x08125D68
+mode = "thumb"
+note = "IRQ handler set routine: literal 0x081260DC loaded at 0x081260BC and passed to 0x08013438 (2 site(s))"
+
+[[extra_func]]
+addr = 0x08126BCC
+mode = "thumb"
+note = "task remove routine: literal 0x08126DFC loaded at 0x08126D1A and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x08126E00
+mode = "thumb"
+note = "task remove routine: literal 0x081272FC loaded at 0x081272E4 and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x08127038
+mode = "thumb"
+note = "task remove routine: literal 0x081272F8 loaded at 0x081272DE and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x0813BAEC
+mode = "thumb"
+note = "task remove routine: literal 0x081595D4 loaded at 0x08159526 and passed to 0x08014644 (10 site(s))"
+
+[[extra_func]]
+addr = 0x0813BB38
+mode = "thumb"
+note = "task remove routine: literal 0x081655C4 loaded at 0x0816554A and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x0813F89C
+mode = "thumb"
+note = "task add routine: literal 0x0813FD38 loaded at 0x0813FCEA and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x0813F8D4
+mode = "thumb"
+note = "task remove routine: literal 0x0813FD70 loaded at 0x0813FD42 and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x0813FA44
+mode = "thumb"
+note = "task add routine: literal 0x0813FD34 loaded at 0x0813FCDC and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x08143000
+mode = "thumb"
+note = "task remove routine: literal 0x08142938 loaded at 0x081428EC and passed to 0x08014644 (93 site(s))"
+
+[[extra_func]]
+addr = 0x08143114
+mode = "thumb"
+note = "task add routine: literal 0x08187078 loaded at 0x08186EAE and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x08143174
+mode = "thumb"
+note = "task remove routine: literal 0x081655CC loaded at 0x08165556 and passed to 0x08014644 (5 site(s))"
+
+[[extra_func]]
+addr = 0x08143264
+mode = "thumb"
+note = "task add routine: literal 0x0815BAC8 loaded at 0x0815BA4E and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x08143424
+mode = "thumb"
+note = "task remove routine: literal 0x0815BE2C loaded at 0x0815BDB4 and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x08143488
+mode = "thumb"
+note = "task remove routine: literal 0x0815FE50 loaded at 0x0815FD20 and passed to 0x08014644 (9 site(s))"
+
+[[extra_func]]
+addr = 0x0814CBCC
+mode = "thumb"
+note = "task remove routine: literal 0x081697E0 loaded at 0x081697BA and passed to 0x08014644 (4 site(s))"
+
+[[extra_func]]
+addr = 0x08152474
+mode = "thumb"
+note = "task add routine: literal 0x081602A8 loaded at 0x081601CE and passed to 0x080145A8 (4 site(s))"
+
+[[extra_func]]
+addr = 0x0815B68C
+mode = "thumb"
+note = "task remove routine: literal 0x0815C954 loaded at 0x0815C91C and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x08164BB4
+mode = "thumb"
+note = "task remove routine: literal 0x0815E16C loaded at 0x0815E0E8 and passed to 0x08014644 (6 site(s))"
+
+[[extra_func]]
+addr = 0x081693B0
+mode = "thumb"
+note = "task remove routine: literal 0x08169EB8 loaded at 0x08169E70 and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x081693C0
+mode = "thumb"
+note = "IRQ handler set routine: literal 0x08169450 loaded at 0x08169418 and passed to 0x08013438 (2 site(s))"
+
+[[extra_func]]
+addr = 0x0818DDFC
+mode = "thumb"
+note = "task remove routine: literal 0x0818E858 loaded at 0x0818E80A and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x081A06B4
+mode = "thumb"
+note = "task add routine: literal 0x081A0758 loaded at 0x081A0712 and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x081A08C4
+mode = "thumb"
+note = "task add routine: literal 0x081A0BC0 loaded at 0x081A0B72 and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x081A0A00
+mode = "thumb"
+note = "task add routine: literal 0x081A0BC4 loaded at 0x081A0B7C and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x081A0CAC
+mode = "thumb"
+note = "task add routine: literal 0x081A0F94 loaded at 0x081A0F44 and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x081A0D78
+mode = "thumb"
+note = "task add routine: literal 0x081A0F98 loaded at 0x081A0F4C and passed to 0x080145A8 (2 site(s))"
+
+[[extra_func]]
+addr = 0x081A133C
+mode = "thumb"
+note = "task add routine: literal 0x081A15A0 loaded at 0x081A1544 and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x081A1810
+mode = "thumb"
+note = "task add routine: literal 0x081A18F4 loaded at 0x081A18D2 and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x081A6B50
+mode = "thumb"
+note = "task remove routine: literal 0x081A71B4 loaded at 0x081A7188 and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x081A78C0
+mode = "thumb"
+note = "task add routine: literal 0x081A81BC loaded at 0x081A81A8 and passed to 0x080145A8 (1 site(s))"
+
+[[extra_func]]
+addr = 0x081B20A0
+mode = "thumb"
+note = "task remove routine: literal 0x081B3E28 loaded at 0x081B3DEA and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x081B243C
+mode = "thumb"
+note = "task remove routine: literal 0x081B3E2C loaded at 0x081B3DF0 and passed to 0x08014644 (2 site(s))"
+
+[[extra_func]]
+addr = 0x081B3294
+mode = "thumb"
+note = "task remove routine: literal 0x081B3E30 loaded at 0x081B3DF6 and passed to 0x08014644 (2 site(s))"
+
+
+
+[[jump_table]]
+addr = 0x080CF8F8
+stride = 4
+count = 78
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080CF8F4 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080D682C
+stride = 4
+count = 12
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080D6828 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080E07C0
+stride = 4
+count = 5
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080E07BE (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080E16C4
+stride = 4
+count = 6
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080E16C0 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080E1BF0
+stride = 4
+count = 63
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080E1BEE (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080E4FB0
+stride = 4
+count = 57
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080E4FAE (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080E5164
+stride = 4
+count = 7
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080E5160 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080E5478
+stride = 4
+count = 38
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080E5474 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080E55D4
+stride = 4
+count = 5
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080E55D0 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080E5B60
+stride = 4
+count = 5
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080E5B5E (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x080EB5D0
+stride = 4
+count = 11
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x080EB5CC (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08122DE8
+stride = 4
+count = 16
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08122DE6 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0814303C
+stride = 4
+count = 5
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08143038 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+
+# ---------------------------------------------------------------------------
+# Pointer-only routines from the 2026-10-03 launcher session's misses. Each
+# starts right after a return or literal pool with a push.
+[[extra_func]]
+addr = 0x080D37D4
+mode = "thumb"
+note = "pointers at 0x080F32F8/0x080F3304; after pop {..,pc}; session missed x472"
+
+[[extra_func]]
+addr = 0x080D476C
+mode = "thumb"
+note = "pointers at 0x080D4840/0x080D496C; after pop {..,pc}; session missed x1457"
+
+[[extra_func]]
+addr = 0x080DCF8C
+mode = "thumb"
+note = "pointer at 0x080DD634; after literal pool; session missed x106"
+
+[[extra_func]]
+addr = 0x080E13B0
+mode = "thumb"
+note = "pointer at 0x080E1440; after pop {..,pc}; session missed x36"
+
+[[extra_func]]
+addr = 0x08042DC4
+mode = "thumb"
+note = "pointers at 0x08042FEC/0x080430C0; after pop {pc}; session missed x4"
+
+# ---------------------------------------------------------------------------
+# Every `bx pc` (0x4778) + 0x0200 stub in the boot IWRAM copy, as a Thumb
+# entry. A Thumb `bx pc` exists only to switch a Thumb caller to the ARM code
+# at +4, so each stub is a Thumb entry point even where an ARM veneer also
+# enters it at the same address. Measured 2026-10-03 by scanning ROM
+# 0x080006B8..0x080016B8 for the word 78 47 00 02: 17 stubs. The 17th, at
+# 0x030010A0 (ROM 0x08001658), is left out: it is the start of a 0x25C-byte
+# routine that 0x0801591C copies elsewhere (config/tla/reloc/reloc_1658.toml);
+# the boot copy holds only its first 0x60 bytes. After more ROM
+# code was translated, the headless run dispatched 0x03000528 in Thumb
+# x10752.
+[[extra_func]]
+addr = 0x03000354
+mode = "thumb"
+note = "bx pc stub (ROM 0x0800090C)"
+
+[[extra_func]]
+addr = 0x030003C8
+mode = "thumb"
+note = "bx pc stub (ROM 0x08000980)"
+
+[[extra_func]]
+addr = 0x03000508
+mode = "thumb"
+note = "bx pc stub (ROM 0x08000AC0)"
+
+[[extra_func]]
+addr = 0x03000514
+mode = "thumb"
+note = "bx pc stub (ROM 0x08000ACC)"
+
+[[extra_func]]
+addr = 0x03000528
+mode = "thumb"
+note = "bx pc stub (ROM 0x08000AE0)"
+
+[[extra_func]]
+addr = 0x03000534
+mode = "thumb"
+note = "bx pc stub (ROM 0x08000AEC)"
+
+[[extra_func]]
+addr = 0x03000544
+mode = "thumb"
+note = "bx pc stub (ROM 0x08000AFC)"
+
+[[extra_func]]
+addr = 0x03000694
+mode = "thumb"
+note = "bx pc stub (ROM 0x08000C4C)"
+
+
+# ---------------------------------------------------------------------------
+# First battle (2026-10-03 launcher session logs/session_20261003_200451*:
+# frames 18600-18840 spent ~1.5 s in the interpreter, top 0x0817CBFA).
+
+[[jump_table]]
+addr = 0x0804C1CC
+stride = 4
+count = 17
+format = "abs32"
+entries_mode = "thumb"
+note = "dispatcher 0x0804C1AA: cmp r6,#0x10; bls (else a far bl to 0x0804CB92); ldr r2,=0x0804C1CC (literal 0x0804C1C4); ldr r3,[r3,r2]; b 0x0804C1C8; mov pc,r3. Session missed case 0x0804C280"
+
+[[jump_table]]
+addr = 0x0802EFC4
+stride = 4
+count = 16
+format = "abs32"
+entries_mode = "auto"
+note = "16 Thumb routine pointers 0x0802EFC4..0x0802F004, bounded by byte data (0x02020202 before, 0x08080800 after); runs used 0x0802D23C, 0x0802D248, 0x0802D268, 0x0802D288, 0x0802D2B0"
+
+[[extra_func]]
+addr = 0x080E13E8
+mode = "thumb"
+note = "pointer at 0x080E1444 (beside 0x080E13B1); after literal pool; session missed x698"
+
+# Battle routine table 0x08197AA0..0x081981FC: 471 words, each 0 or a Thumb
+# ROM pointer (bounded by 0x00E80C20 before and 0x0B090A08 after). All 300
+# distinct targets open with a push. The session called 0x0817C6AC (pointer
+# 0x08197BBC) and 0x0817C27C (0x08197BDC) during the battle.
+[[extra_func]]
+addr = 0x08150C74
+mode = "thumb"
+note = "battle table entry at 0x08197AA0"
+
+[[extra_func]]
+addr = 0x08159CAC
+mode = "thumb"
+note = "battle table entry at 0x08197AA4"
+
+[[extra_func]]
+addr = 0x0815A9E4
+mode = "thumb"
+note = "battle table entry at 0x08197AA8"
+
+[[extra_func]]
+addr = 0x081548B8
+mode = "thumb"
+note = "battle table entry at 0x08197AAC"
+
+[[extra_func]]
+addr = 0x08154F84
+mode = "thumb"
+note = "battle table entry at 0x08197AB0"
+
+[[extra_func]]
+addr = 0x081514BC
+mode = "thumb"
+note = "battle table entry at 0x08197AB4"
+
+[[extra_func]]
+addr = 0x0813BBD8
+mode = "thumb"
+note = "battle table entry at 0x08197AB8"
+
+[[extra_func]]
+addr = 0x08149268
+mode = "thumb"
+note = "battle table entry at 0x08197ABC"
+
+[[extra_func]]
+addr = 0x0813C0B8
+mode = "thumb"
+note = "battle table entry at 0x08197AC0"
+
+[[extra_func]]
+addr = 0x08148A54
+mode = "thumb"
+note = "battle table entry at 0x08197AC4"
+
+[[extra_func]]
+addr = 0x081509B4
+mode = "thumb"
+note = "battle table entry at 0x08197AC8"
+
+[[extra_func]]
+addr = 0x08151040
+mode = "thumb"
+note = "battle table entry at 0x08197ACC"
+
+[[extra_func]]
+addr = 0x0814A264
+mode = "thumb"
+note = "battle table entry at 0x08197AD0"
+
+[[extra_func]]
+addr = 0x08151FE4
+mode = "thumb"
+note = "battle table entry at 0x08197AD4"
+
+[[extra_func]]
+addr = 0x08149B94
+mode = "thumb"
+note = "battle table entry at 0x08197AD8"
+
+[[extra_func]]
+addr = 0x0815537C
+mode = "thumb"
+note = "battle table entry at 0x08197ADC"
+
+[[extra_func]]
+addr = 0x08151B48
+mode = "thumb"
+note = "battle table entry at 0x08197AE0"
+
+[[extra_func]]
+addr = 0x08149794
+mode = "thumb"
+note = "battle table entry at 0x08197AE4"
+
+[[extra_func]]
+addr = 0x08155F90
+mode = "thumb"
+note = "battle table entry at 0x08197AE8"
+
+[[extra_func]]
+addr = 0x08148E9C
+mode = "thumb"
+note = "battle table entry at 0x08197AEC"
+
+[[extra_func]]
+addr = 0x0814EEA0
+mode = "thumb"
+note = "battle table entry at 0x08197AF0"
+
+[[extra_func]]
+addr = 0x0814EE88
+mode = "thumb"
+note = "battle table entry at 0x08197AF4"
+
+[[extra_func]]
+addr = 0x0814EE94
+mode = "thumb"
+note = "battle table entry at 0x08197AF8"
+
+[[extra_func]]
+addr = 0x0814EEC4
+mode = "thumb"
+note = "battle table entry at 0x08197AFC"
+
+[[extra_func]]
+addr = 0x08144AF0
+mode = "thumb"
+note = "battle table entry at 0x08197B00"
+
+[[extra_func]]
+addr = 0x0814FA08
+mode = "thumb"
+note = "battle table entry at 0x08197B04"
+
+[[extra_func]]
+addr = 0x081504B4
+mode = "thumb"
+note = "battle table entry at 0x08197B08"
+
+[[extra_func]]
+addr = 0x0814FA14
+mode = "thumb"
+note = "battle table entry at 0x08197B0C"
+
+[[extra_func]]
+addr = 0x081504C0
+mode = "thumb"
+note = "battle table entry at 0x08197B10"
+
+[[extra_func]]
+addr = 0x0814FA38
+mode = "thumb"
+note = "battle table entry at 0x08197B14"
+
+[[extra_func]]
+addr = 0x081504CC
+mode = "thumb"
+note = "battle table entry at 0x08197B18"
+
+[[extra_func]]
+addr = 0x0814A7A8
+mode = "thumb"
+note = "battle table entry at 0x08197B1C"
+
+[[extra_func]]
+addr = 0x0814A7CC
+mode = "thumb"
+note = "battle table entry at 0x08197B20"
+
+[[extra_func]]
+addr = 0x08144368
+mode = "thumb"
+note = "battle table entry at 0x08197B24"
+
+[[extra_func]]
+addr = 0x0814A7E4
+mode = "thumb"
+note = "battle table entry at 0x08197B28"
+
+[[extra_func]]
+addr = 0x0814A7D8
+mode = "thumb"
+note = "battle table entry at 0x08197B2C"
+
+[[extra_func]]
+addr = 0x0814AEBC
+mode = "thumb"
+note = "battle table entry at 0x08197B30"
+
+[[extra_func]]
+addr = 0x08145DF8
+mode = "thumb"
+note = "battle table entry at 0x08197B34"
+
+[[extra_func]]
+addr = 0x08144044
+mode = "thumb"
+note = "battle table entry at 0x08197B38"
+
+[[extra_func]]
+addr = 0x08145784
+mode = "thumb"
+note = "battle table entry at 0x08197B3C"
+
+[[extra_func]]
+addr = 0x0814B160
+mode = "thumb"
+note = "battle table entry at 0x08197B40"
+
+[[extra_func]]
+addr = 0x0814EA3C
+mode = "thumb"
+note = "battle table entry at 0x08197B44"
+
+[[extra_func]]
+addr = 0x0814E744
+mode = "thumb"
+note = "battle table entry at 0x08197B48"
+
+[[extra_func]]
+addr = 0x08189148
+mode = "thumb"
+note = "battle table entry at 0x08197B60"
+
+[[extra_func]]
+addr = 0x081445F8
+mode = "thumb"
+note = "battle table entry at 0x08197B64"
+
+[[extra_func]]
+addr = 0x08188CB0
+mode = "thumb"
+note = "battle table entry at 0x08197B68"
+
+[[extra_func]]
+addr = 0x0816A29C
+mode = "thumb"
+note = "battle table entry at 0x08197B6C"
+
+[[extra_func]]
+addr = 0x08188714
+mode = "thumb"
+note = "battle table entry at 0x08197B70"
+
+[[extra_func]]
+addr = 0x08155F9C
+mode = "thumb"
+note = "battle table entry at 0x08197B74"
+
+[[extra_func]]
+addr = 0x081661DC
+mode = "thumb"
+note = "battle table entry at 0x08197B78"
+
+[[extra_func]]
+addr = 0x081548C4
+mode = "thumb"
+note = "battle table entry at 0x08197B7C"
+
+[[extra_func]]
+addr = 0x08155FD8
+mode = "thumb"
+note = "battle table entry at 0x08197B80"
+
+[[extra_func]]
+addr = 0x081665A4
+mode = "thumb"
+note = "battle table entry at 0x08197B84"
+
+[[extra_func]]
+addr = 0x08156008
+mode = "thumb"
+note = "battle table entry at 0x08197B88"
+
+[[extra_func]]
+addr = 0x0818D590
+mode = "thumb"
+note = "battle table entry at 0x08197B8C"
+
+[[extra_func]]
+addr = 0x08166AF8
+mode = "thumb"
+note = "battle table entry at 0x08197B90"
+
+[[extra_func]]
+addr = 0x08146A6C
+mode = "thumb"
+note = "battle table entry at 0x08197B94"
+
+[[extra_func]]
+addr = 0x08156044
+mode = "thumb"
+note = "battle table entry at 0x08197B98"
+
+[[extra_func]]
+addr = 0x0814A7FC
+mode = "thumb"
+note = "battle table entry at 0x08197B9C"
+
+[[extra_func]]
+addr = 0x0816A2A8
+mode = "thumb"
+note = "battle table entry at 0x08197BA0"
+
+[[extra_func]]
+addr = 0x0814A808
+mode = "thumb"
+note = "battle table entry at 0x08197BA4"
+
+[[extra_func]]
+addr = 0x0814627C
+mode = "thumb"
+note = "battle table entry at 0x08197BA8"
+
+[[extra_func]]
+addr = 0x08146638
+mode = "thumb"
+note = "battle table entry at 0x08197BAC"
+
+[[extra_func]]
+addr = 0x08178EE4
+mode = "thumb"
+note = "battle table entry at 0x08197BB0"
+
+[[extra_func]]
+addr = 0x0814EF18
+mode = "thumb"
+note = "battle table entry at 0x08197BB8"
+
+[[extra_func]]
+addr = 0x0817C6AC
+mode = "thumb"
+note = "battle table entry at 0x08197BBC"
+
+[[extra_func]]
+addr = 0x0818BC60
+mode = "thumb"
+note = "battle table entry at 0x08197BC0"
+
+[[extra_func]]
+addr = 0x08179394
+mode = "thumb"
+note = "battle table entry at 0x08197BC4"
+
+[[extra_func]]
+addr = 0x0816EC58
+mode = "thumb"
+note = "battle table entry at 0x08197BC8"
+
+[[extra_func]]
+addr = 0x0817B66C
+mode = "thumb"
+note = "battle table entry at 0x08197BCC"
+
+[[extra_func]]
+addr = 0x0817B9B8
+mode = "thumb"
+note = "battle table entry at 0x08197BD0"
+
+[[extra_func]]
+addr = 0x08179994
+mode = "thumb"
+note = "battle table entry at 0x08197BD4"
+
+[[extra_func]]
+addr = 0x0818A208
+mode = "thumb"
+note = "battle table entry at 0x08197BD8"
+
+[[extra_func]]
+addr = 0x0817C27C
+mode = "thumb"
+note = "battle table entry at 0x08197BDC"
+
+[[extra_func]]
+addr = 0x08171B98
+mode = "thumb"
+note = "battle table entry at 0x08197BE0"
+
+[[extra_func]]
+addr = 0x0817BD88
+mode = "thumb"
+note = "battle table entry at 0x08197BE4"
+
+[[extra_func]]
+addr = 0x081560D4
+mode = "thumb"
+note = "battle table entry at 0x08197BE8"
+
+[[extra_func]]
+addr = 0x0816BC70
+mode = "thumb"
+note = "battle table entry at 0x08197BEC"
+
+[[extra_func]]
+addr = 0x0816AA08
+mode = "thumb"
+note = "battle table entry at 0x08197BF0"
+
+[[extra_func]]
+addr = 0x0816FC9C
+mode = "thumb"
+note = "battle table entry at 0x08197BF4"
+
+[[extra_func]]
+addr = 0x0818A1FC
+mode = "thumb"
+note = "battle table entry at 0x08197BF8"
+
+[[extra_func]]
+addr = 0x0818A1F0
+mode = "thumb"
+note = "battle table entry at 0x08197BFC"
+
+[[extra_func]]
+addr = 0x0818A214
+mode = "thumb"
+note = "battle table entry at 0x08197C00"
+
+[[extra_func]]
+addr = 0x0818AD1C
+mode = "thumb"
+note = "battle table entry at 0x08197C04"
+
+[[extra_func]]
+addr = 0x0818AD34
+mode = "thumb"
+note = "battle table entry at 0x08197C08"
+
+[[extra_func]]
+addr = 0x0818AD10
+mode = "thumb"
+note = "battle table entry at 0x08197C0C"
+
+[[extra_func]]
+addr = 0x0818AD28
+mode = "thumb"
+note = "battle table entry at 0x08197C10"
+
+[[extra_func]]
+addr = 0x0816D3D8
+mode = "thumb"
+note = "battle table entry at 0x08197C2C"
+
+[[extra_func]]
+addr = 0x0816E644
+mode = "thumb"
+note = "battle table entry at 0x08197C30"
+
+[[extra_func]]
+addr = 0x0816F080
+mode = "thumb"
+note = "battle table entry at 0x08197C38"
+
+[[extra_func]]
+addr = 0x08166B04
+mode = "thumb"
+note = "battle table entry at 0x08197C3C"
+
+[[extra_func]]
+addr = 0x0816F928
+mode = "thumb"
+note = "battle table entry at 0x08197C40"
+
+[[extra_func]]
+addr = 0x0816AED4
+mode = "thumb"
+note = "battle table entry at 0x08197C44"
+
+[[extra_func]]
+addr = 0x08171B8C
+mode = "thumb"
+note = "battle table entry at 0x08197C48"
+
+[[extra_func]]
+addr = 0x08178710
+mode = "thumb"
+note = "battle table entry at 0x08197C4C"
+
+[[extra_func]]
+addr = 0x0816A2C0
+mode = "thumb"
+note = "battle table entry at 0x08197C50"
+
+[[extra_func]]
+addr = 0x0816F594
+mode = "thumb"
+note = "battle table entry at 0x08197C54"
+
+[[extra_func]]
+addr = 0x0815262C
+mode = "thumb"
+note = "battle table entry at 0x08197C58"
+
+[[extra_func]]
+addr = 0x08156074
+mode = "thumb"
+note = "battle table entry at 0x08197C5C"
+
+[[extra_func]]
+addr = 0x0818F5E4
+mode = "thumb"
+note = "battle table entry at 0x08197C60"
+
+[[extra_func]]
+addr = 0x08181EB0
+mode = "thumb"
+note = "battle table entry at 0x08197C64"
+
+[[extra_func]]
+addr = 0x0816D724
+mode = "thumb"
+note = "battle table entry at 0x08197C68"
+
+[[extra_func]]
+addr = 0x081525FC
+mode = "thumb"
+note = "battle table entry at 0x08197C6C"
+
+[[extra_func]]
+addr = 0x0813D064
+mode = "thumb"
+note = "battle table entry at 0x08197C70"
+
+[[extra_func]]
+addr = 0x0816A2B4
+mode = "thumb"
+note = "battle table entry at 0x08197C74"
+
+[[extra_func]]
+addr = 0x0816D130
+mode = "thumb"
+note = "battle table entry at 0x08197C78"
+
+[[extra_func]]
+addr = 0x08171430
+mode = "thumb"
+note = "battle table entry at 0x08197C7C"
+
+[[extra_func]]
+addr = 0x08170DAC
+mode = "thumb"
+note = "battle table entry at 0x08197C80"
+
+[[extra_func]]
+addr = 0x08189B14
+mode = "thumb"
+note = "battle table entry at 0x08197C84"
+
+[[extra_func]]
+addr = 0x0818EDA4
+mode = "thumb"
+note = "battle table entry at 0x08197C88"
+
+[[extra_func]]
+addr = 0x0818FEFC
+mode = "thumb"
+note = "battle table entry at 0x08197C8C"
+
+[[extra_func]]
+addr = 0x08190B74
+mode = "thumb"
+note = "battle table entry at 0x08197C90"
+
+[[extra_func]]
+addr = 0x081811D4
+mode = "thumb"
+note = "battle table entry at 0x08197C94"
+
+[[extra_func]]
+addr = 0x0814461C
+mode = "thumb"
+note = "battle table entry at 0x08197C98"
+
+[[extra_func]]
+addr = 0x0818D59C
+mode = "thumb"
+note = "battle table entry at 0x08197C9C"
+
+[[extra_func]]
+addr = 0x08181910
+mode = "thumb"
+note = "battle table entry at 0x08197CA0"
+
+[[extra_func]]
+addr = 0x0814FA98
+mode = "thumb"
+note = "battle table entry at 0x08197D70"
+
+[[extra_func]]
+addr = 0x0814EF30
+mode = "thumb"
+note = "battle table entry at 0x08197D74"
+
+[[extra_func]]
+addr = 0x0814FA50
+mode = "thumb"
+note = "battle table entry at 0x08197DBC"
+
+[[extra_func]]
+addr = 0x08154D5C
+mode = "thumb"
+note = "battle table entry at 0x08197DC4"
+
+[[extra_func]]
+addr = 0x081587E4
+mode = "thumb"
+note = "battle table entry at 0x08197DC8"
+
+[[extra_func]]
+addr = 0x08156038
+mode = "thumb"
+note = "battle table entry at 0x08197DD0"
+
+[[extra_func]]
+addr = 0x0815842C
+mode = "thumb"
+note = "battle table entry at 0x08197DD8"
+
+[[extra_func]]
+addr = 0x0814EEE8
+mode = "thumb"
+note = "battle table entry at 0x08197DDC"
+
+[[extra_func]]
+addr = 0x08144AFC
+mode = "thumb"
+note = "battle table entry at 0x08197DE0"
+
+[[extra_func]]
+addr = 0x0814EF00
+mode = "thumb"
+note = "battle table entry at 0x08197DEC"
+
+[[extra_func]]
+addr = 0x0814FA5C
+mode = "thumb"
+note = "battle table entry at 0x08197DF0"
+
+[[extra_func]]
+addr = 0x081638D0
+mode = "thumb"
+note = "battle table entry at 0x08197DF4"
+
+[[extra_func]]
+addr = 0x0814FA80
+mode = "thumb"
+note = "battle table entry at 0x08197DFC"
+
+[[extra_func]]
+addr = 0x08163C00
+mode = "thumb"
+note = "battle table entry at 0x08197E00"
+
+[[extra_func]]
+addr = 0x0815A044
+mode = "thumb"
+note = "battle table entry at 0x08197E08"
+
+[[extra_func]]
+addr = 0x0814FA20
+mode = "thumb"
+note = "battle table entry at 0x08197E0C"
+
+[[extra_func]]
+addr = 0x0814FA44
+mode = "thumb"
+note = "battle table entry at 0x08197E10"
+
+[[extra_func]]
+addr = 0x0814FA68
+mode = "thumb"
+note = "battle table entry at 0x08197E14"
+
+[[extra_func]]
+addr = 0x0814FA8C
+mode = "thumb"
+note = "battle table entry at 0x08197E1C"
+
+[[extra_func]]
+addr = 0x0814EEF4
+mode = "thumb"
+note = "battle table entry at 0x08197E24"
+
+[[extra_func]]
+addr = 0x0814EEAC
+mode = "thumb"
+note = "battle table entry at 0x08197E28"
+
+[[extra_func]]
+addr = 0x0814EEB8
+mode = "thumb"
+note = "battle table entry at 0x08197E2C"
+
+[[extra_func]]
+addr = 0x0814EF0C
+mode = "thumb"
+note = "battle table entry at 0x08197E30"
+
+[[extra_func]]
+addr = 0x0814B9C4
+mode = "thumb"
+note = "battle table entry at 0x08197E34"
+
+[[extra_func]]
+addr = 0x0814B9D0
+mode = "thumb"
+note = "battle table entry at 0x08197E38"
+
+[[extra_func]]
+addr = 0x08171B74
+mode = "thumb"
+note = "battle table entry at 0x08197E3C"
+
+[[extra_func]]
+addr = 0x08171B80
+mode = "thumb"
+note = "battle table entry at 0x08197E40"
+
+[[extra_func]]
+addr = 0x0816B6D4
+mode = "thumb"
+note = "battle table entry at 0x08197E44"
+
+[[extra_func]]
+addr = 0x08172AE8
+mode = "thumb"
+note = "battle table entry at 0x08197E4C"
+
+[[extra_func]]
+addr = 0x081450C0
+mode = "thumb"
+note = "battle table entry at 0x08197E50"
+
+[[extra_func]]
+addr = 0x0817357C
+mode = "thumb"
+note = "battle table entry at 0x08197E54"
+
+[[extra_func]]
+addr = 0x0815256C
+mode = "thumb"
+note = "battle table entry at 0x08197E58"
+
+[[extra_func]]
+addr = 0x08173570
+mode = "thumb"
+note = "battle table entry at 0x08197E5C"
+
+[[extra_func]]
+addr = 0x08173A40
+mode = "thumb"
+note = "battle table entry at 0x08197E60"
+
+[[extra_func]]
+addr = 0x081739EC
+mode = "thumb"
+note = "battle table entry at 0x08197E64"
+
+[[extra_func]]
+addr = 0x08152590
+mode = "thumb"
+note = "battle table entry at 0x08197E68"
+
+[[extra_func]]
+addr = 0x0816C274
+mode = "thumb"
+note = "battle table entry at 0x08197E6C"
+
+[[extra_func]]
+addr = 0x0814EF24
+mode = "thumb"
+note = "battle table entry at 0x08197E70"
+
+[[extra_func]]
+addr = 0x08172AF4
+mode = "thumb"
+note = "battle table entry at 0x08197E74"
+
+[[extra_func]]
+addr = 0x0816B6E0
+mode = "thumb"
+note = "battle table entry at 0x08197E78"
+
+[[extra_func]]
+addr = 0x081739F8
+mode = "thumb"
+note = "battle table entry at 0x08197E7C"
+
+[[extra_func]]
+addr = 0x08173A04
+mode = "thumb"
+note = "battle table entry at 0x08197E80"
+
+[[extra_func]]
+addr = 0x08173A1C
+mode = "thumb"
+note = "battle table entry at 0x08197E84"
+
+[[extra_func]]
+addr = 0x08173A28
+mode = "thumb"
+note = "battle table entry at 0x08197E88"
+
+[[extra_func]]
+addr = 0x08173A34
+mode = "thumb"
+note = "battle table entry at 0x08197E8C"
+
+[[extra_func]]
+addr = 0x0816C6F8
+mode = "thumb"
+note = "battle table entry at 0x08197E90"
+
+[[extra_func]]
+addr = 0x0816DC50
+mode = "thumb"
+note = "battle table entry at 0x08197E94"
+
+[[extra_func]]
+addr = 0x08144B08
+mode = "thumb"
+note = "battle table entry at 0x08197E98"
+
+[[extra_func]]
+addr = 0x08152584
+mode = "thumb"
+note = "battle table entry at 0x08197E9C"
+
+[[extra_func]]
+addr = 0x08152578
+mode = "thumb"
+note = "battle table entry at 0x08197EA0"
+
+[[extra_func]]
+addr = 0x08157D30
+mode = "thumb"
+note = "battle table entry at 0x08197EFC"
+
+[[extra_func]]
+addr = 0x08157638
+mode = "thumb"
+note = "battle table entry at 0x08197F00"
+
+[[extra_func]]
+addr = 0x0815806C
+mode = "thumb"
+note = "battle table entry at 0x08197F04"
+
+[[extra_func]]
+addr = 0x081579D0
+mode = "thumb"
+note = "battle table entry at 0x08197F08"
+
+[[extra_func]]
+addr = 0x0813C5AC
+mode = "thumb"
+note = "battle table entry at 0x08197F4C"
+
+[[extra_func]]
+addr = 0x0813C5B8
+mode = "thumb"
+note = "battle table entry at 0x08197F50"
+
+[[extra_func]]
+addr = 0x0813C5C4
+mode = "thumb"
+note = "battle table entry at 0x08197F54"
+
+[[extra_func]]
+addr = 0x08155FA8
+mode = "thumb"
+note = "battle table entry at 0x08197F58"
+
+[[extra_func]]
+addr = 0x0813C5D0
+mode = "thumb"
+note = "battle table entry at 0x08197F5C"
+
+[[extra_func]]
+addr = 0x0813C5DC
+mode = "thumb"
+note = "battle table entry at 0x08197F60"
+
+[[extra_func]]
+addr = 0x08155FCC
+mode = "thumb"
+note = "battle table entry at 0x08197F64"
+
+[[extra_func]]
+addr = 0x08155FB4
+mode = "thumb"
+note = "battle table entry at 0x08197F68"
+
+[[extra_func]]
+addr = 0x08144604
+mode = "thumb"
+note = "battle table entry at 0x08197F6C"
+
+[[extra_func]]
+addr = 0x081450D8
+mode = "thumb"
+note = "battle table entry at 0x08197F70"
+
+[[extra_func]]
+addr = 0x0817E078
+mode = "thumb"
+note = "battle table entry at 0x08197F78"
+
+[[extra_func]]
+addr = 0x0814A7F0
+mode = "thumb"
+note = "battle table entry at 0x08197F7C"
+
+[[extra_func]]
+addr = 0x0813CF80
+mode = "thumb"
+note = "battle table entry at 0x08197F80"
+
+[[extra_func]]
+addr = 0x0817E084
+mode = "thumb"
+note = "battle table entry at 0x08197F84"
+
+[[extra_func]]
+addr = 0x081450E4
+mode = "thumb"
+note = "battle table entry at 0x08197F88"
+
+[[extra_func]]
+addr = 0x0813CF8C
+mode = "thumb"
+note = "battle table entry at 0x08197F8C"
+
+[[extra_func]]
+addr = 0x0815A068
+mode = "thumb"
+note = "battle table entry at 0x08197F90"
+
+[[extra_func]]
+addr = 0x0813CF98
+mode = "thumb"
+note = "battle table entry at 0x08197F94"
+
+[[extra_func]]
+addr = 0x0815A098
+mode = "thumb"
+note = "battle table entry at 0x08197F98"
+
+[[extra_func]]
+addr = 0x0816A730
+mode = "thumb"
+note = "battle table entry at 0x08197F9C"
+
+[[extra_func]]
+addr = 0x0815A074
+mode = "thumb"
+note = "battle table entry at 0x08197FA0"
+
+[[extra_func]]
+addr = 0x081450FC
+mode = "thumb"
+note = "battle table entry at 0x08197FA4"
+
+[[extra_func]]
+addr = 0x0813CFB0
+mode = "thumb"
+note = "battle table entry at 0x08197FAC"
+
+[[extra_func]]
+addr = 0x0813CFBC
+mode = "thumb"
+note = "battle table entry at 0x08197FB0"
+
+[[extra_func]]
+addr = 0x0817E090
+mode = "thumb"
+note = "battle table entry at 0x08197FB4"
+
+[[extra_func]]
+addr = 0x0813CFC8
+mode = "thumb"
+note = "battle table entry at 0x08197FB8"
+
+[[extra_func]]
+addr = 0x0815A080
+mode = "thumb"
+note = "battle table entry at 0x08197FBC"
+
+[[extra_func]]
+addr = 0x08145108
+mode = "thumb"
+note = "battle table entry at 0x08197FC4"
+
+[[extra_func]]
+addr = 0x0813CFD4
+mode = "thumb"
+note = "battle table entry at 0x08197FCC"
+
+[[extra_func]]
+addr = 0x0813CFE0
+mode = "thumb"
+note = "battle table entry at 0x08197FD0"
+
+[[extra_func]]
+addr = 0x0815A08C
+mode = "thumb"
+note = "battle table entry at 0x08197FD4"
+
+[[extra_func]]
+addr = 0x0813CFEC
+mode = "thumb"
+note = "battle table entry at 0x08197FD8"
+
+[[extra_func]]
+addr = 0x0813CFA4
+mode = "thumb"
+note = "battle table entry at 0x08197FDC"
+
+[[extra_func]]
+addr = 0x0813CFF8
+mode = "thumb"
+note = "battle table entry at 0x08197FE0"
+
+[[extra_func]]
+addr = 0x08149BA0
+mode = "thumb"
+note = "battle table entry at 0x08197FE4"
+
+[[extra_func]]
+addr = 0x0817E09C
+mode = "thumb"
+note = "battle table entry at 0x08197FE8"
+
+[[extra_func]]
+addr = 0x081450F0
+mode = "thumb"
+note = "battle table entry at 0x08197FEC"
+
+[[extra_func]]
+addr = 0x0813CB1C
+mode = "thumb"
+note = "battle table entry at 0x08197FFC"
+
+[[extra_func]]
+addr = 0x0815CBD0
+mode = "thumb"
+note = "battle table entry at 0x08198000"
+
+[[extra_func]]
+addr = 0x081450B4
+mode = "thumb"
+note = "battle table entry at 0x08198008"
+
+[[extra_func]]
+addr = 0x0817E668
+mode = "thumb"
+note = "battle table entry at 0x0819800C"
+
+[[extra_func]]
+addr = 0x0813CB10
+mode = "thumb"
+note = "battle table entry at 0x08198010"
+
+[[extra_func]]
+addr = 0x081450CC
+mode = "thumb"
+note = "battle table entry at 0x08198014"
+
+[[extra_func]]
+addr = 0x08144610
+mode = "thumb"
+note = "battle table entry at 0x08198018"
+
+[[extra_func]]
+addr = 0x0817E674
+mode = "thumb"
+note = "battle table entry at 0x08198020"
+
+[[extra_func]]
+addr = 0x08151FD8
+mode = "thumb"
+note = "battle table entry at 0x0819808C"
+
+[[extra_func]]
+addr = 0x08155FC0
+mode = "thumb"
+note = "battle table entry at 0x08198090"
+
+[[extra_func]]
+addr = 0x0815C958
+mode = "thumb"
+note = "battle table entry at 0x08198094"
+
+[[extra_func]]
+addr = 0x0815C964
+mode = "thumb"
+note = "battle table entry at 0x08198098"
+
+[[extra_func]]
+addr = 0x08164C00
+mode = "thumb"
+note = "battle table entry at 0x0819809C"
+
+[[extra_func]]
+addr = 0x08147AD4
+mode = "thumb"
+note = "battle table entry at 0x081980A0"
+
+[[extra_func]]
+addr = 0x0813D004
+mode = "thumb"
+note = "battle table entry at 0x081980A4"
+
+[[extra_func]]
+addr = 0x0816A270
+mode = "thumb"
+note = "battle table entry at 0x081980A8"
+
+[[extra_func]]
+addr = 0x0816A218
+mode = "thumb"
+note = "battle table entry at 0x081980AC"
+
+[[extra_func]]
+addr = 0x0817E680
+mode = "thumb"
+note = "battle table entry at 0x081980B0"
+
+[[extra_func]]
+addr = 0x0818C7AC
+mode = "thumb"
+note = "battle table entry at 0x081980B4"
+
+[[extra_func]]
+addr = 0x0816AEE0
+mode = "thumb"
+note = "battle table entry at 0x081980B8"
+
+[[extra_func]]
+addr = 0x08171BA4
+mode = "thumb"
+note = "battle table entry at 0x081980BC"
+
+[[extra_func]]
+addr = 0x081560A4
+mode = "thumb"
+note = "battle table entry at 0x081980C0"
+
+[[extra_func]]
+addr = 0x0816A244
+mode = "thumb"
+note = "battle table entry at 0x081980C4"
+
+[[extra_func]]
+addr = 0x0813CB28
+mode = "thumb"
+note = "battle table entry at 0x081980C8"
+
+[[extra_func]]
+addr = 0x08173A10
+mode = "thumb"
+note = "battle table entry at 0x081980CC"
+
+[[extra_func]]
+addr = 0x081525CC
+mode = "thumb"
+note = "battle table entry at 0x081980D0"
+
+[[extra_func]]
+addr = 0x081525D8
+mode = "thumb"
+note = "battle table entry at 0x081980D4"
+
+[[extra_func]]
+addr = 0x0813D010
+mode = "thumb"
+note = "battle table entry at 0x081980D8"
+
+[[extra_func]]
+addr = 0x081524F4
+mode = "thumb"
+note = "battle table entry at 0x081980DC"
+
+[[extra_func]]
+addr = 0x0815250C
+mode = "thumb"
+note = "battle table entry at 0x081980E0"
+
+[[extra_func]]
+addr = 0x08156128
+mode = "thumb"
+note = "battle table entry at 0x081980E4"
+
+[[extra_func]]
+addr = 0x08152518
+mode = "thumb"
+note = "battle table entry at 0x081980E8"
+
+[[extra_func]]
+addr = 0x08152524
+mode = "thumb"
+note = "battle table entry at 0x081980EC"
+
+[[extra_func]]
+addr = 0x08152530
+mode = "thumb"
+note = "battle table entry at 0x081980F0"
+
+[[extra_func]]
+addr = 0x08152548
+mode = "thumb"
+note = "battle table entry at 0x081980F4"
+
+[[extra_func]]
+addr = 0x08152560
+mode = "thumb"
+note = "battle table entry at 0x081980F8"
+
+[[extra_func]]
+addr = 0x0815259C
+mode = "thumb"
+note = "battle table entry at 0x081980FC"
+
+[[extra_func]]
+addr = 0x081525A8
+mode = "thumb"
+note = "battle table entry at 0x08198100"
+
+[[extra_func]]
+addr = 0x081525B4
+mode = "thumb"
+note = "battle table entry at 0x08198104"
+
+[[extra_func]]
+addr = 0x081525C0
+mode = "thumb"
+note = "battle table entry at 0x08198108"
+
+[[extra_func]]
+addr = 0x08152500
+mode = "thumb"
+note = "battle table entry at 0x0819810C"
+
+[[extra_func]]
+addr = 0x081525F0
+mode = "thumb"
+note = "battle table entry at 0x08198110"
+
+[[extra_func]]
+addr = 0x0818BC8C
+mode = "thumb"
+note = "battle table entry at 0x08198114"
+
+[[extra_func]]
+addr = 0x08152554
+mode = "thumb"
+note = "battle table entry at 0x08198118"
+
+[[extra_func]]
+addr = 0x0813D028
+mode = "thumb"
+note = "battle table entry at 0x08198130"
+
+[[extra_func]]
+addr = 0x0815A0BC
+mode = "thumb"
+note = "battle table entry at 0x08198134"
+
+[[extra_func]]
+addr = 0x0815A0D4
+mode = "thumb"
+note = "battle table entry at 0x08198138"
+
+[[extra_func]]
+addr = 0x0815A0E0
+mode = "thumb"
+note = "battle table entry at 0x0819813C"
+
+[[extra_func]]
+addr = 0x0816A2CC
+mode = "thumb"
+note = "battle table entry at 0x08198140"
+
+[[extra_func]]
+addr = 0x0818B868
+mode = "thumb"
+note = "battle table entry at 0x08198144"
+
+[[extra_func]]
+addr = 0x0815A0EC
+mode = "thumb"
+note = "battle table entry at 0x08198148"
+
+[[extra_func]]
+addr = 0x0814A7C0
+mode = "thumb"
+note = "battle table entry at 0x0819814C"
+
+[[extra_func]]
+addr = 0x08145114
+mode = "thumb"
+note = "battle table entry at 0x08198154"
+
+[[extra_func]]
+addr = 0x0817E68C
+mode = "thumb"
+note = "battle table entry at 0x08198158"
+
+[[extra_func]]
+addr = 0x081525E4
+mode = "thumb"
+note = "battle table entry at 0x0819815C"
+
+[[extra_func]]
+addr = 0x0817E0A8
+mode = "thumb"
+note = "battle table entry at 0x08198160"
+
+[[extra_func]]
+addr = 0x0818BC6C
+mode = "thumb"
+note = "battle table entry at 0x08198164"
+
+[[extra_func]]
+addr = 0x08173AA0
+mode = "thumb"
+note = "battle table entry at 0x08198168"
+
+[[extra_func]]
+addr = 0x0814B9DC
+mode = "thumb"
+note = "battle table entry at 0x0819816C"
+
+[[extra_func]]
+addr = 0x0818C7A0
+mode = "thumb"
+note = "battle table entry at 0x08198170"
+
+[[extra_func]]
+addr = 0x0813D034
+mode = "thumb"
+note = "battle table entry at 0x08198174"
+
+[[extra_func]]
+addr = 0x0813D040
+mode = "thumb"
+note = "battle table entry at 0x08198178"
+
+[[extra_func]]
+addr = 0x0813D04C
+mode = "thumb"
+note = "battle table entry at 0x08198180"
+
+[[extra_func]]
+addr = 0x08156104
+mode = "thumb"
+note = "battle table entry at 0x08198184"
+
+[[extra_func]]
+addr = 0x08156110
+mode = "thumb"
+note = "battle table entry at 0x08198188"
+
+[[extra_func]]
+addr = 0x0815611C
+mode = "thumb"
+note = "battle table entry at 0x0819818C"
+
+[[extra_func]]
+addr = 0x08173A4C
+mode = "thumb"
+note = "battle table entry at 0x08198190"
+
+[[extra_func]]
+addr = 0x08173A58
+mode = "thumb"
+note = "battle table entry at 0x08198194"
+
+[[extra_func]]
+addr = 0x0817CC30
+mode = "thumb"
+note = "battle table entry at 0x08198198"
+
+[[extra_func]]
+addr = 0x08173A64
+mode = "thumb"
+note = "battle table entry at 0x0819819C"
+
+[[extra_func]]
+addr = 0x0818BC7C
+mode = "thumb"
+note = "battle table entry at 0x081981A0"
+
+[[extra_func]]
+addr = 0x0817D724
+mode = "thumb"
+note = "battle table entry at 0x081981A4"
+
+[[extra_func]]
+addr = 0x0814EA4C
+mode = "thumb"
+note = "battle table entry at 0x081981A8"
+
+[[extra_func]]
+addr = 0x0817D174
+mode = "thumb"
+note = "battle table entry at 0x081981AC"
+
+[[extra_func]]
+addr = 0x08145120
+mode = "thumb"
+note = "battle table entry at 0x081981B0"
+
+[[extra_func]]
+addr = 0x0815A0C8
+mode = "thumb"
+note = "battle table entry at 0x081981B4"
+
+[[extra_func]]
+addr = 0x08173A70
+mode = "thumb"
+note = "battle table entry at 0x081981B8"
+
+[[extra_func]]
+addr = 0x0813D058
+mode = "thumb"
+note = "battle table entry at 0x081981BC"
+
+[[extra_func]]
+addr = 0x0817E0B4
+mode = "thumb"
+note = "battle table entry at 0x081981C0"
+
+[[extra_func]]
+addr = 0x0813D01C
+mode = "thumb"
+note = "battle table entry at 0x081981C4"
+
+[[extra_func]]
+addr = 0x0816FC90
+mode = "thumb"
+note = "battle table entry at 0x081981C8"
+
+[[extra_func]]
+addr = 0x0814FA74
+mode = "thumb"
+note = "battle table entry at 0x081981CC"
+
+[[extra_func]]
+addr = 0x08181EBC
+mode = "thumb"
+note = "battle table entry at 0x081981D0"
+
+[[extra_func]]
+addr = 0x08181EC8
+mode = "thumb"
+note = "battle table entry at 0x081981D4"
+
+[[extra_func]]
+addr = 0x0818F5F0
+mode = "thumb"
+note = "battle table entry at 0x081981D8"
+
+[[extra_func]]
+addr = 0x08173A88
+mode = "thumb"
+note = "battle table entry at 0x081981DC"
+
+[[extra_func]]
+addr = 0x08182390
+mode = "thumb"
+note = "battle table entry at 0x081981E0"
+
+[[extra_func]]
+addr = 0x0818239C
+mode = "thumb"
+note = "battle table entry at 0x081981E4"
+
+[[extra_func]]
+addr = 0x08173A7C
+mode = "thumb"
+note = "battle table entry at 0x081981E8"
+
+[[extra_func]]
+addr = 0x08173A94
+mode = "thumb"
+note = "battle table entry at 0x081981EC"
+
+[[extra_func]]
+addr = 0x0816E650
+mode = "thumb"
+note = "battle table entry at 0x081981F0"
+
+[[extra_func]]
+addr = 0x08156134
+mode = "thumb"
+note = "battle table entry at 0x081981F4"
+
+[[extra_func]]
+addr = 0x0815253C
+mode = "thumb"
+note = "battle table entry at 0x081981F8"
+
+# Scan round after the battle tables (same rules as above).
+[[extra_func]]
+addr = 0x0813BBA0
+mode = "thumb"
+note = "task add routine: literal 0x0813C594 loaded at 0x0813C28A and passed to 0x080145A8 (4 site(s))"
+
+[[extra_func]]
+addr = 0x0814C928
+mode = "thumb"
+note = "task remove routine: literal 0x08151498 loaded at 0x08151474 and passed to 0x08014644 (6 site(s))"
+
+[[extra_func]]
+addr = 0x081524B4
+mode = "thumb"
+note = "task remove routine: literal 0x08144AA8 loaded at 0x08144A86 and passed to 0x08014644 (2 site(s))"
+
+[[jump_table]]
+addr = 0x0813C674
+stride = 4
+count = 5
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0813C672 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0813D178
+stride = 4
+count = 7
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0813D176 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x08152AF8
+stride = 4
+count = 17
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x08152AF6 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0817C340
+stride = 4
+count = 5
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0817C33E (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0817C414
+stride = 4
+count = 5
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0817C412 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0817E194
+stride = 4
+count = 6
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0817E190 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0818C980
+stride = 4
+count = 5
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0818C97C (ldr rT,[rT,rB] form), count from its cmp bound"
+
+[[jump_table]]
+addr = 0x0818C9C4
+stride = 4
+count = 5
+format = "abs32"
+entries_mode = "thumb"
+note = "ROM scan: dispatcher mov pc at 0x0818C9C2 (ldr rT,[rT,rB] form), count from its cmp bound"
+
+
+# ---------------------------------------------------------------------------
+# Instant text (src/tla_text_speed.cpp): a fourth Message-speed choice.
+# Message speed is the byte 0x0200046C (save block 0x02000240 + 0x22C);
+# FACTS.md, 2026-10-03. Only these sites call the runner's hooks.
+
+# Settings screen setup stores each row's choice count; Message speed's is
+# `movs r3,#3` stored to struct + 0x59B. 4 makes value 3 reachable (the
+# input loop wraps (value + step) mod count, 0x08040176..0x08040186).
+[[thumb_alu_immediate_override]]
+addr = 0x0803FCBE
+note = "Settings setup: Message-speed choice count 3"
+
+# Code outside the dialogue routine that treats Fast specially; value 3
+# must behave as Fast there.
+[[thumb_alu_immediate_override]]
+addr = 0x080D2898
+note = "movs r3,#2 then r3 - speed: 2 - Message speed"
+
+[[thumb_alu_immediate_override]]
+addr = 0x080D2912
+note = "cmp r3,#2; beq: Message speed == Fast"
+
+[[thumb_alu_immediate_override]]
+addr = 0x080D293C
+note = "cmp r3,#2; beq: Message speed == Fast"
+
+# Three-entry tables indexed by Message speed; they sit back to back at
+# 0x080AA0DC.., so index 3 would read the next table's first byte. With the
+# byte at 3 the runner hands back the table address minus 1 (index 3 then
+# reads Fast's entry).
+[[thumb_literal_override]]
+addr = 0x0803988A
+note = "dialogue allowance table 0x080AA0E2 {1,1,10}"
+
+[[thumb_literal_override]]
+addr = 0x080399E6
+note = "dialogue table 0x080AA0DF {0x1E,0x1E,0x0A}"
+
+[[thumb_literal_override]]
+addr = 0x08039BCA
+note = "dialogue table 0x080AA0DF {0x1E,0x1E,0x0A}"
+
+[[thumb_literal_override]]
+addr = 0x08039D2C
+note = "dialogue table 0x080AA0E5 {1,3,10}"
+
+[[thumb_literal_override]]
+addr = 0x08039E0E
+note = "dialogue table 0x080AA0DC {4,0,0}"
+
+[[thumb_literal_override]]
+addr = 0x080D4366
+note = "table 0x080F330C {1,3,10} indexed by Message speed"
+
+# Settings screen display of the fourth choice (src/tla_text_speed.cpp).
+# Caption: text ID = value + 0x113B (literal load 0x080402F4; 0x113B Slow,
+# 0x113C Normal, 0x113D Fast, 0x113E is the row label "Message"), drawn by
+# 0x08042010 through the text decoder 0x0803B094, which takes each decoded
+# character at 0x0803B13C (`adds r7,r0,#0`; text ID at [sp+0x30]).
+[[thumb_literal_override]]
+addr = 0x080402F4
+note = "Settings: Message-speed caption text ID base 0x113B"
+
+[[thumb_alu_immediate_override]]
+addr = 0x0803B13C
+note = "Text decoder: adds r7,r0,#0 takes each decoded character"
+
+# Icon bounce: 0x0803FC00 `cmp r6,#1; ble` skips the slider rows, then the
+# selected icon at struct + 0x5D4 + 4*(row*3 + value) bounces; value 3 on
+# row 2 would bounce the Speech row's first icon.
+[[thumb_alu_immediate_override]]
+addr = 0x0803FC00
+note = "Settings: cmp r6,#1 before the selected-icon bounce"
+
+# Mixer: with the word from 0x03000E88 stored at 0x03000E64 (by 0x03000D60),
+# that `bgt` targets 0x03000DB8 (0x03000E6C - 0xB4) instead of the ROM's
+# 0x03000DB0; the first launcher session bridged 0x03000DB8 757 times.
+# The patched loop itself is a mixer variant (tools/tla_mixer_variants.py).
+[[extra_func]]
+addr = 0x03000DB8
+mode = "arm"
+note = "target of the patched bgt at 0x03000E64"
+
+# The same bx-pc stubs entered in ARM state: the stub word 0x02004778 then
+# executes as `andeq r4, r0, #0x1E00000` and runs on into the ARM code at
+# +4. The battle replay (logs/session_20261003_201931.input) dispatched
+# 0x03000260 in ARM x1355; 0x03000508/514/528/534 already have ARM entries
+# (their ROM veneers enter in ARM).
+[[extra_func]]
+addr = 0x0300021C
+mode = "arm"
+note = "bx pc stub entered in ARM state"
+
+[[extra_func]]
+addr = 0x03000230
+mode = "arm"
+note = "bx pc stub entered in ARM state"
+
+[[extra_func]]
+addr = 0x03000258
+mode = "arm"
+note = "bx pc stub entered in ARM state"
+
+[[extra_func]]
+addr = 0x03000260
+mode = "arm"
+note = "bx pc stub entered in ARM state"
+
+[[extra_func]]
+addr = 0x030002D4
+mode = "arm"
+note = "bx pc stub entered in ARM state"
+
+[[extra_func]]
+addr = 0x03000314
+mode = "arm"
+note = "bx pc stub entered in ARM state"
+
+[[extra_func]]
+addr = 0x03000354
+mode = "arm"
+note = "bx pc stub entered in ARM state"
+
+[[extra_func]]
+addr = 0x030003C8
+mode = "arm"
+note = "bx pc stub entered in ARM state"
+
+[[extra_func]]
+addr = 0x03000544
+mode = "arm"
+note = "bx pc stub entered in ARM state"
+
+[[extra_func]]
+addr = 0x03000694
+mode = "arm"
+note = "bx pc stub entered in ARM state"
+
+[[extra_func]]
+addr = 0x03000730
+mode = "arm"
+note = "bx pc stub entered in ARM state"
+
+[[extra_func]]
+addr = 0x03000D40
+mode = "arm"
+note = "bx pc stub entered in ARM state"
+
+
+# Message-speed row as a text selector (src/tla_text_speed.cpp): the three
+# icons are uploaded blank and the caption "< word >" is centred on x 0x7C.
+[[thumb_alu_immediate_override]]
+addr = 0x080402FE
+note = "Settings: Message-speed caption clear x, movs r1,#0xa0 (clear to x 0xC8)"
+
+[[thumb_alu_immediate_override]]
+addr = 0x0804030C
+note = "Settings: Message-speed caption draw x, movs r2,#0xa0 before bl 0x08042010"
+
+[[thumb_alu_immediate_override]]
+addr = 0x08045092
+note = "Icon loader 0x08045048: adds r2,r5,#0 = OBJ upload source for 0x080142D4 (0xFFFFFFFF zero-fills, 0x0801432A)"
+
+[[thumb_literal_override]]
+addr = 0x0803FFEA
+note = "Settings setup: Message-speed icon table 0x0805EA7C {0x22,0x23,0x24}, three icons follow"
+
+[[thumb_literal_override]]
+addr = 0x080401D8
+note = "Settings redraw: Message-speed icon table 0x0805EA7C, loaded once per icon"
+
+# Battle speed-up (src/tla_battle_speed.cpp). Frame wait 0x080134B0:
+# `beq` on the byte 0x0300113A picks the full path (clear VBlank bit, sound
+# engine, spin) or the short one (clear with the mask built at 0x080134BE..
+# 0x080134C2, spin). FACTS.md, 2026-10-03.
+[[conditional_branch_override]]
+addr = 0x080134B8
+note = "Frame wait: beq to the full path (sound engine) when [0x0300113A] == 0"
+
+[[thumb_alu_immediate_override]]
+addr = 0x080134C2
+note = "Frame wait short path: adds r2,#0xfe builds the VBlank-bit clear mask 0xFFFE"
+
+# ---------------------------------------------------------------------------
+# Settings page two: Walk Speed (src/tla_settings_page.cpp; FACTS.md,
+# 2026-10-04).
+
+# Settings loop, after its frame wait: `ldr r5,=0x03001150`, the key block
+# whose [+4] (pressed) and [+0xC] (repeat) the loop tests 0x080403C6..0x0804047E.
+[[thumb_literal_override]]
+addr = 0x080403C4
+note = "settings loop key block 0x03001150 (pressed +4, repeat +0xC)"
+
+# Encounters (settings page two): the encounter step 0x080C9FD8 loads the
+# counter base 0x02000240 here (counter at base + 0x258).
+[[thumb_literal_override]]
+addr = 0x080CA0CE
+note = "encounter step counter base 0x02000240"
+
+# Expanded view (src/tla_widescreen.cpp). The character pre-cull
+# 0x08023940..0x08023958: screen x -32..272 and y -32..224, 16.16.
+[[thumb_literal_override]]
+addr = 0x08023940
+note = "character pre-cull: x offset 0x001FFFFF"
+
+[[thumb_literal_override]]
+addr = 0x08023944
+note = "character pre-cull: x range 0x012FFFFE"
+
+[[thumb_literal_override]]
+addr = 0x0802394C
+note = "character pre-cull: minimum y 0xFFE00000"
+
+[[thumb_literal_override]]
+addr = 0x08023954
+note = "character pre-cull: maximum y 0x00DFFFFF"
+
+# Sprite builders 0x080220F0 and 0x08022318: `cmp r6,#0xEF; bgt` (body x),
+# `cmp r4,#0x9F; bgt` (body y, shadow y) skip the object.
+[[conditional_branch_override]]
+addr = 0x080222B2
+note = "builder 1: body x > 239 skips"
+
+[[conditional_branch_override]]
+addr = 0x080222B6
+note = "builder 1: body y > 159 skips"
+
+[[conditional_branch_override]]
+addr = 0x080221C8
+note = "builder 1: shadow y > 159 skips"
+
+[[conditional_branch_override]]
+addr = 0x080224EC
+note = "builder 2: body x > 239 skips"
+
+[[conditional_branch_override]]
+addr = 0x080224F0
+note = "builder 2: body y > 159 skips"
+
+[[conditional_branch_override]]
+addr = 0x08022402
+note = "builder 2: shadow y > 159 skips"
+
+# Settings page two (src/tla_settings_page.cpp): page one's Speech and
+# Auto-Sleep values, cleared and redrawn on every cursor move.
+[[thumb_alu_immediate_override]]
+addr = 0x0804032A
+note = "settings: Speech value clear x 0xA0"
+
+[[thumb_alu_immediate_override]]
+addr = 0x08040350
+note = "settings: Auto-Sleep value clear x 0xA0"
+
+# Hard Mode in place of Auto-Sleep (src/tla_hard_mode.cpp). Frame routine
+# 0x08013606: `ldrb [0x03001200]` (live Auto-Sleep), `beq 0x08013642` skips
+# the idle count that sleeps at 0xA8 << 6 + 0x30 = 10800 frames. Settings
+# close 0x080404B0..0x080404D8: Auto-Sleep turned on shows text 0x1161 ("In
+# Sleep Mode, press Select and the L and R Buttons...") unless the screen's
+# value != 1 (`bne 0x080404DC`). FACTS.md, 2026-10-07.
+[[conditional_branch_override]]
+addr = 0x08013616
+note = "beq past the auto-sleep idle count when [0x03001200] == 0"
+
+[[conditional_branch_override]]
+addr = 0x080404D2
+note = "settings close: bne past the Sleep Mode notice 0x1161"
+
+# Hard Mode's value as a word selector (src/tla_hard_mode.cpp): redraw loads
+# the Auto-Sleep value text 0x1144 + value at 0x08040346 and draws it at
+# `movs r2,#0xa0` 0x08040360 (clear x 0x08040350 is declared above). Its
+# icons, table 0x0805EA81 {0x27, 0x28}: setup literal 0x08040068 (then two
+# icons via 0x080450AC), redraw literal 0x0804024E (one icon each).
+[[thumb_literal_override]]
+addr = 0x08040346
+note = "settings: Auto-Sleep value text ID base 0x1144"
+
+[[thumb_alu_immediate_override]]
+addr = 0x08040360
+note = "settings: Auto-Sleep value draw x, movs r2,#0xa0 before bl 0x08042010"
+
+[[thumb_literal_override]]
+addr = 0x08040068
+note = "settings setup: Auto-Sleep icon table 0x0805EA81"
+
+[[thumb_literal_override]]
+addr = 0x0804024E
+note = "settings redraw: Auto-Sleep icon table 0x0805EA81"
+
+# Cheat menu Drop Chance (src/tla_cheat_menu.cpp): the per-enemy reward
+# tally 0x0812824C rolls its drop with r5 = 0x20000 >> rate and r0 = random
+# & 0xFFFF, then `cmp r5, r0; ble 0x081284B2` (taken = no drop). FACTS.md,
+# 2026-10-08.
+[[conditional_branch_override]]
+addr = 0x0812846E
+note = "reward tally: ble past the item drop when r5 <= r0"
+
+# Whirlwind's leaves (session 20261008_125635, F12 0059): each leaf object's
+# update routine is stored as a pointer (pools 0x080DFCD0 = 0x080DFB89,
+# 0x080DFFEC = 0x080DFCD5, 0x080DFFF0 = 0x080DFC3D, 0x080DFFF4 =
+# 0x080DFB89; e.g. `ldr r3,[pc]; str r3,[r7,#0x6c]` at 0x080DFCA2) and
+# was missing from the translation: the bridge took 1014 + 374 + 232 + 226
+# + 144 + 11 + 1 misses at their return points (0x080DFBBA, 0x080DFCC2,
+# 0x080DFBF8, 0x080DFC10, 0x080DFBFC, 0x080DFCC0, 0x080DFCF2), host frames
+# up to 72 ms. Each starts with `push {r5,r6,r7,lr}` / `push {r5,lr}`
+# after a `pop {...,pc}` and its literal pool.
+[[extra_func]]
+addr = 0x080DFB88
+mode = "thumb"
+note = "Whirlwind leaf update (pointer 0x080DFB89 at 0x080DFCD0, 0x080DFFF4)"
+
+[[extra_func]]
+addr = 0x080DFC3C
+mode = "thumb"
+note = "Whirlwind leaf update (pointer 0x080DFC3D at 0x080DFFF0)"
+
+[[extra_func]]
+addr = 0x080DFCD4
+mode = "thumb"
+note = "Whirlwind leaf update (pointer 0x080DFCD5 at 0x080DFFEC)"
+
+# Djinn joining on the world map (session 20261008_135349, F12 0062/0063:
+# host frames up to 129 ms): effect routines reached only through pointers,
+# missing from the translation; the bridge took 3943 + 2424 + 53 + 22
+# misses. Pointers: 0x080D7AF9 at 0x080D7D3C and 0x080D8470, 0x080D8149
+# at 0x080D8474, 0x080D8175 at 0x080D85B0, 0x080D81ED at 0x080D847C.
+# Each begins after a `pop {...,pc}` / `bx lr` and its pool.
+[[extra_func]]
+addr = 0x080D7AF8
+mode = "thumb"
+note = "Djinn effect routine (pointer 0x080D7AF9 at 0x080D7D3C, 0x080D8470)"
+
+[[extra_func]]
+addr = 0x080D8148
+mode = "thumb"
+note = "Djinn effect routine (pointer 0x080D8149 at 0x080D8474)"
+
+[[extra_func]]
+addr = 0x080D8174
+mode = "thumb"
+note = "Djinn effect routine (pointer 0x080D8175 at 0x080D85B0)"
+
+[[extra_func]]
+addr = 0x080D81EC
+mode = "thumb"
+note = "Djinn effect routine (pointer 0x080D81ED at 0x080D847C)"
+
+# World-map objects (src/tla_widescreen.cpp): the affine builder 0x0802254C
+# skips an object unless x + 0x20 <= 0x130 and y + 0x20 <= 0xF0 (projected
+# position at [sp+0x1C]); then stores attr0/attr1 to [r7+4] at 0x080226AE
+# (write watch on the record value 0x84FF214B, F6 state 5 walking left,
+# frame 21988; FACTS.md 2026-10-08).
+[[conditional_branch_override]]
+addr = 0x08022592
+note = "affine builder: bls keeps x + 0x20 <= 0x130"
+
+[[conditional_branch_override]]
+addr = 0x0802259C
+note = "affine builder: bls keeps y + 0x20 <= 0xF0"
+
+[[conditional_branch_override]]
+addr = 0x080226B4
+note = "affine builder: after the record store [r7+4] (placement recorded)"
+
+# World-map projection 0x08015778: -depth compared with near [0x030011E4]
+# (`blt` 0x0801579C) and far [0x030011E8] (`bgt` 0x080157A2), both hide the
+# point. Far 1020 ends at about the console's top row (F12 0064/0065).
+[[conditional_branch_override]]
+addr = 0x0801579C
+note = "world-map projection: blt hides near points; r1 is signed 16.16 depth, reciprocal denominator r1 >> 11 at 0x080157AE; expanded view retains positive nonzero denominators and culls projected positions in the affine builder"
+
+[[conditional_branch_override]]
+addr = 0x080157A2
+note = "world-map projection: bgt hides points beyond the far depth"
+
+# Spell sparks past the canvas (FACTS.md, 2026-10-08; src/tla_spell_sparks.cpp):
+# bounds tests that jump past a spark loop's stamp call (`bl lr`). Plasma from
+# the battle bench (state 2 with Plasma), the rest by the same shape over the ROM.
+
+[[conditional_branch_override]]
+addr = 0x08149AB8
+note = "Plasma spark x < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x08149ABC
+note = "Plasma spark x > 119 BGT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x08149AC0
+note = "Plasma spark y < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x0814A6E8
+note = "Spell spark loop (stamp 0x0814A732) x < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x0814A6EE
+note = "Spell spark loop (stamp 0x0814A732) x > 126 BGT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x0814A6F2
+note = "Spell spark loop (stamp 0x0814A732) y < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x08151EF2
+note = "Spell spark loop (stamp 0x08151F2C) x BHI: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x08151EF6
+note = "Spell spark loop (stamp 0x08151F2C) y < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x08155798
+note = "Spell spark loop (stamp 0x081557CE) x BHI: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x0815579C
+note = "Spell spark loop (stamp 0x081557CE) y < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x08159AAA
+note = "Spell spark loop (stamp 0x08159ADE) x BHI: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x08159AAE
+note = "Spell spark loop (stamp 0x08159ADE) y < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x081669C2
+note = "Spell spark loop (stamp 0x08166A08) x BHI: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x081669C6
+note = "Spell spark loop (stamp 0x08166A08) y < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x0816717A
+note = "Spell spark loop (stamp 0x081671B0) x BHI: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x0816717E
+note = "Spell spark loop (stamp 0x081671B0) y < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x0816A146
+note = "Spell spark loop (stamp 0x0816A18A) x < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x0816A14C
+note = "Spell spark loop (stamp 0x0816A18A) x > 126 BGT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x0816A150
+note = "Spell spark loop (stamp 0x0816A18A) y < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x0818218A
+note = "Spell spark loop (stamp 0x081821DC) x < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x08182190
+note = "Spell spark loop (stamp 0x081821DC) x > 126 BGT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x08182194
+note = "Spell spark loop (stamp 0x081821DC) y < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x08189044
+note = "Spell spark loop (stamp 0x081890E2) x BHI: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x08189048
+note = "Spell spark loop (stamp 0x081890E2) y < 0 BLT: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x0818DD1A
+note = "Spell spark loop (stamp 0x0818DD50) x BHI: observe the skipped spark"
+
+[[conditional_branch_override]]
+addr = 0x0818DD1E
+note = "Spell spark loop (stamp 0x0818DD50) y < 0 BLT: observe the skipped spark"
+
+# The Lash rope's segments (0x080D9B80; F4 state 3 walking right, write
+# watch on a segment's attrs caught 0x080D9CA8): the character pre-cull's
+# literals again, x -32..272 and y -32..224 (src/tla_widescreen.cpp).
+[[thumb_literal_override]]
+addr = 0x080D9C68
+note = "rope segments: x offset 0x001FFFFF"
+
+[[thumb_literal_override]]
+addr = 0x080D9C70
+note = "rope segments: x range 0x012FFFFE"
+
+[[thumb_literal_override]]
+addr = 0x080D9C76
+note = "rope segments: min y 0xFFE00000"
+
+[[thumb_literal_override]]
+addr = 0x080D9C7C
+note = "rope segments: max y 0x00DFFFFF"
+
+[[conditional_branch_override]]
+addr = 0x080D9C80
+note = "rope segments: y > max skips; not taken = placed (record the placement)"
+
+# The Lash rope's coil (F2 state 1 of 2026-10-09, write watch on a piece's
+# attrs caught 0x080D8B2C): the same four literals and placement test in its
+# own loop (src/tla_widescreen.cpp).
+[[thumb_literal_override]]
+addr = 0x080D8AE0
+note = "rope coil: x offset 0x001FFFFF"
+
+[[thumb_literal_override]]
+addr = 0x080D8AEA
+note = "rope coil: x range 0x012FFFFE"
+
+[[thumb_literal_override]]
+addr = 0x080D8AF0
+note = "rope coil: min y 0xFFE00000"
+
+[[thumb_literal_override]]
+addr = 0x080D8AF6
+note = "rope coil: max y 0x00DFFFFF"
+
+[[conditional_branch_override]]
+addr = 0x080D8AFA
+note = "rope coil: y > max skips; not taken = placed (record the placement)"
+
+# Field effect callbacks reached only through pointers (session
+# 20261008_204607: field sparkle slowdown, F12 0082/0083). Each starts after
+# a literal pool or another function's return.
+[[extra_func]]
+addr = 0x080D85B8
+mode = "thumb"
+note = "pointer at 0x080D8978; push after literal pool; run missed x5830"
+
+[[extra_func]]
+addr = 0x080E0CEC
+mode = "thumb"
+note = "pointer at 0x080E0F38; push after literal pool; run missed x4578"
+
+[[extra_func]]
+addr = 0x080D74F0
+mode = "thumb"
+note = "pointer at 0x080D7780; after bx lr; run missed x1328"
+
+[[extra_func]]
+addr = 0x080D333C
+mode = "thumb"
+note = "pointer at 0x080D3454; push after pop {r5,pc}; run missed x426"
+
+[[extra_func]]
+addr = 0x080CF0D0
+mode = "thumb"
+note = "pointers at 0x080CD170/0x080CD4AC/0x080CF2F8/0x080CF420; after literal pool; run missed x418"
+
+[[extra_func]]
+addr = 0x080E0CAC
+mode = "thumb"
+note = "pointer at 0x080E0E9C; push after pop {pc}; run missed x288"
+
+[[extra_func]]
+addr = 0x080D870C
+mode = "thumb"
+note = "pointer at 0x080D8970; after literal pool; run missed x240"
+
+[[extra_func]]
+addr = 0x080D74E4
+mode = "thumb"
+note = "pointer at 0x080D7774; after literal pool; run missed x212"
+
+[[extra_func]]
+addr = 0x080E0C84
+mode = "thumb"
+note = "pointer at 0x080E0E98; push after literal pool; run missed x140"
+
+[[extra_func]]
+addr = 0x080D498C
+mode = "thumb"
+note = "pointer at 0x080F34EC; push after pop {..,pc}; run missed x6"
+
+# GS1 save import: keep TLA's chooser frame loop running while browsing.
+[[thumb_literal_override]]
+addr = 0x080381F8
+note = "AGFE veneer loads 0x0804D7FD from 0x080381FC; title overlay caller LR=0x020084DB. Starts file browser without bypassing chooser frame loop. FACTS 2026-10-11."
+
+[[thumb_literal_override]]
+addr = 0x0804D1DA
+note = "AGFE ROM ldr r6,[pc,#0xAC] loads key block 0x03001150 from 0x0804D288. Native import UI uses real keys while original chooser reads measured no-keys ROM 0x080000AC. FACTS 2026-10-11."
+
+[[thumb_alu_immediate_override]]
+addr = 0x0804D1EA
+note = "AGFE ROM movs r3,#1 after frame wait 0x08013560 and ldr r2,[r6,#4]; A test exits at 0x0804D26C. Once-per-frame import UI polling, preserving music/game execution. FACTS 2026-10-11."
+
+[[thumb_alu_immediate_override]]
+addr = 0x0804D94A
+note = "AGFE ROM adds r0,r5,#0 after chooser cleanup 0x0804D118; prologue pushes 16+8 bytes and allocates 4, so saved r8=SP+4 and title return=SP+24. Rejoin measured common link importer 0x02008524 or question 0x020084B6. FACTS 2026-10-11."

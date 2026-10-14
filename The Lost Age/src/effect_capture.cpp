@@ -1,0 +1,432 @@
+#include "effect_capture.h"
+
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <limits>
+#include <set>
+#include <utility>
+
+namespace gsr {
+namespace {
+
+bool g_enabled = false;
+CapturedEffectFrame g_pending;
+EffectCanvas g_history;
+std::uint32_t g_canvas = 0;
+std::set<std::pair<std::uint32_t, std::uint32_t>> g_reported_unsupported;
+std::uint64_t g_frame = std::numeric_limits<std::uint64_t>::max();
+std::uint64_t g_last_copy_frame = 0;
+struct {
+    unsigned long long entries = 0, kept = 0, unsupported = 0, invalid = 0;
+    unsigned long long copies = 0, clears = 0, skipped = 0;
+    int max_width = 0, max_height = 0;
+} g_counts;
+
+// The Lost Age (TLARecomp, FACTS.md 2026-10-05). Golden Sun 1's effect
+// machinery, re-found on this ROM by Golden Sun 1's own bytes:
+//   * generated stamp routines: a Thumb stub, then GS1's stamp header, in
+//     IWRAM allocations (the table at 0x03000000, under varying ids);
+//   * the canvas copy/fade/halve/subtract/add routines are DMA'd onto the
+//     stack per call by Thumb wrappers, as in Golden Sun 1. The wrappers
+//     run from ROM (0x08001C90..0x08001FDC, past the 4 KB the game copies
+//     to IWRAM 0x03000100), each with a pool naming its ROM routine. This
+//     game has two sets: GS1's (0x08001F7C..) and an unrolled set
+//     (0x08001C90..) that battles use; the battle canvas (slot 24,
+//     0x03001684) lies where GS1's IWRAM block would be (F12 0041/0042);
+//   * every resident ARM routine (plain copy, clear, fill) and every
+//     generated stamp routine starts with a 4-byte Thumb stub (`bx pc`),
+//     so either address can be entered.
+// The generator's templates are GS1's bytes at 0x0819706C..0x081972D8.
+//
+// The canvas is not taken from an allocation slot here: GS1's canvas slot
+// id (40, 0x030000A0) read 0 in the only captures there are, and with the
+// canvas unknown every call was turned away (session 20261004_211450: 0
+// stamps, 0 copies). The canvas is the buffer the game copies to video
+// memory (16 KB) instead, and clears, fills and stamps count for it.
+constexpr std::uint32_t kThumbStub = 4u;
+// Copy the 128x128 canvas to VRAM, then fade it to 3/4 / halve it (r0
+// canvas, r1 destination, r2 bytes): routines 0x08001D10 / 0x08001D70, and
+// unrolled 0x08001A14 / 0x08001AD4 (same results).
+constexpr std::uint32_t kCopyAndFade = 0x08001F7Cu;
+constexpr std::uint32_t kCopyAndHalve = 0x08001F9Cu;
+constexpr std::uint32_t kCopyAndFadeUnrolled = 0x08001C90u;
+constexpr std::uint32_t kCopyAndHalveUnrolled = 0x08001CB0u;
+// Func_cd260's other canvas modes (block [0x03001EEC], mode +0x7780, param
+// +0x7784, acting while +0x7824 is 1; FACTS.md 2026-10-02): mode 3 copies
+// then subtracts the param from every byte, floor 0 (Func_5490, template
+// 0x08001F38); mode 4 copies then adds it, capped at 63 (Func_543c,
+// template 0x08001FB8); both take r0 canvas, r1 packed param, r2 the VRAM
+// copy, r3 the size. Mode 1 is the plain copy followed by a fill of the
+// canvas with the param (0x03000168, entered mid-routine, so never seen as
+// an entry here). Meteor runs mode 3 (param 0x02020202) then mode 1
+// (0x10101010); only modes 0 and 2 were followed, so the history kept
+// trails the game had already wiped (gpu_rewind_0106/0109).
+// Here: subtract 0x08001FDC (routine 0x08001DD0) and 0x08001CF0
+// (0x08001B54); add 0x08001FBC (0x08001EA4) and 0x08001CD0 (0x08001C08).
+constexpr std::uint32_t kCopyAndSubtract = 0x08001FDCu;
+constexpr std::uint32_t kCopyAndSubtractUnrolled = 0x08001CF0u;
+constexpr std::uint32_t kCopyAndAdd = 0x08001FBCu;
+constexpr std::uint32_t kCopyAndAddUnrolled = 0x08001CD0u;
+constexpr std::uint32_t kCanvasBlockSlot = 0x0300009Cu;
+constexpr std::uint32_t kCanvasModeOffset = 0x7780u;
+constexpr std::uint32_t kCanvasActiveOffset = 0x7824u;
+constexpr std::uint32_t kCanvasFillMode = 1u;
+// GS1's block offsets, not re-measured here (mode 1 detection only).
+constexpr std::uint32_t kPlainCopy = 0x03000734u;    // ROM 0x08000CEC, 120 bytes
+constexpr std::uint32_t kPlainCopySource = 0x08000CECu;
+constexpr std::uint32_t kClearCanvas = 0x0300025Cu;  // ROM 0x08000814: mov r2,#0,
+constexpr std::uint32_t kClearSource = 0x08000814u;  // a stub, then the fill
+constexpr std::uint32_t kFillCanvas = 0x03000264u;   // ROM 0x0800081C, 112 bytes
+constexpr std::uint32_t kFillSource = 0x0800081Cu;
+constexpr std::size_t kCanvasBytes = 128 * 128;
+constexpr std::uint32_t kHeaderTemplate = 0x081972A4u;
+constexpr std::uint32_t kSaturationTemplate = 0x08197224u;
+constexpr std::uint32_t kFlipXTemplate = 0x081972B0u;
+constexpr std::uint32_t kFlipYTemplate = 0x081972BCu;
+constexpr std::uint32_t kFlipXYTemplate = 0x081972CCu;
+constexpr std::uint32_t kNoFlipTemplate = 0x081972D8u;
+constexpr std::uint32_t kMaxTemplate = 0x08197154u;
+constexpr std::uint32_t kMaxReverseTemplate = 0x08197164u;
+constexpr std::uint32_t kAddTemplate = 0x081971F4u;
+constexpr std::uint32_t kAddReverseTemplate = 0x0819720Cu;
+// Func_ed408 mode 1: copy each non-zero source byte (stamp variant 13,
+// flags 3 mode 1, measured 2026-09-23; session_20260923_124739 logged it as
+// unsupported at 0x03006380).
+constexpr std::uint32_t kReplaceTemplate = 0x0819706Cu;
+constexpr std::uint32_t kReplaceReverseTemplate = 0x0819707Cu;
+
+// One address per routine: a ROM address in the part copied to IWRAM
+// (0x080006B8 -> 0x03000100, 4 KB) becomes its IWRAM copy's, and an entry
+// at a resident routine's Thumb stub becomes the routine's.
+constexpr std::uint32_t kBlockRom = 0x080005B8u, kBlockRomEnd = 0x080016B8u;
+enum class Copy { None, Fade, Halve, Subtract, Add, Plain };
+Copy copy_kind(std::uint32_t pc) {
+    switch (pc) {
+    case kCopyAndFade: case kCopyAndFadeUnrolled: return Copy::Fade;
+    case kCopyAndHalve: case kCopyAndHalveUnrolled: return Copy::Halve;
+    case kCopyAndSubtract: case kCopyAndSubtractUnrolled: return Copy::Subtract;
+    case kCopyAndAdd: case kCopyAndAddUnrolled: return Copy::Add;
+    case kPlainCopy: return Copy::Plain;
+    default: return Copy::None;
+    }
+}
+std::uint32_t arm_entry(std::uint32_t pc) {
+    if (pc >= kBlockRom && pc < kBlockRomEnd) pc = pc - kBlockRom + 0x03000000u;
+    for (const std::uint32_t r : {kPlainCopy, kClearCanvas, kFillCanvas})
+        if (pc + kThumbStub == r) return r;
+    return pc;
+}
+
+struct Memory {
+    const std::uint8_t* ewram;
+    const std::uint8_t* iwram;
+    const std::uint8_t* rom;
+    std::size_t rom_bytes;
+    const std::uint8_t* span(std::uint32_t address, std::size_t bytes) const {
+        const auto within = [&](std::uint32_t base, const std::uint8_t* data,
+                                std::size_t size) -> const std::uint8_t* {
+            if (!data || address < base) return nullptr;
+            const std::size_t offset = address - base;
+            return offset <= size && bytes <= size - offset ? data + offset : nullptr;
+        };
+        if (auto p = within(0x02000000u, ewram, 256 * 1024)) return p;
+        if (auto p = within(0x03000000u, iwram, 32 * 1024)) return p;
+        return within(0x08000000u, rom, rom_bytes);
+    }
+    std::uint32_t word(std::uint32_t address) const {
+        const auto p = span(address, 4);
+        return p ? std::uint32_t(p[0]) | (std::uint32_t(p[1]) << 8) |
+                       (std::uint32_t(p[2]) << 16) | (std::uint32_t(p[3]) << 24) : 0;
+    }
+    bool matches(std::uint32_t code, std::uint32_t source, std::size_t bytes) const {
+        const auto a = span(code, bytes), b = span(source, bytes);
+        return a && b && std::memcmp(a, b, bytes) == 0;
+    }
+};
+
+bool stamp_operation(const Memory& memory, std::uint32_t pc, EffectSpark& stamp) {
+    // The three-instruction entry loads width/height from the caller's stack.
+    if (!memory.matches(pc, kHeaderTemplate, 3 * 4)) return false;
+    std::uint32_t at = pc + 3 * 4;
+    const bool saturating = memory.matches(at, kSaturationTemplate, 3 * 4);
+    if (saturating) at += 3 * 4;
+    if (memory.matches(at, kFlipXTemplate, 3 * 4)) {
+        stamp.flip_x = true;
+        at += 3 * 4;
+    } else if (memory.matches(at, kFlipYTemplate, 4 * 4)) {
+        stamp.flip_y = true;
+        at += 4 * 4;
+    } else if (memory.matches(at, kFlipXYTemplate, 3 * 4)) {
+        stamp.flip_x = stamp.flip_y = true;
+        at += 3 * 4;
+    } else if (memory.matches(at, kNoFlipTemplate, 4)) {
+        at += 4;
+    } else return false;
+
+    // Identify the actual byte loop, stopping at this routine's ARM return,
+    // never searching a subsequent allocation. Unknown operations are refused.
+    const auto kernel = saturating
+        ? (stamp.flip_x ? kAddReverseTemplate : kAddTemplate)
+        : (stamp.flip_x ? kMaxReverseTemplate : kMaxTemplate);
+    const std::size_t kernel_bytes = saturating ? 6 * 4 : 4 * 4;
+    const auto replace =
+        stamp.flip_x ? kReplaceReverseTemplate : kReplaceTemplate;
+    bool matched = false, replaced = false;
+    for (; at <= 0x030077FCu; at += 4) {
+        if (memory.word(at) == 0xE12FFF1Eu) { // ARM BX LR
+            if (matched == replaced) return false;
+            stamp.blend = replaced ? EffectBlend::Replace
+                : saturating ? EffectBlend::Add : EffectBlend::Maximum;
+            return true;
+        }
+        if (memory.matches(at, kernel, kernel_bytes)) matched = true;
+        if (!saturating && memory.matches(at, replace, 4 * 4)) replaced = true;
+    }
+    return false;
+}
+
+void capture_stamp(const Memory& memory, std::uint32_t pc, std::uint32_t caller,
+                   std::uint32_t art, std::uint32_t x_word,
+                   std::uint32_t y_word, std::uint32_t width,
+                   std::uint32_t height, std::uint64_t frame);
+
+}  // namespace
+
+void effect_capture_set_enabled(bool enabled) {
+    g_enabled = enabled;
+    if (!enabled) { g_pending = {}; g_history = {}; g_canvas = 0; }
+    static bool report_registered = false;
+    if (enabled && !report_registered) {
+        report_registered = true;
+        std::atexit([] {
+            char report[256];
+            effect_capture_report(report, sizeof report);
+            std::fprintf(stderr, "[gsr] host effects session: %s\n", report);
+        });
+    }
+}
+bool effect_capture_enabled() { return g_enabled; }
+bool effect_capture_observes(std::uint32_t pc) {
+    pc = arm_entry(pc);
+    return (pc >= 0x03002000u && pc <= 0x030077FCu) ||
+           copy_kind(pc) != Copy::None ||
+           pc == kClearCanvas || pc == kFillCanvas;
+}
+
+void effect_capture_on_entry(std::uint32_t pc, const std::uint32_t* r,
+                             const std::uint8_t* ewram, const std::uint8_t* iwram,
+                             const std::uint8_t* rom, std::size_t rom_bytes,
+                             std::uint64_t frame) {
+    if (!g_enabled || !r || !effect_capture_observes(pc)) return;
+    pc = arm_entry(pc);
+    const Memory memory{ewram, iwram, rom, rom_bytes};
+    if (frame < g_frame) {  // a savestate load
+        g_history = {};
+        g_pending = {};
+        g_canvas = 0;
+    }
+    g_frame = frame;
+    const Copy kind = copy_kind(pc);
+    const bool plain_copy = kind == Copy::Plain;
+    const bool step_copy_entry = kind == Copy::Subtract || kind == Copy::Add;
+    if (kind != Copy::None) {
+        // A 16 KB copy to video memory names the canvas.
+        const auto destination = plain_copy ? r[0] : step_copy_entry ? r[2] : r[1];
+        const auto bytes = step_copy_entry ? r[3] : r[2];
+        const auto source = plain_copy ? r[1] : r[0];
+        if (bytes == kCanvasBytes && destination >= 0x06000000u &&
+            destination <= 0x06018000u - kCanvasBytes && source != g_canvas) {
+            g_history = {};
+            g_pending = {};
+            g_canvas = source;
+        }
+    }
+    const auto canvas = g_canvas;
+    if (canvas == 0 || (plain_copy ? r[1] : r[0]) != canvas) return;
+    if (pc == kClearCanvas || pc == kFillCanvas) {
+        const bool clear = pc == kClearCanvas;
+        // A fill with any value replaces everything drawn so far; the
+        // renderer reads a tint back from the canvas edge.
+        if (r[1] == kCanvasBytes &&
+            memory.matches(pc, clear ? kClearSource : kFillSource,
+                           clear ? 120 : 112)) {
+            // Clearing the working canvas does not change the already
+            // displayed VRAM copy. Keep that publication until the next copy.
+            g_history = {};
+            ++g_counts.clears;
+        }
+        return;
+    }
+    const bool step_copy = step_copy_entry;
+    if (kind != Copy::None) {
+        const auto destination = plain_copy ? r[0] : step_copy ? r[2] : r[1];
+        const auto bytes = step_copy ? r[3] : r[2];
+        if (bytes != kCanvasBytes || destination < 0x06000000u ||
+            destination > 0x06018000u - kCanvasBytes ||
+            (plain_copy && !memory.matches(pc, kPlainCopySource, 120))) return;
+        g_pending = {};
+        g_pending.canvas = canvas;
+        if (!g_history.pixels.empty()) {
+            EffectSpark completed;
+            completed.x = g_history.width / 2 - g_history.origin_x;
+            completed.y = g_history.height / 2 - g_history.origin_y;
+            completed.width = g_history.width;
+            completed.height = g_history.height;
+            completed.art_offset = 0;
+            completed.blend = EffectBlend::Maximum;
+            g_pending.stamps.push_back(completed);
+            g_pending.artwork = g_history.pixels;
+            // Publish first, then change the working copy, exactly as the game.
+            if (step_copy) {
+                const unsigned step = r[1] & 0xFFu;
+                for (auto& pixel : g_history.pixels)
+                    pixel = static_cast<std::uint8_t>(kind == Copy::Add
+                        ? std::min(63u, unsigned(pixel) + step)
+                        : (pixel > step ? unsigned(pixel) - step : 0u));
+            } else if (!plain_copy) {
+                g_history.fade(kind == Copy::Halve);
+            }
+        }
+        // Mode 1: the plain copy is followed by a fill of the whole canvas.
+        if (plain_copy) {
+            const auto block = memory.word(kCanvasBlockSlot);
+            if (block != 0 &&
+                memory.word(block + kCanvasActiveOffset) == 1u &&
+                memory.word(block + kCanvasModeOffset) == kCanvasFillMode) {
+                g_history = {};
+                ++g_counts.clears;
+            }
+        }
+        ++g_counts.copies;
+        g_last_copy_frame = frame;
+        return;
+    }
+    const auto stack = memory.span(r[13], 8);
+    if (!stack) { ++g_counts.invalid; return; }
+    capture_stamp(memory, pc, r[14], r[1], r[2], r[3], memory.word(r[13]),
+                  memory.word(r[13] + 4), frame);
+}
+
+void effect_capture_skipped_spark(std::uint32_t routine, std::uint32_t canvas,
+                                  std::uint32_t art, std::int32_t x,
+                                  std::int32_t y, std::uint32_t width,
+                                  std::uint32_t height,
+                                  const std::uint8_t* ewram,
+                                  const std::uint8_t* iwram,
+                                  const std::uint8_t* rom,
+                                  std::size_t rom_bytes, std::uint64_t frame) {
+    if (!g_enabled || frame < g_frame) return;
+    // Only into the canvas the capture is already following.
+    if (canvas == 0 || canvas != g_canvas) return;
+    g_frame = frame;
+    const Memory memory{ewram, iwram, rom, rom_bytes};
+    ++g_counts.skipped;
+    capture_stamp(memory, routine, 0, art, static_cast<std::uint32_t>(x),
+                  static_cast<std::uint32_t>(y), width, height, frame);
+}
+
+bool effect_capture_history_read(std::uint32_t canvas, int left, int top,
+                                 std::uint8_t* out) {
+    if (!g_enabled || canvas == 0 || canvas != g_canvas || !out) return false;
+    for (int y = 0; y < 128; ++y)
+        for (int x = 0; x < 128; ++x) {
+            const int hx = left + x + g_history.origin_x;
+            const int hy = top + y + g_history.origin_y;
+            out[y * 128 + x] = g_history.in_bounds(hx, hy)
+                ? g_history.pixels[std::size_t(hy) * g_history.width + hx] : 0;
+        }
+    return true;
+}
+
+void effect_capture_history_paint(std::uint32_t canvas, int left, int top,
+                                  int width, int height,
+                                  const std::uint8_t* pixels) {
+    if (!g_enabled || canvas == 0 || canvas != g_canvas || !pixels ||
+        width <= 0 || height <= 0) return;
+    EffectSpark painted;
+    painted.width = width;
+    painted.height = height;
+    painted.x = left + width / 2;
+    painted.y = top + height / 2;
+    painted.art_offset = 0;
+    painted.blend = EffectBlend::Copy;
+    stamp_spark_expanding(&g_history, painted, pixels,
+                          std::size_t(width) * std::size_t(height));
+}
+
+namespace {
+
+void capture_stamp(const Memory& memory, std::uint32_t pc, std::uint32_t caller,
+                   std::uint32_t art, std::uint32_t x_word,
+                   std::uint32_t y_word, std::uint32_t width,
+                   std::uint32_t height, std::uint64_t frame) {
+    // A generated stamp routine is known by its own LIVE bytes, entered at
+    // its Thumb stub or at the ARM code after it. Not by allocation slot:
+    // this game keeps them under several ids (F12 0039/0040: Ray at 26 and
+    // 47, Flare at 26, with 20 also holding one), never GS1's 46.
+    if (!memory.matches(pc, kHeaderTemplate, 3 * 4)) {
+        if (!memory.matches(pc + kThumbStub, kHeaderTemplate, 3 * 4)) return;
+        pc += kThumbStub;
+    }
+    ++g_counts.entries;
+    EffectSpark stamp;
+    if (!stamp_operation(memory, pc, stamp)) {
+        ++g_counts.unsupported;
+        if (g_reported_unsupported.emplace(pc, caller).second) {
+            std::fprintf(stderr,
+                "[gsr] host effects: unsupported stamp pc=0x%08X caller=0x%08X "
+                "width=%u height=%u frame=%llu\n", pc, caller, width, height,
+                static_cast<unsigned long long>(frame));
+        }
+        return;
+    }
+    const auto count = std::uint64_t(width) * height;
+    const auto pixels = count <= std::numeric_limits<std::size_t>::max()
+        ? memory.span(art, static_cast<std::size_t>(count)) : nullptr;
+    if (!pixels || width == 0 || height == 0 ||
+        width > std::uint32_t(std::numeric_limits<int>::max()) ||
+        height > std::uint32_t(std::numeric_limits<int>::max())) {
+        ++g_counts.invalid;
+        return;
+    }
+    const std::int64_t x = static_cast<std::int32_t>(x_word);
+    const std::int64_t y = static_cast<std::int32_t>(y_word);
+    if (x + width > std::numeric_limits<int>::max() ||
+        y + height > std::numeric_limits<int>::max()) {
+        ++g_counts.invalid;
+        return;
+    }
+    stamp.width = static_cast<int>(width);
+    stamp.height = static_cast<int>(height);
+    stamp.x = static_cast<int>(x + width / 2);
+    stamp.y = static_cast<int>(y + height / 2);
+    stamp.art_offset = 0;
+    stamp_spark_expanding(&g_history, stamp, pixels, static_cast<std::size_t>(count));
+    ++g_counts.kept;
+    g_counts.max_width = std::max(g_counts.max_width, stamp.width);
+    g_counts.max_height = std::max(g_counts.max_height, stamp.height);
+}
+
+}  // namespace
+
+std::uint64_t effect_capture_last_copy_frame() { return g_last_copy_frame; }
+
+CapturedEffectFrame effect_capture_take() {
+    // VBlank/presentation frequency does not define the effect's lifetime.
+    // A frame with no display copy must keep showing the preceding copy.
+    return g_pending;
+}
+void effect_capture_report(char* out, std::size_t bytes) {
+    if (!out || !bytes) return;
+    std::snprintf(out, bytes,
+        "stamp entries %llu, captured %llu, largest width/height %d/%d, "
+        "unsupported operation %llu, invalid source/size %llu, copies %llu, clears %llu, "
+        "skipped sparks added %llu",
+        g_counts.entries, g_counts.kept, g_counts.max_width, g_counts.max_height,
+        g_counts.unsupported, g_counts.invalid, g_counts.copies, g_counts.clears,
+        g_counts.skipped);
+}
+
+}  // namespace gsr
