@@ -99,6 +99,20 @@ try {
         if ($roms.Count -eq 1) { return $roms[0].FullName }
         throw "Set a valid ROM path in $localFile to test this game."
     }
+    # File-name checks cannot see ROM bytes compiled into a program; this reads
+    # every shipped file's content against both ROMs. The unmodified GCC
+    # folders (mingw64, toolchain) are third-party and left out. On a match the
+    # given zip is removed so nothing with ROM bytes is left to upload.
+    function Assert-NoRomBytes([string]$folder, [string]$zip = '') {
+        Write-Host "Checking $folder for ROM bytes."
+        & python (Join-Path $PSScriptRoot 'release_rom_scan.py') `
+            --rom (Get-ReleaseTestRom $repo) --rom (Get-ReleaseTestRom $tlaRepo) `
+            --skip mingw64 --skip toolchain $folder
+        if ($LASTEXITCODE -ne 0) {
+            if ($zip -and (Test-Path -LiteralPath $zip)) { Remove-Item -LiteralPath $zip -Force }
+            throw "ROM bytes found in $folder; the release must not ship them."
+        }
+    }
     function Copy-CollectionFiles([string]$destination) {
         New-Item -ItemType Directory -Force -Path (Join-Path $destination 'assets') | Out-Null
         Copy-Item -LiteralPath (Join-Path $buildDir 'GoldenSunCollection.exe') -Destination (Join-Path $destination 'GoldenSunLauncher.exe')
@@ -159,8 +173,9 @@ try {
         if (-not $LauncherOnly) {
         # ---- 1. The engine: build_lto.bat's split build, current -------------
         $engineExe = Join-Path $optDir 'GoldenSunRecomp.exe'
+        $engineDll = Join-Path $optDir 'GoldenSunEngine.dll'
         $engineApi = Join-Path $optDir 'libGoldenSunRecomp_api.a'
-        foreach ($f in @($engineExe, $engineApi)) {
+        foreach ($f in @($engineExe, $engineDll, $engineApi)) {
             if (-not (Test-Path -LiteralPath $f)) { throw "Missing $f. Run build_dev.bat -Game BrokenSeal first." }
         }
         if (-not (Select-String -LiteralPath (Join-Path $optDir 'CMakeCache.txt') -SimpleMatch -Quiet 'GSR_SPLIT_GAME_CODE:BOOL=ON')) {
@@ -194,6 +209,7 @@ try {
             if ($LASTEXITCODE -ne 0) { throw "The Broken Seal release engine configuration failed ($LASTEXITCODE)." }
         }
         $engineExe = Join-Path $optDir 'GoldenSunRecomp.exe'
+        $engineDll = Join-Path $optDir 'GoldenSunEngine.dll'
         $engineApi = Join-Path $optDir 'libGoldenSunRecomp_api.a'
         # Bring it up to date through build_game.ps1, exactly as build_lto.bat
         # does: it writes the block-timing game code, points the tree at it, sets
@@ -286,6 +302,7 @@ try {
             $launcherStage = Join-Path $releaseRoot 'launcher-update'
             Remove-ReleaseTree $launcherStage
             Copy-CollectionFiles $launcherStage
+            Assert-NoRomBytes $launcherStage
             $launcherZip = Join-Path $releaseRoot "GoldenSunLauncher-windows-$releaseVersion.zip"
             if (Test-Path -LiteralPath $launcherZip) { Remove-Item -LiteralPath $launcherZip -Force }
             Compress-Archive -Path (Join-Path $launcherStage '*') -DestinationPath $launcherZip
@@ -325,7 +342,7 @@ try {
                          (Join-Path $engineDir 'include'), $tcDir)) {
             New-Item -ItemType Directory -Force -Path $d | Out-Null
         }
-        Copy-Item -LiteralPath $engineExe -Destination $gameOut
+        Copy-Item -LiteralPath $engineExe, $engineDll -Destination $gameOut
         if ($AshleyEdition) {
             Copy-Item -LiteralPath (Join-Path $collectionRoot 'assets/ashley_edition/edition_badge.bmp'),
                                   (Join-Path $collectionRoot 'assets/ashley_edition/edition_badge.txt') -Destination $gameOut
@@ -494,7 +511,7 @@ $($packages -join "`r`n")
         $tlaData = Join-Path $tlaBuilderDir 'data'
         $tlaEngine = Join-Path $tlaBuilderDir 'engine'
         New-Item -ItemType Directory -Force -Path $tlaOut, (Join-Path $tlaData 'reloc'), (Join-Path $tlaEngine 'include') | Out-Null
-        Copy-Item -LiteralPath (Join-Path $tlaBuild 'TLARecomp.exe') -Destination $tlaOut
+        Copy-Item -LiteralPath (Join-Path $tlaBuild 'TLARecomp.exe'), (Join-Path $tlaBuild 'TLAEngine.dll') -Destination $tlaOut
         if ($AshleyEdition) {
             Copy-Item -LiteralPath (Join-Path $collectionRoot 'assets/ashley_edition/edition_badge.bmp'),
                                   (Join-Path $collectionRoot 'assets/ashley_edition/edition_badge.txt') -Destination $tlaOut
@@ -542,6 +559,7 @@ This download contains no game code, ROM, BIOS or generated game library.
             $hit = Get-ChildItem -LiteralPath $outDir -Recurse -Filter $forbidden -ErrorAction SilentlyContinue
             if ($hit) { throw "The release folder must not contain $forbidden ($($hit[0].FullName))." }
         }
+        Assert-NoRomBytes $outDir
         $size = (Get-ChildItem -LiteralPath $outDir -Recurse -File | Measure-Object Length -Sum).Sum
         Write-Host ('Release folder: {0:N0} MB' -f ($size / 1MB))
 
@@ -619,6 +637,11 @@ This download contains no game code, ROM, BIOS or generated game library.
             if ($LASTEXITCODE -ne 0) {
                 Write-Host "The Linux release failed (the Windows release above is complete)." -ForegroundColor Red
                 exit 1
+            }
+            if (-not $LauncherOnly) {
+                $linuxZip = Get-ChildItem -LiteralPath (Join-Path $releaseRoot 'linux') -File -Filter 'GoldenSunRecompiled-linux*.zip' |
+                    Sort-Object LastWriteTime | Select-Object -Last 1
+                Assert-NoRomBytes (Join-Path $releaseRoot 'linux/Golden Sun Recompiled') $(if ($linuxZip) { $linuxZip.FullName } else { '' })
             }
             Write-Host "Linux release ready: $(Join-Path $releaseRoot 'linux')" -ForegroundColor Green
         }

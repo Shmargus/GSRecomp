@@ -88,16 +88,17 @@ inline bool developer_build_ready(const fs::path& game_root, int choice,
             } else if (fs::is_regular_file(input)) add(input);
             else return false;
         }
-#ifdef _WIN32
-        const char* library = choice ? "TLAGame.dll" : "GoldenSunGame.dll";
-#else
-        const char* library = choice ? "libTLAGame.so" : "libGoldenSunGame.so";
-#endif
-        const auto dll = engine.parent_path() / library;
-        if (fs::is_symlink(engine) || fs::is_symlink(dll) ||
-            !fs::is_regular_file(engine) || !fs::is_regular_file(dll) ||
-            fs::file_size(engine) == 0 || fs::file_size(dll) == 0) return false;
-        add(engine); add(dll); add(engine.parent_path() / "CMakeCache.txt");
+        // The program, the game library and (Windows) the engine plug-in,
+        // as scripts/developer_build_stamp.py records them.
+        const auto& identity = gsr_launcher::kGames[choice];
+        std::vector<fs::path> outputs = {engine, engine.parent_path() / identity.library};
+        if (std::string_view(identity.engine) != identity.executable)
+            outputs.push_back(engine.parent_path() / identity.engine);
+        for (const auto& output : outputs)
+            if (fs::is_symlink(output) || !fs::is_regular_file(output) ||
+                fs::file_size(output) == 0) return false;
+        for (const auto& output : outputs) add(output);
+        add(engine.parent_path() / "CMakeCache.txt");
         // Hashing one file at a time took ~10 s for both games; spread it over
         // every core (measured ~0.3 s warm).
         std::vector<std::string> digests(inputs.size());

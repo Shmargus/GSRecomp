@@ -887,6 +887,11 @@ extern "C" unsigned g_ws_extra_bottom = 0;
 extern "C" unsigned g_ws_view_width  = 240;
 extern "C" unsigned g_ws_view_height = 160;
 
+namespace {
+std::atomic<int> g_requested_exit_code{-1};
+}  // namespace
+void request_exit(int code) { g_requested_exit_code.store(code); }
+
 int run_game(int argc, char** argv, const RunOptions& opts) {
     // Game runners install this before entering run_game(). Clear it on every
     // return path so a later game launched in the same process cannot call a
@@ -1587,10 +1592,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     // delivery) - the "guest_us" total this probe's other buckets subtract
     // from. Diagnostic-only; intended for removal after the report. Declared
     // ahead of pump_idle so the halt-loop lambda below can reference it.
-    static const bool cost_probe_on = [] {
-        const char* e = std::getenv("GBARECOMP_COST_PROBE");
-        return e != nullptr && !(e[0] == '0' && e[1] == '\0');
-    }();
+    static const bool cost_probe_on = gbarecomp::env_flag("GBARECOMP_COST_PROBE");
 
     // -- GBARECOMP_HEADROOM_PROBE ---------------------------------------
     // Per-frame CPU headroom, as a measurement tool. It was written to place
@@ -1609,10 +1611,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     // logging only frames that already cross some threshold picked up front.
     // Off by default and gated like the cost probe above: one cached bool,
     // no getenv on any hot path.
-    static const bool headroom_probe_on = [] {
-        const char* e = std::getenv("GBARECOMP_HEADROOM_PROBE");
-        return e != nullptr && !(e[0] == '0' && e[1] == '\0');
-    }();
+    static const bool headroom_probe_on = gbarecomp::env_flag("GBARECOMP_HEADROOM_PROBE");
     std::uint64_t headroom_idle_cycles = 0;
     std::uint64_t headroom_last_frame = ~std::uint64_t{0};
 
@@ -2287,8 +2286,8 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     const bool native_renderer_allowed =
         opts.native_renderer_available && !strict_requested &&
         !(framedump_dir && framedump_dir[0]);
-    if (const char* e = std::getenv("GBARECOMP_NATIVE_RENDERER")) {
-        const bool requested = e[0] && e[0] != '0';
+    if (std::getenv("GBARECOMP_NATIVE_RENDERER")) {
+        const bool requested = gbarecomp::env_flag("GBARECOMP_NATIVE_RENDERER");
         native_renderer_requested = native_renderer_allowed && requested;
         if (requested && !native_renderer_allowed) {
             std::fprintf(stderr,
@@ -3383,8 +3382,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     // unset and keep the original unwind-and-redispatch path.
     // Present-in-place is the default for windowed play (validated on busy-spin
     // games AND HALT-based Minish Cap). Escape hatch: GBARECOMP_PRESENT_IN_PLACE=0.
-    const char* pip_env = std::getenv("GBARECOMP_PRESENT_IN_PLACE");
-    const bool present_in_place = (pip_env ? pip_env[0] != '0' : true);
+    const bool present_in_place = gbarecomp::env_flag("GBARECOMP_PRESENT_IN_PLACE", true);
     // Render-skip must not depend on which path performs presentation. When
     // present-in-place is stepped aside, the ordinary per-frame runner loop
     // below still needs a discarded Turbo/fast-forward frame's scanline
@@ -3813,6 +3811,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
+        if (g_requested_exit_code.load() >= 0) host_quit = true;
         if (host_quit) break;
         if (!step_once()) break;
         audio_service_pending = false;
@@ -4115,7 +4114,9 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     gbarecomp::overlay_loader_shutdown();  // join worker + drain before banner
     emit_exit_diagnostics();
     runtime_shutdown();
-    return save_ok ? 0 : 1;
+    if (!save_ok) return 1;
+    const int requested = g_requested_exit_code.load();
+    return requested >= 0 ? requested : 0;
 }
 
 }  // namespace gbarecomp

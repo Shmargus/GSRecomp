@@ -32,6 +32,7 @@ void on_function_entry(std::uint32_t pc) {
     tla_gpu_field_on_entry(pc);
     tla_hard_mode_on_entry(pc);
     tla_cheat_menu_on_entry(pc);
+    tla_gs_save_import_on_entry(pc);
 }
 
 }  // namespace
@@ -58,7 +59,7 @@ int main(int argc, char** argv) {
 
     gbarecomp::RunOptions options;
     tla_install_text_speed(options);
-    tla_install_walk_speed();
+    tla_install_walk_speed(options);
     // Runner options that are not engine settings live next to the program.
     {
         std::string dir = argc > 0 ? argv[0] : "";

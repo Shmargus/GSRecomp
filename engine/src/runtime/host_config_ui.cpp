@@ -1,6 +1,7 @@
 // host_config_ui.cpp — see host_config_ui.h.
 
 #include "host_config_ui.h"
+#include "game_options.h"
 #include "view_config.h"
 
 namespace gbarecomp {
@@ -8,6 +9,14 @@ namespace gbarecomp {
 // it the same way in every build configuration.
 void (*g_config_ui_extra_draw)() = nullptr;
 bool (*g_config_ui_extra_wants_keyboard)() = nullptr;
+namespace {
+const GameOptionSwitch* g_game_switches = nullptr;
+int g_game_switch_count = 0;
+}  // namespace
+void config_ui_set_game_switches(const GameOptionSwitch* switches, int count) {
+    g_game_switches = switches;
+    g_game_switch_count = switches ? count : 0;
+}
 }  // namespace gbarecomp
 
 #ifdef GBARECOMP_HAVE_IMGUI
@@ -606,6 +615,16 @@ void draw_enhancements_page(ConfigUiState* st) {
             "if you are hunting a crash.");
 }
 
+void draw_game_page() {
+    section("Game");
+    for (int i = 0; i < g_game_switch_count; ++i) {
+        const GameOptionSwitch& s = g_game_switches[i];
+        bool on = game_option_get(s.key, 0) != 0;
+        if (ImGui::Checkbox(s.label, &on)) game_option_set(s.key, on ? 1 : 0);
+        caption(s.caption);
+    }
+}
+
 void draw_fps_overlay(const ConfigUiState* st) {
     if (!st || !st->show_fps) return;
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -1131,9 +1150,12 @@ void config_ui_draw(ConfigUiState* st) {
                 {"Hotkeys",      "Shortcuts such as fast forward and auto fire."},
                 {"Fast Forward", "How fast fast forward runs."},
                 {"Enhancements", "Optional improvements to the picture."},
+                {"Game",         "Options for this game."},
             };
-            constexpr int kPageCount =
-                static_cast<int>(sizeof(kPages) / sizeof(kPages[0]));
+            // The last page, Game, shows only when the game added switches.
+            const int kPageCount =
+                static_cast<int>(sizeof(kPages) / sizeof(kPages[0])) -
+                (g_game_switch_count > 0 ? 0 : 1);
             static int page = 0;
             page = std::clamp(page, 0, kPageCount - 1);
 
@@ -1167,7 +1189,8 @@ void config_ui_draw(ConfigUiState* st) {
                 case 2: draw_controls_page(st); break;
                 case 3: draw_hotkeys_page(st); break;
                 case 4: draw_turbo_page(st); break;
-                default: draw_enhancements_page(st); break;
+                case 5: draw_enhancements_page(st); break;
+                default: draw_game_page(); break;
             }
             ImGui::EndChild();
 

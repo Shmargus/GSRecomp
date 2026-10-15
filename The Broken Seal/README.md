@@ -172,8 +172,9 @@ folder:
 5. **Run the collection-root `build_dev.bat -Game BrokenSeal`.** It runs
    `scripts/build_game.ps1`, which:
    - re-configures `build/gs011_opt` with link-time optimisation;
-   - builds the engine, `GoldenSunRecomp.exe` (our code only, with LTO),
-     and the translated game code beside it as `GoldenSunGame.dll`;
+   - builds the engine, `GoldenSunEngine.dll` (our code only, with LTO),
+     the small `GoldenSunRecomp.exe` that runs it, and the translated game
+     code beside them as `GoldenSunGame.dll`;
    - by default caps the build at 90% of CPU and 90% of RAM
      (`-CpuPercent 80 -RamPercent 75` to lower them).
 

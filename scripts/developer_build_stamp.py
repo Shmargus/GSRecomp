@@ -8,8 +8,10 @@ import sys
 import tempfile
 
 HEADER = "developer_build=1\n"
-GAMES = {"BrokenSeal": ("The Broken Seal", "gs011_opt", "gs011_opt", "GoldenSunRecomp", "GoldenSunGame"),
-         "LostAge": ("The Lost Age", "tla", "tla-linux", "TLARecomp", "TLAGame")}
+# On Windows the engine is a plug-in beside the program (GoldenSunEngine.dll,
+# TLAEngine.dll; launcher_game.h); on Linux it is the program itself.
+GAMES = {"BrokenSeal": ("The Broken Seal", "gs011_opt", "gs011_opt", "GoldenSunRecomp", "GoldenSunGame", "GoldenSunEngine"),
+         "LostAge": ("The Lost Age", "tla", "tla-linux", "TLARecomp", "TLAGame", "TLAEngine")}
 
 
 def safe_path(root, name):
@@ -111,7 +113,7 @@ def main():
     parser.add_argument("--snapshot", type=Path, required=True)
     args = parser.parse_args()
     root = args.root.resolve(strict=True)
-    folder, windows_dir, linux_dir, engine, library = GAMES[args.game]
+    folder, windows_dir, linux_dir, program, library, engine = GAMES[args.game]
     build = args.build_dir or root / folder / "build" / (windows_dir if os.name == "nt" else linux_dir)
     if not build.is_absolute():
         build = root / build
@@ -128,7 +130,8 @@ def main():
         return
     if args.snapshot.read_bytes() != data:
         raise ValueError("Developer inputs changed during the build; no build record written.")
-    outputs = (engine + ".exe", library + ".dll") if os.name == "nt" else (engine, "lib" + library + ".so")
+    outputs = ((program + ".exe", library + ".dll", engine + ".dll") if os.name == "nt"
+               else (program, "lib" + library + ".so"))
     # Build scripts can update CMake settings, so record their final cache after
     # success, rather than requiring it to match the pre-build source snapshot.
     for name in (*outputs, "CMakeCache.txt"):

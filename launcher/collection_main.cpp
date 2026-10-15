@@ -17,6 +17,10 @@
 #include "collection_rom.h"
 #include "launcher_build_progress.h"
 #include "../engine/src/gba/sha1.h"
+#include "../engine/src/runtime/game_options.h"
+#include "../engine/src/runtime/cartridge_art.h"
+#include "../engine/src/runtime/handover.h"
+#include "../engine/src/runtime/seamless.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -129,65 +133,36 @@ struct Texture {
     SDL_Texture* texture = nullptr;
     SDL_Texture* glow = nullptr;
     int width = 0, height = 0;
-    int glow_padding = 0, glow_width = 0, glow_height = 0;
+    gbarecomp::cartridge_art::Glow glow_info;  // cartridges only (cartridge_art.h)
+    std::vector<unsigned char> pixels;         // cartridges only: the cut-out RGBA
     ~Texture() {
         if (texture) SDL_DestroyTexture(texture);
         if (glow) SDL_DestroyTexture(glow);
     }
     void make_glow(SDL_Renderer* renderer, const std::vector<unsigned char>& rgba) {
-        // Expand and soften the alpha silhouette, leaving the sprite pixels crisp.
-        // Only the soft glow needs a small mask; avoid processing large exports.
-        glow_width = std::min(width, 256);
-        glow_height = std::max(1, int(std::round(float(height) * glow_width / width)));
-        const int dilation = std::max(1, std::min(glow_width, glow_height) / 70);
-        const int blur = std::max(2, std::min(glow_width, glow_height) / 30);
-        glow_padding = dilation + 2 * blur + 1;
-        const int w = glow_width + 2 * glow_padding, h = glow_height + 2 * glow_padding;
-        std::vector<float> mask(std::size_t(w) * h, 0), scratch(mask.size());
-        for (int y = 0; y < glow_height; ++y) for (int x = 0; x < glow_width; ++x) {
-            const int sx = std::min(width - 1, int((x + 0.5f) * width / glow_width));
-            const int sy = std::min(height - 1, int((y + 0.5f) * height / glow_height));
-            mask[std::size_t(y + glow_padding) * w + x + glow_padding] =
-                rgba[(std::size_t(sy) * width + sx) * 4 + 3];
-        }
-        for (int axis = 0; axis < 2; ++axis) {
-            for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) {
-                float alpha = 0;
-                for (int d = -dilation; d <= dilation; ++d) {
-                    const int sx = x + (axis == 0 ? d : 0), sy = y + (axis == 1 ? d : 0);
-                    if (sx >= 0 && sx < w && sy >= 0 && sy < h)
-                        alpha = std::max(alpha, mask[std::size_t(sy) * w + sx]);
-                }
-                scratch[std::size_t(y) * w + x] = alpha;
-            }
-            mask.swap(scratch);
-        }
-        for (int pass = 0; pass < 4; ++pass) {
-            const bool horizontal = pass % 2 == 0;
-            for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) {
-                float alpha = 0;
-                for (int d = -blur; d <= blur; ++d) {
-                    const int sx = x + (horizontal ? d : 0), sy = y + (horizontal ? 0 : d);
-                    if (sx >= 0 && sx < w && sy >= 0 && sy < h)
-                        alpha += mask[std::size_t(sy) * w + sx];
-                }
-                scratch[std::size_t(y) * w + x] = alpha / (2 * blur + 1);
-            }
-            mask.swap(scratch);
-        }
-        std::vector<unsigned char> pixels(mask.size() * 4);
-        for (std::size_t i = 0; i < mask.size(); ++i) {
-            pixels[i * 4] = 255; pixels[i * 4 + 1] = 255; pixels[i * 4 + 2] = 255;
-            pixels[i * 4 + 3] = static_cast<unsigned char>(std::clamp(mask[i], 0.0f, 255.0f));
-        }
+        glow_info = gbarecomp::cartridge_art::make_glow(rgba, width, height);
+        const int w = glow_info.width + 2 * glow_info.padding;
+        const int h = glow_info.height + 2 * glow_info.padding;
         glow = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, w, h);
-        if (glow && SDL_UpdateTexture(glow, nullptr, pixels.data(), w * 4) != 0) {
+        if (glow && SDL_UpdateTexture(glow, nullptr, glow_info.rgba.data(), w * 4) != 0) {
             SDL_DestroyTexture(glow); glow = nullptr;
         }
         if (glow) {
             SDL_SetTextureBlendMode(glow, SDL_BLENDMODE_BLEND);
             SDL_SetTextureScaleMode(glow, SDL_ScaleModeLinear);
         }
+        glow_info.rgba.clear();
+        pixels = rgba;
+    }
+    // The cut-out cartridge as a 32-bit BMP, for a game's black cover.
+    bool save_bmp(const fs::path& path) const {
+        if (pixels.empty()) return false;
+        SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormatFrom(
+            const_cast<unsigned char*>(pixels.data()), width, height, 32, width * 4,
+            SDL_PIXELFORMAT_ABGR8888);
+        const bool saved = surface && SDL_SaveBMP(surface, path.string().c_str()) == 0;
+        if (surface) SDL_FreeSurface(surface);
+        return saved;
     }
     bool load(SDL_Renderer* renderer, const fs::path& path, bool cartridge = false) {
         std::ifstream input(path, std::ios::binary | std::ios::ate);
@@ -249,7 +224,10 @@ fs::path collection_root() {
 }
 
 bool runtime_saves_in_saves(const fs::path& root, int choice, std::string& error) {
-    for (const auto& candidate : {gsr_session::engine(root, choice)}) {
+    // The engine file: on Windows the plug-in beside the program
+    // (launcher_game.h), on Linux the program itself.
+    for (const auto& candidate : {gsr_session::engine(root, choice).parent_path() /
+                                  gsr_launcher::kGames[choice].engine}) {
         if (!fs::is_regular_file(candidate)) continue;
         std::ifstream stream(candidate, std::ios::binary);
         const std::string marker = "GBARECOMP_STATE_BASE";
@@ -269,22 +247,10 @@ bool runtime_saves_in_saves(const fs::path& root, int choice, std::string& error
 }
 
 bool game_built(const fs::path& root, int choice, std::stop_token stop = {}) {
-#ifdef _WIN32
-    const char* engines[] = {"GoldenSunRecomp.exe", "TLARecomp.exe"};
-    const char* libraries[] = {"GoldenSunGame.dll", "TLAGame.dll"};
-#else
-    const char* engines[] = {"GoldenSunRecomp", "TLARecomp"};
-    const char* libraries[] = {"libGoldenSunGame.so", "libTLAGame.so"};
-#endif
-    const char* hashes[] = {"5c4695205413df7db52b9a184815a07783999971", "b500663220cb9bf56b9f8e8c0c544f1d6fa3a824"};
     std::error_code ec;
     // Packaged games use the same fingerprint check as their player launcher.
-    if (fs::is_directory(root / "builder", ec) || root.parent_path().filename() == "games") {
-        const gsr_launcher::GameFiles game{engines[choice], libraries[choice],
-            choice ? "TLAGame.build.txt" : "GoldenSunGame.build.txt",
-            choice ? "TLAGame.release.txt" : "GoldenSunGame.release.txt", hashes[choice]};
-        return gsr_launcher::game_code_ready(root, game);
-    }
+    if (fs::is_directory(root / "builder", ec) || root.parent_path().filename() == "games")
+        return gsr_launcher::game_code_ready(root, gsr_launcher::kGames[choice]);
     return gsr_collection::developer_build_ready(root, choice, gsr_session::engine(root, choice), stop);
 }
 
@@ -346,6 +312,10 @@ class Child {
 #else
     pid_t pid_ = -1;
 #endif
+    // The game session started last, and how its process ended (-1: unknown).
+    int started_game_ = -1;
+    int exit_code_ = -1;
+    bool finished_ = false;
 public:
     ~Child() {
 #ifdef _WIN32
@@ -358,18 +328,30 @@ public:
 #ifdef _WIN32
         if (!process_) return false;
         if (WaitForSingleObject(process_, 0) == WAIT_TIMEOUT) return true;
+        DWORD code = 0;
+        exit_code_ = GetExitCodeProcess(process_, &code) ? static_cast<int>(code) : -1;
         CloseHandle(process_); process_ = nullptr;
 #else
         if (pid_ <= 0) return false;
-        const auto result = waitpid(pid_, nullptr, WNOHANG);
+        int status = 0;
+        const auto result = waitpid(pid_, &status, WNOHANG);
         if (result == 0 || (result < 0 && errno == EINTR)) return true;
+        exit_code_ = result == pid_ && WIFEXITED(status) ? WEXITSTATUS(status) : -1;
         pid_ = -1;
 #endif
+        finished_ = true;
         return false;
     }
+    // Once per finished session: the game it was started for and its exit code.
+    bool take_exit(int& game, int& code) {
+        if (!finished_) return false;
+        finished_ = false; game = started_game_; code = exit_code_;
+        return true;
+    }
     bool start(const fs::path& root, int choice, std::string& error,
-               const gsr_collection::GameSettings* settings = nullptr) {
+               const gsr_collection::GameSettings* settings = nullptr, int seamless_slot = -1) {
         if (running()) return false;
+        finished_ = false;
         const auto executable = executable_file();
         const auto game = gsr_session::game_root(root, choice);
         std::error_code ec;
@@ -386,6 +368,7 @@ public:
             L" --session-game " + (choice ? std::wstring(L"LostAge") : std::wstring(L"BrokenSeal")) +
             L" --collection-play --collection-update-checked --collection-root " + quote_argument(root.wstring());
         if (settings && settings->direct3d) arguments += L" --direct3d";
+        if (seamless_slot >= 0) arguments += L" --seamless-slot " + std::to_wstring(seamless_slot);
 #ifdef GSR_COLLECTION_DEV
         if (settings) {
             const auto tests = gsr_collection::serialize_tests(*settings);
@@ -400,6 +383,7 @@ public:
             return false;
         }
         CloseHandle(info.hThread); process_ = info.hProcess;
+        started_game_ = choice;
 #else
         int status_pipe[2];
         if (pipe(status_pipe) != 0) { error = std::strerror(errno); return false; }
@@ -412,6 +396,7 @@ public:
 #ifdef GSR_COLLECTION_DEV
         if (settings) { arguments.push_back("--collection-tests"); arguments.push_back(gsr_collection::serialize_tests(*settings)); }
 #endif
+        if (seamless_slot >= 0) { arguments.push_back("--seamless-slot"); arguments.push_back(std::to_string(seamless_slot)); }
         std::vector<char*> argv;
         for (auto& argument : arguments) argv.push_back(argument.data());
         argv.push_back(nullptr);
@@ -433,6 +418,7 @@ public:
             while (waitpid(pid_, nullptr, 0) < 0 && errno == EINTR) {}
             pid_ = -1; error = "Could not start the game session: " + std::string(std::strerror(failure)); return false;
         }
+        started_game_ = choice;
 #endif
         error.clear();
         return true;
@@ -541,6 +527,17 @@ ImFont* load_font(ImGuiIO& io, bool heading) {
     }
     ImFontConfig config; config.SizePixels = heading ? 32.0f : 20.0f;
     return io.Fonts->AddFontDefault(&config);
+}
+
+// Sets (or, given an empty value, removes) a variable the games started from
+// here inherit.
+void set_environment(const char* name, const fs::path& value) {
+#ifdef _WIN32
+    const std::wstring wide_name(name, name + std::strlen(name));
+    SetEnvironmentVariableW(wide_name.c_str(), value.empty() ? nullptr : value.c_str());
+#else
+    if (value.empty()) unsetenv(name); else setenv(name, value.c_str(), 1);
+#endif
 }
 
 bool capture_frame(SDL_Renderer* renderer, const fs::path& path) {
@@ -672,6 +669,39 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             }
         }
         if (hidden && !child.running()) {
+            // Seamless mode: The Broken Seal ended after saving its Clear Data
+            // (the session exits with the game's code); go straight on to The
+            // Lost Age, keeping the window hidden. Failing that, show the window.
+            int finished_game = -1, finished_code = -1;
+            if (child.take_exit(finished_game, finished_code) && finished_game == 0 && preview.empty() &&
+                finished_code >= gbarecomp::seamless::kExitCodeBase &&
+                finished_code < gbarecomp::seamless::kExitCodeBase + gbarecomp::seamless::kSlotCount) {
+                error.clear();
+                // The Lost Age shows its cartridge, bouncing as in this
+                // selector, on its black cover while it starts (cartridge_art.h).
+                std::error_code temp_error;
+                const fs::path cover = fs::temp_directory_path(temp_error) / "gsr_cover_cartridge.bmp";
+                const bool cover_art = !temp_error && cartridges[1].save_bmp(cover);
+                if (cover_art) {
+                    set_environment(gbarecomp::cartridge_art::kCoverArtEnv, cover);
+                    set_environment(gbarecomp::cartridge_art::kCoverGameEnv, "1");
+                }
+                const bool started = built[1] && runtime_saves_in_saves(gsr_session::game_root(root, 1), 1, error) &&
+                    child.start(root, 1, error, &settings[1], finished_code - gbarecomp::seamless::kExitCodeBase);
+                if (cover_art) {
+                    set_environment(gbarecomp::cartridge_art::kCoverArtEnv, {});
+                    set_environment(gbarecomp::cartridge_art::kCoverGameEnv, {});
+                }
+                if (started) {
+                    selected = 1;
+                    SDL_Delay(30); continue;
+                }
+                if (error.empty()) error = "The Lost Age is not built yet.";
+#ifdef _WIN32
+                gbarecomp::handover::quit();  // The Broken Seal's program waits in vain
+#endif
+                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Seamless mode", error.c_str(), window);
+            }
             SDL_SetWindowOpacity(window, 1); window_opacity = 1;
             hidden = false; SDL_ShowWindow(window); SDL_RaiseWindow(window); axis_direction = 0;
             SDL_FlushEvents(SDL_KEYDOWN, SDL_KEYUP);
@@ -793,7 +823,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                     fade_only = false;
                     insertion_choice = selected = choice;
                     insertion_started = double(SDL_GetPerformanceCounter() - start) / SDL_GetPerformanceFrequency();
-                    insertion_scale = 1 + 0.035f * float(0.5 - 0.5 * std::cos(insertion_started * 4.8));
+                    insertion_scale = gbarecomp::cartridge_art::pulse(insertion_started);
                 }
                 if (!error.empty()) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Game preparation", error.c_str(), window);
             }
@@ -843,9 +873,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
         draw->AddImage(reinterpret_cast<ImTextureID>(logo.texture), {center - logo_width / 2, logo_top}, {center + logo_width / 2, logo_top + logo_height});
         golden_title(draw, heading, 24 * scale, center, 172 * scale, "Choose Your Adventure");
         const double seconds = preview.empty() ? elapsed : 1.0;
-        // Artistic icon cadence, rather than an exact reproduction of game timing.
-        const float pulse = 1 + 0.035f * float(0.5 - 0.5 * std::cos(seconds * 4.8));
-        const float glow_opacity = 0.14f + 0.07f * float(0.5 - 0.5 * std::cos(seconds * 1.8));
+        const float pulse = gbarecomp::cartridge_art::pulse(seconds);
         const int inserting = preview_insertion >= 0 ? preview_choice : fade_only ? -1 : insertion_choice;
         const float insertion_progress = transition_progress;
         for (int i = 0; i < 2; ++i) {
@@ -868,34 +896,19 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             }
             // Full width: with no divider, a glow cut at the middle would show a hard edge.
             draw->PushClipRect({0, 200 * scale}, {width, footer}, true);
-            if (selected == i && image.glow) {
-                const float padding_x = image.glow_padding * image_width / image.glow_width;
-                const float padding_y = image.glow_padding * image_height / image.glow_height;
-                const float glow_width = image_width / 2 + padding_x;
-                const float glow_height = image_height / 2 + padding_y;
-                const float drift = 3 * scale * std::sin(float(seconds * 1.3));
-                // Cool, drifting outer light with a warm Psynergy-like core.
-                draw->AddImage(reinterpret_cast<ImTextureID>(image.glow),
-                    {x - glow_width * 1.10f + drift, image_y - glow_height * 1.12f},
-                    {x + glow_width * 1.10f + drift, image_y + glow_height * 1.12f}, {0, 0}, {1, 1},
-                    i ? IM_COL32(119, 132, 255, int(180 * glow_opacity * opacity)) :
-                        IM_COL32(104, 225, 182, int(180 * glow_opacity * opacity)));
-                draw->AddImage(reinterpret_cast<ImTextureID>(image.glow),
-                    {x - glow_width, image_y - glow_height}, {x + glow_width, image_y + glow_height},
-                    {0, 0}, {1, 1}, IM_COL32(255, 219, 136, int(255 * glow_opacity * opacity)));
-                for (int mote = 0; mote < 16; ++mote) {
-                    const float angle = mote * 2.39996f + float(seconds * 0.09);
-                    const float rising = std::fmod(float(seconds * 0.10) + mote * 0.137f, 1.0f);
-                    const ImVec2 position{x + std::cos(angle) * image_width * (0.51f + 0.06f * std::sin(angle * 3)),
-                                          image_y + std::sin(angle) * image_height * 0.68f - rising * 10 * scale};
-                    const float shimmer = 0.4f + 0.6f * float(0.5 + 0.5 * std::sin(seconds * 2.1 + mote * 1.7));
-                    const int alpha = int(105 * shimmer * opacity);
-                    draw->AddCircleFilled(position, 3 * scale, i ? IM_COL32(167, 168, 255, alpha / 5) : IM_COL32(159, 239, 204, alpha / 5), 8);
-                    draw->AddCircleFilled(position, (mote % 3 ? 0.8f : 1.25f) * scale, IM_COL32(255, 237, 182, alpha), 6);
-                }
+            // The selected cartridge's glow, motes and bounce (cartridge_art.h,
+            // shared with the game's black cover); otherwise the cartridge alone.
+            namespace art = gbarecomp::cartridge_art;
+            const art::Glow no_glow;
+            for (const art::Piece& piece : art::selected(i, x, image_y, image_width, image_height,
+                     selected == i && image.glow ? image.glow_info : no_glow, scale, seconds, opacity)) {
+                const ImU32 color = IM_COL32(piece.r, piece.g, piece.b, piece.a);
+                if (piece.kind == art::Piece::Dot)
+                    draw->AddCircleFilled({piece.x0, piece.y0}, piece.x1, color, piece.segments);
+                else
+                    draw->AddImage(reinterpret_cast<ImTextureID>(piece.kind == art::Piece::Image ? image.texture : image.glow),
+                                   {piece.x0, piece.y0}, {piece.x1, piece.y1}, {0, 0}, {1, 1}, color);
             }
-            draw->AddImage(reinterpret_cast<ImTextureID>(image.texture), {x - image_width / 2, image_y - image_height / 2},
-                           {x + image_width / 2, image_y + image_height / 2}, {0, 0}, {1, 1}, IM_COL32(255, 255, 255, int(255 * opacity)));
             draw->PopClipRect();
             if (!starting) {
                 const auto game = gsr_session::game_root(root, i);
@@ -1006,6 +1019,8 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             if (preview.empty()) for (int game = 0; game < 2; ++game)
                 view_settings[game] = gsr_collection::load_view_settings(
                     gsr_session::engine(gsr_session::game_root(root, game), game).parent_path());
+            if (preview.empty()) gbarecomp::game_options_load((gsr_session::engine(gsr_session::game_root(root, 0), 0).parent_path() /
+                                                               "game_options.ini").string());
             ImGui::OpenPopup("Settings"); request_settings = false;
         }
         ImGui::SetNextWindowPos({center, height / 2}, ImGuiCond_Always, {0.5f, 0.5f});
@@ -1038,6 +1053,20 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             const float reserved = 48 * scale;
             ImGui::BeginChild("Settings options", {0, -reserved});
             auto& game = settings[settings_game];
+            if (settings_game == 0) {
+                // Seamless mode lives in The Broken Seal's own game_options.ini,
+                // the file next to its program (loaded when this page opens, and
+                // again before each write so the game's other keys survive).
+                const auto options_file = (gsr_session::engine(gsr_session::game_root(root, 0), 0).parent_path() /
+                                           "game_options.ini").string();
+                bool seamless_on = gbarecomp::game_option_get(gbarecomp::seamless::kOptionKey, 0) != 0;
+                if (ImGui::Checkbox("Seamless mode", &seamless_on) && preview.empty()) {
+                    gbarecomp::game_options_load(options_file);
+                    gbarecomp::game_option_set(gbarecomp::seamless::kOptionKey, seamless_on ? 1 : 0);
+                }
+                ImGui::TextWrapped("At the end of the game, skip the credits, save to the file you are playing and go straight on to The Lost Age.");
+                ImGui::Separator();
+            }
             if (settings_game == 1) {
                 if (ImGui::Checkbox("Import Golden Sun save files", &preferences[1].gs_save_import) &&
                     preview.empty() && !gsr_session::save_launcher_audio_settings(
@@ -1182,13 +1211,18 @@ int main(int argc, char** argv) {
     if (argc >= 2 && std::string(argv[1]) == "--session-game") {
         if (argc < 3) return 1;
         try {
-            if (std::string(argv[2]) == "BrokenSeal") return gsr_broken_seal_session_main(argc, argv);
-            if (std::string(argv[2]) == "LostAge") return gsr_lost_age_session_main(argc, argv);
+            if (std::string(argv[2]) == "BrokenSeal") return gsr_session_main(0, argc, argv);
+            if (std::string(argv[2]) == "LostAge") return gsr_session_main(1, argc, argv);
         } catch (const std::exception& error) {
             SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Golden Sun Recompiled", error.what(), nullptr);
         }
         return 1;
     }
+#ifdef _WIN32
+    // Everything this launcher starts finds it by this (handover.h).
+    SetEnvironmentVariableW(gbarecomp::handover::kLauncherEnv,
+                            std::to_wstring(GetCurrentProcessId()).c_str());
+#endif
     fs::path preview;
     int preview_choice = 0;
     float preview_insertion = -1;

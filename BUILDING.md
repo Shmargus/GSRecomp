@@ -45,8 +45,13 @@ running launcher and skips replacing it.
 
 Outputs:
 
-- `The Broken Seal/build/gs011_opt/GoldenSunRecomp.exe` + `GoldenSunGame.dll`
-- `The Lost Age/build/tla/TLARecomp.exe` + `TLAGame.dll`
+- `The Broken Seal/build/gs011_opt/GoldenSunRecomp.exe` + `GoldenSunEngine.dll`
+  + `GoldenSunGame.dll`
+- `The Lost Age/build/tla/TLARecomp.exe` + `TLAEngine.dll` + `TLAGame.dll`
+
+On Windows the `.exe` is a small player program; the engine is the
+`...Engine.dll` plug-in it runs, and the game code is the `...Game.dll`
+built from the ROM. On Linux the engine is still the program itself.
 - `GoldenSunLauncher.exe` at the root (copied from Broken Seal's
   `GoldenSunCollection.exe`)
 

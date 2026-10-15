@@ -25,11 +25,6 @@ param(
     [int]$CompileJobs = 0,
     # When set, the whole build output is also written here.
     [string]$LogFile = '',
-    # Comparison builds only: link-time optimisation off.
-    [switch]$NoLto,
-    # Comparison builds only: the same LTO build without debug information.
-    # (Broken Seal only; build_lto_nosymbols.bat.)
-    [switch]$NoSymbols,
     # Optimisation level for the game's translated code (<Prefix>_GAME_CODE_OPT).
     # Og is the normal, quick-to-compile level; O2 measures whether heavy
     # spells run faster. Passed on every build so a comparison level never sticks.
@@ -50,7 +45,8 @@ $ErrorActionPreference = 'Stop'
 #  BusyCheck     refuse to start if another build's processes are running
 #  CodeName      per-instruction game-code folder under Root/local
 #  BlockParts    sub-folders block_timing.py rewrites ('' = the folder itself)
-#  Targets       CMake targets (BrokenSeal adds GoldenSunGame on a split build)
+#  Targets       CMake targets (BrokenSeal adds GoldenSunGame and its player
+#                program on a split build)
 $games = @{
     BrokenSeal = @{
         Root = 'The Broken Seal'; BuildDir = 'build/gs011_opt'; Prefix = 'GSR'
@@ -60,14 +56,14 @@ $games = @{
     LostAge = @{
         Root = 'The Lost Age'; BuildDir = 'build/tla'; Prefix = 'TLA'
         BusyCheck = $true; CodeName = 'tla'; BlockParts = @('main', 'reloc')
-        Targets = @('TLARecomp', 'TLAGame')
+        Targets = @('TLARecomp', 'TLAGame', 'TLAPlayer')
     }
 }
 $cfg = $games[$Game]
 try {
     if (-not [Environment]::Is64BitProcess) { throw 'Use 64-bit PowerShell.' }
-    if ($Game -ne 'BrokenSeal' -and ($NoSymbols -or $CompileJobs -gt 0)) {
-        throw '-NoSymbols and -CompileJobs are only supported for BrokenSeal.'
+    if ($Game -ne 'BrokenSeal' -and $CompileJobs -gt 0) {
+        throw '-CompileJobs is only supported for BrokenSeal.'
     }
     $repo = Join-Path (Split-Path -Parent $PSScriptRoot) $cfg.Root
     if (-not $BuildDir) { $BuildDir = $cfg.BuildDir }
@@ -167,9 +163,7 @@ public static class GoldenSunBuildLimits {
 }
 '@
     $jobHandle = [GoldenSunBuildLimits]::Apply([uint32]$CpuPercent, $memoryLimit)
-    $kind = if ($NoLto) { 'No-LTO comparison build' } else { 'LTO build' }
-    if ($NoSymbols) { $kind += ' without debug symbols' }
-    $kind += ", game code -$GameCodeOpt"
+    $kind = "LTO build, game code -$GameCodeOpt"
     if ($Game -eq 'LostAge' -and $PerInstruction) { $kind += ', per-instruction timing' }
     Write-Host "${kind}: CPU cap $CpuPercent%; parallel jobs $jobs."
     if ($Game -eq 'BrokenSeal') {
@@ -195,8 +189,7 @@ public static class GoldenSunBuildLimits {
     }
     $codeRoot = ($repo -replace '\\', '/') + "/local/$codeName"
 
-    $ltoFlag = if ($NoLto) { "-D${prefix}_ENABLE_LTO=OFF" } else { "-D${prefix}_ENABLE_LTO=ON" }
-    $configureArgs = @('-S', $repo, '-B', $buildDir, $ltoFlag)
+    $configureArgs = @('-S', $repo, '-B', $buildDir, "-D${prefix}_ENABLE_LTO=ON")
     if ($Game -eq 'BrokenSeal') {
         # Every game-code folder setting in the tree's cache (GSR_GAME_CODE_ROOT,
         # GSR_GENERATED_DIR, the overlay, stamp, transient and synth folders) is
@@ -209,8 +202,7 @@ public static class GoldenSunBuildLimits {
         }
         if ($codeArgs.Count -eq 0) { throw 'No game-code folder settings in the tree cache.' }
         Write-Host "Game code: local\$codeName ($($codeArgs.Count) folder settings)."
-        $symbolFlag = if ($NoSymbols) { '-DGSR_DEBUG_SYMBOLS=OFF' } else { '-DGSR_DEBUG_SYMBOLS=ON' }
-        $configureArgs += @($symbolFlag, "-DGSR_LTO_JOBS=$jobs", "-DGSR_GAME_CODE_OPT=-$GameCodeOpt") + $codeArgs
+        $configureArgs += @('-DGSR_DEBUG_SYMBOLS=ON', "-DGSR_LTO_JOBS=$jobs", "-DGSR_GAME_CODE_OPT=-$GameCodeOpt") + $codeArgs
     } else {
         $configureArgs += @('-DTLA_SPLIT_GAME_CODE=ON', "-DTLA_LTO_JOBS=$jobs", "-DTLA_GAME_CODE_OPT=-$GameCodeOpt",
             "-DTLA_GENERATED_DIR:PATH=$codeRoot/main")
@@ -221,15 +213,16 @@ public static class GoldenSunBuildLimits {
     if ($configureExit -ne 0) { throw "CMake configuration failed ($configureExit)." }
     # This project otherwise degrades gracefully to no LTO; manual LTO builds
     # should instead stop loudly if IPO support was not accepted.
-    if (-not $NoLto -and ($configureOutput -join "`n") -match 'building without it') {
+    if (($configureOutput -join "`n") -match 'building without it') {
         throw 'This toolchain cannot enable LTO; build was not started.'
     }
     $targets = @($cfg.Targets)
     # A split Broken Seal build (GSR_SPLIT_GAME_CODE) also has the game code as
-    # GoldenSunGame.dll beside the exe. (The Lost Age always splits.)
+    # GoldenSunGame.dll and the engine as a plug-in run by the player program
+    # GoldenSunRecomp.exe (target GoldenSunPlayer). (The Lost Age always splits.)
     if ($Game -eq 'BrokenSeal' -and
         (Select-String -LiteralPath (Join-Path $buildDir 'CMakeCache.txt') -SimpleMatch -Quiet 'GSR_SPLIT_GAME_CODE:BOOL=ON')) {
-        $targets += 'GoldenSunGame'
+        $targets += 'GoldenSunGame', 'GoldenSunPlayer'
     }
     $compileJobs = if ($CompileJobs -gt 0) { [Math]::Min($CompileJobs, $jobs) } else { $jobs }
     if ($compileJobs -ne $jobs) { Write-Host "Compile jobs: $compileJobs." }

@@ -1,10 +1,12 @@
 // Direct GS1 save transfer through TLA's existing link-data importer.
 #include "tla.h"
+#include "env_flag.h"
 #include "gs_save.h"
 #include "gba_bus.h"
 #include "runtime.h"
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
+#include "seamless.h"
 #include <SDL.h>
 #include <algorithm>
 #include <atomic>
@@ -42,6 +44,39 @@ std::shared_ptr<PickerResult> g_picker;
 unsigned long long g_test_ready = 0;
 int (*g_next_literal)(std::uint32_t, std::uint32_t, std::uint32_t*) = nullptr;
 int (*g_next_alu)(std::uint32_t, std::uint32_t, std::uint32_t*) = nullptr;
+
+// Seamless mode (engine seamless.h): the launcher started this run as The
+// Broken Seal ended, with its save file and slot. No key is pressed for the
+// player; each step the game would wait for is taken directly:
+// - the intro: the game starts in room 0 entrance 1 (0x080C99B4); right after
+//   (0x080C99D6 calls 0x08038348) the start room becomes the title, room 1
+//   entrance 1, as Start in the intro asks for (0x080D2AA4(1, 1));
+// - the title routine 0x0804D5AC takes its own no-saves path and returns New
+//   Game (cmp r0,#0 at 0x0804D5C0 compared with r0 itself);
+// - Felix is named as usual;
+// - "Load a Golden Sun save file?": its message (0x08038040 with r0 = 0x24)
+//   and window close (0x08038140) do not run, and Yes/No (0x08038378) returns
+//   0, Yes (engine guest_return_now);
+// - the import takes that file and slot without asking.
+// The picture stays black (engine set_screen_veil) except while Felix is
+// named, and again from the end of the import, so only the naming shows.
+// FACTS.md 2026-10-15, "Seamless mode" and "Seamless mode: straight to the
+// naming".
+enum class Seamless { Off, Intro, Title, Naming, Question, Close, Done };
+Seamless g_seamless = Seamless::Off;
+// The Broken Seal's save, from the launcher; empty when it gave none.
+fs::path g_broken_seal_save;
+unsigned g_seamless_slot = 0;
+constexpr std::uint32_t kStartRoomSetPc = 0x08038348u;  // first call after it
+constexpr std::uint32_t kRoomAddr = 0x02000420u;        // u16, entrance +2
+constexpr std::uint32_t kEntranceAddr = 0x02000422u;
+constexpr std::uint16_t kIntroRoom = 0u, kTitleRoom = 1u, kStartEntrance = 1u;
+constexpr std::uint32_t kTitleNoSavesTestPc = 0x0804D5C0u;
+constexpr std::uint32_t kNamingEntryPc = 0x080382F8u;  // title code's naming call
+constexpr std::uint32_t kMessagePc = 0x08038040u;      // r0 = text ID
+constexpr std::uint32_t kQuestionText = 0x24u;
+constexpr std::uint32_t kYesNoPc = 0x08038378u;        // 0 = Yes
+constexpr std::uint32_t kMessageClosePc = 0x08038140u;
 
 fs::path utf8_path(const char* value) {
     return fs::path(reinterpret_cast<const char8_t*>(value));
@@ -109,6 +144,15 @@ void begin_picker() {
     g_import = false;
     g_picker = std::make_shared<PickerResult>();
     g_test_ready = runtime_current_frame();
+    if (g_seamless == Seamless::Close) g_seamless = Seamless::Done;
+    // The launcher's Broken Seal save: no file browser when it holds Clear
+    // Data (Seamless mode always takes it).
+    if (!g_broken_seal_save.empty() &&
+        (g_seamless == Seamless::Done || !read_slots(g_broken_seal_save).empty())) {
+        g_picker->path = g_broken_seal_save;
+        g_picker->done.store(true, std::memory_order_release);
+        return;
+    }
     if (g_headless) {
         if (const char* file = std::getenv("TLA_GS_SAVE_TEST_FILE")) g_picker->path = utf8_path(file);
         if (const char* wait = std::getenv("TLA_GS_SAVE_TEST_WAIT_FRAMES"))
@@ -181,6 +225,7 @@ void begin_picker() {
 }
 
 void fail(const std::string& message) {
+    if (g_seamless != Seamless::Off) gbarecomp::set_screen_veil(false);
     g_error = message;
     g_stage = Stage::Error;
     std::fprintf(stderr, "[gs-save-import] %s\n", message.c_str());
@@ -196,7 +241,17 @@ void menu_frame(gba::GbaBus& bus) {
         else {
             g_slots = read_slots(g_picker->path);
             if (g_slots.empty()) fail("No Golden Sun Clear Data in this file.");
-            else {
+            else if (g_seamless == Seamless::Done) {
+                auto it = std::find_if(g_slots.begin(), g_slots.end(), [](const auto& s) {
+                    return s.slot == g_seamless_slot;
+                });
+                if (it == g_slots.end()) fail("That slot has no Golden Sun Clear Data.");
+                else {
+                    g_row = unsigned(it - g_slots.begin());
+                    g_import = true;
+                    g_stage = Stage::Finish;
+                }
+            } else {
                 g_stage = Stage::Slots;
                 if (!g_headless) {
                     std::error_code ec;
@@ -235,6 +290,12 @@ int import_literal(std::uint32_t pc, std::uint32_t original, std::uint32_t* valu
     return g_next_literal ? g_next_literal(pc, original, value) : 0;
 }
 int import_alu(std::uint32_t pc, std::uint32_t original, std::uint32_t* value) {
+    if (pc == kTitleNoSavesTestPc && original == 0u && g_seamless == Seamless::Title) {
+        *value = g_cpu.R[0];
+        g_seamless = Seamless::Naming;
+        std::fprintf(stderr, "[seamless] New Game\n");
+        return 1;
+    }
     if (g_stage != Stage::Idle) {
         if (gba::GbaBus* bus = gbarecomp::active_bus()) {
             if (pc == 0x0804D1EAu) {
@@ -251,6 +312,7 @@ int import_alu(std::uint32_t pc, std::uint32_t original, std::uint32_t* value) {
                 }
                 bus->write32(g_cpu.R[13] + 24, g_import ? 0x02008525u : 0x020084B7u);
                 g_stage = Stage::Idle;
+                if (g_seamless == Seamless::Done) gbarecomp::set_screen_veil(false);
                 g_picker.reset();
             }
         }
@@ -260,18 +322,64 @@ int import_alu(std::uint32_t pc, std::uint32_t original, std::uint32_t* value) {
 } // namespace
 
 void tla_install_gs_save_import(gbarecomp::RunOptions& options, bool headless) {
-    const char* enabled = std::getenv("TLA_GS_SAVE_IMPORT");
-    g_enabled = !enabled || std::strcmp(enabled, "0") != 0;
+    g_enabled = gbarecomp::env_flag("TLA_GS_SAVE_IMPORT", true);
     g_headless = headless;
+    namespace sm = gbarecomp::seamless;
+    const char* file = std::getenv(sm::kSaveEnv);
+    const char* slot = std::getenv(sm::kSlotEnv);
+    if (file && *file) g_broken_seal_save = utf8_path(file);
+    if (file && *file && slot && *slot) {
+        g_seamless_slot = unsigned(std::strtoul(slot, nullptr, 10));
+        g_seamless = Seamless::Intro;
+        g_enabled = true;  // Seamless mode is an import
+        gbarecomp::set_screen_veil(true, true);
+        std::fprintf(stderr, "[seamless] importing slot %u\n", g_seamless_slot);
+    }
     g_next_literal = options.thumb_literal_override;
     options.thumb_literal_override = import_literal;
     g_next_alu = options.thumb_alu_immediate_override;
     options.thumb_alu_immediate_override = import_alu;
 }
 bool tla_gs_save_import_text(std::uint32_t id, std::string& out) {
-    if (!g_enabled || id != 0x24u) return false;
+    if (!g_enabled || id != kQuestionText) return false;
     out = "Load a Golden Sun save file?";
     return true;
+}
+void tla_gs_save_import_on_entry(std::uint32_t pc) {
+    switch (g_seamless) {
+    case Seamless::Intro:
+        if (pc == kStartRoomSetPc && bus_read_u16(kRoomAddr) == kIntroRoom &&
+            bus_read_u16(kEntranceAddr) == kStartEntrance) {
+            bus_write_u16(kRoomAddr, kTitleRoom);
+            g_seamless = Seamless::Title;
+            std::fprintf(stderr, "[seamless] intro skipped\n");
+        }
+        break;
+    case Seamless::Title:  // no saves: the title routine never runs
+    case Seamless::Naming:
+        if (pc == kNamingEntryPc) {
+            g_seamless = Seamless::Naming;
+            gbarecomp::set_screen_veil(false);
+        } else if (pc == kMessagePc && g_cpu.R[0] == kQuestionText &&
+                   g_seamless == Seamless::Naming) {
+            gbarecomp::set_screen_veil(true);
+            gbarecomp::guest_return_now(pc, 0);
+            g_seamless = Seamless::Question;
+        }
+        break;
+    case Seamless::Question:
+        if (pc == kYesNoPc) {
+            gbarecomp::guest_return_now(pc, 0);
+            g_seamless = Seamless::Close;
+            std::fprintf(stderr, "[seamless] Golden Sun save: Yes\n");
+        }
+        break;
+    case Seamless::Close:
+        if (pc == kMessageClosePc) gbarecomp::guest_return_now(pc, 0);
+        break;
+    default:
+        break;
+    }
 }
 bool tla_gs_save_import_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height) {
     if (g_stage == Stage::Idle) return false;

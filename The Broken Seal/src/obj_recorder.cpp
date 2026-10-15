@@ -2,6 +2,7 @@
 
 #include "obj_recorder.h"
 #include "env_flag.h"
+#include "game_exit.h"
 
 #include <array>
 #include <cstdio>
@@ -636,7 +637,7 @@ void obj_recorder_init() {
     g_enabled = gbarecomp::env_flag("GSR_OBJ_RECORD");
     if (!g_enabled) return;
     ensure_session_dir();
-    std::atexit(write_all);
+    gbarecomp::at_game_exit(write_all);
 }
 
 bool obj_recorder_enabled() { return g_enabled; }

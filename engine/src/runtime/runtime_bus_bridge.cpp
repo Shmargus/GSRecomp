@@ -6,6 +6,8 @@
 // before any recompiled cart code executes.
 
 #include "../armv4t/runtime_arm.h"
+#include "env_flag.h"
+#include "game_exit.h"
 #include "../armv4t/arm_ir.h"
 #include "../armv4t/env_flag.h"
 #include "../armv4t/symbol_lookup.h"
@@ -13,6 +15,7 @@
 #include "../gba/gba_irq.h"
 #include "../gba/gba_ppu.h"
 #include "host_prof_phase.h"
+#include "runtime.h"  // guest_call, guest_return_now
 
 #ifdef GBA_COSIM
 #include "../debug/cosim.h"   // cosim_on_tick() — first-divergence checkpoint hook
@@ -79,11 +82,10 @@ extern "C" unsigned long long g_prof_scanline_count = 0;
 // check per call site when off" cost as before.
 static bool phase_prof_enabled() {
     static const bool on = [] {
-        const char* e = std::getenv("GBARECOMP_PHASE_PROF");
-        bool enabled = e ? !(e[0] == '0' && e[1] == '\0')
-                         : (gsr_additional_debug_logging() != 0);
+        bool enabled = gbarecomp::env_flag("GBARECOMP_PHASE_PROF",
+                                           gsr_additional_debug_logging() != 0);
         if (enabled) {
-            std::atexit([] {
+            gbarecomp::at_game_exit([] {
                 std::fprintf(stderr,
                     "[phase] render_scanline: %llu ns over %llu calls "
                     "(avg %.1f ns/call)\n",
@@ -147,10 +149,9 @@ extern "C" unsigned long long g_cost_irq_handler_calls = 0;
 extern "C" unsigned long long g_cost_bk[kBkCount] = {};
 extern "C" bool g_cost_probe_enabled(void);
 static const bool g_cost_probe = [] {
-    const char* e = std::getenv("GBARECOMP_COST_PROBE");
-    bool on = (e != nullptr) && !(e[0] == '0' && e[1] == '\0');
+    bool on = gbarecomp::env_flag("GBARECOMP_COST_PROBE");
     if (on) {
-        std::atexit([] {
+        gbarecomp::at_game_exit([] {
             std::fprintf(stderr,
                 "[cost] dispatch:       %llu ns over %llu calls\n"
                 "[cost] halt_pump:      %llu ns over %llu halts (%llu pump_idle iters)\n"
@@ -540,6 +541,18 @@ static void host_prof_resolve_game_dll() {
     g_host_game_begin = reinterpret_cast<uintptr_t>(game);  // set last
 }
 
+// The engine's own module: the program, or the engine plug-in the player
+// program runs (game_module.cpp). Not GetModuleHandle(nullptr), which is
+// the player program there.
+static HMODULE host_prof_engine_module() {
+    HMODULE module = nullptr;
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       reinterpret_cast<LPCWSTR>(&host_prof_engine_module),
+                       &module);
+    return module;
+}
+
 static void host_prof_loop() {
     // High-resolution waitable timer, owned by this thread. If the OS refuses
     // it (pre-Windows 10 1803) fall back to sleep_for and say so in the dump:
@@ -626,8 +639,8 @@ static void dump_host_hist() {
     if (!f) return;
     // Module base, so RIPs can be turned into link-time addresses offline.
     std::fprintf(f, "# module_base 0x%llx\n",
-                 (unsigned long long)(uintptr_t)GetModuleHandleW(nullptr));
-    const auto* module = reinterpret_cast<const char*>(GetModuleHandleW(nullptr));
+                 (unsigned long long)(uintptr_t)host_prof_engine_module());
+    const auto* module = reinterpret_cast<const char*>(host_prof_engine_module());
     const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(module);
     const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(module + dos->e_lfanew);
     std::fprintf(f, "# module_size 0x%lx\n", nt->OptionalHeader.SizeOfImage);
@@ -741,7 +754,7 @@ static void start_host_prof() {
         g_host_crt_begin = reinterpret_cast<uintptr_t>(crt);
         g_host_crt_end = g_host_crt_begin + nt->OptionalHeader.SizeOfImage;
     }
-    if (HMODULE exe = GetModuleHandleW(nullptr)) {
+    if (HMODULE exe = host_prof_engine_module()) {
         const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(exe);
         const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(
             reinterpret_cast<const char*>(exe) + dos->e_lfanew);
@@ -760,7 +773,7 @@ static void start_host_prof() {
         g_host_prof_frame.store(g_active_ppu->frame_count(),
                                 std::memory_order_relaxed);
     g_host_prof = std::thread(host_prof_loop);
-    std::atexit([] {
+    gbarecomp::at_game_exit([] {
         g_host_profiling.store(false);
         if (g_host_prof.joinable()) g_host_prof.join();
         dump_host_hist();
@@ -812,7 +825,7 @@ static void start_sampler() {
     if (!sample_requested()) return;
     if (g_sampling.exchange(true)) return;  // start once
     g_sampler = std::thread(sampler_loop);
-    std::atexit([] {
+    gbarecomp::at_game_exit([] {
         g_sampling.store(false);
         if (g_sampler.joinable()) g_sampler.join();
         dump_sample_hist("exit");
@@ -1923,10 +1936,9 @@ struct IdleSite {
 };
 static std::unordered_map<uint32_t, IdleSite> g_idle_sites;
 static const bool g_idle_elision_on = [] {
-    const char* e = std::getenv("GBARECOMP_IDLE_ELISION");
-    bool on = !(e && e[0] == '0' && e[1] == '\0');   // default ON
+    bool on = gbarecomp::env_flag("GBARECOMP_IDLE_ELISION", true);
     if (on) {
-        std::atexit([] {
+        gbarecomp::at_game_exit([] {
             if (g_idle_skipped_cycles == 0) return;
             std::fprintf(stderr,
                 "[idle] elided %llu loop iterations (%llu cycles) over %llu "
@@ -2097,10 +2109,7 @@ static bool runtime_should_yield_decide(void) {
     // sufficient guard: a GBA IRQ dispatcher (intr_main) switches IRQ→System mode
     // mid-handler to allow nested IRQs, so it would pass a User/System-mode test
     // while still inside the IRQ. Gate on the live IRQ nesting depth too.
-    static const bool yield_on_vblank = [] {
-        const char* e = std::getenv("GBARECOMP_YIELD_ON_VBLANK");
-        return !(e && e[0] == '0' && e[1] == '\0');
-    }();
+    static const bool yield_on_vblank = gbarecomp::env_flag("GBARECOMP_YIELD_ON_VBLANK", true);
     if (yield_on_vblank &&
         g_runtime_vblank_starts != g_runtime_yielded_vblank_start) {
         const uint32_t mode = g_cpu.cpsr & 0x1Fu;
@@ -2137,10 +2146,7 @@ static bool runtime_should_yield_decide(void) {
     // wall-clock with no HALT, snapshot the live M4A state ONCE and keep
     // running (observation, not a fix). Disable with
     // GBARECOMP_HANG_WATCHDOG=0; tune seconds with GBARECOMP_HANG_SECONDS.
-    static const bool wd_on = [] {
-        const char* e = std::getenv("GBARECOMP_HANG_WATCHDOG");
-        return !(e && e[0] == '0' && e[1] == '\0');
-    }();
+    static const bool wd_on = gbarecomp::env_flag("GBARECOMP_HANG_WATCHDOG", true);
     if (wd_on) {
         static const long long wd_secs = [] {
             const char* e = std::getenv("GBARECOMP_HANG_SECONDS");
@@ -2173,6 +2179,53 @@ static bool runtime_should_yield_decide(void) {
 extern "C" uint32_t g_yield_resume_pc;
 extern "C" bool     g_yield_resume_pending;
 
+// Lets time pass while the guest is halted, as the main loop's idle pump does:
+// advance to the nearest device event, letting runtime_tick deliver the IRQ
+// (it handles the wake-from-HALT latency itself), for at most one frame of
+// cycles so a guest that halts with no interrupt possible still returns.
+extern "C" void runtime_idle_while_halted(void) {
+    auto* bus = gbarecomp::g_active_bus;
+    if (!bus) return;
+    gba::GbaPpu* ppu = gbarecomp::g_active_ppu;
+    std::uint32_t idle_budget = gba::GbaPpu::kCyclesPerFrame;
+    while (bus->io().halted() && idle_budget != 0) {
+        std::uint32_t chunk = ppu ? ppu->cycles_until_next_event() : 1u;
+        const std::uint32_t until_timer =
+            bus->io().cycles_until_next_timer_event();
+        if (until_timer < chunk) chunk = until_timer;
+        const std::uint32_t until_sample =
+            bus->audio().cycles_until_next_sample();
+        if (until_sample < chunk) chunk = until_sample;
+        if (chunk == 0u || chunk == 0xFFFFFFFFu) chunk = 1u;
+        if (chunk > idle_budget) chunk = idle_budget;
+        runtime_tick(chunk);
+        idle_budget -= chunk;
+    }
+}
+
+// gbarecomp::guest_call / guest_return_now (runtime.h). While a host call
+// runs, nothing unwinds the guest: a HALT is waited out in place and frame
+// yields are skipped (the windowed runner still presents in place).
+static std::uint32_t g_guest_call_depth = 0;
+static bool g_return_now = false;
+static std::uint32_t g_return_now_pc = 0;
+static std::uint32_t g_return_now_value = 0;
+
+// The entered function returns at once, as its own `bx lr` would: r0 set,
+// the caller's return frame closed, or the return dispatched when no frame
+// matches. Its first instruction then reports a yield, so its C body returns.
+static bool return_now_take() {
+    g_return_now = false;
+    if (g_cpu.R[15] != g_return_now_pc) return false;
+    g_cpu.R[0] = g_return_now_value;
+    const std::uint32_t target = g_cpu.R[14];
+    g_cpu.R[15] = target & ~1u;
+    if (target & 1u) g_cpu.cpsr |= CPSR_T_BIT; else g_cpu.cpsr &= ~CPSR_T_BIT;
+    if (!runtime_call_should_return(g_cpu.R[15]))
+        runtime_dispatch_with_exchange(target);
+    return true;
+}
+
 // A yield unwinds the host C stack: each generated call site sees R15 != its
 // return address, cancels its frame and returns. Stale sites (left live by
 // code whose trampoline returned elsewhere, e.g. the overlay unpacker at
@@ -2183,7 +2236,13 @@ extern "C" bool     g_yield_resume_pending;
 // so it is never a return address. FACTS.md "Door+Turbo crash".
 extern "C" bool runtime_should_yield(void) {
     cost_bk(kBkShouldYield);
+    if (g_return_now && return_now_take()) return true;
     if (!runtime_should_yield_decide()) return false;
+    if (g_guest_call_depth != 0u) {
+        auto* bus = gbarecomp::g_active_bus;
+        while (bus && bus->io().halted()) runtime_idle_while_halted();
+        return false;
+    }
     // Keep the first stash if a second yield is reported before the restore.
     if (!g_yield_resume_pending) {
         g_yield_resume_pc = g_cpu.R[15];
@@ -2192,3 +2251,38 @@ extern "C" bool runtime_should_yield(void) {
     g_cpu.R[15] = 0xFFFFFFF0u;
     return true;
 }
+
+namespace gbarecomp {
+
+bool guest_call(std::uint32_t pc, std::uint32_t r0, std::uint32_t r1,
+                std::uint32_t r2, std::uint32_t r3, std::uint32_t* result) {
+    if (g_irq_nest_depth != 0u) return false;
+    // The return address the call pushes: the cartridge entry, which no
+    // generated call site returns to, and which is never run from here.
+    constexpr std::uint32_t kReturn = 0x08000000u;
+    const ArmCpuState saved = g_cpu;
+    g_cpu.R[0] = r0;
+    g_cpu.R[1] = r1;
+    g_cpu.R[2] = r2;
+    g_cpu.R[3] = r3;
+    g_cpu.R[14] = kReturn | 1u;
+    g_cpu.R[15] = pc & ~1u;
+    if (pc & 1u) g_cpu.cpsr |= CPSR_T_BIT; else g_cpu.cpsr &= ~CPSR_T_BIT;
+    ++g_guest_call_depth;
+    runtime_call_push_return(kReturn);
+    runtime_dispatch(pc);
+    --g_guest_call_depth;
+    const bool returned = (g_cpu.R[15] & ~1u) == kReturn;
+    if (!returned) runtime_call_cancel_return(kReturn);
+    if (result) *result = g_cpu.R[0];
+    g_cpu = saved;
+    return returned;
+}
+
+void guest_return_now(std::uint32_t entry_pc, std::uint32_t value) {
+    g_return_now = true;
+    g_return_now_pc = entry_pc & ~1u;
+    g_return_now_value = value;
+}
+
+}  // namespace gbarecomp

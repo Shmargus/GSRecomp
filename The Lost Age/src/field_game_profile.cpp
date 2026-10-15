@@ -2,8 +2,8 @@
 // and GPU field renderer (engine/src/field/field_game_profile.h).
 #include "field_game_profile.h"
 
+#include "effect_capture.h"
 #include "tla.h"
-#include "widescreen_policy.h"
 #include "world_map_source.h"
 
 namespace gsr {
@@ -29,9 +29,12 @@ const FieldGameProfile& field_game_profile() {
         // kTlaMapIdAddr: 1 on the title screen, which Golden Sun 1's 0 never
         // was; the layer agreement check still guards it.
         p.map_id_addr = kTlaMapIdAddr;
-        p.expanded_extra_x = widescreen::kExpandedExtraX;
-        p.obj_park_raw_x = widescreen::kGoldenSunObjParkRawX;
-        p.obj_park_raw_y = widescreen::kGoldenSunObjParkRawY;
+        // The expanded view adds 60 columns per side (as Golden Sun 1).
+        p.expanded_extra_x = 60;
+        // Unused sprites are parked at raw OAM (192, 192), as in Golden Sun 1
+        // (FACTS.md: OAM shadow 0x03005410).
+        p.obj_park_raw_x = 192;
+        p.obj_park_raw_y = 192;
         p.world_map_side_tiles = WorldMapSource::kSideTiles;
         // The Lost Age stores the y mask times the grid's 128 columns (0x3F80
         // for 127, Madra's rays 0x1F80 for 63: F12 0104/0105); read raw, the
@@ -43,6 +46,67 @@ const FieldGameProfile& field_game_profile() {
 
         p.margin_scroll_rows = true;
         p.agreement_autoscroll_wrap = true;
+        return p;
+    }();
+    return profile;
+}
+
+const EffectCaptureProfile& effect_capture_profile() {
+    static const EffectCaptureProfile profile = [] {
+        EffectCaptureProfile p;
+        // FACTS.md 2026-10-05. Golden Sun 1's effect machinery, re-found on
+        // this ROM by Golden Sun 1's own bytes:
+        //   * generated stamp routines: a Thumb stub, then GS1's stamp
+        //     header, in IWRAM allocations under varying ids (F12 0039/0040:
+        //     Ray at 26 and 47, Flare at 26, 20 also holding one), so they
+        //     are known by their bytes, not by a slot;
+        //   * the canvas copy/fade/halve/subtract/add wrappers run from ROM
+        //     (0x08001C90..0x08001FDC), each with a pool naming its routine.
+        //     Two sets: GS1's (0x08001F7C..) and an unrolled set (0x08001C90..)
+        //     that battles use (same results);
+        //   * every resident ARM routine (plain copy, clear, fill) and every
+        //     generated stamp starts with a 4-byte Thumb stub (`bx pc`).
+        // The canvas is not taken from an allocation slot: GS1's slot id read
+        // 0 in every capture (session 20261004_211450: 0 stamps, 0 copies).
+        // It is the 16 KB buffer the game copies to video memory instead.
+        p.thumb_stub = 4;
+        // The game copies ROM 0x080005B8.. (4 KB) to IWRAM.
+        p.iwram_image_rom = 0x080005B8u;
+        p.iwram_image_rom_end = 0x080016B8u;
+        // Fade: routines 0x08001D10 / unrolled 0x08001A14; halve: 0x08001D70
+        // / 0x08001AD4; subtract: 0x08001DD0 / 0x08001B54; add: 0x08001EA4 /
+        // 0x08001C08.
+        p.copy_fade[0] = 0x08001F7Cu;
+        p.copy_fade[1] = 0x08001C90u;
+        p.copy_halve[0] = 0x08001F9Cu;
+        p.copy_halve[1] = 0x08001CB0u;
+        p.copy_subtract[0] = 0x08001FDCu;
+        p.copy_subtract[1] = 0x08001CF0u;
+        p.copy_add[0] = 0x08001FBCu;
+        p.copy_add[1] = 0x08001CD0u;
+        p.canvas_block_slot = 0x0300009Cu;
+        // GS1's block offsets, not re-measured here (mode 1 detection only).
+        p.plain_copy = 0x03000734u;           // ROM 0x08000CEC, 120 bytes
+        p.plain_copy_source = 0x08000CECu;
+        p.clear_canvas = 0x0300025Cu;         // ROM 0x08000814: mov r2,#0,
+        p.clear_source = 0x08000814u;         // a stub, then the fill
+        p.clear_bytes = 120;
+        p.fill_canvas = 0x03000264u;          // ROM 0x0800081C, 112 bytes
+        p.fill_source = 0x0800081Cu;
+        p.fill_bytes = 112;
+        // The generator's templates are GS1's bytes at 0x0819706C..0x081972D8.
+        p.header_template = 0x081972A4u;
+        p.saturation_template = 0x08197224u;
+        p.flip_x_template = 0x081972B0u;
+        p.flip_y_template = 0x081972BCu;
+        p.flip_xy_template = 0x081972CCu;
+        p.no_flip_template = 0x081972D8u;
+        p.max_template = 0x08197154u;
+        p.max_reverse_template = 0x08197164u;
+        p.add_template = 0x081971F4u;
+        p.add_reverse_template = 0x0819720Cu;
+        p.replace_template = 0x0819706Cu;
+        p.replace_reverse_template = 0x0819707Cu;
         return p;
     }();
     return profile;

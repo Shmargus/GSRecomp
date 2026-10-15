@@ -14,6 +14,7 @@ namespace gbarecomp { struct RunOptions; }
 void tla_install_gs_save_import(gbarecomp::RunOptions& options, bool headless);
 bool tla_gs_save_import_text(std::uint32_t text_id, std::string& out);
 bool tla_gs_save_import_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
+void tla_gs_save_import_on_entry(std::uint32_t pc);
 
 // game_options.ini, the runner's own options: engine game_options.h.
 
@@ -25,7 +26,7 @@ void tla_install_text_speed(gbarecomp::RunOptions& options);
 bool tla_text_speed_text(std::uint32_t text_id, std::string& out);
 
 // src/tla_walk_speed.cpp: Walk Speed (the engine's walking-speed setting).
-void tla_install_walk_speed();
+void tla_install_walk_speed(gbarecomp::RunOptions& options);
 
 // Allocation slot table 0x03000000 + id (allocator 0x08014CC0): slot 0x24
 // is non-zero exactly during battles, entry fade included (session
@@ -121,7 +122,8 @@ struct TlaValueCaption {
 
 // src/tla_widescreen.cpp: the expanded view's camera and characters.
 void tla_install_widescreen(gbarecomp::RunOptions& options);
-void tla_widescreen_frame();
+// window_open: a game window (menu) is showing this frame.
+void tla_widescreen_frame(bool window_open);
 // Rows the expanded view's camera rule holds the camera from where the game
 // put it (+ below), 0 when the game's own camera is in effect.
 int tla_camera_hold_y();

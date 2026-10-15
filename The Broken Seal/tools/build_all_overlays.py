@@ -192,9 +192,9 @@ def main() -> int:
                 check=True,
                 stdout=subprocess.DEVNULL,
             )
-            # Same slimming as the main corpus (tools/slim_corpus.py).
+            # Same slimming as the main corpus (scripts/slim_corpus.py).
             subprocess.run(
-                [sys.executable, str(Path(__file__).with_name("slim_corpus.py")),
+                [sys.executable, str(Path(__file__).resolve().parents[2] / "scripts" / "slim_corpus.py"),
                  str(stage_dir)],
                 check=True,
                 stdout=subprocess.DEVNULL,

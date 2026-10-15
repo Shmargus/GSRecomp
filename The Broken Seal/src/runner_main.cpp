@@ -16,6 +16,7 @@
 
 #include "crc32.h"
 #include "env_flag.h"
+#include "game_exit.h"
 #include "frame_history.h"
 #include "crash_handler.h"
 #include "map_recorder.h"
@@ -31,6 +32,8 @@
 #include "world_map_source.h"
 #include "cheat_menu.h"
 #include "hard_mode.h"
+#include "host_config_ui.h"
+#include "seamless_mode.h"
 #include "gpu_surface.h"
 #include "view_config.h"
 #include "gba_bus.h"
@@ -6635,7 +6638,7 @@ void golden_sun_obj_position_probe_sample(std::uint32_t staging_address,
     static bool atexit_armed = false;
     if (!atexit_armed) {
         atexit_armed = true;
-        std::atexit(report_golden_sun_obj_position_probe);
+        gbarecomp::at_game_exit(report_golden_sun_obj_position_probe);
     }
     const int axis = x_axis ? 0 : 1;
     ++g_golden_sun_obj_position_probe_samples[axis];
@@ -9009,12 +9012,12 @@ void install_golden_sun_widescreen(std::uint32_t extra_left,
     static bool cull_report_armed = false;
     if (!cull_report_armed) {
         cull_report_armed = true;
-        std::atexit(report_golden_sun_cull_trace_at_exit);
+        gbarecomp::at_game_exit(report_golden_sun_cull_trace_at_exit);
     }
     static bool wide_report_armed = false;
     if (!wide_report_armed) {
         wide_report_armed = true;
-        std::atexit(report_golden_sun_wide_diagnostics_at_exit);
+        gbarecomp::at_game_exit(report_golden_sun_wide_diagnostics_at_exit);
     }
     // The margin policy is a survivor of the old widescreen implementation:
     // it classifies each raster line and pillarboxes (blacks) the margins
@@ -11332,27 +11335,100 @@ bool g_cheat_menu_swallow = false;
 std::uint16_t g_cheat_window_palette[16] = {};
 bool g_cheat_window_palette_known = false;
 
-// New-game Hard Mode prompt (hard_mode.h): the cheat menu's window and key
-// capture, opened from the entry to Func_77f40 instead of the hotkey.
+// New-game prompts (hard_mode.h, seamless_mode.h): the cheat menu's window
+// and key capture, opened from the entry to Func_77f40 instead of the hotkey.
+// "Hard Mode?" first, then "Seamless mode?" in the same window.
 bool g_hard_prompt_open = false;
+bool g_hard_prompt_seamless = false;  // the second question is showing
 int g_hard_prompt_row = 0;
 std::uint16_t g_hard_prompt_held = 0;
+
+bool seamless_mode_on() {
+    return gbarecomp::game_option_get(gbarecomp::seamless::kOptionKey, 0) != 0;
+}
 
 void hard_mode_prompt_open() {
     load_menu_font();
     g_hard_prompt_open = true;
+    g_hard_prompt_seamless = false;
     g_hard_prompt_row = 0;
     g_hard_prompt_held = 0x3FFu;
 }
 
-void hard_mode_prompt_close(bool hard) {
+void hard_mode_prompt_close(bool yes) {
+    if (g_hard_prompt_seamless) {
+        gbarecomp::game_option_set(gbarecomp::seamless::kOptionKey, yes ? 1 : 0);
+        g_hard_prompt_open = false;
+        g_cheat_menu_swallow = true;
+        return;
+    }
     using namespace gsr::hard_mode;
-    const std::uint8_t value = hard ? kHardModeValue : 0u;
+    const std::uint8_t value = yes ? kHardModeValue : 0u;
     bus_write_u8(kSavedFlag, value);
     bus_write_u8(kAutoSleepFlag, value);
-    g_hard_prompt_open = false;
-    g_cheat_menu_swallow = true;
+    // The key that answered is still held; the next question takes only a
+    // new press (the filter compares against g_hard_prompt_held).
+    g_hard_prompt_seamless = true;
+    g_hard_prompt_row = seamless_mode_on() ? 1 : 0;
 }
+
+// Seamless mode at the end of the game (seamless_mode.h). Emulation thread.
+enum class SeamlessPhase { Off, Leaving };
+SeamlessPhase g_seamless_phase = SeamlessPhase::Off;
+std::uint16_t g_seamless_slot = 0;
+
+// The save screen's routine 0x080207C4 without its questions, text and sound:
+// true once both blocks of the Clear Data are written to `slot`.
+bool seamless_save_clear_data(std::uint16_t slot) {
+    using namespace gsr::seamless;
+    using gbarecomp::guest_call;
+    bus_write_u8(kClearFlagAddr, 1u);
+    std::uint32_t scan = 1, first = 1, second = 1;
+    bool saved = guest_call(kFlashScanPc, 0, 0, 0, 0, &scan) && scan == 0u &&
+        guest_call(kSummariesPc, 0, 0, 0, 0, nullptr) &&
+        guest_call(kClearStatePc, 0, 0, 0, 0, nullptr) &&
+        guest_call(kMapObjectsPc, 0, 0, 0, 0, nullptr) &&
+        guest_call(kWriteBlockPc, slot, kSaveBlockA, 0, 0, &first) &&
+        guest_call(kWriteBlockPc, slot + kSecondBlockOffset, kSaveBlockB, 0, 0,
+                   &second) &&
+        (first | second) == 0u;
+    guest_call(kSaveEndPc, 0, 0, 0, 0, nullptr);
+    return saved;
+}
+
+// When the ship sails off (the credits' room is about to load), save and
+// leave behind black; if the save fails, the ending carries on as usual.
+void seamless_on_entry(std::uint32_t entry_pc) {
+    using namespace gsr::seamless;
+    if (entry_pc != kRoomCodeLoadPc || g_seamless_phase != SeamlessPhase::Off ||
+        bus_read_u16(kRoomAddr) != kCreditsRoom ||
+        bus_read_u16(kEntranceAddr) != kCreditsEntrance || !seamless_mode_on())
+        return;
+    g_seamless_slot = bus_read_u16(kCurrentSlotAddr);
+    if (g_seamless_slot >= gbarecomp::seamless::kSlotCount ||
+        !seamless_save_clear_data(g_seamless_slot)) {
+        std::fprintf(stderr, "[seamless] Clear Data save to slot %u failed; "
+                     "the ending goes on\n", g_seamless_slot + 1u);
+        return;
+    }
+    g_seamless_phase = SeamlessPhase::Leaving;
+    gbarecomp::set_screen_veil(true);
+    std::fprintf(stderr, "[seamless] Clear Data saved to slot %u\n",
+                 g_seamless_slot + 1u);
+}
+
+// Once per game frame (the frame routine's wait): leave once saved and the
+// screen is fully black.
+void seamless_frame_end() {
+    if (g_seamless_phase != SeamlessPhase::Leaving || !gbarecomp::screen_veil_covered())
+        return;
+    g_seamless_phase = SeamlessPhase::Off;
+    gbarecomp::request_exit(gbarecomp::seamless::kExitCodeBase + g_seamless_slot);
+}
+
+const gbarecomp::GameOptionSwitch kGameSwitches[] = {
+    {gsr::seamless::kSwitchLabel, gsr::seamless::kSwitchCaption,
+     gbarecomp::seamless::kOptionKey}};
 
 void cheat_menu_toggle() {
     if (g_hard_prompt_open) return;
@@ -11532,11 +11608,14 @@ void cheat_menu_paint(std::uint8_t* rgb, std::uint32_t width,
         menu_window_paint(rgb, width, height,
                           [](auto& draw_text, auto& text_width, int inner_x,
                              int inner_y) {
-            draw_text(hm::kPromptTitle, inner_x + (kWindowTiles - 2) * 4 -
-                          text_width(hm::kPromptTitle) / 2, inner_y);
+            const char* title = g_hard_prompt_seamless
+                ? gsr::seamless::kPromptTitle : hm::kPromptTitle;
+            const char* const* lines = g_hard_prompt_seamless
+                ? gsr::seamless::kPromptLines : hm::kPromptLines;
+            draw_text(title, inner_x + (kWindowTiles - 2) * 4 -
+                          text_width(title) / 2, inner_y);
             for (int i = 0; i < 3; ++i)
-                draw_text(hm::kPromptLines[i], inner_x + kLabelX,
-                          inner_y + 14 + i * 12);
+                draw_text(lines[i], inner_x + kLabelX, inner_y + 14 + i * 12);
             for (int row = 0; row < 2; ++row) {
                 std::string label = hm::kPromptRows[row];
                 if (row == g_hard_prompt_row) label = "< " + label + " >";
@@ -12159,6 +12238,7 @@ int golden_sun_thumb_literal(std::uint32_t pc, std::uint32_t original,
     if (pc == gsr::battle_speed::kWaitMaskLiteralPc &&
         original == gsr::battle_speed::kWaitMask) {
         native_page_frame_end();
+        seamless_frame_end();
         return battle_speed_wait_mask(out_value);
     }
     if (pc == gsr::battle_speed::kRevealEndLiteralPc &&
@@ -13904,7 +13984,7 @@ RuntimeGuestFn try_relocatable_dispatch(std::uint32_t pc, int thumb) {
     RelocatableProfilePc* pc_stats = nullptr;
     if (profiling) {
         if (g_relocatable_profile_calls++ == 0) {
-            std::atexit(report_relocatable_profile);
+            gbarecomp::at_game_exit(report_relocatable_profile);
         }
         pc_stats = &relocatable_profile_pc(pc);
         ++pc_stats->calls;
@@ -14151,6 +14231,7 @@ void golden_sun_function_entry_observer(std::uint32_t entry_pc) {
     } else if (entry_pc == gsr::hard_mode::kStatRecalcPc) {
         hard_mode_scale_enemy();
     }
+    seamless_on_entry(entry_pc);
     field_psynergy_on_entry(entry_pc);
     golden_sun_obj_f0_entry_capture(entry_pc);
     golden_sun_obj_staging_handoff(entry_pc);
@@ -14740,7 +14821,7 @@ bool allow_dynamic_ram_pc(const char* reason, std::uint32_t pc, int thumb) {
     if (strict_static_run()) return false;
     ++g_dynamic_ram_dispatches;
     if (dynamic_ram_pc_reported(pc)) return true;
-    if (g_dynamic_ram_pcs.empty()) std::atexit(report_dynamic_ram_summary);
+    if (g_dynamic_ram_pcs.empty()) gbarecomp::at_game_exit(report_dynamic_ram_summary);
     g_dynamic_ram_pcs.push_back(pc);
     std::fprintf(stderr,
         "GoldenSunRecomp: DYNAMIC RAM CODE at 0x%08X (%s) — %s. No registered "
@@ -15452,6 +15533,8 @@ int main(int argc, char** argv) {
         g_settings_open.store(false);
         g_settings_screen_text = false;
         g_hard_prompt_open = false;
+        g_seamless_phase = SeamlessPhase::Off;
+        gbarecomp::set_screen_veil(false, true);
         g_settings_page.store(1);
         native_page_end(false);
         // The camera inset keys off the map number taken at the last room
@@ -15483,6 +15566,8 @@ int main(int argc, char** argv) {
     options.game_menu_toggle = cheat_menu_toggle;
     options.keyinput_filter = cheat_menu_keyinput_filter;
     options.paused_overlay = cheat_menu_paint;
+    gbarecomp::config_ui_set_game_switches(
+        kGameSwitches, static_cast<int>(std::size(kGameSwitches)));
     options.pause_request_poll = cheat_menu_pause_poll;
     options.launcher_region = "USA/Europe";
     options.launcher_game_config = "game.toml";

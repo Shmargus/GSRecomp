@@ -8603,6 +8603,18 @@ note = "rope coil: max y 0x00DFFFFF"
 addr = 0x080D8AFA
 note = "rope coil: y > max skips; not taken = placed (record the placement)"
 
+# Climbing (action 0x1B, 0x080290F4; FACTS 2026-10-15): the two end-of-climb
+# tests, read-only, so Walk Speed can drop back to the game's own speed while
+# one faster step could reach the top or bottom. r3 = ground height ahead
+# minus the player's height at both.
+[[thumb_alu_immediate_override]]
+addr = 0x08029236
+note = "climb Up test: movs r0,#0x80 (lsl 13 = 16 px); r3 margin live"
+
+[[thumb_literal_override]]
+addr = 0x0802925A
+note = "climb Down test: ldr r0,=0xFFF80000 (-8 px); r3 margin live"
+
 # Field effect callbacks reached only through pointers (session
 # 20261008_204607: field sparkle slowdown, F12 0082/0083). Each starts after
 # a literal pool or another function's return.
@@ -8672,3 +8684,22 @@ note = "AGFE ROM movs r3,#1 after frame wait 0x08013560 and ldr r2,[r6,#4]; A te
 [[thumb_alu_immediate_override]]
 addr = 0x0804D94A
 note = "AGFE ROM adds r0,r5,#0 after chooser cleanup 0x0804D118; prologue pushes 16+8 bytes and allocates 4, so saved r8=SP+4 and title return=SP+24. Rejoin measured common link importer 0x02008524 or question 0x020084B6. FACTS 2026-10-11."
+
+# Seamless mode: the title routine's own no-saves path returns New Game.
+[[thumb_alu_immediate_override]]
+addr = 0x0804D5C0
+note = "AGFE ROM cmp r0,#0 in title routine 0x0804D5AC after save scan 0x080432A4 (r0 <0 handled at 0x0804D5B6); equal returns 0 = New Game at 0x0804D5C4 without the menu. Seamless mode compares r0 with itself once. FACTS 2026-10-15."
+
+# Better Field Psy: Reveal lasts to twice the distance.
+[[conditional_branch_override]]
+addr = 0x080DD7F4
+note = "AGFE ROM Reveal range 0x080DD754: bge 0x080DD806 ends Reveal when r2 = dx*dx+dy*dy >= r1 = 0xE10 (movs #0xE1; lsls #4 at 0x080DD7EC/0x080DD7F0). State S = [0x0300006C], countdown S+0xCA6 measured 600 falling in F12 tla_rewind_0028. FACTS 2026-10-15."
+
+# Expanded view: the depth lists cover the margins (src/tla_widescreen.cpp).
+[[conditional_branch_override]]
+addr = 0x080140DE
+note = "AGFE ROM depth-list insert 0x080140D8: cmp r1,#0xEF; bls 0x080140EA skips the clamp of key r1 to 0..239 (lists 0x02003010, bits 0x03001190). F12 tla_rewind_0026: six pillar/statue records all in list 239. FACTS 2026-10-15."
+
+[[conditional_branch_override]]
+addr = 0x0801412E
+note = "AGFE ROM depth-list insert 0x08014128: cmp r1,#0xFF; ble 0x08014132 skips the clamp of key r1 to 0..255 (same lists, literals 0x0801416C/0x08014170). FACTS 2026-10-15."

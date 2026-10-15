@@ -615,3 +615,67 @@ and before the deep-unwind check. A nonzero answer makes the call report
 stack to where the guest really continues, and the generated call sites above
 cancel or continue by comparing R15, as after a yield. The game uses it for
 its unpacker safety net (`src/unpacker_guard.h`).
+
+## Host calls into game routines and direct answers (2026-10-15)
+
+`runtime.h` declares `gbarecomp::guest_call` and `gbarecomp::guest_return_now`
+(implemented in `runtime_bus_bridge.cpp`). `guest_call` runs one game routine
+from host code like a `bl` (return address 0x08000000 pushed on the
+call-return stack), gives back r0 and restores every register. While one
+runs, `runtime_should_yield` never unwinds: a HALT is waited out in place
+and other yield reasons are skipped (present-in-place still happens).
+`guest_return_now`, called from a function-entry observer, makes that
+routine return at once with the given r0, as its own `bx lr` would: the
+first instruction's yield check closes the caller's call-return frame (or
+dispatches the return when none matches) and reports a yield so the C body
+returns. Cost on every guest instruction: one flag test in
+`runtime_should_yield`. The halt-wait loop the interpreter bridge had is now
+the shared `runtime_idle_while_halted` (same steps). Used by both games'
+Seamless mode.
+
+**One window for both games (2026-10-15).** `HostWindow::give_window` makes
+the next `open()` use a window the player program already has (no new
+window; its size, position and fullscreen state are not changed by the
+game's saved window settings or view changes; the player's own size and
+fullscreen keys still work). `keep_window_on_close` makes `close()` leave
+the window open and `take_kept_window` hands it back; a given window is
+never destroyed by the engine. `close()` now also closes the game
+controller. End-of-game jobs (cost/idle/trace reports, joining the sampler
+and host-profiler threads, TBS's recorder reports) register through
+`at_game_exit` (`armv4t/game_exit.h`) instead of `std::atexit`; a standalone
+exe still runs them at program exit, and a plug-in's player program calls
+`run_game_exit()` when the game returns.
+
+**Games as plug-ins (2026-10-15).** On Windows each game's engine builds as
+a DLL (GoldenSunEngine.dll, TLAEngine.dll; CMake targets keep their old
+names GoldenSunRecomp/TLARecomp) with `runtime/game_module.cpp`'s exported
+`gsr_game_main(argc, argv, window_in, window_out)`, which calls the game's
+`main`, then `run_game_exit()`, and hands back a kept window.
+`runtime/player_main.cpp` is the program under the old name
+(GoldenSunRecomp.exe, TLARecomp.exe; 16 MB stack) that loads the plug-in
+beside it. The game DLL imports from the plug-in instead of the exe. The
+host profiler measures the engine's own module, not the program. Linux is
+unchanged (engine = program).
+
+**Seamless hand-over in one window (2026-10-15).** `runtime/handover.h`: a
+named pipe (`\.\pipe\gsr-handover-<launcher pid>`, the collection launcher
+sets `GSR_HANDOVER_LAUNCHER`). When a game run by `player_main.cpp` from the
+collection ends with a Seamless code, the program keeps the window, opens the
+pipe, sends its output to NUL and waits. The Broken Seal's session sees its
+output end while the program still runs, asks for the code (Query) and goes
+on as before; the Lost Age session sends its launch (Run: plug-in path,
+command line, folder, environment, and its log pipes duplicated into the
+program) instead of starting TLARecomp.exe, then waits on the program as on
+its own child. Quit releases a waiting program on every path that does not
+hand over; any failure falls back to the old separate start.
+
+**Cartridge on the black cover (2026-10-15).** `runtime/cartridge_art.h`
+holds the launcher's selected-cartridge glow (moved from the launcher) and
+its idle animation (pulse, drifting glow, rising motes) as plain draw
+pieces; the launcher draws them with ImGui, the engine with SDL. When
+`GSR_COVER_CARTRIDGE` names a 32-bit BMP (the launcher writes the cut-out
+cartridge to the temp folder for the Seamless start of The Lost Age, with
+`GSR_COVER_CARTRIDGE_GAME` for the glow colour), `draw_screen_veil` draws it
+centred over the black, faded with the cover. Launcher preview captures
+before/after: identical apart from the build-status text line, which
+depends on the folder the copy ran from.

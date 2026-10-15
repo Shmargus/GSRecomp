@@ -248,7 +248,7 @@ void capture() {
 
     // Diagnostic capture alone must not enable placement overrides in the
     // console/Direct3D path; retain the existing renderer-owned hook behavior.
-    if (g_enabled) tla_widescreen_frame();
+    if (g_enabled) tla_widescreen_frame(game_window_open(bus, io));
     gsr::FieldScene scene{};
     gsr::field_scene_capture(&scene, ppu->frame_count(), io.data(), bus->oam_ptr(),
                              bus->pal_ptr(), ppu->latched_native_line_io(),
@@ -429,6 +429,8 @@ bool draw_capture(const Capture& capture, std::uint8_t* rgb,
     }
     renderer.set_room_source_enabled(expanded);
     renderer.set_menu_open(capture.window_open);
+    // Better Field Psy: Reveal covers the whole view, as in The Broken Seal.
+    renderer.set_reveal_full(tla_field_psy_fast());
     if (expanded)
         renderer.upload_room(capture.ewram.data(), capture.ewram.size());
     // Complete map tiles are shared code; this game's wrapper supplies its layout.

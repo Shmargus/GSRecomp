@@ -2,6 +2,7 @@
 
 #include "collection_storage.h"
 #include "collection_session.h"
+#include "launcher_game.h"
 #include <SDL.h>
 #include <cerrno>
 #include <cstdlib>
@@ -29,16 +30,16 @@ inline void trim_newlines(std::string& value) {
     while (!value.empty() && (value.back() == '\r' || value.back() == '\n')) value.pop_back();
 }
 inline bool validate(const fs::path& path, int choice, std::string& error) {
-    const char* hashes[] = {"5c4695205413df7db52b9a184815a07783999971", "b500663220cb9bf56b9f8e8c0c544f1d6fa3a824"};
+    const char* expected = gsr_launcher::kGames[choice].rom_sha1;
     std::error_code ec;
     std::string digest;
     if (!fs::is_regular_file(path, ec) || !gsr_launcher::sha1_file(path, &digest)) {
         error = "The ROM could not be read.";
         return false;
     }
-    if (digest != hashes[choice]) {
-        error = std::string("Select the required ") + (choice == 0 ? "The Broken Seal" : "The Lost Age") +
-            " USA/Europe ROM.\n\nExpected SHA-1:\n" + hashes[choice] + "\n\nFound SHA-1:\n" + digest;
+    if (digest != expected) {
+        error = std::string("Select the required ") + gsr_launcher::kGames[choice].stem +
+            " USA/Europe ROM.\n\nExpected SHA-1:\n" + expected + "\n\nFound SHA-1:\n" + digest;
         return false;
     }
     return true;
@@ -100,7 +101,7 @@ inline bool run_picker(const fs::path& executable, std::vector<std::string> argu
 }
 #endif
 inline bool pick(SDL_Window* window, const fs::path& folder, int choice, fs::path& selected, std::string& error) {
-    const std::string title = std::string("Select ") + (choice == 0 ? "The Broken Seal" : "The Lost Age") + " ROM";
+    const std::string title = std::string("Select ") + gsr_launcher::kGames[choice].stem + " ROM";
 #ifdef _WIN32
     SDL_SysWMinfo info{};
     SDL_VERSION(&info.version);

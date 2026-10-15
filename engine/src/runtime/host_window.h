@@ -55,6 +55,16 @@ public:
     void close();
     bool is_open() const { return open_; }
 
+    // One window for both games (the player program, seamless hand-over).
+    // give_window(): the next open() uses this SDL_Window instead of making
+    // one, and keeps its size, position and fullscreen state (the game's own
+    // saved window size is not applied; the player can still change it).
+    // keep_window_on_close(): close() leaves the window open instead of
+    // destroying it; take_kept_window() then hands it back (once).
+    static void give_window(void* sdl_window);
+    static void keep_window_on_close(bool keep);
+    static void* take_kept_window();
+
     // Resize the logical streaming surface without changing the host window.
     // Used only by the explicit resize-driven view policy; fixed-width callers
     // never invoke it. drawable_size() reports the live client-window extent

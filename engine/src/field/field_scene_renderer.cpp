@@ -1668,8 +1668,10 @@ const char* kWindowFragment =
     // stretched the circle's first row up the top margin and WIN1 (x 0..16)
     // across the left margin. Outside the 240x160 window it is outside the
     // circle; with Better Field Psy the circle covers the whole view.
+    // The Lost Age's Reveal writes WINOUT 0x3F01: its high byte is the
+    // object window's, unused with that window off (tla_rewind_0028).
     "  bool reveal = (dispcnt & 7u) == 0u && win0_en && win1_en &&\n"
-    "                winin == 0x3F3F && winout == 0x0001;\n"
+    "                !objwin_en && winin == 0x3F3F && (winout & 0xFF) == 0x01;\n"
     "  bool outside_native = screen.x < 0 || screen.x >= 240 ||\n"
     "                        screen.y < 0 || screen.y >= 160;\n"
     "  if (reveal && u_reveal_full != 0) {\n"
@@ -2900,12 +2902,15 @@ bool FieldSceneRenderer::upload_room(const std::uint8_t* ewram,
                      (word(0x10) != 0x10000u || word(0x14) != 0x10000u);
     }
 
-    if (prof().altin_rest_drift) {
+    {
         // A move of more than 32 rows is a new rest position, not a drift:
         // the room's first frames can still hold the last room's records
         // (gpu_rewind_0147: region 0, then 1024 at load, then 1024 -> 1000
         // as the water sinks).
         const int map = ewram_u16(ewram, ewram_bytes, prof().map_id_addr);
+        rest_rule_on_ = false;
+        for (const int m : prof().altin_rest_maps)
+            if (m != 0 && m == map) rest_rule_on_ = true;
         for (int bg = 0; bg < 4; ++bg) {
             const int region = layer_wrap_[bg].region_y;
             if (map != rest_map_ || rest_region_y_[bg] == 0 ||
@@ -3524,7 +3529,7 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         const int rest_dy = rest_region_y_[bg] - layer_wrap_[bg].region_y;
         surface_->set_uniform_int(
             background_, "u_rest_dy",
-            prof().altin_rest_drift && scene.video_mode == 0 &&
+            rest_rule_on_ && scene.video_mode == 0 &&
                     std::abs(rest_dy) >= 4 ? rest_dy : 0);
         surface_->set_uniform_int(background_, "u_compare_top",
                                   second_pass ? 1 : 0);

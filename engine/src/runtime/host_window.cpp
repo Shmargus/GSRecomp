@@ -1,8 +1,10 @@
 ﻿// host_window.cpp â€” SDL2-backed window. Stubs out when SDL2 isn't found.
 
 #include "host_window.h"
+#include "runtime.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cctype>
 #include <cmath>
@@ -14,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "cartridge_art.h"
 #include "color_lut.h"
 #include "env_flag.h"
 #include "host_config_ui.h"
@@ -468,6 +471,9 @@ struct Backend {
     bool           stick_down[8] = {};
     int          scale = 3;             // current integer window scale
     bool         fullscreen = false;
+    // The window came from give_window(): never destroyed here, and its
+    // size, position and fullscreen state are not changed automatically.
+    bool         given_window = false;
     bool         vsync = true;          // as negotiated with the renderer
     bool         integer_scale = true;  // applied to the present copy
     // Turbo shape, surfaced to the run loop through Events so the pacer can
@@ -640,7 +646,7 @@ int shown_width(const Backend* b, int w, int h) {
 // scale. Fullscreen and resize-driven views own their geometry.
 void apply_aspect_window_size(Backend* b) {
     if (b->aspect_view_available || b->resize_driven_view ||
-        b->fullscreen || !b->window) return;
+        b->fullscreen || b->given_window || !b->window) return;
     if (SDL_GetWindowFlags(b->window) & SDL_WINDOW_MAXIMIZED)
         SDL_RestoreWindow(b->window);
     SDL_SetWindowSize(b->window, shown_width(b, b->base_w, b->base_h) * b->scale,
@@ -977,7 +983,31 @@ void gba_audio_callback(void* userdata, Uint8* stream, int len) {
     }
 }
 
+// HostWindow::give_window / keep_window_on_close / take_kept_window.
+SDL_Window* s_given_window = nullptr;
+bool        s_keep_window = false;
+SDL_Window* s_kept_window = nullptr;
+
+// A given window belongs to the player program and a kept one goes back to
+// it; any other window is destroyed.
+void release_window(Backend* b) {
+    if (!b->window) return;
+    if (b->given_window || s_keep_window) s_kept_window = b->window;
+    else SDL_DestroyWindow(b->window);
+    b->window = nullptr;
+}
+
 }  // namespace
+
+void HostWindow::give_window(void* sdl_window) {
+    s_given_window = static_cast<SDL_Window*>(sdl_window);
+}
+void HostWindow::keep_window_on_close(bool keep) { s_keep_window = keep; }
+void* HostWindow::take_kept_window() {
+    SDL_Window* window = s_kept_window;
+    s_kept_window = nullptr;
+    return window;
+}
 
 HostWindow::HostWindow() = default;
 
@@ -1081,11 +1111,20 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
         std::fprintf(stderr, "[host-window] graphics-startup=direct3d\n");
     }
     std::fflush(stderr);
-    b->window = SDL_CreateWindow(title ? title : "gbarecomp",
-                                 SDL_WINDOWPOS_CENTERED,
-                                 SDL_WINDOWPOS_CENTERED,
-                                 win_w, win_h,
-                                 window_flags);
+    if (s_given_window) {
+        b->window = s_given_window;
+        b->given_window = true;
+        s_given_window = nullptr;
+        SDL_SetWindowTitle(b->window, title ? title : "gbarecomp");
+        b->fullscreen = (SDL_GetWindowFlags(b->window) &
+                         SDL_WINDOW_FULLSCREEN) != 0;
+    } else {
+        b->window = SDL_CreateWindow(title ? title : "gbarecomp",
+                                     SDL_WINDOWPOS_CENTERED,
+                                     SDL_WINDOWPOS_CENTERED,
+                                     win_w, win_h,
+                                     window_flags);
+    }
     if (!b->window) {
         std::fprintf(stderr, "host_window: SDL_CreateWindow failed: %s\n",
                      SDL_GetError());
@@ -1171,7 +1210,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     if (!b->renderer) {
         std::fprintf(stderr, "host_window: SDL_CreateRenderer failed: %s\n",
                      SDL_GetError());
-        SDL_DestroyWindow(b->window);
+        release_window(b);
         delete b;
         return false;
     }
@@ -1230,7 +1269,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
         std::fprintf(stderr, "host_window: SDL_CreateTexture failed: %s\n",
                      SDL_GetError());
         SDL_DestroyRenderer(b->renderer);
-        SDL_DestroyWindow(b->window);
+        release_window(b);
         delete b;
         return false;
     }
@@ -1433,6 +1472,8 @@ void HostWindow::push_audio_samples(const int16_t* samples, std::size_t count) {
     }
 }
 
+namespace { void release_cover_art(); }  // the cover's cartridge, below
+
 void HostWindow::close() {
     if (!impl_) { open_ = false; return; }
     auto* b = static_cast<Backend*>(impl_);
@@ -1455,8 +1496,10 @@ void HostWindow::close() {
     if (b->texture)   SDL_DestroyTexture(b->texture);
     destroy_native_texture(b);
     screen_filter_shutdown();
+    release_cover_art();
     if (b->renderer)  SDL_DestroyRenderer(b->renderer);
-    if (b->window)    SDL_DestroyWindow(b->window);
+    release_window(b);
+    if (b->pad)       SDL_GameControllerClose(b->pad);
     delete b;
     impl_ = nullptr;
     open_ = false;
@@ -1503,7 +1546,7 @@ bool HostWindow::set_surface_size(int base_w, int base_h) {
     // the old 240x160-sized window. Fullscreen and adaptive resizing own
     // their geometry and must not be changed here.
     if (!b->aspect_view_available && !b->resize_driven_view &&
-        !b->fullscreen && b->window) {
+        !b->fullscreen && !b->given_window && b->window) {
         SDL_SetWindowSize(b->window,
                           shown_width(b, b->base_w, b->base_h) * b->scale,
                           b->base_h * b->scale);
@@ -1557,6 +1600,164 @@ bool HostWindow::drawable_size(int* width, int* height) const {
            *width > 0 && *height > 0;
 }
 
+
+namespace {
+std::atomic<bool> g_veil_target{false};
+std::atomic<bool> g_veil_jump{false};
+std::atomic<int> g_veil_permille{0};
+Uint64 g_veil_last_ms = 0;
+
+// The launcher's selected-cartridge animation on the black cover, when the
+// launcher hands this game a cartridge (cartridge_art.h; the Seamless
+// hand-over). Made on first use for the renderer that draws it.
+struct CoverArt {
+    bool tried = false;
+    SDL_Renderer* renderer = nullptr;
+    SDL_Texture* image = nullptr;
+    SDL_Texture* glow = nullptr;
+    gbarecomp::cartridge_art::Glow glow_info;
+    int width = 0, height = 0, game = 0;
+    Uint64 first_ms = 0;
+} g_cover_art;
+
+void release_cover_art() {
+    if (g_cover_art.image) SDL_DestroyTexture(g_cover_art.image);
+    if (g_cover_art.glow) SDL_DestroyTexture(g_cover_art.glow);
+    g_cover_art.image = g_cover_art.glow = nullptr;
+    g_cover_art.renderer = nullptr;
+    g_cover_art.tried = false;
+}
+
+bool load_cover_art(SDL_Renderer* renderer) {
+    namespace art = gbarecomp::cartridge_art;
+    if (g_cover_art.renderer != renderer) release_cover_art();
+    if (g_cover_art.tried) return g_cover_art.image != nullptr;
+    g_cover_art.tried = true;
+    g_cover_art.renderer = renderer;
+    const char* path = std::getenv(art::kCoverArtEnv);
+    if (!path || !path[0]) return false;
+    const char* game = std::getenv(art::kCoverGameEnv);
+    g_cover_art.game = game && game[0] == '1' ? 1 : 0;
+    SDL_Surface* loaded = SDL_LoadBMP(path);
+    SDL_Surface* surface = loaded ? SDL_ConvertSurfaceFormat(loaded, SDL_PIXELFORMAT_ABGR8888, 0)
+                                  : nullptr;
+    if (loaded) SDL_FreeSurface(loaded);
+    if (!surface) {
+        std::fprintf(stderr, "host_window: cover cartridge %s unreadable: %s\n", path,
+                     SDL_GetError());
+        return false;
+    }
+    g_cover_art.width = surface->w;
+    g_cover_art.height = surface->h;
+    std::vector<unsigned char> rgba(std::size_t(surface->w) * surface->h * 4);
+    for (int y = 0; y < surface->h; ++y)
+        std::memcpy(rgba.data() + std::size_t(y) * surface->w * 4,
+                    static_cast<const unsigned char*>(surface->pixels) + std::size_t(y) * surface->pitch,
+                    std::size_t(surface->w) * 4);
+    SDL_FreeSurface(surface);
+    const auto texture = [&](const std::vector<unsigned char>& pixels, int w, int h,
+                             SDL_ScaleMode mode) {
+        SDL_Texture* made = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888,
+                                              SDL_TEXTUREACCESS_STATIC, w, h);
+        if (made && SDL_UpdateTexture(made, nullptr, pixels.data(), w * 4) != 0) {
+            SDL_DestroyTexture(made);
+            made = nullptr;
+        }
+        if (made) {
+            SDL_SetTextureBlendMode(made, SDL_BLENDMODE_BLEND);
+            SDL_SetTextureScaleMode(made, mode);
+        }
+        return made;
+    };
+    g_cover_art.image = texture(rgba, g_cover_art.width, g_cover_art.height, SDL_ScaleModeNearest);
+    g_cover_art.glow_info = art::make_glow(rgba, g_cover_art.width, g_cover_art.height);
+    const auto& glow = g_cover_art.glow_info;
+    g_cover_art.glow = texture(glow.rgba, glow.width + 2 * glow.padding,
+                               glow.height + 2 * glow.padding, SDL_ScaleModeLinear);
+    if (!g_cover_art.glow) g_cover_art.glow_info.width = 0;
+    return g_cover_art.image != nullptr;
+}
+
+// The cartridge, centred in the window and laid out like the launcher's
+// (820x600 design), at `opacity`.
+void draw_cover_art(SDL_Renderer* renderer, float opacity) {
+    namespace art = gbarecomp::cartridge_art;
+    if (!load_cover_art(renderer)) return;
+    int logical_w = 0, logical_h = 0;
+    SDL_RenderGetLogicalSize(renderer, &logical_w, &logical_h);
+    if (logical_w) SDL_RenderSetLogicalSize(renderer, 0, 0);
+    int width = 0, height = 0;
+    if (SDL_GetRendererOutputSize(renderer, &width, &height) == 0 && width > 0 && height > 0) {
+        const Uint64 now = SDL_GetTicks64();
+        if (!g_cover_art.first_ms) g_cover_art.first_ms = now;
+        const double seconds = double(now - g_cover_art.first_ms) / 1000.0;
+        const float scale = std::min(width / 820.0f, height / 600.0f);
+        const float base_width = std::min(width * 0.36f, 184 * scale * g_cover_art.width /
+                                                            g_cover_art.height);
+        const float image_width = base_width * art::pulse(seconds);
+        const float image_height = image_width * g_cover_art.height / g_cover_art.width;
+        for (const art::Piece& piece :
+             art::selected(g_cover_art.game, width / 2.0f, height / 2.0f, image_width,
+                           image_height, g_cover_art.glow_info, scale, seconds, opacity)) {
+            if (piece.kind == art::Piece::Dot) {
+                SDL_Vertex fan[3];
+                const SDL_Color color{piece.r, piece.g, piece.b, piece.a};
+                for (int i = 0; i < piece.segments; ++i) {
+                    const float a0 = 6.2831853f * i / piece.segments;
+                    const float a1 = 6.2831853f * (i + 1) / piece.segments;
+                    fan[0] = {{piece.x0, piece.y0}, color, {0, 0}};
+                    fan[1] = {{piece.x0 + piece.x1 * std::cos(a0), piece.y0 + piece.x1 * std::sin(a0)}, color, {0, 0}};
+                    fan[2] = {{piece.x0 + piece.x1 * std::cos(a1), piece.y0 + piece.x1 * std::sin(a1)}, color, {0, 0}};
+                    SDL_RenderGeometry(renderer, nullptr, fan, 3, nullptr, 0);
+                }
+                continue;
+            }
+            SDL_Texture* texture = piece.kind == art::Piece::Image ? g_cover_art.image
+                                                                   : g_cover_art.glow;
+            if (!texture) continue;
+            SDL_SetTextureColorMod(texture, piece.r, piece.g, piece.b);
+            SDL_SetTextureAlphaMod(texture, piece.a);
+            const SDL_FRect destination{piece.x0, piece.y0, piece.x1 - piece.x0, piece.y1 - piece.y0};
+            SDL_RenderCopyF(renderer, texture, nullptr, &destination);
+        }
+    }
+    if (logical_w) SDL_RenderSetLogicalSize(renderer, logical_w, logical_h);
+}
+
+// Black over the picture just drawn, before the menus (runtime.h).
+void draw_screen_veil(SDL_Renderer* renderer) {
+    const Uint64 now = SDL_GetTicks64();
+    const Uint64 elapsed = g_veil_last_ms ? now - g_veil_last_ms : 0;
+    g_veil_last_ms = now;
+    const bool covered = g_veil_target.load();
+    int level = g_veil_permille.load();
+    if (g_veil_jump.exchange(false)) {
+        level = covered ? 1000 : 0;
+    } else {
+        const int step = static_cast<int>(
+            std::min<Uint64>(1000, elapsed * 1000 / kVeilFadeMs));
+        level = covered ? std::min(1000, level + step) : std::max(0, level - step);
+    }
+    g_veil_permille.store(level);
+    if (level == 0) return;
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0,
+                           static_cast<Uint8>(level * 255 / 1000));
+    SDL_RenderFillRect(renderer, nullptr);
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+    draw_cover_art(renderer, level / 1000.0f);
+}
+}  // namespace
+
+void set_screen_veil(bool covered, bool immediately) {
+    g_veil_target.store(covered);
+    if (immediately) {
+        g_veil_permille.store(covered ? 1000 : 0);
+        g_veil_jump.store(true);
+    }
+}
+
+bool screen_veil_covered() { return g_veil_permille.load() >= 1000; }
 
 void HostWindow::present(const uint8_t* rgb888) {
     if (!open_ || !impl_) return;
@@ -1812,6 +2013,7 @@ void HostWindow::present(const uint8_t* rgb888) {
                                &destination);
         }
     }
+    draw_screen_veil(b->renderer);
     // MC-WS-002: time the present itself (vsync blocks here â€” or doesn't)
     // and stamp the DWM refresh counter into the always-on cadence ring.
     const uint64_t cad_qpc0 = SDL_GetPerformanceCounter();
@@ -2146,6 +2348,11 @@ void HostWindow::load_input_config(const char* dir) {
     // The window opened before this file was read: size it for a saved 4:3.
     // (A later set_surface_size sizes it the same way if the view changes.)
     if (b->aspect == ViewAspectFourThree) apply_aspect_window_size(b);
+    if (b->given_window) {
+        // A given window keeps its geometry; show what it really is.
+        b->cfg.scale = b->scale;
+        b->cfg.fullscreen = b->fullscreen;
+    }
     // Restore size before fullscreen; fullscreen owns the desktop geometry.
     adjust_scale(b->cfg.scale - b->scale);
     set_fullscreen(b->cfg.fullscreen);
@@ -2593,7 +2800,8 @@ int HostWindow::view_aspect() const {
 void HostWindow::resize_view_window() {
     if (!open_ || !impl_) return;
     auto* b = static_cast<Backend*>(impl_);
-    if (b->fullscreen || b->resize_driven_view || !b->window ||
+    if (b->fullscreen || b->resize_driven_view || b->given_window ||
+        !b->window ||
         (b->widescreen && view_aspect_dynamic(b->aspect))) return;
     if (SDL_GetWindowFlags(b->window) & SDL_WINDOW_MAXIMIZED)
         SDL_RestoreWindow(b->window);
@@ -3308,10 +3516,7 @@ HostWindow::Events HostWindow::pump() {
     // UI renders without a human at the keyboard (and makes screenshots of it
     // reproducible). Same family as the other GBARECOMP_* switches.
     {
-        static const bool autoopen = [] {
-            const char* e = std::getenv("GBARECOMP_MENU_OPEN");
-            return e && e[0] == '1';
-        }();
+        static const bool autoopen = gbarecomp::env_flag("GBARECOMP_MENU_OPEN");
         static bool applied = false;
         if (autoopen && !applied) { applied = true; config_ui_set_visible(true); }
     }
@@ -3423,10 +3628,7 @@ HostWindow::Events HostWindow::pump() {
     // the publish above: setting the flag any earlier would suppress the
     // publish and save an empty layout.
     {
-        static const bool save_once = [] {
-            const char* e = std::getenv("GBARECOMP_MENU_SAVE_ONCE");
-            return e && e[0] == '1';
-        }();
+        static const bool save_once = gbarecomp::env_flag("GBARECOMP_MENU_SAVE_ONCE");
         static bool done = false;
         if (save_once && !done) { done = true; b->cfg.binds_changed = true; }
     }
@@ -4004,6 +4206,9 @@ namespace gbarecomp {
 HostWindow::HostWindow()  = default;
 HostWindow::~HostWindow() = default;
 
+void set_screen_veil(bool, bool) {}
+bool screen_veil_covered() { return true; }
+
 bool HostWindow::is_available() { return false; }
 
 bool HostWindow::open(int /*scale*/, int /*base_w*/, int /*base_h*/,
@@ -4016,6 +4221,9 @@ bool HostWindow::open(int /*scale*/, int /*base_w*/, int /*base_h*/,
 }
 
 void HostWindow::close() { open_ = false; }
+void HostWindow::give_window(void* /*sdl_window*/) {}
+void HostWindow::keep_window_on_close(bool /*keep*/) {}
+void* HostWindow::take_kept_window() { return nullptr; }
 
 bool HostWindow::set_surface_size(int /*base_w*/, int /*base_h*/) {
     return false;

@@ -9,6 +9,7 @@
 
 #include "gba_bus.h"
 #include "env_flag.h"
+#include "game_exit.h"
 #include "gba_ppu.h"
 #include "host_config_ui.h"
 #include "runtime_bus_bridge.h"
@@ -805,7 +806,7 @@ void room_buffer_init() {
     g_prev_extra_wants_keyboard = gbarecomp::g_config_ui_extra_wants_keyboard;
     gbarecomp::g_config_ui_extra_draw = &combined_extra_draw;
     gbarecomp::g_config_ui_extra_wants_keyboard = &combined_extra_wants_keyboard;
-    std::atexit(report_at_exit);
+    gbarecomp::at_game_exit(report_at_exit);
 }
 
 // Called by the PPU once before each field-source render invocation/row. The

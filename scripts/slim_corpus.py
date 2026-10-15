@@ -11,8 +11,10 @@ work; its machine code carries one call where it carried two to four.
 Anything that does not match a rule exactly is left alone. The rewrite is
 idempotent: rewritten text no longer matches any rule.
 
-    python tools/slim_corpus.py local/gs011            # rewrite in place
-    python tools/slim_corpus.py local/gs011 --check    # count only
+    python scripts/slim_corpus.py "The Broken Seal/local/gs011"           # rewrite in place
+    python scripts/slim_corpus.py "The Broken Seal/local/gs011" --check   # count only
+
+One copy for both games (The Lost Age runs it on its own corpus folders).
 """
 
 from __future__ import annotations

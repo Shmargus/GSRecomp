@@ -8,6 +8,7 @@
 
 #include "gba_io.h"
 #include "env_flag.h"
+#include "game_exit.h"
 #include "bus.h"
 
 extern "C" unsigned long long g_runtime_cycles;
@@ -431,7 +432,7 @@ bool ensure_effect_files() {
                      columns);
         if (!g_effect_atexit_registered) {
             g_effect_atexit_registered = true;
-            std::atexit(&flush_effect_at_exit);
+            gbarecomp::at_game_exit(&flush_effect_at_exit);
         }
         return true;
     }
@@ -755,7 +756,7 @@ bool ensure_stage_files() {
                      walk);
         if (!g_stage_atexit_registered) {
             g_stage_atexit_registered = true;
-            std::atexit(&flush_stage_at_exit);
+            gbarecomp::at_game_exit(&flush_stage_at_exit);
         }
         return true;
     }
@@ -1509,7 +1510,7 @@ void set_text_trace_directory(const char* directory) {
     g_text_trace_pending_rows = 0u;
     g_text_trace_buffer.clear();
     if (g_text_trace_enabled && !g_text_trace_atexit_registered) {
-        std::atexit(&flush_text_trace);
+        gbarecomp::at_game_exit(&flush_text_trace);
         g_text_trace_atexit_registered = true;
     }
     // Create the session artifact immediately so an enabled capture is

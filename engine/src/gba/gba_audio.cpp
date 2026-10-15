@@ -2,6 +2,7 @@
 // SOUND4 (noise), and Direct Sound A/B FIFOs, mixed in mix_one_sample().
 
 #include "gba_audio.h"
+#include "env_flag.h"
 
 #include <algorithm>
 #include <chrono>
@@ -1084,12 +1085,9 @@ int16_t GbaAudio::mix_one_sample(uint32_t direct_slot, bool include_direct,
 }
 
 void GbaAudio::configure_stereo() {
-    // Opt-in canonical stereo output: GBARECOMP_AUDIO_STEREO ("0" forces off,
-    // any other value forces on). Called by the bus from set_rom.
-    bool stereo_want = false;
-    if (const char* e = std::getenv("GBARECOMP_AUDIO_STEREO")) {
-        stereo_want = !(e[0] == '0' && e[1] == '\0');
-    }
+    // Opt-in canonical stereo output: GBARECOMP_AUDIO_STEREO (env_flag.h).
+    // Called by the bus from set_rom.
+    const bool stereo_want = gbarecomp::env_flag("GBARECOMP_AUDIO_STEREO");
     canonical_stereo_requested_ = stereo_want;
 }
 

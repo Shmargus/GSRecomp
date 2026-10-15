@@ -371,6 +371,8 @@ private:
     // margins keep water only where it was at this rest position.
     int rest_map_ = -1;
     int rest_region_y_[4] = {0, 0, 0, 0};
+    // The current map is one of prof().altin_rest_maps.
+    bool rest_rule_on_ = false;
     std::vector<std::uint16_t> room_ids_;    // 128*128, low 12 bits
     std::vector<std::uint16_t> room_atlas_;  // 4096*4, id-major
     // The background map blocks as last uploaded (upload_vram).

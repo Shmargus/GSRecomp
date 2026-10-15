@@ -98,6 +98,21 @@ constexpr uint32_t kNearClip = 0x0801579Cu;
 constexpr uint32_t kFarClip = 0x080157A2u;
 constexpr uint16_t kWorldMap = 2u;
 
+// Draw order. Every object record goes into one of 256 depth lists
+// (heads 0x02003010, occupancy bits 0x03001190), which the OAM flush walks
+// from 255 down, so a deeper key is drawn in front. 0x080140D8 (characters,
+// key = ground y + 0x3E from the builders) clamps the key to 0..239 (`bls`
+// 0x080140DE after `cmp r1,#0xEF`); 0x08014128 clamps to 0..255 (`ble`
+// 0x0801412E). Below the console's screen every key is 239, and the objects
+// there stack in the order they were filed: Air's Rock's pillars in the
+// bottom margin, the upper pillar over the lower (F12 tla_rewind_0026, all
+// six statues and pillars in list 239; 0027, same room 151 rows lower: keys
+// 31 and 47, drawn right). In the expanded view both spread the view's own
+// key range, -top .. 239 + bottom, over the 256 lists, keeping their order
+// (Jimmy, 2026-10-15; keys closer than about 1.6 can share a list).
+constexpr uint32_t kDepthClampCharacters = 0x080140DEu;
+constexpr uint32_t kDepthClampAll = 0x0801412Eu;
+
 // How far past the view's edge characters are still drawn.
 constexpr int kSlack = 32;
 
@@ -174,19 +189,6 @@ int camera_store(uint32_t pc, uint32_t addr, uint32_t requested, uint32_t width,
     return g_next_write ? g_next_write(pc, addr, requested, width, out_value) : 0;
 }
 
-// Rows the camera rule holds the camera below (+) or above (-) where the game
-// put it, while the camera is still where the rule wrote it; 0 once another
-// routine has moved it (Air's Rock's tornado cutscene pans with its own
-// stores and goes to the room's top, F12 0016/0018/0019, 2026-10-14).
-int tla_camera_hold_y() {
-    gba::GbaBus* b = bus();
-    if (!b || !g_camera_y_seen) return 0;
-    const uint32_t s = b->read32(kFieldStatePointer);
-    if ((s >> 24) != 0x02u) return 0;
-    if (static_cast<int32_t>(b->read32(s + 0xE8u)) != g_camera_y_written) return 0;
-    return static_cast<int>(
-        (int64_t(g_camera_y_written) - int64_t(g_camera_y_requested)) / 65536);
-}
 
 // ---- Characters ---------------------------------------------------------
 
@@ -375,9 +377,25 @@ int affine_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
     return *out_decision != original ? 1 : 0;
 }
 
+// The depth key's clamp (see kDepthClampCharacters): r1 becomes the key's
+// list in the expanded range and the clamp is skipped.
+int depth_branch(uint32_t original, uint32_t* out_decision) {
+    const View v = view();
+    gba::GbaBus* b = bus();
+    if (!expanded(v) || !b || !field_running(b)) return 0;
+    const int64_t low = -v.top, span = 240 + v.top + v.bottom;
+    const int64_t key = static_cast<int32_t>(g_cpu.R[1]);
+    g_cpu.R[1] = static_cast<uint32_t>(
+        std::clamp<int64_t>((key - low) * 256 / span, 0, 255));
+    *out_decision = 1u;  // taken: past the clamp
+    return *out_decision != original;
+}
+
 int builder_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
     if (const int result = world_range_branch(pc, original, out_decision);
         result >= 0) return result;
+    if (pc == kDepthClampCharacters || pc == kDepthClampAll)
+        return depth_branch(original, out_decision);
     if (pc == kAffineX || pc == kAffineY || pc == kAffinePlaced)
         return affine_branch(pc, original, out_decision);
     if (pc == kRopePlaced || pc == kCoilPlaced) {
@@ -486,9 +504,23 @@ const Placement* placement_for(uint16_t attr0, uint16_t attr1, uint16_t attr2) {
     return best;
 }
 
+// A game window is open this frame (set by tla_widescreen_frame).
+bool g_window_open = false;
+
+// The menus build their own sprites (priority 0) with the field's character
+// builder, which sees them 256 rows up: the Psynergy menu's icons at raw Y
+// 50..98 were recorded at -206..-158 and vanished (F12 tla_rewind_0023,
+// 2026-10-15; the console shows them at the raw rows). With a window open the
+// renderer keeps those sprites inside the console's window anyway, so they
+// take the console's own reading.
+const Placement* placement_for_object(uint16_t attr0, uint16_t attr1, uint16_t attr2) {
+    if (g_window_open && ((attr2 >> 10) & 3u) == 0u) return nullptr;
+    return placement_for(attr0, attr1, attr2);
+}
+
 extern "C" int tla_obj_y_provider(int /*oam_index*/, uint16_t attr0,
                                   uint16_t attr1, uint16_t attr2, int* out_y) {
-    const Placement* p = placement_for(attr0, attr1, attr2);
+    const Placement* p = placement_for_object(attr0, attr1, attr2);
     if (!p) return 0;
     *out_y = p->y;
     return 1;
@@ -496,7 +528,7 @@ extern "C" int tla_obj_y_provider(int /*oam_index*/, uint16_t attr0,
 
 extern "C" int tla_obj_x_provider(int /*oam_index*/, uint16_t attr0,
                                   uint16_t attr1, uint16_t attr2, int* out_x) {
-    const Placement* p = placement_for(attr0, attr1, attr2);
+    const Placement* p = placement_for_object(attr0, attr1, attr2);
     if (!p) return 0;
     *out_x = p->x;
     return 1;
@@ -504,9 +536,24 @@ extern "C" int tla_obj_x_provider(int /*oam_index*/, uint16_t attr0,
 
 }  // namespace
 
+// Rows the camera rule holds the camera below (+) or above (-) where the game
+// put it, while the camera is still where the rule wrote it; 0 once another
+// routine has moved it (Air's Rock's tornado cutscene pans with its own
+// stores and goes to the room's top, F12 0016/0018/0019, 2026-10-14).
+int tla_camera_hold_y() {
+    gba::GbaBus* b = bus();
+    if (!b || !g_camera_y_seen) return 0;
+    const uint32_t s = b->read32(kFieldStatePointer);
+    if ((s >> 24) != 0x02u) return 0;
+    if (static_cast<int32_t>(b->read32(s + 0xE8u)) != g_camera_y_written) return 0;
+    return static_cast<int>(
+        (int64_t(g_camera_y_written) - int64_t(g_camera_y_requested)) / 65536);
+}
+
 // Called by the graphics card's capture (src/tla_gpu_field.cpp) each frame:
 // run_game resets the engine's object hooks at start-up.
-void tla_widescreen_frame() {
+void tla_widescreen_frame(bool window_open) {
+    g_window_open = window_open;
     const bool on = expanded(view());
     gba::g_ws_obj_attr_y_provider = on ? tla_obj_y_provider : nullptr;
     gba::g_ws_obj_attr_x_provider = on ? tla_obj_x_provider : nullptr;

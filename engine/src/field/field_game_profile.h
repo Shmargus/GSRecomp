@@ -66,8 +66,9 @@ struct FieldGameProfile {
     // Lamakan's row-0 scroll swap repaired in draw().
     bool lamakan_row0_swap = false;
     // Altin's drain: rest position of each layer and the rest-position test
-    // in the margins (rest_region_y_, u_rest_dy).
-    bool altin_rest_drift = false;
+    // in the margins (rest_region_y_, u_rest_dy), on these map numbers only
+    // (0 = unused slot; all 0 = off).
+    int altin_rest_maps[2] = {0, 0};
     // Altin's line-striped layer enable bit carried into the margins
     // (u_layer_striped).
     bool altin_striped_layers = false;

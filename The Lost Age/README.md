@@ -27,7 +27,8 @@ Age (USA/Europe) ROM, SHA-1 `b500663220cb9bf56b9f8e8c0c544f1d6fa3a824`.
 2. `scripts/tla_recompile.ps1`: translates the ROM into `local/tla/`
    (rerun after any `config/tla/main.toml` change).
 3. Collection-root `build_dev.bat -Game LostAge` (or the launcher's cog)
-   builds `build/tla/TLARecomp.exe`, `build/tla/TLAGame.dll` and the root
+   builds `build/tla/TLARecomp.exe`, `build/tla/TLAEngine.dll`,
+   `build/tla/TLAGame.dll` and the root
    launcher.
 
 Start collection-root `GoldenSunLauncher.exe` and select The Lost Age to play.

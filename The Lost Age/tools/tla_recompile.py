@@ -101,7 +101,7 @@ def generate(rom, recompiler, output, cache):
 
     (reloc / "tla_reloc_images.inc").write_text("\n".join(lines) + "\n", encoding="ascii")
     for folder in (main, reloc):
-        run(sys.executable, ROOT / "tools/slim_corpus.py", folder)
+        run(sys.executable, ROOT.parent / "scripts/slim_corpus.py", folder)
     (main / ".complete").write_text(SHA1 + "\n", encoding="ascii")
     print(f"Generated {len(lines) - 1} RAM image entries in {reloc}")
 

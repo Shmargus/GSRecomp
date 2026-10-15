@@ -229,7 +229,23 @@ void decide_pass() {
     if (battle_2x) keep_arena_table(b);
 }
 
+// Reveal's range (0x080DD754, run every frame while Reveal is up; FACTS.md,
+// 2026-10-15), The Broken Seal's routine on this ROM: with S = [0x0300006C],
+// countdown S+0xCA6 (600 at the cast), cast spot S+0xCA8/+0xCAA; r2 =
+// dx*dx + dy*dy (dx scaled by 0xD105 >> 16) against r1 = 0xE10 (60 px
+// squared, built by movs/lsls); `bge` 0x080DD7F4 then stores 0x2090 to
+// S+0x166, which ends Reveal (as does the countdown reaching 0). Better
+// Field Psy doubles the distance, as in The Broken Seal.
+constexpr uint32_t kRevealRangeBranchPc = 0x080DD7F4u;
+constexpr uint32_t kRevealRangeSquared = 0xE10u;
+
 int battle_speed_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
+    if (pc == kRevealRangeBranchPc) {
+        if (!g_field_fast.load() || g_cpu.R[1] != kRevealRangeSquared) return 0;
+        *out_decision = static_cast<int32_t>(g_cpu.R[2]) >=
+                        static_cast<int32_t>(4u * kRevealRangeSquared) ? 1u : 0u;
+        return *out_decision != original;
+    }
     if (pc != kWaitPathBranchPc) return 0;
     decide_pass();
     g_drop_armed = g_skip_this_pass;

@@ -19,7 +19,8 @@ set(GSR_REPORT_HOST "" CACHE STRING "Collection bug report host")
 # game code from scripts/tla_recompile.ps1, and the player builder.
 #
 # Built like Golden Sun Recompiled's speed build (Jimmy, 2026-10-04;
-# ../scripts/build_game.ps1 -Game LostAge): the engine is TLARecomp.exe, link-time
+# ../scripts/build_game.ps1 -Game LostAge): the engine is TLAEngine.dll (run by
+# TLARecomp.exe; Linux: the TLARecomp program itself), link-time
 # optimised; the translated game code is TLAGame.dll beside it, compiled
 # without LTO; and the game code is the block-timing copy
 # (scripts/block_timing.py).
@@ -114,7 +115,7 @@ set(TLA_ENGINE_SOURCES
     src/world_map_source.cpp
     "${GBARECOMP_ROOT}/src/field/effect_particles.cpp"
     "${GBARECOMP_ROOT}/src/field/effect_burst.cpp"
-    src/effect_capture.cpp
+    "${GBARECOMP_ROOT}/src/field/effect_capture.cpp"
     "${GBARECOMP_ROOT}/src/runtime/gpu_surface.cpp"
     # The data unpacker's safety net and its test options. TLA's ROM holds
     # The Broken Seal's Func_2808 byte for byte (FACTS.md 2026-10-14), so
@@ -153,7 +154,24 @@ if(TLA_SPLIT_GAME_CODE)
     target_include_directories(tla_game_objects PRIVATE ${TLA_GAME_INCLUDE_DIRS})
 endif()
 
-if(TLA_SPLIT_GAME_CODE)
+if(TLA_SPLIT_GAME_CODE AND MINGW)
+    # Windows: the engine is a plug-in, TLAEngine.dll (target TLARecomp, so
+    # the per-file object paths stay the same), run by TLARecomp.exe, the
+    # small player program beside it (engine player_main.cpp). One window
+    # for both games (STATUS.md, "One program for both games").
+    add_library(TLARecomp SHARED ${TLA_ENGINE_SOURCES}
+        "${GBARECOMP_ROOT}/src/runtime/game_module.cpp")
+    set_target_properties(TLARecomp PROPERTIES
+        PREFIX "" OUTPUT_NAME TLAEngine
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    add_executable(TLAPlayer "${GBARECOMP_ROOT}/src/runtime/player_main.cpp")
+    set_target_properties(TLAPlayer PROPERTIES OUTPUT_NAME TLARecomp)
+    target_compile_definitions(TLAPlayer PRIVATE GSR_ENGINE_PLUGIN=L"TLAEngine.dll")
+    # The game runs on the player program's threads.
+    target_link_options(TLAPlayer PRIVATE -Wl,--stack,16777216)
+    target_link_libraries(TLAPlayer PRIVATE shell32)
+    add_dependencies(TLAPlayer TLARecomp TLAGame)
+elseif(TLA_SPLIT_GAME_CODE)
     add_executable(TLARecomp ${TLA_ENGINE_SOURCES})
 else()
     add_executable(TLARecomp ${TLA_ENGINE_SOURCES} ${TLA_GAME_SOURCES})
@@ -313,7 +331,7 @@ elseif(TLA_SPLIT_GAME_CODE)
         # writes with --out-implib under LTO leaves out exports the engine
         # itself never calls.
         COMMAND "${TLA_DLLTOOL}" -d "${TLA_ENGINE_EXPORTS}"
-            -l "${TLA_ENGINE_API_IMPLIB}" -D TLARecomp.exe
+            -l "${TLA_ENGINE_API_IMPLIB}" -D TLAEngine.dll
         BYPRODUCTS "${TLA_ENGINE_EXPORTS}" "${TLA_ENGINE_EXPORTS_RSP}"
                    "${TLA_ENGINE_API_IMPLIB}"
         WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"

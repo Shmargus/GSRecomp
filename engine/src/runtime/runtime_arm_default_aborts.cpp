@@ -644,6 +644,7 @@ extern "C" uint32_t g_bridge_max_call_depth = 0;
 
 // LP-005 probe: tick-origin tag consumed by cyc_probe() in runtime_bus_bridge.cpp.
 extern "C" const char* g_tick_ctx;
+extern "C" void runtime_idle_while_halted(void);  // runtime_bus_bridge.cpp
 
 // Set by runtime_irq() in runtime_arm.cpp (>0 while an IRQ handler is on the host
 // stack). When an in-handler SWI unwinds and runtime_irq() re-dispatches a mid-
@@ -902,24 +903,9 @@ extern "C" int runtime_bridge_interpret(uint32_t entry_pc, bool entry_thumb,
         // below and reports, rather than spinning here forever.
         if (bus->io().halted()) {
             gbarecomp::store_interp_into_arm_cpu(cpu, g_cpu);
-            gba::GbaPpu* ppu = gbarecomp::active_ppu();
-            std::uint32_t idle_budget = gba::GbaPpu::kCyclesPerFrame;
-            while (bus->io().halted() && idle_budget != 0) {
-                std::uint32_t chunk = ppu ? ppu->cycles_until_next_event()
-                                          : 1u;
-                const std::uint32_t until_timer =
-                    bus->io().cycles_until_next_timer_event();
-                if (until_timer < chunk) chunk = until_timer;
-                const std::uint32_t until_sample =
-                    bus->audio().cycles_until_next_sample();
-                if (until_sample < chunk) chunk = until_sample;
-                if (chunk == 0u || chunk == 0xFFFFFFFFu) chunk = 1u;
-                if (chunk > idle_budget) chunk = idle_budget;
-                g_tick_ctx = "bridge-halt";
-                runtime_tick(chunk);
-                g_tick_ctx = "gen";
-                idle_budget -= chunk;
-            }
+            g_tick_ctx = "bridge-halt";
+            runtime_idle_while_halted();
+            g_tick_ctx = "gen";
             gbarecomp::load_arm_cpu_into_interp(g_cpu, cpu);
         }
 

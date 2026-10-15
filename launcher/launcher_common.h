@@ -1,9 +1,9 @@
 // Shared file/report helpers for the collection's Windows and Linux sessions.
 // Both games use these helpers; platform-specific session windows stay separate.
 //
-// Two things are platform code and are defined by each launcher, inside
-// namespace gsr_launcher: sha1_file (BCrypt on Windows, gba::sha1 on Linux)
-// and scrub_user_name (it knows where the account name lives).
+// Two things are defined elsewhere, inside namespace gsr_launcher: sha1_file
+// (collection_main.cpp) and scrub_user_name (each platform's session, which
+// knows where the account name lives).
 #pragma once
 #include "launcher_game.h"
 
@@ -15,6 +15,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -22,37 +23,18 @@ namespace gsr_launcher {
 
 namespace fs = std::filesystem;
 
-#ifdef GSR_LAUNCHER_TLA
-constexpr char kExpectedRomSha1[] = "b500663220cb9bf56b9f8e8c0c544f1d6fa3a824";
-#else
-constexpr char kExpectedRomSha1[] = "5c4695205413df7db52b9a184815a07783999971";
-#endif
 constexpr char kBuilderVersion[] = "2";  // player_builder kBuilderVersion
 constexpr int kKeepLogCount = 20;  // recent sessions kept; older ones pruned
 
 #ifdef _WIN32
-#ifdef GSR_LAUNCHER_TLA
-constexpr char kGameExe[] = "TLARecomp.exe";
-constexpr char kGameLibrary[] = "TLAGame.dll";
-#else
-constexpr char kGameExe[] = "GoldenSunRecomp.exe";
-constexpr char kGameLibrary[] = "GoldenSunGame.dll";
-#endif
 constexpr char kBuilderExe[] = "gsr_builder.exe";
 constexpr char kRecompilerExe[] = "gba_recompile.exe";
 #else
-#ifdef GSR_LAUNCHER_TLA
-constexpr char kGameExe[] = "TLARecomp";
-constexpr char kGameLibrary[] = "libTLAGame.so";
-#else
-constexpr char kGameExe[] = "GoldenSunRecomp";
-constexpr char kGameLibrary[] = "libGoldenSunGame.so";
-#endif
 constexpr char kBuilderExe[] = "gsr_builder";
 constexpr char kRecompilerExe[] = "gba_recompile";
 #endif
 
-// Defined by each launcher.
+// Defined outside this header (see the top).
 bool sha1_file(const fs::path& path, std::string* out);
 std::string scrub_user_name(std::string text);
 
@@ -76,9 +58,10 @@ inline bool validate_rom(const fs::path& path, std::string* error) {
         *error = "The ROM could not be read.";
         return false;
     }
-    if (actual != kExpectedRomSha1) {
-        *error = std::string("That is not the required " GSR_GAME_TITLE " USA/Europe ROM.\n\n"
-                             "Expected SHA-1:\n") + kExpectedRomSha1 +
+    const GameIdentity& game = session_game();
+    if (actual != game.rom_sha1) {
+        *error = std::string("That is not the required ") + game.title +
+                 " USA/Europe ROM.\n\nExpected SHA-1:\n" + game.rom_sha1 +
                  "\n\nFound SHA-1:\n" + actual;
         return false;
     }
@@ -199,6 +182,40 @@ inline void copy_into_report(const fs::path& from, const fs::path& staging) {
     out << scrub_user_name(content);
 }
 
+// What a bug report holds besides the session's own logs, the save and the
+// F12 captures, for both platforms: the files the game writes in its own
+// folder (`game_dir`, plus its crash files after a crash), and the files the
+// game root keeps for this run only (`root`: the unpacker catcher and guard,
+// deleted by the launcher before every start).
+inline void copy_report_files(const fs::path& game_dir, const fs::path& root,
+                              bool crashed, const fs::path& staging) {
+    for (const char* file : {"config.ini", "game_options.ini", "keybinds.ini",
+                             "run_state.txt"})
+        copy_into_report(game_dir / file, staging);
+    copy_into_report(game_dir / session_game().build_stamp, staging);
+    if (crashed)
+        for (const char* file : {"crash_report.txt", "crash_dump.dmp",
+                                 "crash_memory.bin", "crash_trail.csv"})
+            copy_into_report(game_dir / file, staging);
+    for (const char* file : {"unpacker_catch.txt", "unpacker_catch.bin",
+                             "unpacker_recovered.txt", "unpacker_recovered.bin",
+                             "unpacker_journal.csv"})
+        copy_into_report(root / file, staging);
+}
+
+// report_info.txt: `system` names the operating system and its version.
+inline std::string report_info_text(const std::string& system, std::size_t captures,
+                                    bool crashed, bool unpacker_caught,
+                                    unsigned long exit_code) {
+    return std::string("Golden Sun Recompiled bug report\n") +
+           "Launcher built: " + __DATE__ + " " + __TIME__ + "\n" +
+           system + "\n" +
+           "F12 captures: " + std::to_string(captures) + "\n" +
+           "Game crashed: " + (crashed ? "yes" : "no") + "\n" +
+           "Unpacker crash caught: " + (unpacker_caught ? "yes" : "no") + "\n" +
+           "Game exit code: " + std::to_string(exit_code) + "\n";
+}
+
 // What the game code in a release is built from: its release version, then
 // one "path sha1" line per file: the engine, the builder, the translator and everything in
 // builder/data and builder/engine. Written beside the game library after a
@@ -207,10 +224,12 @@ inline void copy_into_report(const fs::path& from, const fs::path& staging) {
 // game_code_ready already caught a new engine; this also catches a release
 // that changes only the builder, the translator or its data. The toolchain is
 // left out: it is large, and it only changes together with the builder.
-inline std::string release_fingerprint(const fs::path& root, const char* game_exe = kGameExe) {
-    std::vector<fs::path> files = {root / game_exe,
-                                   root / "builder" / kBuilderExe,
-                                   root / "builder" / kRecompilerExe};
+inline std::string release_fingerprint(const fs::path& root,
+                                       const GameIdentity& game = session_game()) {
+    std::vector<fs::path> files = {root / game.executable};
+    if (std::string_view(game.engine) != game.executable) files.push_back(root / game.engine);
+    files.insert(files.end(), {root / "builder" / kBuilderExe,
+                               root / "builder" / kRecompilerExe});
     std::error_code ec;
     for (const char* dir : {"data", "engine"}) {
         std::vector<fs::path> found;
@@ -236,20 +255,10 @@ inline std::string release_fingerprint(const fs::path& root, const char* game_ex
 
 // Whether the game library beside the game was built from the supported ROM
 // by this release's builder against this release's engine.
-struct GameFiles {
-    const char* executable;
-    const char* library;
-    const char* build_stamp;
-    const char* release_stamp;
-    const char* rom_sha1;
-};
-inline constexpr GameFiles kGameFiles{kGameExe, kGameLibrary, GSR_GAME_BUILD,
-                                      GSR_GAME_RELEASE, kExpectedRomSha1};
-
-inline bool game_code_ready(const fs::path& root, const GameFiles& game = kGameFiles) {
+inline bool game_code_ready(const fs::path& root, const GameIdentity& game = session_game()) {
     std::error_code ec;
     if (!fs::is_regular_file(root / game.library, ec)) return false;
-    if (read_text(root / game.release_stamp) != release_fingerprint(root, game.executable))
+    if (read_text(root / game.release_stamp) != release_fingerprint(root, game))
         return false;
     std::istringstream in(read_text(root / game.build_stamp));
     std::string line, rom, builder, engine;
@@ -259,13 +268,13 @@ inline bool game_code_ready(const fs::path& root, const GameFiles& game = kGameF
         else if (line.rfind("engine_sha1=", 0) == 0) engine = line.substr(12);
     }
     std::string engine_now;
-    if (!sha1_file(root / game.executable, &engine_now)) return false;
+    if (!sha1_file(root / game.engine, &engine_now)) return false;
     return rom == game.rom_sha1 && builder == kBuilderVersion &&
            engine == engine_now;
 }
 
 enum class PreparationState { Ready, FirstBuild, Rebuild };
-inline PreparationState preparation_state(const fs::path& root, const GameFiles& game = kGameFiles) {
+inline PreparationState preparation_state(const fs::path& root, const GameIdentity& game = session_game()) {
     if (game_code_ready(root, game)) return PreparationState::Ready;
     std::error_code ec;
     return fs::exists(root / game.build_stamp, ec) || fs::exists(root / game.release_stamp, ec)

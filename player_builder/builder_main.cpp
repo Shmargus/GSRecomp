@@ -1,6 +1,7 @@
 // gsr_builder -- builds GoldenSunGame.dll on the player's PC from their ROM.
 //
-// The release ships only our own code: the engine (GoldenSunRecomp.exe),
+// The release ships only our own code: the engine (GoldenSunEngine.dll, run
+// by GoldenSunRecomp.exe),
 // this builder, the translator (gba_recompile.exe), a trimmed compiler and
 // the configuration data. Everything from Golden Sun, code included, comes
 // from the player's ROM, here:
@@ -80,24 +81,25 @@ constexpr const char* kBuilderName = "gsr_builder";
 #endif
 constexpr const char* kBuilderVersion = "2";  // 2: block timing (block_timing.cpp)
 
-// File names that differ between the Windows and Linux releases.
+// File names that differ between the Windows and Linux releases. The engine
+// is a plug-in beside the game program on Windows, the program on Linux.
 #ifdef _WIN32
 constexpr const char* kExeSuffix = ".exe";
 #ifdef GSR_BUILDER_TLA
 constexpr const char* kGameLibrary = "TLAGame.dll";
-constexpr const char* kEngineExe = "TLARecomp.exe";
+constexpr const char* kEngineFile = "TLAEngine.dll";
 #else
 constexpr const char* kGameLibrary = "GoldenSunGame.dll";
-constexpr const char* kEngineExe = "GoldenSunRecomp.exe";
+constexpr const char* kEngineFile = "GoldenSunEngine.dll";
 #endif
 #else
 constexpr const char* kExeSuffix = "";
 #ifdef GSR_BUILDER_TLA
 constexpr const char* kGameLibrary = "libTLAGame.so";
-constexpr const char* kEngineExe = "TLARecomp";
+constexpr const char* kEngineFile = "TLARecomp";
 #else
 constexpr const char* kGameLibrary = "libGoldenSunGame.so";
-constexpr const char* kEngineExe = "GoldenSunRecomp";
+constexpr const char* kEngineFile = "GoldenSunRecomp";
 #endif
 #endif
 
@@ -1195,7 +1197,7 @@ int main(int argc, char** cargv) {
         // The launcher rebuilds when any of these change: a different ROM,
         // a new builder, or a new engine (an update may change what the
         // game code calls).
-        const auto engine = read_bytes(s.out_dir / kEngineExe);
+        const auto engine = read_bytes(s.out_dir / kEngineFile);
         const std::string stamp = std::string("rom_sha1=") + rom_sha1 +
                                   "\nbuilder=" + kBuilderVersion +
                                   "\nengine_sha1=" +

@@ -16,6 +16,7 @@
 
 #include "crc32.h"
 #include "env_flag.h"
+#include "game_exit.h"
 #include "gba_bus.h"
 #include "gba_ppu.h"
 #include "gba_vram_trace.h"
@@ -788,7 +789,7 @@ void map_recorder_init() {
     if (!g_enabled) return;
 
     ensure_session_dir();
-    std::atexit(write_writer_args);
+    gbarecomp::at_game_exit(write_writer_args);
     g_prev_extra_draw = gbarecomp::g_config_ui_extra_draw;
     g_prev_extra_wants_keyboard = gbarecomp::g_config_ui_extra_wants_keyboard;
     gbarecomp::g_config_ui_extra_draw = &combined_extra_draw;

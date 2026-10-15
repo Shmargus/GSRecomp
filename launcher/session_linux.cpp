@@ -59,7 +59,7 @@
 #include "collection_settings.h"
 #include "session_environment.h"
 #include "launcher_widescreen_diagnostics_policy.h"
-#include "sha1.h"
+#include "../engine/src/runtime/seamless.h"
 
 namespace fs = std::filesystem;
 using namespace gsr_launcher;
@@ -69,15 +69,12 @@ namespace {
 bool g_collection_play = false;
 bool g_collection_tests_override = false;
 gsr_collection::GameSettings g_collection_settings;
-#ifdef GSR_LAUNCHER_TLA
-constexpr int kCollectionGame = 1;
-#else
-constexpr int kCollectionGame = 0;
-#endif
 bool g_collection_update_checked = false;
 bool g_collection_activation_pending = false;
+// Set when The Broken Seal ended with a seamless exit code; the session then
+// exits with it so the collection window starts The Lost Age.
+int g_seamless_exit_code = 0;
 
-constexpr const char* kTitle = GSR_GAME_TITLE;
 // Where players can still upload a report by hand when sending fails: the
 // Google Form the project page links; only the developer sees the answers.
 constexpr const char* kBugReportUrl =
@@ -87,11 +84,6 @@ constexpr const char* kBugReportUrl =
 fs::path g_root;
 fs::path g_collection_root;
 gsr_collection::ManagedFiles g_managed;
-#ifdef GSR_LAUNCHER_TLA
-constexpr const char* kCollectionStem = "The Lost Age";
-#else
-constexpr const char* kCollectionStem = "The Broken Seal";
-#endif
 
 // ---------------------------------------------------------------- files
 
@@ -128,20 +120,6 @@ void open_launcher_log() {
                  __DATE__ + " " + __TIME__ + ") in " + g_root.string());
 }
 
-}  // namespace
-namespace gsr_launcher {
-
-bool sha1_file(const fs::path& path, std::string* out) {
-    std::ifstream in(path, std::ios::binary);
-    if (!in) return false;
-    std::vector<char> bytes((std::istreambuf_iterator<char>(in)),
-                            std::istreambuf_iterator<char>());
-    *out = gba::sha1(bytes.data(), bytes.size()).hex();
-    return true;
-}
-
-}  // namespace gsr_launcher
-namespace {
 
 std::string trim(std::string s) {
     while (!s.empty() && (s.back() == '\n' || s.back() == '\r' || s.back() == ' '))
@@ -190,12 +168,12 @@ std::string pick_rom_with_dialog(const std::string& start_dir, bool* no_dialog) 
     std::string cmd;
     if (have_program("zenity")) {
         cmd = "zenity --file-selection --title=" +
-              shell_quote(GSR_ROM_PROMPT) +
+              shell_quote(session_game().rom_prompt) +
               " --file-filter=" + shell_quote("Golden Sun ROM (*.gba) | *.gba *.GBA") +
               " --file-filter=" + shell_quote("All files | *");
         if (!start_dir.empty()) cmd += " --filename=" + shell_quote(start_dir + "/");
     } else if (have_program("kdialog")) {
-        cmd = "kdialog --title " + shell_quote(GSR_ROM_PROMPT) +
+        cmd = "kdialog --title " + shell_quote(session_game().rom_prompt) +
               " --getopenfilename " +
               shell_quote(start_dir.empty() ? std::string(".") : start_dir) +
               " " + shell_quote("*.gba *.GBA|Golden Sun ROM (*.gba)");
@@ -420,11 +398,10 @@ GameResult run_game(const std::string& rom) {
     // Release: point the game's self-heal at the bundled g++ (absent on dev).
     if (fs::exists(g_root / "builder" / "toolchain" / "bin" / "g++"))
         common.heal_toolchain = (g_root / "builder" / "toolchain").string();
-#ifdef GSR_LAUNCHER_TLA
-    common.save_import = gsr_session::load_launcher_audio_settings(g_root).gs_save_import;
-#endif
+    if (session_game_index == 1)  // The Lost Age imports Golden Sun saves.
+        common.save_import = gsr_session::load_launcher_audio_settings(g_root).gs_save_import;
     const auto test_enabled = [](const char* name) {
-        return gsr_collection::test_enabled(g_collection_settings, gsr_collection::test_index(name), kCollectionGame);
+        return gsr_collection::test_enabled(g_collection_settings, gsr_collection::test_index(name), session_game_index);
     };
     const bool gpu_field_check = g_collection_tests_override && test_enabled("TLA_GPU_FIELD_CHECK");
     common.gpu_field_only = !gpu_field_check;
@@ -459,7 +436,7 @@ GameResult run_game(const std::string& rom) {
         const auto policy = gsr::resolve_launcher_input_record_policy(
             false, explicit_record, replay_requested, L"");
         if (policy.replay_conflict) {
-            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, kTitle,
+            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, session_game().title,
                 "Input recording and input replay cannot be used together.", nullptr);
             return result;
         }
@@ -468,7 +445,7 @@ GameResult run_game(const std::string& rom) {
             if (!path.parent_path().empty()) fs::create_directories(path.parent_path(), ec);
             const int fd = ec ? -1 : open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0644);
             if (fd < 0) {
-                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, kTitle,
+                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, session_game().title,
                     "The input recording file could not be created without overwriting an existing file.", nullptr);
                 return result;
             }
@@ -486,7 +463,7 @@ GameResult run_game(const std::string& rom) {
         log.line("[launcher] ", std::string("test_variables=") +
             (g_collection_settings.test_variables ? "ON" : "OFF") + " set=" +
             (enabled_tests.empty() ? "(none)" : enabled_tests) + " gpu_field_only=" +
-            (gsr_collection::test_enabled(g_collection_settings, "TLA_GPU_FIELD_CHECK", kCollectionGame) ? "0" : "1"));
+            (gsr_collection::test_enabled(g_collection_settings, "TLA_GPU_FIELD_CHECK", session_game_index) ? "0" : "1"));
         log.line("[launcher] ", input_record_path.empty() ? "input_record=DISABLED" :
             "input_record=ENABLED path=\"" + input_record_path + "\"");
     } else {
@@ -498,7 +475,7 @@ GameResult run_game(const std::string& rom) {
 
     }
 
-    const std::string game = gsr_session::engine(g_root, kCollectionGame).string();
+    const std::string game = gsr_session::engine(g_root, session_game_index).string();
     const std::string root_s = g_root.string();
     std::string rom_arg = rom;
     std::string save_arg = g_managed.save.string();
@@ -616,32 +593,16 @@ std::vector<fs::path> make_bug_report(const GameResult& game) {
         if (entry.path().filename().string().rfind(stem, 0) == 0)
             copy_into_report(entry.path(), staging);
     copy_into_report(logs_dir / "launcher.log", staging);
-    for (const char* file : {"config.ini", "game_options.ini", "keybinds.ini",
-                             GSR_GAME_BUILD, "run_state.txt"})
-        copy_into_report(g_root / file, staging);
     // The game's save, kept beside the ROM (runtime.cpp: the ROM path with
     // .sav), so the problem can be played again from the same place.
     if (!game.rom.empty())
         copy_into_report(g_collection_play ? g_managed.save :
             fs::path(game.rom).replace_extension(".sav"), staging);
-    if (game.crashed) {
-        copy_into_report(g_root / "crash_report.txt", staging);
-        copy_into_report(g_root / "crash_memory.bin", staging);
-        copy_into_report(g_root / "crash_trail.csv", staging);
-    }
-    copy_into_report(g_root / "unpacker_catch.txt", staging);
-    copy_into_report(g_root / "unpacker_catch.bin", staging);
-    copy_into_report(g_root / "unpacker_recovered.txt", staging);
-    copy_into_report(g_root / "unpacker_recovered.bin", staging);
-    copy_into_report(g_root / "unpacker_journal.csv", staging);
+    copy_report_files(g_root, g_root, game.crashed, staging);
     write_text(staging / "report_info.txt",
-               std::string("Golden Sun Recompiled bug report\n") +
-               "Launcher built: " + __DATE__ + " " + __TIME__ + "\n" +
-               "System: Linux, " + os_release_name() + "\n" +
-               "F12 captures: " + std::to_string(game.new_rewinds.size()) + "\n" +
-               "Game crashed: " + (game.crashed ? "yes" : "no") + "\n" +
-               "Unpacker crash caught: " + (game.unpacker ? "yes" : "no") + "\n" +
-               "Game exit code: " + std::to_string(game.exit_code) + "\n");
+               report_info_text("System: Linux, " + os_release_name(),
+                                game.new_rewinds.size(), game.crashed,
+                                game.unpacker, game.exit_code));
 
     std::vector<fs::path> archives;
     const std::size_t parts = std::max<std::size_t>(1, game.new_rewinds.size());
@@ -950,8 +911,8 @@ void draw_build_progress(int done, int total, float width, double seconds) {
 
 bool session_ready() {
 #ifdef GSR_LINUX_DEV_LAUNCHER
-    const auto game = gsr_session::engine(g_root, kCollectionGame);
-    if (fs::is_regular_file(game) && fs::is_regular_file(game.parent_path() / kGameLibrary))
+    const auto game = gsr_session::engine(g_root, session_game_index);
+    if (fs::is_regular_file(game) && fs::is_regular_file(game.parent_path() / session_game().library))
         return true;
 #endif
     return game_code_ready(g_root);
@@ -984,7 +945,7 @@ void use_rom(const std::string& selected_rom) {
             {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "No"}
         };
         const SDL_MessageBoxData question = {SDL_MESSAGEBOX_INFORMATION, nullptr,
-            kTitle, message.c_str(), 2, buttons, nullptr};
+            session_game().title, message.c_str(), 2, buttons, nullptr};
         int answer = 0;
         if (SDL_ShowMessageBox(&question, &answer) != 0 || answer != 1) {
             launcher_log("Preparation: declined; no build started.");
@@ -995,7 +956,7 @@ void use_rom(const std::string& selected_rom) {
     }
     if (g_collection_play) {
         if (!gsr_collection::import_selected_rom(g_collection_root, rom,
-                                                kCollectionStem, g_managed, error)) {
+                                                session_game().stem, g_managed, error)) {
             show_message("The ROM or saves could not be copied", error, true);
             return;
         }
@@ -1019,8 +980,10 @@ void use_rom(const std::string& selected_rom) {
 
 }  // namespace
 
-int GSR_SESSION_ENTRY(int argc, char** argv) {
+int gsr_session_main(int game, int argc, char** argv) {
+    session_game_index = game;
     std::string settings_error;
+    int seamless_slot = -1;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--direct3d") == 0)
             settings_error = "Direct3D is not supported on Linux.";
@@ -1036,6 +999,13 @@ int GSR_SESSION_ENTRY(int argc, char** argv) {
             g_collection_update_checked = true;
         else if (std::strcmp(argv[i], "--collection-root") == 0 && i + 1 < argc)
             g_collection_root = fs::path(argv[++i]);
+        else if (std::strcmp(argv[i], "--seamless-slot") == 0 && i + 1 < argc) {
+            // Slot 0..2 of The Broken Seal's save, from the collection window.
+            const char* text = argv[++i];
+            if (text[0] >= '0' && text[0] <= '9' && !text[1] &&
+                text[0] - '0' < gbarecomp::seamless::kSlotCount)
+                seamless_slot = text[0] - '0';
+        }
     }
     if (g_collection_tests_override && !g_collection_play)
         settings_error = "Collection test settings require collection play.";
@@ -1045,18 +1015,33 @@ int GSR_SESSION_ENTRY(int argc, char** argv) {
 #endif
     if (!settings_error.empty()) {
         std::fprintf(stderr, "%s\n", settings_error.c_str());
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, kTitle, settings_error.c_str(), nullptr);
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, session_game().title, settings_error.c_str(), nullptr);
         return 1;
     }
     if (!g_collection_play || !g_collection_root.is_absolute()) {
         std::fprintf(stderr, "Start this game from the collection launcher.\n");
         return 1;
     }
-    g_root = gsr_session::game_root(g_collection_root, kCollectionGame);
+    g_root = gsr_session::game_root(g_collection_root, session_game_index);
     fs::current_path(g_root);
     const std::string crash_root = g_root.string();
     gbarecomp::crash_handler_install(crash_root.c_str());
     open_launcher_log();
+    // The Lost Age's Golden Sun import looks in The Broken Seal's save first;
+    // the game inherits the path (seamless.h).
+    const fs::path gs_save = gsr_collection::managed_paths(g_collection_root, kGames[0].stem).save;
+    std::error_code save_error;
+    const bool have_gs_save = session_game_index == 1 && fs::is_regular_file(gs_save, save_error);
+    if (have_gs_save) setenv(gbarecomp::seamless::kSaveEnv, gs_save.c_str(), 1);
+    if (seamless_slot >= 0 && have_gs_save) {
+        // Seamless mode: The Broken Seal just saved its Clear Data. The game
+        // inherits the slot too; the collection window keeps this session's
+        // window hidden, and the remembered ROM starts the game without
+        // asking (the normal path below).
+        launcher_log("Seamless: starting The Lost Age with The Broken Seal's save, slot " +
+                     std::to_string(seamless_slot + 1) + ".");
+        setenv(gbarecomp::seamless::kSlotEnv, std::to_string(seamless_slot + 1).c_str(), 1);
+    }
     g_ui.remembered_rom = remembered_rom();
     g_ui.auto_start = trim(read_text(auto_start_path())) == "1";
     check_for_update();
@@ -1068,7 +1053,7 @@ int GSR_SESSION_ENTRY(int argc, char** argv) {
         return 1;
     }
     SDL_SetHint(SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR, "0");
-    SDL_Window* window = SDL_CreateWindow(kTitle, SDL_WINDOWPOS_CENTERED,
+    SDL_Window* window = SDL_CreateWindow(session_game().title, SDL_WINDOWPOS_CENTERED,
                                           SDL_WINDOWPOS_CENTERED, 720, 640,
                                           SDL_WINDOW_ALLOW_HIGHDPI |
                                               (g_collection_play ? SDL_WINDOW_HIDDEN : 0));
@@ -1145,7 +1130,7 @@ int GSR_SESSION_ENTRY(int argc, char** argv) {
         }
         if (build_finished) {
             if (g_build_thread.joinable()) g_build_thread.join();
-            if (build_ok) write_text(g_root / GSR_GAME_RELEASE, release_fingerprint(g_root));
+            if (build_ok) write_text(g_root / session_game().release_stamp, release_fingerprint(g_root));
             ready = build_ok && session_ready();
             launcher_log(ready      ? std::string("Build: finished, the game is ready.")
                          : build_ok ? std::string("Build: finished, but the game files do "
@@ -1495,6 +1480,18 @@ int GSR_SESSION_ENTRY(int argc, char** argv) {
                 }
                 SDL_HideWindow(window);
                 const GameResult game = run_game(pending.substr(6));
+                // Seamless mode: The Broken Seal wrote its Clear Data and asks
+                // for The Lost Age. A hand-over, not a failure: exit with the
+                // same code (no bug report offer); the collection window goes on.
+                const int seamless_done = game.exit_code - gbarecomp::seamless::kExitCodeBase;
+                if (session_game_index == 0 && game.started && game.storage_error.empty() &&
+                    seamless_done >= 0 && seamless_done < gbarecomp::seamless::kSlotCount) {
+                    launcher_log("Seamless: The Broken Seal saved Clear Data to slot " +
+                                 std::to_string(seamless_done + 1) + "; starting The Lost Age.");
+                    g_seamless_exit_code = game.exit_code;
+                    running = false;
+                    continue;
+                }
                 if (!g_collection_play) SDL_ShowWindow(window);
                 if (!game.storage_error.empty())
                     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,
@@ -1574,5 +1571,5 @@ int GSR_SESSION_ENTRY(int argc, char** argv) {
     SDL_DestroyWindow(window);
     SDL_Quit();
     gbarecomp::crash_handler_mark_clean_exit();
-    return 0;
+    return g_seamless_exit_code;
 }

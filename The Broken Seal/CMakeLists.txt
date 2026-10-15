@@ -34,8 +34,8 @@ endif()
 # against that WPA peak on a 16 GB box. Set to "" to omit the explicit -flto=N
 # override, or to 1 for a fully serial (lowest-memory) LTRANS. See the LTO
 # section in the delivery report for the reasoning and how to size this up.
-# build_lto_nosymbols.bat: the same optimised build without debug
-# information, which every compile and the LTO link otherwise carry (the
+# GSR_DEBUG_SYMBOLS=OFF (player releases): the same optimised build without
+# debug information, which every compile and the LTO link otherwise carry (the
 # split-off .debug file is ~600 MB). The exe keeps its plain symbol table, so
 # a crash report's exe offsets can still be matched to functions with nm.
 # -g0 comes after the configuration's -g on every command line, so it wins.
@@ -750,7 +750,7 @@ if(GSR_BUILD_LOCAL_RUNNER)
         src/world_map_source.cpp
         "${GBARECOMP_ROOT}/src/field/effect_particles.cpp"
         src/effect_sources.cpp
-        src/effect_capture.cpp
+        "${GBARECOMP_ROOT}/src/field/effect_capture.cpp"
         src/gs_text_encode.cpp
         src/unpacker_catch.cpp
         src/unpacker_guard.cpp
@@ -802,6 +802,7 @@ if(GSR_BUILD_LOCAL_RUNNER)
         ${GSR_STAMPS_SOURCES}
         ${GSR_PROACTIVE_OVERLAY_SOURCES})
     # GSR_SPLIT_GAME_CODE: the engine (our code only) is GoldenSunRecomp.exe
+    # (on Windows now GoldenSunEngine.dll, run by GoldenSunRecomp.exe, below)
     # and the translated game code is GoldenSunGame.dll beside it, so a
     # release can ship the engine prebuilt and the player's PC builds only
     # the DLL from their ROM (ROADMAP.md, "Player builder"). Windows joins
@@ -811,7 +812,27 @@ if(GSR_BUILD_LOCAL_RUNNER)
     # played through Vale, performs like the single LTO exe); OFF builds
     # the single exe.
     option(GSR_SPLIT_GAME_CODE "Build the game code as GoldenSunGame.dll" ON)
-    if(GSR_SPLIT_GAME_CODE)
+    if(GSR_SPLIT_GAME_CODE AND MINGW)
+        # Windows: the engine is a plug-in, GoldenSunEngine.dll (target
+        # GoldenSunRecomp, so the per-file object paths stay the same), run
+        # by GoldenSunRecomp.exe, the small player program beside it (engine
+        # player_main.cpp). One window for both games (STATUS.md, "One
+        # program for both games"). Linux still builds the engine as the
+        # program itself.
+        add_library(GoldenSunRecomp SHARED ${GSR_ENGINE_SOURCES}
+            "${GBARECOMP_ROOT}/src/runtime/game_module.cpp")
+        set_target_properties(GoldenSunRecomp PROPERTIES
+            PREFIX "" OUTPUT_NAME GoldenSunEngine
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+        add_executable(GoldenSunPlayer "${GBARECOMP_ROOT}/src/runtime/player_main.cpp")
+        set_target_properties(GoldenSunPlayer PROPERTIES OUTPUT_NAME GoldenSunRecomp)
+        target_compile_definitions(GoldenSunPlayer PRIVATE
+            GSR_ENGINE_PLUGIN=L"GoldenSunEngine.dll")
+        # The game runs on the player program's threads.
+        target_link_options(GoldenSunPlayer PRIVATE -Wl,--stack,16777216)
+        target_link_libraries(GoldenSunPlayer PRIVATE shell32)
+        add_dependencies(GoldenSunPlayer GoldenSunRecomp GoldenSunGame)
+    elseif(GSR_SPLIT_GAME_CODE)
         add_executable(GoldenSunRecomp ${GSR_ENGINE_SOURCES})
     else()
         add_executable(GoldenSunRecomp
@@ -1038,7 +1059,7 @@ if(GSR_BUILD_LOCAL_RUNNER)
             # writes with --out-implib under LTO leaves out exports the
             # engine itself never calls (2026-09-26).
             COMMAND "${GSR_DLLTOOL}" -d "${GSR_ENGINE_EXPORTS}"
-                -l "${GSR_ENGINE_API_IMPLIB}" -D GoldenSunRecomp.exe
+                -l "${GSR_ENGINE_API_IMPLIB}" -D GoldenSunEngine.dll
             BYPRODUCTS "${GSR_ENGINE_EXPORTS}" "${GSR_ENGINE_EXPORTS_RSP}"
                        "${GSR_ENGINE_API_IMPLIB}"
             WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
@@ -1047,7 +1068,11 @@ if(GSR_BUILD_LOCAL_RUNNER)
             "@${GSR_ENGINE_EXPORTS_RSP}")
     endif()
 
-    add_test(NAME runner_help COMMAND GoldenSunRecomp --help)
+    if(TARGET GoldenSunPlayer)
+        add_test(NAME runner_help COMMAND GoldenSunPlayer --help)
+    else()
+        add_test(NAME runner_help COMMAND GoldenSunRecomp --help)
+    endif()
 
     # Split debug symbols out of the executable so the shipped binary stays
     # small while crash/hang stack traces can still resolve against the
@@ -1121,10 +1146,10 @@ if(GSR_BUILD_LOCAL_RUNNER)
     if(TARGET gbarecomp_imgui)
         set(GSR_COLLECTION_SOURCES
             "${GSR_LAUNCHER_DIR}/collection_main.cpp"
-            "${GSR_LAUNCHER_DIR}/collection_session_broken_seal.cpp"
-            "${GSR_LAUNCHER_DIR}/collection_session_lost_age.cpp"
+            "${GSR_LAUNCHER_DIR}/collection_session.cpp"
             "${GBARECOMP_ROOT}/src/gba/sha1.cpp"
-            "${GBARECOMP_ROOT}/src/runtime/crash_handler.cpp")
+            "${GBARECOMP_ROOT}/src/runtime/crash_handler.cpp"
+            "${GBARECOMP_ROOT}/src/runtime/game_options.cpp")
         if(WIN32)
             add_executable(GoldenSunCollection WIN32 ${GSR_COLLECTION_SOURCES})
             target_compile_definitions(GoldenSunCollection PRIVATE

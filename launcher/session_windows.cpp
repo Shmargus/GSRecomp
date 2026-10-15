@@ -27,6 +27,8 @@
 #include "launcher_online.h"
 #include "collection_session.h"
 #include "collection_preferences.h"
+#include "../engine/src/runtime/handover.h"
+#include "../engine/src/runtime/seamless.h"
 
 #include <algorithm>
 #include <atomic>
@@ -69,13 +71,6 @@ bool g_collection_direct3d = false;
 bool g_collection_tests_supplied = false;
 gsr_collection::GameSettings g_collection_tests;
 fs::path g_collection_root;
-#ifdef GSR_LAUNCHER_TLA
-constexpr char kCollectionGameStem[] = "The Lost Age";
-constexpr std::size_t kCollectionGameIndex = 1;
-#else
-constexpr char kCollectionGameStem[] = "The Broken Seal";
-constexpr std::size_t kCollectionGameIndex = 0;
-#endif
 bool g_collection_update_checked = false;
 bool g_collection_activation_pending = false;
 
@@ -131,6 +126,13 @@ using gsr_session::save_launcher_audio_settings;
 // user machine paths and must not be rewritten by the launcher.
 LauncherAudioSettings g_audio_settings{};
 bool g_strict_static_route = false;
+// Set by run_game when The Broken Seal ended with a seamless exit code; the
+// session process then exits with it (show_launcher / gsr_session_main).
+int g_seamless_exit_code = 0;
+// The Lost Age started by Seamless mode: run_game sends it to The Broken
+// Seal's program, still open with its window, instead of starting
+// TLARecomp.exe (handover.h).
+bool g_handover_next = false;
 
 // What a release launch plays with: Enhanced Options (expanded view
 // rendering and spell effects) and the graphics-card field renderer ALONE.
@@ -239,66 +241,6 @@ void write_cached_path(const fs::path& path, const std::wstring& value) {
 }
 
 }  // namespace
-namespace gsr_launcher {
-
-bool sha1_file(const fs::path& path, std::string* out) {
-    BCRYPT_ALG_HANDLE algorithm = nullptr;
-    BCRYPT_HASH_HANDLE hash = nullptr;
-    HANDLE file = INVALID_HANDLE_VALUE;
-    std::vector<UCHAR> object;
-    std::vector<UCHAR> digest;
-    bool ok = false;
-
-    do {
-        file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ,
-                           nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
-                           nullptr);
-        if (file == INVALID_HANDLE_VALUE) break;
-        if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA1_ALGORITHM,
-                                        nullptr, 0) < 0) break;
-
-        DWORD object_len = 0;
-        DWORD result_len = 0;
-        if (BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH,
-                              reinterpret_cast<PUCHAR>(&object_len),
-                              sizeof(object_len), &result_len, 0) < 0) break;
-        DWORD hash_len = 0;
-        if (BCryptGetProperty(algorithm, BCRYPT_HASH_LENGTH,
-                              reinterpret_cast<PUCHAR>(&hash_len),
-                              sizeof(hash_len), &result_len, 0) < 0) break;
-        object.resize(object_len);
-        digest.resize(hash_len);
-        if (BCryptCreateHash(algorithm, &hash, object.data(), object_len,
-                             nullptr, 0, 0) < 0) break;
-
-        std::vector<UCHAR> buffer(1024 * 1024);
-        for (;;) {
-            DWORD read = 0;
-            if (!ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()),
-                          &read, nullptr)) break;
-            if (read == 0) {
-                if (BCryptFinishHash(hash, digest.data(), hash_len, 0) < 0)
-                    break;
-                static constexpr char hex[] = "0123456789abcdef";
-                out->clear();
-                for (UCHAR byte : digest) {
-                    out->push_back(hex[byte >> 4]);
-                    out->push_back(hex[byte & 15]);
-                }
-                ok = true;
-                break;
-            }
-            if (BCryptHashData(hash, buffer.data(), read, 0) < 0) break;
-        }
-    } while (false);
-
-    if (hash) BCryptDestroyHash(hash);
-    if (algorithm) BCryptCloseAlgorithmProvider(algorithm, 0);
-    if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
-    return ok;
-}
-
-}  // namespace gsr_launcher
 namespace {
 
 std::wstring pick_file(const wchar_t* title, const wchar_t* filter,
@@ -328,7 +270,7 @@ std::wstring choose_rom(const fs::path& root, HWND owner) {
     std::wstring initial_directory;
     if (!cached.empty()) initial_directory = fs::path(cached).parent_path();
     const std::wstring candidate = pick_file(
-        GSR_ROM_PROMPT_W,
+        session_game().rom_prompt_w,
         L"Golden Sun ROM (*.gba)\0*.gba\0All files (*.*)\0*.*\0\0",
         initial_directory, owner);
     if (candidate.empty()) {
@@ -343,7 +285,7 @@ std::wstring choose_rom(const fs::path& root, HWND owner) {
     }
     const std::wstring error = utf8_to_wide(error_utf8);
     launcher_log(L"Pick ROM: " + candidate + L" - refused: " + error);
-    MessageBoxW(owner, error.c_str(), GSR_GAME_TITLE_W,
+    MessageBoxW(owner, error.c_str(), session_game().title_w,
                 MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
     return {};
 }
@@ -372,12 +314,12 @@ bool prepare_collection_rom(const fs::path& root, std::wstring& rom, HWND owner,
     }
     if (!error.empty() || !validate_rom(rom, &error) ||
         !gsr_collection::import_selected_rom(g_collection_root, fs::path(rom),
-                                             kCollectionGameStem, files, error) ||
+                                             session_game().stem, files, error) ||
         !validate_rom(files.rom, &error)) {
         const std::wstring message = L"Your ROM and saves could not be prepared.\n\n" +
                                      utf8_to_wide(error);
         launcher_log(message);
-        MessageBoxW(owner, message.c_str(), GSR_GAME_TITLE_W,
+        MessageBoxW(owner, message.c_str(), session_game().title_w,
                     MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
         return false;
     }
@@ -390,7 +332,7 @@ bool prepare_collection_rom(const fs::path& root, std::wstring& rom, HWND owner,
 fs::path active_save_path(const fs::path& root) {
     return gsr_collection::managed_paths(g_collection_root.empty()
         ? gsr_collection::infer_collection_root(root) : g_collection_root,
-        kCollectionGameStem).save;
+        session_game().stem).save;
 }
 
 // ── Session log capture ────────────────────────────────────────────────
@@ -888,38 +830,19 @@ std::vector<fs::path> make_bug_report(const fs::path& root, const fs::path& game
         }
     }
     copy_into_report(logs_dir / L"launcher.log", staging);
-    for (const wchar_t* file : {L"config.ini", L"game_options.ini",
-                                L"keybinds.ini", GSR_GAME_BUILD_W,
-                                L"run_state.txt"})
-        copy_into_report(game_dir / file, staging);
     // Include the actual active save so the problem can be replayed.
     if (!rom.empty())
         copy_into_report(active_save_path(root), staging);
-    if (crashed) {
-        copy_into_report(game_dir / L"crash_report.txt", staging);
-        copy_into_report(game_dir / L"crash_dump.dmp", staging);
-        copy_into_report(game_dir / L"crash_memory.bin", staging);
-        copy_into_report(game_dir / L"crash_trail.csv", staging);
-    }
-    // Only this run's: the launcher deletes the pair before every start.
-    copy_into_report(root / L"unpacker_catch.txt", staging);
-    copy_into_report(root / L"unpacker_catch.bin", staging);
-    // The unpacker guard's pair (src/unpacker_guard.h), also only this run's.
-    const bool unpacker_caught = fs::is_regular_file(root / L"unpacker_recovered.txt", ec);
-    copy_into_report(root / L"unpacker_recovered.txt", staging);
-    copy_into_report(root / L"unpacker_recovered.bin", staging);
-    copy_into_report(root / L"unpacker_journal.csv", staging);
+    copy_report_files(game_dir, root, crashed, staging);
+    const bool unpacker_caught =
+        fs::is_regular_file(root / L"unpacker_recovered.txt", ec);
     {
         std::ofstream info(staging / L"report_info.txt", std::ios::binary);
-        info << "Golden Sun Recompiled bug report\n"
-             << "Launcher built: " << __DATE__ << " " << __TIME__ << "\n"
-             << "Windows: " << registry_text(L"ProductName") << " "
-             << registry_text(L"DisplayVersion") << " (build "
-             << registry_text(L"CurrentBuild") << ")\n"
-             << "F12 captures: " << rewinds.size() << "\n"
-             << "Game crashed: " << (crashed ? "yes" : "no") << "\n"
-             << "Unpacker crash caught: " << (unpacker_caught ? "yes" : "no") << "\n"
-             << "Game exit code: " << exit_code << "\n";
+        info << report_info_text(
+            "Windows: " + registry_text(L"ProductName") + " " +
+                registry_text(L"DisplayVersion") + " (build " +
+                registry_text(L"CurrentBuild") + ")",
+            rewinds.size(), crashed, unpacker_caught, exit_code);
     }
 
     std::vector<fs::path> zips;
@@ -1094,7 +1017,7 @@ LRESULT CALLBACK report_window_proc(HWND window, UINT message, WPARAM w_param,
                          L"\n\nYou can try again, or upload the zip yourself on the bug "
                          L"report form. Open the form and the folder now?")
                             .c_str(),
-                        GSR_GAME_TITLE_W, MB_YESNO | MB_ICONWARNING) == IDYES) {
+                        session_game().title_w, MB_YESNO | MB_ICONWARNING) == IDYES) {
             ShellExecuteW(nullptr, L"open", kBugReportFormUrl, nullptr, nullptr, SW_SHOWNORMAL);
             const std::wstring select = L"/select,\"" + state->reports.front().wstring() + L"\"";
             ShellExecuteW(nullptr, L"open", L"explorer.exe", select.c_str(), nullptr,
@@ -1146,7 +1069,7 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed, bool u
             reports.front().wstring() +
             L"\n\nPress OK to open the bug report form and this folder; zip the folder "
             L"(and any gpu_rewind folders next to it) and add it to the form.";
-        if (MessageBoxW(nullptr, text.c_str(), GSR_GAME_TITLE_W,
+        if (MessageBoxW(nullptr, text.c_str(), session_game().title_w,
                         MB_OKCANCEL | MB_SETFOREGROUND | MB_ICONWARNING) == IDOK) {
             ShellExecuteW(nullptr, L"open", kBugReportFormUrl, nullptr, nullptr, SW_SHOWNORMAL);
             ShellExecuteW(nullptr, L"open", L"explorer.exe", reports.front().c_str(), nullptr,
@@ -1163,7 +1086,7 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed, bool u
                 L"\n\nPress OK to open the bug report form and this folder, write a few "
                 L"words about what happened and add the zip. Cancel keeps the files "
                 L"without sending anything.";
-        if (MessageBoxW(nullptr, text.c_str(), GSR_GAME_TITLE_W,
+        if (MessageBoxW(nullptr, text.c_str(), session_game().title_w,
                         MB_OKCANCEL | MB_SETFOREGROUND |
                             (crashed || unpacker ? MB_ICONWARNING : MB_ICONINFORMATION)) == IDOK) {
             ShellExecuteW(nullptr, L"open", kBugReportFormUrl, nullptr, nullptr, SW_SHOWNORMAL);
@@ -1278,11 +1201,11 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
              bool direct3d_compat = false) {
     direct3d_compat = direct3d_compat || g_collection_direct3d;
     const bool collection_gpu_check = g_collection_tests_supplied &&
-        gsr_collection::test_enabled(g_collection_tests, "TLA_GPU_FIELD_CHECK", kCollectionGameIndex);
+        gsr_collection::test_enabled(g_collection_tests, "TLA_GPU_FIELD_CHECK", session_game_index);
     if (g_collection_tests_supplied) {
         g_test_variables = g_collection_tests.test_variables;
         const auto enabled = [](const char* environment) {
-            return gsr_collection::test_enabled(g_collection_tests, environment, kCollectionGameIndex);
+            return gsr_collection::test_enabled(g_collection_tests, environment, session_game_index);
         };
         // Keep self-healing's selected state: the existing policy applies its
         // intentional exception when the master switch is off.
@@ -1303,7 +1226,7 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
     // Close the session log if it is open, say why, and give up the start.
     auto fail = [&](const std::wstring& text, UINT icon = MB_ICONERROR) {
         if (log_file != INVALID_HANDLE_VALUE) CloseHandle(log_file);
-        MessageBoxW(window, text.c_str(), GSR_GAME_TITLE_W,
+        MessageBoxW(window, text.c_str(), session_game().title_w,
                     MB_OK | icon | MB_SETFOREGROUND);
         return 1;
     };
@@ -1333,10 +1256,11 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
     // The game runs without the BIOS (Jimmy, 2026-09-24): no BIOS path is
     // needed or passed and no Nintendo code executes.
 
-    const fs::path game = gsr_session::engine(root, kCollectionGameIndex);
+    const fs::path game = gsr_session::engine(root, session_game_index);
     if (!fs::is_regular_file(game)) {
-        launcher_log(L"Start game: " GSR_GAME_EXE_W L" not found.");
-        return fail(GSR_GAME_EXE_W L" was not found. Run the build first.");
+        const std::wstring exe = session_game().executable_w;
+        launcher_log(L"Start game: " + exe + L" not found.");
+        return fail(exe + L" was not found. Run the build first.");
     }
 
     fs::create_directories(root / L"recomp_cache");
@@ -1395,9 +1319,8 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
                                 L"g++.exe")) {
         common.heal_toolchain = wide_to_utf8((root / L"builder" / L"mingw64").wstring());
     }
-#ifdef GSR_LAUNCHER_TLA
-    common.save_import = g_audio_settings.gs_save_import;
-#endif
+    if (session_game_index == 1)  // The Lost Age imports Golden Sun saves.
+        common.save_import = g_audio_settings.gs_save_import;
     // Enhanced Options combines the existing expanded-sprite/shadow safety
     // net with room-buffer rendering and expanded spell effects.
     common.enhanced_options = g_audio_settings.enhanced_options;
@@ -1619,7 +1542,21 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
     // session log through the pipes above.
     const DWORD creation_flags = CREATE_UNICODE_ENVIRONMENT |
         (kReleaseLauncher ? CREATE_NO_WINDOW : 0);
-    if (!CreateProcessW(game.c_str(), mutable_command.data(), nullptr, nullptr,
+    bool handed_over = false;
+    if (g_handover_next) {
+        gbarecomp::handover::Launch launch;
+        launch.plugin = (game.parent_path() / session_game().engine).wstring();
+        launch.command_line = command;
+        launch.directory = root.wstring();
+        launch.environment.assign(environment_block.begin(), environment_block.end());
+        handed_over = gbarecomp::handover::run(launch, out_write, err_write,
+                                               &process.hProcess, &process.dwProcessId);
+        launcher_log(handed_over
+            ? L"Seamless: The Lost Age runs in The Broken Seal's window."
+            : L"Seamless: no window to hand over to; starting The Lost Age on its own.");
+    }
+    if (!handed_over &&
+        !CreateProcessW(game.c_str(), mutable_command.data(), nullptr, nullptr,
                         inherit_handles, creation_flags,
                         environment_block.data(), root.c_str(), &startup,
                         &process)) {
@@ -1632,7 +1569,7 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
                      L" (error " + std::to_wstring(start_error) + L").");
         return fail(L"Windows could not start the recompiled game.");
     }
-    CloseHandle(process.hThread);
+    if (process.hThread) CloseHandle(process.hThread);
     launcher_log(L"Start game: running " + game.wstring() + L", session log " +
                  (log_path.empty() ? std::wstring(L"(none)")
                                    : fs::path(log_path).filename().wstring()) + L".");
@@ -1663,9 +1600,19 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
         out_thread.join();
         err_thread.join();
     }
-    WaitForSingleObject(process.hProcess,INFINITE);
+    // Its output ended but the program still runs: The Broken Seal handed
+    // over and its program keeps the window for The Lost Age (handover.h).
     DWORD exit_code = 0;
-    GetExitCodeProcess(process.hProcess, &exit_code);
+    bool program_waits = false;
+    if (WaitForSingleObject(process.hProcess, 0) == WAIT_TIMEOUT) {
+        std::int32_t code = 0;
+        program_waits = gbarecomp::handover::query(process.dwProcessId, &code);
+        if (program_waits) exit_code = static_cast<DWORD>(code);
+    }
+    if (!program_waits) {
+        WaitForSingleObject(process.hProcess, INFINITE);
+        GetExitCodeProcess(process.hProcess, &exit_code);
+    }
     if (log_file != INVALID_HANDLE_VALUE) CloseHandle(log_file);
     log_file=INVALID_HANDLE_VALUE;
     CloseHandle(process.hProcess);
@@ -1676,7 +1623,7 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
         const std::wstring message = L"Your savestates could not be copied into Saves.\n\n" +
                                      utf8_to_wide(sync_error);
         launcher_log(message);
-        MessageBoxW(nullptr, message.c_str(), GSR_GAME_TITLE_W,
+        MessageBoxW(nullptr, message.c_str(), session_game().title_w,
                     MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
     }
 
@@ -1693,6 +1640,18 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
                      (crashed ? L", crashed (crash_report.txt written)" : L"") +
                      (unpacker ? L", unpacker crash caught (unpacker_recovered.txt)" : L"") +
                      L", rewind captures " + std::to_wstring(new_rewinds.size()) + L".");
+        // Seamless mode: The Broken Seal wrote its Clear Data and asks for The
+        // Lost Age. This is a hand-over, not a failure; the session exits with
+        // the same code and the collection window starts the next game.
+        const int seamless_slot = static_cast<int>(exit_code) - gbarecomp::seamless::kExitCodeBase;
+        if (session_game_index == 0 && saves_synced &&
+            seamless_slot >= 0 && seamless_slot < gbarecomp::seamless::kSlotCount) {
+            launcher_log(L"Seamless: The Broken Seal saved Clear Data to slot " +
+                         std::to_wstring(seamless_slot + 1) + L"; starting The Lost Age.");
+            g_seamless_exit_code = static_cast<int>(exit_code);
+            return 0;
+        }
+        if (program_waits) gbarecomp::handover::quit();
         if (!direct3d_compat && exit_code != 0 &&
             gsr::should_offer_direct3d_retry(direct3d_compat, exit_code, crashed,
                                            read_text(log_path), read_text(crash_report))) {
@@ -1700,7 +1659,7 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
                 L"OpenGL graphics could not start.\n\n"
                 L"Would you like to try Direct3D instead?\n\n"
                 L"Some visual enhancements and screen filters will be unavailable for this run.",
-                GSR_GAME_TITLE_W, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON1 | MB_SETFOREGROUND);
+                session_game().title_w, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON1 | MB_SETFOREGROUND);
             if (answer == IDYES) {
                 const auto reports = make_bug_report(root, game.parent_path(), rom,
                                                      log_path, new_rewinds, crashed, exit_code);
@@ -2224,7 +2183,7 @@ void start_game_build(HWND window, const std::wstring& rom) {
         MessageBoxW(window,
                     L"Part of Golden Sun Recompiled is missing (builder\\gsr_builder.exe).\n\n"
                     L"Please unzip the whole download again.",
-                    GSR_GAME_TITLE_W, MB_OK | MB_ICONERROR);
+                    session_game().title_w, MB_OK | MB_ICONERROR);
         return;
     }
     SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
@@ -2233,7 +2192,7 @@ void start_game_build(HWND window, const std::wstring& rom) {
         launcher_log(L"Build: no pipe for the builder (error " +
                      std::to_wstring(GetLastError()) + L").");
         MessageBoxW(window, L"The game builder could not start.",
-                    GSR_GAME_TITLE_W, MB_OK | MB_ICONERROR);
+                    session_game().title_w, MB_OK | MB_ICONERROR);
         return;
     }
     SetHandleInformation(read_end, HANDLE_FLAG_INHERIT, 0);
@@ -2258,7 +2217,7 @@ void start_game_build(HWND window, const std::wstring& rom) {
         launcher_log(L"Build: Windows could not start the builder (error " +
                      std::to_wstring(start_error) + L").");
         MessageBoxW(window, L"The game builder could not start.",
-                    GSR_GAME_TITLE_W, MB_OK | MB_ICONERROR);
+                    session_game().title_w, MB_OK | MB_ICONERROR);
         return;
     }
     // Closing the launcher mid-build stops the builder and its compilers.
@@ -2496,7 +2455,7 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             if (kReleaseLauncher && !game_code_ready(g_launcher_root)) {
                 const std::wstring prompt = utf8_to_wide(preparation_prompt_text(
                     preparation_state(g_launcher_root)));
-                if (MessageBoxW(window, prompt.c_str(), GSR_GAME_TITLE_W,
+                if (MessageBoxW(window, prompt.c_str(), session_game().title_w,
                         MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND) != IDYES) {
                     DestroyWindow(window);
                     return 0;
@@ -2607,7 +2566,7 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             error = g_build.error;
         }
         if (ok) {
-            std::ofstream stamp(g_launcher_root / GSR_GAME_RELEASE_W,
+            std::ofstream stamp(g_launcher_root / session_game().release_stamp_w,
                                 std::ios::binary | std::ios::trunc);
             stamp << release_fingerprint(g_launcher_root);
         }
@@ -2624,7 +2583,7 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
         if (!ready) {
             std::wstring msg = L"The game could not be prepared.\n\n" + error +
                 L"\n\nThe full log is builder\\work\\build-log.txt.";
-            MessageBoxW(window, msg.c_str(), GSR_GAME_TITLE_W,
+            MessageBoxW(window, msg.c_str(), session_game().title_w,
                         MB_OK | MB_ICONERROR);
             DestroyWindow(window);
             return 0;
@@ -2660,7 +2619,7 @@ int show_launcher(const fs::path& root) {
     if (Gdiplus::GdiplusStartup(&gdiplus_token, &startup_input, nullptr) !=
         Gdiplus::Ok) {
         MessageBoxW(nullptr, L"The splash screen could not start.",
-                    GSR_GAME_TITLE_W, MB_OK | MB_ICONERROR);
+                    session_game().title_w, MB_OK | MB_ICONERROR);
         return 1;
     }
 
@@ -2720,7 +2679,7 @@ int show_launcher(const fs::path& root) {
     // (WS_CLIPCHILDREN): each build update repaints the window, and painting
     // over the button before it redrew made it flicker.
     HWND window = CreateWindowExW(
-        WS_EX_APPWINDOW, class_name, GSR_GAME_TITLE_W,
+        WS_EX_APPWINDOW, class_name, session_game().title_w,
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX |
             (kReleaseLauncher ? WS_CLIPCHILDREN : 0),
         CW_USEDEFAULT, CW_USEDEFAULT, desired.right - desired.left,
@@ -2735,7 +2694,7 @@ int show_launcher(const fs::path& root) {
         g_backdrop.bitmap.reset();
         Gdiplus::GdiplusShutdown(gdiplus_token);
         MessageBoxW(nullptr, L"The launcher window could not be created.",
-                    GSR_GAME_TITLE_W, MB_OK | MB_ICONERROR);
+                    session_game().title_w, MB_OK | MB_ICONERROR);
         return 1;
     }
 
@@ -2763,14 +2722,16 @@ int show_launcher(const fs::path& root) {
     g_backdrop.bitmap.reset();
     UnregisterClassW(class_name, GetModuleHandleW(nullptr));
     Gdiplus::GdiplusShutdown(gdiplus_token);
-    return static_cast<int>(message.wParam);
+    return g_seamless_exit_code ? g_seamless_exit_code : static_cast<int>(message.wParam);
 }
 
 }  // namespace
 
-int GSR_SESSION_ENTRY(int, char**) {
+int gsr_session_main(int game, int, char**) {
+    session_game_index = game;
     // The only way in: the collection launcher starts this session.
     bool collection_play = false;
+    int seamless_slot = -1;
     int argument_count = 0;
     if (wchar_t** arguments = CommandLineToArgvW(GetCommandLineW(), &argument_count)) {
         for (int i = 1; i < argument_count; ++i) {
@@ -2780,12 +2741,21 @@ int GSR_SESSION_ENTRY(int, char**) {
                 g_collection_update_checked = true;
             else if (std::wcscmp(arguments[i], L"--direct3d") == 0)
                 g_collection_direct3d = true;
+            else if (std::wcscmp(arguments[i], L"--seamless-slot") == 0) {
+                // Slot 0..2 of The Broken Seal's save, from the collection window.
+                if (++i < argument_count) {
+                    const int slot = _wtoi(arguments[i]);
+                    if (slot >= 0 && slot < gbarecomp::seamless::kSlotCount &&
+                        (arguments[i][0] >= L'0' && arguments[i][0] <= L'9'))
+                        seamless_slot = slot;
+                }
+            }
             else if (std::wcscmp(arguments[i], L"--collection-tests") == 0) {
                 if (g_collection_tests_supplied || ++i >= argument_count ||
                     !gsr_collection::parse_tests(wide_to_utf8(arguments[i]),
                                                  g_collection_tests)) {
                     MessageBoxW(nullptr, (L"Collection test settings must contain exactly " + std::to_wstring(gsr_collection::test_options.size() + 1) + L" binary digits.").c_str(),
-                                GSR_GAME_TITLE_W, MB_OK | MB_ICONERROR);
+                                session_game().title_w, MB_OK | MB_ICONERROR);
                     LocalFree(arguments);
                     return 1;
                 }
@@ -2794,7 +2764,7 @@ int GSR_SESSION_ENTRY(int, char**) {
             else if (std::wcscmp(arguments[i], L"--collection-root") == 0) {
                 if (++i >= argument_count || !fs::path(arguments[i]).is_absolute()) {
                     MessageBoxW(nullptr, L"The collection folder must be an absolute path.",
-                                GSR_GAME_TITLE_W, MB_OK | MB_ICONERROR);
+                                session_game().title_w, MB_OK | MB_ICONERROR);
                     LocalFree(arguments);
                     return 1;
                 }
@@ -2805,15 +2775,24 @@ int GSR_SESSION_ENTRY(int, char**) {
     }
     if (g_collection_tests_supplied && (kReleaseLauncher || !collection_play)) {
         MessageBoxW(nullptr, L"Collection test settings require a developer collection launch.",
-                    GSR_GAME_TITLE_W, MB_OK | MB_ICONERROR);
+                    session_game().title_w, MB_OK | MB_ICONERROR);
         return 1;
     }
     if (!collection_play || g_collection_root.empty()) {
         MessageBoxW(nullptr, L"Start this game from the collection launcher.",
-                    GSR_GAME_TITLE_W, MB_OK | MB_ICONERROR);
+                    session_game().title_w, MB_OK | MB_ICONERROR);
         return 1;
     }
-    const fs::path root = gsr_session::game_root(g_collection_root, kCollectionGameIndex);
+    const fs::path root = gsr_session::game_root(g_collection_root, session_game_index);
+    if (session_game_index == 1) {
+        // The Lost Age's Golden Sun import looks in The Broken Seal's save
+        // first; the game inherits the path (seamless.h).
+        const fs::path gs_save = gsr_collection::managed_paths(g_collection_root, kGames[0].stem).save;
+        std::error_code save_error;
+        if (fs::is_regular_file(gs_save, save_error))
+            SetEnvironmentVariableW(utf8_to_wide(gbarecomp::seamless::kSaveEnv).c_str(),
+                                    gs_save.c_str());
+    }
     fs::current_path(root);
     const std::string crash_root = root.string();
     gbarecomp::crash_handler_install(crash_root.c_str());
@@ -2833,8 +2812,37 @@ int GSR_SESSION_ENTRY(int, char**) {
             SetProcessDPIAware();
             const int result = run_game(root, cached_rom, nullptr);
             gbarecomp::crash_handler_mark_clean_exit();
+            return g_seamless_exit_code ? g_seamless_exit_code : result;
+        }
+    }
+    if (seamless_slot >= 0 && session_game_index == 1) {
+        // Seamless mode: The Broken Seal just saved its Clear Data. Start The
+        // Lost Age with the cached, validated ROM, without the launcher window.
+        // The game inherits the save (set above) and the slot from this process.
+        const fs::path cached_path = root / L"local" / L"launcher-rom.txt";
+        const std::wstring cached_rom = read_cached_path(cached_path);
+        const fs::path gs_save = gsr_collection::managed_paths(g_collection_root, kGames[0].stem).save;
+        std::error_code save_error;
+        std::string error;
+        if (!cached_rom.empty() && validate_rom(cached_rom, &error) &&
+            fs::is_regular_file(gs_save, save_error)) {
+            g_launcher_root = root;
+            open_launcher_log(root);
+            launcher_log(L"Seamless: starting The Lost Age with The Broken Seal's save, slot " +
+                         std::to_wstring(seamless_slot + 1) + L".");
+            SetEnvironmentVariableW(utf8_to_wide(gbarecomp::seamless::kSlotEnv).c_str(),
+                                    std::to_wstring(seamless_slot + 1).c_str());
+            g_handover_next = true;
+            g_audio_settings = kReleaseLauncher ? release_launch_settings(root)
+                                                : load_launcher_audio_settings(root);
+            g_strict_static_route = inherited_environment_truthy(L"GBARECOMP_STRICT_STATIC");
+            SetProcessDPIAware();
+            const int result = run_game(root, cached_rom, nullptr);
+            gbarecomp::handover::quit();  // run_game stopped before handing over
+            gbarecomp::crash_handler_mark_clean_exit();
             return result;
         }
+        gbarecomp::handover::quit();  // The Broken Seal's program waits in vain
     }
     SetProcessDPIAware();
     const int result = show_launcher(root);

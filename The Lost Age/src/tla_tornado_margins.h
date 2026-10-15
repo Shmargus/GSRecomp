@@ -24,14 +24,18 @@ inline bool tla_tornado_margins(gsr::FieldScene& scene,
     auto& margin = margins.layers[0];
     margin.scroll.clear();
     margin.vram_height = 0;
-    if (map != 82 || scene.video_mode != 0 || !layer.enabled || layer.affine)
+    // The same wind inside Air's Rock (map 84, BG0CNT 0x040E: priority 2 instead
+    // of 1; the same characters, map and empty rows 144..159; F12
+    // tla_rewind_0025, 2026-10-15).
+    const unsigned bgcnt = map == 82 ? 0x040Du : map == 84 ? 0x040Eu : 0u;
+    if (!bgcnt || scene.video_mode != 0 || !layer.enabled || layer.affine)
         return false;
     auto reg = [&](int row, int at) {
         const auto& io = scene.row_io_valid[row] ? scene.row_io[row] : scene.io_bytes;
         return unsigned(io[at]) | (unsigned(io[at + 1]) << 8);
     };
     for (int row = 0; row < gsr::FieldScene::kRows; ++row) {
-        if (!scene.row_io_valid[row] || reg(row, 0x08) != 0x040D ||
+        if (!scene.row_io_valid[row] || reg(row, 0x08) != bgcnt ||
             reg(row, 0x12) != 0 || (reg(row, 0x00) & 0x0107) != 0x0100)
             return false;
     }

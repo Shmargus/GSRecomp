@@ -168,4 +168,31 @@ struct RunOptions {
 
 int run_game(int argc, char** argv, const RunOptions& opts = {});
 
+// Ends the game at the next guest step, the same way as closing the window
+// (the save is written), with run_game returning `code` instead of 0. For a
+// game that hands over to another program (The Broken Seal's Seamless mode).
+void request_exit(int code);
+
+// Covers the game's picture with black, for steps a game takes by itself that
+// the player should not watch (Seamless mode). It fades over kVeilFadeMs, or
+// changes at once when `immediately`; menus drawn over the picture stay
+// visible. screen_veil_covered() is true once the picture is fully black.
+inline constexpr int kVeilFadeMs = 300;
+void set_screen_veil(bool covered, bool immediately = false);
+bool screen_veil_covered();
+
+// Runs the game's own routine at `pc` (bit 0 set = THUMB) from host code, as
+// a `bl` with r0..r3 would, until it returns; `result` gets its r0. Every
+// register is put back afterwards; what it changed in memory stays. While it
+// runs nothing unwinds the guest: a HALT is waited out in place. Call from the
+// emulation thread outside an interrupt (a function-entry observer is fine).
+// False when the routine did not come back to the call.
+bool guest_call(std::uint32_t pc, std::uint32_t r0, std::uint32_t r1,
+                std::uint32_t r2, std::uint32_t r3, std::uint32_t* result);
+
+// From a function-entry observer of `entry_pc`: that routine returns to its
+// caller at once with r0 = value instead of running, as if the game itself
+// had answered. For a question the game asks that we answer for the player.
+void guest_return_now(std::uint32_t entry_pc, std::uint32_t value);
+
 }  // namespace gbarecomp

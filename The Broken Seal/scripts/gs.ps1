@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  One command for the whole Golden Sun loop: regenerate -> recompile -> build -> verify.
+  One command for the Golden Sun loop: regenerate -> recompile -> verify.
 
 .DESCRIPTION
   This exists so day-to-day work is a single command instead of a sequence
@@ -12,8 +12,8 @@
     1. regenerate  config/usa/main.toml from the ELF via tools/build_main_toml.py
     2. recompile   the main corpus with the patched gba_recompile (HARD GATE:
                    zero data_range collisions)
-    3. build       build/gs011/GoldenSunRecomp.exe
-    4. verify      the strict-static tracks, comparing semantic fingerprints
+    3. verify      the strict-static tracks on the normal build
+                   (build/gs011_opt, built by the launcher or build_dev.bat), comparing semantic fingerprints
                    against config/usa/acceptance-baseline.json
 
   Any step can be run alone; -From/-To run a contiguous slice.
@@ -22,7 +22,7 @@
   .\scripts\gs.ps1                      # full loop
   .\scripts\gs.ps1 -From verify         # just re-run the tracks
   .\scripts\gs.ps1 -Frames 21600        # push the frontier track further
-  .\scripts\gs.ps1 -To recompile        # regenerate + gate, no 35-minute build
+  .\scripts\gs.ps1 -To recompile        # regenerate + gate only
 
 .NOTES
   Private paths (ROM, BIOS, ELF) are read from config/local.json, which is
@@ -30,10 +30,10 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('regenerate', 'recompile', 'build', 'verify')]
+    [ValidateSet('regenerate', 'recompile', 'verify')]
     [string]$From = 'regenerate',
 
-    [ValidateSet('regenerate', 'recompile', 'build', 'verify')]
+    [ValidateSet('regenerate', 'recompile', 'verify')]
     [string]$To = 'verify',
 
     # Frontier track length. The regression tracks are always run at their
@@ -42,18 +42,14 @@ param(
 
     # Skip the 5,400-frame regression tracks. Use only for a quick look;
     # never for an acceptance claim.
-    [switch]$SkipRegressions,
-
-    # Link with LTO. Roughly a 25-minute link, and the only configuration
-    # whose throughput numbers are comparable to the recorded fps figures.
-    [switch]$Lto
+    [switch]$SkipRegressions
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$Order = @('regenerate', 'recompile', 'build', 'verify')
+$Order = @('regenerate', 'recompile', 'verify')
 $FromIndex = $Order.IndexOf($From)
 $ToIndex = $Order.IndexOf($To)
 
@@ -122,7 +118,7 @@ Point it at the gbarecomp checkout's own build output instead.
 }
 
 $MainToml   = Join-Path $RepoRoot 'config/usa/main.toml'
-$BuildDir   = Join-Path $RepoRoot 'build/gs011'
+$BuildDir   = Join-Path $RepoRoot 'build/gs011_opt'
 $CorpusDir  = Join-Path $RepoRoot 'local/gs011/main'
 $Runner     = Join-Path $BuildDir 'GoldenSunRecomp.exe'
 $LogDir     = Join-Path $BuildDir 'gs-logs'
@@ -197,9 +193,9 @@ if (Test-Stage 'recompile') {
         throw "gba_recompile exited $recompileExit. Full log: $log"
     }
 
-    # One call per fixed multi-call sequence (tools/slim_corpus.py): same
+    # One call per fixed multi-call sequence (scripts/slim_corpus.py at the collection root): same
     # behaviour, about 40% less machine code to compile and link.
-    & python (Join-Path $RepoRoot 'tools/slim_corpus.py') $CorpusDir
+    & python (Join-Path $RepoRoot '../scripts/slim_corpus.py') $CorpusDir
     if ($LASTEXITCODE -ne 0) { throw "slim_corpus.py failed ($LASTEXITCODE)." }
 
     # A TOML conditional-branch override is only effective when the emitted
@@ -260,41 +256,7 @@ if (Test-Stage 'recompile') {
     Write-Host "    gate passed: zero data_range collisions" -ForegroundColor Green
 }
 
-# --- 3. build ------------------------------------------------------------
-
-if (Test-Stage 'build') {
-    Write-Step "build       GoldenSunRecomp.exe  (LTO: $([bool]$Lto))"
-
-    $ltoFlag = if ($Lto) { 'ON' } else { 'OFF' }
-    $cmakeArgs = @(
-        '-S', $RepoRoot,
-        '-B', $BuildDir,
-        '-G', 'Ninja',
-        '-DCMAKE_BUILD_TYPE=Release',
-        '-DGSR_BUILD_LOCAL_RUNNER=ON',
-        "-DGBARECOMP_ROOT=$(Join-Path (Split-Path -Parent $RepoRoot) 'engine')",
-        "-DGSR_GENERATED_DIR=$(Join-Path $RepoRoot 'local/gs011/main')",
-        '-DSDL2_INCLUDE_DIR=C:/msys64/mingw64/include/SDL2',
-        '-DSDL2_LIBRARY=C:/msys64/mingw64/lib/libSDL2.dll.a',
-        "-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=$ltoFlag"
-    )
-    Write-Ran "cmake -S . -B build/gs011 -G Ninja -DCMAKE_BUILD_TYPE=Release -DGSR_BUILD_LOCAL_RUNNER=ON -DGSR_GENERATED_DIR=local/gs011/main -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=$ltoFlag"
-    & cmake @cmakeArgs | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "cmake configure failed ($LASTEXITCODE)." }
-
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    Write-Ran "cmake --build build/gs011 --target GoldenSunRecomp"
-    & cmake --build $BuildDir --target GoldenSunRecomp *>&1 |
-        Tee-Object -FilePath (Join-Path $LogDir 'build.log') |
-        Select-String -Pattern 'error|FAILED|Linking' | ForEach-Object { Write-Host "    $_" }
-    if ($LASTEXITCODE -ne 0) { throw "build failed ($LASTEXITCODE). Log: $LogDir\build.log" }
-
-    $sw.Stop()
-    $size = (Get-Item $Runner).Length
-    Write-Host ("    linked {0:N0} bytes in {1:mm\:ss}" -f $size, $sw.Elapsed)
-}
-
-# --- 4. verify -----------------------------------------------------------
+# --- 3. verify -----------------------------------------------------------
 
 # One strict-static track. Returns a hashtable of the semantic fingerprints
 # plus the boundary, if it stopped at one.
@@ -370,7 +332,7 @@ function Invoke-Track {
 if (Test-Stage 'verify') {
     Write-Step 'verify      strict-static tracks'
 
-    if (-not (Test-Path $Runner)) { throw "No runner at $Runner. Run the build stage first." }
+    if (-not (Test-Path $Runner)) { throw "No runner at $Runner. Build the game first (launcher or build_dev.bat)." }
 
     $baseline = if (Test-Path $BaselineFile) {
         Get-Content $BaselineFile -Raw | ConvertFrom-Json

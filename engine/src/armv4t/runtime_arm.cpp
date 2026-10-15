@@ -1428,8 +1428,8 @@ extern "C" void runtime_trace_event(uint32_t kind, uint32_t pc,
     // no restart.
     static int trace_env_forced = -2;  // -2 unread, -1 unset, 0/1 forced off/on
     if (trace_env_forced == -2) {
-        const char* env = std::getenv("GBARECOMP_TRACE");
-        trace_env_forced = env ? (env[0] == '0' ? 0 : 1) : -1;
+        trace_env_forced = std::getenv("GBARECOMP_TRACE")
+            ? (gbarecomp::env_flag("GBARECOMP_TRACE") ? 1 : 0) : -1;
     }
     const bool trace_enabled = (trace_env_forced >= 0)
         ? (trace_env_forced != 0)

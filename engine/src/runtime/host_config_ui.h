@@ -312,4 +312,14 @@ extern void (*g_config_ui_extra_draw)();
 // Declared unconditionally, same as g_config_ui_extra_draw.
 extern bool (*g_config_ui_extra_wants_keyboard)();
 
+// On/off switches a game adds to F1's "Game" page, each stored as 0/1 under
+// its key in game_options.ini (game_options.h). The array must outlive the
+// menu; a count of 0 hides the page. Declared unconditionally, same as above.
+struct GameOptionSwitch {
+    const char* label;
+    const char* caption;
+    const char* key;
+};
+void config_ui_set_game_switches(const GameOptionSwitch* switches, int count);
+
 }  // namespace gbarecomp

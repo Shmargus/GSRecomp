@@ -21,6 +21,7 @@
 
 #include "overlay_abi.h"
 #include "env_flag.h"
+#include "game_exit.h"
 #include "overlay_compile.h"      // overlay_compile_one, HealBackend, heal_backend_name
 #include "hot_queue_policy.h"
 #include "runtime_arm.h"          // g_cpu, g_runtime_*, every runtime/bus/arm fn
@@ -279,7 +280,7 @@ bool cost_ram_crc_probe_enabled() {
     static const bool on = [] {
         const bool on = g_cost_probe_enabled();
         if (on) {
-            std::atexit([] {
+            gbarecomp::at_game_exit([] {
                 std::fprintf(stderr,
                     "[cost] ram_crc (heal_entry_crc_ok): %llu ns over %llu calls, "
                     "%llu bytes hashed (leaf, non-reentrant)\n",
@@ -1559,10 +1560,7 @@ void overlay_loader_init(const std::string& cache_root,
     // interpreter misses to native AND persist them across launches (the cached
     // DLLs warm-load next session). Opt out for pure-interpreter runs (oracle
     // diff / cycle-accurate trace) with GBARECOMP_SELFHEAL_RECOMPILE=0.
-    const char* sh_env = std::getenv("GBARECOMP_SELFHEAL_RECOMPILE");
-    const bool sh_off = sh_env && (std::strcmp(sh_env, "0") == 0 ||
-                                   std::strcmp(sh_env, "false") == 0 ||
-                                   std::strcmp(sh_env, "off") == 0);
+    const bool sh_off = !gbarecomp::env_flag("GBARECOMP_SELFHEAL_RECOMPILE", true);
     if (sh_off) {
         s_active = false;
         std::printf("self_heal_recompile=DISABLED "
