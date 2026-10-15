@@ -1001,10 +1001,7 @@ int gsr_session_main(int game, int argc, char** argv) {
             g_collection_root = fs::path(argv[++i]);
         else if (std::strcmp(argv[i], "--seamless-slot") == 0 && i + 1 < argc) {
             // Slot 0..2 of The Broken Seal's save, from the collection window.
-            const char* text = argv[++i];
-            if (text[0] >= '0' && text[0] <= '9' && !text[1] &&
-                text[0] - '0' < gbarecomp::seamless::kSlotCount)
-                seamless_slot = text[0] - '0';
+            seamless_slot = gbarecomp::seamless::parse_slot(argv[++i]);
         }
     }
     if (g_collection_tests_override && !g_collection_play)
@@ -1023,15 +1020,18 @@ int gsr_session_main(int game, int argc, char** argv) {
         return 1;
     }
     g_root = gsr_session::game_root(g_collection_root, session_game_index);
+    // "Skip the ROM check" (any_rom.h): this session, the builder and the game
+    // all read it from here.
+    setenv(gbarecomp::kAnyRomEnv,
+           gsr_session::load_launcher_audio_settings(g_root).any_rom ? "1" : "0", 1);
     fs::current_path(g_root);
     const std::string crash_root = g_root.string();
     gbarecomp::crash_handler_install(crash_root.c_str());
     open_launcher_log();
-    // The Lost Age's Golden Sun import looks in The Broken Seal's save first;
-    // the game inherits the path (seamless.h).
-    const fs::path gs_save = gsr_collection::managed_paths(g_collection_root, kGames[0].stem).save;
-    std::error_code save_error;
-    const bool have_gs_save = session_game_index == 1 && fs::is_regular_file(gs_save, save_error);
+    // The Lost Age's game inherits The Broken Seal's save (seamless.h).
+    const fs::path gs_save = session_game_index == 1
+        ? gsr_session::broken_seal_save(g_collection_root) : fs::path{};
+    const bool have_gs_save = !gs_save.empty();
     if (have_gs_save) setenv(gbarecomp::seamless::kSaveEnv, gs_save.c_str(), 1);
     if (seamless_slot >= 0 && have_gs_save) {
         // Seamless mode: The Broken Seal just saved its Clear Data. The game
@@ -1483,9 +1483,9 @@ int gsr_session_main(int game, int argc, char** argv) {
                 // Seamless mode: The Broken Seal wrote its Clear Data and asks
                 // for The Lost Age. A hand-over, not a failure: exit with the
                 // same code (no bug report offer); the collection window goes on.
-                const int seamless_done = game.exit_code - gbarecomp::seamless::kExitCodeBase;
+                const int seamless_done = gbarecomp::seamless::slot_of_exit_code(game.exit_code);
                 if (session_game_index == 0 && game.started && game.storage_error.empty() &&
-                    seamless_done >= 0 && seamless_done < gbarecomp::seamless::kSlotCount) {
+                    seamless_done >= 0) {
                     launcher_log("Seamless: The Broken Seal saved Clear Data to slot " +
                                  std::to_string(seamless_done + 1) + "; starting The Lost Age.");
                     g_seamless_exit_code = game.exit_code;

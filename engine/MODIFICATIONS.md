@@ -623,7 +623,10 @@ its unpacker safety net (`src/unpacker_guard.h`).
 from host code like a `bl` (return address 0x08000000 pushed on the
 call-return stack), gives back r0 and restores every register. While one
 runs, `runtime_should_yield` never unwinds: a HALT is waited out in place
-and other yield reasons are skipped (present-in-place still happens).
+and other yield reasons are skipped (present-in-place still happens). The HALT
+wait runs a frame at a time with each frame presented; a HALT no interrupt
+can end (IE 0) or a window close abandons the call (the guest unwinds and
+`guest_call` returns false) instead of freezing.
 `guest_return_now`, called from a function-entry observer, makes that
 routine return at once with the given r0, as its own `bx lr` would: the
 first instruction's yield check closes the caller's call-return frame (or
@@ -679,3 +682,18 @@ cartridge to the temp folder for the Seamless start of The Lost Age, with
 centred over the black, faded with the cover. Launcher preview captures
 before/after: identical apart from the build-status text line, which
 depends on the folder the copy ran from.
+
+**Skip the ROM check (2026-10-15).** `armv4t/any_rom.h`: with `GSR_ANY_ROM`
+on (the launcher's per-game "Skip the ROM check"; the session sets it for
+itself, the player builder and the game), `run_game` logs a ROM SHA-1
+mismatch and goes on instead of refusing to start.
+
+## Idle skip for screen-line waits (2026-10-15)
+
+`runtime/runtime_bus_bridge.cpp`: `is_idle_safe_read` also accepts
+DISPSTAT/VCOUNT (0x04000004-0x04000007), and `runtime_mmio_catch_up` keeps
+the idle epoch (its flush crosses no event). A loop polling the scanline
+counter (the sound library's wait for line 159, TLA 0x081C1250/0x081C2498)
+can now be skipped up to the next PPU event like a RAM poll. Before: at 50x
+overclock 1.07M-1.7M passes per frame, 100-600 ms per start-up frame (TLA
+FACTS, "Start-up hitches"). Compiles; not yet built or played.

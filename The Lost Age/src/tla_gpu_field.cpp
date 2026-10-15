@@ -396,7 +396,23 @@ bool draw_capture(const Capture& capture, std::uint8_t* rgb,
         return false;
     }
 
-    renderer.upload_vram(capture.vram.data(), capture.vram.size());
+    // The room source only where there is a margin to fill: the native view
+    // stays exactly the picture checked against the console compositor.
+    const bool expanded = width > 240u || height > 160u;
+    const unsigned map_id = expanded && capture.ewram.size() >= 0x42A
+        ? unsigned(capture.ewram[0x428]) |
+            (unsigned(capture.ewram[0x429]) << 8) : 0;
+    tla_tornado_margins(scene, margins, map_id,
+        -(static_cast<int>(height) - 160) / 2, capture.camera_hold_y);
+    static std::vector<std::uint8_t> mist_vram;
+    const bool mist_filled =
+        tla_screen_effect_margins(scene, margins, map_id) && map_id == 84 &&
+        tla_mist_fill_rows(capture.vram,
+                           unsigned(scene.row_io[0][0x0A]) |
+                               (unsigned(scene.row_io[0][0x0B]) << 8),
+                           &mist_vram);
+    const std::vector<std::uint8_t>& vram = mist_filled ? mist_vram : capture.vram;
+    renderer.upload_vram(vram.data(), vram.size());
     if (!capture.room_vram.empty())
         renderer.upload_room_vram(capture.room_vram.data(),
                                   capture.room_vram.size());
@@ -405,18 +421,6 @@ bool draw_capture(const Capture& capture, std::uint8_t* rgb,
     if (!capture.room_palette.empty())
         renderer.upload_room_palette(capture.room_palette.data(),
                                      capture.room_palette.size());
-    // The room source only where there is a margin to fill: the native view
-    // stays exactly the picture checked against the console compositor.
-    const bool expanded = width > 240u || height > 160u;
-    tla_tornado_margins(scene, margins,
-        expanded && capture.ewram.size() >= 0x42A
-            ? unsigned(capture.ewram[0x428]) |
-                (unsigned(capture.ewram[0x429]) << 8) : 0,
-        -(static_cast<int>(height) - 160) / 2, capture.camera_hold_y);
-    tla_screen_effect_margins(scene, margins,
-        expanded && capture.ewram.size() >= 0x42A
-            ? unsigned(capture.ewram[0x428]) |
-                (unsigned(capture.ewram[0x429]) << 8) : 0);
     if (expanded) {
         if (capture.rom && capture.rom_bytes >= 0x20A8u + 1024u * 2u)
             tla_water_ripple(scene, margins, capture.ripple_phase,

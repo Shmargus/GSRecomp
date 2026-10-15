@@ -145,7 +145,9 @@ LauncherAudioSettings release_launch_settings(const fs::path& root) {
     settings.enhanced_options = true;
     settings.gpu_field = true;
     settings.gpu_field_only = true;
-    settings.gs_save_import = load_launcher_audio_settings(root).gs_save_import;
+    const LauncherAudioSettings saved = load_launcher_audio_settings(root);
+    settings.gs_save_import = saved.gs_save_import;
+    settings.any_rom = saved.any_rom;
     return settings;
 }
 
@@ -1643,9 +1645,9 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
         // Seamless mode: The Broken Seal wrote its Clear Data and asks for The
         // Lost Age. This is a hand-over, not a failure; the session exits with
         // the same code and the collection window starts the next game.
-        const int seamless_slot = static_cast<int>(exit_code) - gbarecomp::seamless::kExitCodeBase;
-        if (session_game_index == 0 && saves_synced &&
-            seamless_slot >= 0 && seamless_slot < gbarecomp::seamless::kSlotCount) {
+        const int seamless_slot =
+            gbarecomp::seamless::slot_of_exit_code(static_cast<int>(exit_code));
+        if (session_game_index == 0 && saves_synced && seamless_slot >= 0) {
             launcher_log(L"Seamless: The Broken Seal saved Clear Data to slot " +
                          std::to_wstring(seamless_slot + 1) + L"; starting The Lost Age.");
             g_seamless_exit_code = static_cast<int>(exit_code);
@@ -2743,12 +2745,8 @@ int gsr_session_main(int game, int, char**) {
                 g_collection_direct3d = true;
             else if (std::wcscmp(arguments[i], L"--seamless-slot") == 0) {
                 // Slot 0..2 of The Broken Seal's save, from the collection window.
-                if (++i < argument_count) {
-                    const int slot = _wtoi(arguments[i]);
-                    if (slot >= 0 && slot < gbarecomp::seamless::kSlotCount &&
-                        (arguments[i][0] >= L'0' && arguments[i][0] <= L'9'))
-                        seamless_slot = slot;
-                }
+                if (++i < argument_count)
+                    seamless_slot = gbarecomp::seamless::parse_slot(arguments[i]);
             }
             else if (std::wcscmp(arguments[i], L"--collection-tests") == 0) {
                 if (g_collection_tests_supplied || ++i >= argument_count ||
@@ -2784,15 +2782,15 @@ int gsr_session_main(int game, int, char**) {
         return 1;
     }
     const fs::path root = gsr_session::game_root(g_collection_root, session_game_index);
-    if (session_game_index == 1) {
-        // The Lost Age's Golden Sun import looks in The Broken Seal's save
-        // first; the game inherits the path (seamless.h).
-        const fs::path gs_save = gsr_collection::managed_paths(g_collection_root, kGames[0].stem).save;
-        std::error_code save_error;
-        if (fs::is_regular_file(gs_save, save_error))
-            SetEnvironmentVariableW(utf8_to_wide(gbarecomp::seamless::kSaveEnv).c_str(),
-                                    gs_save.c_str());
-    }
+    // "Skip the ROM check" (any_rom.h): this session, the builder and the game
+    // all read it from here.
+    _putenv_s(gbarecomp::kAnyRomEnv, load_launcher_audio_settings(root).any_rom ? "1" : "0");
+    // The Lost Age's game inherits The Broken Seal's save (seamless.h).
+    const fs::path gs_save = session_game_index == 1
+        ? gsr_session::broken_seal_save(g_collection_root) : fs::path{};
+    if (!gs_save.empty())
+        SetEnvironmentVariableW(utf8_to_wide(gbarecomp::seamless::kSaveEnv).c_str(),
+                                gs_save.c_str());
     fs::current_path(root);
     const std::string crash_root = root.string();
     gbarecomp::crash_handler_install(crash_root.c_str());
@@ -2821,11 +2819,8 @@ int gsr_session_main(int game, int, char**) {
         // The game inherits the save (set above) and the slot from this process.
         const fs::path cached_path = root / L"local" / L"launcher-rom.txt";
         const std::wstring cached_rom = read_cached_path(cached_path);
-        const fs::path gs_save = gsr_collection::managed_paths(g_collection_root, kGames[0].stem).save;
-        std::error_code save_error;
         std::string error;
-        if (!cached_rom.empty() && validate_rom(cached_rom, &error) &&
-            fs::is_regular_file(gs_save, save_error)) {
+        if (!cached_rom.empty() && validate_rom(cached_rom, &error) && !gs_save.empty()) {
             g_launcher_root = root;
             open_launcher_log(root);
             launcher_log(L"Seamless: starting The Lost Age with The Broken Seal's save, slot " +

@@ -2,6 +2,8 @@
 
 #include "collection_storage.h"
 #include "collection_session.h"
+#include "collection_preferences.h"
+#include "launcher_common.h"
 #include "launcher_game.h"
 #include <SDL.h>
 #include <cerrno>
@@ -29,20 +31,10 @@ namespace rom_detail {
 inline void trim_newlines(std::string& value) {
     while (!value.empty() && (value.back() == '\r' || value.back() == '\n')) value.pop_back();
 }
-inline bool validate(const fs::path& path, int choice, std::string& error) {
-    const char* expected = gsr_launcher::kGames[choice].rom_sha1;
-    std::error_code ec;
-    std::string digest;
-    if (!fs::is_regular_file(path, ec) || !gsr_launcher::sha1_file(path, &digest)) {
-        error = "The ROM could not be read.";
-        return false;
-    }
-    if (digest != expected) {
-        error = std::string("Select the required ") + gsr_launcher::kGames[choice].stem +
-            " USA/Europe ROM.\n\nExpected SHA-1:\n" + expected + "\n\nFound SHA-1:\n" + digest;
-        return false;
-    }
-    return true;
+// The game's ROM check, the same one its session makes (launcher_common.h);
+// `any_rom` is that game's "Skip the ROM check" setting.
+inline bool validate(const fs::path& path, int choice, bool any_rom, std::string& error) {
+    return gsr_launcher::validate_rom(path, &error, gsr_launcher::kGames[choice], any_rom);
 }
 #ifndef _WIN32
 inline fs::path program(const char* name) {
@@ -157,6 +149,8 @@ inline bool prepare_rom(SDL_Window* window, const fs::path& collection, int choi
     try {
         const auto root = fs::absolute(collection).lexically_normal();
         const auto cache = gsr_session::game_root(root, choice) / "local" / "launcher-rom.txt";
+        const bool any_rom = gsr_session::load_launcher_audio_settings(
+            gsr_session::game_root(root, choice)).any_rom;
         fs::path selected;
         std::ifstream remembered(cache, std::ios::binary);
         if (remembered) {
@@ -164,19 +158,19 @@ inline bool prepare_rom(SDL_Window* window, const fs::path& collection, int choi
             rom_detail::trim_newlines(text);
             std::string ignored;
             const fs::path candidate(reinterpret_cast<const char8_t*>(text.c_str()));
-            if (!remembered.bad() && !text.empty() && rom_detail::validate(candidate, choice, ignored)) selected = candidate;
+            if (!remembered.bad() && !text.empty() && rom_detail::validate(candidate, choice, any_rom, ignored)) selected = candidate;
         }
         if (remembered.is_open()) remembered.close();
         if (selected.empty()) {
             const auto managed = managed_paths(root, choice == 0 ? "The Broken Seal" : "The Lost Age");
             std::string ignored;
-            if (rom_detail::validate(managed.rom, choice, ignored)) selected = managed.rom;
+            if (rom_detail::validate(managed.rom, choice, any_rom, ignored)) selected = managed.rom;
         }
         if (selected.empty() && !rom_detail::pick(window, root / "ROMs", choice, selected, error)) return false;
-        if (!rom_detail::validate(selected, choice, error)) return false;
+        if (!rom_detail::validate(selected, choice, any_rom, error)) return false;
         ManagedFiles managed;
         if (!import_selected_rom(root, selected, choice == 0 ? "The Broken Seal" : "The Lost Age", managed, error)) return false;
-        if (!rom_detail::validate(managed.rom, choice, error)) return false;
+        if (!rom_detail::validate(managed.rom, choice, any_rom, error)) return false;
         fs::create_directories(cache.parent_path());
         std::ofstream output(cache, std::ios::binary | std::ios::trunc);
         const auto text = storage_detail::text(managed.rom) + "\n";

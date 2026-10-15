@@ -242,9 +242,7 @@ int main(int argc, char** argv) {
     const bool collection = handover::launcher_pid() != 0;
     void* window = nullptr;
     const int code = game_main(argc, argv, nullptr, collection ? &window : nullptr);
-    namespace seamless = gbarecomp::seamless;
-    if (!collection || !window || code < seamless::kExitCodeBase ||
-        code >= seamless::kExitCodeBase + seamless::kSlotCount)
+    if (!collection || !window || gbarecomp::seamless::slot_of_exit_code(code) < 0)
         return code;
     return wait_and_hand_over(code, window);
 }

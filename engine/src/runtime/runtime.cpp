@@ -40,6 +40,7 @@ extern "C" unsigned long long g_cost_irq_handler_calls;
 
 #include "asset_picker.h"
 #include "env_flag.h"
+#include "any_rom.h"
 #include "bios_hle.h"
 #include "gba_bios.h"
 #include "gba_bus.h"
@@ -1084,9 +1085,10 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     std::string rom_sha1 = lower_ascii(gba::sha1(rom.data(), rom.size()).hex());
     if (rom_sha1 != lower_ascii(args.rom_sha1)) {
         std::fprintf(stderr,
-                     "[gbarecomp:runtime] ROM SHA-1 mismatch: got %s expected %s\n",
-                     rom_sha1.c_str(), args.rom_sha1.c_str());
-        return 1;
+                     "[gbarecomp:runtime] ROM SHA-1 mismatch: got %s expected %s%s\n",
+                     rom_sha1.c_str(), args.rom_sha1.c_str(),
+                     any_rom_allowed() ? " (ROM check off in the launcher: going on)" : "");
+        if (!any_rom_allowed()) return 1;
     }
 
     gba::RomHeader header = gba::parse_rom(rom.data(), rom.size());

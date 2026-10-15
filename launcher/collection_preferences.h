@@ -15,6 +15,9 @@ struct LauncherAudioSettings {
     // compositor, which is also then not run at all. Meaningless with
     // gpu_field off, and forced off below in that case.
     bool gpu_field_only = false;
+    // Skip the ROM check: take a ROM that is not the supported one
+    // (engine any_rom.h). Off by default.
+    bool any_rom = false;
 };
 
 inline bool parse_bool_setting(const std::string& value) {
@@ -61,6 +64,8 @@ inline LauncherAudioSettings load_launcher_audio_settings(const fs::path& root) 
             settings.gpu_field_only = value;
         } else if (in_launcher && key == "GoldenSunSaveImport") {
             settings.gs_save_import = value;
+        } else if (in_launcher && key == "AnyRom") {
+            settings.any_rom = value;
         }
     }
     if (!settings.gpu_field) settings.gpu_field_only = false;
@@ -93,7 +98,7 @@ inline bool save_launcher_audio_settings(const fs::path& root,
         if (section == "[Launcher]" &&
             (key == "CopySessionIdToClipboard" || key == "EnhancedOptions" ||
              key == "GpuFieldRenderer" || key == "GpuFieldOnly" ||
-             key == "GoldenSunSaveImport")) continue;
+             key == "GoldenSunSaveImport" || key == "AnyRom")) continue;
         kept.push_back(line);
     }
     while (!kept.empty() && trim_setting(kept.back()).empty()) kept.pop_back();
@@ -103,7 +108,8 @@ inline bool save_launcher_audio_settings(const fs::path& root,
         "EnhancedOptions=" + std::string(settings.enhanced_options ? "true" : "false"),
         "GpuFieldRenderer=" + std::string(settings.gpu_field ? "true" : "false"),
         "GpuFieldOnly=" + std::string(settings.gpu_field_only ? "true" : "false"),
-        "GoldenSunSaveImport=" + std::string(settings.gs_save_import ? "true" : "false")};
+        "GoldenSunSaveImport=" + std::string(settings.gs_save_import ? "true" : "false"),
+        "AnyRom=" + std::string(settings.any_rom ? "true" : "false")};
     std::size_t insertion = kept.size();
     bool found_launcher = false;
     for (std::size_t i = 0; i < kept.size(); ++i) {

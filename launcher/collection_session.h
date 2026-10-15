@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <stdexcept>
 
+#include "collection_storage.h"
 #include "launcher_game.h"
 
 namespace gsr_session {
@@ -32,6 +33,15 @@ inline fs::path engine(const fs::path& root, int game) {
     const auto developer = developer_engine(root, game);
     std::error_code error;
     return fs::is_regular_file(developer, error) ? developer : root / developer.filename();
+}
+
+// The Broken Seal's save in this collection, or empty when there is none. The
+// Lost Age's session hands it to the game (seamless.h, kSaveEnv).
+inline fs::path broken_seal_save(const fs::path& collection) {
+    const fs::path save =
+        gsr_collection::managed_paths(collection, gsr_launcher::kGames[0].stem).save;
+    std::error_code error;
+    return fs::is_regular_file(save, error) ? save : fs::path{};
 }
 } // namespace gsr_session
 

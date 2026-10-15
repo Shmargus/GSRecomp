@@ -1691,27 +1691,37 @@ void draw_cover_art(SDL_Renderer* renderer, float opacity) {
         const Uint64 now = SDL_GetTicks64();
         if (!g_cover_art.first_ms) g_cover_art.first_ms = now;
         const double seconds = double(now - g_cover_art.first_ms) / 1000.0;
+        // The cartridge fades in over the cover's own fade time, even when
+        // the black itself came at once (the hand-over between the games).
+        opacity *= float(std::min(1.0, seconds * 1000.0 / kVeilFadeMs));
         const float scale = std::min(width / 820.0f, height / 600.0f);
         const float base_width = std::min(width * 0.36f, 184 * scale * g_cover_art.width /
                                                             g_cover_art.height);
         const float image_width = base_width * art::pulse(seconds);
         const float image_height = image_width * g_cover_art.height / g_cover_art.width;
+        // Consecutive dots go out as one batch of triangles, drawn before the
+        // next image so the layering stays as listed.
+        std::vector<SDL_Vertex> dots;
+        const auto flush_dots = [&] {
+            if (!dots.empty())
+                SDL_RenderGeometry(renderer, nullptr, dots.data(), int(dots.size()), nullptr, 0);
+            dots.clear();
+        };
         for (const art::Piece& piece :
              art::selected(g_cover_art.game, width / 2.0f, height / 2.0f, image_width,
                            image_height, g_cover_art.glow_info, scale, seconds, opacity)) {
             if (piece.kind == art::Piece::Dot) {
-                SDL_Vertex fan[3];
                 const SDL_Color color{piece.r, piece.g, piece.b, piece.a};
                 for (int i = 0; i < piece.segments; ++i) {
                     const float a0 = 6.2831853f * i / piece.segments;
                     const float a1 = 6.2831853f * (i + 1) / piece.segments;
-                    fan[0] = {{piece.x0, piece.y0}, color, {0, 0}};
-                    fan[1] = {{piece.x0 + piece.x1 * std::cos(a0), piece.y0 + piece.x1 * std::sin(a0)}, color, {0, 0}};
-                    fan[2] = {{piece.x0 + piece.x1 * std::cos(a1), piece.y0 + piece.x1 * std::sin(a1)}, color, {0, 0}};
-                    SDL_RenderGeometry(renderer, nullptr, fan, 3, nullptr, 0);
+                    dots.push_back({{piece.x0, piece.y0}, color, {0, 0}});
+                    dots.push_back({{piece.x0 + piece.x1 * std::cos(a0), piece.y0 + piece.x1 * std::sin(a0)}, color, {0, 0}});
+                    dots.push_back({{piece.x0 + piece.x1 * std::cos(a1), piece.y0 + piece.x1 * std::sin(a1)}, color, {0, 0}});
                 }
                 continue;
             }
+            flush_dots();
             SDL_Texture* texture = piece.kind == art::Piece::Image ? g_cover_art.image
                                                                    : g_cover_art.glow;
             if (!texture) continue;
@@ -1720,6 +1730,7 @@ void draw_cover_art(SDL_Renderer* renderer, float opacity) {
             const SDL_FRect destination{piece.x0, piece.y0, piece.x1 - piece.x0, piece.y1 - piece.y0};
             SDL_RenderCopyF(renderer, texture, nullptr, &destination);
         }
+        flush_dots();
     }
     if (logical_w) SDL_RenderSetLogicalSize(renderer, logical_w, logical_h);
 }

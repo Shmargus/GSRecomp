@@ -6,6 +6,8 @@
 // knows where the account name lives).
 #pragma once
 #include "launcher_game.h"
+#include "collection_storage.h"
+#include "../engine/src/armv4t/any_rom.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -46,8 +48,11 @@ inline std::string read_text(const fs::path& path) {
             std::istreambuf_iterator<char>()};
 }
 
-// Whether `path` is the supported ROM. The error text is for the player.
-inline bool validate_rom(const fs::path& path, std::string* error) {
+// Whether `path` is the supported ROM, or with the launcher's "Skip the ROM
+// check" on, any readable file. The error text is for the player.
+inline bool validate_rom(const fs::path& path, std::string* error,
+                         const GameIdentity& game = session_game(),
+                         bool any_rom = gbarecomp::any_rom_allowed()) {
     std::error_code ec;
     if (!fs::is_regular_file(path, ec)) {
         *error = "That file could not be opened.";
@@ -58,8 +63,7 @@ inline bool validate_rom(const fs::path& path, std::string* error) {
         *error = "The ROM could not be read.";
         return false;
     }
-    const GameIdentity& game = session_game();
-    if (actual != game.rom_sha1) {
+    if (actual != game.rom_sha1 && !any_rom) {
         *error = std::string("That is not the required ") + game.title +
                  " USA/Europe ROM.\n\nExpected SHA-1:\n" + game.rom_sha1 +
                  "\n\nFound SHA-1:\n" + actual;
@@ -253,9 +257,24 @@ inline std::string release_fingerprint(const fs::path& root,
     return text;
 }
 
-// Whether the game library beside the game was built from the supported ROM
-// by this release's builder against this release's engine.
-inline bool game_code_ready(const fs::path& root, const GameIdentity& game = session_game()) {
+// The ROM the game code must be built from: the supported one, or with the
+// ROM check off, the copy this collection plays. Empty when unreadable.
+inline std::string required_rom_sha1(const fs::path& root, const GameIdentity& game,
+                                     bool any_rom) {
+    if (!any_rom) return game.rom_sha1;
+    std::string digest;
+    try {
+        const auto rom = gsr_collection::managed_paths(
+            gsr_collection::infer_collection_root(root), game.stem).rom;
+        if (sha1_file(rom, &digest)) return digest;
+    } catch (const std::exception&) {}
+    return {};
+}
+
+// Whether the game library beside the game was built from that ROM by this
+// release's builder against this release's engine.
+inline bool game_code_ready(const fs::path& root, const GameIdentity& game = session_game(),
+                            bool any_rom = gbarecomp::any_rom_allowed()) {
     std::error_code ec;
     if (!fs::is_regular_file(root / game.library, ec)) return false;
     if (read_text(root / game.release_stamp) != release_fingerprint(root, game))
@@ -269,7 +288,8 @@ inline bool game_code_ready(const fs::path& root, const GameIdentity& game = ses
     }
     std::string engine_now;
     if (!sha1_file(root / game.engine, &engine_now)) return false;
-    return rom == game.rom_sha1 && builder == kBuilderVersion &&
+    const std::string wanted = required_rom_sha1(root, game, any_rom);
+    return !wanted.empty() && rom == wanted && builder == kBuilderVersion &&
            engine == engine_now;
 }
 

@@ -510,17 +510,23 @@ bool g_window_open = false;
 // The menus build their own sprites (priority 0) with the field's character
 // builder, which sees them 256 rows up: the Psynergy menu's icons at raw Y
 // 50..98 were recorded at -206..-158 and vanished (F12 tla_rewind_0023,
-// 2026-10-15; the console shows them at the raw rows). With a window open the
-// renderer keeps those sprites inside the console's window anyway, so they
-// take the console's own reading.
-const Placement* placement_for_object(uint16_t attr0, uint16_t attr1, uint16_t attr2) {
-    if (g_window_open && ((attr2 >> 10) & 3u) == 0u) return nullptr;
-    return placement_for(attr0, attr1, attr2);
+// 2026-10-15; the console shows them at the raw rows). With a window open
+// those sprites take the console's own reading, given here: the scene's
+// fallback keeps a sprite near last frame's place, and the icons park at raw
+// Y 168 (-88) before sliding in at 50..98, so it chose -206..-158 again
+// (F12 tla_rewind_0029 frames 44..47).
+bool menu_sprite(uint16_t attr2) {
+    return g_window_open && ((attr2 >> 10) & 3u) == 0u;
 }
 
 extern "C" int tla_obj_y_provider(int /*oam_index*/, uint16_t attr0,
                                   uint16_t attr1, uint16_t attr2, int* out_y) {
-    const Placement* p = placement_for_object(attr0, attr1, attr2);
+    if (menu_sprite(attr2)) {
+        const int raw = attr0 & 0xFF;
+        *out_y = raw >= 160 ? raw - 256 : raw;
+        return 1;
+    }
+    const Placement* p = placement_for(attr0, attr1, attr2);
     if (!p) return 0;
     *out_y = p->y;
     return 1;
@@ -528,7 +534,12 @@ extern "C" int tla_obj_y_provider(int /*oam_index*/, uint16_t attr0,
 
 extern "C" int tla_obj_x_provider(int /*oam_index*/, uint16_t attr0,
                                   uint16_t attr1, uint16_t attr2, int* out_x) {
-    const Placement* p = placement_for_object(attr0, attr1, attr2);
+    if (menu_sprite(attr2)) {
+        const int raw = attr1 & 0x1FF;
+        *out_x = (raw & 0x100) ? raw - 0x200 : raw;
+        return 1;
+    }
+    const Placement* p = placement_for(attr0, attr1, attr2);
     if (!p) return 0;
     *out_x = p->x;
     return 1;

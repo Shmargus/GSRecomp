@@ -25,11 +25,12 @@ inline void run_game_exit() {
     }
 }
 
-// Every job also registers run_game_exit with std::atexit, so at program exit
-// the first call runs at the point the newest job would have run on its own.
+// The first job also registers run_game_exit with std::atexit, so a
+// standalone program still runs them all at exit.
 inline void at_game_exit(void (*fn)()) {
+    static const bool registered = std::atexit(run_game_exit) == 0;
+    (void)registered;
     game_exit_list().push_back(fn);
-    std::atexit(run_game_exit);
 }
 
 }  // namespace gbarecomp

@@ -1080,6 +1080,13 @@ static inline bool is_idle_safe_read(uint32_t addr) {
         if (off >= 0x000000C0u && off < 0x000000CCu) return false;
         return true;
     }
+    // DISPSTAT/VCOUNT (0x04000004-0x04000007): no read side effects, and the
+    // line count and the VBlank/HBlank/VCount-match flags change only when
+    // the PPU crosses HBlank start or a line end -- both PPU events, which an
+    // idle skip never passes. The high bytes change only by guest writes,
+    // which bump the epoch. A sound-driver wait for line 159 then skips like
+    // a RAM poll (TLA FACTS, "Start-up hitches", 2026-10-15).
+    if ((addr & ~3u) == 0x04000004u) return true;
     return false;  // MMIO, palette, VRAM, OAM, save/flash, open-bus, unmapped
 }
 
@@ -1647,7 +1654,13 @@ extern "C" void runtime_mmio_catch_up(void) {
     auto* bus = gbarecomp::g_active_bus;
     auto* ppu = gbarecomp::g_active_ppu;
     if (!bus || !ppu || g_pending_cycles == 0) return;
+    // No event fires here, so nothing a poll can observe changes: keep an
+    // in-flight idle proof alive (tick_devices bumps the epoch for flushes
+    // that do cross events). Reads that can see sub-event time (timer
+    // counters) still disturb through is_idle_safe_read.
+    const unsigned long long idle_epoch = g_idle_disturb_epoch;
     tick_devices(bus, ppu, static_cast<uint32_t>(g_pending_cycles));
+    g_idle_disturb_epoch = idle_epoch;
     g_pending_cycles = 0;
 }
 
@@ -2239,9 +2252,20 @@ extern "C" bool runtime_should_yield(void) {
     if (g_return_now && return_now_take()) return true;
     if (!runtime_should_yield_decide()) return false;
     if (g_guest_call_depth != 0u) {
+        // Wait out a HALT here, a frame at a time, each frame presented as
+        // usual (the window stays live). A HALT no interrupt can end (IE 0)
+        // or a window close abandons the call instead of freezing: the guest
+        // unwinds to guest_call, which reports that it did not come back.
         auto* bus = gbarecomp::g_active_bus;
-        while (bus && bus->io().halted()) runtime_idle_while_halted();
-        return false;
+        while (bus && bus->io().halted() && bus->io().ie() != 0u &&
+               !g_frame_present_quit) {
+            runtime_idle_while_halted();
+            runtime_should_yield_decide();
+        }
+        if (!bus || !bus->io().halted()) return false;
+        bus->io().clear_halt();
+        g_cpu.R[15] = 0xFFFFFFF0u;
+        return true;
     }
     // Keep the first stash if a second yield is reported before the restore.
     if (!g_yield_resume_pending) {

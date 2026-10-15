@@ -78,6 +78,25 @@ constexpr std::uint32_t kQuestionText = 0x24u;
 constexpr std::uint32_t kYesNoPc = 0x08038378u;        // 0 = Yes
 constexpr std::uint32_t kMessageClosePc = 0x08038140u;
 
+// While the picture is covered: the frame it was covered at. Each covered
+// stretch (start to the naming; the question to the end of the import) ran
+// within 555 frames: that was the shortest whole Seamless session, naming
+// included (logs/session_20261015_181714, 555 frames). Past 600 frames
+// (10 s) a step was missed: the picture comes back and the player goes on
+// by hand instead of facing a black screen.
+constexpr unsigned long long kNotCovered = ~0ull;
+constexpr unsigned long long kCoverLimitFrames = 600;
+unsigned long long g_covered_at = kNotCovered;
+
+void cover(bool immediately = false) {
+    gbarecomp::set_screen_veil(true, immediately);
+    g_covered_at = runtime_current_frame();
+}
+void uncover() {
+    gbarecomp::set_screen_veil(false);
+    g_covered_at = kNotCovered;
+}
+
 fs::path utf8_path(const char* value) {
     return fs::path(reinterpret_cast<const char8_t*>(value));
 }
@@ -99,6 +118,9 @@ fs::path detect_save(const fs::path& base) {
         if (!read_slots(path).empty()) return path;
         folders.push_back(path.parent_path());
     }
+    // Then The Broken Seal's save in this collection (the launcher's).
+    if (!g_broken_seal_save.empty() && !read_slots(g_broken_seal_save).empty())
+        return g_broken_seal_save;
 #ifdef _WIN32
     wchar_t documents[MAX_PATH]{};
     if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_PERSONAL, nullptr, SHGFP_TYPE_CURRENT, documents)))
@@ -145,10 +167,9 @@ void begin_picker() {
     g_picker = std::make_shared<PickerResult>();
     g_test_ready = runtime_current_frame();
     if (g_seamless == Seamless::Close) g_seamless = Seamless::Done;
-    // The launcher's Broken Seal save: no file browser when it holds Clear
-    // Data (Seamless mode always takes it).
-    if (!g_broken_seal_save.empty() &&
-        (g_seamless == Seamless::Done || !read_slots(g_broken_seal_save).empty())) {
+    // Seamless mode takes the save The Broken Seal just wrote, without the
+    // file browser; a new game started by hand lets the player choose.
+    if (g_seamless == Seamless::Done && !g_broken_seal_save.empty()) {
         g_picker->path = g_broken_seal_save;
         g_picker->done.store(true, std::memory_order_release);
         return;
@@ -225,7 +246,7 @@ void begin_picker() {
 }
 
 void fail(const std::string& message) {
-    if (g_seamless != Seamless::Off) gbarecomp::set_screen_veil(false);
+    if (g_seamless != Seamless::Off) uncover();
     g_error = message;
     g_stage = Stage::Error;
     std::fprintf(stderr, "[gs-save-import] %s\n", message.c_str());
@@ -312,7 +333,7 @@ int import_alu(std::uint32_t pc, std::uint32_t original, std::uint32_t* value) {
                 }
                 bus->write32(g_cpu.R[13] + 24, g_import ? 0x02008525u : 0x020084B7u);
                 g_stage = Stage::Idle;
-                if (g_seamless == Seamless::Done) gbarecomp::set_screen_veil(false);
+                if (g_seamless == Seamless::Done) uncover();
                 g_picker.reset();
             }
         }
@@ -332,7 +353,7 @@ void tla_install_gs_save_import(gbarecomp::RunOptions& options, bool headless) {
         g_seamless_slot = unsigned(std::strtoul(slot, nullptr, 10));
         g_seamless = Seamless::Intro;
         g_enabled = true;  // Seamless mode is an import
-        gbarecomp::set_screen_veil(true, true);
+        cover(true);
         std::fprintf(stderr, "[seamless] importing slot %u\n", g_seamless_slot);
     }
     g_next_literal = options.thumb_literal_override;
@@ -346,6 +367,14 @@ bool tla_gs_save_import_text(std::uint32_t id, std::string& out) {
     return true;
 }
 void tla_gs_save_import_on_entry(std::uint32_t pc) {
+    if (g_covered_at != kNotCovered &&
+        runtime_current_frame() - g_covered_at > kCoverLimitFrames) {
+        std::fprintf(stderr, "[seamless] a step did not come within %llu frames; "
+                     "showing the game, the player goes on by hand\n", kCoverLimitFrames);
+        uncover();
+        g_seamless = Seamless::Off;
+        return;
+    }
     switch (g_seamless) {
     case Seamless::Intro:
         if (pc == kStartRoomSetPc && bus_read_u16(kRoomAddr) == kIntroRoom &&
@@ -359,10 +388,10 @@ void tla_gs_save_import_on_entry(std::uint32_t pc) {
     case Seamless::Naming:
         if (pc == kNamingEntryPc) {
             g_seamless = Seamless::Naming;
-            gbarecomp::set_screen_veil(false);
+            uncover();
         } else if (pc == kMessagePc && g_cpu.R[0] == kQuestionText &&
                    g_seamless == Seamless::Naming) {
-            gbarecomp::set_screen_veil(true);
+            cover();
             gbarecomp::guest_return_now(pc, 0);
             g_seamless = Seamless::Question;
         }

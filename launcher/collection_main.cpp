@@ -250,7 +250,8 @@ bool game_built(const fs::path& root, int choice, std::stop_token stop = {}) {
     std::error_code ec;
     // Packaged games use the same fingerprint check as their player launcher.
     if (fs::is_directory(root / "builder", ec) || root.parent_path().filename() == "games")
-        return gsr_launcher::game_code_ready(root, gsr_launcher::kGames[choice]);
+        return gsr_launcher::game_code_ready(root, gsr_launcher::kGames[choice],
+                                             gsr_session::load_launcher_audio_settings(root).any_rom);
     return gsr_collection::developer_build_ready(root, choice, gsr_session::engine(root, choice), stop);
 }
 
@@ -673,9 +674,9 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             // (the session exits with the game's code); go straight on to The
             // Lost Age, keeping the window hidden. Failing that, show the window.
             int finished_game = -1, finished_code = -1;
-            if (child.take_exit(finished_game, finished_code) && finished_game == 0 && preview.empty() &&
-                finished_code >= gbarecomp::seamless::kExitCodeBase &&
-                finished_code < gbarecomp::seamless::kExitCodeBase + gbarecomp::seamless::kSlotCount) {
+            const int seamless_slot = child.take_exit(finished_game, finished_code) && finished_game == 0
+                ? gbarecomp::seamless::slot_of_exit_code(finished_code) : -1;
+            if (seamless_slot >= 0 && preview.empty()) {
                 error.clear();
                 // The Lost Age shows its cartridge, bouncing as in this
                 // selector, on its black cover while it starts (cartridge_art.h).
@@ -687,7 +688,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                     set_environment(gbarecomp::cartridge_art::kCoverGameEnv, "1");
                 }
                 const bool started = built[1] && runtime_saves_in_saves(gsr_session::game_root(root, 1), 1, error) &&
-                    child.start(root, 1, error, &settings[1], finished_code - gbarecomp::seamless::kExitCodeBase);
+                    child.start(root, 1, error, &settings[1], seamless_slot);
                 if (cover_art) {
                     set_environment(gbarecomp::cartridge_art::kCoverArtEnv, {});
                     set_environment(gbarecomp::cartridge_art::kCoverGameEnv, {});
@@ -1074,6 +1075,13 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                     error = "Could not save the import preference.";
                 ImGui::Separator();
             }
+            if (ImGui::Checkbox("Skip the ROM check", &preferences[settings_game].any_rom) &&
+                preview.empty() && !gsr_session::save_launcher_audio_settings(
+                    gsr_session::game_root(root, settings_game), preferences[settings_game]))
+                error = "Could not save the ROM check preference.";
+            ImGui::TextWrapped("Accept a ROM other than the supported USA/Europe one, such as a translation or a hack. "
+                               "The game is made for the supported ROM; another one may not work.");
+            ImGui::Separator();
 #ifdef _WIN32
             ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "Graphics");
             if (ImGui::Checkbox("Use Direct3D", &game.direct3d) && preview.empty() && !gsr_collection::save_settings(root, settings))

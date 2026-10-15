@@ -56,6 +56,7 @@
 #include "block_timing.h"
 #include "guest_call.h"
 #include "sha1.h"
+#include "any_rom.h"
 
 namespace fs = std::filesystem;
 using gsr::builder::GuestMachine;
@@ -1169,7 +1170,8 @@ int main(int argc, char** cargv) {
     const auto rom = read_bytes(s.rom);
     if (rom.empty()) return fail("Could not read the ROM file.");
     const std::string rom_sha1 = sha1_hex(rom.data(), rom.size());
-    if (rom_sha1 != kRomSha1)
+    // The launcher's "Skip the ROM check" lets any ROM through (any_rom.h).
+    if (rom_sha1 != kRomSha1 && !gbarecomp::any_rom_allowed())
         return fail(std::string("This release requires the ") + kGameName + " ROM.");
 #ifdef _WIN32
     const fs::path engine_link_input = s.engine / kApiLibrary;

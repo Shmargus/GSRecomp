@@ -2902,15 +2902,19 @@ bool FieldSceneRenderer::upload_room(const std::uint8_t* ewram,
                      (word(0x10) != 0x10000u || word(0x14) != 0x10000u);
     }
 
-    {
+    // Altin's rest positions, kept only on the maps that use them; any other
+    // map forgets them, so a return starts afresh.
+    const int map = ewram_u16(ewram, ewram_bytes, prof().map_id_addr);
+    const auto& rest_maps = prof().altin_rest_maps;
+    rest_rule_on_ = map != 0 &&
+        std::find(std::begin(rest_maps), std::end(rest_maps), map) != std::end(rest_maps);
+    if (!rest_rule_on_) {
+        rest_map_ = -1;
+    } else {
         // A move of more than 32 rows is a new rest position, not a drift:
         // the room's first frames can still hold the last room's records
         // (gpu_rewind_0147: region 0, then 1024 at load, then 1024 -> 1000
         // as the water sinks).
-        const int map = ewram_u16(ewram, ewram_bytes, prof().map_id_addr);
-        rest_rule_on_ = false;
-        for (const int m : prof().altin_rest_maps)
-            if (m != 0 && m == map) rest_rule_on_ = true;
         for (int bg = 0; bg < 4; ++bg) {
             const int region = layer_wrap_[bg].region_y;
             if (map != rest_map_ || rest_region_y_[bg] == 0 ||
