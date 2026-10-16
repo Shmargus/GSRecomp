@@ -3,238 +3,275 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Golden Sun Recompiled: the Game Boy Advance game rebuilt as a native PC program for Windows and Linux, with widescreen, extra settings and more. A free fan project.">
+<meta name="description" content="Golden Sun Recompiled: Golden Sun and Golden Sun: The Lost Age for the Game Boy Advance, rebuilt as native PC programs for Windows and Linux, with widescreen, extra settings and more. A free fan project.">
 <meta property="og:title" content="Golden Sun Recompiled">
-<meta property="og:description" content="The Game Boy Advance game rebuilt as a native PC program for Windows and Linux. A free fan project.">
+<meta property="og:description" content="Golden Sun and The Lost Age rebuilt as native PC programs for Windows and Linux. A free fan project.">
 <meta property="og:image" content="logo.webp">
+<meta name="theme-color" content="#0b1424">
 <title>Golden Sun Recompiled</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lobster&family=Bebas+Neue&family=Open+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600;700&display=swap">
 <style>
-/* Layout: a 2011-style fan site. Dark linen backdrop, the logo on it, a white content panel with a right-hand sidebar of boxes. One look in
-   every theme, so every colour is set here explicitly. */
+/* One fixed look: night-sky backdrop, glass cards, gold accents. The game
+   screens (canvas) keep their own pixel colours. */
 :root {
-  --linen: #2b2f36;
-  --linen-line: #33383f;
-  --panel: #ffffff;
-  --panel-alt: #f4f6f8;
-  --text: #333a42;
-  --muted: #6a737d;
-  --rule: #dde2e7;
-  --link: #1f63a8;
-  --gold: #f2b632;
-  --gold-deep: #c9861a;
-  --nav-top: #3f6f9f;
-  --nav-bottom: #274d74;
-  --window-top: #3272b0;
-  --window-bottom: #1d4775;
-  --note-bg: #fff8d6;
-  --note-line: #e8d27a;
-  --script: "Lobster", "Brush Script MT", cursive;
-  --head: "Bebas Neue", Impact, "Arial Narrow", sans-serif;
-  --body: "Open Sans", "Segoe UI", Arial, sans-serif;
-  color-scheme: light;
+  --bg: #0b1424;
+  --bg-2: #101d33;
+  --card: rgba(255, 255, 255, .045);
+  --card-solid: #13213a;
+  --card-line: rgba(255, 255, 255, .09);
+  --text: #dbe4f0;
+  --muted: #8d9bb0;
+  --head: #ffffff;
+  --gold: #f4c04e;
+  --gold-2: #e09a22;
+  --blue: #5aa2ff;
+  --link: #8cc0ff;
+  --tla: #4f8dff;
+  --tbs: #3fbf7a;
+  --radius: 16px;
+  --title: "Cinzel", Georgia, serif;
+  --body: "Inter", "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; }
 body {
-  margin: 0; padding-inline: 16px; padding-block: 10px 40px;
-  font: 14px/1.6 var(--body); color: var(--text);
-  background-color: var(--linen);
+  margin: 0; font: 15px/1.65 var(--body); color: var(--text);
+  background-color: var(--bg);
   background-image:
-    repeating-linear-gradient(45deg, var(--linen-line) 0 1px, transparent 1px 4px),
-    repeating-linear-gradient(-45deg, rgba(0,0,0,.18) 0 1px, transparent 1px 4px);
+    radial-gradient(1200px 600px at 50% -10%, rgba(244, 192, 78, .16), transparent 60%),
+    radial-gradient(900px 500px at 100% 20%, rgba(79, 141, 255, .12), transparent 60%),
+    radial-gradient(800px 500px at 0% 60%, rgba(63, 191, 122, .07), transparent 60%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
 }
-a { color: var(--link); }
-.site { max-width: 980px; margin: 0 auto; box-shadow: 0 0 0 1px rgba(0,0,0,.4), 0 8px 30px rgba(0,0,0,.5); border-radius: 6px; overflow: clip; }
+a { color: var(--link); text-underline-offset: 3px; }
+a:hover { color: #b9d8ff; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
 
-/* Header */
-.masthead {
-  max-width: 980px; margin: 0 auto 12px; padding: 0 16px;
-  display: grid; justify-items: center; gap: 2px; position: relative; text-align: center;
+/* Top bar */
+.topbar {
+  position: sticky; top: 0; z-index: 10;
+  background: rgba(11, 20, 36, .72); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--card-line);
 }
-.ai-note {
-  max-width: 980px; margin: 0 auto 6px; padding: 6px 14px; text-align: center;
-  font: 600 12.5px var(--body); color: #e8edf2; background: rgba(0,0,0,.35);
-  border: 1px solid rgba(255,255,255,.12); border-radius: 4px;
-}
-.masthead h1 { margin: 0; line-height: 0; }
-.masthead img { display: block; width: 520px; max-width: 100%; height: auto; filter: drop-shadow(0 4px 10px rgba(0,0,0,.45)); }
-.tagline { font: 600 13px var(--body); color: #cfe0f0; text-shadow: 0 1px 0 rgba(0,0,0,.5); letter-spacing: .02em; margin: 0; }
-.logo { font-family: var(--script); font-size: clamp(34px, 6vw, 52px); line-height: 1; color: var(--gold); text-shadow: 0 2px 0 #7a4a06, 0 3px 8px rgba(0,0,0,.5); margin: 0; font-weight: 400; }
-.logo small { display: block; font: 600 13px var(--body); color: #cfe0f0; text-shadow: 0 1px 0 rgba(0,0,0,.5); margin-top: 8px; letter-spacing: .02em; }
-.wip-stamp {
-  font: 700 11px var(--body); letter-spacing: .12em; text-transform: uppercase; color: #5a3a00;
-  background: linear-gradient(#ffd66b, #f2b632); border: 1px solid #b07a14; border-radius: 3px;
-  padding: 5px 10px; box-shadow: inset 0 1px 0 rgba(255,255,255,.6), 0 1px 2px rgba(0,0,0,.4); transform: rotate(-2deg);
-}
+.topbar .wrap { display: flex; align-items: center; gap: 20px; height: 56px; }
+.brand { font: 700 15px var(--title); letter-spacing: .06em; color: var(--gold); text-decoration: none; white-space: nowrap; }
+.topbar nav { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; margin-left: auto; }
+.topbar nav::-webkit-scrollbar { display: none; }
+.topbar nav a { color: var(--muted); text-decoration: none; font-weight: 500; font-size: 14px; padding: 6px 10px; border-radius: 8px; white-space: nowrap; }
+.topbar nav a:hover { color: var(--head); background: rgba(255,255,255,.06); }
 
+/* Hero */
+.hero { text-align: center; padding: 44px 0 34px; }
+.hero h1 { margin: 0; line-height: 0; }
+.hero img { width: 560px; max-width: 100%; height: auto; filter: drop-shadow(0 10px 30px rgba(0,0,0,.55)); }
+.hero .lead { max-width: 660px; margin: 14px auto 0; font-size: 17px; color: #c7d3e3; }
+.chips { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 18px; }
+.chip { font: 600 12.5px var(--body); color: var(--text); padding: 5px 12px; border-radius: 999px; background: var(--card); border: 1px solid var(--card-line); }
+.chip.tbs { border-color: rgba(63,191,122,.45); color: #9fe6bf; }
+.chip.tla { border-color: rgba(79,141,255,.5); color: #b4cdff; }
+.cta { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 24px; }
+.ai-note { margin: 22px auto 0; font-size: 12px; color: var(--muted); }
+
+/* Buttons */
+a.report, .button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  text-decoration: none; font: 700 14px var(--body); color: #2a1a00;
+  padding: 11px 20px; border-radius: 12px;
+  background: linear-gradient(180deg, #ffd977, var(--gold) 55%, var(--gold-2));
+  box-shadow: 0 6px 20px rgba(244, 192, 78, .25), inset 0 1px 0 rgba(255,255,255,.55);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+a.report:hover, .button:hover { color: #2a1a00; transform: translateY(-1px); box-shadow: 0 10px 26px rgba(244, 192, 78, .35), inset 0 1px 0 rgba(255,255,255,.55); }
+.button.ghost { color: var(--text); background: var(--card); border: 1px solid var(--card-line); box-shadow: none; }
+.button.ghost:hover { color: var(--head); background: rgba(255,255,255,.08); box-shadow: none; }
+a.report:focus-visible, .button:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+aside a.report { display: flex; width: 100%; }
 
 /* Body columns */
-.cols { background: var(--panel); display: grid; grid-template-columns: minmax(0, 1fr) 270px; }
-main { padding: 26px 30px 34px; min-width: 0; display: grid; gap: 34px; align-content: start; }
-aside { background: var(--panel-alt); border-left: 1px solid var(--rule); padding: 22px 18px; display: grid; gap: 20px; align-content: start; }
-
-h2.section {
-  font: 400 30px/1 var(--head); letter-spacing: .04em; color: #1d4775; margin: 0 0 12px;
-  padding-bottom: 8px; border-bottom: 2px solid var(--rule); position: relative;
+.cols { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: start; padding-bottom: 48px; }
+main { display: grid; gap: 24px; min-width: 0; }
+aside { display: grid; gap: 16px; }
+section.card, .box {
+  background: var(--card); border: 1px solid var(--card-line); border-radius: var(--radius);
+  box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 20px 40px -24px rgba(0,0,0,.6);
 }
-h2.section::after { content: ""; position: absolute; left: 0; bottom: -2px; width: 60px; height: 2px; background: var(--gold-deep); }
-h3 { font: 700 15px var(--body); margin: 0 0 4px; color: #22303d; }
+section.card { padding: 28px 30px; }
+
+h2.section { font: 700 24px/1.2 var(--title); letter-spacing: .02em; color: var(--head); margin: 0 0 14px; }
+h2.section .kicker { display: block; font: 600 11.5px var(--body); letter-spacing: .14em; text-transform: uppercase; color: var(--gold); margin-bottom: 6px; }
+h3 { font: 650 15px var(--body); margin: 0 0 4px; color: var(--head); }
 p { margin: 0 0 10px; }
-.intro { font-size: 15.5px; }
-.note { background: var(--note-bg); border: 1px solid var(--note-line); border-radius: 4px; padding: 10px 14px; font-size: 13.5px; }
-.note b { color: #7a5500; }
+b { color: var(--head); font-weight: 600; }
+.intro { font-size: 16px; }
+.note { background: rgba(244, 192, 78, .08); border: 1px solid rgba(244, 192, 78, .3); border-radius: 12px; padding: 12px 16px; font-size: 14px; }
+.note b { color: var(--gold); }
 
-/* Picture: two-up list */
-.pairs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 26px; margin: 0; }
-.pairs div { min-width: 0; }
-.pairs p { color: var(--muted); margin: 0; }
+/* Two games */
+.games { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 16px 0; }
+.game { border-radius: 14px; padding: 18px; background: linear-gradient(160deg, rgba(63,191,122,.16), rgba(63,191,122,.03)); border: 1px solid rgba(63,191,122,.3); }
+.game.tla { background: linear-gradient(160deg, rgba(79,141,255,.18), rgba(79,141,255,.03)); border-color: rgba(79,141,255,.35); }
+.game h3 { font: 700 17px var(--title); }
+.game p { margin: 0; color: #c2cede; font-size: 14px; }
+.seamless { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: start; padding: 16px 18px; border-radius: 14px; background: rgba(255,255,255,.03); border: 1px dashed rgba(244,192,78,.35); }
+.seamless .icon { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: linear-gradient(135deg, var(--tbs), var(--tla)); color: #fff; font-size: 20px; }
+.seamless p { margin: 0; }
+
+/* Feature grid */
+.pairs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 0; }
+.pairs div { min-width: 0; padding: 14px 16px; border-radius: 12px; background: rgba(255,255,255,.025); border: 1px solid var(--card-line); transition: border-color .15s ease, background .15s ease; }
+.pairs div:hover { border-color: rgba(244,192,78,.35); background: rgba(255,255,255,.04); }
+.pairs p { color: var(--muted); margin: 0 0 6px; font-size: 14px; }
 .where { font-size: 12px; color: var(--muted); }
-.where b { color: var(--text); font-weight: 600; }
+.where b { color: var(--gold); font-weight: 600; }
 
-/* The settings window, in the game's style */
-.sim-wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
-.gswin {
-  background: linear-gradient(180deg, var(--window-top), var(--window-bottom));
-  border: 2px solid #e8f0f8; outline: 2px solid #0d1f33; border-radius: 5px;
-  color: #fff; text-shadow: 1px 1px 0 #0b1a2b; font: 700 13px/1.2 var(--body);
-}
-.gswin.help { padding: 7px 12px; font-style: italic; font-weight: 600; margin-bottom: 8px; min-height: 32px; }
-.gswin.rows { padding: 6px 0; }
-.srow {
-  display: grid; grid-template-columns: 22px 1fr 118px; align-items: center;
-  width: 100%; background: none; border: 0; color: inherit; font: inherit; text-shadow: inherit;
-  padding: 7px 10px 7px 6px; cursor: pointer; text-align: left;
-}
-.srow + .srow { border-top: 1px solid rgba(255,255,255,.12); }
-.srow .hand { visibility: hidden; color: var(--gold); font-size: 14px; }
-.srow.cur .hand { visibility: visible; }
-.srow .val { text-align: center; white-space: nowrap; }
-.srow:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
-.sim-under { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 12px; color: var(--muted); gap: 8px; flex-wrap: wrap; }
-.btns { display: flex; gap: 6px; }
-.btn {
-  font: 700 12px var(--body); color: #2d3640; cursor: pointer;
-  background: linear-gradient(#ffffff, #e3e8ed); border: 1px solid #aeb7c0; border-radius: 4px;
-  padding: 4px 10px; box-shadow: inset 0 1px 0 #fff, 0 1px 1px rgba(0,0,0,.12);
-}
-.btn:active { background: linear-gradient(#e3e8ed, #ffffff); }
-.btn:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
-.gswin.cheatwin { background: #00398c; padding: 8px 0 8px; }
-.cheat-title { text-align: center; padding: 2px 0 8px; font-size: 14px; }
-.crow {
-  display: grid; grid-template-columns: 1fr 124px; align-items: center;
-  width: 100%; background: none; border: 0; color: inherit; font: inherit; text-shadow: inherit;
-  padding: 7px 12px 7px 14px; cursor: pointer; text-align: left;
-}
-.crow .val { text-align: center; white-space: nowrap; }
-
-.crow:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+/* Settings and cheat demos */
+.sim-wrap { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 18px; align-items: start; margin-top: 6px; }
 .screen-col { display: grid; gap: 10px; justify-items: start; min-width: 0; }
-.bezel { background: #3a3f4a; padding: 10px; border-radius: 10px; box-shadow: inset 0 2px 4px rgba(0,0,0,.5), 0 1px 0 #fff; max-width: 100%; }
-canvas.gba { display: block; width: 480px; max-width: 100%; aspect-ratio: 3 / 2; image-rendering: pixelated; image-rendering: crisp-edges; background: #16222e; cursor: pointer; }
+.bezel { background: linear-gradient(180deg, #2a3242, #1b2230); padding: 12px; border-radius: 14px; box-shadow: inset 0 2px 6px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.06), 0 14px 30px -12px rgba(0,0,0,.7); max-width: 100%; }
+canvas.gba { display: block; width: 400px; max-width: 100%; aspect-ratio: 3 / 2; image-rendering: pixelated; image-rendering: crisp-edges; background: #16222e; cursor: pointer; border-radius: 4px; }
 canvas.gba:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
 .pad { display: flex; gap: 6px; flex-wrap: wrap; }
+.btn {
+  font: 700 13px var(--body); color: var(--text); cursor: pointer; min-width: 38px; height: 34px;
+  background: rgba(255,255,255,.06); border: 1px solid var(--card-line); border-radius: 10px;
+}
+.btn:hover { background: rgba(255,255,255,.12); }
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.explain { background: var(--panel-alt); border: 1px solid var(--rule); border-radius: 4px; padding: 12px 14px; min-height: 100%; }
-.explain h3 { color: #1d4775; }
+.explain { background: rgba(0,0,0,.18); border: 1px solid var(--card-line); border-radius: 12px; padding: 14px 16px; min-height: 100%; }
+.explain h3 { color: var(--gold); }
 .explain .opts { font-size: 12.5px; color: var(--muted); margin: 0; }
 
 /* Tables */
-table.plain { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-table.plain th, table.plain td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
-table.plain th { font-weight: 700; background: linear-gradient(#fafbfc, #eef1f4); color: #3b4550; border-top: 1px solid var(--rule); }
-table.plain tr:nth-child(even) td { background: #fafbfc; }
+table.plain { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.plain th, table.plain td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--card-line); vertical-align: top; }
+table.plain th { font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+table.plain tr:last-child td { border-bottom: 0; }
+table.plain tbody tr:hover td { background: rgba(255,255,255,.025); }
 .tblwrap { overflow-x: auto; }
 
 /* Bullet lists */
 ul.ticks { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-ul.ticks li { padding-left: 22px; position: relative; }
-ul.ticks li::before { content: ""; position: absolute; left: 2px; top: 7px; width: 9px; height: 9px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #ffe08a, var(--gold-deep)); box-shadow: 0 0 0 1px #a86d10; }
-ul.ticks.later li::before { background: radial-gradient(circle at 35% 35%, #fff, #b8c2cc); box-shadow: 0 0 0 1px #8f9aa5; }
-.tag { font: 700 10px var(--body); text-transform: uppercase; letter-spacing: .08em; color: #8a5a00; background: #fff1c2; border: 1px solid #e8cf7a; border-radius: 3px; padding: 1px 5px; margin-left: 6px; vertical-align: 1px; }
+ul.ticks li { padding-left: 24px; position: relative; }
+ul.ticks li::before { content: ""; position: absolute; left: 3px; top: 8px; width: 9px; height: 9px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 0 3px rgba(244,192,78,.18); }
 
-/* Sidebar boxes */
 /* FAQ */
 .faq { display: grid; gap: 8px; }
-.faq details { border: 1px solid var(--rule); border-radius: 4px; background: linear-gradient(#fdfdfe, #f3f5f8); }
-.faq details[open] { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
-.faq summary {
-  list-style: none; cursor: pointer; padding: 10px 14px 10px 38px; position: relative;
-  font-weight: 700; color: #22303d;
-}
+.faq details { border: 1px solid var(--card-line); border-radius: 12px; background: rgba(255,255,255,.02); transition: background .15s ease; }
+.faq details[open] { background: rgba(255,255,255,.045); }
+.faq summary { list-style: none; cursor: pointer; padding: 13px 44px 13px 16px; position: relative; font-weight: 600; color: var(--head); }
 .faq summary::-webkit-details-marker { display: none; }
-.faq summary::before {
-  content: "+"; position: absolute; left: 12px; top: 9px; width: 16px; height: 16px;
-  border-radius: 3px; background: linear-gradient(var(--nav-top), var(--nav-bottom));
-  color: #fff; font: 700 13px/16px var(--body); text-align: center;
+.faq summary::after {
+  content: ""; position: absolute; right: 18px; top: 50%; width: 8px; height: 8px; margin-top: -6px;
+  border-right: 2px solid var(--gold); border-bottom: 2px solid var(--gold); transform: rotate(45deg); transition: transform .2s ease;
 }
-.faq details[open] summary::before { content: "\2212"; }
-.faq summary:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
-.faq .a { padding: 0 16px 12px 38px; }
+.faq details[open] summary::after { transform: rotate(-135deg); margin-top: -2px; }
+.faq summary:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; border-radius: 12px; }
+.faq .a { padding: 0 16px 14px; color: #c7d3e3; }
 .faq .a p:last-child { margin-bottom: 0; }
 .faq ol { margin: 0 0 10px; padding-left: 20px; }
 .faq ol li { margin-bottom: 4px; }
-.box { background: #fff; border: 1px solid #cfd6dd; border-radius: 5px; box-shadow: 0 1px 2px rgba(0,0,0,.06); overflow: hidden; }
-.box h4 { margin: 0; padding: 8px 12px; font: 400 18px/1 var(--head); letter-spacing: .05em; color: #fff; background: linear-gradient(var(--nav-top), var(--nav-bottom)); text-shadow: 0 -1px 0 rgba(0,0,0,.4); }
-.box .in { padding: 10px 12px; font-size: 13px; }
+
+/* Sidebar boxes */
+.box { overflow: hidden; }
+.box h4 { margin: 0; padding: 14px 18px 0; font: 600 11.5px var(--body); letter-spacing: .14em; text-transform: uppercase; color: var(--gold); }
+.box .in { padding: 10px 18px 16px; font-size: 14px; }
+.box.get { background: linear-gradient(170deg, rgba(244,192,78,.12), rgba(255,255,255,.03) 60%); border-color: rgba(244,192,78,.3); }
 .keys { list-style: none; margin: 0; padding: 0; }
-.keys li { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px dotted #d3d9df; align-items: center; }
+.keys li { display: flex; justify-content: space-between; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--card-line); align-items: center; }
 .keys li:last-child { border-bottom: 0; }
 kbd {
-  font: 700 11px var(--body); color: #333; white-space: nowrap;
-  background: linear-gradient(#fff, #e6e9ec); border: 1px solid #aab3bc; border-radius: 3px;
-  padding: 1px 5px; box-shadow: 0 1px 0 #9aa3ac;
+  font: 600 11.5px var(--body); color: var(--head); white-space: nowrap;
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); border-bottom-width: 2px; border-radius: 6px;
+  padding: 1px 6px;
 }
 .box ul.small { margin: 0; padding-left: 18px; }
-.keynote { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid #d3d9df; font-size: 12px; color: var(--muted); }
 .box ul.small li { margin-bottom: 4px; }
-a.report {
-  display: block; text-align: center; text-decoration: none;
-  font: 700 13px var(--body); color: #5a3a00; padding: 7px 10px; border-radius: 4px;
-  background: linear-gradient(#ffd66b, #f2b632); border: 1px solid #b07a14;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.6), 0 1px 2px rgba(0,0,0,.25);
-}
-a.report:hover { background: linear-gradient(#ffe08a, #f5c04a); }
-a.report:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.keynote { margin: 10px 0 0; padding-top: 10px; border-top: 1px solid var(--card-line); font-size: 12.5px; color: var(--muted); }
 
-footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14px 28px; border-top: 1px solid #0e1114; display: grid; gap: 4px; }
+footer.foot { border-top: 1px solid var(--card-line); color: var(--muted); font-size: 12.5px; padding: 22px 0 34px; }
+footer.foot .wrap { display: grid; gap: 4px; }
 
-@media (max-width: 800px) {
+@media (max-width: 920px) {
   .cols { grid-template-columns: minmax(0, 1fr); }
-  aside { border-left: 0; border-top: 1px solid var(--rule); }
-  .sim-wrap, .pairs { grid-template-columns: minmax(0, 1fr); }
-  main { padding: 20px 18px 26px; }
-  .masthead { padding: 20px 18px; }
+  aside { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media (max-width: 680px) {
+  .sim-wrap, .pairs, .games { grid-template-columns: minmax(0, 1fr); }
+  section.card { padding: 22px 18px; }
+  .brand { display: none; }
+  .topbar nav { margin-left: 0; }
+  .hero { padding-top: 28px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } html { scroll-behavior: auto; } }
 </style>
 </head>
 <body>
-<p class="ai-note">Portions of this project were developed with the assistance of AI-based development tools.</p>
-<header class="masthead">
-    <h1><img src="logo.webp" width="1774" height="887" alt="Golden Sun Recompiled"></h1>
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="#top">Golden Sun Recompiled</a>
+    <nav aria-label="Sections">
+      <a href="#games">Games</a>
+      <a href="#picture">Picture</a>
+      <a href="#settings">Settings</a>
+      <a href="#speed">Speed</a>
+      <a href="#cheats">Cheats</a>
+      <a href="#faq">FAQ</a>
+      <a href="#get">Download</a>
+    </nav>
+  </div>
 </header>
-<div class="site">
 
+<div class="wrap" id="top">
+  <div class="hero">
+    <h1><img src="logo.webp" width="1774" height="887" alt="Golden Sun Recompiled"></h1>
+    <p class="lead">Golden Sun and Golden Sun: The Lost Age, rebuilt as real PC programs for Windows, Linux and the Steam Deck. Not an emulator.</p>
+    <div class="chips">
+      <span class="chip tbs">The Broken Seal</span>
+      <span class="chip tla">The Lost Age</span>
+      <span class="chip">Widescreen</span>
+      <span class="chip">Free fan project</span>
+    </div>
+    <div class="cta">
+      <a class="button" href="#get">Download</a>
+      <a class="button ghost" href="https://github.com/Shmargus/GSRecomp" target="_blank" rel="noopener">Source on GitHub</a>
+    </div>
+    <p class="ai-note">Portions of this project were developed with the assistance of AI-based development tools.</p>
+  </div>
 
   <div class="cols">
     <main>
-      <section id="about">
-        <h2 class="section">What is this?</h2>
-        <p class="intro">Golden Sun Recompiled turns the 2001 Game Boy Advance game into a program that runs straight on Windows and Linux, including the Steam Deck. It isn't an emulator. The game's own code is translated into PC code, so you get the same adventure with a wider screen, a proper settings menu and a handful of optional extras.</p>
-        <p>You bring your own copy of the game. Nothing from the game comes with this project, and your game file is never changed.</p>
-        <div class="note"><b>Heads up:</b> this is still being worked on. It's tested by playing through the game, and a few things may still look or sound slightly off.</div>
+      <section id="games" class="card">
+        <h2 class="section"><span class="kicker">What is this?</span>Both games, one launcher</h2>
+        <p class="intro">Golden Sun Recompiled turns the two Game Boy Advance games into programs that run straight on your PC. The games' own code is translated into PC code, so you get the same adventure with a wider screen, a proper settings menu and a handful of optional extras.</p>
+        <div class="games">
+          <div class="game"><h3>The Broken Seal</h3><p>The first Golden Sun (2001). Isaac's journey, from Vale to the lighthouses.</p></div>
+          <div class="game tla"><h3>The Lost Age</h3><p>The second game (2002). Felix's side of the story, now in the collection too.</p></div>
+        </div>
+        <div class="seamless">
+          <div class="icon" aria-hidden="true">&#10148;</div>
+          <div>
+            <h3>Seamless: one long adventure</h3>
+            <p>Turn on <b>Seamless</b> and the end of The Broken Seal runs straight into The Lost Age in the same window. Your clear data is saved, and The Lost Age loads it for you after you name Felix. Switch it on when you start a new game, in <b>F1</b> → Game, or in the launcher.</p>
+          </div>
+        </div>
+        <p style="margin-top:16px">You bring your own copy of each game. Nothing from the games comes with this project, and your game files are never changed.</p>
+        <div class="note"><b>Heads up:</b> this is still being worked on. It's tested by playing through the games, and a few things may still look or sound slightly off.</div>
       </section>
 
-      <section id="picture">
-        <h2 class="section">Picture</h2>
+      <section id="picture" class="card">
+        <h2 class="section"><span class="kicker">Picture</span>See more of Weyard</h2>
         <div class="pairs">
           <div><h3>Widescreen</h3><p>See more around you in towns, dungeons, on the world map and in battle.</p><span class="where">Settings page two → <b>Screen: Wide</b></span></div>
           <div><h3>Spells fill the screen</h3><p>Psynergy and summons carry on into the extra space instead of stopping at the old edge.</p><span class="where">Automatic in <b>Wide</b></span></div>
           <div><h3>Sharp pixels</h3><p>Keeps the pixel art crisp at any window size.</p><span class="where"><b>F1</b> → Video</span></div>
-          <div><h3>Colour profiles</h3><p>The game's colours were made bright for the original GBA screen. Pick Raw, Handheld, Soft, Natural, Warm or Deep.</p><span class="where"><b>F1</b> → Video</span></div>
+          <div><h3>Colour profiles</h3><p>The colours were made bright for the original GBA screen. Pick Raw, Handheld, Soft, Natural, Warm or Deep.</p><span class="where"><b>F1</b> → Video</span></div>
           <div><h3>Your own colours</h3><p>Custom gives you sliders for saturation, hue, brightness, warmth and darkening. The picture changes as you drag.</p><span class="where"><b>F1</b> → Video → Custom</span></div>
           <div><h3>4:3 picture</h3><p>Shows the middle of the wide view for 4:3 screens, with nothing stretched.</p><span class="where"><b>F1</b> → Video, with <b>Screen: Wide</b></span></div>
           <div><h3>Screen filters (test)</h3><p>An LCD grid, an old-TV CRT look, or smoothed pixel art (xBR, ScaleFX). Still a test.</p><span class="where"><b>F1</b> → Video</span></div>
@@ -244,9 +281,9 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
         </div>
       </section>
 
-      <section id="settings">
-        <h2 class="section">Game settings</h2>
-        <p>The game's own Settings screen has a second page. Press Down past Auto-Sleep to reach it. Try it here: click the screen, then use the arrow keys or the buttons. The map that shows behind the menu in the game is left out.</p>
+      <section id="settings" class="card">
+        <h2 class="section"><span class="kicker">Game settings</span>A second Settings page</h2>
+        <p>Both games' own Settings screen has a second page. Press Down past Auto-Sleep to reach it. Try it here: click the screen, then use the arrow keys or the buttons. The map that shows behind the menu in the game is left out.</p>
         <div class="sim-wrap">
           <div class="screen-col">
             <div class="bezel"><canvas id="settings-screen" class="gba" width="240" height="160" tabindex="0" role="application" aria-label="Settings page two. Use the arrow keys."></canvas></div>
@@ -256,7 +293,6 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
               <button class="btn" type="button" data-for="settings-screen" data-act="down" aria-label="Down">&#9660;</button>
               <button class="btn" type="button" data-for="settings-screen" data-act="left" aria-label="Left">&#9664;</button>
               <button class="btn" type="button" data-for="settings-screen" data-act="right" aria-label="Right">&#9654;</button>
-              
             </div>
           </div>
           <div class="explain" id="sim-explain"></div>
@@ -264,8 +300,8 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
         <p style="margin-top:16px">Page one gains one choice too: <b>Message Speed: Instant</b>, which shows each line of dialogue at once.</p>
       </section>
 
-      <section id="speed">
-        <h2 class="section">Battles &amp; speed</h2>
+      <section id="speed" class="card">
+        <h2 class="section"><span class="kicker">Battles &amp; speed</span>Play at your pace</h2>
         <div class="tblwrap">
           <table class="plain">
             <thead><tr><th>Feature</th><th>What it does</th><th>How</th></tr></thead>
@@ -280,9 +316,9 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
         </div>
       </section>
 
-      <section id="cheats">
-        <h2 class="section">Cheat menu</h2>
-        <p>Press <kbd>F11</kbd> anywhere (or the key you picked in the F1 menu). The game pauses and this window opens over the picture. Everything starts at normal. Try it: click the screen, then use the arrow keys (A or Enter switches On and Off).</p>
+      <section id="cheats" class="card">
+        <h2 class="section"><span class="kicker">Cheat menu</span>Bend the rules</h2>
+        <p>Press <kbd>F11</kbd> anywhere in either game (or the key you picked in the F1 menu). The game pauses and this window opens over the picture. Everything starts at normal. Try it: click the screen, then use the arrow keys (A or Enter switches On and Off).</p>
         <div class="sim-wrap">
           <div class="screen-col">
             <div class="bezel"><canvas id="cheat-screen" class="gba" width="240" height="160" tabindex="0" role="application" aria-label="Cheat menu. Use the arrow keys; A switches On and Off."></canvas></div>
@@ -292,24 +328,24 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
               <button class="btn" type="button" data-for="cheat-screen" data-act="down" aria-label="Down">&#9660;</button>
               <button class="btn" type="button" data-for="cheat-screen" data-act="left" aria-label="Left">&#9664;</button>
               <button class="btn" type="button" data-for="cheat-screen" data-act="right" aria-label="Right">&#9654;</button>
-              
             </div>
           </div>
           <div class="explain" id="cheat-explain"></div>
         </div>
       </section>
 
-      <section id="inside">
-        <h2 class="section">Under the hood</h2>
+      <section id="inside" class="card">
+        <h2 class="section"><span class="kicker">Under the hood</span>How it works</h2>
         <ul class="ticks">
-          <li><b>Real PC code.</b> The game's code is translated ahead of time, including the parts it loads while you play.</li>
-          <li><b>No BIOS file.</b> You only need your game file, not the handheld's start-up chip.</li>
-          <li><b>Checks your game file.</b> The launcher makes sure it's the exact version this was built for.</li>
+          <li><b>Real PC code.</b> Each game's code is translated ahead of time, including the parts it loads while you play.</li>
+          <li><b>One shared engine.</b> Both games run on the same engine, so a fix for one often helps the other.</li>
+          <li><b>No BIOS file.</b> You only need your game files, not the handheld's start-up chip.</li>
+          <li><b>Checks your game files.</b> The launcher makes sure each is the exact version this was built for.</li>
         </ul>
       </section>
 
-      <section id="faq">
-        <h2 class="section">FAQ</h2>
+      <section id="faq" class="card">
+        <h2 class="section"><span class="kicker">FAQ</span>Questions</h2>
         <div class="faq">
           <details open>
             <summary>How do I report a bug?</summary>
@@ -320,28 +356,32 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
                 <li>Close the game. A bug report window opens: write a few words about what happened and where, and press <b>Send report</b>. No account or form needed.</li>
               </ol>
               <p>If the game crashes, the same window opens without you pressing F12. Nothing is ever sent unless you press <b>Send report</b>; otherwise the report stays on your computer in <b>logs\bug_reports</b>. A report holds the game's log and screen captures, your settings files and your Windows or Linux version, with your user name taken out. After a crash it also holds a snapshot of the game's memory. Only the developer sees it.</p>
-              <p>If sending doesn't work, the window offers the <a href="https://docs.google.com/forms/d/e/1FAIpQLScTmnmH6_BXYsYVfIKtjDsN-gLx59mv4pVjYx4ITbH2YGktBw/viewform" target="_blank" rel="noopener">bug report form</a> instead, where you can add the report by hand. On 0.1-test the launcher still uses that form.</p>
+              <p>If sending doesn't work, the window offers the <a href="https://docs.google.com/forms/d/e/1FAIpQLScTmnmH6_BXYsYVfIKtjDsN-gLx59mv4pVjYx4ITbH2YGktBw/viewform" target="_blank" rel="noopener">bug report form</a> instead, where you can add the report by hand.</p>
             </div>
           </details>
           <details>
             <summary>Is this an emulator?</summary>
-            <div class="a"><p>No. The game's own code is translated into PC code ahead of time, so it runs directly on your PC instead of through a program that imitates the Game Boy Advance.</p></div>
+            <div class="a"><p>No. The games' own code is translated into PC code ahead of time, so they run directly on your PC instead of through a program that imitates the Game Boy Advance.</p></div>
           </details>
           <details>
-            <summary>Do I need my own copy of the game?</summary>
-            <div class="a"><p>Yes. Nothing from Golden Sun comes with this project. You pick your own Golden Sun (USA/Europe) game file, and the launcher checks it's the exact version this was built for. No BIOS file is needed.</p></div>
+            <summary>Do I need my own copy of the games?</summary>
+            <div class="a"><p>Yes. Nothing from Golden Sun comes with this project. In the launcher you pick The Broken Seal or The Lost Age and choose your own USA/Europe game file for it; it remembers each one and checks it's the exact version this was built for. You can play either game on its own. No BIOS file is needed.</p></div>
+          </details>
+          <details>
+            <summary>Can I play a translation or a hack?</summary>
+            <div class="a"><p>The launcher has a <b>Skip the ROM check</b> option for each game, which lets a different game file through. Only the original games are supported, so expect problems.</p></div>
           </details>
           <details>
             <summary>Why does the first start take a few minutes?</summary>
-            <div class="a"><p>The first time you pick your game file, the game is prepared from it on your PC. A progress bar shows how far along it is. After that it starts straight away, until an update needs it to prepare again.</p></div>
+            <div class="a"><p>The first time you pick a game file, the game is prepared from it on your PC. A progress bar shows how far along it is. After that it starts straight away, until an update needs it to prepare again.</p></div>
           </details>
           <details>
             <summary>Where are my saves, and do they survive updates?</summary>
-            <div class="a"><p>Your in-game save and your save states are stored next to your own game file, not in the program folder. Installing a new version doesn't touch them.</p></div>
+            <div class="a"><p>Your game files go in the <b>ROMs</b> folder and your saves and save states in the <b>Saves</b> folder, both next to the launcher. Saves from 0.4, which sat next to your game file, are brought over when you pick the same game file in the new version.</p></div>
           </details>
           <details>
             <summary>How do I update?</summary>
-            <div class="a"><p>From 0.2 on, the launcher tells you when a new version is out and opens its download page. Unzip the new version, start its launcher and pick your game file. Your saves stay where they are, and the game is prepared once more on the first start.</p></div>
+            <div class="a"><p>The launcher tells you when a new version is out and opens its download page. Unzip the new version into a new folder, start its launcher and pick the same game file. Your saves come along, and the game is prepared once more on the first start.</p></div>
           </details>
           <details>
             <summary>Can I play with a controller?</summary>
@@ -360,14 +400,14 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
     </main>
 
     <aside>
-      <div class="box">
+      <div class="box get" id="get">
         <h4>Get it</h4>
         <div class="in">
           <!-- Filled from GitHub's newest release when the page loads (script
                at the end); these values are the fallback. -->
           <a class="report" id="download-windows" href="https://github.com/Shmargus/GSRecomp/releases/download/0.4/GoldenSunRecompiled-0.4-windows.zip">Download for Windows</a>
           <a class="report" id="download-linux" style="margin-top: 8px" href="https://github.com/Shmargus/GSRecomp/releases/download/0.4/GoldenSunRecompiled-0.4-linux.zip">Download for Linux</a>
-          <p class="keynote"><span id="release-line">Test release 0.4, 7 October 2026. Windows 10 and 11: 37 MB zip. Linux: 27 MB zip.</span> Unzip it and start <b>GoldenSunLauncher</b>; the first start takes several minutes.</p>
+          <p class="keynote"><span id="release-line">Test release 0.4, 7 October 2026. Windows 10 and 11: 37 MB zip. Linux: 27 MB zip.</span> Unzip it and start <b>GoldenSunLauncher</b>; the first start of each game takes several minutes.</p>
           <ul class="keys">
             <li><span>All releases</span><a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">GitHub</a></li>
             <li><span>Source code</span><a href="https://github.com/Shmargus/GSRecomp" target="_blank" rel="noopener">GitHub</a></li>
@@ -396,7 +436,7 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
         <div class="in">
           <ul class="small">
             <li>A Windows 10 or 11 PC, or a recent 64-bit Linux</li>
-            <li>Your own Golden Sun game file (USA/Europe)</li>
+            <li>Your own Golden Sun and/or The Lost Age game file (USA/Europe)</li>
             <li>That's it. No BIOS, no emulator.</li>
           </ul>
         </div>
@@ -410,12 +450,14 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
       </div>
     </aside>
   </div>
-
-  <footer class="foot">
-    <span>A noncommercial fan project. Golden Sun belongs to its owners; you need your own legally obtained copy to play.</span>
-    <span>Updated October 2026.</span>
-  </footer>
 </div>
+
+<footer class="foot">
+  <div class="wrap">
+    <span>A noncommercial fan project. Golden Sun and Golden Sun: The Lost Age belong to their owners; you need your own legally obtained copies to play.</span>
+    <span>Updated October 2026.</span>
+  </div>
+</footer>
 
 <script>
 (function () {
