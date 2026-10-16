@@ -539,6 +539,22 @@ extern "C" int (*g_ws_obj_park_provider)(int oam_index,
                                           std::uint16_t attr0,
                                           std::uint16_t attr1,
                                           std::uint16_t attr2);
+// Per-game full tile number of an OBJ slot, for a game that gives sprites a
+// second 32 KB page (GbaBus::set_obj_extra): the slot's 10-bit tile number
+// plus 0x400 when its artwork is in that page. Returns -1 when it does not
+// know, and the slot keeps its own 10 bits.
+extern "C" int (*g_ws_obj_tile_provider)(int oam_index,
+                                          std::uint16_t attr0,
+                                          std::uint16_t attr1,
+                                          std::uint16_t attr2);
+// The tile number every renderer draws an OBJ slot from (0..0x7FF).
+inline std::uint32_t ws_obj_tile(int oam_index, std::uint16_t attr0,
+                                 std::uint16_t attr1, std::uint16_t attr2) {
+    const int full = g_ws_obj_tile_provider
+        ? g_ws_obj_tile_provider(oam_index, attr0, attr1, attr2) : -1;
+    return full >= 0 ? static_cast<std::uint32_t>(full) & 0x7FFu
+                     : attr2 & 0x3FFu;
+}
 
 // Live BG-layer visibility toggle, driven by the in-game F1 menu
 // (Enhancements > Visual > Layers). Purely presentational: forces a

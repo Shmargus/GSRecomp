@@ -8318,6 +8318,14 @@ note = "builder 2: body y > 159 skips"
 addr = 0x08022402
 note = "builder 2: shadow y > 159 skips"
 
+# Sprite memory (src/tla_sprite_memory.cpp): 0x080142D4 after its first fit
+# 0x08014174, `cmp r5, #-1; beq 0x08014352` returns 0 for no grant. Owner
+# table 0x020036E0, block map 0x02003410 (ROM literals 0x0801435C,
+# 0x080141EC); bench store watch, Madra state, 2026-10-16.
+[[conditional_branch_override]]
+addr = 0x0801431A
+note = "sprite memory: beq when the first fit found no room"
+
 # Settings page two (src/tla_settings_page.cpp): page one's Speech and
 # Auto-Sleep values, cleared and redrawn on every cursor move.
 [[thumb_alu_immediate_override]]

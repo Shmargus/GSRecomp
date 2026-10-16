@@ -168,6 +168,52 @@ bool g_camera_y_seen = false;
 // The map number when the current room was loaded (room clamp store).
 uint16_t g_room_map = 0;
 
+// A scene that widens the room's bounds around the old ones mid-room keeps
+// the camera's offset from where the game asks (F12 tla_rewind_0044, the
+// Tremor scene: bounds X 32..608 became 0..1024 at f101; the rule's limit
+// 248 lifted and the camera jumped 120 to the game's 368 in one frame, past
+// what the game redraws of its maps, then shook around 368..373). Bounds
+// that move or shrink in the same map (0014 f89, 0024 f13, 0030 f34: other
+// parts of the room) and a new map take the rule again (Jimmy, 2026-10-16:
+// hold steady, shake included).
+struct CameraHold {
+    bool valid = false, holding = false;
+    uint16_t map = 0;
+    int32_t lo = 0, edge = 0;            // bounds at the last store
+    int32_t held_lo = 0, held_edge = 0;  // bounds when the hold began
+    int32_t offset = 0;                  // written - requested
+};
+CameraHold g_hold[2];  // x, y
+
+int32_t held_camera(gba::GbaBus* b, bool x, int32_t requested, int32_t ruled) {
+    const uint32_t s = b->read32(kFieldStatePointer);
+    CameraHold& h = g_hold[x ? 0 : 1];
+    if ((s >> 24) != 0x02u) { h.valid = false; return ruled; }
+    const int32_t lo = static_cast<int32_t>(b->read32(s + (x ? 0xECu : 0xF0u)));
+    const int32_t edge = static_cast<int32_t>(b->read32(s + (x ? 0xF4u : 0xF8u)));
+    const uint16_t map = b->read16(kMapNumber);
+    if (!h.valid || map != h.map) {
+        h = CameraHold{true, false, map, lo, edge};
+    } else {
+        if (!h.holding && (lo != h.lo || edge != h.edge) && lo <= h.lo && edge >= h.edge) {
+            h.holding = true;
+            h.held_lo = h.lo;
+            h.held_edge = h.edge;
+        }
+        if (h.holding && (lo > h.held_lo || edge < h.held_edge ||
+                          (lo == h.held_lo && edge == h.held_edge)))
+            h.holding = false;
+        h.lo = lo;
+        h.edge = edge;
+    }
+    if (!h.holding) {
+        h.offset = ruled - requested;
+        return ruled;
+    }
+    const int32_t size = (x ? 240 : 160) * 65536;
+    return std::clamp(requested + h.offset, lo, std::max(lo, edge - size));
+}
+
 int camera_store(uint32_t pc, uint32_t addr, uint32_t requested, uint32_t width,
                  uint32_t* out_value) {
     const bool x = pc == kFollowStoreX || pc == kClampStoreX;
@@ -178,7 +224,8 @@ int camera_store(uint32_t pc, uint32_t addr, uint32_t requested, uint32_t width,
         const View v = view();
         int32_t written = static_cast<int32_t>(requested);
         if (b && expanded(v) && field_running(b) && g_room_map > 1u)
-            written = camera_value(b, x, static_cast<int32_t>(requested), v);
+            written = held_camera(b, x, static_cast<int32_t>(requested),
+                camera_value(b, x, static_cast<int32_t>(requested), v));
         if (y) {
             g_camera_y_requested = static_cast<int32_t>(requested);
             g_camera_y_written = written;
@@ -237,7 +284,26 @@ void note_placed(uint32_t record, int x, int y) {
     gba::GbaBus* b = bus();
     if (!b) return;
     sync_placement_scene(b);
-    g_placements.note(*b, runtime_current_frame(), record, x, y);
+    // The record's full tile now, while its sprite-memory grant is current.
+    const uint16_t attr2 = b->read16(record + 8u);
+    const int tile = tla_sprite_memory_tile(record, attr2);
+    g_placements.note(*b, runtime_current_frame(), record, x, y,
+                      tile >= 0 ? tile : attr2 & 0x3FF);
+}
+
+// A game window is open this frame (set by tla_widescreen_frame).
+bool g_window_open = false;
+
+// The menus build their own sprites (priority 0) with the field's character
+// builder, which sees them 256 rows up: the Psynergy menu's icons at raw Y
+// 50..98 were recorded at -206..-158 and vanished (F12 tla_rewind_0023,
+// 2026-10-15; the console shows them at the raw rows). With a window open
+// those sprites take the console's own reading, given here: the scene's
+// fallback keeps a sprite near last frame's place, and the icons park at raw
+// Y 168 (-88) before sliding in at 50..98, so it chose -206..-158 again
+// (F12 tla_rewind_0029 frames 44..47).
+bool menu_sprite(uint16_t attr2) {
+    return g_window_open && ((attr2 >> 10) & 3u) == 0u;
 }
 
 int (*g_next_branch)(uint32_t, uint32_t, uint32_t*) = nullptr;
@@ -334,6 +400,8 @@ int depth_branch(uint32_t original, uint32_t* out_decision) {
 int builder_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
     if (const int result = world_range_branch(pc, original, out_decision);
         result >= 0) return result;
+    if (const int result = tla_sprite_memory_branch(pc, original, out_decision);
+        result >= 0) return result;
     if (pc == kDepthClampCharacters || pc == kDepthClampAll)
         return depth_branch(original, out_decision);
     if (pc == kAffineX || pc == kAffineY || pc == kAffinePlaced)
@@ -369,9 +437,14 @@ int builder_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
     if (!expanded(v) || !b || !field_running(b)) return 0;
     const int x = static_cast<int32_t>(g_cpu.R[6]);
     const int y = static_cast<int32_t>(g_cpu.R[4]);
-    // `bgt` skips the object: taken when past the widened edge.
+    // `bgt` skips the object: taken when past the widened edge. A menu
+    // sprite's shadow (its record follows the body's, r7 + 0x1C) keeps the
+    // console's own test: setting a Djinn put three Djinn shadows at row 210,
+    // which the console drops and the widened test drew in the bottom margin
+    // (F12 tla_rewind_0035 frames 53..119, bodies priority 0 at -86/-83).
+    const bool menu_shadow = shadow_y && menu_sprite(b->read16(g_cpu.R[7] + 8u));
     const bool cull = body_x ? x > 239 + v.right + kSlack
-                             : y > 159 + v.bottom + kSlack;
+                             : y > 159 + (menu_shadow ? 0 : v.bottom + kSlack);
     if (!cull && (body_y || shadow_y)) {
         // Every placement is recorded, so a record that moves back above
         // row 160 stops answering with its old Y. The body's X is r6; the
@@ -405,21 +478,6 @@ const Placement* placement_for(uint16_t attr0, uint16_t attr1, uint16_t attr2) {
     return g_placements.find(*b, runtime_current_frame(), attr0, attr1, attr2);
 }
 
-// A game window is open this frame (set by tla_widescreen_frame).
-bool g_window_open = false;
-
-// The menus build their own sprites (priority 0) with the field's character
-// builder, which sees them 256 rows up: the Psynergy menu's icons at raw Y
-// 50..98 were recorded at -206..-158 and vanished (F12 tla_rewind_0023,
-// 2026-10-15; the console shows them at the raw rows). With a window open
-// those sprites take the console's own reading, given here: the scene's
-// fallback keeps a sprite near last frame's place, and the icons park at raw
-// Y 168 (-88) before sliding in at 50..98, so it chose -206..-158 again
-// (F12 tla_rewind_0029 frames 44..47).
-bool menu_sprite(uint16_t attr2) {
-    return g_window_open && ((attr2 >> 10) & 3u) == 0u;
-}
-
 extern "C" int tla_obj_y_provider(int /*oam_index*/, uint16_t attr0,
                                   uint16_t attr1, uint16_t attr2, int* out_y) {
     if (menu_sprite(attr2)) {
@@ -446,6 +504,24 @@ extern "C" int tla_obj_x_provider(int /*oam_index*/, uint16_t attr0,
     return 1;
 }
 
+// A field person's full tile number, from the record that placed it: its
+// owner's current grant when the tile is in it, else the tile it had when
+// placed if OAM still shows that one. The grant comes first: sand puffs are
+// noted while their grant is being renewed and read as console tiles (F12
+// tla_rewind_0051 frame 115, owners 0x0A and 0x13). The noted tile covers a
+// grant released since: opening a menu frees every person's tiles a frame
+// before OAM drops them (tla_rewind_0047 frame 105).
+extern "C" int tla_obj_tile_provider(int /*oam_index*/, uint16_t attr0,
+                                     uint16_t attr1, uint16_t attr2) {
+    const Placement* p = placement_for(attr0, attr1, attr2);
+    if (!p) return -1;
+    if (const int now = tla_sprite_memory_tile(p->record, attr2); now >= 0)
+        return now;
+    if (p->tile >= 0 && ((p->tile ^ attr2) & 0x3FF) == 0 && (p->tile & 0x400))
+        return p->tile;
+    return -1;
+}
+
 }  // namespace
 
 // Rows the camera rule holds the camera below (+) or above (-) where the game
@@ -469,6 +545,8 @@ void tla_widescreen_frame(bool window_open) {
     const bool on = expanded(view());
     gba::g_ws_obj_attr_y_provider = on ? tla_obj_y_provider : nullptr;
     gba::g_ws_obj_attr_x_provider = on ? tla_obj_x_provider : nullptr;
+    gba::g_ws_obj_tile_provider =
+        tla_sprite_memory_frame(on) ? tla_obj_tile_provider : nullptr;
 }
 
 // Chains in front of the hooks already installed.

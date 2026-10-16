@@ -49,7 +49,8 @@ namespace {
 // Video memory is uploaded as a single-byte texture this wide. 96 KB divides
 // exactly, and the shader turns an address into a coordinate with one divide.
 constexpr int kVramTextureWidth = 1024;
-constexpr int kVramBytes = 96 * 1024;
+// The console's 96 KB plus the optional second sprite page (gba_bus.h).
+constexpr int kVramBytes = 128 * 1024;
 constexpr int kPaletteEntries = 512;
 
 // Room buffer addresses: each game's measured field state block, passed in by
@@ -1290,7 +1291,9 @@ const char* kObjectFragment =
     "  } else {\n"
     "    tile = u_tile + tile_y * 32 + tile_x * step;\n"
     "  }\n"
-    "  tile = tile & 0x3FF;\n"
+    // Tile numbers wrap inside their own 1024-tile page (u_tile 0x400 and up
+    // is the second sprite page, gba_bus.h set_obj_extra).
+    "  tile = (u_tile & 0x400) | (tile & 0x3FF);\n"
     "\n"
     "  int tx = lx & 7;\n"
     "  int ty = ly & 7;\n"
@@ -1401,7 +1404,9 @@ const char* kObjectWindowFragment =
     "  } else {\n"
     "    tile = u_tile + tile_y * 32 + tile_x * step;\n"
     "  }\n"
-    "  tile = tile & 0x3FF;\n"
+    // Tile numbers wrap inside their own 1024-tile page (u_tile 0x400 and up
+    // is the second sprite page, gba_bus.h set_obj_extra).
+    "  tile = (u_tile & 0x400) | (tile & 0x3FF);\n"
     "\n"
     "  int tx = lx & 7;\n"
     "  int ty = ly & 7;\n"
@@ -1566,8 +1571,12 @@ const char* kWindowFragment =
     "uniform usampler2D u_row_io;\n"    // this frame's per-row registers
     "uniform vec2 u_camera;\n"
     "uniform int u_reveal_full;\n"     // Better Field Psy: Reveal fills the view
-    // The iris wipe's ellipse (fit_iris_window), used outside the console's
-    // screen only: centre in console pixels, squared half-axes.
+    // The iris wipe's ellipse: 1 fitted to the console's rows
+    // (fit_iris_window), used outside its screen only; 2 the game's own
+    // (SceneMargins::iris), used everywhere, since the game's rows break
+    // once the expanded camera puts the centre off the console's screen
+    // (TLA F12 tla_rewind_0045: WIN0 rows opened above it). Centre in
+    // console pixels, squared half-axes.
     "uniform int u_iris;\n"
     "uniform vec2 u_iris_centre;\n"
     "uniform vec2 u_iris_axes;\n"
@@ -1675,7 +1684,7 @@ const char* kWindowFragment =
     "    control = winout & 0x3F;\n"
     "  } else if (!any_window) {\n"
     "    control = 0x3F;\n"
-    "  } else if (win0_en && (u_iris != 0 && outside_native\n"
+    "  } else if (win0_en && (u_iris == 2 || (u_iris != 0 && outside_native)\n"
     "                 ? iris_inside(screen)\n"
     "                 : (win_v(win0v, screen.y) && win_h(win0h, screen.x)))) {\n"
     "    control = winin & 0x3F;\n"
@@ -1890,10 +1899,11 @@ void FieldSceneRenderer::upload_vram(const std::uint8_t* vram,
     // Background map blocks only (the first 64 KB): room_layer_agreement()
     // compares the room rule's entries against them.
     vram_maps_.assign(vram, vram + std::min<std::size_t>(vram_bytes, 0x10000));
-    // Object tiles (the last 32 KB): object_is_solid() reads them.
+    // Object tiles (32 KB, then the second page when sent): object_is_solid()
+    // reads them.
     if (vram_bytes > 0x10000)
         vram_objects_.assign(vram + 0x10000,
-                             vram + std::min<std::size_t>(vram_bytes, 0x18000));
+                             vram + std::min<std::size_t>(vram_bytes, kVramBytes));
     else
         vram_objects_.clear();
 }
@@ -1915,16 +1925,17 @@ bool FieldSceneRenderer::object_is_solid(const SceneObject& O,
             int tile = one_dimensional
                 ? static_cast<int>(O.tile) + (tile_y * tiles_wide + tile_x) * step
                 : static_cast<int>(O.tile) + tile_y * 32 + tile_x * step;
-            tile &= 0x3FF;
+            tile = static_cast<int>(O.tile & 0x400u) | (tile & 0x3FF);
             const int base = tile * 32;
             const int tx = lx & 7, ty = ly & 7;
+            const std::size_t at = static_cast<std::size_t>(
+                eight_bit ? base + ty * 8 + tx : base + ty * 4 + (tx >> 1));
+            if (at >= vram_objects_.size()) return false;
             int index;
             if (eight_bit) {
-                index = vram_objects_[static_cast<std::size_t>(
-                    (base + ty * 8 + tx) & 0x7FFF)];
+                index = vram_objects_[at];
             } else {
-                const int two = vram_objects_[static_cast<std::size_t>(
-                    (base + ty * 4 + (tx >> 1)) & 0x7FFF)];
+                const int two = vram_objects_[at];
                 index = (tx & 1) ? (two >> 4) : (two & 0xF);
             }
             if (first < 0) first = index;
@@ -2427,12 +2438,8 @@ EffectCanvasLayout effect_canvas_layout(const std::uint8_t* vram,
 // iris, and the window works as before. Once the centre is known, rows with
 // only one edge inside count too (gpu_rewind_0153: the player near the left
 // edge leaves 4-7 two-edge rows at the circle's top, too few to place its
-// bottom, and the bottom margin flickered).
-struct IrisWindow {
-    bool found = false;
-    float cx = 0.0f, cy = 0.0f;   // console pixels
-    float a2 = 0.0f, b2 = 0.0f;   // squared half-width and half-height
-};
+// bottom, and the bottom margin flickered). A game that knows its iris
+// supplies it in SceneMargins::iris instead.
 
 IrisWindow fit_iris_window(const FieldScene& scene) {
     IrisWindow out;
@@ -3283,8 +3290,10 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
     surface_->set_uniform_vec2(window_, "u_camera", camera_x, camera_y);
     surface_->set_uniform_int(window_, "u_reveal_full", reveal_full_ ? 1 : 0);
     {
-        IrisWindow iris = fit_iris_window(scene);
-        surface_->set_uniform_int(window_, "u_iris", iris.found ? 1 : 0);
+        const IrisWindow iris = margins_ && margins_->iris.found
+            ? margins_->iris : fit_iris_window(scene);
+        surface_->set_uniform_int(window_, "u_iris",
+            !iris.found ? 0 : margins_ && margins_->iris.found ? 2 : 1);
         surface_->set_uniform_vec2(window_, "u_iris_centre", iris.cx, iris.cy);
         surface_->set_uniform_vec2(window_, "u_iris_axes", iris.a2, iris.b2);
     }

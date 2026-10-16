@@ -149,7 +149,10 @@ int main(int argc, char** argv) {
             const auto* p = objects.data + i * 12;
             scene.objects[i].x = static_cast<std::int32_t>(tla_frame::read32(p));
             scene.objects[i].y = static_cast<std::int32_t>(tla_frame::read32(p + 4));
-            scene.objects[i].parked = tla_frame::read32(p + 8) != 0;
+            // Bit 0 parked; bits 16+ the drawn tile number (0 in older files).
+            const std::uint32_t flags = tla_frame::read32(p + 8);
+            scene.objects[i].parked = (flags & 1u) != 0;
+            if (flags >> 16) scene.objects[i].tile = flags >> 16;
         }
         if ((state_flags & 2u) == 0u) {
             scene.supported = false;
@@ -216,18 +219,41 @@ int main(int argc, char** argv) {
                     room && memory.size() >= 0x42A
                         ? unsigned(memory[0x428]) | (unsigned(memory[0x429]) << 8) : 0,
                     -(h - 160) / 2, room ? camera_hold_y : 0);
-                tla_screen_effect_margins(scene, margins,
-                    room && memory.size() >= 0x42A
-                        ? unsigned(memory[0x428]) | (unsigned(memory[0x429]) << 8) : 0);
-                if (room && !rom.empty() && (!saved.legacy || memory.size() >= 0x4122D)) {
-                    const bool ripple = tla_water_ripple(scene, margins, ripple_phase,
-                        [&](unsigned index) {
-                            const auto at = 0x20A8u + index * 2u;
-                            return static_cast<std::int16_t>(rom[at] | (rom[at + 1] << 8));
-                        }, -(h - 160) / 2, h);
-                    std::printf("water ripple: %s\n", ripple ? "matched" : "not matched");
+                // The game's iris, when the frame saved one (16 bytes).
+                if (const auto iris = saved.find("IRIS"); iris.size == 16) {
+                    float v[4];
+                    std::memcpy(v, iris.data, sizeof v);
+                    margins.iris = {true, v[0], v[1], v[2], v[3]};
+                    std::printf("iris: game's own\n");
                 }
-                renderer.upload_vram(fr.vram, 0x18000);
+                // The second sprite page follows when the file has one.
+                std::vector<std::uint8_t> vram(fr.vram, fr.vram + 0x18000);
+                const auto objx = saved.find("OBJX");
+                if (objx.size == 0x8000) vram.insert(vram.end(), objx.data, objx.data + objx.size);
+                const bool haze = tla_screen_effect_margins(scene, margins,
+                    room && memory.size() >= 0x42A
+                        ? unsigned(memory[0x428]) | (unsigned(memory[0x429]) << 8) : 0,
+                    vram);
+                bool port = false;
+                if (room && !rom.empty() && (!saved.legacy || memory.size() >= 0x4122D)) {
+                    const auto sine = [&](unsigned index) {
+                        const auto at = 0x20A8u + index * 2u;
+                        return static_cast<std::int16_t>(rom[at] | (rom[at + 1] << 8));
+                    };
+                    const bool ripple = tla_water_ripple(scene, margins, ripple_phase,
+                                                         sine, -(h - 160) / 2, h);
+                    std::printf("water ripple: %s\n", ripple ? "matched" : "not matched");
+                    port = tla_port_wave(scene, margins, ripple_phase,
+                                         sine, -(h - 160) / 2, h);
+                    std::printf("port wave: %s\n", port ? "matched" : "not matched");
+                }
+                std::vector<std::uint8_t> haze_vram;
+                if ((haze && tla_haze_fill_rows(vram, scene, &haze_vram)) ||
+                    (port && tla_haze_fill_rows(vram, scene, &haze_vram, 2))) {
+                    std::printf("haze rows: refilled\n");
+                    vram.swap(haze_vram);
+                }
+                renderer.upload_vram(vram.data(), vram.size());
                 renderer.upload_palette(scene.palette.data(), scene.palette.size());
                 if (!saved.legacy) {
                     if (room_vram.size)

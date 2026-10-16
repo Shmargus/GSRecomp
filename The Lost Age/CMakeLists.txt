@@ -108,6 +108,7 @@ set(TLA_ENGINE_SOURCES
     src/tla_text.cpp
     src/tla_encounters.cpp
     src/tla_widescreen.cpp
+    src/tla_sprite_memory.cpp
     src/tla_gpu_field.cpp
     "${GBARECOMP_ROOT}/src/field/field_scene.cpp"
     "${GBARECOMP_ROOT}/src/field/field_scene_renderer.cpp"
@@ -152,6 +153,18 @@ if(TLA_SPLIT_GAME_CODE)
         "Optimisation flag for the game code in a split build")
     target_compile_options(tla_game_objects PRIVATE ${TLA_GAME_CODE_OPT} -g0)
     target_include_directories(tla_game_objects PRIVATE ${TLA_GAME_INCLUDE_DIRS})
+    # How many game-code files compile at once (0 = no limit). One file can
+    # need 6.4 GiB (reloc/harv60, -Og, measured 2026-10-16); fourteen at once
+    # ran a 16 GB machine out of memory. scripts/build_game.ps1 sets it from
+    # the build's memory limit; the rest of the build keeps its full count.
+    set(TLA_GAME_CODE_COMPILE_JOBS 0 CACHE STRING
+        "Game-code files compiled at once (0 = no limit)")
+    if(TLA_GAME_CODE_COMPILE_JOBS GREATER 0)
+        set_property(GLOBAL APPEND PROPERTY JOB_POOLS
+            tla_game_code=${TLA_GAME_CODE_COMPILE_JOBS})
+        set_property(TARGET tla_game_objects PROPERTY
+            JOB_POOL_COMPILE tla_game_code)
+    endif()
 endif()
 
 if(TLA_SPLIT_GAME_CODE AND MINGW)

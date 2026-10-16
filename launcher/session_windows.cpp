@@ -1442,9 +1442,10 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
     const auto test_option_state = [&](const char* name) -> std::optional<bool> {
         for (const TestOptionValue& value : test_option_values)
             if (std::strcmp(value.name, name) == 0) return value.enabled;
-        // Only a launch with collection test settings decides this one.
-        if (std::strcmp(name, "TLA_GPU_FIELD_CHECK") == 0 && g_collection_tests_supplied)
-            return collection_gpu_check;
+        // Every other option only a launch with collection test settings
+        // decides (GPU field check, Console sprite memory).
+        if (g_collection_tests_supplied)
+            return gsr_collection::test_enabled(g_collection_tests, name, session_game_index);
         return std::nullopt;
     };
     // The host profiler names the file it writes its samples to; put it beside

@@ -491,6 +491,25 @@ void draw_video_page(ConfigUiState* st) {
         if (dark.committed) st->color_save = true;
         caption("Deepens the darker colours. Natural uses 10%, Deep 25%.");
     }
+    {
+        static constexpr const char* kVisionLabels[] = {"Normal", "Deuteranopia",
+                                                        "Tritanopia"};
+        const int vision = std::clamp(st->color_vision, 0, 2);
+        ImGui::SetNextItemWidth(220.0f);
+        if (ImGui::BeginCombo("Colour vision", kVisionLabels[vision])) {
+            for (int i = 0; i < 3; ++i) {
+                if (ImGui::Selectable(kVisionLabels[i], i == vision)) {
+                    st->color_vision = i;
+                    st->video_changed = true;
+                }
+                if (i == vision) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        caption("For colour-blind players: moves colours you cannot tell apart "
+                "into ones you can. Deuteranopia is red-green, Tritanopia "
+                "blue-yellow. Works with any Colours choice and filter.");
+    }
     // Only changes the picture in Expanded View (a wider-than-3:2 view).
     const bool aspect_active = st->widescreen_available && st->widescreen;
     const int aspect_count = st->aspect_view_available ? kViewAspectCount : 2;

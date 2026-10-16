@@ -59,6 +59,7 @@
 #include "self_heal.h"
 #include "sha1.h"
 #include "widescreen_policy.h"
+#include "field_game_profile.h"
 
 extern "C" unsigned g_ws_active;
 extern "C" unsigned long long runtime_current_frame();
@@ -7405,15 +7406,6 @@ golden_sun_obj_provider_provenance(int oam_index, std::uint16_t attr0,
     return result;
 }
 
-// Sentinel raw OAM coordinates for a parked/hidden sprite:
-// (attr1 & 0x1FF) == 192 and (attr0 & 0xFF) == 192. Measured 2026-09-11
-// (FACTS.md): ~85% of the 128 OAM entries sit here every frame (~107/frame).
-// They are hidden by design and must never be given a trusted expanded-view
-// position. Re-measure this constant (via signals.csv) before touching it if
-// sprites start disappearing.
-constexpr int kGoldenSunObjParkSentinelRawX = 192;
-constexpr int kGoldenSunObjParkSentinelRawY = 192;
-
 // Slack, in pixels, allowed beyond the expanded viewport edges when
 // resolving the raw X wrap, so a sprite only partly off the side still
 // resolves. X only; Y is decided by the band rule below.
@@ -7650,10 +7642,7 @@ bool golden_sun_wide_obj_fallback_position(std::uint16_t attr0,
         return false;
     const int raw_x = static_cast<int>(attr1 & 0x01FFu);
     const int raw_y = static_cast<int>(attr0 & 0x00FFu);
-    if (raw_x == kGoldenSunObjParkSentinelRawX &&
-        raw_y == kGoldenSunObjParkSentinelRawY) {
-        return false;
-    }
+    if (gsr::field_obj_is_parked(attr0, attr1)) return false;
     const int min_x = -static_cast<int>(g_golden_sun_wide_extra_left) -
                        kGoldenSunObjFallbackSlackX;
     const int max_x = static_cast<int>(gsr::widescreen::kNativeWidth +
@@ -8903,13 +8892,13 @@ void golden_sun_fast_iwram_write_observer(std::uint32_t address,
 // Is this OAM slot one of Golden Sun's parked dummies? Called once per OBJ per
 // rendered frame by the expanded renderer (gba_ppu.h, g_ws_obj_park_provider).
 // Pure: it reads only the attributes handed to it, touches no guest memory and
-// changes nothing. The sentinel and the measurement behind it are in
-// src/widescreen_policy.h.
+// changes nothing. The rule is the engine's field_obj_is_parked; the sentinel
+// and the measurement behind it are in src/widescreen_policy.h.
 extern "C" int golden_sun_obj_park_provider(int /*oam_index*/,
                                             std::uint16_t attr0,
                                             std::uint16_t attr1,
                                             std::uint16_t /*attr2*/) {
-    return gsr::widescreen::golden_sun_obj_is_parked(attr0, attr1) ? 1 : 0;
+    return gsr::field_obj_is_parked(attr0, attr1) ? 1 : 0;
 }
 
 int golden_sun_thumb_alu_immediate(std::uint32_t pc, std::uint32_t original,

@@ -127,6 +127,15 @@ void tla_widescreen_frame(bool window_open);
 // put it (+ below), 0 when the game's own camera is in effect.
 int tla_camera_hold_y();
 
+// src/tla_sprite_memory.cpp: a second sprite page for field people in the
+// expanded view. The branch hook answers -1 for any other pc. The frame hook
+// says whether the page is mapped; tile gives a sprite
+// record's full tile number, or -1.
+int tla_sprite_memory_branch(std::uint32_t pc, std::uint32_t original,
+                             std::uint32_t* out_decision);
+bool tla_sprite_memory_frame(bool expanded);
+int tla_sprite_memory_tile(std::uint32_t record, std::uint16_t attr2);
+
 // src/tla_gpu_field.cpp: draw the field with the graphics card.
 void tla_install_gpu_field();
 void tla_gpu_field_on_entry(std::uint32_t pc);

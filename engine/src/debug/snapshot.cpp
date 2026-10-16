@@ -16,6 +16,7 @@
 
 #include "snapshot.h"
 
+#include <cstring>
 #include <fstream>
 #include <unordered_map>
 #include <vector>
@@ -45,6 +46,7 @@ constexpr uint32_t TAG_SAVE  = fourcc('S', 'A', 'V', '0');
 constexpr uint32_t TAG_PPU   = fourcc('P', 'P', 'U', '0');
 constexpr uint32_t TAG_AFFINE = fourcc('A', 'F', 'R', 'F');
 constexpr uint32_t TAG_META  = fourcc('M', 'E', 'T', 'A');
+constexpr uint32_t TAG_OBJX  = fourcc('O', 'B', 'J', 'X');
 
 constexpr std::size_t kRomSha1Len = 40;
 
@@ -115,7 +117,7 @@ bool save_state(const char* path, const SnapshotContext& ctx, std::string* err) 
     w.bytes(kMagic, 4);
     w.u32(kSnapshotVersion);
     w.bytes(sha1, kRomSha1Len);
-    w.u32(8);  // section_count
+    w.u32(9);  // section_count
 
     add_section(w, TAG_CPU,   [&](SnapshotWriter& s) { serialize_cpu(s); });
     add_section(w, TAG_BUS,   [&](SnapshotWriter& s) { ctx.bus->serialize(s); });
@@ -126,6 +128,12 @@ bool save_state(const char* path, const SnapshotContext& ctx, std::string* err) 
     add_section(w, TAG_AFFINE,
                 [&](SnapshotWriter& s) { ctx.ppu->serialize_affine_state(s); });
     add_section(w, TAG_META,  [&](SnapshotWriter& s) { serialize_meta(s, ctx); });
+    // The second sprite page (gba_bus.h set_obj_extra), always written so a
+    // state taken with it on keeps its sprites.
+    add_section(w, TAG_OBJX, [&](SnapshotWriter& s) {
+        s.bytes(ctx.bus->vram_ptr() + gba::GbaBus::kNativeVram,
+                gba::GbaBus::kObjExtraVram);
+    });
 
     std::ofstream f(path, std::ios::binary | std::ios::trunc);
     if (!f) {
@@ -255,6 +263,15 @@ bool load_state(const char* path, const SnapshotContext& ctx, std::string* err) 
     if (sections.find(TAG_META) != sections.end()) {
         SnapshotReader r = reader_for(TAG_META);
         deserialize_meta(r, ctx);
+    }
+    // Optional: states from before the second sprite page leave it clear.
+    {
+        std::uint8_t* extra = ctx.bus->vram_ptr() + gba::GbaBus::kNativeVram;
+        std::memset(extra, 0, gba::GbaBus::kObjExtraVram);
+        if (sections.find(TAG_OBJX) != sections.end()) {
+            SnapshotReader r = reader_for(TAG_OBJX);
+            r.bytes(extra, gba::GbaBus::kObjExtraVram);
+        }
     }
 
     return true;

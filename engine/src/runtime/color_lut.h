@@ -46,6 +46,17 @@ enum class ScreenKind {
 };
 constexpr int kScreenKindCount = static_cast<int>(ScreenKind::Custom) + 1;
 
+// Colour-vision correction, applied after the screen model (F1 > Video >
+// Colour vision). It shifts what a player with that colour blindness cannot
+// tell apart into colours they can.
+enum class ColorVision { Normal, Deuteranopia, Tritanopia };
+constexpr int kColorVisionCount = static_cast<int>(ColorVision::Tritanopia) + 1;
+
+// The config token for a correction ("normal", "deuteranopia",
+// "tritanopia"); nullptr when out of range. Parse returns false when unknown.
+const char* color_vision_name(ColorVision vision);
+bool color_vision_from_name(std::string_view name, ColorVision& out);
+
 // Display colorspace the emitted bytes are interpreted in.
 enum class DisplayTarget { Srgb, DisplayP3 };
 
@@ -65,6 +76,7 @@ struct ColorSettings {
     double        brightness = 1.0;  // Custom only: gain, 1 = unchanged
     double        warmth = 0.0;  // 0..1, share of the Warm tint
     double        curve = 1.0;  // darkening exponent, 1 = none
+    ColorVision   vision = ColorVision::Normal;
 };
 
 // A baked BGR555 → RGB888 table. Build once per settings change; apply per
@@ -83,6 +95,7 @@ public:
                     int width, int height) const;
 
 private:
+    bool fill(const ColorSettings& settings);
     // table_[bgr555] = {R,G,B}.
     std::unique_ptr<std::array<std::array<uint8_t, 3>, 32768>> table_;
     bool passthrough_ = false;

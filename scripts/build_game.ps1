@@ -56,6 +56,10 @@ $games = @{
         Root = 'The Lost Age'; BuildDir = 'build/tla'; Prefix = 'TLA'
         BusyCheck = $true; CodeName = 'tla'; BlockParts = @('main', 'reloc')
         Targets = @('TLARecomp', 'TLAGame', 'TLAPlayer')
+        # Most memory one game-code file takes to compile: reloc/harv60 at
+        # -Og, 6.4 GiB committed (measured 2026-10-16). Sets how many compile
+        # at once (TLA_GAME_CODE_COMPILE_JOBS).
+        GameCodeCompileGiB = 6.4
     }
 }
 $cfg = $games[$Game]
@@ -203,7 +207,12 @@ public static class GoldenSunBuildLimits {
         Write-Host "Game code: local\$codeName ($($codeArgs.Count) folder settings)."
         $configureArgs += @('-DGSR_DEBUG_SYMBOLS=ON', "-DGSR_LTO_JOBS=$jobs", "-DGSR_GAME_CODE_OPT=-$GameCodeOpt") + $codeArgs
     } else {
+        # As many game-code files as fit the memory limit, at least one.
+        $gameCodeJobs = [Math]::Max(1, [Math]::Min($jobs,
+            [int][Math]::Floor($memoryLimit / ($cfg.GameCodeCompileGiB * 1GB))))
+        Write-Host "Game-code files compiled at once: $gameCodeJobs."
         $configureArgs += @('-DTLA_SPLIT_GAME_CODE=ON', "-DTLA_LTO_JOBS=$jobs", "-DTLA_GAME_CODE_OPT=-$GameCodeOpt",
+            "-DTLA_GAME_CODE_COMPILE_JOBS=$gameCodeJobs",
             "-DTLA_GENERATED_DIR:PATH=$codeRoot/main")
     }
     $configureOutput = & $cmake @configureArgs 2>&1

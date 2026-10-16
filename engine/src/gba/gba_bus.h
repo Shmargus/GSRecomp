@@ -145,6 +145,14 @@ public:
     uint8_t* vram_ptr()  { return vram_.data();  }
     uint8_t* oam_ptr()   { return oam_.data();   }
 
+    // The second sprite page (vram_ptr() + kNativeVram, kObjExtraVram bytes):
+    // tile numbers 0x400..0x7FF for a game whose sprites outgrow the
+    // console's 32 KB in the expanded view. Off by default.
+    static constexpr std::size_t kNativeVram = 96 * 1024;
+    static constexpr std::size_t kObjExtraVram = 32 * 1024;
+    void set_obj_extra(bool on) { obj_extra_ = on; }
+    bool obj_extra() const { return obj_extra_; }
+
     // Cartridge ROM bytes (the buffer set via set_rom; not owned).
     // Used by observability tooling that scans the image.
     const uint8_t* rom_ptr() const { return rom_; }
@@ -231,8 +239,13 @@ private:
     std::array<uint8_t, 256 * 1024> ewram_{};
     std::array<uint8_t,  32 * 1024> iwram_{};
     std::array<uint8_t,        1024> pal_{};
-    std::array<uint8_t,  96 * 1024> vram_{};
+    // The console's 96 KB, then a second 32 KB sprite page at 0x06018000
+    // that only a game opting in (set_obj_extra) reads or writes; without it
+    // that range stays unmapped as before.
+    std::array<uint8_t, 128 * 1024> vram_{};
     std::array<uint8_t,        1024> oam_{};
+    bool obj_extra_ = false;
+    std::size_t vram_limit() const { return obj_extra_ ? vram_.size() : kNativeVram; }
 
     GbaIo       io_dispatch_;
     GbaAudio    audio_;

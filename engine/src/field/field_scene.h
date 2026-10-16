@@ -76,8 +76,19 @@ struct SceneMarginLayer {
     // the effect map. Zero disables it.
     int vram_height = 0;
 };
+// The iris wipe's ellipse in console pixels, drawn outside the console's
+// screen (field_scene_renderer.cpp, fit_iris_window).
+struct IrisWindow {
+    bool found = false;
+    float cx = 0.0f, cy = 0.0f;   // console pixels
+    float a2 = 0.0f, b2 = 0.0f;   // squared half-width and half-height
+};
+
 struct SceneMargins {
     std::array<SceneMarginLayer, 4> layers;
+    // The game's own iris, when it knows it; otherwise the renderer fits one
+    // to the console's rows.
+    IrisWindow iris;
 };
 
 // One object (sprite) slot, decoded from the object table.

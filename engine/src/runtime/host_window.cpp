@@ -96,7 +96,7 @@ struct CustomColors {
     bool operator!=(const CustomColors& o) const { return !(*this == o); }
 };
 bool write_picture_ini(const std::string& dir, int screen_kind,
-                       const CustomColors& custom, int aspect);
+                       const CustomColors& custom, int aspect, int vision);
 struct Backend;
 bool write_video_ini(const Backend* b);
 
@@ -383,6 +383,9 @@ struct Backend {
     runtime::ScreenKind screen_kind = runtime::ScreenKind::Raw;
     // Custom colours as last built into color_lut (percent, degrees).
     CustomColors applied_custom;
+    // The colour-vision correction last built into color_lut
+    // (runtime::ColorVision).
+    int applied_vision = 0;
     std::vector<uint8_t> graded_fb;  // scratch RGB888 (base_w*base_h*3)
     // Diagnostic-only guest-frame marker. It is armed by the existing sprite
     // recorder switch so a video can be joined to stderr's guest-frame rows.
@@ -935,7 +938,11 @@ void rebuild_color_lut(Backend* b) {
     settings.brightness = b->cfg.color_brightness / 100.0;
     settings.warmth = b->cfg.color_warmth / 100.0;
     settings.curve = 1.0 + b->cfg.color_darken / 100.0;
+    b->cfg.color_vision = std::clamp(b->cfg.color_vision, 0,
+                                     runtime::kColorVisionCount - 1);
+    settings.vision = static_cast<runtime::ColorVision>(b->cfg.color_vision);
     b->color_lut = std::make_unique<runtime::ColorLut>(settings);
+    b->applied_vision = b->cfg.color_vision;
     b->applied_custom = custom_colors_of(b->cfg);
     if (b->color_lut->is_passthrough()) {
         b->graded_fb.clear();
@@ -2292,6 +2299,13 @@ void HostWindow::load_input_config(const char* dir) {
         } else if (SDL_strcasecmp(key, "ColorDarken") == 0) {
             b->cfg.color_darken = std::clamp(
                 static_cast<int>(std::strtol(val, nullptr, 10)), 0, 50);
+        } else if (SDL_strcasecmp(key, "ColorVision") == 0) {
+            runtime::ColorVision v;
+            if (runtime::color_vision_from_name(val, v) &&
+                static_cast<int>(v) != b->applied_vision) {
+                b->cfg.color_vision = static_cast<int>(v);
+                rebuild_color_lut(b);
+            }
         }
     });
     // The Custom colour keys may follow ColorProfile in the file.
@@ -3150,17 +3164,19 @@ bool write_enhancements_ini(const std::string& dir, bool enhanced_timing,
 }
 
 // Update only [Enhancements] ColorProfile=, ColorSaturation=, ColorHue=,
-// ColorBrightness=, ColorWarmth=, ColorDarken= and AspectRatio=, preserving
-// everything else.
+// ColorBrightness=, ColorWarmth=, ColorDarken=, AspectRatio= and
+// ColorVision=, preserving everything else.
 bool write_picture_ini(const std::string& dir, int screen_kind,
-                       const CustomColors& custom, int aspect) {
+                       const CustomColors& custom, int aspect, int vision) {
     if (screen_kind < 0 || screen_kind >= runtime::kScreenKindCount)
         return false;
     const std::string path = dir + "/config.ini";
-    const std::string keys[7] = {"ColorProfile", "ColorSaturation", "ColorHue",
+    const char* vision_name = runtime::color_vision_name(
+        static_cast<runtime::ColorVision>(vision));
+    const std::string keys[8] = {"ColorProfile", "ColorSaturation", "ColorHue",
                                  "ColorBrightness", "ColorWarmth",
-                                 "ColorDarken", "AspectRatio"};
-    const std::string rows[7] = {
+                                 "ColorDarken", "AspectRatio", "ColorVision"};
+    const std::string rows[8] = {
         keys[0] + "=" +
             runtime::screen_kind_name(static_cast<runtime::ScreenKind>(screen_kind)),
         keys[1] + "=" + std::to_string(custom.saturation),
@@ -3168,7 +3184,8 @@ bool write_picture_ini(const std::string& dir, int screen_kind,
         keys[3] + "=" + std::to_string(custom.brightness),
         keys[4] + "=" + std::to_string(custom.warmth),
         keys[5] + "=" + std::to_string(custom.darken),
-        keys[6] + "=" + kViewAspectKeys[std::clamp(aspect, 0, kViewAspectCount - 1)]};
+        keys[6] + "=" + kViewAspectKeys[std::clamp(aspect, 0, kViewAspectCount - 1)],
+        keys[7] + "=" + (vision_name ? vision_name : "normal")};
     std::vector<std::string> lines;
     if (std::FILE* in = std::fopen(path.c_str(), "rb")) {
         std::string cur;
@@ -3182,7 +3199,7 @@ bool write_picture_ini(const std::string& dir, int screen_kind,
     }
     bool in_section = false;
     bool seen_section = false;
-    bool written[7] = {false, false, false, false, false, false, false};
+    bool written[8] = {false, false, false, false, false, false, false, false};
     std::size_t section_end = 0;
     for (std::size_t i = 0; i < lines.size(); ++i) {
         const std::string& t = lines[i];
@@ -3201,7 +3218,7 @@ bool write_picture_ini(const std::string& dir, int screen_kind,
         std::string key = t.substr(a, eq - a);
         while (!key.empty() && (key.back() == ' ' || key.back() == '\t'))
             key.pop_back();
-        for (int k = 0; k < 7; ++k) {
+        for (int k = 0; k < 8; ++k) {
             if (SDL_strcasecmp(key.c_str(), keys[k].c_str()) == 0) {
                 lines[i] = rows[k];
                 written[k] = true;
@@ -3213,7 +3230,7 @@ bool write_picture_ini(const std::string& dir, int screen_kind,
         lines.push_back("[Enhancements]");
         section_end = lines.size();
     }
-    for (int k = 0; k < 7; ++k) {
+    for (int k = 0; k < 8; ++k) {
         if (written[k]) continue;
         lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(section_end),
                      rows[k]);
@@ -3901,7 +3918,8 @@ HostWindow::Events HostWindow::pump() {
             const bool custom_changed =
                 b->cfg.screen_kind == static_cast<int>(runtime::ScreenKind::Custom) &&
                 custom_colors_of(b->cfg) != b->applied_custom;
-            if (kind_changed || custom_changed) {
+            const bool vision_changed = b->cfg.color_vision != b->applied_vision;
+            if (kind_changed || custom_changed || vision_changed) {
                 b->cfg.screen_kind = std::clamp(
                     b->cfg.screen_kind, 0,
                     static_cast<int>(runtime::ScreenKind::Custom));
@@ -3929,10 +3947,11 @@ HostWindow::Events HostWindow::pump() {
             if (video_settings_changed && !write_video_ini(b))
                 std::fprintf(stderr, "host_window: could not write %s/config.ini\n",
                              b->config_dir.c_str());
-            if (kind_changed || aspect_changed || b->cfg.color_save) {
+            if (kind_changed || aspect_changed || vision_changed ||
+                b->cfg.color_save) {
                 b->cfg.color_save = !write_picture_ini(
                     b->config_dir, b->cfg.screen_kind,
-                    custom_colors_of(b->cfg), b->cfg.aspect);
+                    custom_colors_of(b->cfg), b->cfg.aspect, b->cfg.color_vision);
                 if (b->cfg.color_save)
                     std::fprintf(stderr, "host_window: could not write %s/config.ini\n",
                                  b->config_dir.c_str());

@@ -1131,7 +1131,9 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "Graphics");
             if (ImGui::Checkbox("Use Direct3D", &game.direct3d) && preview.empty() && !gsr_collection::save_settings(root, settings))
                 error = "Could not save graphics settings.";
-            ImGui::TextWrapped("Some enhancements and screen filters are unavailable with Direct3D.");
+            ImGui::TextWrapped("Leave this off. Direct3D is only for computers where the game does not "
+                               "start with OpenGL; some enhancements, screen filters and fixes are "
+                               "unavailable with it.");
 #else
             ImGui::TextWrapped("Graphics use OpenGL on Linux.");
 #endif

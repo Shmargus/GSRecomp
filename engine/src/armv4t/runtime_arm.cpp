@@ -1280,6 +1280,41 @@ uint32_t g_trace_seq = 0;
 constexpr uint32_t kCallReturnStackSize = 1024u;
 uint32_t g_call_return_stack[kCallReturnStackSize] = {};
 uint32_t g_call_return_depth = 0;
+// The guest code around each RAM return point when it was pushed (the call
+// instruction before it and the instruction at it). RAM code is copied in and
+// replaced at the same addresses, so an address alone does not say the frame
+// still belongs to the code now there: Golden Sun's Func_2544 leaves a
+// never-matched return 0x030060AC behind, and Func_2808, later loaded at the
+// same 0x03006000, matched it and ran Func_2544's host code on its registers.
+// A RAM entry matches only while these words are unchanged.
+uint64_t g_call_return_code[kCallReturnStackSize] = {};
+
+inline bool call_return_in_ram(uint32_t pc) {
+    const uint32_t region = pc >> 24;
+    return region == 0x02u || region == 0x03u;
+}
+
+inline uint64_t call_return_code(uint32_t pc) {
+    return (static_cast<uint64_t>(bus_read_u32((pc - 4u) & ~3u)) << 32) |
+           bus_read_u32(pc & ~3u);
+}
+
+// True when the RAM code at a stored return point was replaced after the
+// call; such an entry belongs to code that no longer exists.
+bool call_return_code_replaced(uint32_t slot) {
+    const uint32_t pc = g_call_return_stack[slot];
+    if (!call_return_in_ram(pc) || call_return_code(pc) == g_call_return_code[slot])
+        return false;
+    static unsigned s_reported = 0;
+    if (s_reported < 8u) {
+        ++s_reported;
+        std::fprintf(stderr,
+            "runtime_arm: return point 0x%08X skipped: the code there was "
+            "replaced after the call (depth %u, slot %u)\n",
+            pc, g_call_return_depth, slot);
+    }
+    return true;
+}
 // Barrier into the GLOBAL guest call-return stack. An IRQ is dispatched on top
 // of whatever mainline (or enclosing-IRQ) call frames are live, but the handler's
 // guest returns/cancels must NOT match or pop those interrupted frames — doing so
@@ -2439,6 +2474,8 @@ extern "C" void runtime_call_push_return(uint32_t return_pc) {
         runtime_trace_dump_recent(96);
         std::abort();
     }
+    if (call_return_in_ram(pc))
+        g_call_return_code[g_call_return_depth] = call_return_code(pc);
     g_call_return_stack[g_call_return_depth++] = pc;
     if (unpacker_pc_in_slot(pc))
         unpacker_note_callret(kUnpackerPush, pc, g_call_return_depth,
@@ -2452,7 +2489,7 @@ extern "C" int runtime_call_should_return(uint32_t target_pc) {
     // mainline / enclosing-IRQ return frame.
     for (uint32_t i = g_call_return_depth; i != g_call_return_floor; --i) {
         uint32_t slot = i - 1u;
-        if (g_call_return_stack[slot] == pc) {
+        if (g_call_return_stack[slot] == pc && !call_return_code_replaced(slot)) {
             if (unpacker_pc_in_slot(pc))
                 unpacker_note_callret(kUnpackerRetMatch, pc, slot,
                                       g_call_return_depth,
@@ -2578,7 +2615,12 @@ extern "C" void runtime_call_stack_restore(const uint32_t* entries,
                                            uint32_t depth) {
     if (depth > kCallReturnStackSize) depth = kCallReturnStackSize;
     g_call_return_depth = depth;
-    for (uint32_t i = 0; i < depth; ++i) g_call_return_stack[i] = entries[i];
+    for (uint32_t i = 0; i < depth; ++i) {
+        g_call_return_stack[i] = entries[i];
+        // The saved list carries no code words; take the code as it is now.
+        if (call_return_in_ram(entries[i]))
+            g_call_return_code[i] = call_return_code(entries[i]);
+    }
 }
 
 // Test-only: see declaration in runtime_arm.h. Production code only moves

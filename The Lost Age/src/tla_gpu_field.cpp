@@ -83,12 +83,56 @@ struct Capture {
     std::vector<std::uint16_t> room_palette;
     bool window_open = false;
     unsigned ripple_phase = 0;
+    // The iris wipe the frame shows (iris_window), or none.
+    gsr::IrisWindow iris;
     // tla_camera_hold_y at capture time, for screen-fixed layers.
     int camera_hold_y = 0;
     const std::uint8_t* rom = nullptr;
     std::size_t rom_bytes = 0;
 };
 Capture g_capture;
+
+// The iris wipe, window effect 9 (FACTS.md, 2026-10-16): the effect block
+// [0x0300007C] holds the type (s16 +0x528) and size step k (u16 +0x52A, 2 a
+// frame; bit 5 set counts down from 32). 0x080CFEF4 centres it on the
+// leader, actor [[0x0300006C] + 0x14 + id * 4] with id 8 when s16
+// [0x020004B6] != 0, else [0x02000454]: x = actor+8 - camera x, y =
+// (actor+0x10 - actor+0xC) - camera y - 16 (16.16, camera whole pixels).
+// Row y's half-width is sqrt((5k)^2 - 1.5 (y - cy)^2), clamped to 0..240.
+// The rows shown use the k read at the previous VBlank (F12 tla_rewind_0045
+// frames 99..111, every row); the centre was below the console's screen,
+// so the renderer could not fit it from the rows.
+gsr::IrisWindow iris_window(gba::GbaBus* bus, int* last_k) {
+    gsr::IrisWindow out;
+    const std::uint32_t block = bus->read32(0x0300007Cu);
+    const int shown_k = *last_k;
+    *last_k = -1;
+    if ((block >> 24) != 0x02u ||
+        static_cast<std::int16_t>(bus->read16(block + 0x528u)) != 9)
+        return out;
+    *last_k = bus->read16(block + 0x52Au);
+    if (shown_k < 0) return out;
+    const std::uint32_t field = bus->read32(0x03000020u);
+    const unsigned id = static_cast<std::int16_t>(bus->read16(0x020004B6u)) != 0
+        ? 8u : bus->read32(0x02000454u);
+    if ((field >> 24) != 0x02u || id > 0xBFu) return out;
+    const std::uint32_t actor = bus->read32(bus->read32(0x0300006Cu) + 0x14u + id * 4u);
+    if ((actor >> 24) != 0x02u && (actor >> 24) != 0x03u) return out;
+    const auto whole = [](std::int32_t v) { return v < 0 ? -(-v >> 16) : v >> 16; };
+    const std::int32_t cam_x = static_cast<std::int32_t>(bus->read32(field + 0xE4u) & 0xFFFF0000u);
+    const std::int32_t cam_y = static_cast<std::int32_t>(bus->read32(field + 0xE8u) & 0xFFFF0000u);
+    const std::int32_t x = static_cast<std::int32_t>(bus->read32(actor + 8u));
+    const std::int32_t y = static_cast<std::int32_t>(bus->read32(actor + 0x10u)) -
+                           static_cast<std::int32_t>(bus->read32(actor + 0xCu));
+    const int k = (shown_k & 0x20) ? 32 - (shown_k & 31) : (shown_k & 31);
+    if (k <= 0) return out;
+    out.found = true;
+    out.cx = static_cast<float>(whole(x - cam_x));
+    out.cy = static_cast<float>(whole(y - cam_y) - 16);
+    out.a2 = static_cast<float>(25 * k * k);
+    out.b2 = out.a2 / 1.5f;
+    return out;
+}
 
 // ---- Room graphics behind menus (Golden Sun 1's build_room_vram) ----------
 //
@@ -273,10 +317,15 @@ void capture() {
     // rather than borrow the last frame the renderer accepted.
     g_capture.scene = scene;
     g_capture.ripple_phase = bus->read8(0x0300122Cu);
+    static int iris_k = -1;
+    g_capture.iris = iris_window(bus, &iris_k);
     g_capture.camera_hold_y = tla_camera_hold_y();
     g_capture.rom = bus->rom_ptr();
     g_capture.rom_bytes = bus->rom_size();
-    g_capture.vram.assign(bus->vram_ptr(), bus->vram_ptr() + 96 * 1024);
+    // The console's 96 KB, and the second sprite page while it is in use
+    // (src/tla_sprite_memory.cpp).
+    g_capture.vram.assign(bus->vram_ptr(), bus->vram_ptr() +
+        gba::GbaBus::kNativeVram + (bus->obj_extra() ? gba::GbaBus::kObjExtraVram : 0));
     g_capture.window_open = game_window_open(bus, io);
     const bool field =
         scene.video_mode == 0 && bus->read32(kTlaBattleSlot) == 0u;
@@ -372,6 +421,7 @@ bool draw_capture(const Capture& capture, std::uint8_t* rgb,
                   const char** refusal = nullptr) {
     gsr::FieldScene scene = capture.scene;
     gsr::SceneMargins margins;  // margin data lives outside the scene
+    margins.iris = capture.iris;
     // Created on first use, at present time, where the window's GL context
     // is current; gpu_surface attaches to it.
     static gbarecomp::GpuSurface surface;
@@ -404,14 +454,28 @@ bool draw_capture(const Capture& capture, std::uint8_t* rgb,
             (unsigned(capture.ewram[0x429]) << 8) : 0;
     tla_tornado_margins(scene, margins, map_id,
         -(static_cast<int>(height) - 160) / 2, capture.camera_hold_y);
-    static std::vector<std::uint8_t> mist_vram;
-    const bool mist_filled =
-        tla_screen_effect_margins(scene, margins, map_id) && map_id == 84 &&
-        tla_mist_fill_rows(capture.vram,
-                           unsigned(scene.row_io[0][0x0A]) |
-                               (unsigned(scene.row_io[0][0x0B]) << 8),
-                           &mist_vram);
-    const std::vector<std::uint8_t>& vram = mist_filled ? mist_vram : capture.vram;
+    const bool haze =
+        tla_screen_effect_margins(scene, margins, map_id, capture.vram);
+    bool port = false;
+    if (expanded && capture.rom && capture.rom_bytes >= 0x20A8u + 1024u * 2u) {
+        const auto sine = [&](unsigned index) {
+            const auto* p = capture.rom + 0x20A8u + index * 2u;
+            return static_cast<std::int16_t>(unsigned(p[0]) | (unsigned(p[1]) << 8));
+        };
+        const int first_y = -(static_cast<int>(height) - 160) / 2;
+        tla_water_ripple(scene, margins, capture.ripple_phase, sine, first_y,
+                         static_cast<int>(height));
+        port = tla_port_wave(scene, margins, capture.ripple_phase, sine,
+                             first_y, static_cast<int>(height));
+    } else {
+        margins.layers[1].scroll.clear();
+        margins.layers[2].scroll.clear();
+    }
+    static std::vector<std::uint8_t> haze_vram;
+    const bool haze_filled =
+        (haze && tla_haze_fill_rows(capture.vram, scene, &haze_vram)) ||
+        (port && tla_haze_fill_rows(capture.vram, scene, &haze_vram, 2));
+    const std::vector<std::uint8_t>& vram = haze_filled ? haze_vram : capture.vram;
     renderer.upload_vram(vram.data(), vram.size());
     if (!capture.room_vram.empty())
         renderer.upload_room_vram(capture.room_vram.data(),
@@ -421,16 +485,6 @@ bool draw_capture(const Capture& capture, std::uint8_t* rgb,
     if (!capture.room_palette.empty())
         renderer.upload_room_palette(capture.room_palette.data(),
                                      capture.room_palette.size());
-    if (expanded) {
-        if (capture.rom && capture.rom_bytes >= 0x20A8u + 1024u * 2u)
-            tla_water_ripple(scene, margins, capture.ripple_phase,
-                [&](unsigned index) {
-                    const auto* p = capture.rom + 0x20A8u + index * 2u;
-                    return static_cast<std::int16_t>(unsigned(p[0]) | (unsigned(p[1]) << 8));
-                }, -(static_cast<int>(height) - 160) / 2, static_cast<int>(height));
-    } else {
-        margins.layers[2].scroll.clear();
-    }
     renderer.set_room_source_enabled(expanded);
     renderer.set_menu_open(capture.window_open);
     // Better Field Psy: Reveal covers the whole view, as in The Broken Seal.
@@ -655,23 +709,32 @@ std::string tla_gpu_field_snapshot(std::uint32_t width, std::uint32_t height,
     for (const auto& object : g_capture.scene.objects) {
         tla_frame::u32(objects, std::uint32_t(object.x));
         tla_frame::u32(objects, std::uint32_t(object.y));
-        tla_frame::u32(objects, object.parked ? 1u : 0u);
+        // Bit 0 parked; bits 16+ the tile number the sprite was drawn from.
+        tla_frame::u32(objects, (object.parked ? 1u : 0u) | (object.tile << 16));
     }
     tla_frame::u32(state, (g_capture.window_open ? 1u : 0u) | (g_capture.valid ? 2u : 0u));
     tla_frame::u32(state, g_capture.ripple_phase);
+    std::string iris;
+    if (g_capture.iris.found)
+        for (float v : {g_capture.iris.cx, g_capture.iris.cy, g_capture.iris.a2,
+                        g_capture.iris.b2})
+            iris.append(reinterpret_cast<const char*>(&v), sizeof v);
     const auto part = [](const char* name, const auto& data) {
         return tla_frame::Section{name, reinterpret_cast<const std::uint8_t*>(data.data()),
             data.size() * sizeof(*data.data())};
     };
     return tla_frame::encode(g_capture.scene.frame, width, height, {
         part("IO", g_capture.io), part("OAM", g_capture.oam), part("PAL", g_capture.pal),
-        part("VRAM", g_capture.vram), part("ROWIO", g_capture.row_io),
+        tla_frame::Section{"VRAM", g_capture.vram.data(), gba::GbaBus::kNativeVram},
+        tla_frame::Section{"OBJX", g_capture.vram.data() + gba::GbaBus::kNativeVram,
+                           g_capture.vram.size() - gba::GbaBus::kNativeVram},
+        part("ROWIO", g_capture.row_io),
         part("ROWVALID", g_capture.row_io_valid), part("AFFREF", g_capture.row_affine),
         part("AFFVALID", g_capture.row_affine_valid), part("EWRAM", g_capture.ewram),
         part("IWRAM", g_capture.iwram), part("ROOMVRAM", g_capture.room_vram),
         part("ROOMPAL", g_capture.room_palette), part("OBJECTS", objects),
         part("FXSTAMP", stamps), part("FXART", g_capture.effects.artwork), part("STATE", state),
-        part("CAMHOLD", camera)});
+        part("CAMHOLD", camera), part("IRIS", iris)});
 }
 
 // Compatibility name for the current single-frame report, now TLAGPUF2.

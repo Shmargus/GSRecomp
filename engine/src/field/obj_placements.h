@@ -41,6 +41,11 @@ public:
         std::uint16_t raw_y = 0, raw_x = 0;
         std::int16_t x = 0, y = 0;
         std::uint16_t attr0 = 0, attr1 = 0, attr2 = 0;
+        std::uint32_t record = 0;  // the sprite record that was placed
+        // The game's full tile number for the record when it was placed, or
+        // -1: OAM shows a placement a frame after the game may have
+        // released its tiles (TLA F12 tla_rewind_0047 frame 105).
+        int tile = -1;
     };
 
     // Forgets every placement when the frame goes back (a loaded state) or
@@ -54,7 +59,7 @@ public:
     }
 
     void note(gba::GbaBus& bus, unsigned long long now, std::uint32_t record,
-              int x, int y) {
+              int x, int y, int tile = -1) {
         if ((record >> 24) != 0x02u && (record >> 24) != 0x03u) return;
         Placed* slot = nullptr;
         for (Placed& p : placed_) {
@@ -74,6 +79,8 @@ public:
         p.attr0 = bus.read16(record + 4u);
         p.attr1 = bus.read16(record + 6u);
         p.attr2 = bus.read16(record + 8u);
+        p.record = record;
+        p.tile = tile;
     }
 
     // The placement an OAM entry came from, or null. A record answers if it
@@ -98,8 +105,19 @@ public:
                    ((a1 ^ attr1) & 0xC000u) == 0u &&
                    ((a2 ^ attr2) & 0xFC00u) == 0u;
         };
+        // Two records can share one raw position and kind: a sand burst
+        // stacks two puffs on the same spot (TLA F12 tla_rewind_0055 frame
+        // 31, OAM 7 and 10), and puffs rise from one spawn point, so a new
+        // puff sits now where OAM still shows last frame's older one
+        // (tla_rewind_0056 frame 93: OAM 20 at raw (0x67, 0x70), tile 0x30,
+        // record 0x03001648 placed there at frame 92). The record whose tile
+        // is the entry's wins first, then a record still there, then the
+        // newest placement, so each entry gets its own record back.
+        const auto same_tile = [&](std::uint16_t a2) {
+            return ((a2 ^ attr2) & 0x03FFu) == 0u;
+        };
         const Placement* best = nullptr;
-        bool best_live = false;
+        bool best_live = false, best_tile = false;
         for (const Placed& r : placed_) {
             if (r.record == 0u || r.frame + kLifetime < now) continue;
             const bool record_kind = same_kind(bus.read16(r.record + 4u),
@@ -115,11 +133,15 @@ public:
                 // for placements whose own sprite words were this kind.
                 if (!record_kind && !same_kind(p.attr0, p.attr1, p.attr2))
                     continue;
-                const bool better = !best || (live && !best_live) ||
-                                    (live == best_live && p.frame > best->frame);
+                const bool tile = same_tile(live ? bus.read16(r.record + 8u) : p.attr2);
+                const bool better = !best || (tile && !best_tile) ||
+                                    (tile == best_tile && live && !best_live) ||
+                                    (tile == best_tile && live == best_live &&
+                                     p.frame > best->frame);
                 if (better) {
                     best = &p;
                     best_live = live;
+                    best_tile = tile;
                 }
             }
         }

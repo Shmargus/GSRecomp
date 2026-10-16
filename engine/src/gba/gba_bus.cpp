@@ -163,7 +163,7 @@ void GbaBus::serialize(gbarecomp::debug::SnapshotWriter& w) const {
     w.bytes(ewram_.data(), ewram_.size());
     w.bytes(iwram_.data(), iwram_.size());
     w.bytes(pal_.data(),   pal_.size());
-    w.bytes(vram_.data(),  vram_.size());
+    w.bytes(vram_.data(),  kNativeVram);
     w.bytes(oam_.data(),   oam_.size());
     w.u32(last_fetched_);
     w.boolean(bios_access_enabled_);
@@ -174,7 +174,7 @@ void GbaBus::deserialize(gbarecomp::debug::SnapshotReader& r) {
     r.bytes(ewram_.data(), ewram_.size());
     r.bytes(iwram_.data(), iwram_.size());
     r.bytes(pal_.data(),   pal_.size());
-    r.bytes(vram_.data(),  vram_.size());
+    r.bytes(vram_.data(),  kNativeVram);
     r.bytes(oam_.data(),   oam_.size());
     last_fetched_        = r.u32();
     bios_access_enabled_ = r.boolean();
@@ -261,7 +261,7 @@ uint8_t GbaBus::read8(uint32_t addr) {
         case Region::Ewram: return ewram_[off];
         case Region::Iwram: return iwram_[off];
         case Region::Pal:   return pal_[off];
-        case Region::Vram:  if (off < vram_.size()) return vram_[off]; break;
+        case Region::Vram:  if (off < vram_limit()) return vram_[off]; break;
         case Region::Oam:   return oam_[off];
         case Region::Rom: {
             // Cartridge GPIO (RTC) at 0x080000C4..0xC9 when readable; else
@@ -315,7 +315,7 @@ uint16_t GbaBus::read16(uint32_t addr) {
         case Region::Iwram: return load_u16(&iwram_[off]);
         case Region::Pal:   return load_u16(&pal_[off]);
         case Region::Vram:
-            if (off + 1 < vram_.size()) return load_u16(&vram_[off]);
+            if (off + 1 < vram_limit()) return load_u16(&vram_[off]);
             break;
         case Region::Oam:   return load_u16(&oam_[off]);
         case Region::Rom: {
@@ -371,7 +371,7 @@ uint32_t GbaBus::read32(uint32_t addr) {
         case Region::Iwram: return load_u32(&iwram_[off]);
         case Region::Pal:   return load_u32(&pal_[off]);
         case Region::Vram:
-            if (off + 3 < vram_.size()) return load_u32(&vram_[off]);
+            if (off + 3 < vram_limit()) return load_u32(&vram_[off]);
             break;
         case Region::Oam:   return load_u32(&oam_[off]);
         case Region::Rom: {
@@ -434,7 +434,7 @@ bool GbaBus::observe_write(Region region, std::size_t off, uint32_t addr,
         case Region::Ewram: br = BusWriteRegion::Ewram; p = ewram_.data(); cap = ewram_.size(); break;
         case Region::Iwram: br = BusWriteRegion::Iwram; p = iwram_.data(); cap = iwram_.size(); break;
         case Region::Pal:   br = BusWriteRegion::Pal;   p = pal_.data();   cap = pal_.size();   break;
-        case Region::Vram:  br = BusWriteRegion::Vram;  p = vram_.data();  cap = vram_.size();  break;
+        case Region::Vram:  br = BusWriteRegion::Vram;  p = vram_.data();  cap = vram_limit();  break;
         case Region::Oam:   br = BusWriteRegion::Oam;   p = oam_.data();   cap = oam_.size();   break;
         default:            br = BusWriteRegion::Device; break;
     }
@@ -476,7 +476,7 @@ void GbaBus::write8(uint32_t addr, uint8_t v) {
         case Region::Vram:
             vram_trace::trace_cpu_write(io_dispatch_.raw(),
                                         runtime_current_pc(), addr, 1u);
-            if (off < vram_.size()) vram_[off] = v;
+            if (off < vram_limit()) vram_[off] = v;
             return;
         case Region::Oam:   oam_[off] = v; return;
         case Region::Bios:
@@ -544,7 +544,7 @@ void GbaBus::write16(uint32_t addr, uint16_t v) {
         case Region::Vram:
             vram_trace::trace_cpu_write(io_dispatch_.raw(),
                                         runtime_current_pc(), addr, 2u);
-            if (off + 1 < vram_.size()) store_u16(&vram_[off], v);
+            if (off + 1 < vram_limit()) store_u16(&vram_[off], v);
             return;
         case Region::Oam:   store_u16(&oam_[off], v); return;
         case Region::Bios:
@@ -611,7 +611,7 @@ void GbaBus::write32(uint32_t addr, uint32_t v) {
         case Region::Vram:
             vram_trace::trace_cpu_write(io_dispatch_.raw(),
                                         runtime_current_pc(), addr, 4u);
-            if (off + 3 < vram_.size()) store_u32(&vram_[off], v);
+            if (off + 3 < vram_limit()) store_u32(&vram_[off], v);
             return;
         case Region::Oam:   store_u32(&oam_[off], v); return;
         case Region::Bios:

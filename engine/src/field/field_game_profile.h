@@ -86,4 +86,15 @@ struct FieldGameProfile {
 // Defined by the game (link-time hook).
 const FieldGameProfile& field_game_profile();
 
+// The one parked-dummy test, for every renderer in both games. A dummy sits on
+// the game's exact raw park position and is never affine: over every saved F12
+// and rewind capture of both games (11,751 frames, 2026-10-16) the only affine
+// object on (192,192) was Lost Age's real Pound pillar passing through it
+// (tla_rewind_0032 frame 62), which the bare position test hid for that frame.
+inline bool field_obj_is_parked(std::uint16_t attr0, std::uint16_t attr1) {
+    const FieldGameProfile& p = field_game_profile();
+    return (attr0 & 0x0100u) == 0 && (attr1 & 0x01FFu) == p.obj_park_raw_x &&
+           (attr0 & 0x00FFu) == p.obj_park_raw_y;
+}
+
 }  // namespace gsr

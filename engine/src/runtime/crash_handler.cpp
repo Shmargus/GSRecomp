@@ -17,6 +17,7 @@
 #include <initializer_list>
 #include <execinfo.h>
 #include <fcntl.h>
+#include <ucontext.h>
 #include <unistd.h>
 
 namespace gbarecomp {
@@ -57,30 +58,72 @@ const char* signal_name(int sig) {
     }
 }
 
-void write_report(const char* what, const void* address) {
+// The executable mappings of /proc/self/maps, so the instruction pointer and
+// backtrace addresses can be turned into module + offset afterwards.
+void write_code_mappings(int fd) {
+    const int maps = open("/proc/self/maps", O_RDONLY);
+    if (maps < 0) return;
+    put(fd, "\nCode mappings:\n");
+    char buf[4096];
+    char line[512];
+    size_t len = 0;
+    ssize_t n;
+    while ((n = read(maps, buf, sizeof(buf))) > 0) {
+        for (ssize_t i = 0; i < n; ++i) {
+            if (len < sizeof(line) - 1) line[len++] = buf[i];
+            if (buf[i] != '\n') continue;
+            line[len] = '\0';
+            if (std::strstr(line, " r-xp ")) {
+                if (line[len - 1] != '\n') line[len - 1] = '\n';
+                put(fd, line);
+            }
+            len = 0;
+        }
+    }
+    close(maps);
+}
+
+// Everything that cannot fault is written first. The backtrace comes last:
+// glibc's unwinder can itself crash on a damaged stack, and before this order
+// that second fault left a report ending at "Backtrace:" with nothing else.
+void write_report(const char* what, const void* address, const void* ucontext) {
     const int fd = open(g_report_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) return;
     char line[256];
     put(fd, "Golden Sun Recompiled crash report\n\n");
     std::snprintf(line, sizeof(line), "What: %s\n", what);
     put(fd, line);
-    std::snprintf(line, sizeof(line), "Address: %p\n\nBacktrace:\n", address);
+    std::snprintf(line, sizeof(line), "Address: %p\n", address);
     put(fd, line);
-    void* frames[64];
-    const int count = backtrace(frames, 64);
-    backtrace_symbols_fd(frames, count, fd);
+#if defined(__x86_64__)
+    if (ucontext) {
+        const auto* uc = static_cast<const ucontext_t*>(ucontext);
+        std::snprintf(line, sizeof(line), "Instruction: %p  sp %p  fp %p\n",
+                      reinterpret_cast<void*>(uc->uc_mcontext.gregs[REG_RIP]),
+                      reinterpret_cast<void*>(uc->uc_mcontext.gregs[REG_RSP]),
+                      reinterpret_cast<void*>(uc->uc_mcontext.gregs[REG_RBP]));
+        put(fd, line);
+    }
+#else
+    (void)ucontext;
+#endif
+    write_code_mappings(fd);
     if (g_extra_writer) {
         if (const char* extra = g_extra_writer(g_dir)) {
             std::snprintf(line, sizeof(line), "\nAlso written: %s\n", extra);
             put(fd, line);
         }
     }
-    close(fd);
     raw_write_file(g_run_state_path, "crashed\n", 8);
+    put(fd, "\nBacktrace:\n");
+    void* frames[64];
+    const int count = backtrace(frames, 64);
+    backtrace_symbols_fd(frames, count, fd);
+    close(fd);
 }
 
-void fatal_signal(int sig, siginfo_t* info, void*) {
-    write_report(signal_name(sig), info ? info->si_addr : nullptr);
+void fatal_signal(int sig, siginfo_t* info, void* ucontext) {
+    write_report(signal_name(sig), info ? info->si_addr : nullptr, ucontext);
     // Hand the signal back to the default action so the exit status and
     // any core dump stay what they would have been.
     std::signal(sig, SIG_DFL);
@@ -88,7 +131,7 @@ void fatal_signal(int sig, siginfo_t* info, void*) {
 }
 
 void terminate_handler() {
-    write_report("std::terminate (uncaught C++ exception)", nullptr);
+    write_report("std::terminate (uncaught C++ exception)", nullptr, nullptr);
     std::signal(SIGABRT, SIG_DFL);
     std::abort();
 }
@@ -125,6 +168,12 @@ void crash_handler_install(const char* log_dir) {
     std::snprintf(g_run_state_path, sizeof(g_run_state_path), "%s/run_state.txt", g_dir);
 
     check_previous_run_state();
+
+    // glibc loads its unwinder (libgcc_s) on the first backtrace() call;
+    // doing that inside the signal handler means dlopen and malloc on a
+    // possibly broken heap. Load it now.
+    void* warm[1];
+    backtrace(warm, 1);
 
     stack_t alt{};
     alt.ss_sp = g_alt_stack;

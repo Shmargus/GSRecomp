@@ -164,6 +164,48 @@ const Primaries& target_primaries(DisplayTarget t) {
     return t == DisplayTarget::DisplayP3 ? kDisplayP3 : kSrgb;
 }
 
+// Colour-vision correction ("daltonizing", Fidaner, Lin and Ozguven 2005):
+// simulate what the player sees, then move the lost difference into the
+// channels they can see. Simulation is Machado, Oliveira and Fernandes 2009,
+// severity 1.0, in linear sRGB. For deuteranopia the red-green error is
+// added to green and blue, for tritanopia the blue-yellow error to red and
+// green (each with Fidaner's 0.7 share).
+constexpr double kDeuteranopia[3][3] = {{0.367322, 0.860646, -0.227968},
+                                        {0.280085, 0.672501, 0.047413},
+                                        {-0.011820, 0.042940, 0.968881}};
+constexpr double kTritanopia[3][3] = {{1.255528, -0.076749, -0.178779},
+                                      {-0.078411, 0.930809, 0.147602},
+                                      {0.004733, 0.691367, 0.303900}};
+
+double srgb_eotf(double v) {
+    return v <= 0.04045 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4);
+}
+
+void correct_vision(ColorVision vision, std::array<uint8_t, 3>& entry) {
+    const double (*sim)[3] =
+        vision == ColorVision::Deuteranopia ? kDeuteranopia : kTritanopia;
+    double lin[3], seen[3], err[3];
+    for (int i = 0; i < 3; ++i) lin[i] = srgb_eotf(entry[i] / 255.0);
+    for (int i = 0; i < 3; ++i)
+        seen[i] = sim[i][0] * lin[0] + sim[i][1] * lin[1] + sim[i][2] * lin[2];
+    for (int i = 0; i < 3; ++i) err[i] = lin[i] - seen[i];
+    double shift[3];
+    if (vision == ColorVision::Deuteranopia) {
+        shift[0] = 0.0;
+        shift[1] = 0.7 * err[0] + err[1];
+        shift[2] = 0.7 * err[0] + err[2];
+    } else {
+        shift[0] = err[0] + 0.7 * err[2];
+        shift[1] = err[1] + 0.7 * err[2];
+        shift[2] = 0.0;
+    }
+    for (int i = 0; i < 3; ++i) {
+        double v = lin[i] + shift[i];
+        v = v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v);
+        entry[i] = quantize(srgb_oetf(v));
+    }
+}
+
 }  // namespace
 
 // Config/env tokens, in ScreenKind order.
@@ -190,19 +232,44 @@ const char* screen_kind_name(ScreenKind kind) {
     return (i >= 0 && i < kScreenKindCount) ? kScreenKindNames[i] : nullptr;
 }
 
+constexpr const char* kColorVisionNames[kColorVisionCount] = {
+    "normal", "deuteranopia", "tritanopia"};
+
+const char* color_vision_name(ColorVision vision) {
+    const int i = static_cast<int>(vision);
+    return (i >= 0 && i < kColorVisionCount) ? kColorVisionNames[i] : nullptr;
+}
+
+bool color_vision_from_name(std::string_view name, ColorVision& out) {
+    for (int i = 0; i < kColorVisionCount; ++i)
+        if (name == kColorVisionNames[i]) {
+            out = static_cast<ColorVision>(i);
+            return true;
+        }
+    return false;
+}
+
 ColorLut::ColorLut(const ColorSettings& settings) {
     table_ = std::make_unique<std::array<std::array<uint8_t, 3>, 32768>>();
+    passthrough_ = fill(settings);
+    if (settings.vision != ColorVision::Normal) {
+        passthrough_ = false;
+        for (auto& entry : *table_) correct_vision(settings.vision, entry);
+    }
+}
+
+// The screen model's table; true when it is the plain 5-to-8-bit copy.
+bool ColorLut::fill(const ColorSettings& settings) {
     auto& table = *table_;
 
     if (settings.screen == ScreenKind::Raw) {
-        passthrough_ = true;
         for (int px = 0; px < 32768; ++px) {
             uint8_t r = px & 31, g = (px >> 5) & 31, b = (px >> 10) & 31;
             table[px] = {static_cast<uint8_t>(r << 3 | r >> 2),
                          static_cast<uint8_t>(g << 3 | g >> 2),
                          static_cast<uint8_t>(b << 3 | b >> 2)};
         }
-        return;
+        return true;
     }
     if (settings.screen >= ScreenKind::Handheld) {
         // One colour mix in the game's own (gamma-encoded) values, then an
@@ -296,12 +363,12 @@ ColorLut::ColorLut(const ColorSettings& settings) {
                 table[px][i] = quantize(curve == 1.0 ? v : std::pow(v, curve));
             }
         }
-        return;
+        return false;
     }
     if (settings.screen == ScreenKind::Classic) {
         for (int px = 0; px < 32768; ++px)
             table[px] = classic_entry(static_cast<uint16_t>(px));
-        return;
+        return false;
     }
 
     double darken = settings.darken < 0.0 ? default_darken(settings.screen)
@@ -327,6 +394,7 @@ ColorLut::ColorLut(const ColorSettings& settings) {
         }
         table[px] = {quantize(out[0]), quantize(out[1]), quantize(out[2])};
     }
+    return false;
 }
 
 void ColorLut::map_rgb888(const uint8_t* src, uint8_t* dst,

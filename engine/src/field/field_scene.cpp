@@ -236,12 +236,7 @@ void capture_objects(FieldScene* s, const std::uint8_t* oam) {
         O.x = x;
         O.y = y;
         O.trusted = x_trusted && y_trusted;
-        // The game's parked-dummy sentinel (FieldGameProfile::obj_park_raw_*):
-        // one exact raw X and Y, so an exact test is safe.
-        O.parked = (static_cast<unsigned>(a1) & 0x01FFu) ==
-                       field_game_profile().obj_park_raw_x &&
-                   (static_cast<unsigned>(a0) & 0x00FFu) ==
-                       field_game_profile().obj_park_raw_y;
+        O.parked = field_obj_is_parked(a0, a1);
 
         if (affine) {
             O.affine_index = static_cast<int>((a1 >> 9) & 0x1Fu);
@@ -250,7 +245,9 @@ void capture_objects(FieldScene* s, const std::uint8_t* oam) {
             O.vflip = ((a1 >> 13) & 1u) != 0;
         }
 
-        O.tile     = a2 & 0x3FFu;
+        O.tile     = gba::ws_obj_tile(i, static_cast<std::uint16_t>(a0),
+                                      static_cast<std::uint16_t>(a1),
+                                      static_cast<std::uint16_t>(a2));
         O.priority = static_cast<int>((a2 >> 10) & 3u);
         const bool eight_bit = ((a0 >> 13) & 1u) != 0;
         O.palette  = eight_bit ? -1 : static_cast<int>((a2 >> 12) & 0xFu);

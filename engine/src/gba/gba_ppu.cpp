@@ -82,6 +82,9 @@ extern "C" WsMarginDiagnosticsCallback g_ws_margin_diagnostics = nullptr;
 extern "C" int (*g_ws_obj_park_provider)(int, std::uint16_t,
                                           std::uint16_t,
                                           std::uint16_t) = nullptr;
+extern "C" int (*g_ws_obj_tile_provider)(int, std::uint16_t,
+                                          std::uint16_t,
+                                          std::uint16_t) = nullptr;
 // Live BG-layer visibility toggle set by the in-game F1 menu; see gba_ppu.h.
 extern "C" bool g_hide_bg0 = false;
 extern "C" bool g_hide_bg1 = false;

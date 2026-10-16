@@ -155,6 +155,7 @@ struct ConfigUiState {
     int   color_warmth = 0;         // Custom: percent, 0..100
     int   color_darken = 0;         // Custom: percent, 0..50 (curve 1 + pct/100)
     bool  color_save = false;       // a Custom slider was let go: save it
+    int   color_vision = 0;         // runtime::ColorVision: 0 normal, 1 deuteranopia, 2 tritanopia
     int   aspect = 0;               // ViewAspect index from view_config.h
     bool  aspect_view_available = false;
     bool  screen_filters_supported = false;

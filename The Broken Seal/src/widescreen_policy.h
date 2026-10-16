@@ -468,15 +468,10 @@ inline constexpr bool golden_sun_obj_y_provenance_address(
 //
 // This matters only for the expanded view. -64 is off-screen on hardware, but
 // it is INSIDE a 40-row top margin, so without this test the parked dummies
-// rain into the widened picture.
+// rain into the widened picture. The test itself is the engine's
+// field_obj_is_parked (field_game_profile.h), fed these two numbers.
 inline constexpr unsigned kGoldenSunObjParkRawX = 192u;
 inline constexpr unsigned kGoldenSunObjParkRawY = 192u;
-
-inline constexpr bool golden_sun_obj_is_parked(std::uint16_t attr0,
-                                               std::uint16_t attr1) {
-    return (attr1 & 0x01FFu) == kGoldenSunObjParkRawX &&
-           (attr0 & 0x00FFu) == kGoldenSunObjParkRawY;
-}
 
 inline constexpr bool golden_sun_obj_x_provenance_address(
     std::uint32_t branch_pc, std::uint32_t r7,
