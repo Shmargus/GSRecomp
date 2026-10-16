@@ -18,8 +18,8 @@ set(GSR_REPORT_HOST "" CACHE STRING "Collection bug report host")
 # The engine (gbarecomp), the bare runner (src/tla_runner.cpp), the translated
 # game code from scripts/tla_recompile.ps1, and the player builder.
 #
-# Built like Golden Sun Recompiled's speed build (Jimmy, 2026-10-04;
-# ../scripts/build_game.ps1 -Game LostAge): the engine is TLAEngine.dll (run by
+# Built like Golden Sun Recompiled's speed build
+# (../scripts/build_game.ps1 -Game LostAge): the engine is TLAEngine.dll (run by
 # TLARecomp.exe; Linux: the TLARecomp program itself), link-time
 # optimised; the translated game code is TLAGame.dll beside it, compiled
 # without LTO; and the game code is the block-timing copy

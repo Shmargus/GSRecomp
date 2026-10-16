@@ -1,5 +1,4 @@
-// host_platform.h — Host-side things: file I/O, time, threads,
-// window + audio device output.
+// host_platform.h — Host-side file reading and the wall-clock frame limiter.
 
 #pragma once
 
@@ -27,7 +26,7 @@ std::vector<unsigned char> read_file(const std::string& path,
 // period each call. wait() blocks until that deadline using a hybrid
 // sleep-then-spin (Windows' default ~15.6 ms timer granularity is too
 // coarse for a 16.74 ms target, so the pacer raises timer resolution to
-// 1 ms for its lifetime and spins the final sub-ms). If the host falls
+// 1 ms for its lifetime and spins the final ~1 ms). If the host falls
 // more than a frame behind, the deadline resyncs to now rather than
 // trying to catch up (no death spiral). Uncapping enables fast-forward.
 class FramePacer {
@@ -78,13 +77,9 @@ private:
     clock::time_point next_{};
     bool uncapped_ = false;
     bool raised_timer_res_ = false;
-    // HP-002: Windows high-resolution waitable timer (HANDLE, void* here to
-    // keep windows.h out of this header). sleep_until quantizes to the 64 Hz
-    // system tick under load; the phase drift between that grid and the
-    // 16.742 ms frame period produced a measured 234 ms beat of 20-24 ms
-    // oversleeps (52/75 late frames in the frame-phase ring). The hi-res
-    // timer waits on the exact deadline instead; null = pre-1803 fallback
-    // to the old hybrid sleep.
+    // Windows high-resolution waitable timer (HANDLE, void* here to keep
+    // windows.h out of this header); why it exists: see the constructor.
+    // Null = pre-1803 Windows, which falls back to the hybrid sleep.
     void* wait_timer_ = nullptr;
 };
 

@@ -15,12 +15,8 @@
 
 namespace gba {
 
-// Widescreen margin tilemap provider (Step C). When set (by the runtime-side
-// sidecar) and the wide path samples a margin column (hardware x outside
-// 0..239), the BG text-tilemap entry is sourced from this hook (the true
-// extended world) instead of the wrapped 256px ring. Returns nonzero + fills
-// *out_entry when data is available. nullptr (default) = vanilla wide behavior.
-// Layering-clean: the PPU only calls a nullable pointer; the sidecar owns it.
+// Widescreen hook definitions; each is documented at its declaration in
+// gba_ppu.h. The PPU only calls nullable pointers; the game owns them.
 extern "C" int (*g_ws_tilemap_provider)(int bg, int hw_x, int screen_y,
                                         uint16_t* out_entry) = nullptr;
 extern "C" int (*g_ws_field_tilemap_source)(int bg, int screen_x,
@@ -37,10 +33,7 @@ extern "C" unsigned long long g_ws_expanded_diag[4] = {0, 0, 0, 0};
 // against the previous frame's totals. Never reset by the renderer.
 extern "C" unsigned long long g_ws_obj_trusted_total = 0;
 extern "C" unsigned long long g_ws_obj_untrusted_total = 0;
-// See the declaration in gba_ppu.h: once-per-frame gate for a per-object
-// provenance-reject tally kept on the game side. Defaults off; only
-// render_scanline_wide below turns it on, and only while it renders
-// logical_y == 0.
+// See g_ws_obj_census_line in gba_ppu.h.
 extern "C" int g_ws_obj_census_line = 0;
 extern "C" int (*g_ws_bg_x_provider)(int bg, int output_x, int screen_y,
                                      int* out_hw_x) = nullptr;
@@ -65,22 +58,14 @@ extern "C" int g_ws_row_state_dump_frames = 0;
 extern "C" int g_ws_defer_native_rows = 0;
 extern "C" int g_ws_authored_margin_layers = 0;
 
-// Widescreen pillarbox (Step C policy): when nonzero, the wide path renders the
-// margin columns (outside the central 240) as solid black instead of extended
-// world — used for non-overworld screens (menus, battles, transitions) so they
-// are letterboxed rather than garbled. Set per-frame by the runtime policy.
+// Legacy pillarbox flags (see gba_ppu.h): nonzero renders the matching
+// margins solid black instead of extended world.
 extern "C" int g_ws_pillarbox = 0;
 extern "C" int g_ws_pillarbox_left = 0;
 extern "C" int g_ws_pillarbox_right = 0;
 extern "C" int g_ws_pillarbox_top = 0;
 extern "C" int g_ws_pillarbox_bottom = 0;
-// Generic, game-owned per-frame world-space pixel shift for the expanded
-// (wide) renderer only. When nonzero, every regular-BG sample (native columns
-// and margins alike) and every OBJ's screen position moves by this amount in
-// hardware pixels before any wrap/native-window math, so the whole 360x240
-// canvas pans as one rigid unit instead of the native window and its margins
-// drifting apart. Zero (default) leaves rendering byte-for-byte unchanged.
-// The narrow (240x160 / non-wide) renderer never reads these.
+// World-space pixel shift for the expanded renderer; see gba_ppu.h.
 extern "C" int g_ws_view_shift_x = 0;
 extern "C" int g_ws_view_shift_y = 0;
 extern "C" int (*g_ws_obj_x_provider)(int, int*) = nullptr;
@@ -94,10 +79,10 @@ extern "C" int (*g_ws_obj_attr_y_provider)(int, std::uint16_t,
 extern "C" unsigned (*g_ws_margin_policy)(uint16_t, const uint8_t*) = nullptr;
 extern "C" WsMarginDiagnosticsCallback g_ws_margin_diagnostics = nullptr;
 
-// See gba_ppu.h: live BG-layer visibility toggle set by the in-game F1 menu.
 extern "C" int (*g_ws_obj_park_provider)(int, std::uint16_t,
                                           std::uint16_t,
                                           std::uint16_t) = nullptr;
+// Live BG-layer visibility toggle set by the in-game F1 menu; see gba_ppu.h.
 extern "C" bool g_hide_bg0 = false;
 extern "C" bool g_hide_bg1 = false;
 extern "C" bool g_hide_bg2 = false;
@@ -323,12 +308,8 @@ uint32_t GbaPpu::cycles_until_next_event() const {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Renderer (Phase 2.4)
+// Renderer
 // ─────────────────────────────────────────────────────────────────────
-//
-// Scope: enough to draw the GBA BIOS boot intro. The BIOS intro uses
-// DISPCNT = 0x1002 (BG mode 2, OBJ enabled, all BGs disabled), so we
-// only need OBJ (sprite) compositing for this milestone.
 //
 // References: GBATEK § "GBA OBJs - OAM", § "GBA Palettes",
 //             § "GBA VRAM Character Data".
@@ -568,12 +549,9 @@ void mark_obj_window_scanline(bool* mask,
     }
 }
 
-// Debug view aid (in-game F1 menu's "Hide BGn" checkboxes, Enhancements >
-// Visual > Layers): render-only suppression of a regular/affine BG layer,
-// forced fully transparent so the compositor's backdrop/OBJ/window/blend
-// behavior is otherwise untouched. Backed by g_hide_bg0..g_hide_bg3 (see
-// gba_ppu.h), which the config UI sets live while the game runs. Purely
-// presentational: it never touches guest memory or DISPCNT.
+// Render-only suppression of a regular/affine BG layer (g_hide_bg0..3, see
+// gba_ppu.h): the layer is forced fully transparent, so the compositor's
+// backdrop/OBJ/window/blend behavior is otherwise untouched.
 bool hide_bg_layer(uint32_t layer) {
     switch (layer) {
         case 0: return g_hide_bg0;
@@ -1475,13 +1453,7 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
         cand.target2 = target2;
         cand.valid = true;
         cand.semi = semi;
-        // Sprites are ONE layer on hardware: at each pixel only the frontmost
-        // sprite takes part, and a sprite never becomes the layer below
-        // another sprite. Keeping the sprite behind as `second` made a
-        // semi-transparent sprite find no blend partner over another sprite
-        // and fall through to the brightness effect -- Golden Sun's defend
-        // flash (BLDCNT 0x3F90, BLDY 16) then painted every sprite overlap
-        // white (gpu_rewind_0050, FACTS.md 2026-09-25).
+        // Sprites are ONE layer: see the same note in render_scanline_internal.
         if (layer == 4) {
             if (top[x].layer == 4) {
                 if (key < top[x].key) top[x] = cand;
@@ -2020,14 +1992,7 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
             int tiles_w = sw / 8;
             int tiles_h = sh / 8;
             int priority = static_cast<int>((attr2 >> 10) & 0x3u);
-            // Composite key (lower = front). Per-priority stride 256 with OBJ in
-            // [p*256, p*256+127] (tie-break by OAM idx) and BG in [p*256+128,
-            // p*256+131] (tie-break by layer) yields the exact GBA order
-            // OBJ0<BG0<OBJ1<BG1<OBJ2<BG2<OBJ3<BG3: an OBJ is in front of a same-
-            // priority BG, but a BG of priority p sits in front of any OBJ of
-            // priority p+1 (this is what lets the player walk BEHIND roof/tree
-            // tops). The stride MUST exceed 128 so OBJ idx (0..127) can't bleed
-            // into the next priority's BG band.
+            // Composite key: see render_scanline_internal (same ordering).
             int key = priority * 256 + idx;
             bool obj_target2 = (second_targets & (1u << 4)) != 0;
             // A provider-authenticated placement is the only coordinate that
@@ -2471,258 +2436,6 @@ void GbaPpu::render_captured_scene(uint8_t* rgb,
                                  affine_line_refs + y * 4u);
     }
 }
-
-#if 0
-    (void)oam;  // referenced below
-    // Start with backdrop (palette entry 0) for every pixel. Backdrop
-    // is the BG palette index 0, at PAL[0..1].
-    uint16_t backdrop = load_u16_le(&pal[0]);
-    uint8_t bd_rgb[3];
-    to_rgb888(backdrop, bd_rgb);
-    for (uint32_t y = 0; y < kScreenHeight; ++y) {
-        for (uint32_t x = 0; x < kScreenWidth; ++x) {
-            uint8_t* p = rgb + (y * kScreenWidth + x) * 3;
-            p[0] = bd_rgb[0]; p[1] = bd_rgb[1]; p[2] = bd_rgb[2];
-        }
-    }
-
-    // Forced blank (DISPCNT bit 7): output all-white per hardware.
-    if (dispcnt & 0x0080u) {
-        std::memset(rgb, 0xFF, kFramebufferBytes);
-        return;
-    }
-
-    // Render background layers BEFORE OBJ so sprites composite on top.
-    // Phase 2.5 scope: BG3 affine for BG mode 2 (GBA BIOS Nintendo
-    // logo intro uses this). Other BG configurations land later.
-    uint32_t bg_mode = dispcnt & 0x07u;
-    bool bg3_enabled = (dispcnt & 0x0800u) != 0;
-    if (bg3_enabled && (bg_mode == 1 || bg_mode == 2)) {
-        // BG3 controls: BG3CNT at 0x0E, params at 0x30..0x3F.
-        render_affine_bg(rgb, io, vram, pal,
-                         0x0E, 0x30,
-                         kScreenWidth, kScreenHeight);
-    }
-
-    // OBJ disabled?
-    bool obj_enabled = (dispcnt & 0x1000u) != 0;
-    if (!obj_enabled) return;
-
-    // OBJ tile data starts at VRAM 0x10000 in tile modes (0/1/2) and
-    // at VRAM 0x14000 in bitmap modes (3/4/5).
-    uint32_t obj_tile_base = (bg_mode >= 3) ? 0x14000u : 0x10000u;
-    bool obj_1d_mapping = (dispcnt & 0x0040u) != 0;
-
-    // OBJ palette starts at PAL[0x200..0x3FF].
-    const uint8_t* obj_pal = pal + 0x200;
-
-    // Walk 128 OAM entries in priority-table order. For Phase 2.4 we
-    // ignore priority bits and just back-to-front-draw so higher
-    // OAM indices appear on top — close enough for the BIOS intro.
-    for (int idx = 127; idx >= 0; --idx) {
-        const uint8_t* entry = oam + idx * 8;
-        uint16_t attr0 = load_u16_le(&entry[0]);
-        uint16_t attr1 = load_u16_le(&entry[2]);
-        uint16_t attr2 = load_u16_le(&entry[4]);
-
-        bool rot_scale = (attr0 & 0x0100u) != 0;
-        bool disable_or_double = (attr0 & 0x0200u) != 0;
-        // For non-affine sprites bit 9 is the disable bit; for affine
-        // sprites it's the double-size flag (handled in the affine
-        // pass). Skip disabled non-affine sprites so the BIOS intro
-        // screen blanks correctly once the BIOS clears the wordmark
-        // by setting these bits.
-        if (!rot_scale && disable_or_double) continue;
-
-        // OBJ Mode (attr0 bits 10-11) per GBATEK § "GBA OBJs — OAM
-        // Attribute 0":
-        //   0 = Normal  (visible pixel)
-        //   1 = Semi-Transparent (alpha-blend with BLDALPHA)
-        //   2 = OBJ Window (the sprite's opaque pixels define a
-        //       window region; sprite itself is NOT drawn)
-        //   3 = Prohibited
-        // Without this check the BIOS intro's OBJ-Window stencil
-        // sprites leak into the visible frame as garbage pink pixels.
-        uint32_t obj_mode = (attr0 >> 10) & 0x3u;
-        if (obj_mode == 2) continue;            // window stencil — invisible
-        if (obj_mode == 3) continue;            // prohibited
-        // Semi-transparent (mode 1) renders as normal for now; proper
-        // alpha blending lands when we wire BLDCNT / BLDALPHA.
-
-        uint32_t shape = (attr0 >> 14) & 0x3u;
-        if (shape >= 3) continue;
-        uint32_t size  = (attr1 >> 14) & 0x3u;
-        int sw = kSpriteWH[shape][size][0];
-        int sh = kSpriteWH[shape][size][1];
-
-        int sy = static_cast<int>(attr0 & 0xFFu);
-        int sx = static_cast<int>(attr1 & 0x1FFu);
-        // Y wraps at 256 (GBATEK).
-        if (sy >= 160) sy -= 256;
-        // X is 9 bits signed.
-        if (sx & 0x100) sx -= 0x200;
-
-        bool color256 = (attr0 & 0x2000u) != 0;
-        uint32_t tile_num = attr2 & 0x3FFu;
-        uint32_t palette_bank = (attr2 >> 12) & 0xFu;
-
-        // For 1D mapping each row of tiles is contiguous in VRAM.
-        // For 2D mapping each row of OBJ tiles is 32 tiles wide.
-        int tiles_w = sw / 8;
-        int tiles_h = sh / 8;
-
-        // Texel sampler shared by affine + non-affine paths. Returns
-        // false on transparent / out-of-VRAM, otherwise writes the
-        // RGB888 pixel at (screen_x, screen_y).
-        auto sample_and_emit = [&](int tex_x, int tex_y,
-                                   int screen_x, int screen_y) {
-            int tile_x_in_sprite = tex_x >> 3;
-            int tile_y_in_sprite = tex_y >> 3;
-            int px_in_tile       = tex_x & 7;
-            int py_in_tile       = tex_y & 7;
-
-            uint32_t this_tile;
-            if (obj_1d_mapping) {
-                this_tile = tile_num + (tile_y_in_sprite * tiles_w + tile_x_in_sprite) *
-                                            (color256 ? 2u : 1u);
-            } else {
-                this_tile = tile_num + (tile_y_in_sprite * 32u) +
-                            tile_x_in_sprite * (color256 ? 2u : 1u);
-            }
-            uint32_t tile_off = obj_tile_base + this_tile * 32u;
-
-            uint8_t pal_index;
-            if (color256) {
-                uint32_t off = tile_off + py_in_tile * 8 + px_in_tile;
-                if (off + 1 > 96u * 1024u) return;
-                pal_index = vram[off];
-                if (pal_index == 0) return;  // transparent
-            } else {
-                uint32_t off = tile_off + py_in_tile * 4 + (px_in_tile / 2);
-                if (off + 1 > 96u * 1024u) return;
-                uint8_t b = vram[off];
-                pal_index = (px_in_tile & 1) ? (b >> 4) : (b & 0x0F);
-                if (pal_index == 0) return;  // transparent
-                pal_index = static_cast<uint8_t>(pal_index | (palette_bank << 4));
-            }
-
-            uint16_t color = load_u16_le(&obj_pal[pal_index * 2]);
-            uint8_t* dst = rgb + (screen_y * kScreenWidth + screen_x) * 3;
-            to_rgb888(color, dst);
-        };
-
-        if (rot_scale) {
-            // Affine sprite. Bounding box is 2x the sprite size when
-            // the double-size flag is set, otherwise = sprite size.
-            int bw = disable_or_double ? sw * 2 : sw;
-            int bh = disable_or_double ? sh * 2 : sh;
-
-            int affine_group = (attr1 >> 9) & 0x1Fu;
-            const uint8_t* ag = oam + affine_group * 0x20u;
-            // PA/PB/PC/PD live at offsets 0x06, 0x0E, 0x16, 0x1E within
-            // the 32-byte affine block (the other bytes belong to OBJ
-            // attr0/1/2 entries that share the same 8-byte slots).
-            int32_t pa = read_s16(ag, 0x06);
-            int32_t pb = read_s16(ag, 0x0E);
-            int32_t pc = read_s16(ag, 0x16);
-            int32_t pd = read_s16(ag, 0x1E);
-
-            int half_bw = bw >> 1;
-            int half_bh = bh >> 1;
-            int half_sw = sw >> 1;
-            int half_sh = sh >> 1;
-
-            for (int j = 0; j < bh; ++j) {
-                int screen_y = sy + j;
-                if (screen_y < 0 || screen_y >= static_cast<int>(kScreenHeight)) continue;
-                int dy = j - half_bh;
-                for (int i = 0; i < bw; ++i) {
-                    int screen_x = sx + i;
-                    if (screen_x < 0 || screen_x >= static_cast<int>(kScreenWidth)) continue;
-                    int dx = i - half_bw;
-
-                    // (tex_x, tex_y) = matrix * (dx, dy) + sprite_center.
-                    int tex_x = ((pa * dx + pb * dy) >> 8) + half_sw;
-                    int tex_y = ((pc * dx + pd * dy) >> 8) + half_sh;
-                    if (tex_x < 0 || tex_x >= sw) continue;
-                    if (tex_y < 0 || tex_y >= sh) continue;
-
-                    sample_and_emit(tex_x, tex_y, screen_x, screen_y);
-                }
-            }
-            continue;
-        }
-
-        // Non-affine sprite from here on.
-        bool hflip = (attr1 & 0x1000u) != 0;
-        bool vflip = (attr1 & 0x2000u) != 0;
-
-        for (int ty = 0; ty < tiles_h; ++ty) {
-            for (int tx = 0; tx < tiles_w; ++tx) {
-                // Compute the source tile index, taking flips into
-                // account (flipping the tile *layout* on top of
-                // per-pixel flip).
-                int src_tx = hflip ? (tiles_w - 1 - tx) : tx;
-                int src_ty = vflip ? (tiles_h - 1 - ty) : ty;
-
-                uint32_t this_tile;
-                if (obj_1d_mapping) {
-                    this_tile = tile_num + (src_ty * tiles_w + src_tx) *
-                                                (color256 ? 2 : 1);
-                } else {
-                    // 2D mapping: the OBJ tile area is always 32
-                    // *slots* wide regardless of color depth. Each
-                    // 4bpp tile occupies 1 slot; each 8bpp tile
-                    // occupies 2 horizontally-adjacent slots.
-                    // Row stride in slot units is always 32.
-                    this_tile = tile_num + (src_ty * 32u) +
-                                src_tx * (color256 ? 2u : 1u);
-                }
-                // OBJ tile numbers are in 32-byte *slot* units
-                // regardless of color depth. An 8bpp visible tile
-                // (64 bytes) occupies 2 consecutive slots.
-                uint32_t tile_off = obj_tile_base + this_tile * 32u;
-
-                // Per-pixel emit.
-                for (int py = 0; py < 8; ++py) {
-                    int screen_y = sy + ty * 8 + py;
-                    if (screen_y < 0 || screen_y >= static_cast<int>(kScreenHeight)) continue;
-                    int src_py = vflip ? (7 - py) : py;
-                    for (int px = 0; px < 8; ++px) {
-                        int screen_x = sx + tx * 8 + px;
-                        if (screen_x < 0 || screen_x >= static_cast<int>(kScreenWidth)) continue;
-                        int src_px = hflip ? (7 - px) : px;
-
-                        uint8_t pal_index;
-                        if (color256) {
-                            // 1 byte per pixel.
-                            uint32_t off = tile_off + src_py * 8 + src_px;
-                            if (off + 1 > 96 * 1024) continue;
-                            pal_index = vram[off];
-                        } else {
-                            // 4bpp: 4 bytes per row, low nibble = even
-                            // pixel, high nibble = odd pixel.
-                            uint32_t off = tile_off + src_py * 4 + (src_px / 2);
-                            if (off + 1 > 96 * 1024) continue;
-                            uint8_t b = vram[off];
-                            pal_index = (src_px & 1) ? (b >> 4) : (b & 0x0F);
-                            if (pal_index == 0) continue;  // transparent
-                            pal_index |= (palette_bank << 4);
-                        }
-                        if (color256 && pal_index == 0) continue;
-
-                        uint16_t color = load_u16_le(&obj_pal[pal_index * 2]);
-                        uint8_t* dst = rgb +
-                            (screen_y * kScreenWidth + screen_x) * 3;
-                        to_rgb888(color, dst);
-                    }
-                }
-            }
-        }
-    }
-}
-
-#endif
 
 void GbaPpu::render_scanline(uint32_t y,
                              uint16_t dispcnt,

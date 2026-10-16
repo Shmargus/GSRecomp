@@ -1,11 +1,5 @@
-// gba_irq.h — STUB. IRQ controller.
-//
-// Owns IE / IF / IME and the BIOS-mediated IRQ vector. On hardware,
-// when IME=1 and (IE & IF) != 0, the CPU takes an IRQ at the next
-// instruction boundary: CPSR → SPSR_irq, mode → IRQ, T → 0, I → 1,
-// LR_irq → return_address + 4, PC → 0x18 (BIOS IRQ vector). The
-// real implementation interacts with the scheduler so devices can
-// pend bits.
+// gba_irq.h — IRQ timing shared by both execution engines. IE / IF / IME
+// live directly in GbaIo's register array; there is no separate IRQ device.
 //
 // Reference: GBATEK § "GBA Interrupt Control" and ARM ARM ARMv4T A2.6.
 
@@ -26,11 +20,5 @@ namespace gba {
 // Single source of truth, shared by the interpreter oracle (bios_smoke) and
 // the recompiled runtime (runtime_bus_bridge runtime_tick).
 constexpr uint32_t kIrqWakeDelayCycles = 7;
-
-class GbaIrq {
-public:
-    GbaIrq();
-    ~GbaIrq();
-};
 
 }  // namespace gba

@@ -751,12 +751,11 @@ bool combined_extra_wants_keyboard() {
 //
 // Installing this from main(), alongside map_recorder_init(), does not work:
 // run_game() clears both observer slots on entry
-// (engine/src/runtime/runtime.cpp:889-890) so that a game's enhancement
+// (engine/src/runtime/runtime.cpp) so that a game's enhancement
 // hooks cannot leak into a later faithful run in the same process. That
 // clear happens after main() has installed anything, and before a single
-// guest instruction executes -- which is why session_20260905_092954 still
-// wrote 11 room-load captures with zero lines set. So install from the
-// per-frame path below, which runs inside run_game().
+// guest instruction executes. So install from the per-frame path below, which
+// runs inside run_game().
 //
 // Only ever fill a slot nobody else owns. install_golden_sun_widescreen
 // installs golden_sun_wide_ewram_write_observer in the same slots, and that

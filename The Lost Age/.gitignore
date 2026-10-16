@@ -201,3 +201,7 @@ BLOG_POST*.html
 /build_lto_o2.bat
 # Downloaded Python packages (e.g. the unicorn wheel).
 *.whl
+
+# Tests the build does not compile stay on disk only.
+/tests/cpp/effect_capture_test.cpp
+/tests/cpp/tla_water_ripple_test.cpp

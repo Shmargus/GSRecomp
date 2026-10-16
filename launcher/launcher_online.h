@@ -242,9 +242,6 @@ struct Release {
     std::uint64_t asset_size = 0;
 };
 
-// The newest release in GitHub's reply to kReleasesApiPath, with the zip for
-// this platform: on Linux the asset with "linux" in its name, on Windows the
-// .zip without it.
 // The newest release's tag, name, page and notes, without its downloads
 // (the launcher's What's New window). Null when the reply holds none.
 inline const Json* read_newest_release(const std::string& reply, Json* root, Release* out,
@@ -265,6 +262,9 @@ inline const Json* read_newest_release(const std::string& reply, Json* root, Rel
     return &rel;
 }
 
+// The newest release in GitHub's reply to kReleasesApiPath, with the zip for
+// this platform: on Linux the asset with "linux" in its name, on Windows the
+// .zip without it.
 inline bool parse_newest_release(const std::string& reply, bool linux_build, Release* out,
                                  std::string* error) {
     Json root;
@@ -379,6 +379,30 @@ inline std::string percent_encode(const std::string& s, std::size_t max_bytes = 
             out.push_back(digits[c >> 4]);
             out.push_back(digits[c & 0xF]);
         }
+    }
+    return out;
+}
+
+// The optional Reddit username on the report form, for the X-GSR-Reddit
+// header: "u/Name", "/u/Name" and "@Name" become "Name"; only the characters
+// Reddit allows (letters, digits, _ and -) are kept, at most 20 of them.
+inline std::string reddit_name(const std::string& typed) {
+    std::size_t at = typed.find_first_not_of(" \t");
+    if (at == std::string::npos) return std::string();
+    for (const char* prefix : {"/u/", "u/", "@"}) {
+        if (typed.compare(at, std::strlen(prefix), prefix) == 0) {
+            at += std::strlen(prefix);
+            break;
+        }
+    }
+    std::string out;
+    for (std::size_t i = at; i < typed.size() && out.size() < 20; ++i) {
+        const char c = typed[i];
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+            c == '_' || c == '-')
+            out.push_back(c);
+        else if (c == ' ' || c == '\t' || c == '\r' || c == '\n')
+            break;
     }
     return out;
 }

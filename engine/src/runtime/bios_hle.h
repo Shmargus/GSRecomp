@@ -11,9 +11,9 @@
 //
 // Mechanism: bios_hle_set_mode() installs (or clears) the runtime_swi hook
 // g_bios_hle_hook (declared in runtime_arm.h). With HLE on, runtime_swi calls
-// bios_hle_dispatch() BEFORE the SVC-mode exception entry; a handled SWI resumes
-// the caller at LR with no BIOS dispatch. Default = Off = pure LLE, byte for
-// byte identical to a build compiled without any HLE.
+// the hook (dispatch() in bios_hle.cpp) BEFORE the SVC-mode exception entry;
+// a handled SWI resumes the caller at LR with no BIOS dispatch. Default = Off
+// = pure LLE, byte for byte identical to a build compiled without any HLE.
 //
 // The SWI semantics here are ported from mGBA's src/gba/bios.c (MPL-2.0,
 // © Jeffrey Pfau) and GBATEK; see THIRD_PARTY_ATTRIBUTION.md.

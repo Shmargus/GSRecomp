@@ -180,8 +180,8 @@ bool load_async_readback() {
 }
 #undef GPU_LOAD
 
-// GL's row 0 is the bottom of the image; flip while dropping alpha so the
-// result matches the reference compositor's top-down RGB888 layout.
+// GL's row 0 is the bottom of the image; flip while dropping alpha to give the
+// top-down RGB888 layout the host presents.
 void rgba_bottom_up_to_rgb(const std::uint8_t* rgba, int width, int height,
                            std::uint8_t* out_rgb) {
     for (int y = 0; y < height; ++y) {
@@ -538,9 +538,8 @@ GpuProgram GpuSurface::create_program(const char* vertex_source,
     glAttachShader(program, fs);
     // Pin the vertex inputs to the slots draw_quads fills. Without this the
     // linker assigns them in whatever order it likes, and a shader that
-    // declares its inputs in a different order silently reads the wrong data
-    // -- which is exactly what the smoke test caught. A shader that does not
-    // use one of these names simply ignores the binding.
+    // declares its inputs in a different order silently reads the wrong data.
+    // A shader that does not use one of these names simply ignores the binding.
     glBindAttribLocation(program, 0, "a_pos");
     glBindAttribLocation(program, 1, "a_uv");
     glBindAttribLocation(program, 2, "a_depth");
@@ -596,7 +595,7 @@ void GpuSurface::forget_program_uniforms(GpuProgram p) {
 }
 
 namespace {
-// True when `slot` already holds these values; otherwise records them.
+// True when the cached values already equal `v`; otherwise stores them.
 bool unchanged(float* cached, bool& known, const float* v, int n) {
     if (known && std::memcmp(cached, v, sizeof(float) * n) == 0) return true;
     std::memcpy(cached, v, sizeof(float) * n);

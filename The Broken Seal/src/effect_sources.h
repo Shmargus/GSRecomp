@@ -132,8 +132,8 @@ inline constexpr int kMinimumLive = 6;
 // The scoring has to be done carefully, because a bright canvas flatters any
 // guess -- one of these canvases is 55% lit, so "landed on a drawn pixel" is
 // nearly free, and a degenerate answer that piles every spark on the middle
-// scores 100%. Two guards, both learned from fits that fooled this project
-// earlier the same day (FACTS.md, 2026-09-18):
+// scores 100%. Two guards, both against fits that fooled us (FACTS.md,
+// 2026-09-18):
 //
 //   * beat the canvas's OWN lit fraction by a clear margin, not 50%;
 //   * keep a real spread, so a collapsed answer cannot win.

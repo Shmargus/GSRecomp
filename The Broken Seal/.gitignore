@@ -186,22 +186,11 @@ BLOG_POST*.html
 !/scripts/make_release.ps1
 !/scripts/release_tool.ps1
 /tools/*
-!/tools/adaptive_view_tla.patch
 !/tools/audit_public_repo.py
-!/tools/verify_rom.py
-!/tools/analyze_effect_canvas.py
-!/tools/build_transient_image_config.py
-!/tools/field_scene_check.cpp
-!/tools/gpu_surface_smoke.cpp
-!/tools/ppu_bench.cpp
-!/tools/replay_compare.py
 !/tools/resolve_miss_functions.py
-!/tools/scene_renderer_check.cpp
 !/tools/build_main_toml.py
 !/tools/import_main_symbols.py
 !/tools/validate_symbol_corpus.py
-!/tools/import_overlay_inventory.py
-!/tools/validate_overlay_manifest.py
 !/tools/build_all_overlays.py
 !/tools/slim_corpus.py
 !/tools/block_timing.py
@@ -222,3 +211,7 @@ BLOG_POST*.html
 /build_lto_o2.bat
 # Downloaded Python packages (e.g. the unicorn wheel for build_stamp_variants.py).
 *.whl
+
+# Tests the build does not compile stay on disk only.
+/tests/cpp/adaptive_view_test.cpp
+/tests/cpp/launcher_graphics_retry_test.cpp

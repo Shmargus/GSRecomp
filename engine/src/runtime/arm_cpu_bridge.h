@@ -14,11 +14,9 @@
 // live in R[] (the recompiler maintains this via runtime_msr_cpsr, the
 // interpreter via its own mode handling).
 //
-// Used by:
-//   * the runtime self-healing interpreter fallback (Stage 1), to enter
-//     the interpreter from recompiled state at a dispatch miss and write
-//     the result back when control returns to recompiled code;
-//   * bios_smoke's savestate-into-interpreter oracle path.
+// Used by the self-healing interpreter fallback (runtime_arm_default_aborts.cpp)
+// to enter the interpreter from recompiled state at a dispatch miss and write
+// the result back when control returns to recompiled code.
 
 #pragma once
 

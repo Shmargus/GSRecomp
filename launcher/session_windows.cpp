@@ -77,10 +77,11 @@ bool g_collection_activation_pending = false;
 // ── Release: first-run game build ─────────────────────────────────────
 // A release holds no game code. The first time the player picks their ROM
 // the launcher runs builder\gsr_builder.exe, which translates the ROM and
-// compiles GoldenSunGame.dll beside the game (player_builder). Its
-// progress lines (@stage / @progress / @done / @error) drive the text and
-// bar drawn over the splash. GoldenSunGame.build.txt records what the DLL
-// was built from; a different ROM, builder or engine means building again.
+// compiles the game library (GoldenSunGame.dll, TLAGame.dll) beside the game
+// (player_builder). Its progress lines (@stage / @progress / @done / @error)
+// drive the text and bar drawn over the splash. The build stamp
+// (GoldenSunGame.build.txt, TLAGame.build.txt) records what the DLL was built
+// from; a different ROM, builder or engine means building again.
 constexpr UINT kBuildUpdateMessage = WM_APP + 1;
 constexpr UINT kBuildFinishedMessage = WM_APP + 2;
 // Updates (launcher_online.h): the start-up check found a newer release.
@@ -91,7 +92,7 @@ constexpr UINT kReleaseNotesMessage = WM_APP + 4;
 struct BuildStatus {
     std::mutex mutex;
     bool running = false;
-    bool ready = false;          // GoldenSunGame.dll matches this release
+    bool ready = false;          // the game library matches this release
     std::wstring stage;
     int done = 0;
     int total = 0;
@@ -338,22 +339,17 @@ fs::path active_save_path(const fs::path& root) {
 }
 
 // ── Session log capture ────────────────────────────────────────────────
-// The game (build/gs011/GoldenSunRecomp.exe) is a console-subsystem exe.
-// Launched from this WIN32-subsystem launcher (which has no console of its
-// own) without redirected handles, Windows auto-allocates it a fresh console
-// window that is destroyed the instant the child exits — so a crash, a
-// freeze the user kills from Task Manager, or even a clean quit all lose
-// the scrollback. This captures the child's stdout/stderr into a
-// timestamped file under logs/ instead, durably: each line is flushed to
-// disk (FILE_FLAG_WRITE_THROUGH + an explicit FlushFileBuffers) the moment
-// it is read from the pipe, so a kill mid-freeze still leaves everything
-// produced up to that point on disk.
+// The game program is a console-subsystem exe.
+// Started from this launcher (which has no console) without redirected
+// handles, Windows gives it a fresh console window that is destroyed the
+// instant the child exits, so a crash, a freeze killed from Task Manager, or
+// even a clean quit loses the scrollback. This captures the child's
+// stdout/stderr into a timestamped file under logs/ instead: each line is
+// flushed to disk (FILE_FLAG_WRITE_THROUGH + FlushFileBuffers) as it is read
+// from the pipe, so a kill mid-freeze keeps everything written so far.
 //
-// stdout and stderr are interleaved into ONE file, each line tagged
-// "[OUT] "/"[ERR] ", rather than written to two separate files: a single
-// chronological, greppable log is easier for the user to hand over than two
-// files they'd have to interleave by eye, and the tag keeps the streams
-// distinguishable.
+// stdout and stderr go into ONE chronological file, each line tagged
+// "[OUT] "/"[ERR] ", which is easier to hand over than two files.
 std::wstring make_session_log_path(const fs::path& logs_dir) {
     SYSTEMTIME st{};
     GetLocalTime(&st);
@@ -414,9 +410,8 @@ bool create_empty_file_exclusive(const fs::path& path) {
     return true;
 }
 
-// Thread-safe sink for the two pipe-reader threads below. One HANDLE, one
-// mutex — writes from either stream serialize through write_line so tagged
-// lines never interleave mid-line in the file.
+// Thread-safe sink for the two pipe-reader threads below: writes from either
+// stream go through write_line, so tagged lines never interleave mid-line.
 class SessionLogWriter {
 public:
     explicit SessionLogWriter(HANDLE file) : file_(file) {}
@@ -429,10 +424,8 @@ public:
             WriteFile(file_, data, static_cast<DWORD>(len), &written, nullptr);
         }
         WriteFile(file_, "\r\n", 2, &written, nullptr);
-        // Belt-and-suspenders alongside FILE_FLAG_WRITE_THROUGH on the file
-        // handle: guarantees this line is durable before the reader thread
-        // goes back to blocking on the next ReadFile, which is exactly the
-        // window a Task-Manager kill can land in.
+        // Alongside FILE_FLAG_WRITE_THROUGH: this line is on disk before the
+        // reader goes back to blocking on ReadFile, where a kill can land.
         FlushFileBuffers(file_);
     }
 
@@ -441,16 +434,11 @@ private:
     std::mutex mutex_;
 };
 
-// Drains one child pipe handle on its own thread until EOF (the child
-// closing its end, which happens when it exits), tagging and forwarding
-// complete lines to `writer` as they arrive. A dedicated thread per pipe
-// (rather than one polling loop over both, or overlapped I/O) is the
-// simplest correct fix for the classic "child blocks writing to a full pipe
-// buffer nobody is draining" deadlock: ReadFile here returns as soon as ANY
-// bytes are available, so each thread is either blocked *waiting for data*
-// (never blocking the child) or immediately draining what arrived, and it
-// never waits on anything the child itself is blocked on — no circular
-// wait, so no deadlock is reachable by construction.
+// Drains one child pipe on its own thread until EOF (the child closing its
+// end, which happens when it exits), tagging and forwarding complete lines to
+// `writer`. One thread per pipe avoids the "child blocks writing to a full
+// pipe nobody drains" deadlock: ReadFile returns as soon as any bytes are
+// available, and the thread never waits on anything the child is blocked on.
 void pump_pipe_to_log(HANDLE pipe_read, const char* tag,
                       SessionLogWriter* writer) {
     std::string pending;
@@ -761,7 +749,7 @@ int http_request(const wchar_t* verb, const HttpTarget& target,
 
 // ── Bug reports ────────────────────────────────────────────────────────
 // The launcher's Send report button uploads the zips to the project's report
-// service (tools/report_service). Every zip holds the small logs plus at most
+// service (The Broken Seal/tools/report_service). Every zip holds the small logs plus at most
 // ONE F12 capture (about 7 MB zipped), so each upload stays small; a session
 // with three captures makes three zips.
 
@@ -805,6 +793,7 @@ namespace {
 // Returns the zips (one per F12 capture, or one when there was none), or
 // the folder when zipping failed; empty when there was nothing to report.
 std::vector<fs::path> make_bug_report(const fs::path& root, const fs::path& game_dir,
+                                      const fs::path& crash_dir,
                                       const std::wstring& rom,
                                       const std::wstring& log_path,
                                       const std::vector<std::wstring>& rewinds,
@@ -835,7 +824,7 @@ std::vector<fs::path> make_bug_report(const fs::path& root, const fs::path& game
     // Include the actual active save so the problem can be replayed.
     if (!rom.empty())
         copy_into_report(active_save_path(root), staging);
-    copy_report_files(game_dir, root, crashed, staging);
+    copy_report_files(game_dir, crash_dir, root, crashed, staging);
     const bool unpacker_caught =
         fs::is_regular_file(root / L"unpacker_recovered.txt", ec);
     {
@@ -877,6 +866,37 @@ std::vector<fs::path> make_bug_report(const fs::path& root, const fs::path& game
     return zips;
 }
 
+// Seamless mode: The Broken Seal's report from before the hand-over waits in
+// this file (its zips, one per line) and is offered with The Lost Age's when
+// that session ends, so the hand-over is not interrupted.
+fs::path seamless_reports_file(int game) {
+    const fs::path root = gsr_session::game_root(g_collection_root, game);
+    return root.empty() ? fs::path() : root / L"logs" / L"bug_reports" / L"seamless_pending.txt";
+}
+
+void keep_seamless_reports(const std::vector<fs::path>& zips) {
+    const fs::path file = seamless_reports_file(0);
+    if (file.empty()) return;
+    std::ofstream out(file, std::ios::binary | std::ios::app);
+    for (const fs::path& zip : zips)
+        if (zip.extension() == L".zip") out << wide_to_utf8(zip.wstring()) << "\n";
+}
+
+std::vector<fs::path> take_seamless_reports() {
+    std::vector<fs::path> zips;
+    const fs::path file = seamless_reports_file(0);
+    if (file.empty()) return zips;
+    std::ifstream in(file, std::ios::binary);
+    std::error_code ec;
+    for (std::string line; std::getline(in, line);) {
+        const fs::path zip(utf8_to_wide(line));
+        if (!line.empty() && fs::is_regular_file(zip, ec)) zips.push_back(zip);
+    }
+    in.close();
+    fs::remove(file, ec);
+    return zips;
+}
+
 // Where players can still upload a report by hand: the Google Form, offered
 // when sending fails. The project page links the same form.
 constexpr const wchar_t* kBugReportFormUrl =
@@ -893,12 +913,13 @@ constexpr int kReportEdit = 3001;
 constexpr int kReportSend = 3002;
 constexpr int kReportClose = 3003;
 constexpr int kReportFolder = 3004;
+constexpr int kReportReddit = 3005;
 
 struct ReportWindow {
     std::vector<fs::path> reports;
     bool crashed = false;
     bool zipped = false;
-    HWND edit = nullptr, status = nullptr, send = nullptr, close = nullptr;
+    HWND edit = nullptr, reddit = nullptr, status = nullptr, send = nullptr, close = nullptr;
     HFONT font = nullptr;
     std::thread worker;
     std::wstring error;
@@ -911,10 +932,24 @@ void report_set_status(const std::wstring& text) {
         SetWindowTextW(g_report_window->status, text.c_str());
 }
 
-// Uploads every report zip with the player's description; runs on its own
-// thread and posts kReportProgressMessage / kReportDoneMessage to `window`.
+// The game a report zip belongs to: the one whose logs/bug_reports holds it.
+// The Lost Age's report window can carry The Broken Seal's zips from before
+// a Seamless hand-over (take_seamless_reports).
+const char* report_game(const fs::path& zip) {
+    for (int game = 0; game < 2; ++game) {
+        const fs::path root = gsr_session::game_root(g_collection_root, game);
+        if (!root.empty() && zip.parent_path().lexically_normal() ==
+                                 (root / L"logs" / L"bug_reports").lexically_normal())
+            return kGames[game].stem;
+    }
+    return session_game().stem;
+}
+
+// Uploads every report zip with the player's description and, when they
+// gave one, their Reddit username; runs on its own thread and posts
+// kReportProgressMessage / kReportDoneMessage to `window`.
 void send_reports(HWND window, std::vector<fs::path> reports, std::string description,
-                  std::wstring* error) {
+                  std::string reddit, std::wstring* error) {
     HttpTarget target;
     target.host = utf8_to_wide(gsr_online::kReportHost);
     target.path = utf8_to_wide(gsr_online::kReportPath);
@@ -926,9 +961,10 @@ void send_reports(HWND window, std::vector<fs::path> reports, std::string descri
         std::string part = description;
         if (reports.size() > 1)
             part += " [part " + std::to_string(i + 1) + " of " + std::to_string(reports.size()) + "]";
-        const std::vector<std::wstring> headers = {
+        std::vector<std::wstring> headers = {
             L"X-GSR-Client: GoldenSunLauncher",
             L"X-GSR-Platform: windows",
+            L"X-GSR-Game: " + utf8_to_wide(gsr_online::percent_encode(report_game(reports[i]))),
             L"X-GSR-Launcher: " + utf8_to_wide(gsr_online::kReleaseVersion) + L" " +
                 utf8_to_wide(__DATE__),
             L"X-GSR-File: " + utf8_to_wide(gsr_online::percent_encode(
@@ -936,6 +972,7 @@ void send_reports(HWND window, std::vector<fs::path> reports, std::string descri
             L"X-GSR-Description: " + utf8_to_wide(gsr_online::percent_encode(part)),
             L"Content-Type: application/octet-stream",
         };
+        if (!reddit.empty()) headers.push_back(L"X-GSR-Reddit: " + utf8_to_wide(reddit));
         std::string answer;
         const int status = http_request(
             L"POST", target, headers, &reports[i], nullptr, &answer,
@@ -981,16 +1018,21 @@ LRESULT CALLBACK report_window_proc(HWND window, UINT message, WPARAM w_param,
             std::wstring text(static_cast<std::size_t>(length) + 1, L'\0');
             GetWindowTextW(state->edit, text.data(), length + 1);
             text.resize(static_cast<std::size_t>(length));
+            wchar_t reddit[32] = {};
+            GetWindowTextW(state->reddit, reddit, 32);
             EnableWindow(state->send, FALSE);
             EnableWindow(state->close, FALSE);
             SendMessageW(state->edit, EM_SETREADONLY, TRUE, 0);
+            SendMessageW(state->reddit, EM_SETREADONLY, TRUE, 0);
             report_set_status(L"Sending...");
             launcher_log(L"Bug report: sending " + std::to_wstring(state->reports.size()) +
                          L" file(s).");
             if (state->worker.joinable()) state->worker.join();
             state->error.clear();
             state->worker = std::thread(send_reports, window, state->reports,
-                                        wide_to_utf8(text), &state->error);
+                                        wide_to_utf8(text),
+                                        gsr_online::reddit_name(wide_to_utf8(reddit)),
+                                        &state->error);
             return 0;
         }
         break;
@@ -1081,7 +1123,7 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed, bool u
     }
     if (!gsr_online::report_upload_enabled()) {
         // A launcher built without the report service (a fork, a developer
-        // build): the zips and the form, as before the Send button.
+        // build): the zips and the form.
         std::wstring text = report_heading(crashed, unpacker) + L"\n\n";
         for (const fs::path& report : reports) text += report.filename().wstring() + L"\n";
         text += L"in " + reports.front().parent_path().wstring() +
@@ -1115,7 +1157,7 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed, bool u
 
     // The unpacker's heading runs to three lines; everything below moves down.
     const int dy = unpacker ? 40 : 0;
-    const int width = px(520), height = px(400 + dy);
+    const int width = px(520), height = px(474 + dy);
     RECT frame{0, 0, width, height};
     const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
     AdjustWindowRectEx(&frame, style, FALSE, WS_EX_APPWINDOW);
@@ -1148,6 +1190,11 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed, bool u
                      ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | WS_VSCROLL | WS_TABSTOP,
                      kReportEdit, 20, 66 + dy, 480, 110);
     SendMessageW(state.edit, EM_SETLIMITTEXT, 500, 0);
+    add(L"STATIC", L"Your Reddit username, if you'd like the developer to reach out to you "
+                   L"(optional; leave it blank if not):", 0, 0, 20, 184 + dy, 480, 40);
+    state.reddit = add(L"EDIT", L"", ES_AUTOHSCROLL | WS_TABSTOP, kReportReddit, 20, 226 + dy,
+                       240, 28);
+    SendMessageW(state.reddit, EM_SETLIMITTEXT, 24, 0);
     std::wstring files;
     std::uint64_t bytes = 0;
     std::error_code ec;
@@ -1157,15 +1204,16 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed, bool u
                                             : std::wstring(L"the zip")) +
             L" (" + std::to_wstring(std::max<std::uint64_t>(1, bytes / (1024 * 1024))) +
             L" MB) to the developer: the game's log and screen captures, your save "
-            L"file, your settings and your Windows version. Your Windows user name is taken out. Nothing is "
+            L"file, your settings and your Windows version, plus the Reddit username above "
+            L"only if you typed one. Your Windows user name is taken out. Nothing is "
             L"sent unless you press Send report.";
-    add(L"STATIC", files, 0, 0, 20, 186 + dy, 480, 84);
-    state.status = add(L"STATIC", L"", 0, 0, 20, 276 + dy, 480, 40);
+    add(L"STATIC", files, 0, 0, 20, 266 + dy, 480, 100);
+    state.status = add(L"STATIC", L"", 0, 0, 20, 370 + dy, 480, 30);
     state.send = add(L"BUTTON", L"Send report", BS_DEFPUSHBUTTON | WS_TABSTOP, kReportSend, 20,
-                     330 + dy, 150, 40);
-    state.close = add(L"BUTTON", L"Don't send", WS_TABSTOP, kReportClose, 180, 330 + dy, 130,
+                     404 + dy, 150, 40);
+    state.close = add(L"BUTTON", L"Don't send", WS_TABSTOP, kReportClose, 180, 404 + dy, 130,
                       40);
-    add(L"BUTTON", L"Open folder", WS_TABSTOP, kReportFolder, 370, 330 + dy, 130, 40);
+    add(L"BUTTON", L"Open folder", WS_TABSTOP, kReportFolder, 370, 404 + dy, 130, 40);
 
     ShowWindow(window, SW_SHOW);
     SetForegroundWindow(window);
@@ -1209,8 +1257,7 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
         const auto enabled = [](const char* environment) {
             return gsr_collection::test_enabled(g_collection_tests, environment, session_game_index);
         };
-        // Keep self-healing's selected state: the existing policy applies its
-        // intentional exception when the master switch is off.
+        // Self-healing keeps its selected state even when the master switch is off.
         g_test_selfheal_ram = g_collection_tests.tests[gsr_collection::test_index("GBARECOMP_SELFHEAL_RAM")];
         g_test_obj_record = enabled("GSR_OBJ_RECORD");
         g_test_map_record = enabled("GSR_MAP_RECORD");
@@ -1253,10 +1300,9 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
             return fail(text, MB_ICONWARNING);
         }
     }
-    // Save before spawning so a launch cannot lose a changed checkbox.
+    // Save the settings before spawning so a launch cannot lose a change.
     if (!kReleaseLauncher) save_launcher_audio_settings(root, g_audio_settings);
-    // The game runs without the BIOS (Jimmy, 2026-09-24): no BIOS path is
-    // needed or passed and no Nintendo code executes.
+    // The game runs without the BIOS, so no BIOS path is passed.
 
     const fs::path game = gsr_session::engine(root, session_game_index);
     if (!fs::is_regular_file(game)) {
@@ -1274,25 +1320,20 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
     if (!dir_ec) {
         prune_old_logs(logs_dir);
         log_path = make_session_log_path(logs_dir);
-        // FILE_FLAG_WRITE_THROUGH: every WriteFile below is committed to
-        // disk before it returns, not left sitting in the OS cache — the
-        // crash/freeze durability requirement, satisfied at the handle
-        // level rather than relying solely on the FlushFileBuffers calls.
+        // FILE_FLAG_WRITE_THROUGH: every WriteFile is committed to disk
+        // before it returns, not left in the OS cache (see the session log
+        // capture note above).
         log_file = CreateFileW(log_path.c_str(), GENERIC_WRITE, FILE_SHARE_READ,
                                nullptr, CREATE_ALWAYS,
                                FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH,
                                nullptr);
     }
     // A log that can't be opened (full disk, permissions) must not block
-    // play: fall back to the pre-existing unredirected behavior below.
+    // play: the game then runs with its output unredirected.
     const bool logging = (log_file != INVALID_HANDLE_VALUE);
 
-    // Discoverability without a console: stray console windows stealing
-    // focus are exactly what this feature must not introduce, so the
-    // session path is never printed anywhere — it is written into a fixed,
-    // overwritten-every-launch file instead. logs/latest.txt is a stable
-    // path anyone (the user, a bug report, a second tool) can read to find
-    // the current/most recent session log without parsing timestamps.
+    // The session log path is not printed anywhere (no console); logs/latest.txt,
+    // rewritten on every launch, names the most recent session log.
     if (logging) {
         std::ofstream latest(logs_dir / L"latest.txt", std::ios::binary | std::ios::trunc);
         if (latest) latest << wide_to_utf8(log_path) << '\n';
@@ -1323,8 +1364,8 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
     }
     if (session_game_index == 1)  // The Lost Age imports Golden Sun saves.
         common.save_import = g_audio_settings.gs_save_import;
-    // Enhanced Options combines the existing expanded-sprite/shadow safety
-    // net with room-buffer rendering and expanded spell effects.
+    // Enhanced Options: experimental fixes, room-buffer rendering and host
+    // spell effects (session_environment.h).
     common.enhanced_options = g_audio_settings.enhanced_options;
     // Drawing the field with the graphics card is a persistent player
     // setting like Enhanced Options. It falls back to the console compositor
@@ -1423,10 +1464,8 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
         child_environment.unset(utf8_to_wide(name));
     for (const auto& [name, value] : plan.set)
         child_environment.set(utf8_to_wide(name), utf8_to_wide(value));
-    // Record what actually reached the child. Three capture sessions in a row
-    // came back missing a diagnostic with no way to tell whether the checkbox
-    // never set the variable or the game never acted on it; this line settles
-    // that from the session log alone.
+    // Record what actually reached the child, so the session log shows
+    // whether a diagnostic was set even if the game did not act on it.
     if (logging) {
         std::string enabled_list = plan.enabled_tests;
         if (!enabled_list.empty()) enabled_list += ",";
@@ -1499,11 +1538,10 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
         pipe_sa.bInheritHandle = TRUE;
         if (CreatePipe(&out_read, &out_write, &pipe_sa, 0) &&
             CreatePipe(&err_read, &err_write, &pipe_sa, 0)) {
-            // Only the write ends should be inherited by the child; the
-            // parent's read ends must stay private or the child's own copy
-            // (inherited from CreateProcessW's snapshot) would keep the
-            // pipe open even after the real write end closes, so the
-            // reader thread would never see EOF.
+            // Only the write ends are inherited by the child. If it also
+            // inherited the read ends, its copies would keep the pipes open
+            // after the real write ends close, and the reader threads would
+            // never see EOF.
             SetHandleInformation(out_read, HANDLE_FLAG_INHERIT, 0);
             SetHandleInformation(err_read, HANDLE_FLAG_INHERIT, 0);
             startup.dwFlags |= STARTF_USESTDHANDLES;
@@ -1521,11 +1559,18 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
     }
 
     const std::set<std::wstring> rewinds_before = rewind_dirs(logs_dir);
+    // After a Seamless hand-over The Lost Age runs in The Broken Seal's
+    // program, and its crash handler writes beside that program.
+    const fs::path host_dir = g_handover_next
+        ? gsr_session::engine(gsr_session::game_root(g_collection_root, 0), 0).parent_path()
+        : game.parent_path();
     // A crash file left by an earlier run must not end up in this run's report.
     {
         std::error_code stale_ec;
-        fs::remove(game.parent_path() / L"crash_memory.bin", stale_ec);
-        fs::remove(game.parent_path() / L"crash_trail.csv", stale_ec);
+        for (const fs::path& dir : {game.parent_path(), host_dir}) {
+            fs::remove(dir / L"crash_memory.bin", stale_ec);
+            fs::remove(dir / L"crash_trail.csv", stale_ec);
+        }
         // The unpacker catcher's pair (src/unpacker_catch.h), written in the
         // game's working folder: at most one pair ever exists, from this run.
         fs::remove(root / L"unpacker_catch.txt", stale_ec);
@@ -1579,26 +1624,22 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
     // The splash window has nothing left to do once the game has actually
     // started; destroying it now (rather than after the wait below) avoids
     // Windows flagging it "Not Responding" for the whole play session,
-    // since capturing the log means this call now blocks until the game
-    // exits instead of returning immediately.
+    // because this call blocks until the game exits.
     if (window) DestroyWindow(window);
     window = nullptr;
 
     if (out_write && err_write) {
-        // The parent's copies of the write ends MUST close before the
-        // reader threads are started: as long as ANY write-end handle is
-        // open (ours or the child's inherited copy), ReadFile on the read
-        // end blocks instead of returning EOF, even after the child exits.
+        // Our copies of the write ends must close before the readers start:
+        // while any write-end handle is open, ReadFile blocks instead of
+        // returning EOF.
         CloseHandle(out_write);
         CloseHandle(err_write);
         SessionLogWriter writer(log_file);
         std::thread out_thread(pump_pipe_to_log, out_read, "[OUT] ", &writer);
         std::thread err_thread(pump_pipe_to_log, err_read, "[ERR] ", &writer);
-        // Joining blocks until both pipes hit EOF, which only happens once
-        // the child has exited (cleanly, crashed, or been killed) and
-        // released its inherited handles — so this doubles as the wait for
-        // the child, with everything it ever wrote already durably logged
-        // by the time these return.
+        // Both pipes reach EOF only once the child has exited and released
+        // its handles, so joining doubles as the wait for the child, with
+        // everything it wrote already logged.
         out_thread.join();
         err_thread.join();
     }
@@ -1634,7 +1675,8 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
         for (const std::wstring& dir : rewind_dirs(logs_dir))
             if (!rewinds_before.count(dir)) new_rewinds.push_back(dir);
         std::error_code time_ec;
-        const fs::path crash_report = game.parent_path() / L"crash_report.txt";
+        const fs::path crash_dir = handed_over ? host_dir : game.parent_path();
+        const fs::path crash_report = crash_dir / L"crash_report.txt";
         const bool crashed = fs::is_regular_file(crash_report, time_ec) &&
             fs::last_write_time(crash_report, time_ec) >= launch_time && !time_ec;
         const bool unpacker = fs::is_regular_file(root / L"unpacker_recovered.txt", time_ec);
@@ -1650,6 +1692,13 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
         if (session_game_index == 0 && saves_synced && seamless_slot >= 0) {
             launcher_log(L"Seamless: The Broken Seal saved Clear Data to slot " +
                          std::to_wstring(seamless_slot + 1) + L"; starting The Lost Age.");
+            if (kReleaseLauncher && (!new_rewinds.empty() || crashed || unpacker)) {
+                const auto reports = make_bug_report(root, game.parent_path(), crash_dir, rom,
+                                                     log_path, new_rewinds, crashed, exit_code);
+                keep_seamless_reports(reports);
+                launcher_log(L"Seamless: bug report kept for the end of The Lost Age (" +
+                             std::to_wstring(reports.size()) + L" file(s)).");
+            }
             g_seamless_exit_code = static_cast<int>(exit_code);
             return 0;
         }
@@ -1663,7 +1712,7 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
                 L"Some visual enhancements and screen filters will be unavailable for this run.",
                 session_game().title_w, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON1 | MB_SETFOREGROUND);
             if (answer == IDYES) {
-                const auto reports = make_bug_report(root, game.parent_path(), rom,
+                const auto reports = make_bug_report(root, game.parent_path(), crash_dir, rom,
                                                      log_path, new_rewinds, crashed, exit_code);
                 for (const auto& report : reports)
                     launcher_log(L"OpenGL startup crash archived: " + report.wstring());
@@ -1674,7 +1723,7 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
                                                 L"crash_memory.bin", L"crash_trail.csv"}) {
                         std::error_code copy_ec;
                         const fs::path preserved = logs_dir / (stem + L"." + file);
-                        fs::copy_file(game.parent_path() / file, preserved,
+                        fs::copy_file(crash_dir / file, preserved,
                                       fs::copy_options::none, copy_ec);
                         if (!copy_ec) launcher_log(L"OpenGL crash evidence: " + preserved.wstring());
                     }
@@ -1682,11 +1731,19 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
                 return run_game(root, rom, nullptr, true);
             }
         }
-        if (kReleaseLauncher && (!new_rewinds.empty() || crashed || unpacker)) {
-            offer_bug_report(make_bug_report(root, game.parent_path(), rom,
-                                             log_path, new_rewinds, crashed,
-                                             exit_code),
-                             crashed, unpacker);
+        if (kReleaseLauncher) {
+            std::vector<fs::path> reports;
+            if (!new_rewinds.empty() || crashed || unpacker)
+                reports = make_bug_report(root, game.parent_path(), crash_dir, rom, log_path,
+                                          new_rewinds, crashed, exit_code);
+            // A folder (zipping failed) is offered alone; the kept zips then
+            // wait for the next session.
+            if (session_game_index == 1 &&
+                (reports.empty() || reports.front().extension() == L".zip")) {
+                const std::vector<fs::path> kept = take_seamless_reports();
+                reports.insert(reports.end(), kept.begin(), kept.end());
+            }
+            offer_bug_report(reports, crashed, unpacker);
         }
     }
     return saves_synced ? 0 : 1;
@@ -1746,9 +1803,8 @@ void layout_buttons(HWND window) {
         return;
     }
 
-    // The developer window still draws the dark panel that used to hold the
-    // settings checkboxes, now empty: the same width and height those rows
-    // took, so the window looks as it always did and the logo keeps its room.
+    // The developer window draws an empty dark panel; the logo is fitted
+    // above it.
     constexpr int kPanelWidth = 528;
     constexpr int kPanelHeight = 250;
     constexpr int kPanelBottomMargin = 20;
@@ -1762,7 +1818,7 @@ void layout_buttons(HWND window) {
 
 // The backdrop: a dark indigo gradient, a soft purple glow and the logo
 // (assets/launcher_logo.png, built in), fitted into the space above the
-// settings panel, or above the buttons in the player launcher. One bitmap,
+// dark panel, or above the buttons in the player launcher. One bitmap,
 // redrawn only when the window or the panel changes.
 struct Backdrop {
     int width = 0, height = 0, logo_bottom = 0;
@@ -2057,10 +2113,11 @@ void paint_splash(HWND window, HDC dc, int origin_x = 0, int origin_y = 0) {
     }
 }
 
-// ---- Pick ROM / Quit buttons ---------------------------------------------
-// Owner-drawn, flat: slightly rounded, a solid gold Pick ROM and an outlined
-// Quit, with hover and pressed states. The corners show the artwork behind
-// them rather than a square box.
+// ---- Cancel button -------------------------------------------------------
+// Owner-drawn, flat: slightly rounded, with hover and pressed states. The
+// session window's only control is the outlined Cancel button (kQuitButton);
+// the solid gold style is for kPickRomButton, which has no control here. The
+// corners show the artwork behind them rather than a square box.
 int g_hot_button = 0;           // control id under the mouse, 0 = none
 WNDPROC g_button_base_proc = nullptr;
 
@@ -2121,7 +2178,7 @@ void draw_action_button(const DRAWITEMSTRUCT& item) {
     const bool hot = g_hot_button == static_cast<int>(item.CtlID);
     const bool focused = (item.itemState & ODS_FOCUS) != 0;
 
-    // Flat and quiet: Pick ROM is a solid muted gold, Quit an outline on a
+    // Flat and quiet: Pick ROM would be a solid muted gold, Cancel an outline on a
     // faint dark wash. Hover lightens, pressing darkens; nothing else.
     const float lift = pressed ? 0.88f : (hot ? 1.10f : 1.0f);
     const Gdiplus::Color fill = quit
@@ -2367,8 +2424,7 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
                                       WPARAM w_param, LPARAM l_param) {
     switch (message) {
     case WM_CREATE: {
-        // Session preparation has no second launcher home/settings screen:
-        // only a Cancel button.
+        // No Pick ROM or settings controls here: only a Cancel button.
         CreateWindowExW(0, L"BUTTON", L"Cancel",
                         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                         0, 0, 0, 0, window,
@@ -2837,7 +2893,7 @@ int gsr_session_main(int game, int, char**) {
             gbarecomp::crash_handler_mark_clean_exit();
             return result;
         }
-        gbarecomp::handover::quit();  // The Broken Seal's program waits in vain
+        gbarecomp::handover::quit();  // release the waiting Broken Seal program
     }
     SetProcessDPIAware();
     const int result = show_launcher(root);

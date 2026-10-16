@@ -1,7 +1,7 @@
 // config.h — TOML config loader for gba_recompile.
 //
 // One TOML file per binary, loaded via --config <path>. See
-// gbarecomp/docs/TOML_SCHEMA.md for the format.
+// docs/TOML_SCHEMA.md for the format.
 //
 // The config supplements (never replaces) the function-finder's
 // automated walk. Manual entries deduplicate against discovered
@@ -45,7 +45,7 @@ struct ConfigProgram {
     // strict static corpus can disable it and add only observed callbacks.
     bool        speculative_literal_harvest = true;
     // Number of deterministic C++ translation units used for emitted guest
-    // bodies. One preserves the legacy recompiled.cpp output.
+    // bodies. One writes a single recompiled.cpp.
     uint32_t    codegen_shards = 1;
 };
 

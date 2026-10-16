@@ -276,15 +276,12 @@ def render_overlay_toml(
     #
     # Without this an overlay entered mid-body needs one regeneration, rebuild
     # and run per interior PC, which does not converge: a VBlank yield or a
-    # computed dispatch re-enters wherever it likes. This mirrors
-    # derive_resume_ranges() in build_main_toml.py, which already solved exactly
-    # this for the main corpus.
+    # computed dispatch re-enters wherever it likes. Mirrors
+    # derive_resume_ranges() in build_main_toml.py.
     #
-    # Applied to EVERY seeded routine, not only observed ones. The evidence is
-    # identical either way - the overlay ELF proves each extent and each `$d`
-    # run - and the alternative is one regeneration/rebuild/run cycle per
-    # interior PC the game happens to re-enter, of which there are many. This is
-    # the same generalisation REVIEWED_SEED_SECTIONS made for the main corpus.
+    # Applied to EVERY seeded routine, not only observed ones: the overlay ELF
+    # proves each extent and each `$d` run either way (same generalisation as
+    # REVIEWED_SEED_SECTIONS for the main corpus).
     for seed in seeds:
         cursor, end = seed["owner_start"], seed["owner_end"]
         if cursor is None or end is None or end <= cursor:

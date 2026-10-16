@@ -6,14 +6,11 @@
 // GbaBus, the runtime exec loop, etc.). To satisfy the linker we
 // provide:
 //   - bus_read_*/bus_write_* against a singleton FlatBus
-//   - kDispatchTable + kDispatchTableLen (empty stubs)
-//   - runtime_dispatch_miss + runtime_swi overrides that DO NOT
-//     abort — they record what was called so the runner can
+//   - minimal kDispatchTable / kBiosDispatchTable definitions
+//   - runtime_dispatch_miss + runtime_unimplemented_op definitions that
+//     DO NOT abort — they record what was called so the runner can
 //     verify branch tests
-//
-// runtime_arm.cpp's stock runtime_dispatch_miss + runtime_swi are
-// marked __attribute__((weak)) — these strong definitions win at
-// link time.
+//   - cycle, yield and fast-path globals the armv4t lib references
 
 #include <cstdint>
 #include <cstdio>
@@ -111,8 +108,9 @@ OverlayResolveFn g_overlay_resolve_fn = nullptr;
 //   struct DispatchEntry { uint32_t addr; uint8_t thumb; void (*fn)(void); };
 //   extern "C" const DispatchEntry kDispatchTable[];
 //   extern "C" const unsigned kDispatchTableLen;
-// Provide minimal stubs. Empty length means every dispatch falls
-// through to runtime_dispatch_miss, which we override below.
+// Provide a minimal table: two static RAM entries for the RAM-dispatch
+// tests. Every other dispatch falls through to runtime_dispatch_miss,
+// which we define below.
 struct DispatchEntry { uint32_t addr; uint8_t thumb; void (*fn)(void); };
 
 namespace {
@@ -154,8 +152,8 @@ extern "C" unsigned long long g_runtime_cycles = 0;
 // runtime bridge that owns the production counter.
 extern "C" unsigned long long g_runtime_state_epoch = 0;
 
-// TEMPORARY cost-attribution probe globals (see runtime_bus_bridge.cpp).
-// runtime_arm.cpp's runtime_irq() now references these unconditionally to
+// Cost-attribution probe globals (see runtime_bus_bridge.cpp).
+// runtime_arm.cpp's runtime_irq() references these unconditionally to
 // time the guest IRQ handler; the L1 harness doesn't link
 // runtime_bus_bridge.cpp, so it must supply them. Probe stays off (returns
 // false) so the timing branch in runtime_irq() never executes here.

@@ -30,7 +30,7 @@ extern char** environ;
 namespace gsr_collection {
 namespace update_detail {
 
-// The existing launchers use a 4 MiB reply limit and a 15-second curl timeout.
+// Reply size limit (4 MiB) and request timeout (15 seconds).
 constexpr std::size_t kMaxReply = 4 * 1024 * 1024;
 constexpr int kTimeoutMs = 15000;
 

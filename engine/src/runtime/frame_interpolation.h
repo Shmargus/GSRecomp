@@ -53,9 +53,10 @@ public:
     const Snapshot* current() const { return current_.get(); }
     void set_current_endpoint_verified(bool verified);
 
-    // Builds alpha=0.5 state for BG scroll and affine registers. Everything
-    // else remains at the current frame's value. False means the caller must
-    // duplicate the canonical frame instead.
+    // Builds alpha=0.5 state for BG scroll and affine registers (build_midpoint
+    // also does per-line registers and sprite positions). Everything else
+    // remains at the current frame's value. False means the caller must
+    // duplicate the canonical frame instead; `reason` says why.
     bool build_midpoint_io(std::vector<std::uint8_t>& out,
                            const char** reason = nullptr) const;
     bool build_midpoint(Midpoint& out, const char** reason = nullptr) const;

@@ -7,7 +7,7 @@
 // it defaults to Raw (exact passthrough), so default behavior and every
 // hashed/verified frame are byte-identical unless a screen model is opted in
 // via GBARECOMP_SCREEN={raw,unlit,frontlit,backlit,classic,handheld,
-// handheld_light,soft,natural,warm,deep}.
+// handheld_light,soft,natural,warm,deep,custom}.
 //
 // The math is first-principles CIE colorimetry (xyY→XYZ, primaries→matrix,
 // Bradford adaptation, sRGB OETF) over published colorimeter measurements;
@@ -35,7 +35,7 @@ enum class ScreenKind {
     Frontlit,  // reflective panel, lit
     Backlit,   // late near-sRGB panel, clean blacks
     Classic,   // community-canonical gamma-4.0 model
-    Handheld,  // muted, warm: fitted to an Analogue Pocket photo (2026-10-06)
+    Handheld,  // muted, warm: fitted to an Analogue Pocket photo
     // Kinds from Handheld on share one colour-mix path (color_lut.cpp).
     HandheldLight,  // Handheld, 40% back toward the game's own colours
     Soft,      // 35% Handheld

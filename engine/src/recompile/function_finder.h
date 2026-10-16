@@ -13,11 +13,9 @@
 //   - Indirect branches (BX reg, LDR PC, ldm with PC, computed
 //     calls) are recorded as "indirect dispatch needed" — the
 //     runtime resolves them via the dispatch table at execution time.
-//   - Literal pools (data embedded in .text via `LDR rX, =const`)
-//     are NOT skipped in this first cut — function bodies stop at
-//     the first unconditional terminator (B, BX, undefined). The
-//     codegen will see the literal-pool bytes as "garbage" Instrs
-//     and emit them as `/* literal: 0x...... */` comments.
+//   - Literal pools (data embedded in .text via `LDR rX, =const`) are
+//     not skipped: function bodies stop at the first unconditional
+//     terminator (B, BX, undefined). Declare pools as [[data_range]].
 
 #pragma once
 
@@ -36,11 +34,11 @@ enum class CpuMode : uint8_t {
 
 // A seed: an address we KNOW is a function entry, with its mode +
 // (optional) name. Sources: entry_point from game.toml, imported
-// tmc symbols.
+// decomp symbols.
 struct FunctionSeed {
     uint32_t addr;
     CpuMode  mode;
-    std::string name;   // empty → finder generates "func_XXXXXXXX"
+    std::string name;   // empty → finder generates tfunc_/afunc_XXXXXXXX
     uint32_t source_addr = 0;  // 0 => decode from addr or code_copy map
     // Speculative seeds (harvested from literal pools, Stage 0.1) must
     // never cause a hard data_range collision: if their walk enters a
@@ -80,7 +78,7 @@ struct Function {
     // True if at least one indirect control transfer (BX reg,
     // LDR PC, ldm with PC, etc.) was decoded in this function.
     bool has_indirect_transfer = false;
-    // Mid-function alias entries (ported from psxrecomp): guest PCs that
+    // Mid-function alias entries (idea from psxrecomp): guest PCs that
     // fall strictly INSIDE this function's natural body and are reached as
     // alternate ("resume") entries — e.g. an IRQ/SWI return landing mid
     // busy-wait loop. They are NOT separate functions (that would split the
@@ -95,7 +93,7 @@ struct Function {
 
 // A jump table the finder recognized automatically (no [[jump_table]]
 // hint). Recorded for the discovery summary and for validating the
-// detector against the manual ground-truth set. See MC-HP-000.
+// detector against the manual ground-truth set.
 struct AutoJumpTable {
     uint32_t base;          // table base address (guest)
     uint32_t stride;        // bytes per entry (4 = abs32)
@@ -113,7 +111,7 @@ struct FinderStats {
     std::size_t indirect_transfer_count = 0;
     std::size_t branch_targets_discovered = 0;
     std::size_t undefined_instr_count = 0;
-    // Automatic jump-table detection (MC-HP-000).
+    // Automatic jump-table detection.
     std::size_t auto_jump_tables = 0;          // tables emitted
     std::size_t auto_jump_table_targets = 0;   // entry targets seeded
     std::size_t jt_confirmations = 0;          // indexed-load+branch confirmed
@@ -319,7 +317,7 @@ private:
     // Speculative seeds harvested from PC-relative literal pools (a
     // loaded word that looks like a code pointer). Drained by run()
     // like mode_switch_seeds_. Silent + speculative — a wrong guess is
-    // a dead func_XXXX, never a hard data_range collision. (Stage 0.1,
+    // a dead function, never a hard data_range collision. (Stage 0.1,
     // ported from jrickey gba-recomp analyze.rs literal-pool scan.)
     std::vector<FunctionSeed>        literal_pool_seeds_;
     bool speculative_literal_harvest_enabled_ = true;

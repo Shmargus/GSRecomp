@@ -14,12 +14,10 @@
 //     emits a trailing `return;` so the runtime exec loop re-enters
 //     runtime_dispatch with the new PC.
 //
-// PRINCIPLES.md "Interpreter is informative, never load-bearing":
-// the interpreter is the semantic reference but is NEVER called from
-// generated code. If emit_instr can't lower an op yet it returns
+// Generated code never calls the interpreter (PRINCIPLES.md "Honest
+// self-healing"). If emit_instr can't lower an op it returns
 // `not_implemented = true` and the caller emits a
-// `runtime_unimplemented_op(...)` abort — never an interpreter
-// fallback.
+// `runtime_unimplemented_op(...)` abort, not an interpreter fallback.
 
 #pragma once
 

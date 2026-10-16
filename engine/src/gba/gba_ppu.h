@@ -1,8 +1,5 @@
-// gba_ppu.h — GBA PPU minimal state.
-//
-// Phase 2.3 scope: enough PPU to advance VCOUNT and the DISPSTAT
-// VBlank/HBlank/VCount-match flags. Real rendering (BG modes,
-// sprites, blending, etc.) lands in Phase 2.4+.
+// gba_ppu.h — GBA PPU: scanline timing, VBlank/HBlank/VCount events, and
+// the software compositor (BG, OBJ, windows, blending).
 //
 // Cycle accounting per GBATEK § "GBA Picture Processing Unit":
 //   1 dot           = 4 cycles
@@ -149,11 +146,6 @@ public:
     bool     in_hblank() const { return dot_in_scanline_ >= kDotsVisible; }
     uint32_t cycles_until_next_event() const;
 
-    // VCount-match: returns true when current VCOUNT equals the value
-    // configured in DISPSTAT bits 8..15 (the IO layer holds that
-    // value; we just expose vcount() for the comparison).
-    // For Phase 2.3 the bus owns the comparison; this stays simple.
-
     // Reset to scanline 0, dot 0. Used by the runtime on cold boot.
     void reset();
 
@@ -165,9 +157,7 @@ public:
     // Total frames completed since reset — useful for sync points.
     uint64_t frame_count() const { return frame_count_; }
 
-    // Render the current frame into a 240*160 RGB888 buffer.
-    // Phase 2.4 scope: OBJ (sprite) rendering for non-affine
-    // sprites only. BG layers and affine sprites land in 2.5+.
+    // Frame size, and render() below fills an RGB888 buffer of it.
     static constexpr uint32_t kScreenWidth  = 240;
     static constexpr uint32_t kScreenHeight = 160;
     static constexpr std::size_t kFramebufferBytes =
@@ -394,6 +384,7 @@ enum WsMarginPolicyFlags : unsigned {
 extern "C" unsigned (*g_ws_margin_policy)(uint16_t dispcnt,
                                             const uint8_t* io);
 
+// Margin tilemap provider; see WsTilemapProviderResult above.
 extern "C" int (*g_ws_tilemap_provider)(int bg, int hw_x, int screen_y,
                                         uint16_t* out_entry);
 // Optional game-owned source for regular-BG map entries, native and expanded

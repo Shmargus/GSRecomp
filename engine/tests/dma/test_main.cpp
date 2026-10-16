@@ -149,7 +149,8 @@ void test_probe_detects_partial_immediate_dma() {
 
     reset_ram_dma_probe();
     // Two words begin four bytes before the measured image and overlap its
-    // first word. This is deliberately not the old exact 592-byte shape.
+    // first word, so the probe must catch a partial overlap, not only an
+    // exact whole-image copy.
     configure_dma(io, 0x02001000u, 0x03005B08u, 2, 0x8400u);
 
     check_eq("ram_probe_partial_immediate_events",

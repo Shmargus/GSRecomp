@@ -49,7 +49,7 @@ void capture_layers(FieldScene* s, const std::uint8_t* io) {
     // the others regardless of their enable bit: mode 0 has all four
     // (regular); mode 1 has BG0/BG1 (regular) and BG2 (affine) -- BG3 is
     // never drawn; mode 2 has only BG2/BG3 (affine) -- BG0/BG1 are never
-    // drawn (gba_ppu.cpp:901-913).
+    // drawn (gba_ppu.cpp, render_scanline_internal).
     auto layer_exists_in_mode = [&](int bg) {
         if (mode == 0) return true;
         if (mode == 1) return bg <= 2;

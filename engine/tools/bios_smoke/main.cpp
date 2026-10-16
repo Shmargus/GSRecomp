@@ -1,4 +1,5 @@
-// bios_smoke — Phase 2.1 bring-up canary.
+// bios_smoke — Phase 2.1 bring-up canary, since extended into the
+// interpreter oracle (--rom, --tcp, --emit-target-seeds).
 //
 // Loads the GBA BIOS, sets the CPU to the reset state (PC=0,
 // SVC mode, ARM state, IRQ/FIQ disabled), and steps the interpreter
@@ -199,7 +200,7 @@ int main(int argc, char** argv) {
     // No-args launch (e.g. double-clicked gba.exe from Explorer):
     // default to windowed open-ended mode so the user actually sees
     // the BIOS chime + GAME BOY logo instead of a console flashing.
-    // CLI-driven runs (CI, dev) keep the previous headless defaults.
+    // CLI-driven runs (CI, dev) stay headless.
     if (argc <= 1) {
         args.window = true;
         args.quiet = true;
@@ -251,7 +252,7 @@ int main(int argc, char** argv) {
                     bios.sha1_hex().c_str(), gba::GbaBios::kSize);
     }
 
-    // 2. Set up the bus with the BIOS attached. EWRAM/IWRAM/PAL/VRAM/OAM
+    // 3. Set up the bus with the BIOS attached. EWRAM/IWRAM/PAL/VRAM/OAM
     //    are zero-backed; ROM is absent (this is BIOS-only smoke).
     //    PPU is wired through the bus's IO dispatcher so VCOUNT /
     //    DISPSTAT flag reads reflect live scanline state.
@@ -261,7 +262,7 @@ int main(int argc, char** argv) {
     bus.io().set_ppu(&ppu);
     bus.io().set_bus(&bus);
 
-    // 2b. Optional cartridge. With --rom, bios_smoke becomes a full
+    // 3b. Optional cartridge. With --rom, bios_smoke becomes a full
     //     interpreter-driven oracle for the game: it runs the same
     //     gba::GbaBus/GbaPpu/GbaIo/GbaAudio the recompiled runtime uses,
     //     so the ONLY difference from the recomp is the CPU execution
@@ -314,7 +315,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    // 3. Reset CPU and step the interpreter.
+    // 4. Reset CPU and step the interpreter.
     auto cpu = make_reset_cpu();
 
     if (!args.quiet) {
@@ -696,9 +697,9 @@ int main(int argc, char** argv) {
         // interp and recomp share a cycle origin for diff_cycle_trace.py. The
         // snapshot restored cycles_elapsed to the (large) absolute count saved in
         // the state; the recomp's g_runtime_cycles is NOT snapshotted and starts
-        // at 0, so without this the two clocks were ~860x apart and the diff's
-        // cycle-based anchor picked the wrong loop iteration. We diff relative to
-        // the load, so zeroing both is correct.
+        // at 0, so without this the clocks differ and the diff's cycle-based
+        // anchor can pick the wrong loop iteration. We diff relative to the
+        // load, so zeroing both is correct.
         cycles_elapsed = 0;
         fp_write = 0;
         fp_count = 0;
@@ -924,7 +925,7 @@ int main(int argc, char** argv) {
                 count_nonzero(bus.pal_ptr(),  1024),
                 count_nonzero(bus.vram_ptr(), 96 * 1024),
                 count_nonzero(bus.oam_ptr(),  1024));
-    // Print the first 32 PAL entries (as 16-bit colors) — the BIOS
+    // Print the first 16 PAL entries (as 16-bit colors) — the BIOS
     // intro sets a specific palette.
     std::printf("pal[0..15]:");
     const uint8_t* pal = bus.pal_ptr();
@@ -1041,7 +1042,7 @@ int main(int argc, char** argv) {
             std::printf("  PAL[0x%03x] %s[%d] = 0x%04x\n", k, region, local, v);
         }
     }
-    // Dump sprite 7's first ROW of tiles (8x8 each, 8 tiles wide).
+    // Sprite 7 dump below: first ROW of tiles (8x8 each, 8 tiles wide).
     // In 8bpp 1D mapping each tile is 64 bytes, but tile *indices*
     // advance by 2 per tile in the row → addresses go 0x12800,
     // 0x12840, 0x12880, ... 0x129C0.
@@ -1066,7 +1067,7 @@ int main(int argc, char** argv) {
                 }
             }
         }
-        // Sample BG3 tile 0x71 (the first logo tile).
+        // Sample BG3 tiles 0x71 (the first logo tile), 0x72 and 0x80.
         for (int t : {0x71, 0x72, 0x80}) {
             uint32_t addr = t * 64;
             int nz = 0;

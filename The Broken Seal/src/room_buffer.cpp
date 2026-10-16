@@ -79,12 +79,9 @@ Rect read_room_rect(const gba::GbaBus& bus) {
 
 // A rect is usable when it describes a real room.
 //
-// It used to require min_x/min_y == 0, because that held in every room
-// measured. It is not a property of the format, and rooms that break it were
-// rejected outright -- which blanked the whole margin and left the native
-// area sitting in black (Goma Cave Entrance, session_20260905_210710: 3.7M
-// samples declined for "no room"). Accept any rect with real extent, and let
-// the origin be wherever it says.
+// The origin need not be 0,0: requiring it blanked the whole margin in rooms
+// that break it (Goma Cave Entrance, session_20260905_210710: 3.7M samples
+// declined for "no room"). Accept any rect with real extent.
 //
 // Still excluded: the all-zero between-rooms marker, and the (0,1,8,256)
 // constant the world map parks here, both measured.
@@ -95,13 +92,13 @@ bool rect_is_room(const Rect& r) {
            (r.max_y - r.min_y) >= kCellPixels;
 }
 
-// ---- observed per-layer grid offsets ------------------------------------
+// ---- field tilemap writers ----------------------------------------------
 //
-// Learned, not computed. The writers below take the grid cell as arguments;
-// slot 0/1/2 selects the destination screenblock (BG3/BG2/BG1 in screen-base
-// order), and the caller passes a different cell per slot. Recording the
-// offset each slot is given, relative to slot 0 at the same ring position,
-// gives exactly the per-layer region — with no rule to get wrong.
+// The six writers take the grid cell as arguments; slot 0/1/2 selects the
+// destination screenblock (BG3/BG2/BG1 in screen-base order), and the caller
+// passes a different cell per slot. room_buffer_on_function_args currently
+// only recognises them; the offsets used for drawing come from the scroll
+// registers (layer_offset).
 constexpr std::uint32_t kFieldTilemapWriters[6] = {
     0x0800FEC8u, 0x0800FF54u, 0x08010230u,
     0x08010424u, 0x08010560u, 0x08010788u,
@@ -117,8 +114,7 @@ bool g_have_room = false;
 
 // Every distinct room rect the check has seen, with how many frames each was
 // current. Printed at exit: the room geometry is the input everything else
-// depends on, and it has never actually been looked at in the scene that
-// fails.
+// depends on.
 struct SeenRect { Rect r; std::uint64_t frames; };
 SeenRect g_seen[24] = {};
 std::size_t g_seen_used = 0;
@@ -438,8 +434,8 @@ void note_camera_delta(std::int32_t dx, std::int32_t dy) {
 // live picks that up for free.
 //
 // So "the room buffer" is: the room rect, the three region offsets, and this
-// resolver. That is what makes a pixel beyond the old screen edge an ordinary
-// lookup rather than a question the game cannot answer.
+// resolver. That makes a pixel beyond the native screen edge an ordinary
+// lookup.
 //
 // tile_x/tile_y are world tile (8 px) coordinates with the room's top-left at
 // 0,0. Returns false when the answer is not known — no room loaded, offsets
@@ -519,10 +515,8 @@ void check_layer(const gba::GbaBus& bus, const std::uint8_t* io, unsigned layer,
     const std::uint32_t screen_base =
         static_cast<std::uint32_t>((cnt >> 8) & 0x1Fu) * kScreenblockBytes;
 
-    // Where this layer reads in the grid, taken from what the writers were
-    // actually told. The earlier version derived this from the scroll
-    // registers; that matched only in 512x512 rooms, because only there do
-    // the offsets happen to equal the room's own dimensions.
+    // Where this layer reads in the grid, from its own scroll registers
+    // (layer_offset).
     const std::int32_t cam_cx = static_cast<std::int32_t>(io_u16(io, 0x1Cu));
     const std::int32_t cam_cy = static_cast<std::int32_t>(io_u16(io, 0x1Eu));
     note_camera_delta(cam_cx - static_cast<std::int32_t>(cam_x),
@@ -540,11 +534,8 @@ void check_layer(const gba::GbaBus& bus, const std::uint8_t* io, unsigned layer,
     // Which 16 cells the ring is holding. The ring is exactly 16 cells and a
     // cell shows at ring position (cell mod 16), so the resident set is the
     // 16 consecutive cells starting at the camera -- NOT the 16 aligned to a
-    // multiple of 16. The first version of this check assumed the aligned
-    // window; it agreed with the snapshots only because the offline analysis
-    // had quietly skipped every frame where the two differ, and in play it
-    // cost roughly 24 points of match rate (46.8% -> 71.0% on the town
-    // captures when re-run offline both ways, 2026-09-05).
+    // multiple of 16. Assuming the aligned window cost roughly 24 points of
+    // match rate (46.8% -> 71.0% on the town captures, 2026-09-05).
     const std::int32_t origin_x = static_cast<std::int32_t>(cam_x / kCellPixels);
     const std::int32_t origin_y = static_cast<std::int32_t>(cam_y / kCellPixels);
 
@@ -705,9 +696,7 @@ void report_at_exit() {
                  // position that fell outside the EXPANDED bounds, which is not
                  // the same thing as a parked sprite -- an untrusted sprite is
                  // confined to the native rectangle inside emit_obj and never
-                 // reaches this counter. The old "skipped as parked" wording
-                 // made a reading of 0 look like the parked-sprite guard was
-                 // dead when it simply counts something else.
+                 // reaches this counter.
                  "[room-buffer] expanded view: %llu wide scanlines, %llu "
                  "entries supplied, %llu placed objects culled outside the "
                  "expanded bounds, %llu margin samples blanked\n",
@@ -724,8 +713,7 @@ void report_at_exit() {
                  static_cast<unsigned long long>(g_refuse[kOutsideRoom]),
                  static_cast<unsigned long long>(g_refuse[kOffGrid]),
                  static_cast<unsigned long long>(g_refuse[kUnavailableEntry]));
-    // The rects are the input everything else depends on; the comment on
-    // note_rect has always claimed these were printed, and they were not.
+    // The rects are the input everything else depends on.
     for (std::size_t i = 0; i < g_seen_used; ++i) {
         const Rect& r = g_seen[i].r;
         std::fprintf(stderr,

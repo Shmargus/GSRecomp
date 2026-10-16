@@ -1,14 +1,14 @@
 // gen_codegen_tests — build-time generator. Reads the L1 test
 // corpus (test_cases.cpp) and emits one recompiled C function per
-// case into generated/test_funcs.cpp, alongside the kTestFns lookup
-// table. The runner then links the result and runs each function.
+// case into <build>/codegen_tests/test_funcs.cpp, alongside the kTestFns
+// lookup table. The runner then links the result and runs each function.
 //
 // Usage:  gen_codegen_tests <output.cpp>
 //
 // The emitted file is a normal translation unit that:
 //   - #includes runtime_arm.h (g_cpu, bus_*, arm_*)
-//   - declares one `static void tc_<idx>(void)` per case
-//   - defines them with bodies produced by ArmCodegen::emit_instr
+//   - defines one `extern "C" void tc_<idx>(void)` per case
+//     with a body produced by ArmCodegen::emit_instr
 //   - exposes `const TestFn kTestFns[]` + `const unsigned kTestFnsCount`
 //
 // Per PRINCIPLES.md "Interpreter is informative, never load-bearing":

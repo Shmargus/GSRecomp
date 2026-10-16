@@ -51,9 +51,9 @@ constexpr uint32_t kFieldCastSlot = 0x030000E0u;
 // in a live stack frame for as long as the cast runs (F12 0054-0057, 0059:
 // 0x080CEA73 at 0x03007E74). After the dispatcher returns, 0x080CE61C runs
 // the target's reaction (0x080CE458 / 0x080CEAFC). Slot 0xE0 alone
-// outlives the cast into that reaction (session 20261008_135349: set until
-// frame 8484, Kraden's box from 8439; Jimmy's test, box kept on screen at
-// 2x) and is set in the Djinn tutorial (0062/0063, no dispatcher frame).
+// outlives the cast into that reaction (a measured run: set until
+// frame 8484, Kraden's box from 8439; the box stays on screen at 2x) and is
+// set in the Djinn tutorial (0062/0063, no dispatcher frame).
 constexpr uint32_t kDispatcherReturns[] = {0x080CEA73u, 0x080CEA79u};
 constexpr uint32_t kStackTop = 0x03007F00u;
 

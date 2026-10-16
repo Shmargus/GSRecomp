@@ -52,6 +52,7 @@
 
 #include "gba_bus.h"
 #include "gba_ppu.h"
+#include "obj_placements.h"
 #include "runtime.h"
 #include "view_config.h"
 #include "runtime_arm.h"
@@ -109,7 +110,7 @@ constexpr uint16_t kWorldMap = 2u;
 // six statues and pillars in list 239; 0027, same room 151 rows lower: keys
 // 31 and 47, drawn right). In the expanded view both spread the view's own
 // key range, -top .. 239 + bottom, over the 256 lists, keeping their order
-// (Jimmy, 2026-10-15; keys closer than about 1.6 can share a list).
+// (keys closer than about 1.6 can share a list).
 constexpr uint32_t kDepthClampCharacters = 0x080140DEu;
 constexpr uint32_t kDepthClampAll = 0x0801412Eu;
 
@@ -223,81 +224,20 @@ int precull_literal(uint32_t pc, uint32_t original, uint32_t* out_value) {
     return 1;
 }
 
-// Where each object record was last placed, by record address. Looked up by
-// the raw Y and X the console was given. Golden Sun 1's lesson, measured
-// here too (F12 0015, 2026-10-05: a creature at row ~170 shown on one frame
-// and gone for the next 50): a lookup that expires after two frames or also
-// needs the tile word fails whenever the game leaves an object's record
-// alone for a while or animates it after placing it, and the object then
-// falls back to the hardware's reading, above the screen.
-//
-// Each record keeps its last few placements, not only the newest: the scene
-// is captured at VBlank start, before the game's VBlank copies this frame's
-// objects to OAM, so OAM can still hold the previous placement of an object
-// that has since moved (F12 0023-0025: walking NPCs at the bottom edge
-// flickered and jumped).
-//
-// Each placement also keeps the record's sprite words as they were then: a
-// world-map object the game unloads has its record zeroed while OAM still
-// shows its last placement for one frame (F12 tla_rewind_0009, 2026-10-14:
-// record 0x020345E0 cleared at frame 44, OAM raw Y 136 still up, drawn at
-// row 136 instead of -120 -- a town blipping in at the bottom).
-struct Placement {
-    unsigned long long frame = 0;
-    uint16_t raw_y = 0, raw_x = 0;
-    int16_t x = 0, y = 0;
-    uint16_t attr0 = 0, attr1 = 0, attr2 = 0;
-};
-constexpr int kHistory = 4;
-struct Placed {
-    uint32_t record = 0;
-    unsigned long long frame = 0;  // newest placement
-    std::array<Placement, kHistory> recent{};
-    int next = 0;
-};
-std::array<Placed, 512> g_placed{};
-constexpr unsigned long long kPlacedLifetime = 600;  // frames
+// Where each object record was last placed (engine field/obj_placements.h).
+using Placement = gbarecomp::ObjPlacements::Placement;
+gbarecomp::ObjPlacements g_placements;
 
 void sync_placement_scene(gba::GbaBus* b) {
-    static unsigned long long previous_frame = 0;
-    static uint32_t previous_state = 0, previous_battle = 0;
-    static uint16_t previous_map = 0;
-    const auto now = runtime_current_frame();
-    const auto state = b->read32(kFieldStatePointer);
-    const auto battle = b->read32(kTlaBattleSlot);
-    const auto map = b->read16(kMapNumber);
-    if (now < previous_frame || state != previous_state ||
-        battle != previous_battle || map != previous_map) g_placed = {};
-    previous_frame = now;
-    previous_state = state;
-    previous_battle = battle;
-    previous_map = map;
+    g_placements.sync(runtime_current_frame(), b->read32(kFieldStatePointer),
+                      b->read32(kTlaBattleSlot), b->read16(kMapNumber));
 }
 
 void note_placed(uint32_t record, int x, int y) {
     gba::GbaBus* b = bus();
     if (!b) return;
     sync_placement_scene(b);
-    if ((record >> 24) != 0x02u && (record >> 24) != 0x03u) return;
-    Placed* slot = nullptr;
-    for (Placed& p : g_placed) {
-        if (p.record == record) { slot = &p; break; }
-        if (!slot || p.frame < slot->frame) slot = &p;  // else the oldest
-    }
-    if (slot->record != record) *slot = Placed{};
-    const unsigned long long now = runtime_current_frame();
-    slot->record = record;
-    slot->frame = now;
-    Placement& p = slot->recent[slot->next];
-    slot->next = (slot->next + 1) % kHistory;
-    p.frame = now;
-    p.raw_y = static_cast<uint16_t>(y & 0xFF);
-    p.raw_x = static_cast<uint16_t>(x & 0x1FF);
-    p.x = static_cast<int16_t>(x);
-    p.y = static_cast<int16_t>(y);
-    p.attr0 = b->read16(record + 4u);
-    p.attr1 = b->read16(record + 6u);
-    p.attr2 = b->read16(record + 8u);
+    g_placements.note(*b, runtime_current_frame(), record, x, y);
 }
 
 int (*g_next_branch)(uint32_t, uint32_t, uint32_t*) = nullptr;
@@ -462,46 +402,7 @@ const Placement* placement_for(uint16_t attr0, uint16_t attr1, uint16_t attr2) {
     gba::GbaBus* b = bus();
     if (!b || !field_running(b)) return nullptr;
     sync_placement_scene(b);
-    const unsigned long long now = runtime_current_frame();
-    const uint16_t raw_y = attr0 & 0xFFu, raw_x = attr1 & 0x1FFu;
-    // A record answers if it still holds this raw position (an object the
-    // game has not moved since), or if it was placed there in the last few
-    // frames (OAM lags the records by one). An older placement of a record
-    // that has since moved on is no answer: a long-gone bottom-margin
-    // placement of another object answered for an NPC just above the view
-    // and drew it in the bottom margin (Jimmy, 2026-10-05).
-    constexpr unsigned long long kRecent = 3;
-    const Placement* best = nullptr;
-    bool best_live = false;
-    for (const Placed& r : g_placed) {
-        if (r.record == 0u || r.frame + kPlacedLifetime < now) continue;
-        // Shape/size, rendering mode and palette/priority distinguish bodies,
-        // shadows and unrelated records sharing the same wrapped coordinates.
-        // The animated tile and OAM-assigned affine matrix index may change.
-        const auto same_kind = [&](uint16_t a0, uint16_t a1, uint16_t a2) {
-            return ((a0 ^ attr0) & 0xFD00u) == 0u && ((a1 ^ attr1) & 0xC000u) == 0u &&
-                   ((a2 ^ attr2) & 0xFC00u) == 0u;
-        };
-        const bool record_kind = same_kind(b->read16(r.record + 4u),
-                                           b->read16(r.record + 6u),
-                                           b->read16(r.record + 8u));
-        const bool live = record_kind && b->read8(r.record + 4u) == raw_y &&
-                          (b->read16(r.record + 6u) & 0x1FFu) == raw_x;
-        for (const Placement& p : r.recent) {
-            if (p.frame == 0u || p.raw_y != raw_y || p.raw_x != raw_x) continue;
-            if (!live && p.frame + kRecent < now) continue;
-            // A record cleared since (an unloaded object) answers only for
-            // placements whose own sprite words were this kind.
-            if (!record_kind && !same_kind(p.attr0, p.attr1, p.attr2)) continue;
-            const bool better = !best || (live && !best_live) ||
-                                (live == best_live && p.frame > best->frame);
-            if (better) {
-                best = &p;
-                best_live = live;
-            }
-        }
-    }
-    return best;
+    return g_placements.find(*b, runtime_current_frame(), attr0, attr1, attr2);
 }
 
 // A game window is open this frame (set by tla_widescreen_frame).

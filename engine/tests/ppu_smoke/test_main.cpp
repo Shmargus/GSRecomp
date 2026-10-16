@@ -250,8 +250,8 @@ void test_brightness_native_domain_and_green_precision() {
 void test_hblank_affine_reference_reload() {
     Fixture f;
     // Mode 1 BG2: make texture row 0 red and row 1 blue. A HBlank write of
-    // BG2Y=0 must make the next line begin at row 0 even with PD=1.0; the old
-    // renderer wrongly added screen_y*PD again and sampled row 1.
+    // BG2Y=0 must make the next line begin at row 0 even with PD=1.0; the
+    // renderer must not add screen_y*PD again (that would sample row 1).
     const uint16_t dispcnt = 0x0401;
     store16(&f.io[0x0C], 0x0100); // screen base block 1, 128x128.
     store16(&f.io[0x20], 0x0100); // PA=1.0
@@ -1159,7 +1159,7 @@ void test_extended_view_snapshot_latch_policy() {
 
     // A self-sufficient game provider can explicitly authorize immediate
     // margin reconstruction from restored guest state. This must not weaken
-    // the established default used by MMZ and the generic sidecar above.
+    // the default used by the generic sidecar above.
     auto authored_loaded = std::make_unique<gba::GbaPpu>();
     authored_loaded->set_view_margins(120, 120, 0, 0);
     gba::g_ws_authored_margin_layers = 1;
@@ -1223,7 +1223,7 @@ void test_extended_view_obj_covers_full_288_margin() {
     expect_pixel(wide.data() + 287u * 3u, 0, 0, 0,
                  "unadapted OBJ X stayed hardware-signed");
 
-    // The old signed range still reaches x=255 (output 279), proving the
+    // The hardware signed range still reaches x=255 (output 279), proving the
     // missing span is exactly the outer eight pixels, not a whole-side cull.
     store16(&f.oam[2], 255);
     std::fill(wide.begin(), wide.end(), 0);
@@ -1387,8 +1387,8 @@ void test_extended_view_extends_nearest_window_edge() {
                  "inverse aperture failed right margin closed");
 
     // A narrow guest mask between the edge and center probes is still a
-    // non-uniform scanline. The former edge/center-only classifier missed it
-    // and extended visible WINOUT into both margins.
+    // non-uniform scanline. A classifier that only probed the edge and
+    // center would miss it and extend visible WINOUT into both margins.
     store16(&f.io[0x40], 0x1428);   // WIN0 X=[20,40), covers no edge or center.
     store16(&f.io[0x48], 0x0000);   // WIN0 disables BG0.
     store16(&f.io[0x4A], 0x0001);   // WINOUT enables BG0.
@@ -1418,8 +1418,8 @@ void test_extended_view_extends_nearest_window_edge() {
         }
     }
 
-    // Minish's full-room buffers are independent of native 240px HUD/dialog
-    // windows. Its separate opt-in may reconstruct only the regular-BG
+    // A game's full-room buffers are independent of native 240px HUD/dialog
+    // windows. A separate game opt-in may reconstruct only the regular-BG
     // margins while leaving the authentic center masked exactly as authored.
     store16(&f.io[0x40], 0x32BE);   // Non-uniform native window.
     store16(&f.io[0x48], 0x0000);   // Disable BG0 inside WIN0.

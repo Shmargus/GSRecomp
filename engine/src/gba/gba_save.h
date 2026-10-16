@@ -1,8 +1,7 @@
-// gba_save.h — STUB. Cartridge save chip controller.
+// gba_save.h — Cartridge save chip controller (SRAM, Flash, EEPROM).
 //
-// Detect on ROM scan: the standard heuristic is to grep the ROM for
-// SRAM_Vnnn / FLASH_Vnnn / FLASH512_Vnnn / FLASH1M_Vnnn / EEPROM_Vnnn
-// strings (Nintendo SDK signatures). Per-chip state machines:
+// The chip type is detected from the Nintendo SDK signature strings (see
+// detect_save_type in gba_rom_header.h). Per-chip behaviour:
 //   - SRAM 32K: plain byte read/write at 0x0E000000.
 //   - Flash 64K (512Kbit) / 128K (1Mbit): command-driven; manufacturer
 //     IDs differ. Two banks for 128K (selected by command).

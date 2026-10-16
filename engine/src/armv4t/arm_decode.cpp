@@ -1,9 +1,6 @@
 // arm_decode.cpp — ARM-state decoder.
 //
-// Scaffolding pass. Covers the encoding shapes we need for the bring-up
-// smoke test: data processing (imm + shifted reg), B/BL, BX, LDR/STR
-// immediate, LDM/STM, MUL, SWI, MRS/MSR. Other encodings fall through
-// to `Undefined` and will be filled in as the test corpus grows.
+// Encodings with no decoder here fall through to `Undefined`.
 
 #include "arm_decode.h"
 

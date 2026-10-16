@@ -9,10 +9,11 @@
 // the same state; here they fill the eight characters' records 0x02000520 +
 // id * 0x14C (max HP, max PP, HP, PP at +0x34..+0x3A; F12 0048). The three
 // multipliers act on the battle reward tally T = [0x03000024] + 0x550
-// (FACTS.md, 2026-10-08): coins T+0 and EXP T+4 are scaled on entry to the
-// payout 0x081284C0, once per won battle, so "You got ..." shows the scaled
-// amounts (the game caps coins at 999,999 itself, 0x080AFEB0). Drop Chance
-// scales the drop roll's threshold r5 at its `ble` 0x0812846E.
+// (FACTS.md, 2026-10-08): each defeated enemy's coins (T+0) and EXP (T+4)
+// are scaled as 0x0812824C adds them, as in Golden Sun 1, so 0.5x halves
+// each reward and "You got ..." shows the scaled total
+// (the game caps coins at 999,999 itself, 0x080AFEB0). Drop Chance scales
+// the drop roll's threshold r5 at its `ble` 0x0812846E.
 
 #include <algorithm>
 #include <cstdint>
@@ -30,9 +31,11 @@ constexpr uint32_t kPartyHpBase = 0x02000554u;  // record 0 + 0x34
 constexpr uint32_t kPartyStride = 0x14Cu;
 constexpr unsigned kPartySlots = 8u;
 
-constexpr uint32_t kTallyOffset = 0x550u;
-constexpr uint32_t kCoinOffset = 0x0u, kExpOffset = 0x4u;
-constexpr uint32_t kPayoutEntry = 0x081284C0u;
+// The tally's accumulating stores in 0x0812824C (32-bit `str`): coins on
+// the bonus path and the plain path, EXP on both.
+constexpr uint32_t kCoinBonusStorePc = 0x0812839Eu;
+constexpr uint32_t kCoinStorePc = 0x081283F8u;
+constexpr uint32_t kExpStorePc = 0x08128404u;
 constexpr uint32_t kDropBranchPc = 0x0812846Eu;
 
 // Multiplier steps, in halves so 0.5x stays exact. 25x..100x apply to
@@ -77,6 +80,7 @@ uint16_t g_held = 0;
 bool g_swallow = false;
 
 int (*g_next_branch)(uint32_t, uint32_t, uint32_t*) = nullptr;
+RuntimeMemWriteOverrideHook g_next_write_override = nullptr;
 
 int step_count(int row) { return row == kDropRow ? kDropStepCount : kStepCount; }
 
@@ -159,12 +163,22 @@ void paint(uint8_t* rgb, uint32_t width, uint32_t height) {
     }
 }
 
-// The tally word at `addr`, times the step's multiplier.
-void scale(gba::GbaBus* b, uint32_t addr, int step) {
-    if (step == kNormalStep) return;
-    const uint64_t scaled =
-        static_cast<uint64_t>(b->read32(addr)) * kStepHalves[step] / 2u;
-    b->write32(addr, static_cast<uint32_t>(std::min<uint64_t>(scaled, 0x7FFFFFFFu)));
+// What one tally store adds, times the step's multiplier.
+int reward_store(uint32_t pc, uint32_t addr, uint32_t requested, uint32_t width,
+                 uint32_t* out_value) {
+    if (pc != kCoinBonusStorePc && pc != kCoinStorePc && pc != kExpStorePc)
+        return g_next_write_override
+                   ? g_next_write_override(pc, addr, requested, width, out_value)
+                   : 0;
+    const int step = g_steps[pc == kExpStorePc ? kExpRow : kCoinRow];
+    gba::GbaBus* b = gbarecomp::active_bus();
+    if (!b || !out_value || width != 4u || step == kNormalStep) return 0;
+    const uint32_t before = b->read32(addr);
+    const uint64_t added = static_cast<uint32_t>(requested - before);
+    const uint64_t total =
+        before + added * static_cast<uint64_t>(kStepHalves[step]) / 2u;
+    *out_value = static_cast<uint32_t>(std::min<uint64_t>(total, 0x7FFFFFFFu));
+    return *out_value != requested;
 }
 
 // The drop roll's BLE (taken = no drop), decided on the scaled threshold.
@@ -182,17 +196,8 @@ int drop_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
 
 }  // namespace
 
-void tla_cheat_menu_on_entry(uint32_t pc) {
-    if (pc != kPayoutEntry) return;
-    gba::GbaBus* b = gbarecomp::active_bus();
-    if (!b) return;
-    const uint32_t tally = b->read32(kTlaBattleSlot) + kTallyOffset;
-    scale(b, tally + kCoinOffset, g_steps[kCoinRow]);
-    scale(b, tally + kExpOffset, g_steps[kExpRow]);
-}
-
-// After tla_options_load. Chains in front of the branch hook already in
-// RunOptions.
+// After tla_options_load. Chains in front of the branch and write hooks already
+// installed.
 void tla_install_cheat_menu(gbarecomp::RunOptions& options) {
     runtime_set_party_layout(kPartyHpBase, kPartyStride, kPartySlots);
     for (int row = kExpRow; row < kRowCount; ++row) {
@@ -205,4 +210,6 @@ void tla_install_cheat_menu(gbarecomp::RunOptions& options) {
     options.paused_overlay = paint;
     g_next_branch = options.conditional_branch_override;
     options.conditional_branch_override = drop_branch;
+    g_next_write_override = g_runtime_mem_write_override;
+    g_runtime_mem_write_override = reward_store;
 }

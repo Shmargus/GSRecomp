@@ -1,8 +1,9 @@
 // host_config_ui.h — Dear ImGui configuration UI for the host window.
 //
-// Ship-of-Harkinian-shaped: a menu bar across the top with dockable panels
-// under it (Controller, Hotkeys, Video, Audio, Enhancements), mouse-driven,
-// click a bind box then press a key or pad button.
+// One Settings window with a sidebar of pages (Video, Audio, Controls,
+// Hotkeys, Fast Forward, Enhancements, and Game when the game adds switches),
+// usable by mouse, keyboard or controller. To bind, click a box then press a
+// key or pad button.
 //
 // Strictly host-side. It runs at present time, after the guest frame has been
 // uploaded, and touches nothing the emulation reads. The one exception is
@@ -22,28 +23,23 @@ union SDL_Event;
 
 namespace gbarecomp {
 
-// CPU Overclock combo values (TURBO-B2-UI), shared by host_config_ui.cpp
-// (draws the combo) and host_window.cpp (persists + applies the factor).
-// Index -> factor: 0=Off(1x) 1=On(50x ceiling; 10x until 2026-09-30, raised
-// at Jimmy's request). A pinned factor is already a
-// ceiling: the game gets up to this many GBA cycles per frame and HALTs once
-// its frame's work is done, so it never spends more than it needs.
+// CPU overclock choices (TURBO-B2-UI), used by host_window.cpp to persist and
+// apply the factor. Index -> factor: 0=Off(1x) 1=On(50x ceiling). A pinned
+// factor is already a ceiling: the game gets up to this many GBA cycles per
+// frame and HALTs once its frame's work is done, so it never spends more than
+// it needs.
 inline constexpr unsigned kOverclockFactors[2] = {1, 50};
 inline constexpr int kOverclockItemCount = 2;
 
-// UI-02b: synthetic "pad button" ids for the L2/R2 analog triggers, stored in
-// the same int fields (HotkeyBind::pad_button / ConfigUiState::hotkey_pad)
-// that otherwise hold an SDL_GameControllerButton. SDL reports the triggers
-// as an axis (SDL_CONTROLLER_AXIS_TRIGGERLEFT/RIGHT via
-// SDL_CONTROLLERAXISMOTION), never as a button, so there is no real
-// SDL_GameControllerButton value for them to reuse. These sentinels sit
-// strictly above SDL_CONTROLLER_BUTTON_MAX (21 in the pinned SDL2), so they
-// can never collide with a real button value (0..20) or the -1 "unbound"
-// sentinel — existing bindings keep meaning exactly what they meant before.
-// Written as a literal (not SDL_CONTROLLER_BUTTON_MAX) because this header
-// deliberately carries no SDL include, so it stays testable in isolation;
-// each .cpp that uses these sentinels static_asserts the literal still
-// matches SDL_CONTROLLER_BUTTON_MAX at compile time.
+// Synthetic "pad button" ids for the L2/R2 analog triggers, stored in the same
+// int fields (HotkeyBind::pad_button / ConfigUiState::hotkey_pad) that
+// otherwise hold an SDL_GameControllerButton. SDL reports the triggers as an
+// axis (SDL_CONTROLLERAXISMOTION), never as a button. These ids sit strictly
+// above SDL_CONTROLLER_BUTTON_MAX (21 in the pinned SDL2), so they cannot
+// collide with a real button (0..20) or the -1 "unbound" sentinel.
+// Written as a literal because this header deliberately carries no SDL
+// include; each .cpp that uses them static_asserts the literal against
+// SDL_CONTROLLER_BUTTON_MAX.
 // Shared by host_window.cpp (event dispatch, INI parse/write) and
 // host_config_ui.cpp (bind-box capture + display label).
 inline constexpr int kPadTriggerLeftValue  = 21;  // == SDL_CONTROLLER_BUTTON_MAX
@@ -132,14 +128,14 @@ struct ConfigUiColourChoice {
 // keeps this file free of SDL backend details and testable in isolation.
 struct ConfigUiState {
     // --- input bindings -----------------------------------------------------
-    // GBA KEYINPUT bit order: 0=A 1=B 2=Sel 3=Start 4=R 5=L 6=Up 7=Down 8=R 9=L.
+    // GBA KEYINPUT bit order: 0=A 1=B 2=Sel 3=Start 4=Right 5=Left 6=Up 7=Down 8=R 9=L.
     int   key_bind[10] = {};        // SDL_Scancode, 0 = unbound
     int   pad_bind[10] = {};        // SDL_GameControllerButton, -1 = unbound
     int   hotkey_key[16] = {};      // SDL_Keycode per HostHotkey
     unsigned hotkey_mods[16] = {};  // required KMOD_* bits
-    int   hotkey_pad[16] = {};      // SDL_GameControllerButton, -1 = unbound (UI-02)
+    int   hotkey_pad[16] = {};      // SDL_GameControllerButton, -1 = unbound
     int   hotkey_count = 0;
-    const char* const* hotkey_names = nullptr;  // display labels (UI-02: not the persistence keys)
+    const char* const* hotkey_names = nullptr;  // display labels, not the persisted config.ini keys
 
     bool  stick_bindings_available = false;  // host supports synthetic stick ids
 
@@ -171,7 +167,7 @@ struct ConfigUiState {
     bool  mute = false;
 
     // --- speed --------------------------------------------------------------
-    float turbo_multiplier = 4.0f;  // held-Turbo speed cap, 0 = uncapped
+    float turbo_multiplier = 4.0f;  // fast-forward speed multiple; `uncapped` overrides it
     bool  uncapped = false;
     bool  mute_during_turbo = false;
 
@@ -195,17 +191,16 @@ struct ConfigUiState {
     bool  widescreen_available = false;
     bool  widescreen = false;
     int   overclock_index = 0;       // 0=Off(1x) 1=On(50x), see kOverclockFactors
-    // VFX-FLICKER-02/03: temporal frame blend ("LCD ghosting"). 0=Off,
-    // 1..3=Flicker only (selective) Light/Medium/Strong, 4..6=Whole frame
-    // Light/Medium/Strong — see kTemporalBlendItemCount and
-    // kTemporalBlendDefaultIndex in temporal_blend.h (host_config_ui.h
-    // itself stays free of that include — it only draws the combo,
-    // host_window.cpp applies the weight). Default (3) is "Flicker only —
-    // Strong"; must match kTemporalBlendDefaultIndex.
+    // VFX-FLICKER-02/03: temporal frame blend ("LCD ghosting"). The menu
+    // offers 0=Off, 1..3=Flicker only Light/Medium/Strong; 4..6 are legacy
+    // whole-frame values that host_window.cpp migrates to 1..3. See
+    // kTemporalBlendItemCount and kTemporalBlendDefaultIndex in
+    // temporal_blend.h (not included here). The default (3) must match
+    // kTemporalBlendDefaultIndex.
     int   temporal_blend_index = 3;
-    // Live per-BG-layer visibility toggle (Enhancements > Visual > Layers).
-    // Render-only, session-only (never persisted, never serialized). Default
-    // false = all layers visible, matching current behavior exactly.
+    // Live per-BG-layer visibility toggle, applied when layers_changed is set
+    // (no page in this menu sets it now). Render-only, session-only (never
+    // persisted). Default false = all layers visible.
     bool  hide_bg0 = false;
     bool  hide_bg1 = false;
     bool  hide_bg2 = false;
@@ -250,17 +245,14 @@ struct ConfigUiState {
 };
 
 // Create/destroy the ImGui context and SDL backends. Safe to call when ImGui
-// is not compiled in (both become no-ops and `active()` stays false).
+// is not compiled in (init returns false, shutdown does nothing).
 //
-// `use_opengl` is host_window's own runtime check (SDL_GetRendererInfo on
-// the already-created renderer, never assumed from a hint) of whether
-// `renderer` really is the "opengl" SDL_Renderer driver. When true, this
-// wires up imgui_impl_opengl3 + docking + real multi-viewport (panels torn
-// into their own OS windows). When false — the d3d11/software fallback —
-// this keeps the historical imgui_impl_sdlrenderer2 backend with docking
-// enabled but viewports off, since that backend has no upstream viewport
-// support. Either way the caller gets a working config UI; only the
-// multi-viewport capability differs.
+// `use_opengl` is host_window's runtime check (SDL_GetRendererInfo on the
+// created renderer, not the hint) of whether `renderer` really is the
+// "opengl" SDL_Renderer driver. When true, this wires up imgui_impl_opengl3 +
+// docking + real multi-viewport (panels torn into their own OS windows). When
+// false (the d3d11/software fallback) it uses imgui_impl_sdlrenderer2 with
+// docking but no viewports, since that backend has none upstream.
 bool config_ui_init(SDL_Window* window, SDL_Renderer* renderer,
                      bool use_opengl);
 void config_ui_shutdown();

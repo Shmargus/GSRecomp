@@ -113,12 +113,11 @@ bool write_png(const std::string& path, const std::uint8_t* rgb,
 // Host profiler: mark the region where the frame limiter is deliberately
 // asleep, so those samples are not recorded.
 //
-// Without this the profile is dominated by the pacer's own wait -- 57.1% of
-// session_20260917_195930 sat in ntdll, and PERFORMANCE.md records the same
-// trap costing a session on 2026-09-13, when 27% of samples looked like
-// stalls and were the limiter working correctly. A profile taken to explain
-// frames that are OVER budget must not be filled by the frames that came in
-// under it. No-op unless GBARECOMP_HOST_PROF is set.
+// Without this the profile is dominated by the pacer's own wait (in one
+// session 57% of samples sat in ntdll), which looks like stalls but is the
+// limiter working correctly. A profile taken to explain frames that are OVER
+// budget must not be filled by the frames that came in under it. No-op unless
+// GBARECOMP_HOST_PROF is set.
 void host_prof_begin_idle();
 void host_prof_end_idle();
 

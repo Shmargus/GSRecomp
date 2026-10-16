@@ -2,10 +2,10 @@
 //
 // The first-boot runner: the gbarecomp engine and the translated game code,
 // with none of Golden Sun 1's game-specific hooks (effects, RAM-code
-// identity tables); its features are brought over one at a time. Code the static translation did
-// not find -- RAM-resident routines and anything reached only through data --
-// goes through the engine's interpreter bridge and self-heal path, which log
-// each miss so it can be added to config/tla/main.toml with evidence.
+// identity tables). Code the static translation did not find -- RAM-resident
+// routines and anything reached only through data -- goes through the
+// engine's interpreter bridge and self-heal path, which log each miss so it
+// can be added to config/tla/main.toml with evidence.
 //
 // Routines the game copies into RAM buffers at moving addresses run from
 // position-independent translations (src/tla_ram_images.cpp). Instant text
@@ -31,7 +31,6 @@ constexpr char kRomSha1[] = "b500663220cb9bf56b9f8e8c0c544f1d6fa3a824";
 void on_function_entry(std::uint32_t pc) {
     tla_gpu_field_on_entry(pc);
     tla_hard_mode_on_entry(pc);
-    tla_cheat_menu_on_entry(pc);
     tla_gs_save_import_on_entry(pc);
 }
 
@@ -81,7 +80,7 @@ int main(int argc, char** argv) {
     options.function_entry_observer = on_function_entry;
     options.builtin_game_name = "Golden Sun: The Lost Age";
     options.builtin_rom_sha1 = kRomSha1;
-    // Same as Golden Sun 1 (Jimmy, 2026-09-24): no Nintendo code runs; the
+    // Same as Golden Sun 1: no Nintendo code runs; the
     // runtime's own stand-ins replace every BIOS service.
     options.no_bios_by_default = true;
     options.launcher_region = "USA/Europe";

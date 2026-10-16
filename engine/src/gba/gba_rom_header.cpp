@@ -42,10 +42,9 @@ bool decode_entry_branch(uint32_t word, uint32_t pc, uint32_t* target) {
 // The Nintendo logo is a fixed 156-byte sequence at 0x004..0x09F that
 // the BIOS checks before booting. A *real* hardware-equivalent check
 // would byte-compare against the canonical pattern, but the canonical
-// bytes are copyrighted and we don't bundle them. For Phase 0 we
-// instead apply a cheap structural check: the logo region is dense
-// (high byte-value variance) and non-zero — a fully-zeroed or
-// fully-0xFF region means the logo is missing.
+// bytes are copyrighted and we don't bundle them. Instead we apply a
+// cheap structural check: a region that is almost all 0x00 or all 0xFF
+// means the logo is missing.
 bool looks_like_logo(const uint8_t* p) {
     int zeros = 0;
     int ffs   = 0;

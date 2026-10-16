@@ -7,8 +7,9 @@
 // The window owns a logical-size streaming texture matching the active GBA
 // framebuffer pixel format (RGB888). Expanded views opt into a resizable,
 // aspect-correct viewport; the faithful 240x160 path retains the historical
-// fixed SDL presentation. pump() drains the OS event queue, returns a quit flag
-// and a packed GBA KEYINPUT value (active-low, 1 = released).
+// fixed SDL presentation. pump() drains the OS event queue and returns Events:
+// a quit flag, a packed GBA KEYINPUT value (active-low, 1 = released) and the
+// hotkey edges.
 
 #pragma once
 
@@ -73,21 +74,19 @@ public:
     bool drawable_size(int* width, int* height) const;
 
     // Load player keybinds + system hotkeys from `dir` (the exe directory):
-    //   * keybinds.ini — recomp-ui's generic keybinds format ([player1],
-    //     SDL scancode names). Absent file => the built-in defaults below,
-    //     which MATCH recomp-ui's defaults so the launcher rebind page and
-    //     the game always agree: A=X B=Z L=C R=V Start=Return Select=RShift
-    //     + arrow keys.
+    //   * keybinds.ini — [player1] section, SDL scancode names. Absent file
+    //     => the built-in defaults: A=X B=Z L=C R=V Start=Return
+    //     Select=RShift + arrow keys.
     //   * config.ini [KeyMap] — hotkey bindings (SDL keycode names with
-    //     Ctrl+/Alt+/Shift+ prefixes): Fullscreen, Pause, Turbo (Turbo
-    //     Held in the UI), WindowBigger, WindowSmaller, VolumeUp,
-    //     VolumeDown, DisplayPerf, Menu, TurboToggle (Turbo Toggle),
+    //     Ctrl+/Alt+/Shift+ prefixes): Fullscreen, Pause, Turbo (Fast
+    //     Forward hold in the UI), WindowBigger, WindowSmaller, VolumeUp,
+    //     VolumeDown, DisplayPerf, Menu, TurboToggle (Fast Forward toggle),
     //     CheatMenu, AutoFireA, AutoFireB, QuitGame.
-    //   * config.ini [KeyMap.Pad] (UI-02) — the controller half of the same
-    //     rows, same names, SDL game-controller button strings (mirrors
+    //   * config.ini [KeyMap.Pad] — the controller half of the same rows,
+    //     same names, SDL game-controller button strings (mirrors
     //     keybinds.ini's [player1]/[player1_pad] split).
     // Never called => built-in defaults for both (all hotkeys unbound on
-    // the pad side except what the user binds in the Hotkeys tab). Safe to
+    // the pad side except what the user binds on the Hotkeys page). Safe to
     // call when the files don't exist.
     void load_input_config(const char* dir);
 
@@ -165,8 +164,8 @@ public:
         // GBA KEYINPUT layout. Active-low: 1 = released, 0 = pressed.
         // Bits: 0=A 1=B 2=Sel 3=Sta 4=Right 5=Left 6=Up 7=Down 8=R 9=L.
         uint16_t keyinput = 0x03FF;
-        // Edge-triggered save-state slot hotkeys. F1..F9 load slot
-        // 1..9; Shift+F1..F9 save slot 1..9. 0 = no request this pump.
+        // Edge-triggered save-state slot hotkeys. F2..F10 load slot
+        // 1..9; Shift+F2..F10 save slot 1..9. 0 = no request this pump.
         // The caller acts on these at the top of the loop (a clean
         // dispatch boundary), never mid-frame.
         int      save_slot = 0;
@@ -175,12 +174,12 @@ public:
         // limiter — how much is `turbo_multiplier`, unless `turbo_uncapped`,
         // in which case the limiter is switched off entirely (as fast as the
         // host allows; audio will not keep up). Both come from the config
-        // menu's Speed tab and are meaningless while fast_forward is false.
-        // UI-02: driven by two separately bindable hotkeys sharing this one
-        // flag — "Turbo Held" (level-triggered, default Tab: on only while
-        // down) and "Turbo Toggle" (edge-triggered latch: press to flip
-        // on/off). fast_forward is true when EITHER is currently active;
-        // releasing Held does not clear an active Toggle latch.
+        // menu's Fast Forward page and are meaningless while fast_forward is
+        // false. Driven by two separately bindable hotkeys sharing this one
+        // flag: "Fast Forward (hold)" (level-triggered, default Tab: on only
+        // while down) and "Fast Forward (toggle)" (edge-triggered latch: press
+        // to flip on/off). fast_forward is true when EITHER is active;
+        // releasing Hold does not clear an active Toggle latch.
         bool     fast_forward = false;
         float    turbo_multiplier = 4.0f;
         bool     turbo_uncapped = false;
@@ -199,7 +198,8 @@ public:
         // title-bar readout.
         bool     toggle_fullscreen = false;
         bool     toggle_pause = false;
-        // The Cheat Menu hotkey (HK_GAME_MENU) was pressed this pump.
+        // The game-menu hotkey (HK_GAME_MENU, "CheatMenu" in config.ini) was
+        // pressed this pump.
         bool     game_menu = false;
         bool     window_bigger = false;
         bool     window_smaller = false;

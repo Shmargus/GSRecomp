@@ -46,12 +46,7 @@ PsgMixResult mix_psg_samples(const PsgChannelSamples& samples,
                              const PsgChannelRouting& routing) {
     PsgMixResult out;
     auto add_scaled = [&](int32_t sample, bool left, bool right) {
-        // mGBA sums ch1+ch2+ch3 and applies one <<3 to that combined sum,
-        // then adds a separately pre-shifted ch4
-        // (third_party/mgba/src/gb/audio.c:752-763). Left shift distributes
-        // over addition, so scaling each channel individually before
-        // summing here is equivalent and gives all four channels the same
-        // ×8 scale.
+        // Per-channel x8 scale; see mix_psg_samples in gba_audio.h.
         const int32_t scaled = sample << 3;
         if (left) out.left += scaled;
         if (right) out.right += scaled;
@@ -295,10 +290,8 @@ void GbaAudio::write_io8(uint32_t off, uint8_t v, uint64_t cycles) {
 }
 
 void GbaAudio::write_io8_impl(uint32_t off, uint8_t v) {
-    // Promote to 16-bit writes by tracking the matching pair byte
-    // via an internal cache. For now, treat any 8-bit write to a
-    // pair as a partial update — only the byte changed counts.
-    // The bus has the canonical store; we just need to react.
+    // Each 8-bit write is handled as a partial update: only the byte
+    // changed counts. The bus has the canonical store; we just react.
     switch (off) {
         // SOUND1CNT_L (0x060..0x061): sweep
         case 0x060: {
@@ -460,8 +453,7 @@ void GbaAudio::write_io8_impl(uint32_t off, uint8_t v) {
             break;
         }
         // SOUNDCNT_H (0x082..0x083): DMG channel volume ratio +
-        // SOUND A/B DMA controls. We only model the DMG ratio for
-        // now (bits 0..1 of low byte).
+        // SOUND A/B DMA controls (low byte bits 0..3 here, high byte below).
         case 0x082: {
             dmg_volume_ratio_ = static_cast<uint8_t>(v & 0x3);
             direct_a_full_volume_ = (v & 0x04) != 0;
@@ -811,8 +803,7 @@ int16_t GbaAudio::mix_one_sample(uint32_t direct_slot, bool include_direct,
     if (!master_enable_) return 0;
 
     // Per-channel contributions in the range [-15, +15]. Routing
-    // bits gate whether the channel contributes to either side; we
-    // mix mono for now and treat "either side enabled" as "audible".
+    // bits are applied per side in mix_psg_samples below.
     int32_t ch1_sample = 0;
     int32_t ch2_sample = 0;
 
@@ -887,7 +878,7 @@ int16_t GbaAudio::mix_one_sample(uint32_t direct_slot, bool include_direct,
             ch2_.waveform_cycles -= freq_period;
             ch2_.waveform_phase = (ch2_.waveform_phase + 1) & 7;
         }
-        // Envelope clock: 1/64 second per step = kSampleRate/64 = 512
+        // Envelope clock: 1/64 second per step = sample_rate()/64
         // sample-ticks per step.
         if (ch2_.envelope_step != 0) {
             ++ch2_.envelope_cycles;
@@ -901,7 +892,7 @@ int16_t GbaAudio::mix_one_sample(uint32_t direct_slot, bool include_direct,
                 }
             }
         }
-        // Length clock: 256 Hz = kSampleRate/256 = 128 sample-ticks.
+        // Length clock: 256 Hz = sample_rate()/256 sample-ticks.
         if (ch2_.length_enabled) {
             ++ch2_.length_cycles;
             if (ch2_.length_cycles >= (sample_rate() / 256u)) {
@@ -1014,10 +1005,7 @@ int16_t GbaAudio::mix_one_sample(uint32_t direct_slot, bool include_direct,
     // sides must remain separate: Golden Sun commonly routes its music to
     // different Direct Sound buses, and averaging before the bias stage can
     // cancel those buses or change their clipping.
-    // mix_psg_samples() applies the shared ×8 PSG scale to all four
-    // channels equally, matching mGBA's GBAAudioSamplePSG
-    // (third_party/mgba/src/gb/audio.c:752-763). See its definition above
-    // for why ch3 previously being unscaled here was a bug.
+    // mix_psg_samples() applies the shared x8 PSG scale (see gba_audio.h).
     const PsgMixResult psg_mix = mix_psg_samples(
         PsgChannelSamples{ch1_sample, ch2_sample, ch3_sample, ch4_sample},
         PsgChannelRouting{ch1_left_enable_, ch1_right_enable_,

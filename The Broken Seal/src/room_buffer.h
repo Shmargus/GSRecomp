@@ -1,17 +1,14 @@
-// room_buffer.h — milestone 2, step 1: build a room's tilemap ahead of time
-// and prove it is right.
+// room_buffer.h — build a room's tilemap from the EWRAM map tables, check it
+// against live VRAM, and (optionally) supply it to the PPU for the margins.
 //
-// Nothing here changes what appears on screen. It builds, from the EWRAM map
-// tables, the tile entries the game is about to put in VRAM, then compares
-// them against what the game actually put there. A mismatch count of zero
-// over a session is the evidence that a room can be reconstructed offline —
-// which is the whole premise of milestone 2 (see ROADMAP.md).
+// The check (GSR_ROOM_BUFFER) changes nothing on screen. It builds the tile
+// entries the game is about to put in VRAM and compares them against what the
+// game actually put there. A mismatch count of zero over a session is the
+// evidence that a room can be reconstructed offline (see ROADMAP.md).
+// Verifying against live VRAM is exact, needs no renderer change, and cannot
+// be fooled the way a "looks right on screen" check can.
 //
-// Doing it this way round was a deliberate choice: verifying against live
-// VRAM is exact, needs no renderer change, and cannot be fooled the way a
-// "looks right on screen" check can. The old widescreen work failed three
-// times partly because its per-pixel answers were never checked against
-// anything.
+// The render path (GSR_ROOM_BUFFER_RENDER) is a separate opt-in; see below.
 //
 // Every address and rule below is measured, with the evidence in FACTS.md.
 // None of it is inferred from how the code "ought" to work:
@@ -44,11 +41,11 @@ void room_buffer_init();
 // compares it against live VRAM.
 void room_buffer_on_entry(std::uint32_t entry_pc);
 
-// Observes the field tilemap writers' arguments so the checker knows where in
-// the grid each layer reads. That is not derivable: the writer takes the grid
+// Hook for the field tilemap writers' arguments. The writer takes the grid
 // cell as an argument and the offsets between layers are per-room, with even
 // the axis changing between rooms (FACTS.md, "The per-layer regions, observed
-// directly"). The game states them; this listens.
+// directly"). Drawing reads the offsets from the scroll registers instead;
+// this hook currently does nothing beyond recognising the writers.
 void room_buffer_on_function_args(std::uint32_t entry_pc, std::uint32_t r0,
                                   std::uint32_t r1, std::uint32_t r2);
 

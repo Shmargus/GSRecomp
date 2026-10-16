@@ -797,7 +797,7 @@ void dispatch(const TcpDebugServer::Context& ctx, std::string_view req,
         return;
     }
     if (contains("\"set_break_pc\"")) {
-        // Debug PC breakpoint (MC-HP-002): runtime_should_yield() unwinds
+        // Debug PC breakpoint: runtime_should_yield() unwinds
         // the current runtime_dispatch when the guest PC reaches this
         // value, so the spin inside a single dispatch can be inspected.
         uint64_t value = 0;

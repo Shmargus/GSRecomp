@@ -159,8 +159,9 @@ const char* kVertexSourceFbo =
     "  gl_Position = vec4(a_pos, 0.0, 1.0);\n"
     "}\n";
 
-// Shared by the LCD3x, xBR and CRT Lottes fragment shaders (and ScaleFX's copy). v_uv runs 0..1 across the destination,
-// top-left origin, so v_uv * SourceSize is a position in source pixels.
+// Shared by the LCD3x, xBR and CRT Lottes fragment shaders (and ScaleFX's copy
+// step). v_uv runs 0..1 across the destination, top-left origin, so
+// v_uv * SourceSize is a position in source pixels.
 const char* kFragmentCommon =
     "#version 130\n"
     "uniform sampler2D Texture;\n"

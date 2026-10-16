@@ -1,9 +1,8 @@
 // gpu_surface.h -- a small, game-agnostic OpenGL surface for host rendering.
 //
-// Step 3 of the modern renderer plan. This is the generic half of that work and
-// belongs to the platform core: it knows about shaders, textures, render
-// targets and quads, and nothing whatsoever about any game's map, rooms or
-// actors. Game-specific drawing lives in the game repository and drives this.
+// The generic half of the host renderer, part of the platform core: it knows
+// about shaders, textures, render targets and quads, and nothing whatsoever
+// about any game's map, rooms or actors. Each game's own drawing code drives it.
 //
 // It deliberately does NOT create a window or a GL context. The host window
 // already runs an SDL renderer on the "opengl" driver, and Dear ImGui already

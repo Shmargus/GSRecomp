@@ -14,6 +14,14 @@
 *.sav
 *.state*
 
+# Per-run debug output a game writes into the folder it was started from.
+/recomp_cache/
+/recomp_coverage*
+/recomp_master_misses*
+/hang_dump.log
+/hang_trace.csv
+*.toml.frag
+
 # Agent instructions, status notes and collection docs stay on disk only.
 /AGENTS.md
 /STATUS.md

@@ -110,9 +110,9 @@ if(GBARECOMP_STATIC_RELEASE)
     # NOTE: -static / -static-libgcc / -static-libstdc++ MUST be set
     # via -DCMAKE_EXE_LINKER_FLAGS at configure time (see package_release.ps1).
     # add_link_options() here would only apply to targets defined in
-    # gbarecomp's subdir, not to a parent project that includes us via
-    # add_subdirectory() (e.g. MinishCapRecomp). The cache var works
-    # across the whole tree.
+    # the engine's subdir, not to a parent project that includes us via
+    # add_subdirectory() (a game project). The cache var works across the
+    # whole tree.
 endif()
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -154,17 +154,12 @@ add_library(gbarecomp_gba STATIC
     src/gba/gba_memory.cpp
     src/gba/gba_bus.cpp
     src/gba/gba_io.cpp
-    src/gba/gba_irq.cpp
-    src/gba/gba_dma.cpp
-    src/gba/gba_timers.cpp
     src/gba/gba_ppu.cpp
     src/gba/gba_vram_trace.cpp
     src/gba/gba_audio.cpp
-    src/gba/gba_input.cpp
     src/gba/gba_save.cpp
     src/gba/gba_rtc.cpp
     src/gba/gba_bios.cpp
-    src/gba/gba_scheduler.cpp
     src/gba/gba_rom_header.cpp
     src/gba/sha1.cpp
     src/gba/crc32.cpp
@@ -260,7 +255,6 @@ endif()
 add_library(gbarecomp_runtime STATIC
     src/runtime/runtime.cpp
     src/runtime/bios_hle.cpp
-    src/runtime/generated_dispatch.cpp
     src/runtime/runtime_bus_bridge.cpp
     src/runtime/arm_cpu_bridge.cpp
     src/runtime/overlay_emit.cpp
@@ -310,11 +304,10 @@ else()
     message(STATUS "gbarecomp: no BIOS code linked; no-BIOS mode only")
 endif()
 target_include_directories(gbarecomp_runtime PUBLIC src/runtime)
-# Bake the gbarecomp source root so the Stage-2 runtime compiler can find the
+# Bake the engine source root so the Stage-2 runtime compiler can find the
 # overlay shim headers (src/runtime + src/armv4t) when it invokes g++ or the
-# bundled tcc on a healed function. CMAKE_CURRENT_SOURCE_DIR is the gbarecomp
-# worktree root even
-# when a game project (MinishCapRecomp) pulls us in via add_subdirectory.
+# bundled tcc on a healed function. CMAKE_CURRENT_SOURCE_DIR is the engine
+# root even when a game project pulls us in via add_subdirectory.
 target_compile_definitions(gbarecomp_runtime PRIVATE
     GBARECOMP_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(gbarecomp_runtime PUBLIC
@@ -706,9 +699,8 @@ add_test(NAME ram_image_probe_tests COMMAND ram_image_probe_tests)
 #      gbarecomp_armv4t. It runs both the interpreter and the
 #      generated function per case and diffs the resulting state.
 #
-# Per PRINCIPLES.md "Interpreter is informative, never load-bearing":
-# the interpreter is the diff-oracle, never a runtime fallback. Any
-# divergence is a real codegen bug to fix in arm_codegen.cpp.
+# The interpreter is the diff oracle only (see tests/codegen/test_main.cpp);
+# any divergence is a codegen bug to fix in arm_codegen.cpp.
 # ─────────────────────────────────────────────────────────────────────
 add_executable(gen_codegen_tests
     tests/codegen/gen_codegen_tests.cpp
@@ -797,7 +789,7 @@ if(GBARECOMP_BUILD_ORACLE)
 endif()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# runtime.cmake — game projects (e.g. MinishCapRecomp) include this to add
+# runtime.cmake — game projects include this to add
 # a runnable target that links generated C against the runtime libs.
 # ─────────────────────────────────────────────────────────────────────────────
 configure_file(

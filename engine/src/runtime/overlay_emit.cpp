@@ -17,10 +17,9 @@ std::string emit_overlay_c(uint32_t pc, bool thumb,
                            uint32_t base, uint32_t* out_end,
                            bool relocatable) {
     // Discover the function rooted at `pc` against the live code image. The
-    // walk sets end_addr to the function's own CFG extent (function_finder
-    // line ~1475), clamped down only by a discovered neighbour. Capped low:
-    // we only need THIS entry — its callees self-heal independently on first
-    // hit (single-candidate, one function per DLL).
+    // walk sets end_addr to the function's own CFG extent, clamped down only by
+    // a discovered neighbour. Only THIS entry is wanted: its callees self-heal
+    // independently on first hit (one function per DLL).
     FunctionFinder ff(bytes, size, base);
     FunctionSeed seed;
     seed.addr = pc;

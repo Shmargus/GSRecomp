@@ -80,8 +80,8 @@ int main() {
     // Integer letterbox (the default) — exact multiples are unchanged.
     expect_layout(720, 480, 240, 160, ScalingMode::IntegerLetterbox,
                   0, 0, 720, 480, 3, "integer exact 3x");
-    // ...and non-multiples now snap DOWN to a whole scale and letterbox,
-    // instead of the old 999x666 uneven fill.
+    // ...and non-multiples snap DOWN to a whole scale and letterbox (no
+    // uneven fill such as 999x666).
     expect_layout(1000, 700, 240, 160, ScalingMode::IntegerLetterbox,
                   20, 30, 960, 640, 4, "integer letterboxed 4x");
     expect_layout(1920, 1080, 240, 160, ScalingMode::IntegerLetterbox,

@@ -67,7 +67,7 @@ const EffectCaptureProfile& effect_capture_profile() {
         //   * every resident ARM routine (plain copy, clear, fill) and every
         //     generated stamp starts with a 4-byte Thumb stub (`bx pc`).
         // The canvas is not taken from an allocation slot: GS1's slot id read
-        // 0 in every capture (session 20261004_211450: 0 stamps, 0 copies).
+        // 0 in every capture (a measured run: 0 stamps, 0 copies).
         // It is the 16 KB buffer the game copies to video memory instead.
         p.thumb_stub = 4;
         // The game copies ROM 0x080005B8.. (4 KB) to IWRAM.

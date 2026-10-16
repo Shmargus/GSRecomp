@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Native Linux counterpart of tla_build.ps1; never uses Windows build outputs.
+# Native Linux build (Windows: ../scripts/build_game.ps1 -Game LostAge); never uses Windows build outputs.
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo"

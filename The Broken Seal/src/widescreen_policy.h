@@ -36,8 +36,7 @@ inline constexpr std::int32_t kMaxExpandedExtraY = 80;
 // can still owe it several columns of sprite. Stopping the widened bands
 // exactly at the view edge therefore drops those sprites a moment early --
 // visible as NPCs and shadows winking out at the right-hand edge. Carry the
-// bands ~10% of the view further out (2026-09-06, asked for by the user after
-// watching NPCs vanish at the right).
+// bands ~10% of the view further out.
 //
 // Horizontal only. The vertical band cannot be extended past the view's own
 // bottom row: OAM Y is eight bits, so a row below 240+ex_bottom shares its
@@ -1775,7 +1774,7 @@ inline constexpr int golden_sun_obj_y_shown_reading(
     std::uint32_t extra_top = kExpandedExtraY,
     std::uint32_t extra_bottom = kExpandedExtraY,
     bool world_map_native_wrap = false) {
-    // Field builders now admit actors outside the handheld's cull rectangle.
+    // Field builders admit actors outside the handheld's cull rectangle.
     // Their byte wraps are not native placements: keep the authenticated full
     // coordinate even when the actor is beyond the expanded view. The older
     // world-map event exception (Flint) remains confined to that path.

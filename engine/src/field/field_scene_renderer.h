@@ -1,6 +1,6 @@
 // field_scene_renderer.h -- draws a described frame with the graphics card.
 //
-// Step 4 of docs/NATIVE_SCENE_RENDERER_PLAN.md, Golden Sun's half. It takes a
+// Step 4 of "The Broken Seal/docs/NATIVE_SCENE_RENDERER_PLAN.md", Golden Sun's half. It takes a
 // FieldScene (what the game asked for) plus the frame's video memory, and
 // draws it through gbarecomp's generic GpuSurface.
 //
@@ -203,10 +203,10 @@ public:
     // Loads this frame's room tables -- rect, camera, id grid, atlas -- from
     // an EWRAM byte buffer. `ewram[0]` must be GBA address 0x02000000,
     // whether that is the live guest's EWRAM or a recorded snapshot's
-    // "EWRAM" section (src/map_recorder.cpp). The four addresses this reads
-    // and the per-layer rule draw() applies with them are documented in
-    // src/room_buffer.h, with their evidence in FACTS.md; nothing here is a
-    // new address. Safe to call every frame. Returns false ("not known")
+    // "EWRAM" section (The Broken Seal's src/map_recorder.cpp). The four
+    // addresses this reads and the per-layer rule draw() applies with them are
+    // documented in The Broken Seal's src/room_buffer.h, with their evidence
+    // in FACTS.md; nothing here is a new address. Safe to call every frame. Returns false ("not known")
     // when the rect does not describe a real room -- draw() then falls back
     // to video memory for every pixel of every field layer, same as any
     // other per-pixel miss.

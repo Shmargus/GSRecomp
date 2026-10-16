@@ -51,8 +51,8 @@ int main() {
     put16(rom, 0x04, 0x4708u);
     put32(rom, 0x0C, kBase + 0x20u);
 
-    // Make the false target valid-looking ARM code. Before the regression
-    // fix, the stale constant caused this address to be emitted.
+    // Make the false target valid-looking ARM code; a stale constant would
+    // cause this address to be emitted.
     put32(rom, 0x20, 0xE12FFF1Eu);  // bx lr
 
     gbarecomp::FunctionFinder finder(rom.data(), rom.size(), kBase);
@@ -351,7 +351,7 @@ int main() {
     // PRECEDING halfword really is the matching BL_prefix is a genuine
     // post-IRQ resume point (ARMv4T's THUMB BL is two architectural
     // instructions; an IRQ can land between them with the partial target
-    // already live in LR). It must now be KEPT and rolled into its host as
+    // already live in LR). It must be KEPT and rolled into its host as
     // a mid-function alias entry, not dropped.
     std::vector<std::uint8_t> genuine_pair_rom(0x80, 0);
     put16(genuine_pair_rom, 0x10, 0xF000u);  // BL_prefix, imm hi = 0
@@ -575,7 +575,7 @@ int main() {
     // Fix E: an alias_candidate seed whose walk runs into a declared
     // [[data_range]] is unreachable by construction (real code cannot fall
     // into its own data_range) and must be dropped, not reported as a
-    // collision. Synthetic GS-011 shape: an unconditional ARM computed jump
+    // collision. Synthetic shape: an unconditional ARM computed jump
     // (`LDR pc,[pc,r12,LSL#2]`, is_indirect) terminates the real function's
     // walk; the alias candidate lands one instruction further on, at a NOP
     // the ELF still marks as code, and its own walk falls straight into the
@@ -651,7 +651,7 @@ int main() {
 
     // Fix E control: an alias_candidate seed whose walk stays entirely in
     // code (never touches a data_range) is unaffected — it is rolled into
-    // its host as a mid-function alias exactly as before, and neither drop
+    // its host as a mid-function alias like any other, and neither drop
     // counter moves.
     std::vector<std::uint8_t> alias_in_code_rom(0x40, 0);
     put32(alias_in_code_rom, 0x00, 0xE1A00000u);  // MOV r0,r0 (nop; host entry)

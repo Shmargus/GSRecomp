@@ -1,8 +1,8 @@
 // self_heal.h — Stage-1 self-healing dispatch-miss bookkeeping.
 //
 // When runtime_dispatch lands on a guest PC that has no generated function,
-// runtime_dispatch_miss (src/runtime/runtime_arm_default_aborts.cpp) no longer
-// aborts: it BRIDGES the missed call through the reference interpreter, then
+// runtime_dispatch_miss (src/runtime/runtime_arm_default_aborts.cpp) does not
+// abort: it BRIDGES the missed call through the reference interpreter, then
 // returns control to recompiled code (see that file for the stop-address
 // contract). Every bridge is recorded here so the run can report — honestly —
 // that it was NOT fully static, and so the miss list can seed a reviewed TOML
@@ -12,7 +12,7 @@
 // load-bearing"): a bridged miss MUST be (1) loudly logged, (2) healed toward
 // static, and (3) fed back to the TOML via a *separate* proposal file that a
 // human reviews and merges (never an auto-write to game.toml). Stage 1 does
-// (1) + (3); the on-the-fly recompile of (2) is Stage 2.
+// (1) + (3); the on-the-fly recompile of (2) is Stage 2 (overlay_loader.h).
 
 #pragma once
 
@@ -60,8 +60,8 @@ struct SelfHealMiss {
 // A maximal run of adjacent misses in a PC-sorted list. When
 // `jump_table_candidate`, the run's members are tightly-spaced same-mode
 // misses that look like the case targets of a computed-jump switch the
-// finder could not size (e.g. Minish Cap Kid_Head's fragments in
-// 0x08062894..0x08062920) — review should prefer ONE sized [[jump_table]]
+// finder could not size (e.g. nine fragments in 0x08062894..0x08062920 in
+// another game) — review should prefer ONE sized [[jump_table]]
 // over merging the individual [[extra_func]] entries.
 struct SelfHealCluster {
     std::size_t begin = 0;   // [begin, end) indices into the sorted input
@@ -73,7 +73,7 @@ struct SelfHealCluster {
 // `min_run` same-mode misses, each within `max_gap` bytes of its
 // predecessor, is flagged jump_table_candidate. Every input index lands in
 // exactly one returned cluster (singletons included). Pure / no I/O — unit
-// tested (tests/selfheal/cluster_test.cpp) independently of the runtime.
+// tested (engine/tests/selfheal/cluster_test.cpp) independently of the runtime.
 std::vector<SelfHealCluster> self_heal_cluster_misses(
     const std::vector<SelfHealMiss>& sorted_misses,
     std::uint32_t max_gap, std::size_t min_run);

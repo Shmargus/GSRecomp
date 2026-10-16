@@ -19,8 +19,8 @@ void check(bool cond, const char* msg) {
 }  // namespace
 
 int main() {
-    // 1. Minish Cap Kid_Head's healed fragments (tight, all THUMB, with one
-    //    70-byte gap where an un-hit case sits) → ONE jump-table cluster.
+    // 1. Healed fragments of one jump table ("Kid_Head" below; tight, all THUMB,
+    //    with one 70-byte gap where an un-hit case sits) → ONE jump-table cluster.
     std::vector<SelfHealMiss> kh = {
         {0x08062894u, true, 32}, {0x080628A6u, true, 30}, {0x080628B2u, true, 28},
         {0x080628BCu, true, 28}, {0x080628C6u, true, 30}, {0x080628D0u, true, 28},

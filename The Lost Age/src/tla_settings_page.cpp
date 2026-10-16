@@ -12,15 +12,14 @@
 //   Screen       Normal 240x160 or Wide 360x240, the engine's view mode
 //                (F1 menu, config.ini), drawn by src/tla_gpu_field.cpp;
 //   No Slowdown  the engine's 50x CPU overclock (F1 menu, config.ini). It
-//                once made this game far slower (Jimmy, 2026-10-05): the
-//                overclock stopped the engine skipping idle waits (fixed in
-//                runtime_idle_backedge, FACTS.md 2026-10-07);
+//                once made this game far slower: the overclock stopped the
+//                engine skipping idle waits (fixed in runtime_idle_backedge,
+//                FACTS.md 2026-10-07);
 //   Better Field Psy  field Psynergy casts at battle 2x
 //                (src/tla_battle_speed.cpp, game_options.ini).
 // A/B/Start close the screen as usual. "1/2" or "2/2" and a chevron sit
 // under the window's bottom-right corner on both pages, painted on the
 // finished picture (the strip under the window is the field, not a window).
-//
 //
 // The settings loop 0x080403B8..0x0804049E, after its frame wait
 // (0x08013560), loads the key block 0x03001150 once (literal at 0x080403C4)
@@ -84,9 +83,9 @@ constexpr uint32_t kFrameWaitBranchPc = 0x080134B8u;
 // On every cursor move the loop clears and redraws page one's Speech and
 // Auto-Sleep values ("On"/"Off", text 0x1141 + value at x 0xA0 on line
 // 0x40, 0x1144 + value on line 0x58; clear x 0xA0..0xB8). On page two those
-// showed through for a frame or two (Jimmy, 2026-10-05), as Message speed's
-// did (src/tla_text_speed.cpp). While page two shows, the clears start at
-// their own end and the values are drawn as empty text.
+// showed through for a frame or two, as Message speed's did
+// (src/tla_text_speed.cpp). While page two shows, the clears start at their
+// own end and the values are drawn as empty text.
 constexpr uint32_t kValueTextIds[] = {0x1141u, 0x1142u, 0x1144u, 0x1145u};
 constexpr uint32_t kSpeechClearXPc = 0x0804032Au;     // movs r1,#0xa0
 constexpr uint32_t kValueClearEndX = 0xB8u;
@@ -390,8 +389,8 @@ void draw_page_two(gba::GbaBus* b) {
         // The blank tile is shared by every empty cell of every window: a
         // blank cell that needs text, including one page two blanked itself
         // earlier (the "< >" moving to its row), gets a free text tile.
-        // Drawing into the blank tile put "<" in every empty cell (Jimmy's
-        // F12s 0009/0010, 2026-10-05).
+        // Drawing into the blank tile put "<" in every empty cell
+        // (F12 0009/0010).
         if (tile == kBlankTile) {
             if (g_page.spare.empty() && !borrow_free_tile()) continue;
             tile = g_page.spare.back();

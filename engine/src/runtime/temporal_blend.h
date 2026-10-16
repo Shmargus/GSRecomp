@@ -6,9 +6,10 @@
 // Kolima blue barrier, the world map) exploit this deliberately, alternating
 // their draw every other frame as a translucency trick; a renderer that
 // switches pixels instantly instead of blending them makes that alternation
-// visibly shimmer/flicker. This is an opt-in, default-OFF presentation-only
-// fix: blend the current frame with the previous PRESENTED frame so an exact
-// 2-frame alternation can be fully stabilized (Strong = true 50/50 average).
+// visibly shimmer/flicker. This is a presentation-only fix: blend the current
+// frame with the previous PRESENTED frame so an exact 2-frame alternation can
+// be fully stabilized (Strong = true 50/50 average). The default is "Flicker
+// only - Strong" (kTemporalBlendDefaultIndex).
 //
 // Host-side and presentation-only: nothing here is read by the guest, and it
 // runs after the PPU has produced the frame, so it never affects emulation,
@@ -23,7 +24,7 @@
 
 namespace gbarecomp {
 
-// Combo values, shared by host_config_ui.cpp (draws the "Temporal blend"
+// Combo values, shared by host_config_ui.cpp (draws the "Flicker reduction"
 // combo) and host_window.cpp (applies the weight at present time).
 // Index -> weight is the PREVIOUS presented frame's contribution to the
 // blended output. 0 = Off (the caller must skip blending entirely — this
@@ -120,19 +121,18 @@ inline void temporal_blend_apply_selective(const uint8_t* current,
     for (; i < byte_count; ++i) out[i] = current[i];
 }
 
-// Combo item indices for host_config_ui.cpp's "Temporal blend" combo. It
-// offers Off, three selective ("Flicker only") levels, and three whole-frame
-// levels, all sharing the four weights above:
+// Item indices for the TemporalBlend setting, all sharing the four weights above:
 //   0     = Off
 //   1..3  = Flicker only (selective) — Light/Medium/Strong
 //   4..6  = Whole frame              — Light/Medium/Strong
 // Flicker-only indexes kTemporalBlendWeights directly; whole-frame subtracts
-// 3 first to land on the same four weights.
+// 3 first to land on the same four weights. The F1 combo offers only 0..3;
+// the whole-frame values are still accepted from an older settings file.
 inline constexpr int kTemporalBlendItemCount = 7;
 
 // Default is "Flicker only — Strong": an exact 50/50 blend is what fully
-// stabilizes a true 2-frame alternation, and selective mode (unlike the
-// whole-frame default this replaces) leaves ordinary motion untouched.
+// stabilizes a true 2-frame alternation, and selective mode (unlike a
+// whole-frame blend) leaves ordinary motion untouched.
 inline constexpr int kTemporalBlendDefaultIndex = 3;
 
 inline constexpr bool temporal_blend_index_is_selective(int index) {

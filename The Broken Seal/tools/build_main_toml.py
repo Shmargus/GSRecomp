@@ -479,7 +479,7 @@ REVIEWED_RESUME_FUNCTIONS = (
     # Frame-boundary resume in WINDOWED play. Only reachable with
     # GBARECOMP_PRESENT_IN_PLACE=0, i.e. on the unwind-and-redispatch path;
     # present-in-place hid this class by never unwinding, at the cost of an
-    # unbounded host stack (see gbarecomp docs/DEBUGGING.md).
+    # unbounded host stack (see engine/docs/DEBUGGING.md).
     {
         "addr": 0x080040E8,
         "mode": "thumb",
@@ -487,9 +487,8 @@ REVIEWED_RESUME_FUNCTIONS = (
     },
     # Beyond 5,400 frames: the campaign track is fully static through 5,400, and
     # these are what the 10,800-frame extension of it finds.
-    # Seeded now that the upstream finder's BL-as-long-branch fix (gbarecomp
-    # src/recompile/function_finder.cpp, direct_call_continuation /
-    # stats_.long_branch_calls) is implemented and its test suite passes.
+    # Seeded since the finder's BL-as-long-branch fix (engine/src/recompile/
+    # function_finder.cpp, direct_call_continuation).
     # Func_a2680's ELF extent (0xc38, ending exactly at Func_a32b8), THUMB
     # mode, the $d pad at 0x080a29fa, the 13-word literal pool at
     # 0x080a29fc and the $t resume at 0x080a2a30 were measured and match the
@@ -830,8 +829,7 @@ REVIEWED_RESUME_FUNCTIONS = (
     # scan_veneer_stubs/derive_veneer_resume_points instead of hand-seeded
     # here. See THUMB_LDR_R4_PC0/THUMB_BX_R4 above.
     #
-    # ROM-space self-heal misses from two real play sessions (HANDOFF_CRASH_
-    # SCRIPTED_FIGHT.md seed loop). Each resolved via
+    # ROM-space self-heal misses from two real play sessions. Each resolved via
     # tools/resolve_miss_functions.py to a sized ELF STT_FUNC with a $t
     # mapping symbol at the containing function's entry matching the observed
     # thumb mode, and the miss PC itself sits strictly between that $t and the
@@ -1234,7 +1232,7 @@ REVIEWED_RESUME_FUNCTIONS = (
 # first GS-010 strict-static boundary: native and mGBA architectural state agree
 # through the preceding instruction at 0x080047AC, whose tick reaches VBlank;
 # the headless runtime then unwinds before executing 0x080047AE. The containing
-# THUMB body begins at 0x080047A4. See docs/history/ORACLE_HANDOFF_BASELINE.md.
+# THUMB body begins at 0x080047A4.
 REVIEWED_RESUME_POINTS = (
     {
         "addr": 0x03000C70,
@@ -1890,7 +1888,7 @@ REVIEWED_POINTER_TABLES = (
 # intra-function branches at 0x080ac342 (in `rom_a1000`) and 0x080e578a /
 # 0x080e5ac6 (in `rom_c9000`) as `BL`, and the finder treated a `BL` as a
 # returning call, so it resumed decoding at literal-pool bytes correctly
-# marked `$d`. That defect is now fixed upstream in `gbarecomp`: the finder
+# marked `$d`. That defect is now fixed in the engine's function finder: it
 # recognises a `BL` whose CONTINUATION address `pc + 4` lands inside a declared
 # `data_range` as non-returning and does not enqueue it. (The test is on the
 # continuation, not the branch target, and on the declared data_range, not the

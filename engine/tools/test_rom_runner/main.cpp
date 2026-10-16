@@ -112,8 +112,7 @@ int main(int argc, char** argv) {
 
     // Step loop. Each runtime_dispatch executes one recompiled
     // function. The function may itself call sub-functions (direct
-    // C calls via the names_by_addr map) — those don't count as
-    // separate dispatches. We also detect "stuck PC" (same value
+    // C calls) — those don't count as separate dispatches. We also detect "stuck PC" (same value
     // for K consecutive dispatches) as a sign the m_vsync busy
     // loop has been entered, at which point r12 is stable.
     uint32_t prev_pc = ~0u;

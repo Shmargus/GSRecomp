@@ -63,8 +63,7 @@ std::size_t resolve_offset(uint32_t addr, Region region) noexcept {
             return static_cast<std::size_t>(addr & (kIwramSize - 1));
         case Region::Io:
             // IO range is 0x04000000..0x040003FF; addresses above this
-            // are partial-decode and the bus must log them. We return
-            // a sentinel offset that the bus treats as unmapped.
+            // are partial-decode and the bus must log them.
             return static_cast<std::size_t>(addr - kIoBase);
         case Region::Pal:
             return static_cast<std::size_t>(addr & (kPalSize - 1));

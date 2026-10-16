@@ -11,9 +11,10 @@
 // boundaries), so the hot-path read in overlay_resolve is lock-free. Only
 // the work/ready queues cross to the worker thread (mutex-protected).
 //
-// The whole feature is gated behind GBARECOMP_SELFHEAL_RECOMPILE: when unset,
+// The feature is on by default. GBARECOMP_SELFHEAL_RECOMPILE=0 turns it off:
 // overlay_loader_init no-ops, overlay_resolve always returns nullptr, and the
-// runtime is a pure Stage-1 bridge (used as the A/B baseline for the GFP1 gate).
+// runtime is a pure Stage-1 bridge. Healing of mutable IWRAM/EWRAM code is a
+// further opt-in (GBARECOMP_SELFHEAL_RAM=1).
 //
 // Doctrine (PRINCIPLES.md): healed-from-cache is STILL NOT fully static — the
 // build is done only when the merged TOML makes the static corpus cover it.
@@ -33,7 +34,7 @@ extern "C" {
 #endif
 
 // Invoke-and-status wrapper (defined in overlay_loader.cpp; a null-returning
-// stub in tests/codegen/stubs.cpp). Fallback callers use this when they need to
+// stub in engine/tests/codegen/stubs.cpp). Fallback callers use this when they need to
 // continue in C after the native function returns. The generic dispatcher uses
 // gbarecomp::overlay_resolve() instead so its native transfer can be a tail
 // call. `pc` is already THUMB-bit-stripped. Returns 1 iff this PC has healed.
@@ -122,16 +123,13 @@ bool overlay_alias_relocatable_for_test(uint32_t from_pc, uint32_t to_pc,
 void overlay_relocatable_alias_counters(uint64_t* hits, uint64_t* misses);
 
 // ── Frame-tagged self-heal/SMC instrumentation (diagnostic) ─────────────
-// Added to correlate catastrophic per-frame wall-clock spikes with self-heal
-// churn. Entirely env-gated on GBARECOMP_FRAME_EVENTS=<path>: when unset,
-// every call below is a single bool check and returns immediately, so there
-// is no hot-path cost when the env var is absent. When set, a CSV keyed by
-// frame index (dispatch_miss, compile_enqueued, heal_installed,
-// ram_crc_mismatch, ram_smc_fallback, bridge_us) is written at shutdown. The
-// ready-queue and warm-load columns correlate loader activity with the runtime
-// phase CSV's separate host-pump timer.
-// alongside GBARECOMP_FRAME_PHASE's per-frame wall-clock phase CSV so the two
-// can be joined on `frame`.
+// Correlates per-frame wall-clock spikes with self-heal churn. Env-gated on
+// GBARECOMP_FRAME_EVENTS=<path>: when unset, every call below is a single bool
+// check, so there is no hot-path cost. When set, a CSV keyed by frame index
+// (dispatch_miss, compile_enqueued, heal_installed, ram_crc_mismatch,
+// ram_smc_fallback, bridge_us, plus ready-queue and warm-load columns) is
+// written at shutdown, so it can be joined on `frame` with the per-frame
+// phase CSV from GBARECOMP_FRAME_PHASE.
 //
 // overlay_note_frame — called once per presented frame (from the runtime's
 // present hook, both the present-in-place and fallback paths) so later
@@ -145,16 +143,18 @@ void overlay_note_dispatch_miss(uint32_t pc, bool thumb,
 // overlay_note_smc_fallback — a mutable-RAM AOT guard miss
 // (runtime_mutable_ram_code_miss) fired this frame.
 void overlay_note_smc_fallback(uint32_t pc, bool thumb);
-// overlay_note_bridge_ns — wall-time (nanoseconds) spent synchronously
-// inside runtime_bridge_interpret for one dispatch-miss bridge this frame.
-// Accumulated per frame; dumped as microseconds.
+// overlay_note_bridge_miss — wall-time (nanoseconds) spent synchronously
+// inside runtime_bridge_interpret for one dispatch-miss bridge this frame, plus
+// the instructions interpreted. Accumulated per frame; dumped as microseconds.
 void overlay_note_bridge_miss(uint32_t pc, bool thumb, uint64_t ns,
                               uint64_t interpreted_insns,
                               OverlayRequestOutcome outcome);
 
-// RAM churn probe (GSR_RAM_CHURN_PROBE=1). Writes a sparse, bounded CSV beside
-// GBARECOMP_FRAME_EVENTS at clean shutdown. The probe is independent of the
-// frame aggregate CSV and has no dispatch/cache behavior of its own.
+// RAM churn probe (GSR_RAM_CHURN_PROBE=1). Writes a sparse, bounded CSV at
+// clean shutdown (beside the GBARECOMP_FRAME_EVENTS path if set, else
+// ram-churn.csv). Independent of the frame aggregate CSV; it has no
+// dispatch/cache behavior of its own. overlay_note_ram_crc_mismatch records one
+// stale-RAM detection.
 void overlay_note_ram_crc_mismatch(uint32_t pc, bool thumb);
 
 // True once the heal feature initialized this session; stays true after

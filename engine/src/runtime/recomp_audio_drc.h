@@ -19,7 +19,7 @@
  * Threading: rab_push() is called by the producer (emulation thread), rab_pull()
  * by the consumer (host audio callback). One producer, one consumer. The shared
  * state touched across threads (in_count / out_pos / ring) is accessed in a
- * single-producer/single-consumer pattern; integate with whatever memory ordering
+ * single-producer/single-consumer pattern; integrate with whatever memory ordering
  * the host runner already uses for its existing queue (a mutex around push/pull is
  * fine and is what most of these runners already have).
  */
@@ -46,8 +46,8 @@ typedef struct {
     double err_lp_ms;       /* error low-pass time constant ms (default 75)    */
     double slew_pp_per_s;   /* correction slew, percent-points/sec (default 0.75) */
     double deadband_ms;     /* +/- band around target with no correction (1.0)  */
-    double em_low_ms;       /* below this = underrun emergency (default 12)     */
-    double em_high_ms;      /* above this = overflow emergency (default 105)    */
+    double em_low_ms;       /* (default 12) currently unused                    */
+    double em_high_ms;      /* (default 105) currently unused                   */
     /* --- Phase-1 stall concealment (brief transition/startup producer stalls) --- */
     double preroll_ms;      /* initial prime cushion; 0 => prime at target_ms.      *
                              * A boot pre-roll hides the cold-start hitch for free   *
@@ -315,15 +315,13 @@ static void rab__update_controller(rab_bridge *b) {
 
     if (!b->primed && fill_ms >= b->prime_ms) b->primed = 1;
 
-    /* one control update per pull; low-pass the normalized error. Use the pull
-     * block duration as dt (approx via host_rate is unnecessary here -- we fold
-     * the time constant into a per-update smoothing alpha sized for ~10-20ms). */
+    /* One control update per pull; low-pass the normalized error. dt is a fixed
+     * 12 ms (below), roughly one host audio block, not the real block length. */
     double err = (fill_ms - c->target_ms) / c->target_ms;
     if (fill_ms > c->target_ms - c->deadband_ms &&
         fill_ms < c->target_ms + c->deadband_ms) {
         err = 0.0; /* deadband */
     }
-    /* smoothing alpha: assume ~one update per host audio block (~10ms typical). */
     double dt_ms = 12.0;
     double alpha = dt_ms / (c->err_lp_ms + dt_ms);
     b->err_lp += alpha * (err - b->err_lp);

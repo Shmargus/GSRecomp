@@ -1,20 +1,20 @@
 // Internal Linux game session, embedded in the collection launcher.
 //
-// The Windows launcher (launcher_main.cpp) is Win32 and GDI+; this is its
+// The Windows session (session_windows.cpp) is Win32 and GDI+; this is its
 // Linux counterpart for the player release, drawn with SDL2 and Dear ImGui
 // (the toolkit the in-game F1 menu already uses), so it needs nothing the
 // game does not. It does what the Windows player launcher does:
 //
-//   * Pick ROM: choose the Golden Sun (USA, Europe) ROM, checked by SHA-1.
+//   * Pick ROM: choose the game's ROM (USA, Europe), checked by SHA-1.
 //   * First start (or after an update): run builder/gsr_builder, which
-//     translates the ROM and compiles libGoldenSunGame.so beside the game,
-//     with its progress on screen.
-//   * Start GoldenSunRecomp with the player release's settings, its output
+//     translates the ROM and compiles the game library (lib*.so) beside the
+//     game, with its progress on screen.
+//   * Start the game program with the player release's settings, its output
 //     captured into logs/session_<time>.log.
 //   * Afterwards, if F12 was pressed or the game crashed, pack a bug report
 //     into logs/bug_reports and offer the report form. Nothing is sent.
 //
-// Layout beside this program: GoldenSunRecomp, libGoldenSunGame.so (built
+// Layout beside this program: the game program, its library (built
 // on first start), builder/ (gsr_builder, gba_recompile, data/, engine/,
 // toolchain/).
 #include <SDL.h>
@@ -364,8 +364,7 @@ struct GameResult {
     std::vector<std::string> new_rewinds;
 };
 
-// Runs the game with the player release's settings (the Windows player
-// launcher's) and waits for it.
+// Runs the game with the player release's settings and waits for it.
 GameResult run_game(const std::string& rom) {
     GameResult result;
     result.rom = rom;
@@ -410,8 +409,8 @@ GameResult run_game(const std::string& rom) {
     // a launcher test setting can still switch it off below.
     plan.put("GBARECOMP_SELFHEAL_RAM", "1");
 #ifdef GSR_LINUX_DEV_LAUNCHER
-    // The Windows developer launcher's extras (make_release_linux.sh
-    // --dev): per-frame timing CSVs beside the session log. Rewind stays
+    // The developer launcher's extras (make_release_linux.sh --dev):
+    // per-frame timing CSVs beside the session log. Rewind stays
     // on, as for players, so F12 on the Deck saves the last 2 seconds.
     plan.put("GBARECOMP_FRAME_EVENTS",
              fs::path(result.log_path).replace_extension(".events.csv").string());
@@ -431,8 +430,7 @@ GameResult run_game(const std::string& rom) {
         const char* replay = std::getenv("GBARECOMP_INPUT_REPLAY");
         const std::wstring explicit_record = record ? fs::path(record).wstring() : L"";
         const bool replay_requested = replay && *replay;
-        // Only an explicit GBARECOMP_INPUT_RECORD records input now; the
-        // function tracer that recorded automatically has no launcher box.
+        // Only an explicit GBARECOMP_INPUT_RECORD records input.
         const auto policy = gsr::resolve_launcher_input_record_policy(
             false, explicit_record, replay_requested, L"");
         if (policy.replay_conflict) {
@@ -572,7 +570,7 @@ std::string scrub_user_name(std::string text) {
 }  // namespace gsr_launcher
 namespace {
 
-// The Windows launcher's make_bug_report: the session log, the settings
+// Like the Windows session's make_bug_report: the session log, the settings
 // files and the crash files in every archive, plus at most ONE F12 capture
 // per archive, so each upload stays small. Returns the archives, or the
 // folder when packing failed.
@@ -593,12 +591,12 @@ std::vector<fs::path> make_bug_report(const GameResult& game) {
         if (entry.path().filename().string().rfind(stem, 0) == 0)
             copy_into_report(entry.path(), staging);
     copy_into_report(logs_dir / "launcher.log", staging);
-    // The game's save, kept beside the ROM (runtime.cpp: the ROM path with
-    // .sav), so the problem can be played again from the same place.
+    // The game's save (the managed one in collection play, else beside the ROM:
+    // runtime.cpp uses the ROM path with .sav), so the problem can be replayed.
     if (!game.rom.empty())
         copy_into_report(g_collection_play ? g_managed.save :
             fs::path(game.rom).replace_extension(".sav"), staging);
-    copy_report_files(g_root, g_root, game.crashed, staging);
+    copy_report_files(g_root, g_root, g_root, game.crashed, staging);
     write_text(staging / "report_info.txt",
                report_info_text("System: Linux, " + os_release_name(),
                                 game.new_rewinds.size(), game.crashed,
@@ -729,26 +727,30 @@ void check_for_update() {
 }
 
 // The Send report button: uploads every report archive with the player's
-// description to the report service, through curl. Returns an empty string
-// when all were sent, otherwise why not.
-std::string send_reports(const std::vector<fs::path>& reports, const std::string& description) {
+// description and, when they gave one, their Reddit username to the report
+// service, through curl. Returns an empty string when all were sent,
+// otherwise why not.
+std::string send_reports(const std::vector<fs::path>& reports, const std::string& description,
+                         const std::string& reddit) {
     for (std::size_t i = 0; i < reports.size(); ++i) {
         std::string part = description;
         if (reports.size() > 1)
             part += " [part " + std::to_string(i + 1) + " of " + std::to_string(reports.size()) + "]";
+        std::vector<std::string> command = {
+            "curl", "-sS", "-m", "300", "-X", "POST",
+            "-H", "X-GSR-Client: GoldenSunLauncher",
+            "-H", "X-GSR-Platform: linux",
+            "-H", "X-GSR-Game: " + gsr_online::percent_encode(session_game().stem),
+            "-H", std::string("X-GSR-Launcher: ") + gsr_online::kReleaseVersion + " " + __DATE__,
+            "-H", "X-GSR-File: " + gsr_online::percent_encode(reports[i].filename().string(), 120),
+            "-H", "X-GSR-Description: " + gsr_online::percent_encode(part),
+            "-H", "Content-Type: application/octet-stream",
+            "--data-binary", "@" + reports[i].string(),
+            "-w", "\n%{http_code}",
+            std::string("https://") + gsr_online::kReportHost + gsr_online::kReportPath};
+        if (!reddit.empty()) command.insert(command.begin() + 6, {"-H", "X-GSR-Reddit: " + reddit});
         std::string answer;
-        const int rc = run_capture(
-            {"curl", "-sS", "-m", "300", "-X", "POST",
-             "-H", "X-GSR-Client: GoldenSunLauncher",
-             "-H", "X-GSR-Platform: linux",
-             "-H", std::string("X-GSR-Launcher: ") + gsr_online::kReleaseVersion + " " + __DATE__,
-             "-H", "X-GSR-File: " + gsr_online::percent_encode(reports[i].filename().string(), 120),
-             "-H", "X-GSR-Description: " + gsr_online::percent_encode(part),
-             "-H", "Content-Type: application/octet-stream",
-             "--data-binary", "@" + reports[i].string(),
-             "-w", "\n%{http_code}",
-             std::string("https://") + gsr_online::kReportHost + gsr_online::kReportPath},
-            &answer);
+        const int rc = run_capture(command, &answer);
         if (rc == 127) return "curl is not installed on this system.";
         if (rc != 0) return "No connection to the report service (curl " + std::to_string(rc) + ").";
         const std::size_t nl = answer.rfind('\n');
@@ -780,6 +782,7 @@ struct Ui {
     std::vector<fs::path> reports;
     bool reports_packed = false;
     char description[512] = {};
+    char reddit[25] = {};        // optional: the player's Reddit username
     std::thread sender;          // the Send report upload
     std::atomic<int> send_state{0};  // 0 not sent, 1 sending, 2 sent, 3 failed
     std::mutex send_mutex;
@@ -1320,6 +1323,11 @@ int gsr_session_main(int game, int argc, char** argv) {
                     ImGui::BeginDisabled(state == 1 || state == 2);
                     ImGui::InputTextMultiline("##description", g_ui.description,
                                               sizeof(g_ui.description), ImVec2(-1, 110));
+                    ImGui::TextWrapped("Your Reddit username, if you'd like the developer to "
+                                       "reach out to you (optional; leave it blank if not):");
+                    ImGui::SetNextItemWidth(240);
+                    ImGui::InputTextWithHint("##reddit", "optional", g_ui.reddit,
+                                             sizeof(g_ui.reddit));
                     ImGui::EndDisabled();
                 }
                 ImGui::TextUnformatted(g_ui.message.c_str());
@@ -1337,8 +1345,9 @@ int gsr_session_main(int game, int argc, char** argv) {
                         launcher_log("Bug report: sending " + std::to_string(g_ui.reports.size()) +
                                      " file(s).");
                         g_ui.sender = std::thread([reports = g_ui.reports,
-                                                   text = std::string(g_ui.description)] {
-                            const std::string error = send_reports(reports, text);
+                                                   text = std::string(g_ui.description),
+                                                   reddit = gsr_online::reddit_name(g_ui.reddit)] {
+                            const std::string error = send_reports(reports, text, reddit);
                             {
                                 std::lock_guard<std::mutex> lock(g_ui.send_mutex);
                                 g_ui.send_error = error;
@@ -1509,6 +1518,7 @@ int gsr_session_main(int game, int argc, char** argv) {
                     g_ui.reports_packed = packed;
                     g_ui.send_state = 0;
                     g_ui.description[0] = '\0';
+                    g_ui.reddit[0] = '\0';
                     g_ui.title =
                         game.unpacker && game.crashed
                             ? "The game's data unpacker hit a crash and could not recover.\n"
@@ -1539,7 +1549,8 @@ int gsr_session_main(int game, int argc, char** argv) {
                                  : std::string("the file")) +
                             " (" + std::to_string(std::max<std::uintmax_t>(1, bytes >> 20)) +
                             " MB) to the developer: the game's log and screen captures, your "
-                            "save file, your settings and your Linux version. Your user name is taken out. "
+                            "save file, your settings and your Linux version, plus the Reddit "
+                            "username above only if you typed one. Your user name is taken out. "
                             "Nothing is sent unless you press Send report.";
                     } else {
                         g_ui.message = "It could not be packed: " +

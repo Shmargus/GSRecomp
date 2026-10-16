@@ -8,10 +8,8 @@
 // the rate follows SOUNDBIAS resolution (32768 Hz default, 65536 Hz
 // when the BIOS raises it).
 //
-// SOUND3/SOUND4 drive many sound EFFECTS (door open, bumps, menu blips,
-// percussion); they were previously decoded but silent, so those SFX
-// were missing. Now implemented per GBATEK. Audio correctness vs the
-// mGBA oracle is validated separately (differential audio sweeps).
+// Audio correctness vs the mGBA oracle is validated separately
+// (differential audio sweeps).
 //
 // References:
 //   GBATEK § "GBA Sound Channel 2 - Tone"
@@ -349,7 +347,7 @@ private:
     // posts 2, 4, 8, or 16 samples depending on SOUNDBIAS resolution.
     uint32_t cycle_accumulator_ = 0;
 
-    // Output ring. Mono int16_t samples at kSampleRate. The host
+    // Output ring. Mono int16_t samples at sample_rate(). The host
     // audio backend pulls from this in chunks.
     std::vector<int16_t> ring_;
     std::size_t ring_head_ = 0;

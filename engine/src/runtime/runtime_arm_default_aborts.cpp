@@ -67,8 +67,7 @@ struct MissRec {
     // per PC (like the dispatch-miss line); per-occurrence counts live in the
     // exit report. A hot interior-resume bridge (e.g. the WaitForVBlank poll
     // yielding at an interior PC every frame) would otherwise flood stderr —
-    // and console I/O is slow enough to dominate windowed wall-time. (recomp-
-    // template PRINCIPLES: structured debug surface, never printf spam.)
+    // and console I/O is slow enough to dominate windowed wall-time.
     bool          toplevel_logged = false;
 };
 
@@ -515,32 +514,10 @@ void record_and_log_miss(std::uint32_t pc, bool thumb) {
 
 }  // namespace
 
-// runtime_dispatch_miss — Stage-1 self-healing interpreter bridge.
-//
-// Stop-address contract (validated against the codegen direct-call ABI in
-// src/armv4t/arm_codegen.cpp): the recompiled caller that reached this miss
-// did `runtime_call_push_return(return_pc); runtime_dispatch(target)`. So the
-// address control must resume at — when the missed subroutine returns — is the
-// top of the call-return stack. We:
-//   1. snapshot the call-return stack and capture stop_pc = top frame;
-//   2. load g_cpu into the interpreter and point it at target_pc;
-//   3. interpret the WHOLE missed call subtree (recompiled callees included)
-//      purely, ticking each instruction so IRQs self-deliver via runtime_tick
-//      -> runtime_irq into the recompiled BIOS, and routing SWIs via
-//      runtime_swi, until the interpreter's PC reaches stop_pc;
-//   4. write the interpreter state back into g_cpu and pop exactly the one
-//      frame the recompiled callee's `bx lr` would have popped, so the caller
-//      resumes as if the subroutine had been a normal recompiled call.
-//
-// Every interpreted instruction is fingerprinted into the SAME always-on ring
-// the generated prologue uses (runtime_insn_fp), so a bridged run diffs
-// bit-identically against a non-excluded build.
-// Max ARM call-nesting depth reached during the most recent bridge pass. The P6
-// sljit gate reads this after its interpreter pass: re-running a healed shard
-// recurses one host C-stack frame per nested dispatch, so a function whose call
-// nesting exceeds the safe stack headroom is pinned rather than re-run. Tracked
-// by the flat interp loop below (which itself costs O(1) host stack), so it is a
-// cheap pre-flight of how deep the shard re-run would recurse. Reset at entry.
+// Whether the live RAM range [start, end) (all in IWRAM or all in EWRAM) still
+// matches `expected_crc32`; 1 if so, else 0. Registers the range's pages for
+// RAM-code write tracking, and caches the CRC result per range until one of
+// those pages is written again.
 extern "C" int runtime_ram_code_guard(uint32_t start, uint32_t end,
                                        uint32_t expected_crc32) {
     const uint32_t region = start >> 24;
@@ -619,27 +596,29 @@ extern "C" void runtime_mutable_ram_code_miss(uint32_t entry_pc, int thumb) {
     }
     // This call site is reached from INSIDE a generated function's own AOT
     // guard (emit_function.cpp), so — unlike the normal runtime_dispatch()
-    // miss path — the Stage-2 healed-overlay tier has never been consulted
-    // for this exact (pc, mode, live-bytes) yet. A RAM slot that alternates
-    // between a small, bounded set of self-assembled variants (the Golden
-    // Sun sound-driver blitter pool is exactly this shape) heals each
-    // variant once; every later return to a previously-seen variant would
-    // otherwise pay a full interpreter bridge again on every single
-    // occurrence, forever, instead of the one memoized native call +
-    // overlay_try_dispatch's own CRC recheck. overlay_try_dispatch only
-    // returns 1 after independently re-verifying the live bytes against the
-    // exact range/CRC its cached entry was compiled from, so this can never
-    // dispatch code that does not match what is resident right now — same
-    // guarantee the ordinary runtime_dispatch() miss path already relies on
-    // (runtime_arm.cpp calls it before runtime_dispatch_miss too). On a
-    // miss (unknown/never-healed content) this is a single hash-map probe
-    // that returns 0, and behavior is byte-for-byte the same as before.
+    // miss path — the Stage-2 healed-overlay tier has not been consulted yet
+    // for this (pc, mode, live-bytes). A RAM slot that alternates between a
+    // small, bounded set of self-assembled variants (the Golden Sun
+    // sound-driver blitter pool is this shape) heals each variant once; without
+    // this probe every later return to a seen variant would pay a full
+    // interpreter bridge again. overlay_try_dispatch only returns 1 after
+    // re-verifying the live bytes against the exact range/CRC its cached entry
+    // was compiled from, so it can never dispatch code that does not match
+    // what is resident now (the ordinary miss path in runtime_arm.cpp relies on
+    // the same guarantee). For unknown content it is one hash-map probe that
+    // returns 0.
     if (overlay_try_dispatch(actual_pc, thumb)) return;
     runtime_dispatch_miss(actual_pc | (thumb ? 1u : 0u));
 }
 
 extern "C" void runtime_iwram_code_write_dump(const char* why);
 extern "C" void runtime_unpacker_slot_dump(const char* why);
+// Max ARM call-nesting depth reached during the most recent bridge pass. The P6
+// sljit gate reads this after its interpreter pass: re-running a healed shard
+// recurses one host C-stack frame per nested dispatch, so a function whose call
+// nesting exceeds the safe stack headroom is pinned rather than re-run. Tracked
+// by the flat interp loop below (which itself costs O(1) host stack), so it is a
+// cheap pre-flight of how deep the shard re-run would recurse. Reset at entry.
 extern "C" uint32_t g_bridge_max_call_depth = 0;
 
 // LP-005 probe: tick-origin tag consumed by cyc_probe() in runtime_bus_bridge.cpp.
@@ -683,17 +662,37 @@ struct PreReadBus : armv4t::Bus {
 // runtime_bridge_interpret — the interpret-the-missed-subtree core, factored out
 // of runtime_dispatch_miss so the P6 sljit differential gate can reuse it as its
 // "interpreter pass": the kept, correct result a healed shard is validated
-// against. Interprets from (entry_pc, entry_thumb) using the SAME stop-address
-// contract and per-instruction tick (IRQ self-delivery + SWI routing) as the
-// on-miss bridge, mutating g_cpu live. The miss log + heal enqueue belong to the
-// dispatch-miss handler (below), not here.
+// against. Interprets from (entry_pc, entry_thumb), mutating g_cpu live. The
+// miss log + heal enqueue belong to runtime_dispatch_miss (below), not here.
+//
+// Stop-address contract (validated against the codegen direct-call ABI in
+// src/armv4t/arm_codegen.cpp): the recompiled caller that reached this miss
+// did `runtime_call_push_return(return_pc); runtime_dispatch(target)`. So the
+// address control must resume at — when the missed subroutine returns — is the
+// top of the call-return stack. We:
+//   1. snapshot the call-return stack and capture stop_pc = top frame;
+//   2. load g_cpu into the interpreter and point it at target_pc;
+//   3. interpret the WHOLE missed call subtree (recompiled callees included)
+//      purely, ticking each instruction so IRQs self-deliver via runtime_tick
+//      -> runtime_irq into the recompiled BIOS, and routing SWIs via
+//      runtime_swi, until the interpreter's PC reaches stop_pc;
+//   4. write the interpreter state back into g_cpu and pop exactly the one
+//      frame the recompiled callee's `bx lr` would have popped, so the caller
+//      resumes as if the subroutine had been a normal recompiled call.
+//
+// Every interpreted instruction is fingerprinted into the SAME always-on ring
+// the generated prologue uses (runtime_insn_fp), so a bridged run diffs
+// bit-identically against a non-excluded build.
+//
+// max_instrs == 0 is the on-miss bridge (aborts on runaway); non-zero is a
+// bounded gate pass that returns 0 instead of aborting.
 extern "C" int runtime_bridge_interpret(uint32_t entry_pc, bool entry_thumb,
                                         uint32_t forced_stop_pc,
                                         std::uint64_t max_instrs) {
     using gbarecomp::active_bus;
 
-    // Instruction budget: 0 → the default 200M abort-on-runaway (the on-miss
-    // bridge); non-zero → a bounded gate pass that returns 0 instead of aborting.
+    // Instruction budget: 0 → the default 200M abort-on-runaway; non-zero →
+    // the bounded gate pass.
     const std::uint64_t cap = max_instrs != 0u ? max_instrs : kBridgeIterationCap;
 
     gba::GbaBus* bus = active_bus();
@@ -779,10 +778,9 @@ extern "C" int runtime_bridge_interpret(uint32_t entry_pc, bool entry_thumb,
     std::array<BridgeGapInstruction, kBridgeGapHistory> gap_history{};
     std::size_t gap_history_count = 0;
     std::size_t gap_history_next = 0;
-    // GBARECOMP_AUDIO_PROBE is a debug-only kill switch for the MP2K
-    // audio-bridge trace below; read once per process (function-local
-    // static, same pattern as golden_sun_wide_diagnostics_enabled() in
-    // src/runner_main.cpp), not once per interpreted instruction.
+    // GBARECOMP_AUDIO_PROBE is a debug-only switch for the MP2K audio-bridge
+    // trace below; read once per process, not once per interpreted
+    // instruction.
     static const bool audio_probe_enabled =
         std::getenv("GBARECOMP_AUDIO_PROBE") != nullptr;
     for (;;) {
@@ -932,18 +930,14 @@ extern "C" int runtime_bridge_interpret(uint32_t entry_pc, bool entry_thumb,
                 // Native call-boundary handoff. The bridge exists to interpret
                 // GENUINELY unknown code; a callee this BL just reached may
                 // already have a verified native body (an AOT-static function
-                // or a healed overlay) sitting right there in the dispatch
-                // tables/g_healed. Without this check the loop above would
-                // single-step through that callee's entire body — and any
-                // calls IT makes — even though calling it natively is both
-                // correct and available. Mirror the exact idiom generated code
-                // uses for an unresolved BL (arm_codegen.cpp emit_branch): the
-                // return is already pushed (call_nest.push_back above mirrors
-                // runtime_call_push_return; push the real one too so a nested
-                // dispatch_miss — the rare RAM-CRC-race case below — gets the
-                // correct stop_pc contract), then call runtime_dispatch, which
-                // re-runs the SAME static-table lookup / RAM dirty-CRC gate /
-                // overlay_try_dispatch chain any other dispatch pays — no new
+                // or a healed overlay). Without this check the loop would
+                // single-step through that callee's whole body, and every call
+                // it makes. Mirror the idiom generated code uses for an
+                // unresolved BL (arm_codegen.cpp emit_branch): push the real
+                // return (so a nested dispatch_miss, the rare RAM-CRC-race
+                // case, gets the right stop_pc), then call runtime_dispatch,
+                // which runs the same static-table lookup / RAM dirty-CRC gate
+                // / overlay_try_dispatch chain as any other dispatch — no new
                 // verification path, no bypass of the CRC32 check.
                 const uint32_t callee_pc = newpc;
                 const bool callee_thumb = cpu.thumb;
@@ -951,9 +945,9 @@ extern "C" int runtime_bridge_interpret(uint32_t entry_pc, bool entry_thumb,
                 // walking a large unknown subtree. Publish only already-ready
                 // results here, at the same guest call boundary where we are
                 // about to query/dispatch them. This never waits or compiles.
-                // Without it, a hot generated callee can be interpreted
-                // hundreds of times until the outer bridge finally returns to
-                // the frame loop, even though its native body is ready.
+                // Without it, a hot callee can be interpreted hundreds of
+                // times until the outer bridge returns, even though its native
+                // body is ready.
                 gbarecomp::overlay_drain_ready();
                 if (runtime_has_static_entry(callee_pc, callee_thumb ? 1 : 0) ||
                     gbarecomp::overlay_query(callee_pc, callee_thumb, nullptr)) {
@@ -973,30 +967,22 @@ extern "C" int runtime_bridge_interpret(uint32_t entry_pc, bool entry_thumb,
                             call_nest.pop_back();
                     } else {
                         // The callee did NOT return to the expected site — the
-                        // exact "unresolved control flow" case codegen's own
+                        // "unresolved control flow" case codegen's own
                         // indirect-BL post-dispatch check exists for (see
                         // emit_direct_branch: `if (R15 != link_value) {
                         // runtime_call_cancel_return(link_value); return; }`).
-                        // Mirror it exactly: drop our own pushed frame if it's
-                        // still there (a nested miss that healed-to-static
-                        // bypasses should_return entirely and never pops it —
-                        // should_return only fires on a normal `bx lr`/`pop
-                        // {pc}` return idiom), then STOP interpreting rather
-                        // than looping back to single-step from wherever we
-                        // landed. Continuing here — as an earlier version of
-                        // this fix did — re-decodes the landing PC as a fresh
-                        // guest instruction on the NEXT iteration; if that PC
-                        // is itself a call boundary into native code, the same
-                        // mismatch recurs and leaks one call_return_stack
-                        // frame per cycle, eventually overflowing it (observed
-                        // in testing: depth climbing 183, 184, 185... to the
-                        // 1024-entry limit). Breaking here hands the landed PC
-                        // straight back to whatever called this bridge — a
-                        // generated caller's own post-dispatch check, or an
-                        // enclosing bridge's own match check just like this
-                        // one — which is exactly how a genuine non-local
-                        // control transfer already propagates outward
-                        // everywhere else in this runtime.
+                        // Mirror it: drop our own pushed frame if it's still
+                        // there (a nested miss that healed-to-static bypasses
+                        // should_return and never pops it), then STOP
+                        // interpreting. Continuing would re-decode the landing
+                        // PC as a fresh instruction; if that PC is itself a
+                        // call boundary into native code, the same mismatch
+                        // recurs and leaks one call_return_stack frame per
+                        // cycle until the 1024-entry stack overflows. Breaking
+                        // hands the landed PC to whatever called this bridge (a
+                        // generated caller's post-dispatch check, or an
+                        // enclosing bridge's check like this one), which is how
+                        // every non-local control transfer propagates here.
                         runtime_call_cancel_return(expect_ret);
                         gbarecomp::store_interp_into_arm_cpu(cpu, g_cpu);
                         break;
@@ -1011,13 +997,11 @@ extern "C" int runtime_bridge_interpret(uint32_t entry_pc, bool entry_thumb,
         // the moment the bridged subtree branches/returns back into a
         // statically-recompiled function, stop interpreting and let the main
         // dispatch loop resume native execution there. g_cpu.R[15] is already
-        // synced (store_interp_into_arm_cpu above), so returning hands the PC
-        // straight to runtime_dispatch. Without this, a degenerate stop_pc
-        // (LR == entry_pc) makes the bridge interpret the whole program and
-        // eventually run away to a garbage PC (FireRed BIOS IntrWait).
-        // Heal to static for an IRQ continuation too (regardless of top_level):
-        // the moment execution re-enters a recompiled function, hand it back to
-        // native so the recompiled intr_main can run its iret (which sets
+        // synced, so returning hands the PC straight to runtime_dispatch.
+        // Without this, a degenerate stop_pc (LR == entry_pc) makes the bridge
+        // interpret the whole program and run away to a garbage PC (FireRed
+        // BIOS IntrWait). Also done for an IRQ continuation: hand control back
+        // to native so the recompiled intr_main can run its iret (which sets
         // g_irq_iret_depth via runtime_exception_return) and terminate
         // runtime_irq()'s drive loop.
         if ((irq_cont || top_level) && (cpu.R[15] & ~1u) != entry_pc &&
@@ -1279,8 +1263,7 @@ extern "C" void runtime_dispatch_miss(uint32_t target_pc) {
     // Golden Sun builds its sprite-drawing routines in IWRAM, so during a
     // summon that is most of them. `miss_iwram_captured` does not help: it
     // is only set once a dump actually happens, so with the variable unset
-    // (the normal case) the lookup repeated forever. See the measurement
-    // below.
+    // (the normal case) the lookup repeated forever. (See the profile below.)
     static const char* const miss_iwram_dump_path =
         std::getenv("GBARECOMP_MISS_IWRAM_DUMP");
     static bool miss_iwram_captured = false;
@@ -1299,15 +1282,9 @@ extern "C" void runtime_dispatch_miss(uint32_t target_pc) {
             }
         }
     }
-    // Also once per process. This one was unconditional: every dispatch miss
-    // paid a full scan of the environment block for it.
-    //
-    // Measured 2026-09-17 on session_20260917_195930, and it settles the CRT
-    // hotspot PERFORMANCE.md had carried open since 2026-09-13. The host
-    // profiler records the first caller outside msvcrt.dll for each CRT
-    // sample: of the 80 such samples, **76 are this function** -- 42 at one
-    // call site and 34 at the other, which are exactly these two getenv
-    // calls. Nothing else in the process accounted for more than one.
+    // Also once per process: an unconditional getenv made every dispatch miss
+    // pay a full scan of the environment block. A host profile
+    // attributed 76 of 80 CRT samples to the two getenv calls in this function.
     static const bool strict_static =
         gbarecomp::env_flag("GBARECOMP_STRICT_STATIC");
     if (strict_static) {

@@ -117,7 +117,7 @@ inline void add_test_environment(ChildEnvironmentPlan& plan, const TestOptionSta
     apply("GSR_OAM_SHADOW_TRACE", state("GSR_OBJ_RECORD"), "1");
 }
 
-// The BIOS logs have no launcher box any more.
+// The BIOS logs have no launcher box any more; both sessions remove them.
 inline constexpr const char* bios_log_variables[] = {
     "GBARECOMP_SWI_LOG", "GBARECOMP_BIOS_PC_LOG", "GBARECOMP_BIOS_READ_LOG"};
 

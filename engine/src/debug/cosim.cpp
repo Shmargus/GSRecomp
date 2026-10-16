@@ -1,7 +1,7 @@
 // cosim.cpp — GBA first-divergence co-simulation engine + minimal TCP server.
 // See COSIM_ORACLE.md. Active ONLY in the GBA_COSIM build (empty TU otherwise, so
-// it is safe in the shared source list). Mirrors the psxrecomp gold standard
-// (_wt-tomba2/psxrecomp/runtime/src/cosim.c), adapted to the ARM7 master clock.
+// it is safe in the shared source list). Design follows psxrecomp's cosim,
+// adapted to the ARM7 master clock.
 //
 // Model: the guest runs normally on the main thread. runtime_tick (the shared
 // per-instruction master-clock advance for BOTH backends) calls cosim_on_tick() at

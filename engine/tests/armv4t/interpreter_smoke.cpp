@@ -1,10 +1,8 @@
 // interpreter_smoke — feed concrete ARM/THUMB programs through the
 // decoder + interpreter and assert the resulting CPU/memory state.
 //
-// This is the bring-up validation surface: every behavior covered
-// here will eventually be cross-checked against jsmolka/gba-tests and
-// nba-emu/hw-test, but the in-tree tests give us a tight feedback
-// loop while those importers are still being written.
+// A fast, in-tree check of interpreter behaviour; the jsmolka gba-suite
+// ROMs (test_rom_arm / test_rom_thumb) give the wider conformance coverage.
 
 #include <array>
 #include <cstdint>
@@ -222,17 +220,13 @@ void test_arm_ldr_str() {
 void test_arm_branch() {
     auto cpu = make_cpu();
     FlatBus bus(64 * 1024);
-    // MOV r0, #1                    @ 0x100
-    // B  +8 (to 0x110, skipping next)@ 0x104   offset = +8
-    //   imm24 = (0x110 - (0x104+8)) >> 2 = (0x110 - 0x10C)/4 = 1
-    //   encoding: 0xEA000001
-    // MOV r0, #2                    @ 0x108   (skipped)
-    // MOV r0, #3                    @ 0x10C   (skipped — fallthrough)
-    // MOV r1, #9                    @ 0x110
+    // MOV r0, #1     @ 0x100
+    // B   +0         @ 0x104   target = 0x104 + 8 + (0 << 2) = 0x10C
+    // MOV r0, #2     @ 0x108   (skipped)
+    // MOV r1, #9     @ 0x10C
     std::vector<uint32_t> code = {
         0xE3A00001,
-        0xEA000000,  // B +0 → branches to next-after, i.e. 0x10C
-                     //   target = 0x104 + 8 + (0 << 2) = 0x10C
+        0xEA000000,
         0xE3A00002,
         0xE3A01009,
     };
@@ -245,11 +239,8 @@ void test_arm_branch() {
 void test_arm_bl_returns_link() {
     auto cpu = make_cpu();
     FlatBus bus(64 * 1024);
-    // BL +0 (sets LR to next instruction, branches to 0x10C)
-    //   encoding: 0xEB000000 → target = 0x100 + 8 + 0 = 0x108? No,
-    //   pc here is 0x100, offset = 0, target = pc+8+0 = 0x108.
-    //   So BL at 0x100 sets LR = 0x104 and PC = 0x108.
-    //   Then MOV r0, #0xAA at 0x108.
+    // BL +0 (encoding 0xEB000000) at 0x100: target = 0x100 + 8 + 0 = 0x108,
+    // and LR = 0x104. Then MOV r0, #0xAA runs at 0x108.
     std::vector<uint32_t> code = {
         0xEB000000,   // 0x100: BL 0x108
         0xE3A00099,   // 0x104: (skipped) MOV r0, #0x99
@@ -338,21 +329,9 @@ void test_thumb_ldr_str() {
 void test_thumb_bx_to_arm() {
     auto cpu = make_cpu();
     FlatBus bus(64 * 1024);
-    // THUMB code at 0x100:
-    //   MOV r0, #0x40        0x2040
-    //   ADD r0, PC, #0       0xA000   → r0 = (PC+4) & ~3 = 0x108
-    //   Then we point r0 explicitly at the ARM payload below.
-    //   Just set r0 directly via a MOV imm and BX r0.
-    //   Use ARM payload at 0x200; ARM address has bit 0 = 0.
-    //
-    // Approach: write THUMB { MOV r0, #0x200; BX r0 }, then put an
-    // ARM MOV r2, #0xAB at 0x200.
-    //   MOV r0, #0x80  is the largest imm we can encode; but the
-    //   THUMB MOV r0, #imm8 is fmt3 (8-bit). 0x80 fits but 0x200
-    //   does not. So instead: build 0x200 via two adds.
-    //
-    // Simpler: put the ARM target word at 0x140 (fits in 8-bit MOV
-    // imm? no — 0x140 still doesn't fit in 8 bits). Use 0x80.
+    // THUMB code at 0x100: MOV r0, #0x80 ; BX r0. THUMB MOV imm is only
+    // 8 bits, so the ARM payload sits at 0x80 (bit 0 clear, so BX switches
+    // to ARM state).
     bus.write32(0x80, 0xE3A020AB);     // ARM: MOV r2, #0xAB
     bus.write32(0x84, 0xEAFFFFFE);     // ARM: B self (halt)
     std::vector<uint16_t> code = {

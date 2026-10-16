@@ -29,8 +29,7 @@ param(
     # Og is the normal, quick-to-compile level; O2 measures whether heavy
     # spells run faster. Passed on every build so a comparison level never sticks.
     [ValidateSet('Og', 'O1', 'O2', 'O3')][string]$GameCodeOpt = 'Og',
-    # Block timing is the default (Jimmy, 2026-09-30; ROADMAP.md "block
-    # bookkeeping"): scripts/block_timing.py rewrites the per-instruction game
+    # Block timing is the default: scripts/block_timing.py rewrites the per-instruction game
     # code into its _block copy and the tree builds that. -PerInstruction
     # builds the per-instruction game code instead, for comparison only.
     # Switching either way recompiles all the game code once.

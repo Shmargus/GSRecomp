@@ -1,8 +1,9 @@
-// gsr_builder -- builds GoldenSunGame.dll on the player's PC from their ROM.
+// gsr_builder -- builds the game library (GoldenSunGame.dll) on the player's PC
+// from their ROM. The GSR_BUILDER_TLA variant, tla_builder, does the same for
+// The Lost Age (TLAGame.dll); the description below is The Broken Seal's.
 //
 // The release ships only our own code: the engine (GoldenSunEngine.dll, run
-// by GoldenSunRecomp.exe),
-// this builder, the translator (gba_recompile.exe), a trimmed compiler and
+// by GoldenSunRecomp.exe), this builder, the translator (gba_recompile.exe), a trimmed compiler and
 // the configuration data. Everything from Golden Sun, code included, comes
 // from the player's ROM, here:
 //
@@ -352,11 +353,11 @@ bool run_parallel(const std::vector<std::function<bool(std::string*)>>& tasks,
 struct Setup {
     fs::path rom;
     fs::path data;        // main.toml, transient-*.toml, overlays/, plan
-    fs::path engine;      // include/, libGoldenSunRecomp_api.a
+    fs::path engine;      // include/, the engine's import library (kApiLibrary)
     fs::path toolchain;   // bin/g++.exe
     fs::path recompiler;  // gba_recompile.exe
     fs::path work;        // generated sources, objects, logs
-    fs::path out_dir;     // where GoldenSunGame.dll goes
+    fs::path out_dir;     // where the game library goes
     int jobs = 0;
     bool keep_work = false;
     bool generate_only = false;
@@ -902,7 +903,7 @@ std::vector<fs::path> game_sources(const fs::path& gen) {
 }
 
 // The tables the engine reads from the DLL, by name (CMakeLists.txt's
-// GoldenSunGame.def): every `extern "C" const ... NAME[] =` in
+// .def file): every `extern "C" const ... NAME[] =` in
 // dispatch_table*.cpp and stamp_registry.cpp.
 std::string make_def(const std::vector<fs::path>& sources) {
     std::string def = std::string("LIBRARY ") + kGameLibrary + "\nEXPORTS\n";
@@ -1034,7 +1035,7 @@ bool compile_and_link(const Setup& s, std::string* error) {
                                log);
 #else
     // ELF needs no export or import list: the library exports every table,
-    // and what it calls in the engine is found in GoldenSunRecomp when the
+    // and what it calls in the engine is found in the game program when the
     // game loads it (the linker exports each engine symbol the build's own
     // copy of this library called, and this one calls the same).
     std::vector<std::string> link = {"-shared", "-Wl,-Bsymbolic", "-o", dll_tmp.string(),

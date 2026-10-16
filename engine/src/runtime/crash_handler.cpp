@@ -245,9 +245,8 @@ Fn load_proc(HMODULE module, const char* name) {
     return reinterpret_cast<Fn>(reinterpret_cast<void*>(GetProcAddress(module, name)));
 }
 
-// Loaded lazily, the first time a report is actually written, per the task's
-// "load it dynamically at crash time" guidance — this keeps dbghelp.dll out
-// of the process entirely on a run that never crashes.
+// Loaded lazily, the first time a report is actually written, which keeps
+// dbghelp.dll out of the process entirely on a run that never crashes.
 void load_dbghelp_if_needed() {
     if (g_dbghelp_load_attempted) return;
     g_dbghelp_load_attempted = true;
@@ -591,8 +590,8 @@ void purecall_handler() {
 // This toolchain builds with g++ (MinGW), which follows the Itanium C++ ABI:
 // a pure virtual call goes through __cxa_pure_virtual, not MSVC's _purecall.
 // libstdc++ defines __cxa_pure_virtual as a weak symbol precisely so it can
-// be overridden; this is the correct hook for the compiler actually in use
-// here, not the MSVC-only _set_purecall_handler the task text named.
+// be overridden; this is the correct hook for g++, unlike the MSVC-only
+// _set_purecall_handler.
 extern "C" void __cxa_pure_virtual() {
     write_crash_report("pure virtual function call (__cxa_pure_virtual)", nullptr);
     std::abort();

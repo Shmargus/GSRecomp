@@ -22,9 +22,10 @@ int g_env_override = -1;
 // Whether the environment has been consulted, kept separate from the ANSWER.
 // g_env_override stays -1 when the variable is unset, because an unset
 // variable must leave g_default_enabled in charge (and that one can still be
-// changed at runtime by the setter below). Without this flag the -1 was doing
-// double duty as "not read yet", so the common case -- variable not set --
-// re-read the environment on every single call.
+// changed at runtime by the setter below). trace_enabled() runs on every
+// VRAM write, so the environment must be read once, not per call: a getenv
+// per write was measured at 11.5% of host samples in an Earthquake profile
+// (2026-09-16).
 bool g_env_read = false;
 DmaDescriptorObserver g_dma_descriptor_observer = nullptr;
 OamShadowWriteObserver g_oam_shadow_write_observer = nullptr;
@@ -58,13 +59,8 @@ std::uint16_t load16(const std::uint8_t* io, std::uint32_t off) {
 }
 
 bool trace_enabled() {
-    // Called on every VRAM write. Measured 2026-09-16 at 11.5% of all host
-    // samples in an Earthquake profile -- not because the trace does any
-    // work (it is off), but because the getenv below ran every time: the
-    // old guard was `g_env_override < 0`, which is also the state an UNSET
-    // variable leaves behind, so the off-by-default case never cached.
-    // Reading the environment is a linear scan of the process block, and
-    // this is the single hottest caller of the C runtime in the profile.
+    // Called on every VRAM write; see g_env_read above for why the
+    // environment is read only once.
     if (!g_env_read) {
         g_env_read = true;
         const char* env = std::getenv("GBARECOMP_VRAM_MAP_TRACE");
@@ -375,9 +371,7 @@ int g_effect_pa = 0;
 int g_effect_ref_x = 0;
 
 bool effect_trace_enabled() {
-    // Same shape as trace_enabled(): consult the environment once. This runs
-    // on every VRAM write, and a getenv per write was measured at 11.5% of a
-    // profile once already.
+    // Same shape as trace_enabled(): consult the environment once (see g_env_read).
     if (!g_effect_env_read) {
         g_effect_env_read = true;
         g_effect_enabled = gbarecomp::env_flag("GSR_EFFECT_TRACE");

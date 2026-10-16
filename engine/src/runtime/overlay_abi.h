@@ -5,9 +5,9 @@
 // The DLL has ZERO unresolved host symbols: at load it is handed a
 // GbaOverlayCallbacks* via the exported overlay_init(), holding a pointer
 // to the host's g_cpu and one function pointer per runtime/bus/arm ABI
-// symbol the generated code may call. This is the psxrecomp model — it
-// avoids exporting g_cpu (a DATA symbol) from the exe, whose MinGW data
-// auto-import is unreliable and would be catastrophic if silently wrong.
+// symbol the generated code may call. This avoids exporting g_cpu (a DATA
+// symbol) from the exe, whose MinGW data auto-import is unreliable and would
+// be catastrophic if silently wrong.
 //
 // VERSIONING: GBA_OVERLAY_ABI_VERSION gates every load. Bump it on ANY
 // change to this struct OR to ArmCpuState's layout (runtime_arm_types.h) —

@@ -2,12 +2,12 @@
 //
 // Goal: capture the *semantics* of an ARM7TDMI instruction in a form
 // that's identical whether the source was ARM (32-bit) or THUMB
-// (16-bit). Codegen and the smoke-test printer both consume this.
+// (16-bit). Codegen, the interpreter and the smoke-test printer all
+// consume this.
 //
 // We do NOT try to be a generic compiler IR. This is purpose-built for
 // translating ARMv4T to C, and structured so an interpreter can run it
-// directly during decoder bring-up — that's what the test harness uses
-// before the full codegen is online.
+// directly.
 
 #pragma once
 

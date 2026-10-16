@@ -1,17 +1,16 @@
 // host_overlay.h — minimal RGB888 overlay primitives for in-window UI.
 //
-// The host window presents a packed RGB888 framebuffer and, until now, drew
-// no text at all (the FPS readout goes in the title bar). The rebind menu
-// needs to draw over the guest frame, so this is the smallest thing that can:
-// a 5x7 bitmap font in an 8x8 cell plus a rectangle fill.
+// The smallest way to draw text over a packed RGB888 frame: a 5x7 bitmap font
+// in an 8x8 cell plus a rectangle fill. The host window uses it for the guest
+// frame label on frame-marker captures; the menus use Dear ImGui instead.
 //
-// Deliberately NOT a general UI toolkit and deliberately not SDL_ttf: no new
-// dependency, no font file to ship, and it composites into the same buffer
-// the framedump path records, so what a capture shows is what was on screen.
+// Deliberately NOT a general UI toolkit and not SDL_ttf: no dependency, no
+// font file to ship, and it draws into the same buffer a capture records, so
+// what a capture shows is what was on screen.
 //
-// Guest-state-neutral: everything here runs at present time on a copy of the
-// frame. It cannot perturb emulation, and verify/frame-hash paths that read
-// the PPU output directly never see it.
+// Guest-state-neutral: it only draws on a copy of the frame at present time,
+// so it cannot perturb emulation or the frame-hash paths that read the PPU
+// output directly.
 
 #pragma once
 

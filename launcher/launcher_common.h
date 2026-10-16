@@ -191,8 +191,10 @@ inline void copy_into_report(const fs::path& from, const fs::path& staging) {
 // folder (`game_dir`, plus its crash files after a crash), and the files the
 // game root keeps for this run only (`root`: the unpacker catcher and guard,
 // deleted by the launcher before every start).
-inline void copy_report_files(const fs::path& game_dir, const fs::path& root,
-                              bool crashed, const fs::path& staging) {
+// `crash_dir` is where the crash handler wrote: beside the running program,
+// which after a Seamless hand-over is The Broken Seal's, not the game's.
+inline void copy_report_files(const fs::path& game_dir, const fs::path& crash_dir,
+                              const fs::path& root, bool crashed, const fs::path& staging) {
     for (const char* file : {"config.ini", "game_options.ini", "keybinds.ini",
                              "run_state.txt"})
         copy_into_report(game_dir / file, staging);
@@ -200,7 +202,7 @@ inline void copy_report_files(const fs::path& game_dir, const fs::path& root,
     if (crashed)
         for (const char* file : {"crash_report.txt", "crash_dump.dmp",
                                  "crash_memory.bin", "crash_trail.csv"})
-            copy_into_report(game_dir / file, staging);
+            copy_into_report(crash_dir / file, staging);
     for (const char* file : {"unpacker_catch.txt", "unpacker_catch.bin",
                              "unpacker_recovered.txt", "unpacker_recovered.bin",
                              "unpacker_journal.csv"})
@@ -212,6 +214,7 @@ inline std::string report_info_text(const std::string& system, std::size_t captu
                                     bool crashed, bool unpacker_caught,
                                     unsigned long exit_code) {
     return std::string("Golden Sun Recompiled bug report\n") +
+           "Game: " + session_game().stem + "\n" +
            "Launcher built: " + __DATE__ + " " + __TIME__ + "\n" +
            system + "\n" +
            "F12 captures: " + std::to_string(captures) + "\n" +

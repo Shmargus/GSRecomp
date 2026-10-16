@@ -1,8 +1,6 @@
 // tests/codegen/test_cases.cpp — the L1 test corpus.
 //
-// One entry per per-IrOp shape we want to pin. The architecture is
-// the deliverable for the first pass; expanding the corpus to every
-// addressing mode + every shift type is incremental work.
+// One entry per per-IrOp shape we want to pin.
 //
 // Encoding cheat sheet for the curious (all 32-bit ARM words):
 //   DP imm:    cond 00 1 opc S Rn Rd  rot4 imm8
@@ -71,11 +69,9 @@ const TestMemInit mem_swp_init[] = {
 
 }  // namespace
 
-// CPSR helpers expressed inline — the codegen test cases are
-// allowed to start with N/Z/C/V cleared and System mode (0x1F) which
-// has no banking weirdness. SVC (0x13) is used for exception-return
-// tests.
-//   System mode: 0x1F
+// CPSR helpers expressed inline — most cases start with N/Z/C/V cleared
+// in System mode (0x1F), which has no register banking. FIQ mode (0x11) is
+// used for the banked-register case.
 #define MODE_SYSTEM 0x1Fu
 #define MODE_FIQ    0x11u
 
@@ -124,9 +120,8 @@ const TestCase kTestCases[] = {
         false, 0, 0,
     },
 
-    // ── DP imm with S: ADDS r0, r0, #0xFFFFFFFF wraps to 0 (Z=1,C=1)
-    //    Encoding immediate of 0xFFFFFFFF? Not encodable. Use SUBS
-    //    instead: r0=1, SUBS r0, r0, #1 → 0, Z=1, C=1.
+    // ── DP imm with S: SUBS r0, r0, #1 with r0=1 → 0, Z=1, C=1
+    //    (An ADDS wrap with #0xFFFFFFFF is not encodable as a rotated imm8.)
     {
         "arm_subs_to_zero",
         false, 0x100u,
@@ -484,8 +479,7 @@ const TestCase kTestCases[] = {
         false, 0, 0,
     },
 
-    // ── STMDB SP! (PUSH-style) ──────────────────────────────────────
-    //    STMDB r0!, {r1, r2}  — pre-decrement, writeback.
+    // ── LDMIA r1!, {r1, r2} — base register also in the list ────────
     {
         "arm_ldmia_wb_base_in_list",
         false, 0x100u,
@@ -496,6 +490,8 @@ const TestCase kTestCases[] = {
         false, 0, 0,
     },
 
+    // ── STMDB SP! (PUSH-style) ──────────────────────────────────────
+    //    STMDB r0!, {r1, r2}  — pre-decrement, writeback.
     {
         "arm_stmdb_wb",
         false, 0x100u,
@@ -506,7 +502,7 @@ const TestCase kTestCases[] = {
         false, 0, 0,
     },
 
-    // ── MUL r0, r1, r2 ──────────────────────────────────────────────
+    // ── STMDB r0, {r8, r9}^ from FIQ mode — stores the user-bank regs
     {
         "arm_stmdb_user_regs_from_fiq",
         false, 0x100u,
@@ -615,6 +611,7 @@ const TestCase kTestCases[] = {
         false, 0, 0,
     },
 
+    // ── MUL r0, r1, r2 ──────────────────────────────────────────────
     {
         "arm_mul",
         false, 0x100u,
@@ -1016,13 +1013,11 @@ const TestCase kTestCases[] = {
     // ── LDM IB with writeback: LDMIB r0!, {r1-r4} ─────────────────
     //   cond=AL, 100 P=1 U=1 S=0 W=1 L=1, Rn=0, list=0x001E
     //   word = 0xE9B0 001E
-    //   IB reads first from addr+4, ascending. Seed at 0x2004..0x2010.
+    //   IB reads ascending, starting at base+4.
     { "arm_ldmib_wb", false, 0x100u, 0xE9B0001Eu,
-      // Base = 0x2000-4? IB advances first then reads, so first read at
-      // base + 4 = 0x2000+4 = 0x2004. We have entries at 0x2000..0x200C
-      // — read 4 starting at 0x2004 → 0x2004..0x2010. Add a fifth entry.
+      // base=0x1FFC; IB advances first, so the first read is at 0x2000 and
+      // the four reads cover the 4-entry block 0x2000..0x200C.
       {0x1FFCu, 0, 0, 0, 0,0,0,0, 0,0,0,0, 0,0,0, 0x100u},
-      // base=0x1FFC, IB: first read at 0x2000 → 0x2000..0x200C → use the 4-entry block.
       MODE_SYSTEM, mem_block_ldm_pattern, 4, false, 0, 0 },
 
     // ── STMIA with writeback: STMIA r0!, {r1, r2} ─────────────────
@@ -1147,12 +1142,9 @@ const TestCase kTestCases[] = {
       (1u<<5) | MODE_SYSTEM, nullptr, 0, false, 0, 0 },
 
     // ── THUMB fmt19 BL pair: BL +4 (two halfwords) ────────────────
-    //   We test only the prefix half here; the suffix is a separate test.
-    //   prefix: 0xF000 (offset hi=0) — sets LR for the next.
-    //   We can't fully test BL semantics with a single instruction;
-    //   verify the prefix updates LR correctly to (PC+4) + 0 = 0x104+0.
-    //   Actually THUMB BL prefix is: LR = PC+4 + (sext(imm11) << 12).
-    //   With imm11=0, LR = 0x104.
+    //   Only the prefix half is tested here (a single instruction); the
+    //   suffix is a separate test. THUMB BL prefix is:
+    //   LR = PC+4 + (sext(imm11) << 12), so with imm11=0, LR = 0x104.
     { "thumb_bl_prefix", true, 0x100u, 0x0000F000u,
       {0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0, 0x100u},
       (1u<<5) | MODE_SYSTEM, nullptr, 0, false, 0, 0 },

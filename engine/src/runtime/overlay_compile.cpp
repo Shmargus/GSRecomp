@@ -22,8 +22,9 @@
 // Baked at configure time (target_compile_definitions): the gbarecomp source
 // root, so the runtime compiler can find the overlay shim headers
 // (overlay_runtime_arm.h / overlay_abi.h in src/runtime, runtime_arm_types.h in
-// src/armv4t) without any source-tree discovery at runtime. Per the plan's
-// scope, a portable/bundled toolchain + header embedding is Stage-2b deferred.
+// src/armv4t) without any source-tree discovery at runtime. A shipped box
+// without the source falls back to the bundled headers
+// (see overlay_include_flags).
 #ifndef GBARECOMP_SRC_DIR
 #  define GBARECOMP_SRC_DIR "."
 #endif
@@ -107,16 +108,15 @@ std::string exe_dir() {
 
 // True under GBARECOMP_HEAL_BACKEND=auto-no-gcc: simulate a shipped, source-less,
 // gcc-less player box ON a dev machine — force the bundled tcc + bundled include
-// even though the dev source + gcc are present. Mirrors psxrecomp's
-// OVERLAY_BACKEND_AUTO_NO_GCC. (resolve_backend() maps the same value to tcc.)
+// even though the dev source + gcc are present. (resolve_backend() in
+// overlay_loader.cpp maps the same value to tcc.)
 bool heal_simulate_shipped() {
     const char* be = std::getenv("GBARECOMP_HEAL_BACKEND");
     return be && std::strcmp(be, "auto-no-gcc") == 0;
 }
 
-// The C++ compiler used to build overlay DLLs. The dev machine has msys2
-// mingw64 g++ on PATH at run time (the runtime exits 127 without it anyway);
-// GBARECOMP_HEAL_CXX overrides for non-default installs.
+// The C++ compiler used to build overlay DLLs. The Windows default is the msys2
+// mingw64 g++; GBARECOMP_HEAL_CXX overrides for non-default installs.
 std::string gxx_path() {
     if (const char* e = std::getenv("GBARECOMP_HEAL_CXX")) {
         if (e[0]) return e;
@@ -162,8 +162,8 @@ std::string tcc_path() {
 // GBARECOMP_SRC_DIR points at the engine source (shim headers in src/runtime +
 // src/armv4t). On a SHIPPED, source-less box those don't exist, so fall back to
 // the headers the release packager flattened into <exe>/overlay_toolchain/
-// include (beside the bundled tcc). Used by BOTH gcc and tcc, so the gcc shipped
-// path is fixed too. Returns a leading-space-prefixed flag string.
+// include (beside the bundled tcc). Used by both gcc and tcc. Returns a
+// leading-space-prefixed flag string.
 std::string overlay_include_flags() {
     const std::string ed = exe_dir();
     const std::string bundled =

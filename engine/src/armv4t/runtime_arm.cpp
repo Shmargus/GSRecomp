@@ -42,14 +42,12 @@ extern "C" uint32_t g_runtime_mem_write_override_pending_addr = 0u;
 extern "C" uint32_t g_runtime_mem_write_override_pending_value = 0u;
 extern "C" uint32_t g_runtime_mem_write_override_pending_valid = 0u;
 
-// TEMPORARY cost-attribution probe (GBARECOMP_COST_PROBE=1), see
-// runtime_bus_bridge.cpp. runtime_irq()'s "drive to completion" loop below
-// is NOT loop overhead — it dispatches the guest's actual IRQ handler (e.g.
-// the VBlank ISR / sound-engine mixing) via nested runtime_dispatch() calls,
-// same cost class as the top-level dispatch bucket, just charged from a
-// different call site. Isolated here so the halt-bucket breakdown does not
-// mislabel real guest execution as "IRQ eligibility check" overhead.
-// Diagnostic-only; intended for removal after the report.
+// Cost-attribution probe (GBARECOMP_COST_PROBE=1), see runtime_bus_bridge.cpp.
+// runtime_irq()'s "drive to completion" loop below is not loop overhead: it
+// runs the guest's actual IRQ handler (e.g. the VBlank ISR / sound-engine
+// mixing) through nested runtime_dispatch() calls. It is charged to its own
+// bucket so the halt-bucket breakdown does not mislabel real guest execution
+// as "IRQ eligibility check" overhead.
 extern "C" unsigned long long g_cost_irq_handler_ns;
 extern "C" unsigned long long g_cost_irq_handler_calls;
 extern "C" bool g_cost_probe_enabled(void);
@@ -205,7 +203,7 @@ struct PoolLdmSourceSnapshot {
 
 // First post-arm clean -> poison transition for the physical r9 source word.
 // This is deliberately independent of the bounded writer rings: a carrier
-// storm must not evict the one transition that matters to CRASH-03.
+// storm must not evict the one transition that matters.
 struct PoolLdmPoisonLatch {
     bool valid = false;
     uint32_t pc = 0;
@@ -625,7 +623,7 @@ extern "C" void runtime_note_ram_image_cpu_write(uint32_t pc,
 }
 
 // Diagnostic-only window re-CRC, callable from the runner alongside each
-// [wide-auth-epoch] emission (see CRASH-03_HANDOFF.md). Payload-free.
+// [wide-auth-epoch] emission. Payload-free.
 extern "C" void runtime_note_pool_ldm_epoch_crc(void) {
     std::fprintf(stderr,
         "runtime_arm: [pool-ldm-crc] reason=auth-epoch "
@@ -1493,7 +1491,7 @@ extern "C" void runtime_trace_event(uint32_t kind, uint32_t pc,
     // Optional frame gate: suppress the mem-write abort until this many
     // VBlank-starts have elapsed. Lets a watchpoint skip the identical
     // early frames and fire on the write in the frame where the value
-    // actually diverges (e.g. MC-HP-002's frame-40 onset). 0 = no gate.
+    // actually diverges. 0 = no gate.
     static uint64_t abort_min_vblank = 0xFFFFFFFFFFFFFFFFull;
     if (abort_min_vblank == 0xFFFFFFFFFFFFFFFFull) {
         const char* env = std::getenv("GBARECOMP_ABORT_ON_MEM_WRITE_MIN_FRAME");
@@ -1501,9 +1499,9 @@ extern "C" void runtime_trace_event(uint32_t kind, uint32_t pc,
     }
     // Optional value gate: only abort when the written value matches. Lets a
     // watchpoint skip a correct write to an address and fire on the specific
-    // erroneous value (e.g. MC-HP-002: a per-frame countdown is written 0x0C
-    // first — correct — then 0x0B by the extra tick; watch value=0x0B to land
-    // on the duplicate write, not the legitimate one). -1 = match any value.
+    // erroneous value (e.g. a per-frame countdown written 0x0C first — correct —
+    // then 0x0B by an extra tick: watch value=0x0B to land on the duplicate
+    // write, not the legitimate one). -1 = match any value.
     static long long abort_mem_value = -2;
     if (abort_mem_value == -2) {
         const char* env = std::getenv("GBARECOMP_ABORT_ON_MEM_WRITE_VALUE");
@@ -1725,8 +1723,8 @@ namespace {
 // ~8M instructions of history (~60+ PPU-frames). The recomp runs several frames
 // ahead of the interp oracle in cumulative cycle (boot step_frame overshoot), so
 // a 1M (~8-frame) ring barely overlapped the interp's at the same frame number;
-// the MC-HP-002 divergence onset (~f3644, deep in the run) needs a wider window
-// so one dump spans both the pre-divergence anchor and the first divergent insn.
+// a divergence deep in a run needs a window wide enough that one dump spans
+// both the pre-divergence anchor and the first divergent instruction.
 // 80 bytes/entry → ~640 MB, only touched when armed (GBARECOMP_INSN_TRACE=1).
 constexpr uint32_t kFpSize = 1u << 23;
 // The F1 crash log's ring: the last ~65k instructions, 5 MB.
@@ -1878,13 +1876,12 @@ extern "C" unsigned long long runtime_bios_pc_log_sample_count(void) {
 // live outside the armv4t lib (the gba_io MMIO write-trace ring).
 extern "C" uint32_t runtime_current_pc(void) { return g_cpu.R[15]; }
 
-// ── IRQ-vector log (MC-HP-002) ─────────────────────────────────────
+// ── IRQ-vector log ─────────────────────────────────────────────────
 // A dedicated, always-on, cycle-stamped log of EVERY IRQ vectoring. The
 // general trace ring (4096) is diluted by mem-writes (thousands/frame) so it
 // spans only a fraction of a frame; this log records one entry per IRQ vector
 // (~1-2/frame) so it spans ~10^4 frames — enough to find, on a fresh boot, the
-// frame where the recomp vectors an EXTRA VBlank IRQ vs the interp oracle (the
-// one-extra-M4A-tick that drifts the sequencer into the f3656 spin). The
+// frame where the recomp vectors an extra VBlank IRQ vs the interp oracle. The
 // `from_halt` flag distinguishes the wake-from-HALT delayed path from the
 // running immediate path. Dumped as CSV on exit when GBARECOMP_IRQ_LOG is set.
 namespace {
@@ -1948,14 +1945,12 @@ extern "C" uint32_t runtime_irq_log_copy_recent(RuntimeIrqLogEntry* out,
     return max;
 }
 
-// ── SWI log (MC-HP-002 milestone-PC sequence) ──────────────────────
+// ── SWI log ────────────────────────────────────────────────────────
 // Always-on, cycle-stamped log of every SWI (BIOS call). VBlankIntrWait is
 // SWI 5; it runs once per main-loop iteration, so its sequence IS the main-loop
-// cadence. Per recomp-template "use the oracle as an order + state + caller
-// reference": we capture cycle + caller(ret) + r0/r1 args + the BIOS IntrWait
-// flags at 0x03007FF8, so a recomp-vs-interp SWI-5 sequence diff shows an EXTRA
-// main-loop iteration (the recomp's 1-frame-ahead slip ~f272) and the IntrWait
-// flag state that produced it. The route column records whether the call used
+// cadence. We capture cycle + caller(ret) + r0/r1 args + the BIOS IntrWait
+// flags at 0x03007FF8, so a recomp-vs-interp SWI-5 sequence diff shows an extra
+// main-loop iteration and the IntrWait flag state that produced it. The route column records whether the call used
 // the recompiled BIOS (LLE), was serviced by HLE, or fell through HLE to LLE.
 // Armed by env GBARECOMP_SWI_LOG; CSV on exit.
 namespace {
@@ -2050,18 +2045,13 @@ extern "C" int arm_cond_passes(unsigned cond) {
 // ── Bus accessors ──────────────────────────────────────────────────
 //
 // The runtime initializer (runtime_init) installs `g_bus_handle` to
-// a pointer to the active gba::GbaBus. Calling the bus is the only
-// per-instruction host-side work the generated code has to do, so
-// these need to be fast.
-//
-// For first cut we delegate via the bus_handle as a fat pointer. A
-// later optimization can compile bus reads inline using the
-// runtime's memory map directly.
+// a pointer to the active gba::GbaBus. The RAM and ROM fast paths are
+// inline in runtime_arm.h; everything else goes through the bus bridge.
 
 namespace {
 
 inline uint32_t* bus_ptr32(void* /*h*/, uint32_t /*addr*/) {
-    return nullptr;  // not used; placeholder for future inlining
+    return nullptr;  // unused placeholder
 }
 
 }  // namespace
@@ -2927,8 +2917,8 @@ extern "C" void runtime_restore_cpsr_from_spsr(void) {
 //   PC          ← 0x00000008
 //
 // Then we runtime_dispatch(0x08) into the recompiled BIOS SWI
-// vector. NO interpreter fallback (PRINCIPLES.md "Interpreter is
-// informative, never load-bearing"). If the BIOS dispatch table is
+// vector. No interpreter fallback here (PRINCIPLES.md "Honest
+// self-healing" governs dispatch misses). If the BIOS dispatch table is
 // empty, the dispatch falls through to runtime_dispatch_miss; the
 // strong (production) version aborts there — that abort is the
 // "BIOS not recompiled" gate.
@@ -3045,13 +3035,13 @@ extern "C" void runtime_swi(uint32_t swi_imm) {
 // here (called from runtime_tick), NOT in runtime.cpp's run loop, so this is
 // the authoritative per-engine IRQ-entry tally. The TCP `counters` command
 // surfaces it (runtime.cpp wires ctx.irq_entries here) so a probe can compare
-// IRQ delivery against the interpreter oracle — the MC-HP-002 1-game-frame-lead
-// test (does the recomp vector an extra/early VBlank IRQ?). Never reset; probes
+// IRQ delivery against the interpreter oracle (does the recomp vector an
+// extra/early VBlank IRQ?). Never reset; probes
 // compare per-frame deltas.
 extern "C" unsigned long long g_runtime_irq_entries = 0;
 // Live host-recursion nesting depth of IRQ delivery (++ on entry, -- after the
-// handler unwinds) and the high-water mark. Distinguishes the MC-HP-002 storm
-// shape: deep nesting (depth climbs → a long handler spanning the next IRQ
+// handler unwinds) and the high-water mark. Distinguishes IRQ-storm
+// shapes: deep nesting (depth climbs → a long handler spanning the next IRQ
 // boundary) vs. flat re-fire (depth stays ~1 → an unacked source re-vectoring).
 // Non-static so runtime_should_yield() (runtime_bus_bridge.cpp) can tell whether
 // an IRQ handler is currently on the host stack — the cpsr mode alone can't,
@@ -3090,7 +3080,7 @@ extern "C" void runtime_irq(uint32_t return_address) {
         g_runtime_irq_max_depth = g_irq_nest_depth;
     // Debug: dump the always-on ring the moment IRQ nesting reaches a
     // threshold, capturing the storm chain BEFORE later busy execution scrolls
-    // it out (MC-HP-002). Env-gated, zero-overhead when unset.
+    // it out. Env-gated, zero-overhead when unset.
     static int irq_depth_gate = -1;
     if (irq_depth_gate < 0) {
         const char* e = std::getenv("GBARECOMP_ABORT_ON_IRQ_DEPTH");
@@ -3109,7 +3099,7 @@ extern "C" void runtime_irq(uint32_t return_address) {
     uint32_t saved_cpsr = g_cpu.cpsr;
     // Record the active IRQ source(s) (IE & IF) in the trace addr field and the
     // nesting depth in aux so a ring dump names which interrupt is being
-    // vectored and how deep — used to pin the MC-HP-002 IRQ storm. Reading
+    // vectored and how deep, to pin an IRQ storm. Reading
     // IE/IF is side-effect-free.
     uint32_t irq_src = bus_read_u16(0x04000200u) & bus_read_u16(0x04000202u);
     runtime_trace_event(RUNTIME_TRACE_IRQ, return_address, irq_src, saved_cpsr,

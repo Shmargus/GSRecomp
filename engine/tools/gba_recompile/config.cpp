@@ -41,7 +41,7 @@ bool parse_jt_mode(const std::string& s, JumpTableEntriesMode& out) {
     return false;
 }
 
-// Hex lowercase, no `0x`. Returns empty string on length mismatch.
+// Lowercase hex with any leading `0x` stripped.
 std::string hex_lower(const std::string& s) {
     std::string out = s;
     if (out.size() > 2 && out[0] == '0' && (out[1] == 'x' || out[1] == 'X')) {
@@ -850,12 +850,10 @@ bool validate_cross_section(const Config& cfg) {
             }
         }
     }
-    // jump_table table bytes overlapping a data_range is also wrong
-    // (the table bytes are AUTO-excluded, declaring them as data
-    // is harmless but suggests confusion — accept silently for now).
-    // Per-table entry-range vs other ranges: deferred to task #5
-    // (the finder is what reads + walks entries; cross-checks
-    // belong there).
+    // A jump_table whose bytes overlap a data_range is accepted: the table
+    // bytes are auto-excluded, so declaring them as data is harmless.
+    // Per-table entry-range checks against other ranges belong in the finder,
+    // which is what reads and walks the entries.
     return true;
 }
 

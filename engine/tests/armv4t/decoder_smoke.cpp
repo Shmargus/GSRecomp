@@ -1,9 +1,9 @@
 // decoder_smoke — feed a fixed set of ARM and THUMB encodings through
 // the decoders and assert each one produces an expected normalized-IR
-// string. Used as a fast regression check; once jsmolka/gba-tests is
-// imported we'll diff against the larger conformance corpus too.
+// string. A fast regression check; the jsmolka gba-suite ROMs (test_rom_arm /
+// test_rom_thumb) cover the larger conformance corpus.
 //
-// Each entry: source mode, raw bytes, address, expected IR string.
+// Each entry: raw encoding, address, note, expected IR string.
 
 #include <cstdio>
 #include <cstdint>
@@ -100,24 +100,21 @@ constexpr ArmCase kArm[] = {
     { 0xE129F000, 0x08000068, "MSR CPSR_fc,r0",
       "08000068 A msr cpsr_cf,r0" },
     // UMULL r0, r1, r2, r3 = 0xE0810392
-    //   bits: cond=1110 0000 1000 0001 0011 1001 0010
+    //   bits: 1110 0000 1000 0001 0000 0011 1001 0010
     //   That's S=0, RdHi=r1, RdLo=r0, Rs=r3, Rm=r2.
     { 0xE0810392, 0x0800006C, "UMULL r0,r1,r2,r3",
       "0800006c A umull raw=0xe0810392" },
     // SWP r0, r1, [r2] = 0xE1020091.
     { 0xE1020091, 0x08000070, "SWP r0,r1,[r2]",
       "08000070 A swp raw=0xe1020091" },
-    // Reserved/undefined slot: cond=1111 anything → SWI in ARMv4T
-    // (the NV condition itself isn't an undefined trap; the dedicated
-    // UDF encoding is "0111 1xxx xxxx xxxx xxxx xxx1 xxxx"). Encode
-    // one: 0xE7F000F0 = bits 27..25 = 011, bit 4 = 1, with imm = 0xF0.
-    // This is the ARMv4T UDF placeholder.
+    // Undefined-instruction space: the UDF encoding is
+    // "0111 1xxx xxxx xxxx xxxx xxx1 xxxx". 0xE7F000F0 has bits 27..25 = 011
+    // and bit 4 = 1, with imm = 0xF0 (the ARMv4T UDF placeholder).
     { 0xE7F000F0, 0x08000074, "UDF (reserved)",
       "08000074 A UND raw=0xe7f000f0" },
 };
 
-// THUMB encodings. Includes coverage for formats 7, 8, 10, 11, 12, 13
-// added in this pass.
+// THUMB encodings, including formats 7, 8, 10, 11, 12 and 13.
 constexpr ThumbCase kThumb[] = {
     { 0x2000, 0x08001000, "MOV r0, #0",
       "08001000 T movs r0,#0x0" },

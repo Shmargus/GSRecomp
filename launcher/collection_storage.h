@@ -247,7 +247,7 @@ inline bool import_selected_rom(const fs::path& root, const fs::path& selected,
             throw std::runtime_error("A different ROM already exists at " + text(out.rom) + ". Move it aside before selecting this ROM.");
         if (!path_present(out.rom)) copy_preserving_time(source, out.rom);
         fs::create_directories(out.root / "Saves");
-        // Move any old working progress out of managed ROMs; all engines now
+        // Move any old working progress out of managed ROMs; the engines
         // save directly in Saves and nothing is copied back beside the ROM.
         if (!sync_legacy_states(out, error)) return false;
         for (const auto& directory : associated_directories(source)) {

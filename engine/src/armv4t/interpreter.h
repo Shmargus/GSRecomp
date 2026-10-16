@@ -1,9 +1,9 @@
 // interpreter.h — Reference IR interpreter.
 //
-// Executes one decoded `Instr` against a `CPUState` and a `Bus`. This
-// is what gives us a testable surface for the decoder before codegen
-// exists, and what we'll run jsmolka/gba-tests against during Phase 1
-// validation.
+// Executes one decoded `Instr` against a `CPUState` and a `Bus`. It is the
+// semantic and timing reference for the recompiled code. Generated code
+// never calls it; the runtime may bridge a dispatch miss through it (see
+// PRINCIPLES.md "Honest self-healing").
 //
 // Design points:
 // - Stateless API: each call takes everything it needs. No hidden
@@ -27,12 +27,8 @@
 //       case of an unrotated immediate); the interpreter reads CPSR.C
 //       in that case.
 //
-// Coverage in this pass: data processing (all 16 opcodes, imm + all
-// shifter forms including by-register), B/BL/BX, LDR/STR (word/byte/
-// halfword/sign-extended halfword/sign-extended byte) imm + reg
-// offset with pre/post indexing and writeback, LDM/STM (basic case;
-// no S-bit handling yet), MUL, SWI. Anything else returns
-// `NotImplemented` and the caller can decide what to do.
+// Any op shape it does not handle returns `NotImplemented` and the caller
+// decides what to do.
 
 #pragma once
 
@@ -56,7 +52,7 @@ public:
 
     // `cycles_out` (optional) receives the number of host cycles this
     // instruction consumed. Approximation only — see interpreter.cpp's
-    // `cycle_cost` table for the model. Pass nullptr to ignore.
+    // `instr_cycle_base` (arm_ir.cpp) for the model. Pass nullptr to ignore.
     static Result step(CPUState& cpu, Bus& bus, const Instr& i,
                        uint32_t* cycles_out = nullptr);
 

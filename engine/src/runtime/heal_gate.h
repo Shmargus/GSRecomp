@@ -5,9 +5,10 @@
 // v1 sljit shard bakes the real &g_cpu / &bus_write_* addresses, it mutates the
 // live machine in place — so "same-state replay" is a save → run → restore →
 // run → diff dance against the real state. These primitives provide the
-// save/restore/diff half of that dance; the gate STATE MACHINE (consecutive-
-// clean budget, device-touch pinning, interp-first orchestration) lives one
-// layer up in gbarecomp_runtime, which has the overlay/heal hooks.
+// save/restore/diff half of that dance. The gate STATE MACHINE (consecutive-
+// clean budget, device-touch pinning, interp-first orchestration) is not
+// implemented yet: nothing in the runtime uses this module apart from
+// heal_gate_tests.
 //
 // Two interchangeable snapshot strategies (selectable so they cross-check each
 // other — the obviously-correct one validates the fast one):
@@ -15,8 +16,8 @@
 //                 obviously correct, ~386 KB per capture. The reference.
 //   * JOURNAL   — record only the writes a pass makes (at the GbaBus write
 //                 chokepoint) and roll back by replaying the inverse. Cost is
-//                 proportional to the function's actual write footprint. (Built
-//                 in a later step; this header reserves its types.)
+//                 proportional to the function's actual write footprint
+//                 (see Journal below).
 //
 // This module is PURE: it depends only on ArmCpuState (the CPU file) and
 // gba::GbaBus, never on the runtime globals (g_cpu / g_runtime_cycles). The gate

@@ -32,8 +32,7 @@ endif()
 # only, not memory headroom. Left at a conservative fraction of logical
 # cores rather than the full core count so LTRANS workers don't compound
 # against that WPA peak on a 16 GB box. Set to "" to omit the explicit -flto=N
-# override, or to 1 for a fully serial (lowest-memory) LTRANS. See the LTO
-# section in the delivery report for the reasoning and how to size this up.
+# override, or to 1 for a fully serial (lowest-memory) LTRANS.
 # GSR_DEBUG_SYMBOLS=OFF (player releases): the same optimised build without
 # debug information, which every compile and the LTO link otherwise carry (the
 # split-off .debug file is ~600 MB). The exe keeps its plain symbol table, so
@@ -48,9 +47,8 @@ endif()
 set(GSR_LTO_JOBS "8" CACHE STRING
     "Parallel LTRANS job count (-flto=N) for the GoldenSunRecomp link when LTO is enabled; empty = compiler default")
 
-# This starter target proves the public repository builds without a ROM/BIOS.
-# The real runner is intentionally not wired until GS-009, after upstream APIs,
-# symbols, overlays, and hashes are pinned and reviewed.
+# Asset-free bootstrap target: proves the public repository builds without a
+# ROM/BIOS. The real runner is behind GSR_BUILD_LOCAL_RUNNER below.
 add_executable(gsr_bootstrap src/bootstrap_main.cpp)
 
 target_compile_definitions(gsr_bootstrap PRIVATE
@@ -112,7 +110,7 @@ add_test(
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/audit_public_repo.py
 )
 
-# GS-009 local runner. Generated translation units are derivative of the user's
+# Local runner. Generated translation units are derivative of the user's
 # ROM and therefore stay under the ignored local/ boundary. Public/CI builds
 # leave this option off and continue to build only the asset-free bootstrap.
 option(GSR_BUILD_LOCAL_RUNNER
@@ -565,8 +563,7 @@ if(GSR_BUILD_LOCAL_RUNNER)
         endif()
     endforeach()
 
-    # No Nintendo code in the program (Jimmy, 2026-09-24): the game runs in
-    # no-BIOS mode. Turn this on only for a comparison build against the
+    # No Nintendo code in the program: the game runs in no-BIOS mode. Turn this on only for a comparison build against the
     # real BIOS, with its locally generated recompiled output present.
     set(GBARECOMP_LINK_BIOS OFF CACHE BOOL
         "Link the locally generated recompiled BIOS (comparison builds only)")

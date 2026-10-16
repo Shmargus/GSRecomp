@@ -46,18 +46,17 @@ bool g_ready = false;
 bool g_visible = false;
 SDL_Renderer* g_renderer = nullptr;
 // The MAIN window and its GL context, captured at config_ui_init() (opengl
-// path only). SHUTDOWN-FREEZE-01: with real multi-viewport, ImGui may leave
-// a torn-off viewport's own GL context current at exit time; shutdown must
-// make the MAIN context current again before tearing anything down, or
-// ImGui_ImplOpenGL3_Shutdown() deletes GL objects (VAOs/shaders/textures)
-// against the wrong context and DestroyPlatformWindows() can destroy the
-// context that owns them.
+// path only). SHUTDOWN-FREEZE-01: with multi-viewport, ImGui may leave a
+// torn-off viewport's GL context current at exit; shutdown makes the MAIN
+// context current again first, or ImGui_ImplOpenGL3_Shutdown() deletes GL
+// objects against the wrong context and DestroyPlatformWindows() can destroy
+// the context that owns them.
 SDL_Window* g_window = nullptr;
 SDL_GLContext g_gl_context = nullptr;
-// Which ImGui rendering backend is live — set once at config_ui_init() from
-// host_window's own SDL_GetRendererInfo check, never guessed here. Routes
-// config_ui_draw()/config_ui_shutdown() between imgui_impl_opengl3 (real
-// multi-viewport) and imgui_impl_sdlrenderer2 (docking only).
+// Which ImGui rendering backend is live, set once at config_ui_init() from
+// host_window's SDL_GetRendererInfo check. Routes config_ui_draw() and
+// config_ui_shutdown() between imgui_impl_opengl3 (multi-viewport) and
+// imgui_impl_sdlrenderer2 (docking only).
 bool g_use_opengl = false;
 SDL_Texture* g_badge_sdl_texture = nullptr;
 GLuint g_badge_gl_texture = 0;
@@ -75,8 +74,8 @@ void clear_edition_badge() {
 
 // Which bind box is armed, if any. Exactly one capture can be live at a time,
 // and while it is, every key/pad press is swallowed and consumed as the bind.
-// HotkeyPad is the UI-02 controller half of a hotkey row (Hotkey is its
-// keyboard half — same row, two independent bind boxes).
+// HotkeyPad is the controller half of a hotkey row (Hotkey is its keyboard
+// half: same row, two independent bind boxes).
 enum class Capture { None, Key, Pad, Hotkey, HotkeyPad };
 Capture g_capture = Capture::None;
 int     g_capture_index = -1;
@@ -100,20 +99,17 @@ const char* key_label(int scancode) {
     return (n && *n) ? n : "(unset)";
 }
 
-// host_config_ui.h's kPadTriggerLeft/Right sentinels are a literal (that
-// header carries no SDL include) rather than SDL_CONTROLLER_BUTTON_MAX
-// directly; keep them honest against this SDL2's real enum value.
+// Guards the literal in host_config_ui.h against SDL's real enum value.
 static_assert(kPadTriggerLeftValue == static_cast<int>(SDL_CONTROLLER_BUTTON_MAX),
              "kPadTriggerLeftValue must track SDL_CONTROLLER_BUTTON_MAX so the "
              "synthetic L2/R2 ids never collide with a real pad button");
 
 const char* pad_label(int button) {
     if (button < 0) return "(unset)";
-    // UI-02b: L2/R2 and the stick directions are synthetic ids, not a real
-    // SDL_GameControllerButton — label them from the shared name table
-    // ("lefttrigger", "leftstickup", ...), matching the lowercase-no-separator
-    // convention every other row in this column already uses
-    // (SDL_GameControllerGetStringForButton output, e.g. "leftshoulder", "dpup").
+    // L2/R2 and the stick directions are synthetic ids, not an
+    // SDL_GameControllerButton; label them from the shared name table
+    // ("lefttrigger", "leftstickup", ...), which uses the same lowercase style
+    // as SDL's button strings ("leftshoulder", "dpup").
     if (const char* s = pad_synth_name(button)) return s;
     const char* n = SDL_GameControllerGetStringForButton(
         static_cast<SDL_GameControllerButton>(button));
@@ -161,9 +157,9 @@ void section(const char* title) {
 
 // A bind row: label on the left, a button showing the current binding that
 // arms capture when clicked, and a clear button. Returns true if changed.
-// `column` lets a caller place the label/value/clear triple at a table
-// column offset other than 0/1/2 (UI-02: draw_hotkeys_page puts the pad half
-// of a row at columns 3/4 alongside the keyboard half at 1/2).
+// `column` places the value/clear pair at a table column other than 1/2
+// (draw_hotkeys_page puts the pad half of a row at columns 3/4, beside the
+// keyboard half at 1/2).
 bool bind_row(const char* label, const char* value, bool armed,
               Capture kind, int index, bool* cleared, int column = 0) {
     const bool is_pad = (kind == Capture::Pad || kind == Capture::HotkeyPad);
@@ -376,7 +372,7 @@ void draw_hotkeys_page(ConfigUiState* st) {
                 st->binds_changed = true;
             }
 
-            // Controller half (UI-02): same row, columns 3/4.
+            // Controller half: same row, columns 3/4.
             bool pad_cleared = false;
             const bool pad_armed =
                 (g_capture == Capture::HotkeyPad && g_capture_index == h);
@@ -397,11 +393,10 @@ void draw_hotkeys_page(ConfigUiState* st) {
 
 void draw_video_page(ConfigUiState* st) {
     section("Window");
-    // The slider edits a menu-local copy. host_window republishes st->scale
-    // from the live window every frame, which used to overwrite the dragged
-    // value before release, so the resize never happened. The copy follows
-    // the window only while the slider is idle, and the (expensive) resize
-    // is requested once, when the slider is released.
+    // The slider edits a menu-local copy: host_window republishes st->scale
+    // from the live window every frame, which would overwrite a dragged value
+    // before release. The copy follows the window only while the slider is
+    // idle, and the (expensive) resize is requested once, on release.
     static int pending_scale = 0;
     static bool scale_active = false;
     const int max_scale = std::clamp(st->max_scale, 1, 8);
@@ -580,15 +575,16 @@ void draw_turbo_page(ConfigUiState* st) {
 void draw_enhancements_page(ConfigUiState* st) {
     section("Flicker");
     // VFX-FLICKER-02: selective temporal blend ("LCD ghosting"). Legacy
-    // config values 4..6 selected whole-frame modes that are no longer
-    // offered; migrate them explicitly through the normal change path so an
-    // old file cannot keep a hidden mode active. Greyed, not hidden, while
-    // 2x scene interpolation is on: blending across its synthetic midpoint
-    // frame would smear the picture (see host_window.cpp's present()).
+    // config values 4..6 were whole-frame modes that are no longer offered;
+    // migrate them through the normal change path so an old file cannot keep
+    // a hidden mode active. Greyed, not hidden, while 2x scene interpolation
+    // is on (see host_window.cpp's present()).
     static const char kTemporalBlendItems[] =
         "Off\0" "Light\0" "Medium\0" "Strong\0";
-    if (st->temporal_blend_index >= 4) {
-        st->temporal_blend_index = 3;
+    if (st->temporal_blend_index >= 4 &&
+        st->temporal_blend_index < gbarecomp::kTemporalBlendItemCount) {
+        // Same mapping as host_window.cpp's TemporalBlend load: 4..6 -> 1..3.
+        st->temporal_blend_index -= 3;
         st->enhancements_changed = true;
     }
     if (st->temporal_blend_index < 0 || st->temporal_blend_index > 3)
@@ -806,15 +802,13 @@ bool config_ui_init(SDL_Window* window, SDL_Renderer* renderer,
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;   // we persist settings ourselves, not via imgui.ini
     // Keep the F1 menu usable without a mouse: the sidebar and controls are
-    // ordinary ImGui navigation items, and the SDL2 backend supplies both
-    // keyboard and controller navigation inputs when enabled.
+    // ordinary ImGui navigation items, driven by keyboard and controller.
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable |
                       ImGuiConfigFlags_NavEnableKeyboard |
                       ImGuiConfigFlags_NavEnableGamepad;
-    // A press beside a slider (on its label or the window's empty space)
-    // used to start dragging the whole menu, so the menu shifted and the
-    // slider seemed to snap away from the mouse (Jimmy, 2026-10-05). Windows
-    // move by their title bar only.
+    // Otherwise a press beside a slider (on its label or the window's empty
+    // space) drags the whole menu away from the mouse. Windows move by their
+    // title bar only.
     io.ConfigWindowsMoveFromTitleBarOnly = true;
     if (use_opengl) {
         // Real multi-viewport: torn-off panels become their own OS windows,
@@ -841,9 +835,8 @@ bool config_ui_init(SDL_Window* window, SDL_Renderer* renderer,
     g_use_opengl = use_opengl;
     g_window = window;
     // SHUTDOWN-FREEZE-01: the context ImGui_ImplSDL2_InitForOpenGL() was
-    // just wired to above is the MAIN window's context — capture it now
-    // while it is known-current, so shutdown can restore it regardless of
-    // what a torn-off viewport left current by then.
+    // wired to is the MAIN window's; capture it now, while it is current, so
+    // shutdown can restore it.
     g_gl_context = use_opengl ? SDL_GL_GetCurrentContext() : nullptr;
     g_config_window_recover = true;
     g_ready = true;
@@ -853,13 +846,11 @@ bool config_ui_init(SDL_Window* window, SDL_Renderer* renderer,
 void config_ui_shutdown() {
     if (!g_ready) return;
     if (g_use_opengl) {
-        // A torn-off viewport's GL context may be current right now (ImGui
-        // switches contexts per-viewport while drawing/updating). Restore
-        // the MAIN window's context first so ImGui_ImplOpenGL3_Shutdown()
-        // deletes its GL objects against the context that actually owns
-        // them, and so DestroyPlatformWindows() below tears down every
-        // detached viewport window+context while the main one is still
-        // alive underneath it.
+        // A torn-off viewport's GL context may be current (ImGui switches
+        // contexts per viewport). Restore the MAIN context first so
+        // ImGui_ImplOpenGL3_Shutdown() deletes its GL objects against the
+        // context that owns them, and DestroyPlatformWindows() below tears
+        // down the detached viewports while the main context still exists.
         if (g_window && g_gl_context) {
             SDL_GL_MakeCurrent(g_window, g_gl_context);
         }
@@ -945,11 +936,11 @@ bool config_ui_handle_event(const SDL_Event* e) {
     }
 
     // SDL_Renderer rewrites the game window's mouse motion into its logical
-    // coordinates whenever a logical size is set (the 240x160 view sets
-    // one). ImGui reads the real desktop position while no button is held
-    // but only these events during a drag, so a dragged slider saw the
-    // pointer jump left by the window scale and snapped toward 0% (Jimmy,
-    // 2026-10-05). Hand ImGui the same real position it reads between drags.
+    // coordinates whenever a logical size is set (the 240x160 view sets one).
+    // ImGui reads the real desktop position while no button is held but only
+    // these events during a drag, so a dragged slider would see the pointer
+    // jump by the window scale. Give ImGui the same real position it reads
+    // between drags.
     SDL_Event event = *e;
     if (event.type == SDL_MOUSEMOTION && g_window &&
         event.motion.windowID == SDL_GetWindowID(g_window)) {
@@ -1018,12 +1009,9 @@ bool config_ui_capture_key(ConfigUiState* st, int scancode, int keycode,
 bool config_ui_capture_pad(ConfigUiState* st, int button) {
     if (!g_visible || g_capture_index < 0) return false;
     if (pad_is_stick(button) && !st->stick_bindings_available) return false;
-    // UI-02b: L2/R2's synthetic ids are hotkey-only (out of scope for
-    // gameplay input — see UI-02b task notes). A trigger pull while the
-    // Controller tab's gameplay pad box is armed is simply not consumed,
-    // same as pressing an unrelated key would be; gameplay binding stays
-    // exactly as before this change. Stick directions (also synthetic ids)
-    // are accepted for both gameplay and hotkey boxes.
+    // L2/R2's synthetic ids are hotkey-only, not gameplay binds: a trigger
+    // pull while a Controls-page pad box is armed is not consumed. Stick
+    // directions (also synthetic ids) are accepted for both.
     const bool is_trigger = (button == kPadTriggerLeft || button == kPadTriggerRight);
     if (g_capture == Capture::Pad) {
         if (is_trigger) return false;
@@ -1032,10 +1020,10 @@ bool config_ui_capture_pad(ConfigUiState* st, int button) {
                 st->pad_bind[i] = -1;
         st->pad_bind[g_capture_index] = button;
     } else if (g_capture == Capture::HotkeyPad) {
-        // UI-02: a hotkey's controller button, unlike the gameplay pad
-        // above, is not deduped against the other hotkey rows — Turbo Held
-        // and Turbo Toggle sharing one button, for instance, is a legitimate
-        // (if unusual) choice, not a conflict to silently resolve.
+        // Unlike the gameplay pad above, a hotkey's controller button is not
+        // deduped against the other hotkey rows: Fast Forward hold and toggle
+        // sharing one button, say, is legitimate, not a conflict to resolve
+        // silently.
         st->hotkey_pad[g_capture_index] = button;
     } else {
         return false;
@@ -1058,13 +1046,10 @@ void config_ui_draw(ConfigUiState* st) {
 
     if (g_visible) {
         // Dockspace over the whole main viewport so panels can dock inside
-        // the main window too, not just tear off into their own.
-        // PassthruCentralNode keeps the central node fully transparent so
-        // the guest picture — already copied into the renderer this frame —
-        // stays visible through it. Scoped to g_visible like every other
-        // ImGui window this file draws: while the menu is closed, no ImGui
-        // window (dockspace host included) exists to capture input the
-        // guest is supposed to see.
+        // the main window too, not just tear off. PassthruCentralNode keeps
+        // the central node transparent so the guest picture stays visible
+        // through it. Scoped to g_visible: while the menu is closed no ImGui
+        // window exists to capture input the guest should see.
         ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(),
                                      ImGuiDockNodeFlags_PassthruCentralNode);
         // Clamp to the window: at scale 1 the host window is 240x160, and an
@@ -1075,23 +1060,22 @@ void config_ui_draw(ConfigUiState* st) {
         const ImVec2 work_size = viewport->WorkSize;
         const float max_w = std::max(1.0f, work_size.x);
         const float max_h = std::max(1.0f, work_size.y);
-        // Every time the menu opens it fills the game window (Jimmy,
-        // 2026-09-29); it stays resizable and movable while open.
+        // Each time the menu opens it fills the game window; it stays
+        // resizable and movable while open.
         ImGui::SetNextWindowSize(ImVec2(max_w, max_h), ImGuiCond_Appearing);
         ImGui::SetNextWindowPos(work_pos, ImGuiCond_Appearing);
-        // UI-03: floor the resize range so the corner grip never shrinks to
-        // a sliver that cannot be grabbed again (the Hotkeys table needs
-        // roughly this width). No maximum.
+        // Floor the resize range so the window cannot shrink to a sliver that
+        // cannot be grabbed again (the Hotkeys table needs roughly this
+        // width). No maximum.
         ImGui::SetNextWindowSizeConstraints(
             ImVec2(std::min(520.0f, max_w), std::min(360.0f, max_h)),
             ImVec2(FLT_MAX, FLT_MAX));
         // Windowed, the menu is its own OS window from the moment it opens
         // and never merges back, so it can be dragged off the game to see
-        // the picture behind it (Jimmy, 2026-10-07). Merging back was what
-        // made it jump and swallow a click (2026-10-05): a window lifted out
-        // only for the drag. Fullscreen (and without the OpenGL backend) it
-        // stays inside the game window: there is nowhere else to put it, and
-        // the Steam Deck shows one window only.
+        // the picture behind it (merging back made it jump and swallow a
+        // click). Fullscreen, or without the OpenGL backend, it stays inside
+        // the game window: there is nowhere else to put it, and the Steam
+        // Deck shows one window only.
         if (g_use_opengl && !st->fullscreen) {
             ImGuiWindowClass own_window;
             own_window.ViewportFlagsOverrideSet = ImGuiViewportFlags_NoAutoMerge;
@@ -1253,10 +1237,9 @@ void config_ui_draw(ConfigUiState* st) {
     if (g_use_opengl) {
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         // Multi-viewport: render each torn-off panel into its own OS
-        // window/GL context. SDL_Renderer's opengl backend is left holding
-        // whatever context was current before this call — save it and put
-        // it back so the caller's own SDL_RenderPresent (immediately after
-        // config_ui_draw returns) targets the right window/context again.
+        // window/GL context. Save the current context and restore it so the
+        // caller's SDL_RenderPresent, right after this returns, targets the
+        // main window again.
         if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
             SDL_Window* backup_window = SDL_GL_GetCurrentWindow();
             SDL_GLContext backup_context = SDL_GL_GetCurrentContext();

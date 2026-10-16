@@ -248,11 +248,21 @@ bool runtime_saves_in_saves(const fs::path& root, int choice, std::string& error
 
 bool game_built(const fs::path& root, int choice, std::stop_token stop = {}) {
     std::error_code ec;
-    // Packaged games use the same fingerprint check as their player launcher.
+    // Packaged games check the release fingerprint; developer trees check the build record.
     if (fs::is_directory(root / "builder", ec) || root.parent_path().filename() == "games")
         return gsr_launcher::game_code_ready(root, gsr_launcher::kGames[choice],
                                              gsr_session::load_launcher_audio_settings(root).any_rom);
     return gsr_collection::developer_build_ready(root, choice, gsr_session::engine(root, choice), stop);
+}
+
+// A finished packaged build: record which release it was built for, so
+// game_built accepts it.
+void stamp_packaged_build(const fs::path& root, int choice) {
+    std::error_code ec;
+    if (!fs::is_directory(root / "builder", ec) && root.parent_path().filename() != "games") return;
+    const auto& game = gsr_launcher::kGames[choice];
+    std::ofstream(root / game.release_stamp, std::ios::binary | std::ios::trunc)
+        << gsr_launcher::release_fingerprint(root, game);
 }
 
 // Hashing the generated game code can take seconds on a cold disk. Keep the
@@ -509,7 +519,7 @@ float startup_opacity(float progress, bool fade_only) {
 InsertionPose insertion_pose(float progress, float drop, float scale) {
     const float lift = 44 * scale;
     // Ease into the lift and turn directly into the descent. Both segments
-    // meet with zero velocity/acceleration, avoiding the old snap on return.
+    // meet with zero velocity/acceleration, so there is no snap on return.
     if (progress < 0.36f) return {-lift * smootherstep(progress / 0.36f), 1};
     const float t = std::clamp((progress - 0.36f) / 0.64f, 0.0f, 1.0f);
     return {-lift + (drop + lift) * smootherstep(t), 1 - smootherstep((t - 0.18f) / 0.82f)};
@@ -619,6 +629,9 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
     int building_choice = -1;
     int build_choice = -1;
     bool play_after_build = false;
+    // When both games need building, the player may build the other one
+    // too: it is built straight after, then play_game starts.
+    int then_build = -1, play_game = -1;
     bool checking_build_result = false;
     auto settings = preview.empty() ? gsr_collection::load_settings(root) : gsr_collection::CollectionSettings{};
     std::array<gsr_session::LauncherAudioSettings, 2> preferences{};
@@ -659,14 +672,20 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
         const auto build = builder.snapshot();
         if (building_choice >= 0 && build.finished) {
             const int choice = building_choice;
-            if (!checking_build_result) { refresh_builds(); checking_build_result = true; }
+            if (!checking_build_result) {
+                if (build.succeeded) stamp_packaged_build(gsr_session::game_root(root, choice), choice);
+                refresh_builds(); checking_build_result = true;
+            }
             if (!build.succeeded || !checking_builds[choice]) {
                 building_choice = -1; checking_build_result = false;
                 if (!build.succeeded || !built[choice]) {
                     error = build.error.empty() ? "The build did not finish. Please try again." : build.error;
                     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Game build", error.c_str(), window);
-                } else if (play_after_build) pending_choice = choice;
-                play_after_build = false;
+                } else if (then_build >= 0) {
+                    build_choice = then_build; then_build = -1;
+                    continue;
+                } else if (play_after_build) pending_choice = play_game;
+                play_after_build = false; then_build = play_game = -1;
             }
         }
         if (hidden && !child.running()) {
@@ -699,7 +718,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 }
                 if (error.empty()) error = "The Lost Age is not built yet.";
 #ifdef _WIN32
-                gbarecomp::handover::quit();  // The Broken Seal's program waits in vain
+                gbarecomp::handover::quit();  // release the waiting Broken Seal program
 #endif
                 SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Seamless mode", error.c_str(), window);
             }
@@ -723,7 +742,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             if (build.running || building_choice >= 0) {
                 if ((event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) ||
                     (event.type == SDL_CONTROLLERBUTTONDOWN && event.cbutton.button == SDL_CONTROLLER_BUTTON_B))
-                    { builder.cancel(); play_after_build = false; }
+                    { builder.cancel(); play_after_build = false; then_build = -1; }
                 continue;
             }
             if (notes_open) {
@@ -811,12 +830,30 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                     error = std::string("Could not open the release page: ") + SDL_GetError();
             }
         }
-        if (pending_choice >= 0 && updates_done && !checking_builds[pending_choice]) {
+        // An unbuilt game also waits for the other game's check, to know
+        // whether to offer building both.
+        if (pending_choice >= 0 && updates_done && !checking_builds[pending_choice] &&
+            (built[pending_choice] || !checking_builds[1 - pending_choice])) {
             const int choice = pending_choice; pending_choice = -1;
             const auto game = gsr_session::game_root(root, choice);
             if (!built[choice]) {
-                build_choice = choice;
+                build_choice = play_game = choice;
                 play_after_build = true;
+                then_build = -1;
+                if (!built[1 - choice]) {
+                    const char* names[] = {"The Broken Seal", "The Lost Age"};
+                    const std::string message = std::string(names[choice]) + " needs to be built before it can start. " +
+                        names[1 - choice] + " needs building too. Build both now?";
+                    const std::string both = "Build both", one = std::string("Only ") + names[choice];
+                    const SDL_MessageBoxButtonData buttons[] = {
+                        {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, both.c_str()},
+                        {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, one.c_str()}
+                    };
+                    const SDL_MessageBoxData dialog{SDL_MESSAGEBOX_INFORMATION, window, "Game build",
+                                                   message.c_str(), 2, buttons, nullptr};
+                    int answer = 0;
+                    if (SDL_ShowMessageBox(&dialog, &answer) == 0 && answer == 1) then_build = 1 - choice;
+                }
             } else {
                 fs::path rom;
                 if (gsr_collection::prepare_rom(window, root, choice, rom, error) &&
@@ -839,7 +876,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                     continue;
                 }
             }
-            play_after_build = false;
+            play_after_build = false; then_build = play_game = -1;
             if (!error.empty()) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Game build", error.c_str(), window);
         }
         const double elapsed = double(SDL_GetPerformanceCounter() - start) / SDL_GetPerformanceFrequency();
@@ -866,7 +903,8 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
         draw->AddImage(reinterpret_cast<ImTextureID>(background.texture), {0, 0}, {width, height});
         draw->AddRectFilledMultiColor({0, 0}, {width, 200 * scale}, IM_COL32(4, 9, 13, 150), IM_COL32(4, 9, 13, 150), 0, 0);
         const bool starting = preview_insertion >= 0 || insertion_choice >= 0;
-        const bool checking = (pending_choice >= 0 && (!updates.done() || checking_builds[pending_choice])) ||
+        const bool checking = (pending_choice >= 0 && (!updates.done() || checking_builds[pending_choice] ||
+                                (!built[pending_choice] && checking_builds[1 - pending_choice]))) ||
                               checking_build_result;
         const float logo_width = std::min({width * 0.68f, 400 * scale, 140 * scale * logo.width / logo.height});
         const float logo_height = logo_width * logo.height / logo.width;
@@ -1064,6 +1102,13 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 if (ImGui::Checkbox("Seamless mode", &seamless_on) && preview.empty()) {
                     gbarecomp::game_options_load(options_file);
                     gbarecomp::game_option_set(gbarecomp::seamless::kOptionKey, seamless_on ? 1 : 0);
+                    if (seamless_on) {
+                        const std::string warning = std::string(
+                            "Build The Lost Age before you finish The Broken Seal: Seamless mode can only "
+                            "go on to The Lost Age when it is ready to play.") +
+                            (built[1] ? "" : "\n\nThe Lost Age is not built yet.");
+                        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Seamless mode", warning.c_str(), window);
+                    }
                 }
                 ImGui::TextWrapped("At the end of the game, skip the credits, save to the file you are playing and go straight on to The Lost Age.");
                 ImGui::Separator();

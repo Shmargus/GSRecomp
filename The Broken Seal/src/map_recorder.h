@@ -1,17 +1,15 @@
 // map_recorder.h — GSR_MAP_RECORD scene recorder.
 //
-// Rebuilds the diagnostic deleted 2026-09-04 (see FACTS.md, "The bounds
-// field offsets are currently lost") as a general SCENE recorder covering
-// every scene class GBA hardware actually presents: Mode 0 field
+// A general SCENE recorder covering every scene class GBA hardware actually
+// presents: Mode 0 field
 // (towns/dungeons/indoor rooms -- hardware cannot tell these apart, see
 // FACTS.md "Scene classes"), Mode 2 overworld, Mode 1 battle.
 //
 // Central design constraint, do not "optimise" away: this dumps COMPLETE
 // memory images (full EWRAM/IWRAM/VRAM/PAL/OAM/IO) rather than selected
-// addresses. The room-bounds struct layout and the overworld's map source
-// are currently unknown, and guessing either would violate the no-guessed-
-// offsets rule in AGENTS.md. Dumping everything lets that analysis happen
-// offline (tools/decode_snap.py) instead of guessing up front what to log.
+// addresses, so analysis of unmapped structures (AGENTS.md: no guessed
+// offsets) can happen offline (tools/decode_snap.py) instead of guessing up
+// front what to log.
 //
 // Golden Sun-specific tooling: lives entirely in src/, matches
 // function_tracer.h's style and shares its "Snapshot now" / "Mark window"

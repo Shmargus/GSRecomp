@@ -434,7 +434,7 @@ const char* kBackgroundFragment =
     "  }\n"
     // Lamakan's heat haze is each row's small offset from the layer's
   // record; rows above and below the console held row 0's, so the shimmer
-  // stopped at the screen edge (Jimmy, gpu_frame_0127/0128). A layer read
+  // stopped at the screen edge (gpu_frame_0127/0128). A layer read
   // through its record takes the offset of the console row mirrored across
   // the edge (row 0 itself is the desert's odd one, so the top starts at 1).
     "  if (u_haze_mirror != 0 && u_room_ref_on != 0 && !continue_bg3_sky &&\n"
@@ -458,7 +458,7 @@ const char* kBackgroundFragment =
     "  bool outside_native = console_px.x < 0 || console_px.x >= 240 ||\n"
     "                        console_px.y < 0 || console_px.y >= 160;\n"
     // Above the console first row or below its last. The arena widens
-    // SIDEWAYS only -- src/battle_view.h states that model: "enabled arena
+    // SIDEWAYS only -- battle_view.h states that model: "enabled arena
     // layers continue into the left and right margins only". Extending it up
     // and down was added to fill the black bands there, and measurement says
     // it does not: on logs/gpu_frame_0017.bin the backdrop draws black on 36
@@ -475,7 +475,7 @@ const char* kBackgroundFragment =
     //     the arena continues sideways only down the rows of the game's own
     //     live scene band, and only while this layer is carrying the arena
     //     rather than a spell effect. That is the rule the emulated path
-    //     already uses (src/battle_view.h and runner_main.cpp's
+    //     already uses (battle_view.h and runner_main.cpp's
     //     golden_sun_battle_bg_sample_provider), and it is evaluated HERE,
     //     from this row's own registers, for the same reason the affine walk
     //     above is: the emulated path asks its margin policy once per
@@ -655,10 +655,9 @@ const char* kBackgroundFragment =
     // The effect canvas is as wide as the CONSOLE screen and the game
     // cannot be made to build a wider one: its stamp generator takes one
     // size for both axes, emits a corrupt instruction above 128, and the
-    // next size up does not fit its heap. Nor is it holding anything back
-    // -- across 295 recorded stamp calls it never once asks to draw outside
-    // its canvas, so there are no clipped sparks to recover (FACTS.md,
-    // 2026-09-18).
+    // next size up does not fit its heap. The sparks it clips at that canvas
+    // edge are added back further down (FACTS.md, "The game DOES ask for
+    // sparks outside its canvas").
     //
     // What CAN be done is decide where that canvas lands. Sampling it
     // through the widened view instead of the console window makes its
@@ -1108,15 +1107,13 @@ const char* kBackgroundFragment =
     "      index = max(index, spark);\n"
     "    }\n"
     "  }\n"
-    // Our canvas replaces the index outright when this layer is one we have
-    // verified. Everything after it -- windows, blending, the two-pass peel
-    // -- is untouched, so an effect we draw composes exactly as the game's
-    // own does.
-    // Only where the game drew nothing. Inside its canvas its picture
-    // stands untouched: we are ADDING the sparks it threw away, not
-    // reproducing the effect. A partial reproduction would lose
-    // everything the capture does not see, which is what replacing
-    // the whole layer did on session_20260918_172002.
+    // Our canvas fills in only where the game drew nothing. Everything after
+    // it -- windows, blending, the two-pass peel -- is untouched, so an
+    // effect we draw composes exactly as the game's own does. Inside its
+    // canvas its picture stands untouched: we are ADDING the sparks it threw
+    // away, not reproducing the effect. A partial reproduction would lose
+    // everything the capture does not see, which is what replacing the whole
+    // layer did on session_20260918_172002.
     "  if ((u_effect_extra != 0 || u_effect_fill_beyond != 0) &&\n"
     "      beyond_game_canvas) {\n"
     "    vec2 at = vec2(effect_px) + u_effect_origin;\n"
@@ -1214,11 +1211,10 @@ const char* kObjectFragment =
     "uniform int u_semi_transparent;\n" // object mode 1 (OBJ blend flag)
     "uniform int u_compare_top;\n"      // 0 = first pass, 1 = second pass
     "uniform vec2 u_camera;\n"          // world offset of the output's origin
-    // 0: this object's position came from the widescreen provenance
-    // providers on both axes, so it may be drawn anywhere, margins
-    // included. 1: at least one axis is the hardware sign-wrap fallback,
-    // so gba_ppu.cpp's emit_obj only ever draws it inside the authentic
-    // 240x160 window -- reproduced below by discarding outside it.
+    // 0: the object may be drawn anywhere, margins included. 1: it is a
+    // parked dummy (SceneObject::parked) or a menu sprite, which stays inside
+    // the authentic 240x160 window as gba_ppu.cpp's emit_obj keeps it --
+    // reproduced below by discarding outside it.
     "uniform int u_clip_native;\n"
     // 1: this draw is the object's lifted copy (draw_object's `lifter`),
     // kept inside the lifting object's box, in console pixels.
@@ -1352,10 +1348,9 @@ const char* kObjectWindowFragment =
     "uniform vec4 u_transform_pd;\n"
     "uniform vec2 u_box;\n"
     "uniform vec2 u_camera;\n"          // world offset of the output's origin
-    // See kObjectFragment's u_clip_native: an untrusted object window shape
-    // must also stay confined to the authentic window, for the same reason
-    // gba_ppu.cpp's emit_obj confines it -- an object window box the game
-    // parked off-screen must not carve a hole in the margin.
+    // See kObjectFragment's u_clip_native: a parked object window shape must
+    // also stay confined to the authentic window -- an object window box the
+    // game parked off-screen must not carve a hole in the margin.
     "uniform int u_clip_native;\n"
     "out vec4 o_colour;\n"
     "\n"
@@ -1424,7 +1419,7 @@ const char* kObjectWindowFragment =
 
 // The resolve pass: one full-screen quad reading the two peel records and
 // writing the console's compose rule, exactly as the reference does at the
-// end of a scanline (gba_ppu.cpp:1044-1074). A record's low byte of the key
+// end of a scanline (gba_ppu.cpp, render_scanline_internal). A record's low byte of the key
 // decodes which kind of layer won: 0..127 is an object (kind 4), 128..131 is
 // background 0-3 (key - 128), and 255 is the cleared "nothing drawn" sentinel,
 // which is read back as the backdrop (kind 5) -- see the clear colour chosen
@@ -1546,7 +1541,7 @@ const char* kResolveFragment =
 // The window pass: one full-screen quad computing GBATEK's window_control(x)
 // for every pixel and packing it into the red channel (0..63/255), read back
 // by the peel and resolve passes above. Priority WIN0 > WIN1 > object window
-// > outside, exactly gba_ppu.cpp:668-720; with no window enabled every layer
+// > outside, exactly gba_ppu.cpp's window_control; with no window enabled every layer
 // and blending are on (0x3F). Window rectangles are the console's own
 // 240x160 space, so this reads the pixel through the same camera offset as
 // the background and object passes.
@@ -2229,8 +2224,7 @@ void FieldSceneRenderer::set_effect_layer(int layer) {
     effect_text_canvas_ = false;
     effect_fill_ = 0;
     // Which layer, if any, is the spell effect this frame. The caller reads it
-    // from the scene's own registers; nothing is decoded out of guest memory
-    // any more, so there is nothing here that can be misread.
+    // from the scene's own registers; nothing is decoded out of guest memory.
     effect_layer_ = effect_enabled_ ? layer : -1;
 }
 
@@ -2735,7 +2729,7 @@ bool FieldSceneRenderer::ensure_solid() {
 }
 
 // Creates the shake program and a target the size of the output. Called
-// outside a frame (spawn_burst / set_charge); draw() shakes only if this
+// outside a frame (spawn_burst); draw() shakes only if this
 // succeeded and the size still matches.
 bool FieldSceneRenderer::ensure_shake_target() {
     if (!ready_ || shake_failed_ || output_w_ <= 0 || output_h_ <= 0)
@@ -2867,7 +2861,7 @@ bool FieldSceneRenderer::upload_room(const std::uint8_t* ewram,
     //    the storm, gpu_rewind_0097).
     //  - a layer moving at another speed than the camera (the crow's nest
     //    sky, BG3 ratio 0.375, gpu_rewind_0093) has filler above its art;
-    //    Jimmy wants the art's top row carried upward instead.
+    //    the art's top row is carried upward instead.
     // The records sit prof().layer_record_bytes apart, BG3 then BG2 then BG1:
     // +0x00/+0x04 position (16.16), +0x08/+0x0C the layer's region of the grid
     // (pixels, 16.16), +0x10/+0x14 speed ratio against the camera (0x10000 =
@@ -3076,7 +3070,7 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         // Lamakan Desert's row 0 swaps BG1 and BG3's +1024 (every frame of
         // gpu_rewind_0158-0160; over all captures only maps 89-91), so the
         // console's top line misses the haze: a thin line across the middle
-        // of the widened picture. Jimmy, 2026-10-07: draw it with row 1's
+        // of the widened picture. So draw it with row 1's
         // scroll. This changes native row 0, deliberately.
         if (prof().lamakan_row0_swap && scene.video_mode == 0) {
             std::uint8_t* r0 = row_bytes.data();
@@ -3168,12 +3162,12 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
     //     arena -- an alpha blend's first target sitting at priority 1.
     //     An effect is drawn where the battlers are, so continuing it
     //     sideways just repeats it at the layer's map period.
-    // Which layers may reach the side margins at all. The frame-level test is
-    // only ever a candidacy test -- whether the margin actually opens on a
-    // given row is decided in the shader from that row's own registers.
     //
-    // A battle is video mode 1 with an arena layer on, and its arena rides
-    // BG1 or BG2 (src/battle_view.h). Anywhere else, a rotated or scaled
+    // The frame-level test is only ever a candidacy test -- whether the
+    // margin actually opens on a given row is decided in the shader from that
+    // row's own registers.
+    //
+    // A battle's arena rides BG1 or BG2 (battle_view.h). Anywhere else, a rotated or scaled
     // background is the overworld's own map: its transform is defined for
     // every column, so widening it simply evaluates the same walk further out
     // and shows more world, which is why the world map was coming out
@@ -3548,7 +3542,7 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         // PA/PB/PC/PD and the reference point are NOT set here: the shader
         // reads this row's own copy of all six from u_row_io and
         // u_row_affine. A frame-level value is only ever the last row's.
-        // Scroll is no longer set here: the shader reads this row's own
+        // Scroll is not set here: the shader reads this row's own
         // HOFS/VOFS from u_row_io (see kBackgroundFragment), keyed by
         // u_layer, which is what lets a frame that rewrites scroll mid-frame
         // draw correctly.
@@ -3792,14 +3786,13 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         surface_->set_uniform_int(object_, "u_compare_top",
                                   second_pass ? 1 : 0);
         // Only a PARKED slot is held inside the authentic window -- the same
-        // rule gba_ppu.cpp's emit_obj now uses. This used to clip every
-        // object the providers could not authenticate, and since they only
-        // authenticate field sprites that cut every battle monster and every
-        // effect sprite off square at the console's old screen edge: the seam
-        // reported on 2026-09-17. Still a fragment test rather than a
-        // draw-call skip, because the quad is drawn at the object's real
-        // position either way and a parked sprite could otherwise cross back
-        // into the authentic window from outside it.
+        // rule gba_ppu.cpp's emit_obj uses. Clipping every object the
+        // providers could not authenticate would cut every battle monster and
+        // effect sprite off square at the console's old screen edge, since
+        // the providers only authenticate field sprites. This is a fragment
+        // test rather than a draw-call skip, because the quad is drawn at the
+        // object's real position either way and a parked sprite could
+        // otherwise cross back into the authentic window from outside it.
         // A game window (menu, shop, dialogue) is open: its own sprites are
         // priority 0 and the game hides unused ones just off the screen --
         // the shop's arrow parked at x = -32, the icon row at y = 136 whose
@@ -3890,7 +3883,7 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
     auto draw_object_window_mask = [&](int slot) {
         const SceneObject& O = scene.objects[slot];
         if (!O.present || !O.window) return;
-        // Same trust-gated confinement as draw_object above.
+        // Same parked-slot confinement as draw_object above.
         surface_->set_uniform_int(obj_window_, "u_clip_native",
                                   O.parked ? 1 : 0);
         surface_->set_uniform_vec2(obj_window_, "u_size",

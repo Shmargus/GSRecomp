@@ -6,8 +6,8 @@
 
 // F12 0121: Air's Rock's tornado is BG0, characters 0xC000, map 0x2000.
 // Its wind artwork ends at the console's top edge; below row 159 the map
-// holds unrelated graphics. Jimmy approved continuing its upper two tile
-// rows (16 pixels) and captured horizontal shake into the upper margin.
+// holds unrelated graphics. The margin continues its upper two tile
+// rows (16 pixels) upward, with the captured horizontal shake.
 // Expose only one horizontal copy, so the tilemap never repeats at the sides.
 //
 // The wind is drawn at fixed screen rows, the room and Felix with the camera.
@@ -16,7 +16,7 @@
 // the wind did not, so it sat on Felix (Extra Wide 80 rows, F12 0017,
 // 2026-10-14). Every row then shows the wind row `hold` further down; above
 // the wind's row 0 the approved continuation, below its row 159 the empty
-// rows 144..159. Jimmy, 2026-10-14: line it up. 0 changes nothing.
+// rows 144..159. 0 changes nothing.
 inline bool tla_tornado_margins(gsr::FieldScene& scene,
                                 gsr::SceneMargins& margins, unsigned map,
                                 int first_y, int hold = 0) {

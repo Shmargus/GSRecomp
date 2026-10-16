@@ -74,7 +74,6 @@ bool tla_hard_mode_text(std::uint32_t text_id, std::string& out);
 // src/tla_cheat_menu.cpp: the cheat menu (F11): Infinite HP/PP and the
 // Experience, Coins and Drop Chance multipliers.
 void tla_install_cheat_menu(gbarecomp::RunOptions& options);
-void tla_cheat_menu_on_entry(std::uint32_t pc);
 
 // src/tla_spell_sparks.cpp: spell sparks the game skips past its canvas,
 // handed to the spell-effect capture for the margins.

@@ -312,10 +312,9 @@ CallSite* find_or_add_site(const ObjPlacementSample& s) {
 //
 // golden_sun_obj_record_identity admits any pointer shaped like an actor
 // record: base 0x03002000, stride 0x38, body at +0x00 and its paired shadow
-// at +0x0C, bounded only by IWRAM. It used to stop at 0x030022E0 plus one
-// hand-authenticated body (0x03002348), which left every actor past the
-// audited prefix without a trusted position. Admission is not proof: callers
-// retain the same-frame, epoch, complete-ATTR and hardware-truncation
+// at +0x0C, bounded only by IWRAM (no audited-prefix cut-off, which would
+// leave later actors without a trusted position). Admission is not proof:
+// callers retain the same-frame, epoch, complete-ATTR and hardware-truncation
 // provenance gates, which is what actually authenticates a record.
 constexpr std::size_t kRecordLimit = 64;
 struct RecordTally {
@@ -349,8 +348,7 @@ RecordTally* find_or_add_record(std::uint32_t record_base) {
 
 // ---- vertical-wrap exposure ----------------------------------------------
 //
-// The measurement that ties this census back to what Jimmy actually sees on
-// screen. A sprite is exposed to the 8-bit wrap when its committed byte is
+// The measurement that ties this census back to what is seen on screen. A sprite is exposed to the 8-bit wrap when its committed byte is
 // one of the values two view rows share -- and only when it has no exact
 // placement to fall back on. Counting those separately answers "how many of
 // the sprites that can jump are ones we could already have placed?".
@@ -443,7 +441,7 @@ void log_unsourced(const ObjPlacementSample& s) {
 //
 // Rewritten in full on every call rather than appended, so it always
 // describes the whole session so far. Called from the flush points and from
-// atexit, because the normal way this session ends is Jimmy closing the game
+// atexit, because the normal way this session ends is the player closing the game
 // window, not a clean shutdown.
 void write_summary() {
     if (!g_enabled) return;

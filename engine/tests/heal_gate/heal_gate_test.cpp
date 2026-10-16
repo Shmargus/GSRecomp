@@ -1,10 +1,12 @@
 // tests/heal_gate/heal_gate_test.cpp — P6 gate primitives, offline.
 //
-// Validates the full-RAM snapshot/restore/diff (the obviously-correct reference
-// strategy the journal will later be cross-checked against):
+// Validates the full-RAM snapshot/restore/diff (the reference strategy the
+// journal is cross-checked against), then the journal itself:
 //   1. capture → mutate cpu+RAM → restore → re-capture diffs CLEAN.
 //   2. diff_full FLAGS a known divergence (register, CPSR, RAM byte, cycles).
 //   3. an unmutated round-trip stays clean (no false positives).
+//   4. journal record → rollback restores RAM byte-for-byte, and journal
+//      Shadow mode traps device (IO) writes.
 //
 // Links only gbarecomp_gba (GbaBus) — the primitives are pure (no runtime
 // globals), so no ROM/BIOS/runtime is needed.

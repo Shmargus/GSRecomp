@@ -1,6 +1,6 @@
 // field_scene.h -- what the game asked to be drawn this frame.
 //
-// Step 1 of docs/NATIVE_SCENE_RENDERER_PLAN.md. Nothing here draws anything.
+// Step 1 of "The Broken Seal/docs/NATIVE_SCENE_RENDERER_PLAN.md". Nothing here draws anything.
 // It captures, once per frame, everything a renderer needs in order to produce
 // that frame WITHOUT reading emulated memory again while it draws.
 //
@@ -99,19 +99,17 @@ struct SceneObject {
     // providers (g_ws_obj_attr_x_provider / g_ws_obj_attr_y_provider in
     // gba_ppu.h), the same test gba_ppu.cpp's expanded object path uses
     // (`sprite_trusted = sx_trusted && sy_trusted`). An untrusted object's
-    // position is only the hardware sign-wrap fallback, which Golden Sun
-    // sometimes uses to park a sprite off the visible 240x160 window on
-    // purpose; a renderer must confine it to that authentic window, exactly
-    // as emit_obj does, rather than draw it floating in the margins.
+    // position is only the hardware sign-wrap fallback. Diagnostic only: the
+    // renderer's clip test is `parked` below.
     bool     trusted = false;
 
     // True only for a slot sitting on Golden Sun's parked-sprite sentinel
     // (src/widescreen_policy.h). Such a slot is invisible on hardware and
     // must stay invisible when the view is widened; every other object,
-    // authenticated or not, is drawn where it really is. Replaces `trusted`
-    // as the renderer's clip test, 2026-09-17: the providers only
-    // authenticate FIELD sprites, so clipping on `trusted` cut every battle
-    // monster and effect sprite off at the console's old screen edge.
+    // authenticated or not, is drawn where it really is. This is the clip
+    // test rather than `trusted` because the providers only authenticate
+    // FIELD sprites, so clipping on `trusted` cut every battle monster and
+    // effect sprite off at the console's old screen edge.
     bool     parked = false;
 };
 
@@ -219,7 +217,7 @@ bool field_scene_frame_supported(unsigned dispcnt, const char** why);
 // This exists to TEST the description, not to run the game. If the capture
 // drops any field the renderer reads, the rebuilt state differs from the
 // original and the rendered picture changes -- which is the gate for step 2 of
-// docs/NATIVE_SCENE_RENDERER_PLAN.md. Video memory is not rebuilt: tile art is
+// "The Broken Seal/docs/NATIVE_SCENE_RENDERER_PLAN.md". Video memory is not rebuilt: tile art is
 // deliberately not part of the description (see the header comment), so the
 // caller passes the original through.
 //

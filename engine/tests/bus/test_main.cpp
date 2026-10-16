@@ -1,5 +1,6 @@
-// bus_tests — current scope: ROM header parser. As more bus
-// subsystems come online (Phase 2/3) this file expands to cover them.
+// bus_tests — ROM header parser, save chips (SRAM, EEPROM, Flash detection),
+// BIOS-window and undocumented-IO writes, WAITCNT cycle tables, and the
+// bus write observers.
 
 #include <array>
 #include <cstdint>

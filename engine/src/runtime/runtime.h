@@ -1,4 +1,4 @@
-// runtime.h — STUB. Glue that game binaries link against.
+// runtime.h — glue that game binaries link against.
 //
 // Owns lifecycle: ROM load + hash verify, BIOS load, CPU + bus + PPU
 // init, scheduler start, debug server start, main loop. The generated
@@ -128,7 +128,7 @@ struct RunOptions {
                                                 // derived from the seeded ROM
     // Keep an implemented extended-view mode out of the public launcher while
     // it is still being profiled. Explicit CLI/TOML opt-ins remain available.
-    // Defaults true so existing games (including MMZ) retain today's UI.
+    // Defaults true so existing games keep showing it.
     bool launcher_expose_widescreen = true;
     // Show recomp-ui's Adaptive view toggle for this game. Runtime support
     // (resize_driven_view + max_resize_view_width) is necessary but not

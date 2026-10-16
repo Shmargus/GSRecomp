@@ -59,7 +59,7 @@ try {
         if ($savedDirectory -and [IO.Path]::GetFullPath($savedDirectory).TrimEnd('\', '/') -ine
             [IO.Path]::GetFullPath($directory).TrimEnd('\', '/')) {
             # Keep a moved configuration recoverable; generated metadata will
-            # be replaced only when Jimmy explicitly starts a release build.
+            # be replaced only when a release build is started.
             Copy-Item -LiteralPath $cachePath -Destination ($cachePath + '.before-root-move') -Force
             return '--fresh'
         }
@@ -105,12 +105,13 @@ try {
     # given zip is removed so nothing with ROM bytes is left to upload.
     function Assert-NoRomBytes([string]$folder, [string]$zip = '') {
         Write-Host "Checking $folder for ROM bytes."
-        & python (Join-Path $PSScriptRoot 'release_rom_scan.py') `
+        & $python (Join-Path $PSScriptRoot 'release_rom_scan.py') `
             --rom (Get-ReleaseTestRom $repo) --rom (Get-ReleaseTestRom $tlaRepo) `
             --skip mingw64 --skip toolchain $folder
         if ($LASTEXITCODE -ne 0) {
             if ($zip -and (Test-Path -LiteralPath $zip)) { Remove-Item -LiteralPath $zip -Force }
-            throw "ROM bytes found in $folder; the release must not ship them."
+            if ($LASTEXITCODE -eq 3) { throw "ROM bytes found in $folder; the release must not ship them." }
+            throw "The ROM scan could not run ($python, exit $LASTEXITCODE); see the error above."
         }
     }
     function Copy-CollectionFiles([string]$destination) {
@@ -163,6 +164,8 @@ try {
     } else {
         Write-Host "Version: $releaseVersion (use this as the tag of the GitHub release)."
     }
+    # The ROM scan needs numpy; MSYS2's python, put first on PATH below, lacks it.
+    $python = (Get-Command python.exe -ErrorAction Stop).Source
     if (-not $NoWindows) {
         foreach ($f in @("$mingw/c++.exe", "$mingw/objdump.exe")) {
             if (-not (Test-Path -LiteralPath $f)) { throw "Missing $f (MSYS2 MinGW-w64 toolchain)." }
@@ -171,7 +174,7 @@ try {
         $cmake = (Get-Command cmake.exe -ErrorAction Stop).Source
 
         if (-not $LauncherOnly) {
-        # ---- 1. The engine: build_lto.bat's split build, current -------------
+        # ---- 1. The engine: the split build, current --------------------------
         $engineExe = Join-Path $optDir 'GoldenSunRecomp.exe'
         $engineDll = Join-Path $optDir 'GoldenSunEngine.dll'
         $engineApi = Join-Path $optDir 'libGoldenSunRecomp_api.a'
@@ -211,12 +214,11 @@ try {
         $engineExe = Join-Path $optDir 'GoldenSunRecomp.exe'
         $engineDll = Join-Path $optDir 'GoldenSunEngine.dll'
         $engineApi = Join-Path $optDir 'libGoldenSunRecomp_api.a'
-        # Bring it up to date through build_game.ps1, exactly as build_lto.bat
-        # does: it writes the block-timing game code, points the tree at it, sets
-        # MAKE so the LTO link runs in parallel, applies the CPU and memory caps
-        # and shows its progress. (A bare `cmake --build ... | Out-Null` here hid
-        # a full engine rebuild with a serial LTO link and looked hung,
-        # 2026-09-30.) Normally quick after build_lto.bat.
+        # Bring it up to date through build_game.ps1: it writes the block-timing
+        # game code, points the tree at it, sets MAKE so the LTO link runs in
+        # parallel, applies the CPU and memory caps and shows its progress. (A
+        # bare `cmake --build ... | Out-Null` hid a full engine rebuild with a
+        # serial LTO link and looked hung.) Normally quick after build_dev.bat.
         Write-Host 'Checking the engine build is current (build_game.ps1).'
         $powershell = Join-Path $PSHOME 'powershell.exe'
         if (-not (Test-Path -LiteralPath $powershell)) { $powershell = Join-Path $PSHOME 'pwsh.exe' }
@@ -228,7 +230,7 @@ try {
         # Configured like build\gs011_opt but without LTO (none of these three
         # needs it) and with the player launcher.
         New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
-        # The bug report service (tools/report_service) stays out of the public
+        # The bug report service (The Broken Seal/tools/report_service) stays out of the public
         # source: its address is read from local\report_host.txt (one line, not
         # in git) or $env:GSR_REPORT_HOST. Without it the launcher has no Send
         # report button, which is what a fork gets.

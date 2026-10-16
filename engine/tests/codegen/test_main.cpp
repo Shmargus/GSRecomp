@@ -395,7 +395,7 @@ bool run_call_cancel_return_scan_cases() {
     runtime_call_stack_set_floor_for_test(0u);
     runtime_call_stack_restore(nullptr, 0u);
 
-    // (d) plain top-of-stack cancel still behaves as before.
+    // (d) plain top-of-stack cancel pops just that frame.
     runtime_call_push_return(0x00008000u);
     runtime_call_push_return(0x00009000u);
     runtime_call_cancel_return(0x00009000u);
@@ -482,8 +482,7 @@ bool run_thumb_alu_immediate_override_cases() {
         return false;
     }
 
-    // The same exact-PC chokepoint supports ARM rotated immediates. This is
-    // the form used by Minish Cap's IWRAM sprite renderer.
+    // The same exact-PC chokepoint supports ARM rotated immediates.
     std::memset(&g_cpu, 0, sizeof(g_cpu));
     g_cpu.R[2] = 300u;
     g_cpu.cpsr = 0x1Fu;

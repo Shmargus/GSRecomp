@@ -168,8 +168,16 @@ if [ "$launcher_only" = 1 ]; then
     exit 0
 fi
 echo "Building (the game code part takes a while the first time)"
-cmake --build "$build" --target GoldenSunRecomp GoldenSunCollection gsr_builder gba_recompile
-cmake --build "$tla_build" --target TLARecomp tla_builder gba_recompile
+# One generated game-code file peaks at 650 MB (measured: TLA recompiled_011.cpp,
+# -Og). Ninja's default of one job per core plus two overran WSL's memory and
+# stalled in swap, so run only as many jobs as the free memory holds.
+available_mb=$(awk '/^MemAvailable:/ { print int($2 / 1024) }' /proc/meminfo)
+jobs=$(( available_mb / 650 ))
+[ "$jobs" -le "$(nproc)" ] || jobs=$(nproc)
+[ "$jobs" -ge 1 ] || jobs=1
+echo "Compiling with $jobs jobs (${available_mb} MB free)"
+cmake --build "$build" --target GoldenSunRecomp GoldenSunCollection gsr_builder gba_recompile --parallel "$jobs"
+cmake --build "$tla_build" --target TLARecomp tla_builder gba_recompile --parallel "$jobs"
 recompiler=$(find "$build" -name gba_recompile -type f -perm -u+x | head -1)
 for f in "$build/GoldenSunRecomp" "$build/GoldenSunCollection" "$build/gsr_builder" "$recompiler"; do
     [ -x "$f" ] || { echo "Build output missing: $f" >&2; exit 1; }
@@ -313,8 +321,8 @@ tc_copy "$gcclib/crtbeginS.o"
 tc_copy "$gcclib/crtendS.o"
 # The linker scripts (libc.so, libm.so) name /lib/... and /lib64/..., which on
 # a usrmerge system are links to /usr/lib. The release holds no links at all
-# (a zip unpacked or copied through a USB stick or Windows drive loses them,
-# 2026-10-02), so point the scripts at the real /usr/lib copies instead.
+# (a zip unpacked or copied through a USB stick or Windows drive loses them),
+# so point the scripts at the real /usr/lib copies instead.
 grep -rlI '^GROUP\|^INPUT' "$tc/sysroot" | while read -r script; do
     sed -i -E 's#(^|[ (])/lib(64)?/#\1/usr/lib\2/#g' "$script"
 done

@@ -61,10 +61,8 @@ uint32_t measured_ram_image_crc32(armv4t::Bus& bus) {
 }
 
 // Return true when at least one destination unit of a DMA block touches the
-// measured image.  The old probe required one exact incrementing 592-byte
-// transfer; real hardware may fill the same image in split blocks, or use a
-// decrement/fixed destination mode.  This is address-only metadata: no DMA
-// payload is retained or emitted.
+// measured image. Handles split blocks and decrement/fixed destination modes.
+// This is address-only metadata: no DMA payload is retained or emitted.
 bool dma_destination_overlaps_image(uint32_t dest, uint32_t step,
                                     uint32_t word_count,
                                     uint32_t dest_ctrl) {
@@ -269,8 +267,8 @@ uint32_t GbaIo::dma_transfer_cost(uint32_t src, uint32_t dst, bool transfer_32,
 //     14     IRQ on end
 //     15     enable
 //
-// Phase 2.5 scope: immediate-mode (start_mode=0), no-repeat. Other
-// timings (VBlank, HBlank, sound FIFO, video) land in 2.6+.
+// This handles immediate mode (start_mode=0). VBlank/HBlank starts are in
+// run_timed_dma and the sound FIFO in run_sound_fifo_dma.
 void GbaIo::run_immediate_dma(int channel) {
     if (!bus_) return;
     uint32_t base = 0xB0u + static_cast<uint32_t>(channel) * 12u;
@@ -374,8 +372,7 @@ void GbaIo::run_immediate_dma(int channel) {
     // DMA stole this many bus cycles from the CPU.
     dma_steal_cycles_ += dma_transfer_cost(sad, dad, transfer_32, word_count);
 
-    // Clear enable bit unless repeat is set (we don't model repeat
-    // yet — for immediate mode it should be 0 in real ROMs anyway).
+    // Clear the enable bit unless repeat is set.
     if ((cnt_h & 0x0200u) == 0) {
         store_u16(&io_[base + 10], static_cast<uint16_t>(cnt_h & ~0x8000u));
     }
@@ -705,8 +702,7 @@ void GbaIo::warn_unhandled(uint32_t off, uint32_t value, bool is_write, uint8_t 
 
 uint8_t GbaIo::read8(uint32_t off) {
     if (off >= kIoSize) { warn_unhandled(off, 0, false, 1); return 0; }
-    // POSTFLG: low bit is the boot flag. We're always "first boot"
-    // for now, so return 0.
+    // POSTFLG: low bit is the boot flag, as last written (0 on cold boot).
     if (off == IoReg::POSTFLG) return io_[IoReg::POSTFLG] & 0x01u;
     // VCOUNT is a 16-bit register at 0x006; byte access reads its
     // low byte (which IS the scanline value, since VCOUNT only

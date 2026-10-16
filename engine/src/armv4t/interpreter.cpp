@@ -316,14 +316,12 @@ BankedSlot mode_to_bank(uint8_t m) {
 // Swap the R8..R12 FIQ/normal bank on a mode change, mirroring the runtime's
 // bank_out/bank_in (runtime_arm.cpp): the outgoing mode's live R8..R12 are
 // saved into r8_12_fiq (if leaving FIQ) or r8_12_user (otherwise), then the
-// incoming mode's are loaded from the matching bank. For a non-FIQ↔non-FIQ move
-// this round-trips R8..R12 unchanged but keeps r8_12_user synced to the live
-// normal bank — the invariant the recompiled backend maintains (bank_out/bank_in
-// run on every old_bank!=new_bank transition). Without it the interpreter left
-// r8_12_user stale (its own "we don't model the full banking matrix yet" gap),
-// which the cosim's cpu sub-hash caught with all mode-visible regs matching
-// (LP-006). Callers apply it wherever they bank R13/R14. enter_irq/enter_swi
-// (bios_smoke-only, not the cosim/self-heal path) still lack it — follow-up.
+// incoming mode's are loaded from the matching bank. For a non-FIQ<->non-FIQ
+// move this leaves R8..R12 unchanged but keeps r8_12_user synced to the live
+// normal bank, the invariant the recompiled backend maintains and the cosim
+// cpu sub-hash checks. Callers apply it wherever they bank R13/R14, except
+// enter_irq/enter_swi (bios_smoke-only, not the cosim/self-heal path), which
+// do not.
 void swap_r8_12_banks(CPUState& cpu, uint8_t old_mode, uint8_t new_mode) {
     const bool old_fiq = old_mode == static_cast<uint8_t>(Mode::FIQ);
     const bool new_fiq = new_mode == static_cast<uint8_t>(Mode::FIQ);
@@ -455,26 +453,14 @@ bool is_priv_non_system(uint8_t mode) {
 // Cycle accounting
 // ─────────────────────────────────────────────────────────────────────
 //
-// `cycle_cost_base` returns the FIXED part of the instruction's cost —
-// the fetch (1S) and any internal (I) cycles. Memory-access cycles
-// (N for the data access, S for sequential accesses in LDM/STM) are
-// added at execute time via `bus.access_cycles(addr, width, seq)` so
-// they reflect the actual target region's bus width + waitstates.
-//
-// Pipeline refill (any op that writes to PC) is charged uniformly as
-// +2 cycles on top of the base cost: the prefetch buffer is flushed
-// and two new instruction fetches occur before the next decode. For
-// branches the refill is folded into `cycle_cost_base` so we don't
-// double-count.
-//
-// Reference: GBATEK § "GBA Memory Map - Bus Width and Speed",
-// ARM7TDMI TRM § "Instruction Cycle Times", and `GbaBus::access_cycles`.
-
-// The per-instruction cycle model (fixed base cost + multiply operand
-// waits) lives in arm_ir.cpp as `instr_cycle_base` / `mul_wait_cycles`,
-// shared verbatim with the recompiler codegen and the runtime tick
-// helpers so the recompiled cycle stream matches this oracle exactly.
+// The cycle model (fixed base cost, multiply operand waits) lives in
+// arm_ir.cpp as `instr_cycle_base` / `mul_wait_cycles`, shared with the
+// recompiler codegen and the runtime tick helpers so the recompiled cycle
+// stream matches this oracle exactly (see the comment in arm_ir.h).
 // Memory-access N/S cycles come from `Bus::access_cycles`.
+//
+// Reference: GBATEK "GBA Memory Map - Bus Width and Speed" and the
+// ARM7TDMI TRM "Instruction Cycle Times".
 
 }  // namespace
 
@@ -502,7 +488,7 @@ Interpreter::Result Interpreter::step(CPUState& cpu, Bus& bus, const Instr& i,
 
     bool wrote_pc = false;
     // Memory-access cycles accumulated by LDR/STR/LDM/STM/SWP during
-    // execute. Final cycles_out = cycle_cost_base + mem_cycles + any
+    // execute. Final cycles_out = instr_cycle_base + mem_cycles + any
     // pipeline-refill surcharge for PC-writing non-branch ops.
     uint32_t mem_cycles = 0;
     uint32_t extra_cycles = 0;
@@ -661,8 +647,7 @@ Interpreter::Result Interpreter::step(CPUState& cpu, Bus& bus, const Instr& i,
             // Without this, an instruction at an odd halfword boundary
             // (e.g. PC=0x11E) reads a misaligned word and produces a
             // rotated value that matches no symbol in the constant
-            // pool. (We discovered this against BIOS 0x11E loading
-            // the IWRAM-clear loop counter.)
+            // pool.
             if (i.thumb && i.mem.rn == 15) base &= ~3u;
             uint32_t offset;
             if (i.mem.by_register) {
@@ -815,7 +800,7 @@ Interpreter::Result Interpreter::step(CPUState& cpu, Bus& bus, const Instr& i,
             // access is sequential (S). The region-aware cost model
             // makes this important for LDM/STM over slow regions
             // (e.g., EWRAM at 6 cycles per N + 3 cycles per S for
-            // 32-bit). LDM keeps the 1I cycle from cycle_cost_base.
+            // 32-bit). LDM keeps the 1I cycle from instr_cycle_base.
             bool first_access = true;
             for (int reg = 0; reg < 16; ++reg) {
                 if (!(list & (1u << reg))) continue;
@@ -1038,8 +1023,6 @@ Interpreter::Result Interpreter::step(CPUState& cpu, Bus& bus, const Instr& i,
                     default:
                         // SPSR write in User/System is unpredictable
                         // on hardware; we drop it silently here.
-                        // Phase 2.x will route this through the
-                        // unmapped-style log.
                         break;
                 }
                 uint32_t old = cpu.banked_spsr[bank];
@@ -1074,7 +1057,7 @@ Interpreter::Result Interpreter::step(CPUState& cpu, Bus& bus, const Instr& i,
             // matching the runtime's bank_out/bank_in. System↔SVC (the
             // common BIOS transition) shares the User bank for R13/R14 so
             // only r8_12_user is touched (kept synced to the live normal
-            // bank — the cosim cpu-subhash invariant, LP-006).
+            // bank — the cosim cpu-subhash invariant).
             uint8_t new_mode = static_cast<uint8_t>(newv & 0x1Fu);
             uint8_t old_mode = cpu.cpsr.mode;
             cpu.cpsr.n = (newv >> 31) & 1u;
@@ -1124,7 +1107,7 @@ Interpreter::Result Interpreter::step(CPUState& cpu, Bus& bus, const Instr& i,
     }
 
     // Compute cycles for the just-executed instruction. Final cost:
-    //   base (fetch + internal cycles per cycle_cost_base)
+    //   base (fetch + internal cycles per instr_cycle_base)
     // + mem_cycles (data-access cycles accumulated by LDR/STR/LDM/
     //   STM/SWP execute paths via bus.access_cycles)
     // + 1I if op2 is a register-shifted operand (mGBA matches

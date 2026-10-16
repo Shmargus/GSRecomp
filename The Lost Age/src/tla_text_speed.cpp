@@ -44,9 +44,9 @@ constexpr uint32_t kBounceRowComparePc = 0x0803FC00u;
 
 // Caption: text ID = value + 0x113B, drawn at x 0xA0 on line 0x28. The
 // runner draws the whole caption in its place (src/tla_text.cpp): the speed
-// word, with "< " / " >" while the cursor is on this row. The
-// row's three icons are uploaded blank, so the caption is the selector,
-// centred under where the icons were (Golden Sun 1's layout, re-measured).
+// word, with "< " / " >" while the cursor is on this row. The row's three
+// icons are uploaded blank, so the caption is the selector, centred under
+// where the icons were (Golden Sun 1's layout, re-measured).
 constexpr uint32_t kCaptionBaseLiteralPc = 0x080402F4u;
 constexpr uint32_t kCaptionBase = 0x113Bu;
 constexpr const char* kSpeedWords[4] = {"Slow", "Normal", "Fast", "Instant"};

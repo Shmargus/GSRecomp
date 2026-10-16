@@ -4,17 +4,18 @@
 
 .DESCRIPTION
   This exists so day-to-day work is a single command instead of a sequence
-  of tool invocations spread across two checkouts. It hides the GSRecomp /
-  gbarecomp split, not the evidence: every step prints what it actually ran
-  and every acceptance number comes from real output.
+  of tool invocations. It hides the plumbing, not the evidence: every step
+  prints what it actually ran and every acceptance number comes from real
+  output.
 
   Steps, in order:
     1. regenerate  config/usa/main.toml from the ELF via tools/build_main_toml.py
     2. recompile   the main corpus with the patched gba_recompile (HARD GATE:
                    zero data_range collisions)
     3. verify      the strict-static tracks on the normal build
-                   (build/gs011_opt, built by the launcher or build_dev.bat), comparing semantic fingerprints
-                   against config/usa/acceptance-baseline.json
+                   (build/gs011_opt, built by the launcher or build_dev.bat),
+                   comparing semantic fingerprints against
+                   config/usa/acceptance-baseline.json
 
   Any step can be run alone; -From/-To run a contiguous slice.
 
@@ -193,7 +194,7 @@ if (Test-Stage 'recompile') {
         throw "gba_recompile exited $recompileExit. Full log: $log"
     }
 
-    # One call per fixed multi-call sequence (scripts/slim_corpus.py at the collection root): same
+    # Fold each fixed multi-call sequence into one call (../scripts/slim_corpus.py): same
     # behaviour, about 40% less machine code to compile and link.
     & python (Join-Path $RepoRoot '../scripts/slim_corpus.py') $CorpusDir
     if ($LASTEXITCODE -ne 0) { throw "slim_corpus.py failed ($LASTEXITCODE)." }

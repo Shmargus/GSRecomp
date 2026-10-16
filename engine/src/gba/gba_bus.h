@@ -34,13 +34,9 @@ extern "C" int (*g_rom_read32_override)(std::uint32_t address,
                                          std::uint32_t original_value,
                                          std::uint32_t* out_value);
 
-// Optional game-owned observer for CPU stores into EWRAM. It is null in
-// ordinary runs and is armed only by Golden Sun's opt-in diagnostics probe
-// after an expanded view is authorized; a null pointer costs one branch and
-// nothing else, so native/strict rendering is unaffected. Used to build a
-// write-tracked "authored" bitmap for the field's 128x128 metatile table,
-// replacing a fragile single-sentinel-ID heuristic. Fast-path stores use the
-// diagnostics-neutral seam in armv4t/runtime_arm.h instead.
+// Optional game-owned observer for CPU stores into EWRAM, so a game can track
+// which EWRAM entries the guest has written. Null by default (one branch per
+// store). Fast-path stores use the seam in armv4t/runtime_arm.h instead.
 extern "C" void (*g_ws_ewram_write_observer)(std::uint32_t address,
                                              std::uint32_t size);
 

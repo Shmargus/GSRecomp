@@ -305,9 +305,10 @@ void test_pic_automatic_cross_address_reuse(gba::GbaBus& bus) {
     check(!gbarecomp::overlay_query(kShort, false, nullptr),
           "wrong-length PIC body was incorrectly reused");
 
-    // The real miss path must consume a synchronous alias immediately.
-    // Previously it bound C natively, then still interpreted C once before
-    // returning, causing visible one-frame stalls for generated-code copies.
+    // The real miss path must consume a synchronous alias immediately. It
+    // must not bind C natively and then still interpret C once before
+    // returning (that caused visible one-frame stalls for generated-code
+    // copies).
     constexpr uint32_t kC = 0x030010E0u;
     write_mov_bx_lr(bus.iwram_ptr(), kC - 0x03000000u, 0xA5u);
     g_cpu.R[0] = 0;
@@ -461,10 +462,9 @@ void test_write_then_execute_same_invocation(gba::GbaBus& bus) {
 //    guard their own extent against a single ROM-derived CRC; once a RAM
 //    slot has settled on self-assembled content that will never match that
 //    baked CRC, EVERY later call re-derives the same "not the AOT body"
-//    verdict from runtime_ram_code_guard and used to unconditionally pay
-//    for a fresh interpreter bridge on every single occurrence — even
-//    though the exact same bytes had already healed to native the first
-//    time. This proves: (1) the first sighting of a variant still bridges
+//    verdict from runtime_ram_code_guard and would pay for a fresh
+//    interpreter bridge on every single occurrence — even though the exact
+//    same bytes had already healed to native the first time. This proves: (1) the first sighting of a variant still bridges
 //    and heals, (2) a later call with UNCHANGED bytes reuses the healed
 //    native entry instead of re-interpreting, (3) a genuine content change
 //    still bridges + re-heals (the fast path never masks a real miss —
@@ -552,10 +552,10 @@ void write_idle_backedge_loop(uint8_t* dst, uint32_t off) {
 //    runtime_idle_backedge exactly like every other runtime_*/bus_*/arm_*
 //    helper codegen can call (overlay_abi.h / overlay_runtime_arm.h /
 //    overlay_loader.cpp). A function containing a statically-eligible
-//    quiescent backward branch used to emit a call to an undeclared
-//    runtime_idle_backedge in the generated overlay .c, which failed to
-//    compile (gcc: 'runtime_idle_backedge' was not declared in this scope)
-//    and permanently stranded that PC on the interpreter bridge. ──────────
+//    quiescent backward branch emits a call to runtime_idle_backedge in the
+//    generated overlay .c; if that were undeclared, gcc would fail
+//    ('runtime_idle_backedge' was not declared in this scope) and the PC
+//    would be permanently stranded on the interpreter bridge. ──────────────
 void test_idle_backedge_overlay_compiles(gba::GbaBus& bus) {
     constexpr uint32_t kPc = 0x03000600u;
     write_idle_backedge_loop(bus.iwram_ptr(), kPc - 0x03000000u);
@@ -585,9 +585,8 @@ uint32_t encode_bl(uint32_t at_pc, uint32_t target) {
 
 // ── Regression: the interpreter bridge's call-boundary handoff. A BL to a
 //    callee that ALREADY has native code (a healed overlay, here) must be
-//    dispatched natively instead of single-stepped through -- the fix this
-//    session's storm-diagnosis work landed. Without it, every interpreted
-//    instruction inside the callee's body would show up in
+//    dispatched natively instead of single-stepped through. Without that,
+//    every interpreted instruction inside the callee's body would show up in
 //    self_heal_interpreted_insns() too. ────────────────────────────────
 void test_bridge_handoff_to_already_healed_callee(gba::GbaBus& bus) {
     constexpr uint32_t kPcA = 0x03000900u;  // callee: healed BEFORE B ever runs
@@ -681,7 +680,7 @@ void test_top_level_ram_bridge_is_resumable(gba::GbaBus& bus) {
 }
 
 // ── Bounded multi-variant healed-code cache regressions ─────────────────
-// The motivating case (0x03000820 in the real game) toggles among exactly 3
+// The motivating case is a game routine that toggles among exactly 3
 // resident variants, all of which are cheap to have compiled already; a
 // single-slot cache turns every toggle into a full interpreter bridge. These
 // tests exercise the fix directly through runtime_mutable_ram_code_miss --
@@ -1072,27 +1071,6 @@ void test_disk_pic_cross_address_reuse(gba::GbaBus& bus,
     check(wait_healed(kCorruptB, false), "corrupt metadata fallback compile failed");
 }
 
-// warm_scan_ram's MRU cap orders candidates by real on-disk last-write-time,
-// which is exactly right for production (the file the OS actually wrote most
-// recently IS the most-recently-produced variant). A test that wants to
-// assert a SPECIFIC MRU ordering across several real g++ invocations cannot
-// rely on wall-clock proximity between compiles to preserve that ordering:
-// gcc's own completion latency jitters by tens to hundreds of milliseconds
-// under ordinary system noise (antivirus, scheduler contention, disk cache
-// flushes), so two variants compiled back-to-back can occasionally finish
-// (and therefore have their .dll renamed into place) out of logical order --
-// nothing about the warm-loader's own ordering is wrong when that happens,
-// but a test built on "variant N always finishes after variant N-1" is not
-// sound. This makes the on-disk ordering deterministic for the test WITHOUT
-// touching production's MRU policy: after each variant is confirmed healed
-// (so its .dll has already been renamed into place), find that ONE new .dll
-// file for the key (matched by filename prefix, excluded from `seen` so each
-// call only ever finds the file the last compile just produced) and stamp
-// its last-write-time to an explicit, strictly increasing value. Later reads
-// of that same timestamp (by warm_scan_ram, or by a human via
-// PowerShell/`stat`) see an unambiguous order that matches the test's
-// intended variant sequence exactly, regardless of how fast or slow any
-// individual g++ invocation happened to run.
 #ifdef _WIN32
 // Force a specific, unambiguous last-write-time on `path`. Deliberately NOT
 // std::filesystem::last_write_time: every DLL this test compiles stays
@@ -1124,26 +1102,16 @@ void win32_set_last_write_time(const fs::path& path,
 #endif
 
 // warm_scan_ram's MRU cap orders candidates by real on-disk last-write-time,
-// which is exactly right for production (the file the OS actually wrote most
-// recently IS the most-recently-produced variant). A test that wants to
-// assert a SPECIFIC MRU ordering across several real g++ invocations cannot
-// rely on wall-clock proximity between compiles to preserve that ordering:
-// gcc's own completion latency jitters by tens to hundreds of milliseconds
-// under ordinary system noise (antivirus, scheduler contention, disk cache
-// flushes), so two variants compiled back-to-back can occasionally finish
-// (and therefore have their .dll renamed into place) out of logical order --
-// nothing about the warm-loader's own ordering is wrong when that happens,
-// but a test built on "variant N always finishes after variant N-1" is not
-// sound. This makes the on-disk ordering deterministic for the test WITHOUT
-// touching production's MRU policy: after each variant is confirmed healed
-// (so its .dll has already been renamed into place), find that ONE new .dll
-// file for the key (matched by filename prefix, excluded from `seen` so each
-// call only ever finds the file the last compile just produced) and stamp
-// its last-write-time to an explicit, strictly increasing value (one hour
-// per step -- far past any real clock/filesystem resolution concern). Later
-// reads of that timestamp (by warm_scan_ram) see an unambiguous order that
-// matches the test's intended variant sequence exactly, regardless of how
-// fast or slow any individual g++ invocation happened to run.
+// which is right for production. A test asserting a SPECIFIC MRU order across
+// several real g++ runs cannot rely on compile timing: gcc's completion
+// latency jitters by tens to hundreds of milliseconds, so back-to-back
+// variants can finish (and have their .dll renamed into place) out of order.
+// This makes the on-disk order deterministic without touching production's
+// MRU policy: after each variant is confirmed healed, find the ONE new .dll
+// for the key (matched by filename prefix, excluded from `seen` so each call
+// finds only the file the last compile just produced) and stamp its
+// last-write-time to an explicit, strictly increasing value (one hour per
+// step, far past any clock/filesystem resolution concern).
 void stamp_newest_cache_dll(const std::string& cache_root, uint32_t pc,
                             std::unordered_set<std::string>& seen,
                             int step) {

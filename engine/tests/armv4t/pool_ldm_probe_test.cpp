@@ -9,7 +9,11 @@
 //      pre/post-load provenance is separable;
 //   4. restore-boundary arming emits one restore CRC, resets stale host-side
 //      evidence, preserves the new epoch, and suppresses a duplicate arm CRC;
-//   5. runtime_note_pool_ldm_epoch_crc() reflects changed window contents.
+//   5. runtime_note_pool_ldm_epoch_crc() reflects changed window contents;
+//   6. the first poison transition latches once per epoch and names the
+//      first writer, including partial generated stores;
+//   7. the generated fast-IWRAM write observer brackets exactly one write,
+//      and the slow bus path does not duplicate its committed callback.
 //
 // Drives the public extern "C" seams only: generated-store feed
 // runtime_trace_event(RUNTIME_TRACE_MEM_WRITE,...), direct bus seam
@@ -228,7 +232,7 @@ void test_arm_crc_and_ring_provenance() {
           "restore CRC must match the restored synthetic window");
 
     // ── Phase C: post-restore poison writer retained across carriers ──────
-    // Session shape mirrors session_20260826_122040: healthy r9, a
+    // The shape mirrors a captured crash session: healthy r9, a
     // non-pool origin store of 0xDCEF0210 into 0x03007E30 through a mirrored
     // direct-bus address, then carrier prologue pushes from pool PCs whose r9
     // is already corrupt. This exercises the direct stack-window seam that

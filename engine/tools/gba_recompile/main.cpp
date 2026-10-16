@@ -2,14 +2,14 @@
 // reachable from the entry point + seeded symbols, lower their
 // ARM/THUMB bodies through the armv4t IR into C++ source, and write
 // the result to a per-game `generated/` directory (or, for BIOS, to
-// `gbarecomp/src/runtime/generated_bios/`).
+// `src/runtime/generated_bios/`).
 //
 // Two modes:
 //   --rom  <rom.gba>      cartridge recompilation (rom_base=0x08000000)
 //   --bios <bios.bin>     BIOS recompilation (rom_base=0x00000000),
 //                         seeds reset/SWI/IRQ vectors at 0x00/0x08/0x18.
 //
-// CLI:
+// CLI (main options; --help lists the rest):
 //   gba_recompile --rom <rom.gba>
 //                 --entry 0x080000C0
 //                 [--symbols <imported_symbols.tsv>]
@@ -273,7 +273,7 @@ std::vector<FunctionSeed> load_symbols(const std::string& path) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Emitter — the per-function lowering now lives in
+// Emitter — the per-function lowering lives in
 // src/recompile/emit_function.{h,cpp} (gbarecomp::emit_function_body),
 // shared with the Stage-2 runtime self-healing recompiler. write_body()
 // below calls it via the FILE* wrapper.
@@ -318,15 +318,12 @@ OutputNames names_for_mode(bool bios_mode) {
 //
 // Each guest function is emitted as `void <name>(void)`, and that same
 // <name> is referenced from the header decl, the dispatch table, and
-// inter-function call sites in the bodies. The name comes from the decomp
-// seed where known (readable codegen) — but a seed name is just a symbol-
-// table string and can be a C++ keyword, the std namespace ("std" is a real
-// libc routine in pokefirered at 0x081E8108), or a duplicate of another
-// local symbol. Any of those breaks the C++ compile. We KEEP the readable
-// name wherever it is already a unique, valid, non-reserved identifier and
-// only disambiguate the offenders by appending the (unique) guest address,
-// so the generated diff stays minimal and the debug symbol map still
-// matches the emitted code one-for-one.
+// inter-function call sites in the bodies. The name comes from the seed
+// where known — but a seed name is just a symbol-table string and can be a
+// C++ keyword, the std namespace, or a duplicate of another local symbol.
+// Any of those breaks the C++ compile. Cart names are given a reserved
+// prefix (see sanitize_function_identifiers); BIOS names are kept unless
+// reserved or duplicate, and then get the (unique) guest address appended.
 bool is_cxx_reserved_name(const std::string& s) {
     static const std::unordered_set<std::string> kReserved = {
         // C++ keywords and alternative tokens
@@ -373,16 +370,13 @@ bool is_valid_c_identifier(const std::string& s) {
 //
 // Cart functions are emitted `extern "C"` into the SAME global symbol
 // namespace as the host program — libc, the GCC builtins, and the gbarecomp
-// runtime API. pokefirered's AGB libc contributes real symbols named
-// `memcpy`, `memset`, `_exit`, `strcpy`, `abort`, `fflush`, … and a guest
-// function emitted under one of those names would HIJACK the host's symbol
-// at link: every host `memcpy`/`memset` call — including the C-runtime
-// startup that runs *before* our constructors — would jump into guest code
-// operating on an uninitialised g_cpu, which is exactly the pre-main hang
-// FireRed showed. (Minish Cap never tripped this: its symbol set contains no
-// libc names.) A reserved `gf_` prefix the host never uses makes the
-// collision impossible by construction, and subsumes C++ keyword / `std`
-// namespace collisions for free. BIOS functions are NOT prefixed — they
+// runtime API. A guest function whose seed name is a libc name (`memcpy`,
+// `memset`, `abort`, …) would HIJACK the host's symbol at link: every host
+// call — including C-runtime startup, which runs before our constructors —
+// would jump into guest code operating on an uninitialised g_cpu, a pre-main
+// hang. A reserved `gf_` prefix the host never uses makes the collision
+// impossible by construction, and subsumes C++ keyword / `std` namespace
+// collisions for free. BIOS functions are NOT prefixed — they
 // dispatch through a separate table and their seed names (reset/swi/irq)
 // don't collide — but still get keyword/duplicate hardening.
 void sanitize_function_identifiers(std::vector<Function>& funcs,
@@ -455,8 +449,8 @@ std::string alias_wrapper_name(const Function& fn, uint32_t alias_addr) {
 // from what's already there, so an unmodified corpus leaves `path`'s mtime
 // completely untouched (build systems key incremental recompilation off
 // mtime, and this file may be #included by every generated body shard).
-// Defined here (ahead of its first use) so every single-file emitter below
-// can route through it, not just write_body's per-shard loop.
+// Declared here (defined below) so every single-file emitter can route
+// through it, not just write_body's per-shard loop.
 bool files_equal(const std::string& a, const std::string& b);
 void commit_generated_file(const std::string& temp, const std::string& path);
 
@@ -559,10 +553,10 @@ void write_dispatch_table(const std::string& dir,
 
 // Emit a sorted address->name map for the runtime debugger. This is what
 // turns raw `pc=0x08004260` in trace dumps / dispatch-miss reports / TCP
-// into `pc=0x08004260 <UpdateAnimationVariableFrames+0x10>`. Names come
-// from the decomp seeds where known, else the generated tfunc_/afunc_.
-// The runtime links these via WEAK externs (src/armv4t/symbol_lookup.cpp),
-// so a binary without a generated map degrades gracefully to no names.
+// into `pc=0x08004260 <SomeFunction+0x10>`. Names come from the seeds where
+// known, else the finder's generated tfunc_/afunc_. The generated file
+// registers the table with src/armv4t/symbol_lookup.cpp at static init, so a
+// binary without a generated map degrades gracefully to no names.
 // Cart mode emits symbol_map.cpp/kGbaSymbolMap; BIOS mode emits
 // bios_symbol_map.cpp/kGbaBiosSymbolMap.
 void write_symbol_map(const std::string& dir,
@@ -762,8 +756,9 @@ void write_body(const std::string& dir,
         commit_generated_file(temp, path);
     }
 
-    // Remove legacy/stale body units so a CMake glob cannot link duplicate
-    // definitions after changing shard counts.
+    // Remove stale body units (the unsharded file, or shard files no longer
+    // expected) so a CMake glob cannot link duplicate definitions after
+    // changing shard counts.
     std::error_code ec;
     for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
         if (!entry.is_regular_file()) continue;
@@ -998,11 +993,10 @@ int main(int argc, char** argv) {
     // Per-binary configuration: manual function seeds, data-range
     // exclusions, jump tables, identity hash. See
     // docs/TOML_SCHEMA.md. When present, the binary's SHA-1 is
-    // verified against [identity].sha1 before any discovery runs.
-    //
-    // When present, [program].load_address and [program].entry_pc
-    // become the discovery base/entry. CLI --rom-base/--entry remain
-    // the no-config path and quick-spike overrides.
+    // verified against [identity].sha1 before any discovery runs, and
+    // [program].load_address and [program].entry_pc become the discovery
+    // base/entry. CLI --rom-base/--entry remain the no-config path and
+    // quick-spike overrides.
     Config cfg;
     bool have_cfg = false;
     if (!cli.config_path.empty()) {
@@ -1191,10 +1185,9 @@ int main(int argc, char** argv) {
     //  * AUTO jump_table (the finder's own speculative abs32-table guess):
     //    real code can never branch *into* a true code-pointer table, so a
     //    collision here is proof the guess mis-modeled some packed/offset
-    //    THUMB switch (e.g. LeafGreen rev1 @ 0x0801A8E8 — 48 case handlers
-    //    that each branch to a shared address inside the table bytes, which
-    //    readelf confirms ARE data). The data_range itself is correct; only
-    //    the decoded branches are artifacts. Downgrade to a WARNING: keep
+    //    THUMB switch (case handlers that each branch to a shared address
+    //    inside the table bytes, which are data). The data_range itself is
+    //    correct; only the decoded branches are artifacts. Downgrade to a WARNING: keep
     //    the bytes as data and let the residual indirect branches resolve
     //    through the runtime's honest self-heal path. Never a build failure.
     const auto& cols = finder.collisions();
@@ -1331,7 +1324,7 @@ int main(int argc, char** argv) {
         std::printf("  TOTAL emitted:         %zu\n",
                     stats.functions_total);
         // Per-table dump so the auto-detected bases can be diffed
-        // against the manual ground-truth set (MC-HP-000 validation).
+        // against a manual ground-truth set.
         for (const auto& jt : finder.auto_jump_tables()) {
             std::printf("  auto_jt 0x%08X count=%u stride=%u site=0x%08X "
                         "%s %s\n",

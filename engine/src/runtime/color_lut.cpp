@@ -121,7 +121,8 @@ double default_darken(ScreenKind s) {
     }
 }
 
-// Returns false for Raw/Classic (handled separately).
+// Returns false for every kind that is not a measured panel (Raw, Classic,
+// the colour-mix kinds); the constructor handles those itself.
 bool panel_model(ScreenKind s, double darken, PanelModel& out) {
     switch (s) {
         case ScreenKind::Unlit:
@@ -209,15 +210,15 @@ ColorLut::ColorLut(const ColorSettings& settings) {
         // the widescreen margins stay black.
         //
         // Handheld was fitted by least squares to a photo of Golden Sun on
-        // an Analogue Pocket beside a GBA SP (Jimmy, 2026-10-06): the window
-        // blue goes steel blue, yellow wood golden-brown, neon green olive.
+        // an Analogue Pocket beside a GBA SP: window blue goes steel blue,
+        // yellow wood golden-brown, neon green olive.
         constexpr double kHandheld[3][3] = {{0.489, 0.390, 0.143},
                                             {-0.021, 0.674, 0.296},
                                             {-0.052, 0.103, 0.808}};
         // Soft, Natural, Warm and Deep sit between that and the game's own
-        // colours (chosen by eye on the ship cabin and a cave, 2026-10-06).
+        // colours (chosen by eye on the ship cabin and a cave).
         constexpr double kLuma[3] = {0.299, 0.587, 0.114};
-        // Pulls green toward yellow and cools nothing: the warm one's tint.
+        // The Warm tint: pulls greens toward yellow.
         constexpr double kWarmTint[3][3] = {{0.86, 0.18, -0.04},
                                             {0.03, 0.90, 0.07},
                                             {0.00, 0.08, 0.86}};

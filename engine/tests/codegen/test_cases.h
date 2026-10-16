@@ -5,7 +5,7 @@
 // matches Interpreter::step on a synthesized input?". The harness:
 //   1. The generator (gen_codegen_tests.exe) consumes this list, runs
 //      the decoder + ArmCodegen, emits one `tc_<idx>` C function per
-//      case into generated/test_funcs.cpp.
+//      case into test_funcs.cpp.
 //   2. The runner (codegen_tests.exe) consumes the SAME list. For each
 //      case it:
 //        a. Builds CPUState + a FlatBus from the snapshot, runs the
@@ -65,7 +65,7 @@ struct TestCase {
 extern const TestCase kTestCases[];
 extern const std::size_t kTestCasesCount;
 
-// Emitted by generated/test_funcs.cpp. One entry per kTestCases slot.
+// Emitted into test_funcs.cpp. One entry per kTestCases slot.
 using TestFn = void (*)(void);
 extern "C" const TestFn       kTestFns[];
 extern "C" const unsigned     kTestFnsCount;

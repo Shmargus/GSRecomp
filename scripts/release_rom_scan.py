@@ -135,7 +135,7 @@ def main() -> int:
         print("ROM bytes found in the release:")
         for line in problems:
             print("  " + line)
-        return 1
+        return 3  # not 1, which a Python crash also exits with
     print("No ROM bytes found.")
     return 0
 

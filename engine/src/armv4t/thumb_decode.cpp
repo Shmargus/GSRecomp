@@ -1,11 +1,7 @@
 // thumb_decode.cpp — THUMB-state decoder.
 //
-// Scaffolding pass. Covers the formats exercised by the smoke test:
-// shift-by-imm (LSL/LSR/ASR), add/sub register & immediate, ALU imm,
-// ALU reg, hi-reg/BX, PC-relative load, immediate load/store,
-// push/pop, conditional branch, unconditional branch, SWI, BL pair.
-//
-// Like the ARM decoder, the layout is reference-implementation style.
+// Like the ARM decoder, the layout is reference-implementation style:
+// one function per THUMB format.
 
 #include "thumb_decode.h"
 
@@ -115,12 +111,8 @@ Instr ThumbDecoder::fmt3_alu_imm(uint16_t hw, uint32_t pc) {
 // with the shift type selected by op and `by_register = true` so
 // the shifter pulls the count from Rs[7:0] at execute time.
 //
-// Previously these four ops mapped to a plain LSL-by-0, which is
-// just a copy from Rs to Rd and produces the wrong result for any
-// non-zero shift. Found via the mGBA oracle lockstep harness at
-// BIOS instruction #38209 (`ROR R3, R4` with R3=0x18, R4=3 → real
-// ROR result 3, but our decoder produced R3 = R4 = 3 via the wrong
-// MOV path, with completely wrong flags).
+// Mapping them to a plain LSL-by-0 would just copy Rs to Rd, which is
+// wrong for any non-zero shift (and gets the flags wrong).
 Instr ThumbDecoder::fmt4_alu_reg(uint16_t hw, uint32_t pc) {
     Instr i; zero_instr(i, hw, pc);
     uint32_t op = bits(hw, 9, 6);
@@ -143,10 +135,9 @@ Instr ThumbDecoder::fmt4_alu_reg(uint16_t hw, uint32_t pc) {
     }
     // NEG Rd, Rs (op 9): Rd = -Rs. ARM equivalent is
     // `RSB Rd, Rs, #0` — Rn = Rs (subtraction source), Op2 = 0
-    // (immediate). The default "Rn = Rd, Op2 = Rs" path computes
-    // Rs - Rd instead, which is wrong (e.g., NEG R0,R0 with R0=0x7E
-    // gives 0 instead of 0xFFFFFF82). Found via oracle lockstep at
-    // BIOS instruction #570503.
+    // (immediate). The default "Rn = Rd, Op2 = Rs" path would compute
+    // Rs - Rd instead (NEG R0,R0 with R0=0x7E would give 0, not
+    // 0xFFFFFF82).
     if (op == 9) {
         i.rn = rs;
         i.op2.kind = Op2::Kind::Imm;

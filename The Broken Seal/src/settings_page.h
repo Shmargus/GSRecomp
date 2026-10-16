@@ -152,9 +152,8 @@ constexpr int kEncounterHalf = 1;
 constexpr int kEncounterOff = 2;
 constexpr int kEncounterDouble = 3;
 constexpr int kEncounterRateCount = 4;
-// Page two is drawn in the game's own window graphics, not over the picture
-// (Jimmy, 2026-09-23). Verified ROM + gpu_rewind_0005/0006 (FACTS.md,
-// 2026-09-23):
+// Page two is drawn in the game's own window graphics, not over the picture.
+// Verified ROM + gpu_rewind_0005/0006 (FACTS.md, 2026-09-23):
 //
 //   [0x03001E8C]  the window system block B (EWRAM). B + 0x000 is the BG0
 //                 tilemap shadow (32 cells a row, u16) that DMA3 copies to

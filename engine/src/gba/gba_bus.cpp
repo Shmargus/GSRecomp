@@ -145,11 +145,6 @@ static inline void note_ram_code_write_bus(uint32_t addr, uint32_t width) {
     }
 }
 
-// The lifecycle probe is deliberately called after the RAM bytes commit. It
-// covers interpreter/host bus writes; generated stores are observed by their
-// existing runtime_trace_event hook, with the generated slow path suppressing
-// this callback around its GbaBus call.
-
 #include "snapshot.h"
 
 namespace gba {

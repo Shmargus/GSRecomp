@@ -39,7 +39,6 @@ namespace gbarecomp::debug { class SnapshotWriter; class SnapshotReader; }
 namespace gba {
 
 class GbaPpu;
-class GbaIrq;
 class GbaAudio;
 
 // ── Always-on MMIO write-trace ring (Axis 4 — accuracy burndown) ──────
@@ -112,12 +111,9 @@ public:
     GbaIo();
     ~GbaIo();
 
-    // Optional wiring. PPU is consulted for VCOUNT/DISPSTAT flag bits;
-    // IRQ controller is the source of truth for IE/IF/IME (but for
-    // Phase 2.2 we just back them in the IO array directly until the
-    // real IRQ scheduler arrives).
+    // Optional wiring. PPU is consulted for VCOUNT/DISPSTAT flag bits.
+    // IE/IF/IME are backed directly in the IO array.
     void set_ppu(GbaPpu* p) { ppu_ = p; }
-    void set_irq(GbaIrq* r) { irq_ = r; }
     // The bus is needed to execute DMA transfers; without it, writes
     // to DMAxCNT_H silently store the register without copying any
     // bytes and the BIOS's VRAM/PAL/OAM uploads vanish.
@@ -238,7 +234,7 @@ public:
     }
 
     // Save-state serialization. Captures the 1 KB IO page, halt flag,
-    // and timer/DMA shadow state. Live wiring (ppu_/irq_/bus_/audio_)
+    // and timer/DMA shadow state. Live wiring (ppu_/bus_/audio_)
     // is NOT serialized — it stays connected across a restore. See
     // debug/snapshot.h.
     void serialize(gbarecomp::debug::SnapshotWriter& w) const;
@@ -246,7 +242,6 @@ public:
 
 private:
     GbaPpu*       ppu_   = nullptr;
-    GbaIrq*       irq_   = nullptr;
     armv4t::Bus*  bus_   = nullptr;
     GbaAudio*     audio_ = nullptr;
 

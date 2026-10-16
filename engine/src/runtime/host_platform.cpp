@@ -20,11 +20,11 @@ FramePacer::FramePacer(double target_hz) {
     // Raise the scheduler timer resolution to 1 ms so sleep_until is
     // accurate enough for ~16.74 ms frame pacing.
     if (timeBeginPeriod(1) == TIMERR_NOERROR) raised_timer_res_ = true;
-    // HP-002: high-resolution waitable timer (Win10 1803+). sleep_until
-    // quantizes to the system tick under load; its phase drift against the
-    // 16.742 ms frame period measured as a 234 ms beat of 20-24 ms
-    // oversleeps. This timer honors sub-millisecond due times. Null on
-    // older Windows -> the hybrid sleep below still applies.
+    // High-resolution waitable timer (Win10 1803+). sleep_until quantizes to
+    // the 64 Hz system tick under load; its phase drift against the 16.742 ms
+    // frame period measured as a 234 ms beat of 20-24 ms oversleeps (52 of 75
+    // late frames in the frame-phase ring). This timer honors sub-millisecond
+    // due times. Null on older Windows -> the hybrid sleep below still applies.
 #ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 #endif
@@ -82,7 +82,7 @@ void FramePacer::wait_for_next_frame() {
         return;
     }
     // Hybrid wait: sleep most of the gap (cheap, but coarse), then spin
-    // the final ~1 ms for deadline accuracy.
+    // the final 1.2 ms for deadline accuracy.
     constexpr auto kSpinTail = std::chrono::microseconds(1200);
     if (next_ - now > kSpinTail) {
 #if defined(_WIN32)

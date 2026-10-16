@@ -279,8 +279,8 @@ void test_sibling_call_restores_the_global() {
           "the base snapshot is not the first thing in the body");
 }
 
-// A corpus with no image declared must be byte-identical to what the emitter
-// produced before relocation existed.
+// A corpus with no image declared is the ordinary fixed corpus: no image-base
+// scaffolding appears in it.
 void test_fixed_corpus_is_untouched() {
     const std::unordered_map<uint64_t, std::string> no_names;
     const std::string body = emit(0x03007BA4u, no_names, nullptr);

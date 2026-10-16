@@ -6,10 +6,9 @@
 //   - Decode instructions from addr forward, in `mode`.
 //   - For each direct branch (B / BL / conditional B), record the
 //     target and add it to the worklist as a NEW function root near
-//     the current function (the
-//     finder is intentionally pessimistic — every branch target is
-//     treated as a potential function entry; the codegen later
-//     consolidates).
+//     the current function (the finder is intentionally pessimistic:
+//     every branch target is treated as a potential function entry, and
+//     the codegen later consolidates).
 //   - For BX/BLX-reg/computed: mark `has_indirect_transfer` and stop
 //     this function's body.
 //   - Stop at: undefined, return-shaped instr (BX LR / pop {pc} /
@@ -61,7 +60,7 @@ bool jump_table_detection_enabled() {
 // Diagnostic toggle: GBARECOMP_JT_REPORT=1 prints, to stderr, every
 // confirmed jump table and the emitter's decision (emitted N / rejected
 // why). Used to measure how many confirmed tables the count-terminator
-// actually emits — the MC-HP-000 coverage metric. Read once.
+// actually emits. Read once.
 bool jt_report_enabled() {
     static const bool enabled = (std::getenv("GBARECOMP_JT_REPORT") != nullptr);
     return enabled;
@@ -335,7 +334,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
     };
     RegConst reg_const[16];
 
-    // Jump-table address tracking (MC-HP-000). The compiler builds a
+    // Jump-table address tracking. The compiler builds a
     // dispatch like:  LDR Rb,=table ; LSL Ri,Ri,#k ; ADD Ra,Ri,Rb ;
     // LDR Rt,[Ra] ; BX Rt (or BL into the bx-rN veneer). reg_const
     // already resolves Rb from its literal load; these two track the
@@ -598,10 +597,9 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
     // any plausible CODE target (NOT just a function prologue — a real
     // `switch` table points at mid-function case labels that open with
     // arbitrary instructions, e.g. `add r0,r4,#0`), while still rejecting
-    // DATA words that merely happen to fall in ROM. The old gate required
-    // a `push`/`stmfd` prologue and so rejected every switch table whose
-    // cases aren't function entries (this is exactly what blocked
-    // MC-HP-001). Checks, in order: correct alignment for the mode; lands
+    // DATA words that merely happen to fall in ROM. (Requiring a
+    // `push`/`stmfd` prologue would reject every switch table whose cases
+    // aren't function entries.) Checks, in order: correct alignment for the mode; lands
     // in ROM and not in a known data_range; decodes to defined
     // instruction(s) in `mode`. `strict` (used only when no exact count
     // bound exists) decodes a short run and requires every instruction
@@ -635,7 +633,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
         return true;
     };
 
-    // Literal-pool harvesting (Stage 0.1, ported from jrickey gba-recomp
+    // Literal-pool harvesting (Stage 0.1; idea from jrickey gba-recomp's
     // analyze.rs). A PC-relative `LDR rX,[pc,#imm]` whose loaded word
     // looks like a code pointer seeds a new function entry. This catches
     // function pointers stashed in literal pools that are NEVER consumed
@@ -645,7 +643,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
     // bit0==1 → THUMB target, (word&3)==0 → ARM target; anything else is
     // not a pointer. looks_like_code (strict) gates on alignment, ROM
     // bounds, data_range, and a defined-instruction decode run. A wrong
-    // guess is a dead func_XXXX that is never dispatched, never a hard
+    // guess is a dead function that is never dispatched, never a hard
     // data_range collision (so it cannot abort the build).
     // ARM function-entry prologue gate. Literal-pool code pointers point
     // at function ENTRIES, and a real ARM function opens with the AAPCS
@@ -656,8 +654,8 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
     // second signal ARM harvesting needs: plain alignment + a 6-instr
     // "all defined" decode is far too weak for ARM (its condition field
     // makes nearly any word decode to something), and without this gate
-    // an ARM harvest exploded Minish Cap discovery 7.5x (~292k bogus
-    // funcs from data pointers). THUMB needs no such gate — bit0-set +
+    // an ARM harvest exploded discovery 7.5x on a large ROM (~292k
+    // bogus funcs from data pointers). THUMB needs no such gate — bit0-set +
     // ROM-range + strict decode is already a strong enough signal.
     auto is_arm_func_prologue = [&](uint32_t tgt) -> bool {
         uint32_t a = tgt;
@@ -698,8 +696,8 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
 
     // Recognize an abs32 jump table at `base` revealed by an indexed load
     // at `site_pc`. Mirrors the manual [[jump_table]] expansion in
-    // main.cpp (mark table bytes as data + seed each entry) but derives
-    // base/count/mode automatically.
+    // tools/gba_recompile/main.cpp (mark table bytes as data + seed each
+    // entry) but derives base/count/mode automatically.
     //
     //  * `interworking`  — how the dispatcher consumes an entry. true for
     //    `BX Rt` / a `bx`-veneer reached by BL: bit0 of each word selects
@@ -707,8 +705,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
     //    `MOV pc,Rt`: a non-interworking write to PC that KEEPS the
     //    dispatcher's current mode, so the words carry no mode bit and
     //    every target inherits `entry_mode`. Deriving mode from bit0 here
-    //    (the old behavior) mis-seeded MC-HP-001's even THUMB targets as
-    //    ARM.
+    //    would mis-seed even THUMB targets as ARM.
     //  * `count_hint`    — exact entry count from the dispatcher's
     //    `CMP index,#N; B{hi,cs} default` bound, or 0 if none was
     //    recovered. When known it is the authoritative terminator (no
@@ -1017,8 +1014,8 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
         // post-IRQ BL_suffix resume seed (see the alias-candidate gate in
         // run()). Either way "is this halfword really primed by a
         // BL_prefix" is answered identically: decode pc-2 and check. A
-        // BL_prefix on its own no longer does anything here; its half of
-        // the pair is inert until the suffix is reached.
+        // BL_prefix on its own does nothing here; its half of the pair is
+        // inert until the suffix is reached.
         if (entry_mode == CpuMode::Thumb &&
             ins.op == armv4t::IrOp::BL_suffix &&
             pc >= 2 && can_read_walk_at(pc - 2, 2)) {
@@ -1167,7 +1164,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
             }
         }
 
-        // Jump-table confirmation (MC-HP-000). If a candidate from a
+        // Jump-table confirmation. If a candidate from a
         // prior indexed load is pending, check whether THIS instruction
         // uses the loaded register as a control-flow target. That
         // promotion is the proof it's a jump table rather than an
@@ -1289,7 +1286,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
             }
         }
 
-        // CMP-bound capture for exact jump-table sizing (MC-HP-000). The
+        // CMP-bound capture for exact jump-table sizing. The
         // canonical switch guard is `CMP Ri,#N` immediately followed by a
         // `B{hi,cs}` to the default case; the in-range index span gives the
         // table's entry count with no guessing. Record the compare, then on
@@ -1834,8 +1831,8 @@ void FunctionFinder::run(std::size_t max_functions) {
 
     // Dedup-at-push: every (addr,mode) ever queued. discover_one already
     // dedups at visit time, so the worklist otherwise fills with
-    // already-queued/visited no-ops — on Minish Cap it bloated to ~170k
-    // of mostly-duplicate branch targets. Skipping a re-push is
+    // already-queued/visited no-ops (on a large ROM it bloated to ~170k
+    // mostly-duplicate branch targets). Skipping a re-push is
     // output-neutral (the discovered closure is unchanged) and is the
     // dominant regen-speed cost. Seeded with the initial seed keys.
     std::unordered_set<uint64_t> enqueued = seed_keys;
@@ -1870,8 +1867,8 @@ void FunctionFinder::run(std::size_t max_functions) {
         // Safety net: discovery must converge (worklist drains toward
         // empty). A runaway past this bound means a detector or decoder
         // change is seeding garbage — halt loudly rather than exhaust
-        // memory. Baseline Minish Cap discovery peaks near ~170k, so
-        // 2M is far above any healthy run.
+        // memory. A healthy run on a large ROM peaks near ~170k, so
+        // 2M is far above it.
         if (worklist.size() > 2000000u) {
             std::fprintf(stderr,
                 "[finder] WORKLIST BRAKE at %zu (pos=%zu functions=%zu) "
@@ -2070,13 +2067,13 @@ void FunctionFinder::run(std::size_t max_functions) {
         }
     }
 
-    // ── Mid-function aliasing (ported from psxrecomp) ───────────────────────
+    // ── Mid-function aliasing (idea from psxrecomp) ───────────────────────
     // Roll each explicit interior/resume seed into the REAL host whose clamped
     // body contains it (host.addr < cand.addr < host.end_addr, same mode).
     // A WaitForVBlank-style busy-wait that an IRQ returns into mid-loop is the
     // motivating case: rooting the resume PC as its own function would split
     // the tight loop into dispatch-chained 1-instruction functions (binary
-    // search per iteration → throughput regression, see psxrecomp). Instead
+    // search per iteration → throughput regression). Instead
     // the host stays one whole function (native goto back-edges intact) and the
     // resume PC becomes an interior label reached via the host's resume
     // prologue. Host extents are the just-computed CLAMPED end_addr (accurate

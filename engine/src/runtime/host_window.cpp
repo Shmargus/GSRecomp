@@ -1,4 +1,4 @@
-﻿// host_window.cpp â€” SDL2-backed window. Stubs out when SDL2 isn't found.
+﻿// host_window.cpp — SDL2-backed window. Stubs out when SDL2 isn't found.
 
 #include "host_window.h"
 #include "runtime.h"
@@ -29,7 +29,7 @@
 #include "temporal_blend.h"
 // runtime_set_overclock_factor / runtime_get_overclock_factor (TURBO-B2-UI).
 #include "../armv4t/runtime_arm.h"
-// gba::g_hide_bg0..g_hide_bg3: live BG-layer visibility toggle (F1 menu).
+// gba::g_hide_bg0..g_hide_bg3: live BG-layer visibility toggle.
 #include "../gba/gba_ppu.h"
 
 #if defined(GBARECOMP_HAVE_SDL2)
@@ -38,7 +38,7 @@
 
 // Shared ecosystem clock-domain bridge (callback-driven DRC). Replaces the
 // SDL_QueueAudio push path, which silence-filled on queue underrun (~3.4/s
-// measured on Minish Cap) and hard-flushed on overflow â€” the same output-side
+// measured on Minish Cap) and hard-flushed on overflow — the same output-side
 // crackle fixed on NES. IMPL is defined in exactly this one translation unit.
 #define RECOMP_AUDIO_DRC_IMPL
 #include "recomp_audio_drc.h"
@@ -101,18 +101,14 @@ struct Backend;
 bool write_video_ini(const Backend* b);
 
 // System hotkey ids (config.ini [KeyMap] rows this host implements). Reset,
-// PauseDimmed and ToggleRenderer are intentionally absent â€” gbarecomp has no
+// PauseDimmed and ToggleRenderer are intentionally absent — gbarecomp has no
 // in-process reset, no attract-dim, and one renderer; the launcher's GBA
 // hotkey catalog omits them to match.
 //
-// HK_TURBO ("Turbo Held" in the UI) is level-triggered: fast-forward is on
-// only while the binding is down (UI-02). HK_TURBO_TOGGLE ("Turbo Toggle")
-// is the edge-triggered latch added alongside it, appended at the end so
-// existing HostHotkey values (and therefore existing config.ini [KeyMap]
-// rows) keep their meaning. Both drive the same Events::fast_forward flag
-// (see the pad/keyboard read at the end of pump()); UI-02's chosen rule:
-// fast_forward is true when EITHER Held is currently down OR the Toggle
-// latch is on. Releasing Held never clears the Toggle latch.
+// HK_TURBO ("Fast Forward (hold)" in the UI) is level-triggered: on only while the
+// binding is down. HK_TURBO_TOGGLE is an edge-triggered latch. Both drive Events::fast_forward (see host_window.h). New ids are
+// appended so existing HostHotkey values, and therefore existing config.ini
+// [KeyMap] rows, keep their meaning.
 enum HostHotkey {
     HK_FULLSCREEN = 0, HK_PAUSE, HK_TURBO,
     HK_WINDOW_BIGGER, HK_WINDOW_SMALLER,
@@ -123,7 +119,7 @@ enum HostHotkey {
     // menu); the run loop hands the press to RunOptions::game_menu_toggle.
     // Appended so existing [KeyMap] rows keep their meaning.
     HK_GAME_MENU,
-    // Auto Fire A / B: level-triggered like Turbo Held. While the binding is
+    // Auto Fire A / B: level-triggered like Fast Forward (hold). While the binding is
     // down the button is pressed and released on alternating frame pairs
     // (~15 presses a second), read at the end of the KEYINPUT build in
     // pump(). Appended so existing [KeyMap] rows keep their meaning.
@@ -138,24 +134,22 @@ enum HostHotkey {
 struct HotkeyBind {
     SDL_Keycode key = SDLK_UNKNOWN;   // SDLK_UNKNOWN = unbound
     Uint16      mods = 0;             // required KMOD_CTRL/ALT/SHIFT bits
-    // SDL_GameControllerButton, -1 = unbound (UI-02); or kPadTriggerLeft/
-    // kPadTriggerRight (UI-02b) for the L2/R2 analog triggers, which SDL
-    // never reports as a button.
+    // SDL_GameControllerButton, -1 = unbound; or a synthetic id from
+    // host_config_ui.h (kPadTriggerLeft/Right for the L2/R2 analog triggers,
+    // which SDL never reports as buttons; the stick directions).
     int         pad_button = -1;
 };
 
-// host_config_ui.h's kPadTriggerLeft/Right sentinels are a literal (that
-// header carries no SDL include) rather than SDL_CONTROLLER_BUTTON_MAX
-// directly; keep them honest against this SDL2's real enum value.
+// Guards the literal in host_config_ui.h against SDL's real enum value.
 static_assert(kPadTriggerLeftValue == static_cast<int>(SDL_CONTROLLER_BUTTON_MAX),
              "kPadTriggerLeftValue must track SDL_CONTROLLER_BUTTON_MAX so the "
              "synthetic L2/R2 ids never collide with a real pad button");
 
-// UI-02b: hysteresis thresholds treating an analog L2/R2 trigger pull
+// Hysteresis thresholds treating an analog L2/R2 trigger pull
 // (SDL_CONTROLLERAXISMOTION, 0..32767) as a digital press/release. Two
-// thresholds rather than one so a trigger resting exactly on the boundary
-// (mechanical play, drift) cannot chatter on/off: press fires only above
-// ~61% travel, release only below ~37%, leaving a dead band between them.
+// thresholds so a trigger resting on the boundary (mechanical play, drift)
+// cannot chatter: press fires only above ~61% travel, release only below
+// ~37%. The stick directions use the same pair.
 constexpr Sint16 kTriggerPressThreshold   = 20000;  // ~61% of 32767 -> pressed
 constexpr Sint16 kTriggerReleaseThreshold = 12000;  // ~37% of 32767 -> released
 
@@ -168,19 +162,19 @@ constexpr float kStickDeadZone = 7849.0f;
 // diagonal presses two.
 constexpr float kStickSectorSin = 0.38268343f;
 
-// â”€â”€ MC-WS-002 present-cadence ring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── MC-WS-002 present-cadence ring ───────────────────────────────────────
 // Always-on (Release too) ring recording EVERY SDL_RenderPresent from window
 // open: wall time blocked inside the call, entry-to-entry gap, and the DWM
-// composition refresh counter (cRefresh) at exit â€” the scanout-side ruler
+// composition refresh counter (cRefresh) at exit — the scanout-side ruler
 // that delivered-content framedumps cannot see. The ring records
 // unconditionally (~24 B/present); GBARECOMP_PRESENT_CADENCE=1 adds a
 // periodic stderr summary and a full CSV dump at close
 // (GBARECOMP_PRESENT_CADENCE_DUMP=path overrides ./_present_cadence.csv).
 // Interpretation (tools/analyze_present_cadence.py automates this):
-//   block_us â‰ˆ 0 on every present â†’ vsync is NOT blocking (tear-prone);
-//   rdelta 1,1,1â€¦ at ~16.74 ms gaps on a high-Hz VRR panel â†’ VRR engaged;
-//   rdelta 2/3 alternation on 164 Hz â†’ 59.73â†’164 pulldown (cadence judder);
-//   rdelta 0 rows â†’ two presents inside one refresh (frame replaced).
+//   block_us ≈ 0 on every present → vsync is NOT blocking (tear-prone);
+//   rdelta 1,1,1… at ~16.74 ms gaps on a high-Hz VRR panel → VRR engaged;
+//   rdelta 2/3 alternation on 164 Hz → 59.73→164 pulldown (cadence judder);
+//   rdelta 0 rows → two presents inside one refresh (frame replaced).
 struct PresentSample {
     uint64_t qpc = 0;          // SDL performance counter at present entry
     uint64_t dwm_refresh = 0;  // DWM cRefresh after present (0 = unavailable)
@@ -313,7 +307,7 @@ struct PresentCadence {
         std::fflush(stderr);
     }
 
-    // Full-ring CSV dump (verbose only) â€” the queryable record of the run.
+    // Full-ring CSV dump (verbose only) — the queryable record of the run.
     void dump() {
         if (!verbose || total == 0) return;
         std::FILE* f = std::fopen(dump_path.c_str(), "w");
@@ -460,10 +454,10 @@ struct Backend {
     bool           cfg_ready = false;
     SDL_GameController* pad = nullptr;    // first attached controller
     int            pad_bind[10];          // SDL_GameControllerButton per bit
-    // UI-02b: debounced digital state of the L2/R2 analog triggers, derived
-    // from SDL_CONTROLLERAXISMOTION via kTriggerPressThreshold/
+    // Debounced digital state of the L2/R2 analog triggers, derived from
+    // SDL_CONTROLLERAXISMOTION via kTriggerPressThreshold/
     // kTriggerReleaseThreshold. Doubles as the edge source for hotkey
-    // dispatch/capture and the level source for a Turbo-Held trigger bind.
+    // dispatch/capture and the level source for a held-hotkey trigger bind.
     bool           trigger_left_down = false;
     bool           trigger_right_down = false;
     // Same debounced state for the eight stick directions, indexed by
@@ -493,20 +487,17 @@ struct Backend {
     // Legacy [Enhancements] Widescreen=true/false state. A new ViewMode key
     // takes precedence; the bool is retained on write for older builds.
     bool         widescreen_config_present = false;
-    // UI-02: Turbo Toggle's latch state. Edge-triggered by the TurboToggle
-    // hotkey (keyboard or pad); read every pump alongside Turbo Held to
-    // drive the one shared Events::fast_forward flag (fast_forward = Held
-    // down OR this latch on). Runtime-only, not persisted â€” only the two
-    // bindings are saved, not whether turbo happened to be toggled on when
-    // the app last closed.
+    // Fast Forward (toggle) latch (see Events::fast_forward). Runtime-only: only the
+    // bindings are saved, not whether turbo was latched on at exit.
     bool         turbo_toggle_on = false;
     bool         frame_interpolation_game_allowed = false;
     bool         frame_interpolation_display_ok = false;
     bool         enhanced_timing_game_allowed = false;
-    // TURBO-B2-UI: Enhancements-tab "Guest CPU Overclock" control. Off/On;
-    // persisted as the literal factor (1 or 10) in config.ini, applied live
-    // via runtime_set_overclock_factor — see write_enhancements_ini and the
-    // enhancements_changed handler below.
+    // TURBO-B2-UI: guest CPU overclock, Off/On, set by the game's No Slowdown
+    // option (runtime_take_no_slowdown_request). Persisted as the literal
+    // factor (1 or 50) in config.ini and applied live via
+    // runtime_set_overclock_factor — see write_enhancements_ini and the
+    // enhancements_changed handler in pump().
     unsigned     overclock_factor = 1;
     double       display_refresh_hz = 0.0;
     int          volume = 100;          // 0..100 gain on pushed samples
@@ -676,11 +667,8 @@ void native_upscale_nearest(const uint8_t* src, int src_w, int src_h,
 }
 
 // GBA KEYINPUT bit order: 0=A 1=B 2=Sel 3=Sta 4=Right 5=Left 6=Up 7=Down 8=R 9=L.
-// Defaults MATCH recomp-ui's generic keybinds defaults (keybinds.c) so the
-// launcher's rebind page and the game agree even before keybinds.ini exists:
-// A=X, B=Z, L=C, R=V, Start=Return, Select=RShift, D-pad=arrows.
-// (This supersedes the pre-launcher hardcoded Z/X/A/S layout â€” one defaults
-// source across the recomp ecosystem; rebind in the launcher to taste.)
+// Used when keybinds.ini is absent: A=X, B=Z, L=C, R=V, Start=Return,
+// Select=RShift, D-pad=arrows.
 const SDL_Scancode kDefaultBinds[10] = {
     SDL_SCANCODE_X,       // A
     SDL_SCANCODE_Z,       // B
@@ -694,20 +682,18 @@ const SDL_Scancode kDefaultBinds[10] = {
     SDL_SCANCODE_C,       // L
 };
 
-// keybinds.ini [player1] key name -> GBA KEYINPUT bit. x/y/l2/r2/l3/r3 from
-// the generic 16-slot format are ignored (no GBA equivalent).
+// keybinds.ini [player1] key name -> GBA KEYINPUT bit. Other slots (x, y, l2,
+// r2, l3, r3) are ignored: the GBA has no such buttons.
 const struct { const char* name; int bit; } kBindKeys[] = {
     { "a", 0 }, { "b", 1 }, { "select", 2 }, { "start", 3 },
     { "right", 4 }, { "left", 5 }, { "up", 6 }, { "down", 7 },
     { "r", 8 }, { "l", 9 },
 };
 
-// config.ini [KeyMap] key names, in HostHotkey order, with the same defaults
-// recomp-ui's hotkey panel displays for the GBA catalog. "Turbo" keeps its
-// original persistence name for HK_TURBO (now "Turbo Held" in the UI) so a
-// config.ini saved before UI-02 still loads that binding unchanged; the
-// friendlier UI-02 label lives in kHotkeyLabels below instead of renaming
-// this key. "TurboToggle" is new (UI-02).
+// config.ini [KeyMap] key names, in HostHotkey order. "Turbo" keeps its
+// original name for HK_TURBO (shown as "Fast Forward (hold)" in the UI) so an
+// older config.ini still loads that binding; the UI label lives in
+// kHotkeyLabels below.
 const char* const kHotkeyNames[HK_COUNT] = {
     "Fullscreen", "Pause", "Turbo",
     "WindowBigger", "WindowSmaller",
@@ -719,9 +705,8 @@ const char* const kHotkeyNames[HK_COUNT] = {
     "AutoFireB",
     "QuitGame",
 };
-// UI display labels, same order as kHotkeyNames. Only Turbo (-> "Turbo
-// Held") and the new TurboToggle (-> "Turbo Toggle") differ from the
-// persisted key name.
+// UI display labels, same order as kHotkeyNames; they may differ from the
+// persisted key names.
 const char* const kHotkeyLabels[HK_COUNT] = {
     "Fullscreen", "Pause", "Fast Forward (hold)",
     "Bigger Window", "Smaller Window",
@@ -737,19 +722,18 @@ const char* const kHotkeyDefaults[HK_COUNT] = {
     "Alt+Return", "Shift+P", "Tab",
     "", "",
     "", "", "F",
-    // In-window rebind menu. F1 was save-state slot 1; the slots moved to
-    // F2..F10 so this key is free. Rebindable like any other hotkey â€” set
+    // In-window rebind menu. F2..F10 are the save-state slots, so F1
+    // is free. Rebindable like any other hotkey — set
     // config.ini [KeyMap] Menu= to something else and F1 goes back to being
     // an ordinary (unbound) key.
     "F1",
-    // Turbo Toggle ships unbound by default: no keyboard/pad button is a
-    // proven-safe default for a brand-new latching hotkey, so the user picks
-    // one explicitly in the Hotkeys tab.
+    // Fast Forward (toggle) ships unbound: the user picks a key on the
+    // Hotkeys page.
     "",
     // F11 is the one function key nothing else claims (F1 menu, F2..F10
     // save-state slots, F12 the renderer's frame dump).
     "F11",
-    // Auto Fire ships unbound, like Turbo Toggle: the user picks the button.
+    // Auto Fire ships unbound, like Fast Forward (toggle): the user picks the button.
     "",
     "",
     // Quit Game ships unbound so no stray press closes the game.
@@ -765,8 +749,8 @@ const struct { const char* name; int bit; } kPadKeys[] = {
     { "r", 8 }, { "l", 9 },
 };
 
-// SDL_GetScancodeFromName plus the same lowercase aliases recomp-ui's
-// keybinds.c accepts, so a file either side writes round-trips identically.
+// SDL_GetScancodeFromName plus a few lowercase aliases (enter, esc, lshift...)
+// so hand-written keybinds.ini files parse.
 SDL_Scancode scancode_from_name(const char* name) {
     if (!name || !*name) return SDL_SCANCODE_UNKNOWN;
     SDL_Scancode sc = SDL_GetScancodeFromName(name);
@@ -789,8 +773,7 @@ SDL_Scancode scancode_from_name(const char* name) {
 }
 
 // Parse a [KeyMap] value ("Ctrl+R", "Alt+Return", "F", "" = unbound) into a
-// HotkeyBind. Mirrors the format recomp-ui's hotkey editor writes
-// (SDL keycode name with Ctrl+/Alt+/Shift+ prefixes).
+// HotkeyBind: an SDL keycode name with optional Ctrl+/Alt+/Shift+ prefixes.
 HotkeyBind parse_hotkey(const char* value) {
     HotkeyBind hb;
     if (!value || !*value) return hb;
@@ -810,7 +793,7 @@ HotkeyBind parse_hotkey(const char* value) {
 }
 
 // True when `hb` is bound and its required modifiers are (all) held. Ctrl/
-// Alt/Shift not required by the binding must NOT be held â€” so "P" and
+// Alt/Shift not required by the binding must NOT be held — so "P" and
 // "Shift+P" stay distinct bindings.
 bool hotkey_mods_ok(const HotkeyBind& hb, Uint16 state_mods) {
     auto want = [&](Uint16 m) { return (hb.mods & m) != 0; };
@@ -845,7 +828,7 @@ bool stick_dir_held(SDL_GameController* pad, int id) {
 
 // Level read of a hotkey binding: its key (with exactly its modifiers) or its
 // controller button is down right now. L2/R2 use the debounced trigger state
-// pump() maintains, since SDL never reports them as buttons (UI-02b).
+// pump() maintains, since SDL never reports them as buttons.
 bool hotkey_held(const Backend* b, const HotkeyBind& hb, const Uint8* ks) {
     if (hb.key != SDLK_UNKNOWN) {
         const SDL_Scancode sc = SDL_GetScancodeFromKey(hb.key);
@@ -863,11 +846,9 @@ bool hotkey_held(const Backend* b, const HotkeyBind& hb, const Uint8* ks) {
 }
 
 // Edge-triggered hotkey actions, shared by the keyboard (SDL_KEYDOWN) and
-// controller (SDL_CONTROLLERBUTTONDOWN) dispatch in pump() (UI-02: every
-// hotkey is bindable to either device through the same HotkeyBind table).
-// HK_TURBO ("Turbo Held") is intentionally absent from this switch — it
-// stays level-triggered and is read once per pump, alongside
-// HK_TURBO_TOGGLE's latch, at the very end of pump().
+// controller (SDL_CONTROLLERBUTTONDOWN) dispatch in pump(): every hotkey can
+// be bound to either device through the same HotkeyBind table. Level-triggered
+// ones (HK_TURBO, auto fire) are not here; pump() reads them each frame.
 void fire_hotkey(int h, Backend* b, HostWindow::Events& ev) {
     switch (h) {
         case HK_FULLSCREEN:     ev.toggle_fullscreen = true;             break;
@@ -878,9 +859,7 @@ void fire_hotkey(int h, Backend* b, HostWindow::Events& ev) {
         case HK_VOLUME_DOWN:    ev.volume_down = true;                   break;
         case HK_DISPLAY_PERF:   ev.toggle_fps = true;                    break;
         case HK_MENU:           config_ui_toggle();                      break;
-        // Turbo Toggle: press to flip the latch (UI-02). Never re-toggles
-        // while held because this only runs on the down-edge (SDL_KEYDOWN
-        // with repeat==0, or SDL_CONTROLLERBUTTONDOWN, both one-shot).
+        // Runs only on the down-edge, so holding the key does not re-toggle.
         case HK_TURBO_TOGGLE:   b->turbo_toggle_on = !b->turbo_toggle_on; break;
         case HK_GAME_MENU:      ev.game_menu = true;                     break;
         case HK_QUIT:           ev.quit = true;                          break;
@@ -929,7 +908,7 @@ void ini_scan_section(const char* path, const char* section, Fn fn) {
 
 // Resolve the screen model: the per-game [video].screen from game.toml
 // (`toml_screen`) is the default; GBARECOMP_SCREEN overrides it at launch.
-// Unset/unrecognized â†’ Raw (passthrough). Tokens: raw|unlit|frontlit|
+// Unset/unrecognized → Raw (passthrough). Tokens: raw|unlit|frontlit|
 // backlit|classic.
 runtime::ColorSettings resolve_color_settings(const char* toml_screen) {
     runtime::ColorSettings s;
@@ -1033,7 +1012,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
         }
     }
     if (SDL_WasInit(SDL_INIT_AUDIO) == 0) {
-        // Non-fatal if audio fails â€” keep video working.
+        // Non-fatal if audio fails — keep video working.
         if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
             std::fprintf(stderr, "host_window: SDL_InitSubSystem(AUDIO) failed: %s\n",
                          SDL_GetError());
@@ -1053,7 +1032,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     b->title = title ? title : "gbarecomp";
     // Gamepad. A host-side convenience: if it fails to come up the emulator
     // runs exactly as before, just without pad input. (The config UI is
-    // initialized further down â€” it needs the window and renderer, which do
+    // initialized further down — it needs the window and renderer, which do
     // not exist yet here.)
     if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) == 0) {
         for (int i = 0; i < SDL_NumJoysticks(); ++i) {
@@ -1131,18 +1110,15 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
         delete b;
         return false;
     }
-    // The independent FramePacer still governs emulation at 59.7275 Hz
-    // (MC-HP-004) â€” vsync below only aligns scanout, in series after the
-    // pacer, and can never become the game clock.
-    // HP-002: EVERY path now requests a synchronized present. The cadence
-    // probe measured the legacy D3D9 blit returning in <1 ms despite
-    // vsync=yes (presents never sync to scanout â†’ the tear band users see
-    // toward the bottom at native res). SDL2's D3D11 backend is a DXGI
-    // flip-model swapchain whose vsync genuinely blocks, and windowed VRR
-    // (G-Sync "windowed and full screen") can engage through it â€” so prefer
-    // it by default on Windows; SDL_RENDER_DRIVER in the environment still
-    // overrides. GBARECOMP_NO_VSYNC=1 restores the historical
-    // unsynchronized present for A/B.
+    // The FramePacer governs emulation at 59.7275 Hz; vsync below only aligns
+    // scanout after the pacer and never becomes the game clock.
+    // Every path requests a synchronized present. The cadence probe measured
+    // the legacy D3D9 blit returning in <1 ms despite vsync=yes, so presents
+    // never synced to scanout (a tear band near the bottom). SDL2's D3D11
+    // backend is a DXGI flip-model swapchain whose vsync really blocks and
+    // which windowed VRR can engage through, so it is preferred on Windows;
+    // SDL_RENDER_DRIVER in the environment still overrides.
+    // GBARECOMP_NO_VSYNC=1 restores the unsynchronized present for A/B.
     const bool want_vsync = !env_flag("GBARECOMP_NO_VSYNC");
     const Uint32 renderer_flags = SDL_RENDERER_ACCELERATED |
         (want_vsync ? static_cast<Uint32>(SDL_RENDERER_PRESENTVSYNC)
@@ -1281,7 +1257,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     if (!b->cfg_ready) {
         std::fprintf(stderr,
                      "host_window: config UI unavailable (built without "
-                     "Dear ImGui, or init failed) â€” %s is inert\n",
+                     "Dear ImGui, or init failed) - %s is inert\n",
                      kHotkeyDefaults[HK_MENU]);
     }
     // Seed the UI's view of video state from what was actually negotiated,
@@ -1313,14 +1289,11 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
 
     // Open the audio device at 65536 Hz 16-bit signed. The normal faithful
     // path remains mono; canonical-stereo and native-MP2K opt-ins use stereo.
-    // running BIOS sets SOUNDBIAS resolution=1 which raises the
-    // mixer's effective sample rate from 32768 to 65536; opening
-    // the device at 32768 (the power-on default) caused SDL to play
-    // back at half speed, hit the 250 ms queue cap, and flush â€”
-    // audible as muffled / watery chime artifacts. SDL2 resamples
-    // internally if the host hardware doesn't natively support
-    // 65536, so this rate is portable. Failure is non-fatal â€”
-    // silent video still works.
+    // The running BIOS sets SOUNDBIAS resolution=1, which raises the mixer's
+    // effective sample rate from 32768 to 65536; a device opened at 32768
+    // (the power-on default) played back at half speed, with muffled, watery
+    // chime artifacts. SDL2 resamples if the host hardware lacks 65536, so
+    // this rate is portable. Failure is non-fatal: video still works.
     SDL_AudioSpec want{};
     want.freq     = 65536;
     want.format   = AUDIO_S16SYS;
@@ -1341,7 +1314,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
         cfg.channels    = b->audio_channels;
         cfg.source_rate = 65536.0;                 // engine's standardized GBA mixer rate
         cfg.host_rate   = static_cast<double>(got.freq);
-        cfg.target_ms   = 60.0;                     // steady cushion (matches NES)
+        cfg.target_ms   = 60.0;                     // steady cushion
         cfg.preroll_ms  = 250.0;                    // boot pre-roll: hide the cold-start
                                                     // recomp warm-up hitch (drains to target)
         if (rab_init(&b->bridge, &cfg) == 0) b->bridge_ready = true;
@@ -1360,9 +1333,8 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     return true;
 }
 
-// Game-thread codegen time (overlay_loader.cpp) â€” forward-declared to avoid a
-// heavy include. ~0 during async play; >0 means the game thread is compiling.
-// (We are already inside namespace gbarecomp, so declare it unqualified.)
+// Game-thread codegen time (overlay_loader.cpp), declared here to avoid a heavy
+// include. ~0 during async play; >0 means the game thread is compiling.
 uint64_t overlay_game_thread_compile_ns();
 
 static void probe_stereo_audio_push(Backend* b, std::size_t count) {
@@ -1420,7 +1392,7 @@ void HostWindow::push_audio_samples(const int16_t* samples, std::size_t count) {
     }
 
     // Volume (launcher setting + VolumeUp/Down hotkeys): scale into scratch
-    // before the bridge. 100 = passthrough, byte-identical to before.
+    // before the bridge. 100 = passthrough.
     if (b->volume != 100) {
         b->volume_buf.resize(count);
         const int v = b->volume;
@@ -1432,15 +1404,13 @@ void HostWindow::push_audio_samples(const int16_t* samples, std::size_t count) {
 
     // Producer: append mono frames into the bridge ring. The SDL callback
     // (gba_audio_callback) drains it at the device rate with band-limited
-    // resampling + a P-only fill servo â€” no queue underrun, no hard flush.
+    // resampling + a P-only fill servo — no queue underrun, no hard flush.
     SDL_LockMutex(b->audio_mtx);
     rab_push(&b->bridge, samples, static_cast<int>(count)); // mono: count == frames
     SDL_UnlockMutex(b->audio_mtx);
 
-    // â”€â”€ NES-mode crackle probe (measure step) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // GBARECOMP_AUDIO_PROBE=1 reports the BRIDGE's underrun/overflow counters
-    // (the post-fix equivalent of SDL queue underruns) so a before/after is
-    // directly comparable. Expect ~0 underruns once primed.
+    // Audio probe: GBARECOMP_AUDIO_PROBE=1 reports the bridge's underrun and
+    // overflow counters. Expect ~0 underruns once primed.
     static int s_probe = -1;
     if (s_probe < 0) { s_probe = env_flag("GBARECOMP_AUDIO_PROBE") ? 1 : 0; }
     if (s_probe) {
@@ -1451,8 +1421,8 @@ void HostWindow::push_audio_samples(const int16_t* samples, std::size_t count) {
             double secs = static_cast<double>(s_samples) / 65536.0;
             double stretch_ms = st.stretch_frames * 1000.0
                               / static_cast<double>(b->bridge.cfg.host_rate);
-            // Game-thread codegen time: cumulative + this-window delta. The delta
-            // is the smoking gun â€” async play holds it at 0; sync play grows it.
+            // Game-thread codegen time: cumulative + this-window delta. Async
+            // play holds the delta at 0; sync play grows it.
             static unsigned long long s_prev_cc_ns = 0;
             unsigned long long cc_ns = overlay_game_thread_compile_ns();
             double gt_ms      = cc_ns / 1e6;
@@ -1481,14 +1451,11 @@ void HostWindow::close() {
     if (b->audio_dev) SDL_CloseAudioDevice(b->audio_dev);  // stops the callback first
     if (b->bridge_ready) rab_free(&b->bridge);
     if (b->audio_mtx) SDL_DestroyMutex(b->audio_mtx);
-    // SHUTDOWN-FREEZE-01: config_ui_shutdown() was never called on any exit
-    // path. With the old imgui_impl_sdlrenderer2 backend that was a harmless
-    // leak; with the OpenGL backend + ImGuiConfigFlags_ViewportsEnable,
-    // ImGui owns live detached OS windows each with its own GL context, and
-    // SDL_DestroyRenderer() below destroys the MAIN GL context out from
-    // under them, hanging the driver on exit. Must run before the texture/
-    // renderer/window teardown, and only once (cfg_ready guards a double
-    // close()).
+    // SHUTDOWN-FREEZE-01: with the OpenGL backend and multi-viewport, ImGui
+    // owns detached OS windows, each with its own GL context. Destroying the
+    // renderer (the MAIN GL context) under them hangs the driver on exit, so
+    // this must run before the texture/renderer/window teardown. cfg_ready
+    // guards a double close().
     if (b->cfg_ready) {
         config_ui_shutdown();
         b->cfg_ready = false;
@@ -1564,9 +1531,8 @@ bool HostWindow::drawable_size(int* width, int* height) const {
     const auto* b = static_cast<const Backend*>(impl_);
     // Capture/debug override: GBARECOMP_FORCE_DRAWABLE="WxH" makes the
     // resize-driven view resolve as if the client window were WxH, so the
-    // adaptive wide path can be exercised faithfully under the SDL dummy
-    // video driver (headless, session-independent) for the MC-WS-002
-    // frame-capture investigation. No effect unless set.
+    // adaptive wide path can run under the SDL dummy video driver (headless).
+    // No effect unless set.
     static int s_fd_w = -1, s_fd_h = -1;
     if (s_fd_w == -1) {
         s_fd_w = 0;
@@ -1777,26 +1743,17 @@ void HostWindow::present(const uint8_t* rgb888) {
         !b->native_fb.empty() && b->native_scene_w > 0 && b->native_scene_h > 0;
     if (!rgb888 && !supplied_native) return;
 
-    // VFX-FLICKER-02: temporal frame blend ("LCD ghosting"), opt-in and OFF
-    // by default. Runs first — before color grading, integer/native scaling,
-    // and any of that downstream work below — directly on the PPU-produced
-    // frame, so it sits ahead of every other presentation stage the same way
-    // it would on a real GBA's screen (the pixels blend, then everything
-    // downstream of the "screen" is just how a photo of that would be
-    // scaled/graded). Skipped entirely for the native-compositor path
-    // (supplied_native is a separately-scaled buffer this feature does not
-    // reach — that path is out of scope here, see VFX-FLICKER-02 report) and
-    // force-disabled whenever 2x scene interpolation is the user's enabled
-    // setting: interpolation presents a synthesized midpoint frame and the
-    // real frame through this same function every guest frame (see
-    // runtime.cpp's present_first/finish_presentation_pacing), and this
-    // function cannot tell which call is which, so blending across that
-    // synthetic/real pair would smear the picture rather than steady it.
-    // Turbo/frameskip need no special handling here: present() is only ever
-    // called for a frame runtime.cpp's turbo_present_decimator actually
-    // decided to present, so temporal_blend_prev below only ever holds a
-    // consecutively PRESENTED frame, never a guest frame from several
-    // skipped frames ago.
+    // VFX-FLICKER-02: temporal frame blend ("LCD ghosting"), opt-in, off by
+    // default. Runs first, directly on the PPU frame and before colour
+    // grading and scaling, like the pixels blending on a real GBA screen.
+    // Skipped for the native-compositor path (supplied_native is a separately
+    // scaled buffer this feature does not reach) and disabled while 2x scene
+    // interpolation is on: interpolation sends a synthesized midpoint frame
+    // and the real frame through this function every guest frame, and it
+    // cannot tell them apart, so blending them would smear the picture.
+    // Turbo/frameskip need no handling: present() is only called for frames
+    // the turbo present decimator chose to present, so temporal_blend_prev
+    // only holds consecutively presented frames.
     {
         const bool interpolation_engaged =
             b->cfg.frame_interpolation_available && b->cfg.frame_interpolation_2x;
@@ -1837,26 +1794,20 @@ void HostWindow::present(const uint8_t* rgb888) {
                         b->temporal_blend_out.data(), bytes, weight);
                 }
             }
-            // Rotate history for the next frame by swapping the prev/prev2
-            // buffers (pointer swap, not a byte copy) so what was frame
-            // N-1 becomes frame N-2, then snapshot the current raw frame
-            // into the now-freed prev slot. Runs every engaged frame,
-            // regardless of mode, so a live mode switch (e.g. whole-frame
-            // -> flicker only) has real N-2 history as soon as it's needed
-            // rather than restarting from empty. Must happen after the
-            // blend call above (which still needs the OLD prev/prev2) but
-            // before rgb888 is possibly reassigned to out below (rgb888
-            // here is still the original raw frame either way).
+            // Rotate history: swap prev/prev2 (N-1 becomes N-2), then copy
+            // the current raw frame into prev. Runs every engaged frame in
+            // either mode so a live mode switch already has N-2 history.
+            // Must come after the blend call above (which needs the old
+            // buffers) and before rgb888 is reassigned to the blend output.
             std::swap(b->temporal_blend_prev, b->temporal_blend_prev2);
             std::memcpy(b->temporal_blend_prev.data(), rgb888, bytes);
             if (b->temporal_blend_history_count < 2)
                 ++b->temporal_blend_history_count;
             if (did_blend) rgb888 = b->temporal_blend_out.data();
         } else {
-            // Not actively blending this frame (Off, interpolation active,
-            // or the native-compositor path) — drop history so a later
-            // re-enable starts clean instead of blending against stale or
-            // differently-sized frames.
+            // Not blending this frame (Off, interpolation, native path): drop
+            // history so a later re-enable does not blend against stale or
+            // differently sized frames.
             b->temporal_blend_history_count = 0;
         }
     }
@@ -1973,12 +1924,10 @@ void HostWindow::present(const uint8_t* rgb888) {
                        b->renderer, &drawable_w, &drawable_h) != 0) {
             SDL_GetWindowSize(b->window, &drawable_w, &drawable_h);
         }
-        // The "Integer scaling" preference has to be applied HERE. This copy
-        // uses an explicit destination rect, so it never goes through
+        // The "Integer scaling" preference is applied here: this copy uses an
+        // explicit destination rect, so it never goes through
         // SDL_RenderSetLogicalSize and SDL_RenderSetIntegerScale cannot reach
-        // it — before this, the checkbox was on by default and silently did
-        // nothing on the path that actually presents the frame, so every
-        // non-multiple window size got unevenly duplicated pixels.
+        // it.
         const int shown_w = shown_width(b, frame_w, frame_h);
         const bool sharp_fill = b->aspect_view_available && b->widescreen &&
                                 b->aspect == ViewAspectMinimalSharpPixels;
@@ -2025,7 +1974,7 @@ void HostWindow::present(const uint8_t* rgb888) {
         }
     }
     draw_screen_veil(b->renderer);
-    // MC-WS-002: time the present itself (vsync blocks here â€” or doesn't)
+    // MC-WS-002: time the present itself (vsync blocks here — or doesn't)
     // and stamp the DWM refresh counter into the always-on cadence ring.
     const uint64_t cad_qpc0 = SDL_GetPerformanceCounter();
     // Config UI last, so it draws over the scaled guest frame at WINDOW
@@ -2058,7 +2007,7 @@ void HostWindow::present(const uint8_t* rgb888) {
             SDL_RenderSetLogicalSize(b->renderer, logical_w, logical_h);
     }
     // Harness: GBARECOMP_WINDOW_SHOT=<path> writes ONE readback of the actual
-    // renderer output â€” scaled guest frame plus any UI drawn over it â€” as a
+    // renderer output — scaled guest frame plus any UI drawn over it — as a
     // binary PPM. The framedump path records the guest framebuffer instead, so
     // it cannot show host UI; this is the only capture that proves what was
     // really on screen.
@@ -2173,7 +2122,7 @@ void HostWindow::load_input_config(const char* dir) {
         }
     });
 
-    // keybinds.ini [player1] (recomp-ui generic format, scancode names).
+    // keybinds.ini [player1] (SDL scancode names).
     ini_scan_section((base + "keybinds.ini").c_str(), "player1",
                      [b](const char* key, const char* val) {
         for (const auto& bk : kBindKeys) {
@@ -2214,25 +2163,18 @@ void HostWindow::load_input_config(const char* dir) {
         }
     });
 
-    // config.ini [KeyMap.Pad] (UI-02): the controller half of the same
-    // hotkey rows, same names, SDL game-controller button strings like
-    // keybinds.ini [player1_pad]. Scanned after [KeyMap] above so it only
-    // fills in pad_button on the struct parse_hotkey() already built â€”
-    // never clobbers the keyboard half.
+    // config.ini [KeyMap.Pad]: the controller half of the same hotkey rows,
+    // same names, SDL game-controller button strings like keybinds.ini
+    // [player1_pad]. Scanned after [KeyMap] so it only fills in pad_button on
+    // the struct parse_hotkey() already built, leaving the keyboard half.
     ini_scan_section((base + "config.ini").c_str(), "KeyMap.Pad",
                      [b](const char* key, const char* val) {
         for (int h = 0; h < HK_COUNT; ++h) {
             if (SDL_strcasecmp(key, kHotkeyNames[h]) != 0) continue;
-            // UI-02b: "lefttrigger"/"righttrigger" are SDL's own axis-name
-            // strings (SDL_GameControllerGetStringForAxis on
-            // SDL_CONTROLLER_AXIS_TRIGGERLEFT/RIGHT) — checked first since
-            // SDL_GameControllerGetButtonFromString does not know them (L2/
-            // R2 are axes, not buttons). A config.ini written before this
-            // change never contained these strings, so old files are
-            // unaffected and fall through to the button parse exactly as
-            // before.
-            // The stick direction names ("leftstickup", ...) come from the
-            // same shared table.
+            // Synthetic ids first: "lefttrigger"/"righttrigger" (SDL's axis
+            // names; L2/R2 are axes, so SDL_GameControllerGetButtonFromString
+            // does not know them) and the stick directions ("leftstickup",
+            // ...), all from one shared table.
             const int synth = pad_synth_from_name(val);
             if (synth >= 0) {
                 b->hotkeys[h].pad_button = synth;
@@ -2266,18 +2208,16 @@ void HostWindow::load_input_config(const char* dir) {
     b->cfg.mute_during_turbo = b->turbo_mute_requested;
     b->cfg.uncapped = b->turbo_uncapped;
 
-    // Missing or malformed values keep the conservative first-run default.
-    // Strict-static and capture policy can still force this preference off.
     // CPU Overclock (TURBO-B2-UI): start from whatever the process already
     // has live (the GBARECOMP_CPU_OVERCLOCK env var default, or 1x if unset)
-    // so a first-ever run with no config.ini keeps the env var as the
-    // effective default; a saved CpuOverclock= value then overrides it.
-    // Off/On control: Off pins 1x, On pins the 50x ceiling. Backwards
-    // compatibility with older config.ini files: the legacy "auto" value and
-    // any numeric value greater than 1 (2/4/8 from the old multi-step combo)
-    // both map to On (50x). "1", missing, or malformed map to Off (1x).
+    // so a first run with no config.ini keeps the env var as the default; a
+    // saved CpuOverclock= value then overrides it. Off pins 1x, On pins the
+    // 50x ceiling. For older config.ini files, the legacy "auto" value and
+    // any number greater than 1 (2/4/8 from the old multi-step combo) map to
+    // On; "1", missing or malformed map to Off.
     b->overclock_factor = runtime_get_overclock_factor();
-    // Legacy TLA settings are a fallback; the canonical section wins.
+    // [Picture] is the legacy TLA location; [Enhancements] below is scanned
+    // later and wins.
     ini_scan_section((base + "config.ini").c_str(), "Picture",
                      [b](const char* key, const char* val) {
         if (SDL_strcasecmp(key, "AspectRatio") != 0) return;
@@ -2442,7 +2382,6 @@ void HostWindow::load_input_config(const char* dir) {
     }
 
     // Audio tab: Volume (0..100) and Mute, in their own [Audio] section.
-    // Before this they lived only in memory, so every run started at 100%.
     // A --volume argument still wins (runtime.cpp applies it after this).
     ini_scan_section((base + "config.ini").c_str(), "Audio",
                      [b](const char* key, const char* val) {
@@ -2456,10 +2395,9 @@ void HostWindow::load_input_config(const char* dir) {
     b->persisted_volume = b->cfg.volume;
     b->persisted_mute = b->cfg.mute;
 
-    // Logging tab: own [Logging] section (not folded into [Enhancements]).
-    // Missing section (an INI from an older build) keeps the conservative
-    // default (false / off). See runtime_arm.h
-    // gsr_set_additional_debug_logging for what this controls.
+    // Additional debug logging: own [Logging] section. A missing section keeps the default
+    // (off). See runtime_arm.h gsr_set_additional_debug_logging for what this
+    // controls.
     ini_scan_section((base + "config.ini").c_str(), "Logging",
                      [b](const char* key, const char* val) {
         if (SDL_strcasecmp(key, "AdditionalDebugLogging") == 0) {
@@ -2860,9 +2798,9 @@ void HostWindow::set_debug_overlay_audio_state(bool turbo_muted, bool turbo_unca
 
 namespace {
 
-// Write keybinds.ini [player1] in the recomp-ui generic format, so a file the
-// menu writes is the same file the launcher's rebind page reads. Unbound is
-// written as "None", matching what scancode_from_name() treats as unbound.
+// Write keybinds.ini ([player1] keyboard, [player1_pad] controller) in the
+// format load_input_config() reads. Unbound is written as "None", which
+// scancode_from_name() treats as unbound.
 bool write_keybinds_ini(const std::string& dir, const SDL_Scancode* bind_sc,
                         const int* pad_bind) {
     const std::string path = dir + "/keybinds.ini";
@@ -2879,9 +2817,8 @@ bool write_keybinds_ini(const std::string& dir, const SDL_Scancode* bind_sc,
         if (!name || !*name) name = "None";
         std::fprintf(f, "%s=%s\n", bk.name, name);
     }
-    // Controller half. A separate section rather than new keys in [player1],
-    // so a launcher that only knows the keyboard format still round-trips the
-    // file without losing or misreading the pad layout.
+    // Controller half, in its own section so [player1] keeps the keyboard
+    // format.
     std::fprintf(f, "\n[player1_pad]\n");
     for (const auto& pk : kPadKeys) {
         const int pb = pad_bind[pk.bit];
@@ -2898,10 +2835,8 @@ bool write_keybinds_ini(const std::string& dir, const SDL_Scancode* bind_sc,
 
 // Replace the keys of one named INI section in place, appending any of
 // `names`/`values` not already present at the end of that section (creating
-// the section if it was absent). Shared by write_hotkeys_ini's two passes
-// (the [KeyMap] keyboard half and the UI-02 [KeyMap.Pad] controller half) so
-// both round-trip through the same read-modify-write shape as every other
-// section writer in this file.
+// the section if it was absent). Used by the [KeyMap], [KeyMap.Pad], [Video],
+// [Audio] and [Logging] writers.
 void rewrite_ini_section(std::vector<std::string>& lines, const char* section,
                          const char* const* names, const std::string* values,
                          int count) {
@@ -2954,11 +2889,10 @@ void rewrite_ini_section(std::vector<std::string>& lines, const char* section,
 }
 
 // Write the hotkey bindings back into config.ini, preserving every other
-// line of the file. config.ini is the launcher's, not ours: rewriting it
-// wholesale would silently drop settings this build knows nothing about, so
-// this is a read-modify-write that only touches keys it owns. Two sections:
-// [KeyMap] (keyboard, unchanged since before UI-02) and [KeyMap.Pad]
-// (controller, UI-02 â€” mirrors keybinds.ini's [player1]/[player1_pad] split).
+// line. config.ini is shared with the launcher: rewriting it wholesale would
+// drop settings this build does not know, so this only touches keys it owns.
+// Two sections: [KeyMap] (keyboard) and [KeyMap.Pad] (controller, mirroring
+// keybinds.ini's [player1]/[player1_pad] split).
 bool write_hotkeys_ini(const std::string& dir, const HotkeyBind* hotkeys) {
     const std::string path = dir + "/config.ini";
 
@@ -2973,10 +2907,9 @@ bool write_hotkeys_ini(const std::string& dir, const HotkeyBind* hotkeys) {
     };
     auto render_pad = [](const HotkeyBind& hb) -> std::string {
         if (hb.pad_button < 0) return "None";
-        // UI-02b: L2/R2 and the stick directions are synthetic ids (see
-        // host_config_ui.h), not real SDL_GameControllerButton values —
-        // persist them under the shared names so the round-trip through the
-        // [KeyMap.Pad] reader above is exact.
+        // L2/R2 and the stick directions are synthetic ids (see
+        // host_config_ui.h), not SDL_GameControllerButton values; persist
+        // them under the shared names the [KeyMap.Pad] reader accepts.
         if (const char* s = pad_synth_name(hb.pad_button)) return s;
         const char* n = SDL_GameControllerGetStringForButton(
             static_cast<SDL_GameControllerButton>(hb.pad_button));
@@ -3422,8 +3355,7 @@ void persist_audio(Backend* b) {
 }
 
 // Update only [Logging], preserving launcher settings and unknown sections.
-// Own section (not folded into [Enhancements]) — see load_input_config's
-// [Logging] read above and runtime_arm.h gsr_set_additional_debug_logging.
+// See runtime_arm.h gsr_set_additional_debug_logging for what it controls.
 bool write_logging_ini(const std::string& dir, bool additional_debug_logging,
                        bool crash_log) {
     const std::string path = dir + "/config.ini";
@@ -3555,9 +3487,8 @@ HostWindow::Events HostWindow::pump() {
     b->cfg.stick_bindings_available = true;
     b->cfg.screen_filters_supported = true;
     b->cfg.hotkey_count = HK_COUNT;
-    // hotkey_names is display-only (see ConfigUiState); kHotkeyLabels carries
-    // the UI-02 "Turbo Held"/"Turbo Toggle" wording while config.ini keeps
-    // persisting under the original kHotkeyNames keys.
+    // hotkey_names is display-only (see ConfigUiState); config.ini persists
+    // under the kHotkeyNames keys.
     b->cfg.hotkey_names = kHotkeyLabels;
     if (!b->cfg.binds_changed) {
         for (int i = 0; i < 10; ++i) {
@@ -3698,14 +3629,12 @@ HostWindow::Events HostWindow::pump() {
                         : 0u;
             }
         };
-        // UI-02b: L2/R2 arrive as SDL_CONTROLLERAXISMOTION, never as a
-        // button event, so turn a threshold crossing into a synthetic
-        // "button" press/release right here, before any of the dispatch
-        // below — everything downstream then treats a trigger exactly like
+        // L2/R2 arrive as SDL_CONTROLLERAXISMOTION, never as a button event,
+        // so turn a threshold crossing into a synthetic button press here,
+        // before the dispatch below; downstream treats it like
         // SDL_CONTROLLERBUTTONDOWN with pad_button == kPadTriggerLeft/Right.
-        // trigger_left_down/right_down (debounced by the hysteresis pair
-        // above) also double as the level-triggered read Turbo Held uses at
-        // the end of pump().
+        // trigger_left_down/right_down (debounced by the hysteresis
+        // thresholds) also serve as the level read for held hotkeys.
         bool synth_pad_down = false;
         int  synth_pad_button = -1;
         if (e.type == SDL_CONTROLLERAXISMOTION &&
@@ -3801,19 +3730,16 @@ HostWindow::Events HostWindow::pump() {
         } else if (e.type == SDL_WINDOWEVENT &&
                    e.window.event == SDL_WINDOWEVENT_CLOSE) {
             // Multi-viewport ImGui gives detached panels their own OS
-            // windows, each capable of firing its own CLOSE event (e.g. Alt+
-            // F4 on a torn-off panel, or its titlebar X). Only the CLOSE of
-            // the main game window means "quit the emulator" — a detached
-            // panel's close is ImGui's to handle (it deletes the viewport),
-            // never ours.
+            // windows, each firing its own CLOSE event. Only the main game
+            // window's CLOSE means quit; a detached panel's is ImGui's to
+            // handle.
             if (SDL_GetWindowID(b->window) == e.window.windowID)
                 ev.quit = true;
         } else if (e.type == SDL_KEYDOWN && e.key.repeat == 0) {
             // Edge-triggered hotkeys (ignore key-repeat). F2..F10 are
             // save-state slots: plain = load, Shift = save. SDL's F1..F12
-            // keycodes are contiguous, so slot = sym - F2 + 1. (Slots used to
-            // start at F1; they moved up one so the rebind menu could have
-            // F1, which is where a menu is expected. Nine slots either way.)
+            // keycodes are contiguous, so slot = sym - F2 + 1. F1 is left for
+            // the rebind menu.
             SDL_Keycode sym = e.key.keysym.sym;
             Uint16 mods = e.key.keysym.mod;
             if (sym == SDLK_ESCAPE) {
@@ -3824,8 +3750,7 @@ HostWindow::Events HostWindow::pump() {
                 else                   ev.load_slot = slot;
             } else {
                 // Rebindable system hotkeys (config.ini [KeyMap]), including
-                // Menu — folded into fire_hotkey's switch (UI-02) rather than
-                // special-cased here, since the loop below already matches it.
+                // Menu, all dispatched through fire_hotkey.
                 for (int h = 0; h < HK_COUNT; ++h) {
                     const HotkeyBind& hb = b->hotkeys[h];
                     if (hb.key == SDLK_UNKNOWN || hb.key != sym ||
@@ -3835,9 +3760,8 @@ HostWindow::Events HostWindow::pump() {
                 }
             }
         } else if (e.type == SDL_CONTROLLERBUTTONDOWN && !config_ui_visible()) {
-            // Controller half of the same edge-triggered hotkeys (UI-02).
-            // Gated by !config_ui_visible() to match the gameplay pad read
-            // below, which does the same while the config menu is open.
+            // Controller half of the same edge-triggered hotkeys. Gated by
+            // !config_ui_visible() like the gameplay pad read below.
             for (int h = 0; h < HK_COUNT; ++h) {
                 const HotkeyBind& hb = b->hotkeys[h];
                 if (hb.pad_button < 0 || hb.pad_button != e.cbutton.button)
@@ -3845,10 +3769,10 @@ HostWindow::Events HostWindow::pump() {
                 fire_hotkey(h, b, ev);
             }
         } else if (synth_pad_down && !config_ui_visible()) {
-            // UI-02b: L2/R2 half of the same edge-triggered hotkeys, fired on
-            // the debounced press edge computed above — so a held trigger
-            // bound to Turbo Toggle latches once per pull, not once per
-            // SDL_CONTROLLERAXISMOTION event (there are many per pull).
+            // Trigger and stick half of the same edge-triggered hotkeys, fired
+            // on the debounced press edge computed above, so a trigger bound
+            // to Fast Forward (toggle) latches once per pull, not once per
+            // SDL_CONTROLLERAXISMOTION event.
             for (int h = 0; h < HK_COUNT; ++h) {
                 const HotkeyBind& hb = b->hotkeys[h];
                 if (hb.pad_button != synth_pad_button) continue;
@@ -3881,7 +3805,7 @@ HostWindow::Events HostWindow::pump() {
         // on the same pad would expect.
         // The sticks move nothing by default: the D-pad is the default
         // movement, and a stick direction works once it is bound on the
-        // Controls page (Jimmy, 2026-10-05).
+        // Controls page.
         if (b->pad) {
             for (int bit = 0; bit < 10; ++bit) {
                 const int pb = b->pad_bind[bit];
@@ -3966,9 +3890,9 @@ HostWindow::Events HostWindow::pump() {
             }
             if (b->cfg.integer_scale != b->integer_scale) {
                 b->integer_scale = b->cfg.integer_scale;
-                // Only the fixed 240x160 logical-size path honours this; the
-                // expanded/resize-driven views compute their own destination
-                // rect in present() and are unaffected.
+                // SDL honours this only on the fixed 240x160 logical-size
+                // path; the expanded/resize-driven views apply integer_scale
+                // themselves when present() computes the destination rect.
                 SDL_RenderSetIntegerScale(
                     b->renderer, b->integer_scale ? SDL_TRUE : SDL_FALSE);
             }
@@ -4024,9 +3948,8 @@ HostWindow::Events HostWindow::pump() {
             b->cfg.audio_changed = false;
             persist_audio(b);
         }
-        // Turbo shape is read every pump (no change flag): it only matters
-        // while the Turbo binding is held, and the run loop wants the current
-        // value, not an edge.
+        // Turbo shape is read every pump (no change flag): the run loop
+        // wants the current value, not an edge.
         b->turbo_multiplier = b->cfg.turbo_multiplier;
         b->turbo_uncapped = b->cfg.uncapped;
         b->turbo_mute_requested = b->cfg.mute_during_turbo;
@@ -4133,11 +4056,10 @@ HostWindow::Events HostWindow::pump() {
         }
         if (b->cfg.logging_changed) {
             // Applied live immediately — see gsr_set_additional_debug_logging
-            // (relaxed atomic, safe from any point mid-run). Some Group-B
-            // diagnostic streams only resolve their own env-var-vs-toggle
-            // check once, at process/machine bring-up, so flipping this
-            // mid-session does not retroactively start those specific
-            // streams; the Logging tab's help text says so.
+            // (relaxed atomic, safe from any point mid-run). Some diagnostic
+            // streams check their env var / toggle only once, at process or
+            // machine bring-up, so flipping this mid-session does not start
+            // those streams.
             gsr_set_additional_debug_logging(
                 b->cfg.additional_debug_logging ? 1 : 0);
             b->cfg.debug_overlay_state.additional_debug_logging =
@@ -4166,16 +4088,10 @@ HostWindow::Events HostWindow::pump() {
 
     const uint64_t pump_finalize_start = pump_timing ? host_pump_now_ns() : 0;
 
-    // Turbo Held is level-triggered: down = speed up the frame limiter
-    // (default Tab). The Speed tab decides whether that means a multiplier
-    // or no cap at all; both travel with the flag so the run loop needs no
-    // extra state. UI-02: Turbo Toggle is a separate, edge-triggered latch
-    // (flipped by fire_hotkey's HK_TURBO_TOGGLE case above) that drives the
-    // SAME ev.fast_forward flag rather than a second turbo path. Chosen
-    // interaction rule: fast_forward is true when EITHER Held is currently
-    // down OR the Toggle latch is on; releasing Held never clears the
-    // Toggle latch (least-surprise reading of "press once -> on, press
-    // again -> off" for Toggle, independent of what Held is doing).
+    // Fast forward (see Events::fast_forward): the Held binding is read as a
+    // level (default Tab), the Toggle latch is flipped by fire_hotkey. The
+    // Fast Forward page decides whether that means a multiplier or no cap;
+    // both travel with the flag so the run loop needs no extra state.
     ev.turbo_multiplier = b->turbo_multiplier;
     ev.turbo_uncapped = b->turbo_uncapped;
     ev.turbo_mute_audio = b->turbo_mute_requested;
@@ -4210,7 +4126,7 @@ HostWindow::Events HostWindow::pump() {
 
 }  // namespace gbarecomp
 
-#else  // !GBARECOMP_HAVE_SDL2 â€” stub backend
+#else  // !GBARECOMP_HAVE_SDL2 — stub backend
 
 namespace gbarecomp {
 

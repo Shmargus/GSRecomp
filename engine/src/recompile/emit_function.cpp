@@ -1,9 +1,8 @@
 // emit_function.cpp — see emit_function.h.
 //
-// Verbatim extraction of the per-function emitter that lived in
-// tools/gba_recompile/main.cpp. The only change vs the original is that
-// output goes to a std::string (via a printf-style appender) instead of a
-// FILE* — the format strings are identical, so the bytes are identical.
+// The per-function emitter shared by tools/gba_recompile/main.cpp and the
+// runtime self-heal. Output goes to a std::string through a printf-style
+// appender, so the bytes match what the tool wrote to a FILE*.
 
 #include "emit_function.h"
 
@@ -391,7 +390,7 @@ std::string emit_function_body_str(
     if (has_aliases) {
         // Resume routing FIRST so an alternate entry skips the entry hook
         // (it is not a fresh call). g_runtime_resume_pc is set by the thin
-        // per-alias dispatch wrapper (see main.cpp) and consumed here.
+        // per-alias dispatch wrapper (tools/gba_recompile/main.cpp) and consumed here.
         appendf(out, "    if (g_runtime_resume_pc) {\n");
         appendf(out,
             "        uint32_t _resume = g_runtime_resume_pc;"

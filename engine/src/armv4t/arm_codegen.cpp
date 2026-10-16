@@ -744,12 +744,11 @@ bool emit_data_processing(std::ostringstream& body, const Instr& ins,
         if (excpt_return) {
             // Exception return: don't touch flags here; restore from SPSR.
             // Tick the instruction's cost (base + the +2 non-branch PC-write
-            // refill folded into _cyc at line ~1320) BEFORE transferring —
-            // exactly as the normal PC-write path (rd==15 below) and the LDM
-            // exception-return path (ldmfd sp!,{...pc}^) do. Omitting it made
-            // `movs/subs pc, lr` exception returns (the GBA BIOS SWI epilogue
-            // at 0x188) charge 0 instead of their 2S+1N refill — the LP-005
-            // cosim divergence: generated=0 vs interpreter reference=3.
+            // refill folded into _cyc) BEFORE transferring, as the normal
+            // PC-write path (rd==15 below) and the LDM exception-return path
+            // (ldmfd sp!,{...pc}^) do. Without it `movs/subs pc, lr`
+            // exception returns (e.g. the BIOS SWI epilogue) charge 0
+            // instead of their 2S+1N refill.
             body << indent << "if (" << mode_is_priv_non_system_expr() << ") {\n"
                  << indent << "    runtime_tick(" << cyc_var_for(ins) << ");\n"
                  << indent << "    runtime_exception_return(" << r_var << ");\n"
@@ -1513,7 +1512,7 @@ std::string ArmCodegen::emit_instr(const Instr& ins, const CodegenCtx& ctx,
         s << "    /* cond NV: never executes */\n";
         // Fingerprint at the current pc (pre-advance) so the armed insn trace
         // stays 1:1 with the interpreter, which fingerprints every fetched
-        // instruction including condition-failed ones (MC-HP-002).
+        // instruction including condition-failed ones.
         s << "    g_cpu.R[15] = " << fmt_guest_addr(ctx, ins.pc) << ";\n";
         s << "    if (g_runtime_insn_trace) runtime_insn_fp();\n";
         s << "    g_cpu.R[15] = "
@@ -1531,8 +1530,8 @@ std::string ArmCodegen::emit_instr(const Instr& ins, const CodegenCtx& ctx,
     os << "    g_cpu.R[15] = " << fmt_guest_addr(ctx, ins.pc) << ";\n";
     os << "    if (runtime_should_yield()) return;\n";
     // Per-instruction fingerprint (armed): record pre-execution state so the
-    // recomp can be diffed against the interp oracle at identical cycle counts
-    // (MC-HP-002). Placed AFTER the yield check so a yielded (not-executed)
+    // recomp can be diffed against the interp oracle at identical cycle counts.
+    // Placed AFTER the yield check so a yielded (not-executed)
     // instruction is not fingerprinted. Zero cost when disarmed.
     os << "    if (g_runtime_insn_trace) runtime_insn_fp();\n";
 

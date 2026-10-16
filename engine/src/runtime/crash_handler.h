@@ -33,9 +33,8 @@ namespace gbarecomp {
 // itself misbehave) so as much of the run as possible is covered.
 //
 // `log_dir` is the directory crash_report.txt / crash_dump.dmp / run_state.txt
-// are written to. Pass the directory the executable lives in (next to the
-// .exe) so the files are easy to find; a null or empty `log_dir` disables
-// the handler entirely (used by tests that don't want it installed).
+// are written to. A null or empty `log_dir` means the directory the
+// executable lives in, so the files are easy to find.
 //
 // On startup, if the PREVIOUS run's run_state.txt says that run was still
 // "live" and no crash_report.txt exists for it, this logs one line via

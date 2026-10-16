@@ -6,9 +6,8 @@
 //
 // Mirrors the psxrecomp / TombaRecomp pattern (CRC32 with warn) and
 // adds SHA-1 since the existing BIOS / ROM configs already carry it.
-// Used by release builds so end users don't have to type --bios /
-// --rom every launch; the first validated pick is cached next to the
-// executable.
+// So end users don't have to type --bios / --rom every launch, the first
+// validated pick is cached next to the executable.
 
 #pragma once
 
