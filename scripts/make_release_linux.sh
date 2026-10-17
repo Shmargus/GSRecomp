@@ -85,9 +85,19 @@ copy_collection() {
 
 # make: GCC runs the parallel LTO link (-flto=N) through it; without it the
 # link falls back to one job at a time.
-for tool in g++ cmake ninja make objdump readelf ldd zip python3; do
+for tool in "${CC:-gcc-15}" "${CXX:-g++-15}" cmake ninja make objdump readelf ldd zip python3; do
     command -v "$tool" >/dev/null || { echo "Missing $tool." >&2; exit 1; }
 done
+cc=$(command -v "${CC:-gcc-15}")
+cxx=$(command -v "${CXX:-g++-15}")
+# Build and bundle the same compiler. Older GCC silently falls back to native
+# calls instead of guaranteed jumps, reviving the map loader's stack overflow.
+printf '%s\n' '#include "runtime_arm_types.h"' \
+    '#if !defined(__GNUC__) || defined(__clang__) || __GNUC__ < 15' \
+    '#error Linux releases require GCC 15 or newer for guaranteed tail transfers' \
+    '#endif' 'void target(); void transfer() { GBARECOMP_TAIL_TRANSFER(target()); }' \
+    | "$cxx" -std=c++20 -Og -Werror=attributes -I"$engine/src/armv4t" \
+        -x c++ -c -o /dev/null -
 [ -f "$corpus/main/dispatch_table.cpp" ] || {
     echo "Missing $corpus. Run build_dev.bat -Game BrokenSeal (or scripts/gs.ps1 -To recompile and" >&2
     echo "scripts/block_timing.py) on Windows first." >&2
@@ -106,6 +116,7 @@ fi
 echo "Configuring $build"
 cmake -S "$repo" -B "$build" -G Ninja \
     "-DGBARECOMP_ROOT=$engine" \
+    "-DCMAKE_C_COMPILER=$cc" "-DCMAKE_CXX_COMPILER=$cxx" \
     -DCMAKE_BUILD_TYPE=Release \
     "-DCMAKE_CXX_FLAGS_RELEASE=-O2 -DNDEBUG" \
     "-DCMAKE_C_FLAGS_RELEASE=-O2 -DNDEBUG" \
@@ -139,6 +150,7 @@ toml_source=$(dependency_source TOMLPLUSPLUS tomlplusplus)
 # Use the existing Linux block corpus; never regenerate it through Windows.
 cmake -S "$tla_repo" -B "$tla_build" -G Ninja \
     "-DGBARECOMP_ROOT=$engine" \
+    "-DCMAKE_C_COMPILER=$cc" "-DCMAKE_CXX_COMPILER=$cxx" \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
     "-DCMAKE_CXX_FLAGS_RELWITHDEBINFO=-O2 -DNDEBUG" \
     "-DCMAKE_C_FLAGS_RELWITHDEBINFO=-O2 -DNDEBUG" \
@@ -220,11 +232,11 @@ done
 # passes as --sysroot. Exactly the files a compile of the generated code and
 # a link of the library open are copied, as make_release.ps1 does on Windows.
 echo "Assembling the compiler"
-gxx_real=$(readlink -f "$(command -v g++)")
-gcc_ver=$(g++ -dumpversion)
-target=$(g++ -dumpmachine)
-libexec=$(dirname "$(g++ -print-prog-name=cc1plus)")
-gcclib=$(dirname "$(g++ -print-libgcc-file-name)")
+gxx_real=$(readlink -f "$cxx")
+gcc_ver=$("$cxx" -dumpversion)
+target=$("$cxx" -dumpmachine)
+libexec=$(dirname "$("$cxx" -print-prog-name=cc1plus)")
+gcclib=$(dirname "$("$cxx" -print-libgcc-file-name)")
 case "$libexec" in /usr/libexec/gcc/*) ;; *) echo "Unexpected GCC layout: $libexec" >&2; exit 1 ;; esac
 case "$gcclib" in /usr/lib/gcc/*) ;; *) echo "Unexpected GCC layout: $gcclib" >&2; exit 1 ;; esac
 
@@ -282,32 +294,32 @@ safe_remove "$probe"; mkdir -p "$probe"
 grep -rhE '^[[:space:]]*#[[:space:]]*include[[:space:]]*<' "$corpus" "$tla_corpus" --include='*.cpp' --include='*.h' \
     | sed 's/^[[:space:]]*//' | sort -u > "$probe/all_includes.cpp"
 cxxflags=(-O2 -g -DNDEBUG -std=c++20 -Og -g0 -DGBARECOMP_OUTLINE_BUS=1 -fPIC -fno-semantic-interposition)
-g++ "${cxxflags[@]}" -I"$builder/engine/include" -M "$probe/all_includes.cpp" \
+"$cxx" "${cxxflags[@]}" -I"$builder/engine/include" -M "$probe/all_includes.cpp" \
     | tr -d '\\' | tr ' ' '\n' | grep '^/usr/' | sort -u | while read -r h; do tc_copy "$h"; done
 # The builder's sample: a real generated file, through every header it opens.
 for f in main/dispatch_table.cpp main/symbol_map.cpp main/recompiled_000.cpp stamps/stamp_registry.cpp; do
     [ -f "$corpus/$f" ] || continue
-    g++ "${cxxflags[@]}" -I"$corpus/main" -I"$builder/engine/include" -M "$corpus/$f" \
+    "$cxx" "${cxxflags[@]}" -I"$corpus/main" -I"$builder/engine/include" -M "$corpus/$f" \
         | tr -d '\\' | tr ' ' '\n' | grep '^/usr/' | sort -u | while read -r h; do tc_copy "$h"; done
 done
 
 # TLA's runtime header may open different system headers than GS1's.
 for f in main/dispatch_table.cpp main/symbol_map.cpp main/recompiled_000.cpp; do
     [ -f "$tla_corpus/$f" ] || continue
-    g++ "${cxxflags[@]}" -I"$tla_corpus/main" -I"$engine/src/armv4t" -M "$tla_corpus/$f" \
+    "$cxx" "${cxxflags[@]}" -I"$tla_corpus/main" -I"$engine/src/armv4t" -M "$tla_corpus/$f" \
         | tr -d '\\' | tr ' ' '\n' | grep '^/usr/' | sort -u | while read -r h; do tc_copy "$h"; done
 done
 for kind in recompiled.cpp dispatch_table.cpp expected.cpp; do
     src=$(find "$tla_corpus/reloc" -name "$kind" -type f -print -quit)
     [ -n "$src" ] || continue
-    g++ "${cxxflags[@]}" -I"$(dirname "$src")" -I"$engine/src/armv4t" -M "$src" \
+    "$cxx" "${cxxflags[@]}" -I"$(dirname "$src")" -I"$engine/src/armv4t" -M "$src" \
         | tr -d '\\' | tr ' ' '\n' | grep '^/usr/' | sort -u | while read -r h; do tc_copy "$h"; done
 done
 
 # Link inputs: what ld opens for the builder's link (-t lists them).
 printf 'extern "C" int gsr_probe() { return 1; }\n' > "$probe/probe.cpp"
-g++ "${cxxflags[@]}" -c "$probe/probe.cpp" -o "$probe/probe.o"
-g++ -shared -Wl,-Bsymbolic -Wl,-t -o "$probe/probe.so" "$probe/probe.o" 2>&1 \
+"$cxx" "${cxxflags[@]}" -c "$probe/probe.cpp" -o "$probe/probe.o"
+"$cxx" -shared -Wl,-Bsymbolic -Wl,-t -o "$probe/probe.so" "$probe/probe.o" 2>&1 \
     | sed -E 's/^\(?([^()]*)\)?.*$/\1/' | grep '^/' | grep -v "^$probe/" | sort -u \
     > "$probe/link_inputs.txt"
 while read -r f; do if [ -f "$f" ]; then tc_copy "$f"; fi; done < "$probe/link_inputs.txt"
@@ -464,7 +476,7 @@ if [ "$test_build" = 1 ]; then
     # Hide the system compiler: its programs, headers and libgcc.
     hide=(/usr/include /usr/lib/gcc /usr/libexec/gcc)
     hide_files=()
-    for p in g++ gcc c++ cc as ld; do
+    for p in "$cxx" "$cc" g++ gcc c++ cc as ld; do
         f=$(command -v "$p" || true); [ -n "$f" ] && hide_files+=("$(readlink -f "$f")")
     done
     test_game() {

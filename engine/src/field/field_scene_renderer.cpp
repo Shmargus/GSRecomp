@@ -164,6 +164,7 @@ const char* kBackgroundFragment =
     "uniform int u_rest_dy;\n"          // rows from now to the rest position
     "uniform int u_compare_top;\n"      // 0 = first pass, 1 = second pass
     "uniform int u_use_room;\n"         // 1: source this layer from the room
+    "uniform int u_room_grid_wrap;\n"
     // The layer's own position from the game's record (room_reference_for):
     // when on, each row's scroll is read as that position plus its offset
     // from it in -512..511.
@@ -260,6 +261,7 @@ const char* kBackgroundFragment =
     // room. In the margins they did, as scraps of menu text
     // (gpu_rewind_0025, FACTS.md 2026-09-24).
     "uniform usampler2D u_room_vram;\n"
+    "uniform vec2 u_margin_repeat;\n"
     // Golden Sun's whole world map as tile indices (world_map_source.h):
     // 512 tiles wide, BG3 in rows 0..511 and BG2 in rows 512..1023. The
     // game's own map is a 512-pixel ring refilled around the camera, and
@@ -771,7 +773,8 @@ const char* kBackgroundFragment =
     // pixel stays and only those clipped sparks are added (see below).
     // The fill alone also counts: Meteor's tint on its wrapping 128 canvas
     // has no sparks on some frames (gpu_rewind_0106).
-    "    bool wrap_beyond = ((u_effect_wrap_canvas != 0 && u_effect_extra != 0) ||\n"
+    "    bool wrap_beyond = ((u_effect_wrap_canvas != 0 &&\n"
+    "                         (outside_native || u_effect_extra != 0)) ||\n"
     "                        u_effect_fill_beyond != 0) &&\n"
     "        bg_wraps != 0 && (tex_x < 0 || tex_y < 0 ||\n"
     "                          tex_x >= 128 || tex_y >= 128);\n"
@@ -816,7 +819,7 @@ const char* kBackgroundFragment =
     "      int base = outside_native ? u_effect_fill : index;\n"
     "      vec2 at = vec2(effect_px) + u_effect_origin;\n"
     "      int spark = 0;\n"
-    "      if (at.x >= 0.0 && at.y >= 0.0 &&\n"
+    "      if (u_effect_extra != 0 && at.x >= 0.0 && at.y >= 0.0 &&\n"
     "          at.x < u_effect_size.x && at.y < u_effect_size.y)\n"
     "        spark = int(texelFetch(u_effect, ivec2(at), 0).r);\n"
     // The game composes its canvas by taking the larger value (the packed
@@ -916,6 +919,8 @@ const char* kBackgroundFragment =
     "      }\n"
     "    }\n"
     "    ivec2 pixel = src_px + ivec2(int(hofs_raw) & 0x1FF, int(vofs_raw) & 0x1FF);\n"
+    "    if (vram_margin && u_margin_repeat.x > 0.0 && u_margin_repeat.y > 0.0)\n"
+    "      pixel &= ivec2(u_margin_repeat) - ivec2(1);\n"
     // Text backgrounds always wrap, over 256 or 512 pixels per axis.
     "    int width_tiles  = ((bg_size_code & 1) != 0) ? 64 : 32;\n"
     "    int height_tiles = ((bg_size_code & 2) != 0) ? 64 : 32;\n"
@@ -1016,6 +1021,7 @@ const char* kBackgroundFragment =
     "        if (continue_bg3_sky && source.x < 0) {\n"
     "          source.x = source.x & (width_tiles * 8 - 1);\n"
     "        }\n"
+    "        if (u_room_grid_wrap != 0) source &= ivec2(2047);\n"
     "        room_source = source;\n"
     "        if (source.x >= 0 && source.y >= 0) {\n"
     "          int stx = source.x >> 3;\n"
@@ -1945,11 +1951,15 @@ bool FieldSceneRenderer::object_is_solid(const SceneObject& O,
     return true;
 }
 
+static int room_grid_pixel(int pixel) {
+    return prof().room_grid_wrap ? (pixel & (kGridSide * 16 - 1)) : pixel;
+}
+
 bool FieldSceneRenderer::room_entry(int screen_x, int screen_y, int scroll_x,
                                     int scroll_y, std::uint16_t* entry) const {
     if (!query_room_known(screen_x, screen_y, scroll_x, scroll_y)) return false;
-    const int stx = (scroll_x + screen_x) >> 3;
-    const int sty = (scroll_y + screen_y) >> 3;
+    const int stx = room_grid_pixel(scroll_x + screen_x) >> 3;
+    const int sty = room_grid_pixel(scroll_y + screen_y) >> 3;
     const std::uint16_t id =
         room_ids_[static_cast<std::size_t>(sty >> 1) * kGridSide + (stx >> 1)];
     *entry = room_atlas_[static_cast<std::size_t>(id) * 4u +
@@ -2536,7 +2546,7 @@ void FieldSceneRenderer::analyse_effect_canvas(const std::uint8_t* vram,
     // and without a fill the tint stopped at the canvas's edge, 16 px into
     // the right margin, with the left margin untinted (gpu_rewind_0101
     // frame 30). Only the fill can be set then; the spark checks are moot.
-    const bool have_sparks = effect_have_sparks_;
+    bool have_sparks = effect_have_sparks_;
     const EffectCanvasLayout at = effect_canvas_layout(vram, vram_bytes, layer);
     if (!at.found) return;
     auto canvas = [&](int x, int y) -> int {
@@ -2578,7 +2588,7 @@ void FieldSceneRenderer::analyse_effect_canvas(const std::uint8_t* vram,
     if (have_sparks && effect_sparks_inside_ >= 64 &&
         effect_sparks_lit_ * 4 < effect_sparks_inside_) {
         effect_have_sparks_ = false;
-        return;
+        have_sparks = false;
     }
     // The fill: the game's flashing tint, the value the canvas holds wherever
     // no spark landed. Read from the canvas's edge, leaving out our sparks:
@@ -2956,8 +2966,8 @@ bool FieldSceneRenderer::query_room_known(int screen_x, int screen_y,
         room_x >= room_max_x_ || room_y >= room_max_y_) {
         return false;
     }
-    const int source_x = scroll_x + screen_x;
-    const int source_y = scroll_y + screen_y;
+    const int source_x = room_grid_pixel(scroll_x + screen_x);
+    const int source_y = room_grid_pixel(scroll_y + screen_y);
     if (source_x < 0 || source_y < 0) return false;
     const int stx = source_x >> 3;
     const int sty = source_y >> 3;
@@ -3582,6 +3592,8 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
             use_room = false;
         const LayerWrap& wrap = layer_wrap_[bg];
         surface_->set_uniform_int(background_, "u_use_room", use_room ? 1 : 0);
+        surface_->set_uniform_int(background_, "u_room_grid_wrap",
+                                  prof().room_grid_wrap ? 1 : 0);
         surface_->set_uniform_int(background_, "u_haze_room",
                                   haze_room ? 1 : 0);
         surface_->set_uniform_int(background_, "u_haze_mirror",
@@ -3592,6 +3604,9 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
                                   static_cast<int>(margin.scroll.size()));
         surface_->set_uniform_int(background_, "u_margin_vram_height",
                                   margin.vram_height);
+        surface_->set_uniform_vec2(background_, "u_margin_repeat",
+                                   static_cast<float>(margin.repeat_width),
+                                   static_cast<float>(margin.repeat_height));
         surface_->set_uniform_int(background_, "u_room_ref_on",
                                   use_room && from_record ? 1 : 0);
         surface_->set_uniform_vec2(background_, "u_room_ref",
@@ -3708,12 +3723,15 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
                     ? scene.row_io[y].data() : scene.io_bytes.data();
                 const int pa = static_cast<std::int16_t>(
                     io[param] | (io[param + 1] << 8));
-                repeats_on_screen = (239 * std::abs(pa)) >> 8 >= 136;
+                // At 1:1 Drench already shows almost two copies natively;
+                // continuing into the margins adds detached copies (TLA 0068).
+                repeats_on_screen = std::abs(pa) != 256 &&
+                    ((239 * std::abs(pa)) >> 8) >= 136;
             }
         }
         surface_->set_uniform_int(
             background_, "u_effect_wrap_canvas",
-            (effect_layer_ == bg && effect_have_sparks_ && effect_wrap_canvas_ &&
+            (effect_layer_ == bg && effect_wrap_canvas_ &&
              !hide_here && !repeats_on_screen)
                 ? 1 : 0);
         surface_->set_uniform_int(background_, "u_effect_fill", effect_fill_);

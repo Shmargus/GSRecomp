@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <utility>
 
 #include "gba_bus.h"
 #include "gba_io.h"
@@ -31,22 +32,12 @@ bool write_file(const std::string& path, const void* data, std::size_t bytes) {
 
 HistoryFrame& FrameHistory::record(const std::uint8_t* rgb, std::uint32_t width,
                                    std::uint32_t height) {
-    if (ring_.empty()) ring_.resize(kFrames);
-    const unsigned long long guest = runtime_current_frame();
-    if (count_ && guest < back(0).guest_frame) {
-        count_ = next_ = 0;
-        last_present_ms_ = -1.0;
-    }
-    const double now = now_ms();
-    HistoryFrame& fr = ring_[next_];
-    fr.guest_frame = guest;
-    fr.host_ms = last_present_ms_ >= 0.0 ? now - last_present_ms_ : 0.0;
-    fr.width = width;
-    fr.height = height;
-    fr.rgb.assign(rgb, rgb + static_cast<std::size_t>(width) * height * 3u);
-    fr.scene.clear();
-    fr.scene_frame = 0;
-    fr.gpu_drawn = fr.battle_2x = fr.held_frame = false;
+    return record(rgb, width, height, capture());
+}
+
+HistoryFrame FrameHistory::capture() {
+    HistoryFrame fr;
+    fr.guest_frame = runtime_current_frame();
     if (const gba::GbaPpu* ppu = active_ppu()) {
         const std::uint8_t* rows = ppu->latched_native_line_io();
         const std::int32_t* refs = ppu->latched_native_affine_line_refs();
@@ -56,6 +47,28 @@ HistoryFrame& FrameHistory::record(const std::uint8_t* rgb, std::uint32_t width,
         fr.rows.clear();
         fr.refs.clear();
     }
+    return fr;
+}
+
+void FrameHistory::clear() {
+    count_ = next_ = 0;
+    last_present_ms_ = -1.0;
+    last_live_guest_ = 0;
+}
+
+HistoryFrame& FrameHistory::record(const std::uint8_t* rgb, std::uint32_t width,
+                                   std::uint32_t height, HistoryFrame frame) {
+    if (ring_.empty()) ring_.resize(kFrames);
+    const auto guest = runtime_current_frame();
+    if (count_ && guest < last_live_guest_) clear();
+    last_live_guest_ = guest;
+    const double now = now_ms();
+    HistoryFrame& fr = ring_[next_];
+    fr = std::move(frame);
+    fr.host_ms = last_present_ms_ >= 0.0 ? now - last_present_ms_ : 0.0;
+    fr.width = width;
+    fr.height = height;
+    fr.rgb.assign(rgb, rgb + static_cast<std::size_t>(width) * height * 3u);
     next_ = (next_ + 1) % kFrames;
     if (count_ < kFrames) ++count_;
     last_present_ms_ = now;

@@ -23,6 +23,7 @@
 // compatibility mode), and with the launcher's "Console sprite memory".
 
 #include <cstdint>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 
@@ -52,6 +53,53 @@ unsigned g_peak = 0;      // most page blocks in use at once this session
 unsigned g_logged_map = 0xFFFFu;  // full-page / full-console notes, once a map
 
 gba::GbaBus* bus() { return gbarecomp::active_bus(); }
+
+bool trace_enabled() {
+    static const bool on = [] {
+        const char* e = std::getenv("TLA_SPRITE_MEMORY_TRACE");
+        return e && e[0] && e[0] != '0';
+    }();
+    return on;
+}
+
+// Log allocator results after our branch hook has made its decision. This
+// catches creation before an F12 history starts, without dumping artwork.
+struct AllocationTrace {
+    gba::GbaBus& b;
+    unsigned owner;
+    std::uint32_t bytes, caller;
+    bool enabled = trace_enabled();
+    ~AllocationTrace() {
+        if (!enabled) return;
+        std::fprintf(stderr,
+            "[sprite-alloc] map=%u owner=%u bytes=%u caller=%08X "
+            "previous=%u:%04X result=%08X source=%08X\n",
+            static_cast<unsigned>(b.read16(kMapNumber)), owner, bytes, caller,
+            static_cast<unsigned>(b.read16(kOwnerTable + owner * 4u)),
+            static_cast<unsigned>(b.read16(kOwnerTable + owner * 4u + 2u)),
+            g_cpu.R[5], g_cpu.R[8]);
+    }
+};
+
+void trace_record(gba::GbaBus& b, unsigned owner, std::uint32_t record,
+                  std::uint16_t attr2) {
+    if (!trace_enabled() || owner >= kOwners) return;
+    struct Seen {
+        std::uint32_t record = 0, grant = 0;
+        std::uint16_t attr2 = 0, map = 0;
+    };
+    static std::array<Seen, kOwners> seen{};
+    const std::uint32_t grant = b.read32(kOwnerTable + owner * 4u);
+    const std::uint16_t map = b.read16(kMapNumber);
+    auto& last = seen[owner];
+    if (last.record == record && last.grant == grant &&
+        last.attr2 == attr2 && last.map == map) return;
+    last = {record, grant, attr2, map};
+    std::fprintf(stderr,
+        "[sprite-tile] map=%u owner=%u record=%08X attr2=%04X "
+        "grant=%u:%04X\n", static_cast<unsigned>(map), owner, record,
+        static_cast<unsigned>(attr2), grant & 0xFFFFu, grant >> 16);
+}
 
 std::uint32_t round_up(std::uint32_t bytes) {
     return (bytes + kBlockBytes - 1) / kBlockBytes * kBlockBytes;
@@ -115,6 +163,7 @@ int tla_sprite_memory_branch(std::uint32_t pc, std::uint32_t original,
     const std::uint32_t bytes = g_cpu.R[6];
     const std::uint32_t caller = b->read32(g_cpu.R[13] + 16u);
     if (entry < kOwnerTable || owner >= kOwners) return 0;
+    const AllocationTrace allocation_trace{*b, owner, bytes, caller};
     // Battles build their fighters with the same builder, but only field
     // sprites tell the renderers their page (F12 tla_rewind_0049: the party
     // and King Scorpion granted 0x8000..0xBFFF, drawn from the console's).
@@ -175,6 +224,7 @@ int tla_sprite_memory_tile(std::uint32_t record, std::uint16_t attr2) {
     gba::GbaBus* b = bus();
     if (!b || ((record >> 24) != 0x02u && (record >> 24) != 0x03u)) return -1;
     const unsigned owner = b->read8(record + 0x10u);
+    trace_record(*b, owner, record, attr2);
     std::uint32_t from = 0, to = 0;
     if (owner >= kOwners || !page_grant(*b, owner, &from, &to)) return -1;
     // The sprite's 10 bits must fall inside its owner's grant.

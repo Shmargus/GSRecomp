@@ -58,8 +58,10 @@ public:
         key_ = {a, b, c};
     }
 
+    // A hook before the game's attribute store can supply its outgoing attr0;
+    // otherwise snapshot the record as it stands.
     void note(gba::GbaBus& bus, unsigned long long now, std::uint32_t record,
-              int x, int y, int tile = -1) {
+              int x, int y, int tile = -1, int placed_attr0 = -1) {
         if ((record >> 24) != 0x02u && (record >> 24) != 0x03u) return;
         Placed* slot = nullptr;
         for (Placed& p : placed_) {
@@ -76,7 +78,8 @@ public:
         p.raw_x = static_cast<std::uint16_t>(x & 0x1FF);
         p.x = static_cast<std::int16_t>(x);
         p.y = static_cast<std::int16_t>(y);
-        p.attr0 = bus.read16(record + 4u);
+        p.attr0 = placed_attr0 >= 0 ? static_cast<std::uint16_t>(placed_attr0)
+                                   : bus.read16(record + 4u);
         p.attr1 = bus.read16(record + 6u);
         p.attr2 = bus.read16(record + 8u);
         p.record = record;

@@ -280,6 +280,7 @@ static gba::GbaBus* g_active_bus = nullptr;
 static gba::GbaPpu* g_active_ppu = nullptr;
 static std::function<void()> g_frame_snapshot_hook;
 static std::function<void()> g_scene_capture_hook;
+static std::function<void()> g_frame_present_shutdown_hook;
 static std::function<bool(std::uint8_t*, std::uint32_t, std::uint32_t)>
     g_frame_present_override_hook;
 static std::function<void()> g_savestate_load_hook;
@@ -391,7 +392,7 @@ static void sampler_loop() {
 // the frame limiter's sleeps behave exactly as they do with the profiler off.
 //
 // Besides the aggregated "0x<rip> <count>" lines, every sample is also kept
-// raw (rip, guest frame, host phase id, first in-module caller) and written
+// raw (rip, guest frame, host phase id, reserved caller field) and written
 // under "# samples" -- that is what lets a profile be restricted to slow
 // frames or split by phase. See host_prof_phase.h.
 
@@ -427,24 +428,15 @@ std::atomic<std::uint64_t> g_host_prof_present_frame{0};
 static std::thread                                 g_host_prof;
 static std::atomic<bool>                           g_host_profiling{false};
 static std::unordered_map<unsigned long long, unsigned long long> g_host_hist;
-// The RIP histogram alone cannot identify who called a hot CRT helper such
-// as getenv. Keep the sampled RIP and the first return address outside that
-// CRT together; no environment values or stack contents are written.
-static std::map<std::pair<unsigned long long, unsigned long long>,
-                unsigned long long> g_host_crt_callers;
 static uintptr_t g_host_crt_begin = 0;
 static uintptr_t g_host_crt_end = 0;
 static void* g_host_thread_handle = nullptr;
-// Address ranges of the two modules that hold code we own: the engine exe and
-// the translated game code DLL (absent in a single-exe build). A sample
-// outside both gets its first return address inside them recorded as caller.
-static uintptr_t g_host_exe_begin = 0;
-static uintptr_t g_host_exe_end = 0;
+// The translated game DLL range, for offline symbolisation.
 static uintptr_t g_host_game_begin = 0;
 static uintptr_t g_host_game_end = 0;
 struct HostProfSample {
     unsigned long long rip;
-    unsigned long long caller;       // first in-module return address, or 0
+    unsigned long long caller;       // reserved; 0 (unsafe unwind disabled)
     std::uint32_t frame;             // PPU frame counter (g_host_prof_frame)
     std::uint32_t present_frame;     // frame key of the last phase-CSV row
     std::uint8_t phase;              // HostProfPhase
@@ -465,57 +457,11 @@ static const char* g_host_timer_method = "none";
 // those ticks entirely, so what remains is work.
 static std::atomic<bool> g_host_prof_idle{false};
 
-// One step up the stack. False when the walk cannot continue (no way to read
-// the return address, a null address, or a stack pointer that did not rise).
-static bool host_prof_unwind_one(CONTEXT& ctx) {
-    const DWORD64 previous_rsp = ctx.Rsp;
-    DWORD64 image_base = 0;
-    PRUNTIME_FUNCTION fn = RtlLookupFunctionEntry(ctx.Rip, &image_base, nullptr);
-    if (fn) {
-        PVOID handler_data = nullptr;
-        DWORD64 establisher_frame = 0;
-        RtlVirtualUnwind(UNW_FLAG_NHANDLER, image_base, ctx.Rip, fn, &ctx,
-                         &handler_data, &establisher_frame, nullptr);
-    } else {
-        // A leaf function has only its return address on the stack.
-        DWORD64 return_address = 0;
-        SIZE_T read = 0;
-        if (!ReadProcessMemory(GetCurrentProcess(),
-                reinterpret_cast<const void*>(ctx.Rsp), &return_address,
-                sizeof(return_address), &read) || read != sizeof(return_address))
-            return false;
-        ctx.Rip = return_address;
-        ctx.Rsp += sizeof(return_address);
-    }
-    return ctx.Rip && ctx.Rsp > previous_rsp;
-}
-
-static unsigned long long host_prof_crt_caller(CONTEXT ctx) {
-    if (!g_host_crt_begin || ctx.Rip < g_host_crt_begin ||
-        ctx.Rip >= g_host_crt_end) return 0;
-    while (ctx.Rip >= g_host_crt_begin && ctx.Rip < g_host_crt_end) {
-        if (!host_prof_unwind_one(ctx)) return 0;
-    }
-    return ctx.Rip;
-}
-
-static bool host_prof_in_own_code(unsigned long long rip) {
-    return (g_host_exe_begin && rip >= g_host_exe_begin && rip < g_host_exe_end) ||
-           (g_host_game_begin && rip >= g_host_game_begin && rip < g_host_game_end);
-}
-
-// For a sample outside both the exe and the game DLL (ntdll, the graphics
-// driver, SDL, the CRT ...): the first return address that IS inside one of
-// them, i.e. which of our functions asked for the time. 0 when the sample is
-// already ours, or no such frame within 64 frames.
-static unsigned long long host_prof_module_caller(CONTEXT ctx) {
-    if (host_prof_in_own_code(ctx.Rip)) return 0;
-    for (int depth = 0; depth < 64; ++depth) {
-        if (!host_prof_unwind_one(ctx)) return 0;
-        if (host_prof_in_own_code(ctx.Rip)) return ctx.Rip;
-    }
-    return 0;
-}
+// Do not unwind the target while it is suspended. RtlLookupFunctionEntry
+// can wait for Windows loader/function-table locks held by that same thread
+// (observed during SDL startup, 2026-10-17). Only register and atomic reads
+// belong between SuspendThread and ResumeThread. Caller fields stay zero;
+// the profile explicitly records their unavailability.
 
 // The split build's game-code DLL; the game's build names its own.
 #ifndef GBARECOMP_GAME_DLL_NAME
@@ -582,16 +528,14 @@ static void host_prof_loop() {
                     g_host_prof_frame.load(std::memory_order_relaxed));
                 s.present_frame = static_cast<std::uint32_t>(
                     g_host_prof_present_frame.load(std::memory_order_relaxed));
-                const unsigned long long crt_caller = sampled
-                    ? host_prof_crt_caller(ctx) : 0;
-                s.caller = sampled ? host_prof_module_caller(ctx) : 0;
+                // Caller unwinding is intentionally unavailable; see above.
+                s.caller = 0;
                 s.rip = sampled ? ctx.Rip : 0;
                 ResumeThread(h);
                 // Map insertion may allocate: do it only after resuming the
                 // sampled thread, which could have been holding a heap lock.
                 if (sampled) {
                     ++g_host_hist[ctx.Rip];
-                    if (crt_caller) ++g_host_crt_callers[{ctx.Rip, crt_caller}];
                     if (g_host_samples.size() < kHostProfMaxRawSamples)
                         g_host_samples.push_back(s);  // capacity is reserved
                     else
@@ -665,9 +609,7 @@ static void dump_host_hist() {
                  (unsigned long long)g_host_crt_end);
     for (const auto& kv : g_host_hist)
         std::fprintf(f, "0x%llx %llu\n", kv.first, kv.second);
-    for (const auto& kv : g_host_crt_callers)
-        std::fprintf(f, "# crt_caller 0x%llx 0x%llx %llu\n",
-                     kv.first.first, kv.first.second, kv.second);
+    std::fprintf(f, "# caller_capture unavailable_suspend_lock_safety\n");
 
     // Which DLL each out-of-module sample belongs to. Without this a capture
     // can only say "62% of the time was outside the executable", which names
@@ -746,13 +688,6 @@ static void start_host_prof() {
             reinterpret_cast<const char*>(crt) + dos->e_lfanew);
         g_host_crt_begin = reinterpret_cast<uintptr_t>(crt);
         g_host_crt_end = g_host_crt_begin + nt->OptionalHeader.SizeOfImage;
-    }
-    if (HMODULE exe = host_prof_engine_module()) {
-        const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(exe);
-        const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(
-            reinterpret_cast<const char*>(exe) + dos->e_lfanew);
-        g_host_exe_begin = reinterpret_cast<uintptr_t>(exe);
-        g_host_exe_end = g_host_exe_begin + nt->OptionalHeader.SizeOfImage;
     }
     host_prof_resolve_game_dll();
     g_host_samples.reserve(kHostProfMaxRawSamples);
@@ -898,6 +833,16 @@ bool invoke_frame_present_override_hook(std::uint8_t* rgb, std::uint32_t width,
 
 void set_savestate_load_hook(std::function<void()> hook) {
     g_savestate_load_hook = std::move(hook);
+}
+
+void set_frame_present_shutdown_hook(std::function<void()> hook) {
+    g_frame_present_shutdown_hook = std::move(hook);
+}
+
+void notify_frame_present_shutdown() {
+    auto hook = std::move(g_frame_present_shutdown_hook);
+    g_frame_present_shutdown_hook = {};
+    if (hook) hook();
 }
 
 void notify_savestate_loaded() {

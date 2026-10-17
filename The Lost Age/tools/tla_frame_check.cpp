@@ -34,6 +34,8 @@
 #include "tla_water_ripple.h"
 #include "tla_tornado_margins.h"
 #include "tla_screen_effect_margins.h"
+#include "tla_ship_water_margins.h"
+#include "tla_room_palette.h"
 #include "tla_frame_capture.h"
 
 namespace {
@@ -253,13 +255,25 @@ int main(int argc, char** argv) {
                     std::printf("haze rows: refilled\n");
                     vram.swap(haze_vram);
                 }
+                if (tla_ship_water_margins(scene, margins,
+                        room && memory.size() >= 0x42A
+                            ? unsigned(memory[0x428]) | (unsigned(memory[0x429]) << 8) : 0,
+                        vram)) {
+                    std::printf("ship water: repeated\n");
+                }
                 renderer.upload_vram(vram.data(), vram.size());
                 renderer.upload_palette(scene.palette.data(), scene.palette.size());
                 if (!saved.legacy) {
                     if (room_vram.size)
                         renderer.upload_room_vram(room_vram.data, room_vram.size);
-                    if (!room_palette.empty())
-                        renderer.upload_room_palette(room_palette.data(), room_palette.size());
+                    if (!room_palette.empty()) {
+                        auto colours = room_palette;
+                        if (memory.size() >= 0x48000)
+                            tla_restore_room_palette((state_flags & 1u) != 0u,
+                                memory.data(), 0x40000, memory.data() + 0x40000,
+                                0x8000, &colours);
+                        renderer.upload_room_palette(colours.data(), colours.size());
+                    }
                     renderer.set_menu_open((state_flags & 1u) != 0u);
                 }
                 renderer.set_room_source_enabled(room);

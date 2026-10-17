@@ -2,6 +2,7 @@
 
 #include "host_window.h"
 #include "runtime.h"
+#include "runtime_bus_bridge.h"
 
 #include <algorithm>
 #include <atomic>
@@ -1467,6 +1468,7 @@ void HostWindow::close() {
         config_ui_shutdown();
         b->cfg_ready = false;
     }
+    notify_frame_present_shutdown();
     if (b->texture)   SDL_DestroyTexture(b->texture);
     destroy_native_texture(b);
     screen_filter_shutdown();

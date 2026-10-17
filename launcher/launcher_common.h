@@ -58,12 +58,17 @@ inline bool validate_rom(const fs::path& path, std::string* error,
         *error = "That file could not be opened.";
         return false;
     }
+    if (any_rom) {
+        if (std::ifstream file(path, std::ios::binary); file) return true;
+        *error = "The ROM could not be read.";
+        return false;
+    }
     std::string actual;
     if (!sha1_file(path, &actual)) {
         *error = "The ROM could not be read.";
         return false;
     }
-    if (actual != game.rom_sha1 && !any_rom) {
+    if (actual != game.rom_sha1) {
         *error = std::string("That is not the required ") + game.title +
                  " USA/Europe ROM.\n\nExpected SHA-1:\n" + game.rom_sha1 +
                  "\n\nFound SHA-1:\n" + actual;

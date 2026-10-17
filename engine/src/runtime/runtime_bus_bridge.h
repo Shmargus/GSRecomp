@@ -67,6 +67,11 @@ void set_frame_present_override_hook(
 bool invoke_frame_present_override_hook(std::uint8_t* rgb, std::uint32_t width,
                                         std::uint32_t height);
 
+// Release game-owned presentation resources while the window's GL context
+// still exists. The window consumes this callback once, before teardown.
+void set_frame_present_shutdown_hook(std::function<void()> hook);
+void notify_frame_present_shutdown();
+
 // Savestate-load hook. Called once a savestate has fully applied (guest PC,
 // frame_count() and all other snapshot state already updated) — after every
 // do_savestate_load() success, regardless of trigger (hotkey, TCP debug

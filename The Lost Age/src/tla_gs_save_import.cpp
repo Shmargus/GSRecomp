@@ -410,6 +410,8 @@ void tla_gs_save_import_on_entry(std::uint32_t pc) {
         break;
     }
 }
+bool tla_gs_save_import_visible() { return g_stage != Stage::Idle; }
+
 bool tla_gs_save_import_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height) {
     if (g_stage == Stage::Idle) return false;
     // Cover the original method chooser on the native 30x20 tile canvas.

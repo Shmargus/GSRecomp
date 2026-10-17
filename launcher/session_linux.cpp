@@ -176,7 +176,7 @@ std::string pick_rom_with_dialog(const std::string& start_dir, bool* no_dialog) 
         cmd = "kdialog --title " + shell_quote(session_game().rom_prompt) +
               " --getopenfilename " +
               shell_quote(start_dir.empty() ? std::string(".") : start_dir) +
-              " " + shell_quote("*.gba *.GBA|Golden Sun ROM (*.gba)");
+              " " + shell_quote("*.gba *.GBA|Golden Sun ROM (*.gba)\n*|All files");
     } else {
         *no_dialog = true;
         return {};

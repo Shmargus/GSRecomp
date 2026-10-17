@@ -75,6 +75,9 @@ struct SceneMarginLayer {
     // gives one unwrapped tilemap height; negative fills the screen by wrapping
     // the effect map. Zero disables it.
     int vram_height = 0;
+    // A measured repeating patch within that map, for margin pixels only.
+    // Zero keeps the full hardware map. Dimensions are powers of two.
+    int repeat_width = 0, repeat_height = 0;
 };
 // The iris wipe's ellipse in console pixels, drawn outside the console's
 // screen (field_scene_renderer.cpp, fit_iris_window).

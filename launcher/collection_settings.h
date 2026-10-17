@@ -10,7 +10,7 @@ namespace gsr_collection {
 // Seal, bit 1 The Lost Age) greys out an option the game cannot use yet.
 // Frame rewind, screen filters and the unpacker catcher are always on.
 struct TestOption { const char* label; const char* environment; unsigned games; bool default_selected; };
-inline constexpr std::array<TestOption, 11> test_options{{
+inline constexpr std::array<TestOption, 12> test_options{{
     {"Self-heal RAM", "GBARECOMP_SELFHEAL_RAM", 3, true},
     {"Sprite recorder", "GSR_OBJ_RECORD", 1, false},
     {"Map recorder", "GSR_MAP_RECORD", 1, false},
@@ -26,6 +26,7 @@ inline constexpr std::array<TestOption, 11> test_options{{
     // The Lost Age's second sprite page for field people in the wider view
     // (src/tla_sprite_memory.cpp); this keeps the console's 32 KB only.
     {"Console sprite memory", "TLA_CONSOLE_SPRITE_MEMORY", 2, false},
+    {"Sprite memory trace", "TLA_SPRITE_MEMORY_TRACE", 2, false},
 }};
 constexpr std::size_t test_index(std::string_view environment) {
     for (std::size_t i = 0; i < test_options.size(); ++i)

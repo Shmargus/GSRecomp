@@ -241,8 +241,8 @@ inline bool import_selected_rom(const fs::path& root, const fs::path& selected,
     try {
         const auto source = fs::absolute(selected).lexically_normal();
         out = managed_paths(root, game_stem);
-        if (lower(text(source.extension())) != ".gba" || !fs::is_regular_file(source))
-            throw std::runtime_error("Select an existing .gba ROM: " + text(source));
+        if (!fs::is_regular_file(source))
+            throw std::runtime_error("Select an existing ROM file: " + text(source));
         if (path_present(out.rom) && (!fs::is_regular_file(out.rom) || fs::is_symlink(fs::symlink_status(out.rom)) || !same_bytes(source, out.rom)))
             throw std::runtime_error("A different ROM already exists at " + text(out.rom) + ". Move it aside before selecting this ROM.");
         if (!path_present(out.rom)) copy_preserving_time(source, out.rom);

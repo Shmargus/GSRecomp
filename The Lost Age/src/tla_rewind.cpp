@@ -47,37 +47,38 @@ bool present(uint8_t* rgb, uint32_t width, uint32_t height) {
     const bool have_last = g_history.count() &&
         runtime_current_frame() >= g_history.back(0).guest_frame;
     if (!have_last) g_notice_until = 0;
-    // The graphics card's picture first, so the overlays below land on it.
-    bool drawn = tla_gpu_field_present(rgb, width, height);
-    const bool gpu_drawn = drawn;
-    // A battle frame caught half way into a spell's setup shows the last
-    // picture again (src/tla_battle_speed.cpp).
-    const bool held_frame = have_last && g_history.back(0).width == width &&
-        g_history.back(0).height == height && tla_battle_spell_setup_frame();
-    if (held_frame) {
-        const auto& last = g_history.back(0).rgb;
-        std::copy(last.begin(), last.end(), rgb);
-        drawn = true;
-    }
-    drawn = tla_battle_speed_paint(rgb, width, height) || drawn;
-    drawn = tla_settings_page_paint(rgb, width, height) || drawn;
-    drawn = tla_gs_save_import_paint(rgb, width, height) || drawn;
-
-    gbarecomp::HistoryFrame& fr = g_history.record(rgb, width, height);
-    fr.battle_2x = tla_battle_speed_active();
-    fr.gpu_drawn = gpu_drawn;
-    fr.held_frame = held_frame;
+    auto frame = gbarecomp::FrameHistory::capture();
+    frame.battle_2x = tla_battle_speed_active();
     try {
-        fr.scene = tla_gpu_field_snapshot(width, height, &fr.scene_frame);
+        frame.scene = tla_gpu_field_snapshot(width, height, &frame.scene_frame);
     } catch (const std::bad_alloc&) {
-        fr.scene.clear();
-        fr.scene_frame = 0;
         static bool reported = false;
         if (!reported) {
             reported = true;
             std::fprintf(stderr, "[tla] F12: renderer snapshot allocation failed; keeping images only\n");
         }
     }
+    const bool held_frame = have_last && g_history.back(0).width == width &&
+        g_history.back(0).height == height && tla_battle_spell_setup_frame();
+    const bool synchronous = held_frame || tla_settings_page_overlay_visible() ||
+        tla_gs_save_import_visible();
+    bool drawn = tla_gpu_field_present(rgb, width, height, frame, synchronous);
+    if (held_frame) {
+        const auto& last = g_history.back(0);
+        std::copy(last.rgb.begin(), last.rgb.end(), rgb);
+        frame = last;
+        frame.rgb.clear();
+        frame.held_frame = true;
+        drawn = true;
+    }
+    // The indicator belongs to the delivered picture, not the live guest.
+    if (frame.battle_2x) {
+        tla_paint_text(rgb, width, height, 4, 4, ">>", 5);
+        drawn = true;
+    }
+    drawn = tla_settings_page_paint(rgb, width, height) || drawn;
+    drawn = tla_gs_save_import_paint(rgb, width, height) || drawn;
+    g_history.record(rgb, width, height, std::move(frame));
 
     // The unpacker safety net saves these frames 30 frames after a catch.
     std::string unpacker_note;
@@ -136,6 +137,11 @@ void tla_paint_text(uint8_t* rgb, uint32_t width, uint32_t height, int x0,
                 }
         }
     }
+}
+
+void tla_rewind_reset() {
+    g_history.clear();
+    g_notice_until = 0;
 }
 
 void tla_install_rewind() {

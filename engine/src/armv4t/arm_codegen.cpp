@@ -54,6 +54,14 @@ void emit_image_base_resync(std::ostringstream& s, const CodegenCtx& ctx,
     s << indent << "g_runtime_image_base = " << ctx.image_base_var << ";\n";
 }
 
+}  // namespace
+
+std::string emit_tail_transfer(const std::string& call) {
+    return "GBARECOMP_TAIL_TRANSFER(" + call + ");\n";
+}
+
+namespace {
+
 std::string label_for_addr(uint32_t v) {
     char buf[16];
     std::snprintf(buf, sizeof(buf), "L_%08X", v);
@@ -549,42 +557,34 @@ std::string emit_direct_branch(uint32_t target, uint32_t branch_pc,
             function_key(target, ctx.current_function_thumb));
         if (it != ctx.names_by_key->end()) name = &it->second;
     }
-    if (name) {
-        if (!is_link && target == ctx.current_function_addr) {
-            // A tight `b .` loop must not become recursive host C.
-            // Return to the dispatch loop with PC unchanged so the
-            // runtime can observe/stall the guest loop normally.
-        } else {
-            // Relocatable image: the callee snapshots g_runtime_image_base in
-            // its own prologue, and anything this function already called may
-            // have dispatched into a different image at a different base. Put
-            // OUR base back first so the sibling inherits it.
-            emit_image_base_resync(s, ctx, indent);
-            s << indent << *name << "();\n";
-        }
-    } else {
-        if (!is_link && target == ctx.current_function_addr) {
-            // See known-name self-loop case above.
-        } else {
-            emit_image_base_resync(s, ctx, indent);
-            s << indent << "runtime_dispatch(" << fmt_guest_addr(ctx, target)
-              << ");\n";
-        }
+    // A tight `b .` loop must not become recursive host C. Return to the
+    // dispatch loop with PC unchanged so the runtime can observe/stall the
+    // guest loop normally.
+    const bool self_loop = !is_link && target == ctx.current_function_addr;
+    if (!self_loop) {
+        // Relocatable image: the callee snapshots g_runtime_image_base in
+        // its own prologue, and anything this function already called may
+        // have dispatched into a different image at a different base. Put
+        // OUR base back first so the sibling inherits it.
+        emit_image_base_resync(s, ctx, indent);
     }
-    // B is a tail-call: never return to this caller, so emit
-    // `return;`. BL is a call: after the callee returns (its `bx lr`
-    // sets PC=LR, then C-returns), control must resume in this
-    // function's body at the next instruction. So DO NOT emit
-    // `return;` for BL — let C control fall through to the next
-    // decoded instruction.
-    if (is_link) {
+    const std::string call = self_loop ? std::string()
+        : name ? *name + "()"
+        : "runtime_dispatch(" + fmt_guest_addr(ctx, target) + ")";
+    // B is a tail-call: never return to this caller. BL is a call: after
+    // the callee returns (its `bx lr` sets PC=LR, then C-returns), control
+    // must resume in this function's body at the next instruction, so let
+    // C control fall through to the next decoded instruction.
+    if (!is_link) {
+        if (call.empty()) s << indent << "return;\n";
+        else s << indent << emit_tail_transfer(call);
+    } else {
+        s << indent << call << ";\n";
         emit_image_base_resync(s, ctx, indent);
         s << indent << "if (g_cpu.R[15] != "
           << fmt_guest_addr(ctx, link_value & ~1u)
           << ") { runtime_call_cancel_return("
           << fmt_guest_addr(ctx, link_value & ~1u) << "); return; }\n";
-    } else {
-        s << indent << "return;\n";
     }
     return s.str();
 }
@@ -822,12 +822,12 @@ bool emit_data_processing(std::ostringstream& body, const Instr& ins,
                 body << indent << "if (runtime_call_should_return("
                      << pc_var << ")) return;\n";
                 emit_image_base_resync(body, ctx, indent);
-                body << indent << "runtime_dispatch(" << pc_var << ");\n";
-                body << indent << "return;\n";
+                body << indent << emit_tail_transfer(
+                    "runtime_dispatch(" + pc_var + ")");
             } else {
                 emit_image_base_resync(body, ctx, indent);
-                body << indent << "runtime_dispatch(" << pc_var << ");\n";
-                body << indent << "return;\n";
+                body << indent << emit_tail_transfer(
+                    "runtime_dispatch(" + pc_var + ")");
             }
         } else {
             body << indent << "g_cpu.R[" << static_cast<unsigned>(ins.rd)
@@ -884,14 +884,12 @@ bool emit_branch(std::ostringstream& body, const Instr& ins,
                      << " & 1u) g_cpu.cpsr |= CPSR_T_BIT; else g_cpu.cpsr &= ~CPSR_T_BIT;\n";
                 body << indent << "if (runtime_call_should_return(g_cpu.R[15])) return;\n";
                 emit_image_base_resync(body, ctx, indent);
-                body << indent << "runtime_dispatch_with_exchange("
-                     << target_var << ");\n";
-                body << indent << "return;\n";
+                body << indent << emit_tail_transfer(
+                    "runtime_dispatch_with_exchange(" + target_var + ")");
             } else {
                 emit_image_base_resync(body, ctx, indent);
-                body << indent << "runtime_dispatch_with_exchange("
-                     << target_var << ");\n";
-                body << indent << "return;\n";
+                body << indent << emit_tail_transfer(
+                    "runtime_dispatch_with_exchange(" + target_var + ")");
             }
             return true;
         }
@@ -1062,8 +1060,8 @@ bool emit_memory(std::ostringstream& body, const Instr& ins,
             body << indent << "g_cpu.R[15] = " << val_var << " & ~1u;\n";
             body << indent << "runtime_tick(" << cyc_var_for(ins) << ");\n";
             emit_image_base_resync(body, ctx, indent);
-            body << indent << "runtime_dispatch(" << val_var << " & ~1u);\n";
-            body << indent << "return;\n";
+            body << indent << emit_tail_transfer(
+                "runtime_dispatch(" + val_var + " & ~1u)");
         } else {
             body << indent << "g_cpu.R[" << static_cast<unsigned>(ins.rd)
                  << "] = " << val_var << ";\n";
@@ -1162,8 +1160,7 @@ bool emit_block_transfer(std::ostringstream& body, const Instr& ins,
             body << indent << "g_cpu.R[15] = " << pcv << " & ~1u;\n";
             body << indent << "runtime_tick(" << cyc_var_for(ins) << ");\n";
             emit_image_base_resync(body, ctx, indent);
-            body << indent << "runtime_dispatch(g_cpu.R[15]);\n";
-            body << indent << "return;\n";
+            body << indent << emit_tail_transfer("runtime_dispatch(g_cpu.R[15])");
         } else {
             body << indent << "runtime_trace_event(RUNTIME_TRACE_MEM_WRITE, "
                  << fmt_guest_addr(ctx, ins.pc) << ", " << addr_var
@@ -1291,12 +1288,10 @@ bool emit_block_transfer(std::ostringstream& body, const Instr& ins,
         if (blk.rn == 13) {
             body << indent << "if (runtime_call_should_return(g_cpu.R[15])) return;\n";
             emit_image_base_resync(body, ctx, indent);
-            body << indent << "runtime_dispatch(g_cpu.R[15]);\n";
-            body << indent << "return;\n";
+            body << indent << emit_tail_transfer("runtime_dispatch(g_cpu.R[15])");
         } else {
             emit_image_base_resync(body, ctx, indent);
-            body << indent << "runtime_dispatch(g_cpu.R[15]);\n";
-            body << indent << "return;\n";
+            body << indent << emit_tail_transfer("runtime_dispatch(g_cpu.R[15])");
         }
     }
     return true;

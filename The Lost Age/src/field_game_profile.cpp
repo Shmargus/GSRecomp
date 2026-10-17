@@ -46,6 +46,7 @@ const FieldGameProfile& field_game_profile() {
 
         p.margin_scroll_rows = true;
         p.agreement_autoscroll_wrap = true;
+        p.room_grid_wrap = true;
         return p;
     }();
     return profile;

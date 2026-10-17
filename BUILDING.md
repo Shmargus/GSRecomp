@@ -75,3 +75,16 @@ root `Releases/`. `make_release.bat -CheckOnly` checks the release layout
 without building. Player packages put the game folders under `games/` beside
 the launcher; **Launcher only** packages update the launcher, artwork and
 runtime files.
+
+Linux releases require GCC 15 or newer for guaranteed tail transfers
+([GCC 15 release notes](https://gcc.gnu.org/gcc-15/changes.html)). The
+release script defaults to `gcc-15` / `g++-15`, uses them for both games and
+bundles that same C++ compiler for players. `CC` and `CXX` can select another
+installed GCC 15+ pair; an older compiler is rejected before building.
+On the Ubuntu 24.04 release host, install them with:
+
+```text
+sudo add-apt-repository ppa:ubuntu-toolchain-r/test
+sudo apt-get update
+sudo apt-get install gcc-15 g++-15
+```

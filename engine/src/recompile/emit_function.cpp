@@ -483,11 +483,11 @@ std::string emit_function_body_str(
         "    /* fall-through to 0x%08X */\n"
         "    g_cpu.R[15] = %s;\n"
         "%s"
-        "    runtime_dispatch(%s);\n"
-        "    return;\n",
+        "    %s",
         fn.end_addr, guest_addr(fn.end_addr).c_str(),
         relocatable ? "    g_runtime_image_base = _imgbase;\n" : "",
-        guest_addr(fn.end_addr).c_str());
+        armv4t::emit_tail_transfer(
+            "runtime_dispatch(" + guest_addr(fn.end_addr) + ")").c_str());
 
     return out;
 }

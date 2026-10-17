@@ -318,6 +318,7 @@ struct GpuSurface::Readback {
     };
     Slot slots[2];
     int last = -1;  // slot of the most recent begin, -1 when none is queued
+    int next = 0;
     std::vector<std::uint8_t> rgba;
 };
 
@@ -972,25 +973,34 @@ void GpuSurface::present_target(int x, int y, int width, int height,
     draw_quads(blit_program_, &quad, 1, textures, 1);
 }
 
-void GpuSurface::read_texture_rgb(GpuTexture texture, int width, int height,
+bool GpuSurface::read_texture_rgb(GpuTexture texture, int width, int height,
                                   std::uint8_t* out_rgb) {
-    if (!ready_ || !texture || width <= 0 || height <= 0 || !out_rgb) return;
+    if (!ready_ || !texture || width <= 0 || height <= 0 || !out_rgb ||
+        !SDL_GL_GetCurrentContext()) return false;
 
     std::vector<std::uint8_t> rgba(static_cast<std::size_t>(width) * height * 4u);
     {
         PackState pack;
+        if (glGetError() != GL_NO_ERROR || !glIsTexture(texture)) return false;
         glBindTexture(GL_TEXTURE_2D, texture);
+        GLint actual_w = 0, actual_h = 0;
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &actual_w);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &actual_h);
+        if (actual_w != width || actual_h != height) return false;
         glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+        if (glGetError() != GL_NO_ERROR) return false;
     }
     rgba_bottom_up_to_rgb(rgba.data(), width, height, out_rgb);
+    return true;
 }
 
 bool GpuSurface::begin_texture_readback(GpuTexture texture, int width,
                                         int height) {
     if (!ready_ || !g_async_readback || !readback_ || !texture ||
-        width <= 0 || height <= 0)
+        width <= 0 || height <= 0 || !SDL_GL_GetCurrentContext())
         return false;
-    const int index = readback_->last == 0 ? 1 : 0;
+    const int index = readback_->next;
+    readback_->next = 1 - index;
     Readback::Slot& slot = readback_->slots[index];
     if (slot.fence) {
         glDeleteSync(slot.fence);
@@ -999,17 +1009,28 @@ bool GpuSurface::begin_texture_readback(GpuTexture texture, int width,
     const std::size_t bytes = static_cast<std::size_t>(width) * height * 4u;
     {
         PackState pack;
+        if (glGetError() != GL_NO_ERROR || !glIsTexture(texture)) return false;
+        glBindTexture(GL_TEXTURE_2D, texture);
+        GLint actual_w = 0, actual_h = 0;
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &actual_w);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &actual_h);
+        if (actual_w != width || actual_h != height) return false;
         if (!slot.buffer) glGenBuffers(1, &slot.buffer);
+        if (!slot.buffer) return false;
         glBindBuffer(kPixelPackBuffer, slot.buffer);
         if (slot.capacity != bytes) {
             glBufferData(kPixelPackBuffer, static_cast<ptrdiff_t>(bytes),
                          nullptr, kStreamRead);
+            if (glGetError() != GL_NO_ERROR) {
+                slot.capacity = 0;
+                return false;
+            }
             slot.capacity = bytes;
         }
-        glBindTexture(GL_TEXTURE_2D, texture);
         // With a pack buffer bound the pointer is an offset into it: the
-        // copy is queued on the GPU and nothing here waits for it.
+        // GPU may transfer later, without a client-side fence wait here.
         glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        if (glGetError() != GL_NO_ERROR) return false;
     }
     slot.fence = glFenceSync(kSyncGpuCommandsComplete, 0);
     slot.width = width;
@@ -1020,11 +1041,15 @@ bool GpuSurface::begin_texture_readback(GpuTexture texture, int width,
 
 bool GpuSurface::finish_texture_readback(int width, int height,
                                          std::uint8_t* out_rgb) {
-    if (!ready_ || !readback_ || readback_->last < 0 || !out_rgb) return false;
+    if (!ready_ || !readback_ || readback_->last < 0 || !out_rgb ||
+        !SDL_GL_GetCurrentContext()) return false;
     Readback::Slot& slot = readback_->slots[readback_->last];
     readback_->last = -1;
-    if (!slot.fence || slot.width != width || slot.height != height)
+    if (!slot.fence || slot.width != width || slot.height != height) {
+        if (slot.fence) glDeleteSync(slot.fence);
+        slot.fence = nullptr;
         return false;
+    }
     // Queued a frame ago, so normally already done. A GPU that is still
     // busy after 50 ms gets the caller's synchronous read instead.
     const GLenum waited = glClientWaitSync(slot.fence, kSyncFlushCommandsBit,
@@ -1037,12 +1062,24 @@ bool GpuSurface::finish_texture_readback(int width, int height,
     readback_->rgba.resize(bytes);
     {
         PackState pack;
+        if (glGetError() != GL_NO_ERROR) return false;
         glBindBuffer(kPixelPackBuffer, slot.buffer);
         glGetBufferSubData(kPixelPackBuffer, 0, static_cast<ptrdiff_t>(bytes),
                            readback_->rgba.data());
+        if (glGetError() != GL_NO_ERROR) return false;
     }
     rgba_bottom_up_to_rgb(readback_->rgba.data(), width, height, out_rgb);
     return true;
+}
+
+void GpuSurface::cancel_texture_readback() {
+    if (!readback_) return;
+    readback_->last = -1;
+    if (!SDL_GL_GetCurrentContext()) return;
+    for (auto& slot : readback_->slots) {
+        if (slot.fence) glDeleteSync(slot.fence);
+        slot.fence = nullptr;
+    }
 }
 
 }  // namespace gbarecomp

@@ -17,7 +17,9 @@
 #include "crc32.h"
 #include "env_flag.h"
 #include "game_exit.h"
+#include <memory>
 #include "frame_history.h"
+#include "texture_readback_queue.h"
 #include "crash_handler.h"
 #include "map_recorder.h"
 #include "obj_recorder.h"
@@ -7960,7 +7962,7 @@ bool golden_sun_obj_track_lookup(int oam_index, std::uint16_t attr0,
 }
 
 // ---- Sprite placements (engine field/obj_placements.h) -------------------
-// Every placement the character builder Func_b168 makes is recorded by its
+// Placements from character builders Func_b168 and Func_b388 are recorded by
 // 12-byte sprite record (attr0/1/2 at +4/+6/+8,
 // read_golden_sun_obj_staging_attrs), and both providers ask these first
 // (design shared with The Lost Age). Body: `cmp r4,#239; bgt` 0x0800B324 then `cmp r6,#159; bgt`
@@ -7978,6 +7980,27 @@ void golden_sun_sync_obj_placements(gba::GbaBus& bus) {
                           bus.read32(kGoldenSunFieldStateSlot),
                           bus.read32(gsr::battle_speed::kBattleHeapSlot),
                           bus.read16(kGoldenSunMapNumber));
+}
+
+// Func_b388 queues its projected sprite through Func_3dec after writing
+// the OAM words. Its full position is still in the projection scratch and
+// preserved registers: B54A..B56C subtract the half-box and add the scaled
+// offsets. Capture that position in the same table as the field builder.
+// F12 0051: the cave's true Y reaches 256; its byte alone becomes row 0.
+void golden_sun_note_projected_obj_placement(std::uint32_t entry_pc) {
+    if (entry_pc != 0x08003DECu ||
+        !golden_sun_expanded_obj_view_active()) return;
+    const std::uint32_t caller = g_cpu.R[14] & ~1u;
+    if (caller != 0x0800B5C2u && caller != 0x0800B5CCu) return;
+    gba::GbaBus* bus = gbarecomp::active_bus();
+    if (!bus) return;
+    golden_sun_sync_obj_placements(*bus);
+    const int x = static_cast<std::int32_t>(
+        bus->read32(g_cpu.R[10]) - g_cpu.R[11] + g_cpu.R[8]);
+    const int y = static_cast<std::int32_t>(
+        bus->read32(g_cpu.R[10] + 4u) -
+        bus->read32(g_cpu.R[13] + 8u) + g_cpu.R[6]);
+    g_obj_placements.note(*bus, runtime_current_frame(), g_cpu.R[0], x, y);
 }
 
 // At the builder's two Y tests, once the final decision is known; 0 (not
@@ -8103,7 +8126,10 @@ int golden_sun_wide_obj_attr_y_provider(int oam_index,
         *out_y = gsr::widescreen::golden_sun_obj_y_shown_reading(
             placed->y, attr0, attr1, g_golden_sun_wide_extra_top,
             g_golden_sun_wide_extra_bottom,
-            bus_read_u16(kGoldenSunMapNumber) == 2u);
+            // Flint's negative world-event placement keeps its native
+            // exception. A projected object below the view must not wrap
+            // back to the top when its full Y passes 255 (F12 0051).
+            placed->y < 0 && bus_read_u16(kGoldenSunMapNumber) == 2u);
         record_obj(GoldenSunObjYOutcome::AcceptedProvenance);
         return 1;
     }
@@ -9233,6 +9259,12 @@ struct GpuFieldCapture {
 // happens at present time instead, beside the win.present() call it stands
 // in for (see runtime.cpp's present_first).
 GpuFieldCapture g_gpu_field_capture;
+struct GpuPresentation {
+    GpuFieldCapture capture;
+    gbarecomp::HistoryFrame frame;
+    bool world_source_ok = false;
+};
+gbarecomp::TextureReadbackQueue<GpuPresentation> g_gpu_readback;
 GpuFieldCapture g_world_settled_capture;
 
 bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
@@ -9379,8 +9411,9 @@ bool text_row_single_colour(const std::uint8_t* regs, int y,
 void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
                            std::uint32_t height,
                            gsr::FieldSceneRenderer& renderer,
-                           gbarecomp::GpuSurface& surface) {
-    const std::vector<std::uint8_t>& io = g_gpu_field_capture.io;
+                           gbarecomp::GpuSurface& surface,
+                           const GpuFieldCapture& capture, bool world_source_ok) {
+    const std::vector<std::uint8_t>& io = capture.io;
     const unsigned mode = io.empty() ? 0xFFu : (io[0] & 7u);
     const bool world = world_map_blocks(io);
     const bool native_size = width == 240 && height == 160;
@@ -9396,7 +9429,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
         // 1684-1696). The graphics card draws a frame in one mode, so those
         // rows came out as world map; paint them, across the margins too,
         // in the one colour the console draws there.
-        const gsr::FieldScene& sc = g_gpu_field_capture.scene;
+        const gsr::FieldScene& sc = capture.scene;
         const std::uint32_t band_y0 = (height - 160u) / 2u;
         bool mixed = false;
         for (int y = 0; y < gsr::FieldScene::kRows; ++y) {
@@ -9404,8 +9437,8 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
             mixed = true;
             std::uint8_t colour[3];
             if (!text_row_single_colour(sc.row_io[y].data(), y,
-                                        g_gpu_field_capture.vram,
-                                        g_gpu_field_capture.pal, colour))
+                                        capture.vram,
+                                        capture.pal, colour))
                 continue;
             std::uint8_t* row = rgb + (std::size_t{band_y0} + y) * width * 3u;
             for (std::uint32_t x = 0; x < width; ++x)
@@ -9417,14 +9450,14 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
         // or the "held" margins would be a darkened copy.
         const unsigned bldcnt = io[0x50] | (static_cast<unsigned>(io[0x51]) << 8);
         const bool fading = ((bldcnt >> 6) & 3u) >= 2u && (io[0x54] & 0x1Fu) != 0u;
-        if (!fading && !g_gpu_field_capture.window_open &&
-            g_world_map_source_ok &&
-            g_gpu_field_capture.pal.size() >= 512) {
+        if (!fading && !capture.window_open &&
+            world_source_ok &&
+            capture.pal.size() >= 512) {
             g_world_margin_rgb.assign(rgb, rgb + std::size_t{width} * height * 3u);
             g_world_margin_w = width;
             g_world_margin_h = height;
-            g_world_settled_capture = g_gpu_field_capture;
-            const auto& pal = g_gpu_field_capture.pal;
+            g_world_settled_capture = capture;
+            const auto& pal = capture.pal;
             for (int i = 0; i < 256; ++i)
                 g_world_margin_pal[i] = static_cast<std::uint16_t>(
                     pal[i * 2] | (pal[i * 2 + 1] << 8));
@@ -9473,9 +9506,9 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
         g_world_settled_capture.valid &&
         draw_gpu_field_capture(renderer, g_world_settled_capture, width, height)) {
         std::vector<std::uint8_t> resized(std::size_t{width} * height * 3u);
-        surface.read_texture_rgb(renderer.output_texture(),
-                                 static_cast<int>(width), static_cast<int>(height),
-                                 resized.data());
+        if (!surface.read_texture_rgb(renderer.output_texture(),
+                                      static_cast<int>(width), static_cast<int>(height),
+                                      resized.data())) return;
         g_world_margin_rgb.swap(resized);
         g_world_margin_w = width;
         g_world_margin_h = height;
@@ -9524,7 +9557,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     // green Djinn-join tint changes banks 0-13 only, not 14 or 15
     // (gpu_rewind_0013 of bug_report_20261005_094058), so the check covers
     // banks 0-13: no menu changes all of those.
-    const auto& pal = g_gpu_field_capture.pal;
+    const auto& pal = capture.pal;
     if (pal.size() < 512) return;
     int delta[256][3];
     std::array<bool, 16> bank_used{}, bank_changed{};
@@ -9751,8 +9784,8 @@ bool dump_key_down() {
 
 // The GSRGPUF1 bytes of the current capture (layout above), shared by the
 // single F12 dump and the rewind ring below.
-std::string gpu_field_dump_bytes() {
-    const gsr::FieldScene& scene = g_gpu_field_capture.scene;
+std::string gpu_field_dump_bytes(const GpuFieldCapture& capture) {
+    const gsr::FieldScene& scene = capture.scene;
     constexpr std::size_t kLineIoBytes = gsr::FieldScene::kLineIoBytes;
     constexpr int kRows = gsr::FieldScene::kRows;
 
@@ -9797,20 +9830,20 @@ std::string gpu_field_dump_bytes() {
     };
     const Section sections[] = {
         {"SCENE",  reinterpret_cast<const std::uint8_t*>(&scene), sizeof(scene)},
-        {"IO",     g_gpu_field_capture.io.data(), g_gpu_field_capture.io.size()},
-        {"OAM",    g_gpu_field_capture.oam.data(), g_gpu_field_capture.oam.size()},
-        {"PAL",    g_gpu_field_capture.pal.data(), g_gpu_field_capture.pal.size()},
-        {"VRAM",   g_gpu_field_capture.vram.data(), g_gpu_field_capture.vram.size()},
-        {"EWRAM",  g_gpu_field_capture.ewram.data(), g_gpu_field_capture.ewram.size()},
-        {"IWRAM",  g_gpu_field_capture.iwram.data(), g_gpu_field_capture.iwram.size()},
+        {"IO",     capture.io.data(), capture.io.size()},
+        {"OAM",    capture.oam.data(), capture.oam.size()},
+        {"PAL",    capture.pal.data(), capture.pal.size()},
+        {"VRAM",   capture.vram.data(), capture.vram.size()},
+        {"EWRAM",  capture.ewram.data(), capture.ewram.size()},
+        {"IWRAM",  capture.iwram.data(), capture.iwram.size()},
         {"LINEIO", line_io.data(), line_io.size()},
         {"AFFREF", reinterpret_cast<const std::uint8_t*>(affine_refs.data()),
                    affine_refs.size() * sizeof(std::int32_t)},
         {"FXSTAMP", reinterpret_cast<const std::uint8_t*>(
-                        g_gpu_field_capture.effects.stamps.data()),
-                    g_gpu_field_capture.effects.stamps.size() * sizeof(gsr::EffectSpark)},
-        {"FXART", g_gpu_field_capture.effects.artwork.data(),
-                  g_gpu_field_capture.effects.artwork.size()},
+                        capture.effects.stamps.data()),
+                    capture.effects.stamps.size() * sizeof(gsr::EffectSpark)},
+        {"FXART", capture.effects.artwork.data(),
+                  capture.effects.artwork.size()},
     };
     constexpr std::size_t kSectionCount = sizeof(sections) / sizeof(sections[0]);
 
@@ -9935,15 +9968,8 @@ void paint_bug_report_notice(std::uint8_t* rgb, std::uint32_t width,
 
 // Called with the final picture of every presented frame.
 void frame_rewind_record(const std::uint8_t* rgb, std::uint32_t width,
-                         std::uint32_t height, bool gpu_drawn,
-                         bool battle_2x) {
-    gbarecomp::HistoryFrame& fr = g_history.record(rgb, width, height);
-    fr.gpu_drawn = gpu_drawn;
-    fr.battle_2x = battle_2x;
-    if (g_gpu_field_capture.valid) {
-        fr.scene = gpu_field_dump_bytes();
-        fr.scene_frame = g_gpu_field_capture.scene.frame;
-    }
+                         std::uint32_t height, gbarecomp::HistoryFrame frame) {
+    g_history.record(rgb, width, height, std::move(frame));
     std::string unpacker_note;
     if (gsr::unpacker_guard_capture_due(&unpacker_note)) {
         frame_rewind_write(unpacker_note);
@@ -10099,18 +10125,14 @@ bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
     return renderer.draw(capture.scene);
 }
 
-// gbarecomp::set_frame_present_override_hook's callback. Draws the frame
-// gpu_field_capture_hook() just captured and reads the finished picture back
-// into `rgb` -- a full GPU round trip every drawn frame, accepted so SDL's own
-// presentation, the overlay and the rest of the present path stay untouched
-// (docs/NATIVE_SCENE_RENDERER_PLAN.md step 5). Returns false (leaving `rgb`
-// as the emulated hardware path filled it) whenever the toggle is off,
-// nothing usable was captured this frame, the graphics card cannot run this
-// path at all, or the renderer declines this particular frame.
+// Submit the current scene, then receive the preceding queued picture with
+// its owned scene and presentation metadata. Live guest state is untouched.
 bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
-                                std::uint32_t height) {
-    if (!gpu_field_enabled()) return false;
+                                std::uint32_t height,
+                                gbarecomp::HistoryFrame& frame, bool synchronous) {
+    if (!gpu_field_enabled()) { g_gpu_readback.invalidate(); return false; }
     if (!g_gpu_field_capture.valid) {
+        g_gpu_readback.invalidate();
         if (gpu_field_only_enabled())
             return gpu_field_paint_refused(rgb, width, height,
                                            "nothing was captured this frame");
@@ -10121,10 +10143,23 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
     // time, where the window's GL context is the one already current --
     // never from gpu_field_capture_hook() above. gpu_surface.h attaches to
     // that existing context rather than creating one of its own.
-    static gbarecomp::GpuSurface surface;
-    static gsr::FieldSceneRenderer renderer;
+    struct Context {
+        gbarecomp::GpuSurface surface;
+        gsr::FieldSceneRenderer renderer;
+    };
+    static std::unique_ptr<Context> context;
     static bool init_attempted = false;
     static bool init_ok = false;
+    if (!context) {
+        context = std::make_unique<Context>();
+        gbarecomp::set_frame_present_shutdown_hook([] {
+            g_gpu_readback.invalidate();
+            context.reset();  // renderer, then PBOs/fences, before the GL window
+            init_attempted = init_ok = false;
+        });
+    }
+    auto& surface = context->surface;
+    auto& renderer = context->renderer;
     if (!init_attempted) {
         init_attempted = true;
         init_ok = surface.init() && renderer.init(&surface);
@@ -10146,6 +10181,7 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
         }
     }
     if (!init_ok) {
+        g_gpu_readback.invalidate();
         if (gpu_field_only_enabled())
             return gpu_field_paint_refused(rgb, width, height,
                                            "the renderer could not start");
@@ -10154,12 +10190,14 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
 
     if (!renderer.set_output_size(static_cast<int>(width),
                                   static_cast<int>(height))) {
+        g_gpu_readback.invalidate();
         if (gpu_field_only_enabled())
             return gpu_field_paint_refused(rgb, width, height,
                                            "the output size was refused");
         return false;
     }
     if (!draw_gpu_field_capture(renderer, g_gpu_field_capture, width, height)) {
+        g_gpu_readback.invalidate();
         // Say once why the card declined. Without this the log cannot tell a
         // path that never ran from one that ran and handed every frame back.
         static const char* reported = nullptr;
@@ -10180,16 +10218,25 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
                      width, height);
     }
 
-    // A direct read of this frame: the F12 history keeps every frame's own
-    // picture with its scene, so a queued copy of the previous frame (one
-    // frame behind) is never shown.
-    surface.read_texture_rgb(renderer.output_texture(), static_cast<int>(width),
-                             static_cast<int>(height), rgb);
-    // A decode the console's own picture disagrees with was not drawn, so
-    // it must not be held either (the pause menu's first frame,
-    // logs/gpu_rewind_0058 frame 14).
-    g_world_map_source_ok = g_world_map_source_ok && renderer.world_map_used();
-    world_map_margin_hold(rgb, width, height, renderer, surface);
+    const bool battle = frame.battle_2x;
+    const bool source_ok = g_world_map_source_ok && renderer.world_map_used();
+    auto delivered = g_gpu_readback.present(surface, renderer.output_texture(),
+        static_cast<int>(width), static_cast<int>(height), rgb,
+        runtime_current_frame(),
+        GpuPresentation{g_gpu_field_capture, std::move(frame), source_ok}, synchronous);
+    if (!delivered) {
+        g_gpu_readback.invalidate();
+        frame = gbarecomp::FrameHistory::capture();
+        frame.battle_2x = battle;
+        return gpu_field_only_enabled()
+            ? gpu_field_paint_refused(rgb, width, height, "GPU readback failed") : false;
+    }
+    world_map_margin_hold(rgb, width, height, renderer, surface,
+                          delivered->capture, delivered->world_source_ok);
+    frame = std::move(delivered->frame);
+    frame.gpu_drawn = true;
+    frame.scene = gpu_field_dump_bytes(delivered->capture);
+    frame.scene_frame = delivered->capture.scene.frame;
 
     return true;
 }
@@ -11584,25 +11631,34 @@ int cheat_drop_branch(std::uint32_t pc, std::uint32_t original,
 // going to be shown, the GPU renderer's or the emulated hardware's.
 bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
                                  std::uint32_t height) {
-    bool drawn = gpu_field_present_override(rgb, width, height);
-    // A battle frame caught half way into a spell's setup (torn background,
-    // only with battle speed-up) shows the last picture again, as in The
-    // Lost Age (gbarecomp::spell_setup_torn_frame).
+    auto frame = gbarecomp::FrameHistory::capture();
+    frame.battle_2x = battle_speed_indicator_visible();
+    const bool settings = settings_overlay_visible();
     const gba::GbaPpu* ppu = gbarecomp::active_ppu();
-    if (ppu && g_history.count() &&
+    const bool held = ppu && g_history.count() &&
         runtime_current_frame() >= g_history.back(0).guest_frame &&
         g_history.back(0).width == width && g_history.back(0).height == height &&
         bus_read_u32(gsr::battle_speed::kBattleHeapSlot) != 0u &&
-        gbarecomp::spell_setup_torn_frame(*ppu)) {
-        const auto& last = g_history.back(0).rgb;
-        std::copy(last.begin(), last.end(), rgb);
+        gbarecomp::spell_setup_torn_frame(*ppu);
+    // Settings paint reads live window/font state. A torn spell picture and
+    // settings therefore form explicit synchronous boundaries.
+    bool drawn = gpu_field_present_override(rgb, width, height, frame, settings || held);
+    if (frame.scene.empty() && g_gpu_field_capture.valid) {
+        frame.scene = gpu_field_dump_bytes(g_gpu_field_capture);
+        frame.scene_frame = g_gpu_field_capture.scene.frame;
+    }
+    if (held) {
+        const auto& last = g_history.back(0);
+        std::copy(last.rgb.begin(), last.rgb.end(), rgb);
+        frame = last;
+        frame.rgb.clear();
+        frame.held_frame = true;
         drawn = true;
     }
-    const bool settings = settings_overlay_visible();
-    const bool battle = battle_speed_indicator_visible();
     if (settings) paint_settings_page(rgb, width, height);
+    const bool battle = frame.battle_2x;
     if (battle) paint_battle_speed_indicator(rgb, width, height);
-    frame_rewind_record(rgb, width, height, drawn, battle);
+    frame_rewind_record(rgb, width, height, std::move(frame));
     // After the recording, so the notice is not in the saved frames.
     const bool notice = runtime_current_frame() <= g_bug_report_notice_until;
     if (notice) paint_bug_report_notice(rgb, width, height);
@@ -14046,6 +14102,7 @@ void golden_sun_function_entry_observer(std::uint32_t entry_pc) {
         hard_mode_scale_enemy();
     }
     seamless_on_entry(entry_pc);
+    golden_sun_note_projected_obj_placement(entry_pc);
     golden_sun_obj_f0_entry_capture(entry_pc);
     golden_sun_obj_staging_handoff(entry_pc);
     record_golden_sun_obj_boulder_calc_entry(entry_pc);
@@ -15337,6 +15394,8 @@ int main(int argc, char** argv) {
     gsr::room_buffer_init();
     // gbarecomp keeps one savestate-load hook.
     gbarecomp::set_savestate_load_hook([] {
+        g_gpu_readback.invalidate();
+        g_history.clear();
         g_world_settled_capture = {};
         g_world_margin_rgb.clear();
         g_world_margin_w = g_world_margin_h = 0;

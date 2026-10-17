@@ -526,15 +526,13 @@ int settings_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
 // bottom-right corner, as Golden Sun 1's (its runner_main.cpp,
 // paint_settings_window).
 bool paint_marker(uint8_t* rgb, uint32_t width, uint32_t height) {
+    if (!tla_settings_page_overlay_visible()) return false;
     const int page = g_marker_page.load();
-    if (page == 0) return false;
-    if (runtime_current_frame() > g_marker_seen.load() + 30u) return false;
     const uint32_t window = g_marker_window.load();
     const int wx = static_cast<int>(window & 0xFFu);
     const int wy = static_cast<int>((window >> 8) & 0xFFu);
     const int ww = static_cast<int>((window >> 16) & 0xFFu);
     const int wh = static_cast<int>(window >> 24);
-    if (ww < 3 || wh < 3) return false;
     const int left = (wx + 1) * 8, top = (wy + 1) * 8;
     // In the expanded view the console's picture sits inside the margins.
     int ox = 0, oy = 0;
@@ -615,6 +613,13 @@ bool tla_settings_page_text(uint32_t text_id, std::string& out) {
         }
     }
     return false;
+}
+
+bool tla_settings_page_overlay_visible() {
+    const uint32_t window = g_marker_window.load();
+    return g_marker_page.load() != 0 &&
+        runtime_current_frame() <= g_marker_seen.load() + 30u &&
+        ((window >> 16) & 0xFFu) >= 3u && (window >> 24) >= 3u;
 }
 
 // Called by the present hook (src/tla_rewind.cpp).

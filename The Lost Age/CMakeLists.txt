@@ -83,7 +83,7 @@ file(GLOB TLA_GAME_SOURCES CONFIGURE_DEPENDS
 # symbol maps are left out: gba_symbol_register_cart keeps only the last map
 # registered, so one would replace the main game's.
 file(GLOB TLA_RELOC_SOURCES CONFIGURE_DEPENDS
-    "${TLA_GENERATED_DIR}/../reloc/*/recompiled.cpp"
+    "${TLA_GENERATED_DIR}/../reloc/*/recompiled*.cpp"
     "${TLA_GENERATED_DIR}/../reloc/*/dispatch_table.cpp"
     "${TLA_GENERATED_DIR}/../reloc/*/expected.cpp")
 list(APPEND TLA_GAME_SOURCES ${TLA_RELOC_SOURCES})

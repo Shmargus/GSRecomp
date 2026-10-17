@@ -9,10 +9,11 @@
 
 #include "game_options.h"
 
-namespace gbarecomp { struct RunOptions; }
+namespace gbarecomp { struct RunOptions; struct HistoryFrame; }
 
 void tla_install_gs_save_import(gbarecomp::RunOptions& options, bool headless);
 bool tla_gs_save_import_text(std::uint32_t text_id, std::string& out);
+bool tla_gs_save_import_visible();
 bool tla_gs_save_import_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
 void tla_gs_save_import_on_entry(std::uint32_t pc);
 
@@ -62,6 +63,7 @@ void tla_set_encounter_rate(int rate);
 // src/tla_settings_page.cpp: settings page two.
 void tla_install_settings_page(gbarecomp::RunOptions& options);
 bool tla_settings_page_two_showing();
+bool tla_settings_page_overlay_visible();
 bool tla_settings_page_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
 bool tla_settings_page_text(std::uint32_t text_id, std::string& out);
 
@@ -139,7 +141,9 @@ int tla_sprite_memory_tile(std::uint32_t record, std::uint16_t attr2);
 // src/tla_gpu_field.cpp: draw the field with the graphics card.
 void tla_install_gpu_field();
 void tla_gpu_field_on_entry(std::uint32_t pc);
-bool tla_gpu_field_present(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
+bool tla_gpu_field_present(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height,
+                           gbarecomp::HistoryFrame& frame, bool synchronous);
+void tla_rewind_reset();
 void tla_gpu_field_dump(const std::string& path);
 std::string tla_gpu_field_snapshot(std::uint32_t width, std::uint32_t height,
                                    std::uint64_t* scene_frame = nullptr);

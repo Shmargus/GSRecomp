@@ -100,6 +100,15 @@ struct CodegenCtx {
     const std::unordered_set<uint32_t>* dynamic_operand2_pcs = nullptr;
 };
 
+// A guest transfer that never comes back to this function (B, a computed
+// jump, a BX/POP that is not a C return, a fall-through). Emitted as
+// GBARECOMP_TAIL_TRANSFER (runtime_arm_types.h), a guaranteed host tail jump
+// under GCC 15+: at -Og GCC does not turn `call(); return;` into a jump, so a
+// guest loop that crosses generated functions without BL grew the native
+// stack until it overflowed (TLA's map decompressor).
+// `call` is a void C call expression without the trailing semicolon.
+std::string emit_tail_transfer(const std::string& call);
+
 class ArmCodegen {
 public:
     // Emit C source for one decoded instruction. `not_implemented`

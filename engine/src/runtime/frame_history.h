@@ -67,6 +67,13 @@ public:
     HistoryFrame& record(const std::uint8_t* rgb, std::uint32_t width,
                          std::uint32_t height);
 
+    // Capture guest identity/row tables before queuing a GPU picture. Timing
+    // is filled only when that picture is actually presented.
+    static HistoryFrame capture();
+    HistoryFrame& record(const std::uint8_t* rgb, std::uint32_t width,
+                         std::uint32_t height, HistoryFrame frame);
+    void clear();
+
     std::size_t count() const { return count_; }
     // back(0) is the newest frame; back(i) for i < count().
     const HistoryFrame& back(std::size_t i) const;
@@ -82,6 +89,7 @@ private:
     std::vector<HistoryFrame> ring_;
     std::size_t next_ = 0, count_ = 0;
     double last_present_ms_ = -1.0;
+    unsigned long long last_live_guest_ = 0;
 };
 
 }  // namespace gbarecomp

@@ -991,6 +991,12 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
         // or a start uses the bottom of the window.
         notes_box = {};
         if (!build.running && !starting && !checking) {
+            const std::string version = std::string("Version ") + gsr_online::kReleaseVersion;
+            const float version_size = 14 * scale;
+            const ImVec2 version_text = body->CalcTextSizeA(version_size, FLT_MAX, 0, version.c_str());
+            if (error.empty())
+                draw->AddText(body, version_size, {18 * scale, height - 16 * scale - version_text.y},
+                              IM_COL32(188, 198, 199, 255), version.c_str());
             const char* label = "What's New!";
             const float size = 18 * scale;
             const ImVec2 text = heading->CalcTextSizeA(size, FLT_MAX, 0, label);

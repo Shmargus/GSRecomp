@@ -34,9 +34,18 @@ ROM_SHA1 = "b500663220cb9bf56b9f8e8c0c544f1d6fa3a824"
 MAGIC = b"GBAPIC5\0"
 ORIGIN = 0x02000000          # translation origin of every family
 SOURCE = 0x08C00000          # where harvest.gba holds the packed families
-SOURCE_END = 0x08F00000      # the battle blitters' area starts here
+# Translation-only image: blitters.gba is separate, and TLA_HARVEST runtime
+# matching uses expected bytes / RAM origin, never these SOURCE addresses
+# (tla_recompile.py:image; tla_ram_images.cpp:Family/build_family_index).
+# 2026-10-17: 13,681 pieces pack into 6,566 routines / 4,190,336 bytes,
+# ending at 0x08FFF080, beyond the old 0x08F00000 blitter boundary.
+SOURCE_END = 0x0A000000      # exclusive end of the 32 MiB GBA ROM window
 STRIDES = (0x40, 0x100, 0x400, 0x1000)
 GROUP = 64
+# 2026-10-17: harv73's 125,240,222-byte block unit exhausted build memory.
+# Existing 32-way function sharding makes the largest large-stride unit
+# 5,261,927 bytes; three large units compiled at a 610,156,544-byte job peak.
+# Smaller-stride families stay whole; packing and identities do not change.
 
 # F12 tla_rewind_0001/0002: the live Thumb function at 0x0200B6A8
 # compares world-object descriptor x/z with the camera focus box.
@@ -135,7 +144,7 @@ def main():
             name = "harv%d" % len(families)
             size = len(group) * stride
             if src + size > SOURCE_END:
-                raise SystemExit("harvest does not fit below the blitters")
+                raise SystemExit("harvest exceeds the 32 MiB translation ROM window")
             families.append((name, stride, src, group))
             src += size
     os.makedirs(args.out, exist_ok=True)
@@ -200,10 +209,10 @@ note = "F12 tla_rewind_0001/0002: Thumb function 0x0200B6A8, %s at source 0x%08X
 name = "Golden Sun: The Lost Age harvested RAM code %s"
 id = "golden_sun_tla_%s"
 load_address = 0x08000000
-size = 0x01000000
+size = 0x%08X
 entry_pc = 0x%08X
 speculative_literal_harvest = false
-codegen_shards = 1
+codegen_shards = %d
 
 [identity]
 sha1 = "%s"
@@ -214,7 +223,8 @@ source_start = 0x%08X
 size = 0x%08X
 name = "%s"
 note = "packed RAM code"
-''' % (len(group), stride, name, name, first, sha, ORIGIN, src,
+''' % (len(group), stride, name, name, len(img), first,
+       32 if stride >= 0x400 else 1, sha, ORIGIN, src,
        len(group) * stride, name))
             f.write("".join(entries))
             f.write("".join(overrides))

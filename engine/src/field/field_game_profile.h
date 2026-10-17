@@ -81,6 +81,9 @@ struct FieldGameProfile {
     // room_layer_agreement wraps an auto-scrolling layer inside its region
     // (Madra's rays).
     bool agreement_autoscroll_wrap = false;
+    // TLA's layer scroll plus its grid region can cross the 2048-pixel grid.
+    // The room lookup wraps there (Gondowan Cliffs, F12 0057).
+    bool room_grid_wrap = false;
 };
 
 // Defined by the game (link-time hook).

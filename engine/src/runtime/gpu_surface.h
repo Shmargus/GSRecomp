@@ -166,19 +166,24 @@ public:
     // hold at least width*height*3 bytes. This is a full GPU round trip:
     // only call it where a caller has already decided that cost is worth
     // paying (see MODIFICATIONS.md).
-    void read_texture_rgb(GpuTexture texture, int width, int height,
+    // False on invalid texture/dimensions/context or GL failure; output is
+    // untouched on failure, so the caller can keep its hardware fallback.
+    bool read_texture_rgb(GpuTexture texture, int width, int height,
                           std::uint8_t* out_rgb);
 
-    // The same readback split in two, so the CPU does not sit waiting for
-    // the GPU to finish drawing. begin_texture_readback queues a copy of the
-    // texture into host-readable memory and returns at once (false when the
+    // The same readback split in two, to overlap GPU and CPU work.
+    // begin_texture_readback queues a copy into host-readable memory (false when the
     // context cannot do that, OpenGL 3.2 sync objects being required).
-    // finish_texture_readback delivers the copy queued by the PREVIOUS begin,
+    // finish_texture_readback delivers the copy queued by the most recent begin,
     // in read_texture_rgb's layout -- normally long finished by then -- and
     // returns false if there is none of this size or the GPU did not finish
-    // it in time. A caller presenting the result runs one frame behind.
+    // it in time (the existing wait ceiling is 50 ms). A pipelined caller
+    // presents one frame behind, with owned metadata for that older picture.
     bool begin_texture_readback(GpuTexture texture, int width, int height);
     bool finish_texture_readback(int width, int height, std::uint8_t* out_rgb);
+    // Discard fences/identity at a presentation boundary. PBO storage is
+    // retained until release; no wait is needed to discard a queued copy.
+    void cancel_texture_readback();
 
 private:
     bool load_entry_points();

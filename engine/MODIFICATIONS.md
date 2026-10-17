@@ -11,6 +11,19 @@ Do not mistake this for upstream. It diverged from upstream commit `af51d0e`
 
 ## What was changed
 
+- **Guaranteed tail jumps in generated code (2026-10-17)** — every guest
+  transfer that never returns (B, computed jumps, non-return BX/POP/LDR PC,
+  fall-through, the mid-function alias entry stubs in `gba_recompile`) is
+  emitted as `GBARECOMP_TAIL_TRANSFER(call)` (`runtime_arm_types.h`, one
+  helper `emit_tail_transfer` in `arm_codegen`). Sol's map bench at plain
+  -Og: constant 288 bytes of stack for 32/256/4096 copies, output exact.
+  Under GCC 15+ in C++ it is `[[gnu::musttail]] return call`, a host jump at
+  any optimisation level; elsewhere (tcc heal overlays, older GCC) it stays
+  call-and-return. Cause: at -Og GCC kept every `call(); return;` frame, so
+  TLA's copied map decompressor (length-2 path, no BL) grew the native stack
+  until R crashed. Replaces the per-file -O1 override on `reloc_128a8`.
+  Linux packaging now selects and bundles GCC 15+ (2026-10-18); the isolated
+  bundled-compiler map bench also passes with constant 288-byte stack use.
 - **Shared field scene and GPU field renderer (2026-10-13)** — `src/field/` is the one copy of the field scene model, the GPU field renderer, the spell sparks, bursts and battle view that both games compile; each game's `src/field_game_profile.cpp` supplies the addresses and switches the rules that exist in one game only (`field_game_profile.h`).
 - **Shared collection engine (2026-10-13)** — Broken Seal owns this source;
   Lost Age forwards here and builds it separately. Both games share F1/backend,
@@ -20,17 +33,32 @@ Do not mistake this for upstream. It diverged from upstream commit `af51d0e`
   removed; canonical GBA audio and AUD1 layout match TLA's previous engine.
   Same colour/filter/controller options are now available in both games.
 
-- **GPU surface: cheaper uniforms, readback without waiting (2026-10-09)** —
-  from joostg's profile and patch (Shmargus/GSRecomp#3, Intel UHD 630,
-  render time 10.4 → 4.4 ms per frame). `gpu_surface.cpp` caches uniform
-  locations and last values per program and sets them with
-  `glProgramUniform*` (GL 4.1), falling back to bind/set/restore.
-  `begin_texture_readback`/`finish_texture_readback` copy the picture into
-  one of two pixel-pack buffers behind a fence (GL 3.2) and hand back the
-  previous frame's, so the CPU no longer waits for the GPU; the caller
-  falls back to `read_texture_rgb` whenever no earlier copy is ready. The
-  optional GL groups share one loader and version check, and every
-  readback shares one pack-state guard.
+- **GPU uniforms and delayed readback (2026-10-09, restored safely 2026-10-17)** —
+  the original joostg patch (Shmargus/GSRecomp#3) measured Intel UHD 630
+  render time 10.4 → 4.4 ms. This historic result does not measure current
+  code. Uniform location/value caching and `glProgramUniform*` remain.
+  The 17 October audit found both games had returned to synchronous reads
+  to preserve F12 identity; the old async helpers had no live game callers.
+  Both live game callers now use one shared `TextureReadbackQueue` for
+  fenced PBO copies, carrying owned game captures and `HistoryFrame` state
+  with each picture. World-map holds process the delivered capture;
+  settings/import/held-spell boundaries stay synchronous. First/resize/
+  repeated/failed frames use matched fallback state; savestates discard
+  queued identity. The helper's original 50 ms fence wait ceiling remains;
+  this is overlap, not guaranteed nonblocking transfer. PBO slots alternate
+  independently of the consumed slot, GL pack state is restored, and failed
+  reads reject invalid textures/dimensions/GL errors without writing RGB.
+  A failed enqueue after a successful receive may show that older picture,
+  with its own metadata; it never relabels old pixels as the current frame.
+  FrameHistory captures rows/guest identity before queuing and assigns host
+  elapsed time only at presentation; held pictures retain their own scene.
+  A consumed presentation shutdown hook releases each game's renderer,
+  fences and PBOs before HostWindow destroys its context. No runtime_arm.h
+  change or corpus regeneration. Synthetic queue/GL and actual TLA/TBS
+  presentation benches pass; saved renderer checks unchanged (301 TBS/
+  444 TLA, 29 normalized private TLA copies). Full builds/gameplay and
+  integrated-GPU performance remain Jimmy's verification.
+  Evidence: `local/delayed-readback-20261017/`.
 
 - **Optional release badge (2026-10-09)** — the host reads
   `edition_badge.txt` (caption and ASCII flourish) and `edition_badge.bmp`
@@ -69,11 +97,16 @@ Do not mistake this for upstream. It diverged from upstream commit `af51d0e`
   Compact wide-path pixel records also reduce the windowed auto-attack/Ray
   harness times by 2.31%/2.66%, with 20 matching framebuffer comparisons.
   The native compositor and pixel ordering are unchanged.
-- **Host profiler** (`src/runtime/runtime_bus_bridge.cpp`) — records the first
-  caller outside `msvcrt.dll` for CRT samples using Windows x64 unwind metadata,
-  allowing the remaining environment-search hotspot to be attributed in a new
-  capture. Records contain only addresses/counts, not stack or environment
-  contents; sampling remains opt-in. Compile-checked, not yet gameplay-tested.
+- **Host profiler** (`src/runtime/runtime_bus_bridge.cpp`) — the earlier
+  Windows x64 CRT-caller attribution suspended the target then invoked
+  RtlLookupFunctionEntry, which could block behind a loader lock held by the
+  suspended main thread. On 2026-10-17 that unsafe in-process caller unwind
+  was removed: only registers and phase/frame atomics are read while the
+  target is suspended. Direct-function/phase/frame samples remain opt-in;
+  dumps and offline analysis explicitly mark caller tracing unavailable.
+  The actual-sampler SDL startup/load-unload bench passed, and Jimmy's
+  rebuilt TLA subsequently started with all probes enabled. Its later map
+  stack overflow is separate. See STATUS.md and TLA FACTS for evidence.
 - **GPU surface** (`src/runtime/gpu_surface.cpp`) — rejects texture requests
   above the active context's measured `GL_MAX_TEXTURE_SIZE` and verifies level-0
   storage before returning a handle, so callers can recover from failed

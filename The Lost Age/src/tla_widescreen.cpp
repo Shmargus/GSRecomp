@@ -280,7 +280,7 @@ void sync_placement_scene(gba::GbaBus* b) {
                       b->read32(kTlaBattleSlot), b->read16(kMapNumber));
 }
 
-void note_placed(uint32_t record, int x, int y) {
+void note_placed(uint32_t record, int x, int y, int placed_attr0 = -1) {
     gba::GbaBus* b = bus();
     if (!b) return;
     sync_placement_scene(b);
@@ -288,7 +288,7 @@ void note_placed(uint32_t record, int x, int y) {
     const uint16_t attr2 = b->read16(record + 8u);
     const int tile = tla_sprite_memory_tile(record, attr2);
     g_placements.note(*b, runtime_current_frame(), record, x, y,
-                      tile >= 0 ? tile : attr2 & 0x3FF);
+                      tile >= 0 ? tile : attr2 & 0x3FF, placed_attr0);
 }
 
 // A game window is open this frame (set by tla_widescreen_frame).
@@ -453,6 +453,16 @@ int builder_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
         const uint32_t sp = g_cpu.R[13];
         uint32_t record = g_cpu.R[7];
         int ox = x;
+        int placed_attr0 = -1;
+        if (body_y) {
+            // This hook runs before the builder writes attr0. It sets the
+            // affine/double-size bits from this stack word at 0x080222D6
+            // or 0x08022510. Remember the outgoing pose, not the previous
+            // pose still in the record: OAM can show it a frame later.
+            const uint32_t mode = b->read32(sp + (pc == kBodyY1 ? 0x10u : 0xCu));
+            placed_attr0 = (b->read16(record + 4u) & 0xFC00u) |
+                           ((mode & 0xFFu) << 8) | (static_cast<unsigned>(y) & 0xFFu);
+        }
         if (shadow_y) {
             record += 0x1Cu;
             ox = pc == kShadowY1
@@ -460,7 +470,7 @@ int builder_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
                      : (static_cast<int32_t>(b->read32(sp + 8u)) >> 16) -
                            static_cast<int32_t>(b->read32(sp + 0x10u));
         }
-        note_placed(record, ox, y);
+        note_placed(record, ox, y, placed_attr0);
     }
     *out_decision = cull ? 1u : 0u;
     return *out_decision != original ? 1 : 0;

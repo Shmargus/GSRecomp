@@ -748,8 +748,9 @@ void write_body(const std::string& dir,
             std::string wn = alias_wrapper_name(fn, a);
             std::fprintf(f,
                 "/* alias 0x%08X -> %s */\n"
-                "void %s(void) { g_runtime_resume_pc = 0x%08Xu; %s(); }\n\n",
-                a, fn.name.c_str(), wn.c_str(), a, fn.name.c_str());
+                "void %s(void) { g_runtime_resume_pc = 0x%08Xu; %s}\n\n",
+                a, fn.name.c_str(), wn.c_str(), a,
+                armv4t::emit_tail_transfer(fn.name + "()").c_str());
         }
         }
         std::fclose(f);

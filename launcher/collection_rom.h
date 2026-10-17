@@ -131,7 +131,7 @@ inline bool pick(SDL_Window* window, const fs::path& folder, int choice, fs::pat
         const auto kdialog = program("kdialog");
         if (kdialog.empty()) { error = "No ROM file chooser was found. Install zenity or kdialog and try again."; return false; }
         accepted = run_picker(kdialog, {"--title", title, "--getopenfilename", folder.string(),
-            "*.gba *.GBA|Golden Sun ROM (*.gba)"}, output, error);
+            "*.gba *.GBA|Golden Sun ROM (*.gba)\n*|All files"}, output, error);
     }
     if (!accepted) return false;
     selected = fs::path(reinterpret_cast<const char8_t*>(output.c_str()));

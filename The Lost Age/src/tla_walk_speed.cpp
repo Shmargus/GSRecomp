@@ -11,6 +11,8 @@
 //               0x1D on a stretched rope, F12 0077/0078; FACTS 2026-10-08)
 //   0x080290F4  climbing:  0x08000 at 0x08029118 (action 0x1B; FACTS
 //               2026-10-15)
+//   0x08028534  sailing:   0x14000 at 0x080285AC (action 0x20;
+//               F12 0071, FACTS 2026-10-17)
 // (Golden Sun 1's field and world-map routines store the same numbers.) Two
 // other routines with fixed speeds, 0x08026300 (0x8000 both) and 0x080267BC
 // (0x10000 both), keep the game's own.
@@ -45,6 +47,7 @@ constexpr uint32_t kWriterPcs[] = {
     0x080279F4u,  // world map walk
     0x08029592u,  // rope walk
     0x08029118u,  // climb
+    0x080285ACu,  // sailing
 };
 constexpr unsigned kWriterCount = sizeof(kWriterPcs) / sizeof(kWriterPcs[0]);
 

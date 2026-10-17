@@ -28,6 +28,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <new>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -36,6 +37,8 @@
 #include "tla_water_ripple.h"
 #include "tla_tornado_margins.h"
 #include "tla_screen_effect_margins.h"
+#include "tla_ship_water_margins.h"
+#include "tla_room_palette.h"
 #include "effect_capture.h"
 #include "field_scene_renderer.h"
 #include "world_map_source.h"
@@ -43,6 +46,8 @@
 #include "gba_io.h"
 #include "gba_ppu.h"
 #include "gpu_surface.h"
+#include "texture_readback_queue.h"
+#include "frame_history.h"
 #include "runtime.h"
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
@@ -91,6 +96,11 @@ struct Capture {
     std::size_t rom_bytes = 0;
 };
 Capture g_capture;
+struct GpuPresentation {
+    Capture capture;
+    gbarecomp::HistoryFrame frame;
+};
+gbarecomp::TextureReadbackQueue<GpuPresentation> g_readback;
 
 // The iris wipe, window effect 9 (FACTS.md, 2026-10-16): the effect block
 // [0x0300007C] holds the type (s16 +0x528) and size step k (u16 +0x52A, 2 a
@@ -334,6 +344,9 @@ void capture() {
                     &g_capture.room_vram, &g_capture.room_palette);
     g_capture.ewram.assign(bus->ewram_ptr(), bus->ewram_ptr() + 256 * 1024);
     g_capture.iwram.assign(bus->iwram_ptr(), bus->iwram_ptr() + 32 * 1024);
+    tla_restore_room_palette(g_capture.window_open,
+        g_capture.ewram.data(), g_capture.ewram.size(),
+        g_capture.iwram.data(), g_capture.iwram.size(), &g_capture.room_palette);
     g_capture.io = io;
     g_capture.oam.assign(bus->oam_ptr(), bus->oam_ptr() + 1024);
     g_capture.pal.assign(bus->pal_ptr(), bus->pal_ptr() + 1024);
@@ -418,16 +431,31 @@ void check_against_console(const std::uint8_t* console, const std::uint8_t* gpu,
 
 bool draw_capture(const Capture& capture, std::uint8_t* rgb,
                   std::uint32_t width, std::uint32_t height,
-                  const char** refusal = nullptr) {
+                  const char** refusal = nullptr,
+                  gbarecomp::HistoryFrame* frame = nullptr,
+                  bool synchronous = true, Capture* delivered_capture = nullptr) {
     gsr::FieldScene scene = capture.scene;
     gsr::SceneMargins margins;  // margin data lives outside the scene
     margins.iris = capture.iris;
     // Created on first use, at present time, where the window's GL context
     // is current; gpu_surface attaches to it.
-    static gbarecomp::GpuSurface surface;
-    static gsr::FieldSceneRenderer renderer;
+    struct Context {
+        gbarecomp::GpuSurface surface;
+        gsr::FieldSceneRenderer renderer;
+    };
+    static std::unique_ptr<Context> context;
     static bool init_attempted = false;
     static bool init_ok = false;
+    if (!context) {
+        context = std::make_unique<Context>();
+        gbarecomp::set_frame_present_shutdown_hook([] {
+            g_readback.invalidate();
+            context.reset();  // renderer, then PBOs/fences, before the GL window
+            init_attempted = init_ok = false;
+        });
+    }
+    auto& surface = context->surface;
+    auto& renderer = context->renderer;
     if (!init_attempted) {
         init_attempted = true;
         init_ok = surface.init() && renderer.init(&surface);
@@ -475,6 +503,9 @@ bool draw_capture(const Capture& capture, std::uint8_t* rgb,
     const bool haze_filled =
         (haze && tla_haze_fill_rows(capture.vram, scene, &haze_vram)) ||
         (port && tla_haze_fill_rows(capture.vram, scene, &haze_vram, 2));
+    tla_ship_water_margins(scene, margins,
+        expanded ? capture.ewram[0x428] | (unsigned(capture.ewram[0x429]) << 8) : 0,
+        capture.vram);
     const std::vector<std::uint8_t>& vram = haze_filled ? haze_vram : capture.vram;
     renderer.upload_vram(vram.data(), vram.size());
     if (!capture.room_vram.empty())
@@ -539,7 +570,26 @@ bool draw_capture(const Capture& capture, std::uint8_t* rgb,
         if (refusal) *refusal = renderer.declined_reason();
         return false;
     }
-    surface.read_texture_rgb(renderer.output_texture(), int(width), int(height), rgb);
+    if (frame) {
+        const bool battle = frame->battle_2x;
+        frame->gpu_drawn = true;
+        auto delivered = g_readback.present(surface, renderer.output_texture(),
+            int(width), int(height), rgb, runtime_current_frame(),
+            GpuPresentation{capture, std::move(*frame)}, synchronous);
+        if (!delivered) {
+            *frame = gbarecomp::FrameHistory::capture();
+            frame->battle_2x = battle;
+            frame->scene = tla_gpu_field_snapshot(width, height, &frame->scene_frame);
+            if (refusal) *refusal = "GPU readback failed";
+            return false;
+        }
+        *frame = std::move(delivered->frame);
+        *delivered_capture = std::move(delivered->capture);
+    } else {
+        // Redrawing a settled world-map view for a resize is synchronous;
+        // it does not participate in the live presentation queue.
+        return surface.read_texture_rgb(renderer.output_texture(), int(width), int(height), rgb);
+    }
     return true;
 }
 
@@ -565,11 +615,11 @@ bool world_map_blocks(const std::vector<std::uint8_t>& io) {
 }
 
 void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
-                           std::uint32_t height) {
-    const std::vector<std::uint8_t>& io = g_capture.io;
-    const bool world_map = g_capture.ewram.size() >= 0x42Au &&
-        (unsigned(g_capture.ewram[0x428]) |
-         (unsigned(g_capture.ewram[0x429]) << 8)) == 2u;
+                           std::uint32_t height, const Capture& capture) {
+    const std::vector<std::uint8_t>& io = capture.io;
+    const bool world_map = capture.ewram.size() >= 0x42Au &&
+        (unsigned(capture.ewram[0x428]) |
+         (unsigned(capture.ewram[0x429]) << 8)) == 2u;
     if (!world_map || !world_map_blocks(io)) {
         g_world_margin.clear();  // anywhere else: the saved view is stale
         g_world_settled = {};
@@ -580,14 +630,14 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     if (mode == 2u) {
         // Only a settled frame: every row in mode 2, no brightness fade.
         for (int y = 0; y < gsr::FieldScene::kRows; ++y)
-            if (g_capture.scene.row_io_valid[y] &&
-                (g_capture.scene.row_io[y][0] & 7u) != 2u)
+            if (capture.scene.row_io_valid[y] &&
+                (capture.scene.row_io[y][0] & 7u) != 2u)
                 return;
         const unsigned bldcnt = io[0x50] | (static_cast<unsigned>(io[0x51]) << 8);
         const bool fading = ((bldcnt >> 6) & 3u) >= 2u && (io[0x54] & 0x1Fu) != 0u;
         if (!fading) {
             try {
-                Capture settled = g_capture;
+                Capture settled = capture;
                 std::vector<std::uint8_t> margin(rgb, rgb + std::size_t{width} * height * 3u);
                 g_world_settled = std::move(settled);
                 g_world_margin = std::move(margin);
@@ -646,8 +696,9 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
 // Called first by the present hook (src/tla_rewind.cpp). True when `rgb`
 // now holds the graphics card's picture (or the refusal colour).
 bool tla_gpu_field_present(std::uint8_t* rgb, std::uint32_t width,
-                           std::uint32_t height) {
-    if (!g_enabled) return false;
+                           std::uint32_t height,
+                           gbarecomp::HistoryFrame& frame, bool synchronous) {
+    if (!g_enabled) { g_readback.invalidate(); return false; }
     ++g_presented;
     if (g_check && g_presented % 300u == 0u)
         std::fprintf(stderr,
@@ -655,31 +706,38 @@ bool tla_gpu_field_present(std::uint8_t* rgb, std::uint32_t width,
                      "%llu presented, %llu drawn, %llu differ\n",
                      g_captured, g_undescribed, g_presented, g_tally.drawn,
                      g_tally.differing);
-    if (!g_capture.valid)
+    if (!g_capture.valid) {
+        g_readback.invalidate();
         return g_only ? paint_refused(rgb, width, height,
                                       "nothing was captured this frame")
                       : false;
+    }
 
     const bool expanded = width > 240u || height > 160u;
     if (gsr::effect_capture_enabled() != expanded)
         gsr::effect_capture_set_enabled(expanded);
     const char* reason = nullptr;
     bool drawn = false;
+    Capture delivered;
     try {
         if (g_check && !g_only) {
             std::vector<std::uint8_t> gpu(std::size_t(width) * height * 3u);
-            drawn = draw_capture(g_capture, gpu.data(), width, height, &reason);
+            drawn = draw_capture(g_capture, gpu.data(), width, height, &reason,
+                                 &frame, true, &delivered);
             if (drawn) {
                 check_against_console(rgb, gpu.data(), width, height, g_capture.scene.frame);
                 std::memcpy(rgb, gpu.data(), gpu.size());
             }
         } else {
-            drawn = draw_capture(g_capture, rgb, width, height, &reason);
+            drawn = draw_capture(g_capture, rgb, width, height, &reason,
+                                 &frame, synchronous || g_check, &delivered);
         }
     } catch (const std::bad_alloc&) {
+        g_readback.invalidate();
         return g_only ? paint_refused(rgb, width, height, "renderer allocation failed") : false;
     }
     if (!drawn) {
+        g_readback.invalidate();
         static const char* said = nullptr;
         if (reason && reason != said) {
             said = reason;
@@ -693,7 +751,7 @@ bool tla_gpu_field_present(std::uint8_t* rgb, std::uint32_t width,
         announced = true;
         std::fprintf(stderr, "[gpu-field] drawing at %ux%u\n", width, height);
     }
-    world_map_margin_hold(rgb, width, height);
+    world_map_margin_hold(rgb, width, height, delivered);
     return true;
 }
 
@@ -770,6 +828,8 @@ void tla_install_gpu_field() {
     // F12 captures hardware/room state even with the GPU renderer disabled.
     gbarecomp::set_scene_capture_hook(capture);
     gbarecomp::set_savestate_load_hook([] {
+        g_readback.invalidate();
+        tla_rewind_reset();
         reset_room_copy();
         g_capture = {};
         g_world_settled = {};

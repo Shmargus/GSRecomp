@@ -288,7 +288,9 @@ try {
             "-DFETCHCONTENT_SOURCE_DIR_IMGUI=$imguiSource",
             "-DFETCHCONTENT_SOURCE_DIR_TOMLPLUSPLUS=$tomlSource",
             "-DTLA_GENERATED_DIR=$tlaRepo/local/tla_block/main",
-            '-DTLA_SPLIT_GAME_CODE=ON', '-DTLA_ENABLE_LTO=OFF',
+            # build_game.ps1 also enables LTO; keep it on here so building
+            # release tools never invalidates the engine's existing objects.
+            '-DTLA_SPLIT_GAME_CODE=ON', '-DTLA_ENABLE_LTO=ON',
             '-DTLA_RELEASE_LAUNCHER=ON', '-DTLA_PLAYER_RELEASE=ON',
             "-DGSR_RELEASE_VERSION=$releaseVersion", "-DGSR_REPORT_HOST=$reportHost",
             "-DGSR_RELEASE_REPOSITORY=$Repository"
