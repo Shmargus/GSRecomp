@@ -47,6 +47,7 @@ private:
 // What differs between the platforms (or between a player and a developer
 // launch); everything else in add_common_environment is the same for all.
 struct CommonEnvironment {
+    std::string controls_dir;     // collection-wide keyboard/controller bindings
     std::string state_base;       // GBARECOMP_STATE_BASE; empty leaves it unset
     std::string heal_cache;       // GBARECOMP_HEAL_CACHE
     std::string heal_toolchain;   // bundled g++ folder; empty when there is none
@@ -57,6 +58,7 @@ struct CommonEnvironment {
 };
 
 inline void add_common_environment(ChildEnvironmentPlan& plan, const CommonEnvironment& c) {
+    if (!c.controls_dir.empty()) plan.put("GBARECOMP_CONTROLS_DIR", c.controls_dir);
     if (!c.state_base.empty()) plan.put("GBARECOMP_STATE_BASE", c.state_base);
     // Golden Sun's Camelot intro overflows the Windows host stack with the
     // present-in-place path; use the frame-boundary unwind path everywhere.

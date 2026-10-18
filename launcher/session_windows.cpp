@@ -29,6 +29,7 @@
 #include "collection_preferences.h"
 #include "../engine/src/runtime/handover.h"
 #include "../engine/src/runtime/seamless.h"
+#include "../engine/src/runtime/soft_reset.h"
 
 #include <algorithm>
 #include <atomic>
@@ -127,9 +128,9 @@ using gsr_session::save_launcher_audio_settings;
 // user machine paths and must not be rewritten by the launcher.
 LauncherAudioSettings g_audio_settings{};
 bool g_strict_static_route = false;
-// Set by run_game when The Broken Seal ended with a seamless exit code; the
+// Set by run_game for a Seamless handover or Soft Reset; the
 // session process then exits with it (show_launcher / gsr_session_main).
-int g_seamless_exit_code = 0;
+int g_session_exit_code = 0;
 // The Lost Age started by Seamless mode: run_game sends it to The Broken
 // Seal's program, still open with its window, instead of starting
 // TLARecomp.exe (handover.h).
@@ -1355,6 +1356,8 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
     // timing files and the input recording follow below.
     gsr::ChildEnvironmentPlan plan;
     gsr::CommonEnvironment common;
+    common.controls_dir = wide_to_utf8((g_collection_root / L"Controls").wstring());
+    fs::create_directories(g_collection_root / "Controls");
     common.state_base = wide_to_utf8(files.state_base.wstring());
     common.heal_cache = wide_to_utf8((root / L"recomp_cache").wstring());
     // Release: point the game's self-heal at the bundled g++ (absent on dev).
@@ -1700,11 +1703,14 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
                 launcher_log(L"Seamless: bug report kept for the end of The Lost Age (" +
                              std::to_wstring(reports.size()) + L" file(s)).");
             }
-            g_seamless_exit_code = static_cast<int>(exit_code);
+            g_session_exit_code = static_cast<int>(exit_code);
             return 0;
         }
         if (program_waits) gbarecomp::handover::quit();
+        if (saves_synced && exit_code == gbarecomp::soft_reset::kExitCode)
+            g_session_exit_code = static_cast<int>(exit_code);
         if (!direct3d_compat && exit_code != 0 &&
+            exit_code != gbarecomp::soft_reset::kExitCode &&
             gsr::should_offer_direct3d_retry(direct3d_compat, exit_code, crashed,
                                            read_text(log_path), read_text(crash_report))) {
             const int answer = MessageBoxW(nullptr,
@@ -2781,7 +2787,7 @@ int show_launcher(const fs::path& root) {
     g_backdrop.bitmap.reset();
     UnregisterClassW(class_name, GetModuleHandleW(nullptr));
     Gdiplus::GdiplusShutdown(gdiplus_token);
-    return g_seamless_exit_code ? g_seamless_exit_code : static_cast<int>(message.wParam);
+    return g_session_exit_code ? g_session_exit_code : static_cast<int>(message.wParam);
 }
 
 }  // namespace
@@ -2867,7 +2873,7 @@ int gsr_session_main(int game, int, char**) {
             SetProcessDPIAware();
             const int result = run_game(root, cached_rom, nullptr);
             gbarecomp::crash_handler_mark_clean_exit();
-            return g_seamless_exit_code ? g_seamless_exit_code : result;
+            return g_session_exit_code ? g_session_exit_code : result;
         }
     }
     if (seamless_slot >= 0 && session_game_index == 1) {
@@ -2892,7 +2898,7 @@ int gsr_session_main(int game, int, char**) {
             const int result = run_game(root, cached_rom, nullptr);
             gbarecomp::handover::quit();  // run_game stopped before handing over
             gbarecomp::crash_handler_mark_clean_exit();
-            return result;
+            return g_session_exit_code ? g_session_exit_code : result;
         }
         gbarecomp::handover::quit();  // release the waiting Broken Seal program
     }

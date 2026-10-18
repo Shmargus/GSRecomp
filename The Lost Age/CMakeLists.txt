@@ -86,6 +86,11 @@ file(GLOB TLA_RELOC_SOURCES CONFIGURE_DEPENDS
     "${TLA_GENERATED_DIR}/../reloc/*/recompiled*.cpp"
     "${TLA_GENERATED_DIR}/../reloc/*/dispatch_table.cpp"
     "${TLA_GENERATED_DIR}/../reloc/*/expected.cpp")
+if(TLA_PLAYER_RELEASE)
+    # tla_ram_images.cpp disables TLA_HARVEST for player releases. Do not
+    # compile those private play-cache families just to discard them later.
+    list(FILTER TLA_RELOC_SOURCES EXCLUDE REGEX "/harv[0-9]+/")
+endif()
 list(APPEND TLA_GAME_SOURCES ${TLA_RELOC_SOURCES})
 # tla_reloc_images.inc is regenerated with the images; rerun the glob too.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
@@ -101,6 +106,7 @@ set(TLA_ENGINE_SOURCES
     src/tla_settings_page.cpp
     src/tla_hard_mode.cpp
     src/tla_gs_save_import.cpp
+    src/tla_save_update.cpp
     src/gs_save.cpp
     src/tla_cheat_menu.cpp
     src/tla_spell_sparks.cpp

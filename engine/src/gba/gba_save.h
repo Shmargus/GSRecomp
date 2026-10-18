@@ -68,6 +68,10 @@ public:
     void    flash_write(uint32_t off, uint8_t value);
     bool load_flash_bytes(const uint8_t* data, std::size_t bytes);
     std::vector<uint8_t> flash_bytes() const;
+    // Paused save editing: preserve controller state and reject a stale
+    // snapshot or an unfinished flash command. Marks the replacement dirty.
+    bool replace_flash_bytes(const std::vector<uint8_t>& expected,
+                             const std::vector<uint8_t>& replacement);
 
     // Save-state serialization (chip config + EEPROM bytes + in-flight
     // serial command/read state). See debug/snapshot.h.

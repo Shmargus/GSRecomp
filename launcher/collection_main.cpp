@@ -21,6 +21,7 @@
 #include "../engine/src/runtime/cartridge_art.h"
 #include "../engine/src/runtime/handover.h"
 #include "../engine/src/runtime/seamless.h"
+#include "../engine/src/runtime/soft_reset.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -693,7 +694,16 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             // (the session exits with the game's code); go straight on to The
             // Lost Age, keeping the window hidden. Failing that, show the window.
             int finished_game = -1, finished_code = -1;
-            const int seamless_slot = child.take_exit(finished_game, finished_code) && finished_game == 0
+            const bool finished = child.take_exit(finished_game, finished_code);
+            if (finished && finished_code == gbarecomp::soft_reset::kExitCode &&
+                finished_game >= 0 && finished_game < 2 && preview.empty()) {
+                error.clear();
+                if (child.start(root, finished_game, error, &settings[finished_game])) {
+                    SDL_Delay(30); continue;
+                }
+                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Soft Reset", error.c_str(), window);
+            }
+            const int seamless_slot = finished && finished_game == 0
                 ? gbarecomp::seamless::slot_of_exit_code(finished_code) : -1;
             if (seamless_slot >= 0 && preview.empty()) {
                 error.clear();

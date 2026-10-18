@@ -84,7 +84,10 @@ explanation from the launcher instead of a silent exit.
   wide view), experimental screen filters (LCD3x, CRT Lottes, xBR, ScaleFX;
   need OpenGL), volume, fast forward, an FPS/speed counter, and
   rebindable controls and hotkeys, including auto fire for A and B and a
-  Quit Game hotkey.
+  Quit Game hotkey and configurable Soft Reset. Bindings carry to The Lost
+  Age; the Alternate controller column lets the D-pad and stick work together.
+- Seamless mode asks which slot to use for Clear Data after the ending.
+  Choose another slot to keep your playable save; TLA imports the chosen slot.
 - Optional in-game settings for walking speed, encounter rate, screen size and slowdown
   removal, plus 2x battle speed (Select in battle).
 - **Hard Mode:** enemies have 1.5x HP and 1.25x Attack and Defence. Asked

@@ -684,8 +684,6 @@ bool combined_extra_wants_keyboard() {
     return wants_keyboard();
 }
 
-extern "C" unsigned long long g_ws_expanded_diag[4];
-
 void report_at_exit() {
     // Report whenever either half is armed: drawing from the buffer without
     // the self-check is a normal way to play, and the counters are how a
@@ -700,8 +698,8 @@ void report_at_exit() {
                  "[room-buffer] expanded view: %llu wide scanlines, %llu "
                  "entries supplied, %llu placed objects culled outside the "
                  "expanded bounds, %llu margin samples blanked\n",
-                 g_ws_expanded_diag[0], g_ws_expanded_diag[1],
-                 g_ws_expanded_diag[2], g_ws_expanded_diag[3]);
+                 gba::g_ws_expanded_diag[0], gba::g_ws_expanded_diag[1],
+                 gba::g_ws_expanded_diag[2], gba::g_ws_expanded_diag[3]);
     std::fprintf(stderr,
                  "[room-buffer] declined: no-room %llu, not-mode0 %llu, "
                  "not-field-signature %llu, bad-offset %llu, outside-room "

@@ -12,7 +12,9 @@ bool (*g_config_ui_extra_wants_keyboard)() = nullptr;
 namespace {
 const GameOptionSwitch* g_game_switches = nullptr;
 int g_game_switch_count = 0;
+void (*g_game_page_draw)() = nullptr;
 }  // namespace
+void config_ui_set_game_page(void (*draw)()) { g_game_page_draw = draw; }
 void config_ui_set_game_switches(const GameOptionSwitch* switches, int count) {
     g_game_switches = switches;
     g_game_switch_count = switches ? count : 0;
@@ -79,6 +81,7 @@ void clear_edition_badge() {
 enum class Capture { None, Key, Pad, Hotkey, HotkeyPad };
 Capture g_capture = Capture::None;
 int     g_capture_index = -1;
+int     g_capture_pad_slot = 0;
 bool    g_config_window_recover = false;
 
 // GBA buttons in controller order rather than KEYINPUT bit order, with the
@@ -239,20 +242,22 @@ SliderEdit slider_float(const char* label, float* value, float lo, float hi, flo
 void draw_controls_page(ConfigUiState* st) {
     section("Buttons");
     caption(st->stick_bindings_available
-        ? "Click a box, then press the key, controller button or stick direction to use. Esc cancels."
+        ? "Use Controller and Alternate for D-pad and stick together. Click a box to bind; Esc cancels."
         : "Click a box, then press the key or controller button to use. Esc cancels.");
 
     ImGui::BeginChild("controls_bindings_scroll",
                       ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing() * 1.5f),
                       ImGuiChildFlags_NavFlattened,
                       ImGuiWindowFlags_HorizontalScrollbar);
-    if (ImGui::BeginTable("binds", 5,
+    if (ImGui::BeginTable("binds", 7,
                           ImGuiTableFlags_SizingFixedFit |
                           ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn("Button", ImGuiTableColumnFlags_WidthFixed, 110);
         ImGui::TableSetupColumn("Keyboard", ImGuiTableColumnFlags_WidthFixed, 130);
         ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 46);
         ImGui::TableSetupColumn("Controller", ImGuiTableColumnFlags_WidthFixed, 130);
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 46);
+        ImGui::TableSetupColumn("Alternate", ImGuiTableColumnFlags_WidthFixed, 130);
         ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 46);
         ImGui::TableHeadersRow();
 
@@ -286,25 +291,30 @@ void draw_controls_page(ConfigUiState* st) {
                 st->binds_changed = true;
             }
 
-            // Controller column.
-            ImGui::TableSetColumnIndex(3);
-            const bool pad_armed =
-                (g_capture == Capture::Pad && g_capture_index == bit);
-            if (pad_armed) {
-                ImGui::PushStyleColor(ImGuiCol_Button,
-                                      ImVec4(0.85f, 0.55f, 0.15f, 1.0f));
-                if (ImGui::Button("press a button...", ImVec2(-FLT_MIN, 0)))
-                    g_capture = Capture::None;
-                ImGui::PopStyleColor();
-            } else if (ImGui::Button(pad_label(st->pad_bind[bit]),
-                                     ImVec2(-FLT_MIN, 0))) {
-                g_capture = Capture::Pad;
-                g_capture_index = bit;
-            }
-            ImGui::TableSetColumnIndex(4);
-            if (ImGui::SmallButton("x##p")) {
-                st->pad_bind[bit] = -1;
-                st->binds_changed = true;
+            // Either controller binding activates the same game button.
+            for (int slot = 0; slot < 2; ++slot) {
+                ImGui::PushID(slot);
+                int& binding = (slot == 0 ? st->pad_bind : st->pad_bind_alt)[bit];
+                ImGui::TableSetColumnIndex(3 + slot * 2);
+                const bool pad_armed = g_capture == Capture::Pad &&
+                    g_capture_index == bit && g_capture_pad_slot == slot;
+                if (pad_armed) {
+                    ImGui::PushStyleColor(ImGuiCol_Button,
+                                          ImVec4(0.85f, 0.55f, 0.15f, 1.0f));
+                    if (ImGui::Button("press a button...", ImVec2(-FLT_MIN, 0)))
+                        g_capture = Capture::None;
+                    ImGui::PopStyleColor();
+                } else if (ImGui::Button(pad_label(binding), ImVec2(-FLT_MIN, 0))) {
+                    g_capture = Capture::Pad;
+                    g_capture_index = bit;
+                    g_capture_pad_slot = slot;
+                }
+                ImGui::TableSetColumnIndex(4 + slot * 2);
+                if (ImGui::SmallButton("x##p")) {
+                    binding = -1;
+                    st->binds_changed = true;
+                }
+                ImGui::PopID();
             }
             ImGui::PopID();
         }
@@ -330,6 +340,7 @@ void draw_controls_page(ConfigUiState* st) {
         for (int i = 0; i < 10; ++i) {
             st->key_bind[i] = kDefaultKeys[i];
             st->pad_bind[i] = kDefaultPads[i];
+            st->pad_bind_alt[i] = -1;
         }
         st->binds_changed = true;
     }
@@ -339,7 +350,7 @@ void draw_hotkeys_page(ConfigUiState* st) {
     section("Hotkeys");
     caption("Shortcuts that work while playing. Each can have a key, a "
             "controller button, or both. Auto Fire presses A or B rapidly "
-            "while held.");
+            "while held. Soft Reset restarts the game; unsaved progress is lost.");
     ImGui::BeginChild("hotkeys_scroll",
                       ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing()),
                       ImGuiChildFlags_NavFlattened,
@@ -638,6 +649,7 @@ void draw_game_page() {
         if (ImGui::Checkbox(s.label, &on)) game_option_set(s.key, on ? 1 : 0);
         caption(s.caption);
     }
+    if (g_game_page_draw) g_game_page_draw();
 }
 
 void draw_fps_overlay(const ConfigUiState* st) {
@@ -1034,10 +1046,14 @@ bool config_ui_capture_pad(ConfigUiState* st, int button) {
     const bool is_trigger = (button == kPadTriggerLeft || button == kPadTriggerRight);
     if (g_capture == Capture::Pad) {
         if (is_trigger) return false;
-        for (int i = 0; i < 10; ++i)
-            if (i != g_capture_index && st->pad_bind[i] == button)
-                st->pad_bind[i] = -1;
-        st->pad_bind[g_capture_index] = button;
+        for (int slot = 0; slot < 2; ++slot) {
+            int* bindings = slot == 0 ? st->pad_bind : st->pad_bind_alt;
+            for (int i = 0; i < 10; ++i)
+                if ((i != g_capture_index || slot != g_capture_pad_slot) &&
+                    bindings[i] == button)
+                    bindings[i] = -1;
+        }
+        (g_capture_pad_slot == 0 ? st->pad_bind : st->pad_bind_alt)[g_capture_index] = button;
     } else if (g_capture == Capture::HotkeyPad) {
         // Unlike the gameplay pad above, a hotkey's controller button is not
         // deduped against the other hotkey rows: Fast Forward hold and toggle
@@ -1155,10 +1171,10 @@ void config_ui_draw(ConfigUiState* st) {
                 {"Enhancements", "Optional improvements to the picture."},
                 {"Game",         "Options for this game."},
             };
-            // The last page, Game, shows only when the game added switches.
+            // The last page, Game, shows when the game added controls.
             const int kPageCount =
                 static_cast<int>(sizeof(kPages) / sizeof(kPages[0])) -
-                (g_game_switch_count > 0 ? 0 : 1);
+                (g_game_switch_count > 0 || g_game_page_draw ? 0 : 1);
             static int page = 0;
             page = std::clamp(page, 0, kPageCount - 1);
 

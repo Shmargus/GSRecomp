@@ -1,21 +1,75 @@
 # This is a modified copy of gbarecomp
 
+## 0.5.2 release verification — 18 October 2026
+
+Windows and Linux full release packaging completed from the final source.
+The 330 Windows and 323 Linux packaged files pass archive/layout/permissions,
+version/feature/notices and ROM-content checks; all 95 public tests pass.
+Packaged first-run builder tests were disabled and gameplay was not verified
+by this audit. Earlier pending-build notes below record their original checks.
+
+
+## Two gameplay controller bindings — 18 October 2026
+
+F1 Controls offers primary/alternate bindings per GBA button. Shared
+keybinds.ini retains [player1_pad] and adds [player1_pad_alt]; the existing
+parser/writer handles both. Input ORs both sources before guest KEYINPUT,
+using the same stick dead zone/sector rules. Capture conflict removal spans
+both columns; clear affects one column and defaults clear all alternates.
+Windows/Linux syntax checks and a native SDL virtual-controller regression
+pass, including independent release and cross-game persistence. Evidence:
+local/release-audit-20261018/source_checks/shared_controls.cpp and associated
+syntax/compile logs. No full build or gameplay test.
+
+## Shared controls and Linux Soft Reset — 18 October 2026
+
+The collection sessions set GBARECOMP_CONTROLS_DIR to collection/Controls.
+HostWindow uses its existing parsers/writers for shared keybinds.ini and
+config.ini [KeyMap]/[KeyMap.Pad], leaving all other game settings local.
+The first launched game seeds missing shared files from its legacy bindings;
+subsequent launches of either game use the shared copy. The isolated native
+regression fixture passes migration, keyboard/pad/hotkey round trips in both
+directions and preservation of per-game video settings. HostWindow and both
+platform session translation units pass syntax compilation.
+Linux handles the Soft Reset exit by requeuing the current session's ROM
+and clearing the Seamless slot environment variable. No session exit to the
+collection selector is involved. The extracted production branch passes
+reset/normal-quit/start-failure/storage-error cases. Gameplay is not tested.
+
 Upstream is [`mstan/gbarecomp`](https://github.com/mstan/gbarecomp) by Matthew
 Stan, licensed PolyForm Noncommercial 1.0.0 (`LICENSE`, unmodified). This
 directory is a **changed** copy of it, carried inside
-[GoldenSunRecomp](https://github.com/Shmargus/GoldenSunRecompiled) so that a
-checkout of that project always describes an engine that builds the game.
+[Golden Sun Recompiled](https://github.com/Shmargus/GSRecomp) so that a
+checkout of that project describes the shared engine used by both games.
 
 Do not mistake this for upstream. It diverged from upstream commit `af51d0e`
 (2026-07-17) and has not been merged back.
 
 ## What was changed
 
+- **Paused saved-slot updates (2026-10-18)** — games can add controls to
+  F1's Game page through `config_ui_set_game_page`. `update_flash_save`
+  replaces a verified flash snapshot, rejecting stale data and unfinished
+  commands, backing up all slots before writing, using the normal save
+  persistence path and restoring the in-memory image on failure. TLA uses
+  this for manual TBS transfer updates prepared in an isolated machine;
+  no game addresses or import rules are in the engine. Focused original-ROM
+  comparison and flash checks pass; full builds/gameplay remain unverified.
+- **Configurable Soft Reset (2026-10-18)** — F1's Hotkeys page adds an
+  initially unbound keyboard/controller action, persisted as `SoftReset` in
+  the shared `[KeyMap]`/`[KeyMap.Pad]` sections. The runtime flushes saves and
+  exits with the action code from `soft_reset.h`. Windows forwards the code
+  after save synchronization and the collection starts the same game again.
+  Linux requeues the current ROM inside its active session, clearing the
+  Seamless slot so a reset after handover boots TLA without repeating import.
+  Changed units pass Windows/Linux syntax checks; native reset/input checks
+  pass. Full release builds and gameplay remain pending.
+
 - **Guaranteed tail jumps in generated code (2026-10-17)** — every guest
   transfer that never returns (B, computed jumps, non-return BX/POP/LDR PC,
   fall-through, the mid-function alias entry stubs in `gba_recompile`) is
   emitted as `GBARECOMP_TAIL_TRANSFER(call)` (`runtime_arm_types.h`, one
-  helper `emit_tail_transfer` in `arm_codegen`). Sol's map bench at plain
+  helper `emit_tail_transfer` in `arm_codegen`). The map bench at plain
   -Og: constant 288 bytes of stack for 32/256/4096 copies, output exact.
   Under GCC 15+ in C++ it is `[[gnu::musttail]] return call`, a host jump at
   any optimisation level; elsewhere (tcc heal overlays, older GCC) it stays
@@ -24,6 +78,15 @@ Do not mistake this for upstream. It diverged from upstream commit `af51d0e`
   until R crashed. Replaces the per-file -O1 override on `reloc_128a8`.
   Linux packaging now selects and bundles GCC 15+ (2026-10-18); the isolated
   bundled-compiler map bench also passes with constant 288-byte stack use.
+  Existing generated sources must be regenerated to receive the new transfer
+  statements; the compiler upgrade alone does not rewrite them.
+- **Room margins and sprite placement (0.5.2)** — room-grid wrapping is a
+  game-profile choice shared by the CPU room queries and GPU shader. Margin
+  layers can expose validated repeat dimensions without replacing the native
+  map. Placement records can accept the outgoing sprite attributes from a
+  builder hook, so a pose change does not lose the correct sprite-page
+  identity. Game-specific addresses, palette selection and scenery validation
+  remain in each game's adapter.
 - **Shared field scene and GPU field renderer (2026-10-13)** — `src/field/` is the one copy of the field scene model, the GPU field renderer, the spell sparks, bursts and battle view that both games compile; each game's `src/field_game_profile.cpp` supplies the addresses and switches the rules that exist in one game only (`field_game_profile.h`).
 - **Shared collection engine (2026-10-13)** — Broken Seal owns this source;
   Lost Age forwards here and builds it separately. Both games share F1/backend,
@@ -56,9 +119,11 @@ Do not mistake this for upstream. It diverged from upstream commit `af51d0e`
   fences and PBOs before HostWindow destroys its context. No runtime_arm.h
   change or corpus regeneration. Synthetic queue/GL and actual TLA/TBS
   presentation benches pass; saved renderer checks unchanged (301 TBS/
-  444 TLA, 29 normalized private TLA copies). Full builds/gameplay and
-  integrated-GPU performance remain Jimmy's verification.
-  Evidence: `local/delayed-readback-20261017/`.
+  444 TLA, 29 legacy-format samples normalized for comparison). These checks
+  are not full release/gameplay validation or a current integrated-GPU
+  performance measurement. Resetting queued identity on a savestate load
+  does not repair missing graphics when a state is loaded into a larger view
+  than the one in which it was created; that remains a known issue.
 
 - **Optional release badge (2026-10-09)** — the host reads
   `edition_badge.txt` (caption and ASCII flourish) and `edition_badge.bmp`
@@ -74,7 +139,7 @@ Do not mistake this for upstream. It diverged from upstream commit `af51d0e`
   Custom colour slider releases now reach the existing picture save handler
   even when the release itself does not change the value.
 
-12 commits, roughly 47,000 added lines across 130 files. By area:
+Earlier changes by area:
 
 - **PPU** (`src/gba/gba_ppu.{cpp,h}`) — the expanded view: per-layer
   background sample remapping for regular and affine layers, with the window
@@ -105,8 +170,8 @@ Do not mistake this for upstream. It diverged from upstream commit `af51d0e`
   target is suspended. Direct-function/phase/frame samples remain opt-in;
   dumps and offline analysis explicitly mark caller tracing unavailable.
   The actual-sampler SDL startup/load-unload bench passed, and Jimmy's
-  rebuilt TLA subsequently started with all probes enabled. Its later map
-  stack overflow is separate. See STATUS.md and TLA FACTS for evidence.
+  rebuilt TLA subsequently started with all probes enabled. The map-loader
+  stack overflow was a separate fault, addressed by guaranteed tail transfers.
 - **GPU surface** (`src/runtime/gpu_surface.cpp`) — rejects texture requests
   above the active context's measured `GL_MAX_TEXTURE_SIZE` and verifies level-0
   storage before returning a handle, so callers can recover from failed
@@ -122,14 +187,14 @@ Do not mistake this for upstream. It diverged from upstream commit `af51d0e`
   native hand-off at bridge call boundaries, multi-variant healed-code cache,
   background warm-load, asynchronous RAM cache lookup during warm-up,
   removal of a dispatch recursion cap, and RAM overlay work.
-- **Audio** (`src/gba/gba_audio.*`, `src/gba/mp2k_shadow.*`,
-  `src/gba/mp2k_wall_mixer.cpp`, `src/gba/turbo_audio_scheduler.cpp`) — the
-  MP2K shadow mixer and its scheduling.
+- **Audio** (`src/gba/gba_audio.*`) — canonical GBA audio and stereo output.
+  The experimental native MP2K/shadow/wall mixers and independent Turbo audio
+  were removed during the shared-engine consolidation.
 - **Host** (`src/runtime/host_window.cpp`, `src/runtime/host_config_ui.*`,
   `src/runtime/runtime.cpp`, `src/runtime/crash_handler.cpp`) — presentation,
   the configuration UI, crash reporting, and an opt-in `GSR_OBJ_RECORD`
   guest-frame marker drawn into a presentation copy for sprite diagnostics.
-- **Screen filters** (`src/runtime/screen_filter.{h,cpp}`) — test-only LCD3x,
+- **Screen filters** (`src/runtime/screen_filter.{h,cpp}`) — LCD3x,
   xBR, CRT Lottes and ScaleFX (multi-pass) GLSL filters at the final present
   on the OpenGL renderer, behind `GSR_SCREEN_FILTERS`, which every launcher
   sets except under Direct3D; nothing runs when it is off.
@@ -147,10 +212,10 @@ Do not mistake this for upstream. It diverged from upstream commit `af51d0e`
   the sidecar's per-frame hooks out of the runtime loop and its veto out of
   the present-in-place decision.
 
-The game's own rules and findings live outside this directory, in the parent
-repository's `AGENTS.md`, `ROADMAP.md` and `FACTS.md`. Anything here is meant to
-be general to ARMv4T, GBA hardware or recompilation, and is a candidate to send
-upstream.
+Game-specific hooks and ROM configurations live in the two game directories;
+the collection's public overview and build instructions are in the root
+`README.md` and `BUILDING.md`. Engine changes are meant to be general to
+ARMv4T, GBA hardware or recompilation, and are candidates to send upstream.
 
 ## What was left out of this copy
 
@@ -476,7 +541,6 @@ GoldenSunRecomp's GPU renderer:
 GBATEK, "LCD I/O Color Special Effects". Found on Golden Sun's defend and
 target-selection flashes (FACTS.md, 2026-09-25).
 
-
 ## A yield unwind hides the resume PC (2026-09-29)
 
 Generated code calls a callee in C and continues only if `R15` equals its
@@ -491,7 +555,6 @@ puts the PC back right after each `runtime_dispatch()` in the run loop
 force-interp step and `test_rom_runner`. The `kUnwindDepth` unwind in
 `runtime_call_should_return` is unchanged: there the target PC is meant to
 match. See FACTS.md "Door+Turbo crash".
-
 
 ## Fast IWRAM store observer gated inline (2026-09-29)
 
@@ -509,7 +572,6 @@ the bitmap when it installs the observer (set every block for a debug store
 trace); `runtime.cpp` clears it together with the observer. The observer
 keeps its own precise range check, so the bitmap only has to be a superset.
 With the bitmap all zero an installed observer is never called.
-
 
 ## Game-owned ROM patch hook (2026-09-30)
 

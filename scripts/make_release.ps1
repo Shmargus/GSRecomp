@@ -488,6 +488,9 @@ This download contains no Golden Sun code or data. Everything from the game
 comes from your ROM, on your PC.
 
 Settings: press F1 in the game.
+Controls: use Controller and Alternate to bind the D-pad and stick together.
+Hotkeys: bind Soft Reset to return to the current game's title screen.
+Soft Reset keeps disk saves; unsaved progress is lost.
 "@ | Set-Content -LiteralPath (Join-Path $gameOut 'README.txt') -Encoding ascii
 
         @"
@@ -540,6 +543,12 @@ $($packages -join "`r`n")
             Copy-Item -LiteralPath (Join-Path $mingw $dll) -Destination $tlaOut
         }
         Copy-Item -LiteralPath (Join-Path $gameOut 'THIRD_PARTY_NOTICES.txt') -Destination $outDir
+        $licenses = Join-Path $outDir 'licenses'
+        New-Item -ItemType Directory -Force -Path $licenses | Out-Null
+        Copy-Item -LiteralPath (Join-Path $engineRoot 'LICENSE') -Destination (Join-Path $licenses 'ENGINE_LICENSE.txt')
+        Copy-Item -LiteralPath (Join-Path $engineRoot 'THIRD_PARTY_ATTRIBUTION.md') -Destination $licenses
+        'The engine is copyright Matthew Stan and uses the PolyForm Noncommercial License 1.0.0. See ENGINE_LICENSE.txt and THIRD_PARTY_ATTRIBUTION.md.' | Set-Content -LiteralPath (Join-Path $licenses 'README.txt') -Encoding ascii
+
         @'
 Golden Sun Recompiled
 =====================
@@ -550,11 +559,14 @@ prompt and choose your own matching USA/Europe ROM. Later selections start
 the game directly. New releases are offered before starting either game.
 Selected .gba files are copied into ROMs beside the launcher. Existing matching
 .sav files and savestates are copied into Saves; the originals are kept.
-Conflicting imports are preserved in Saves/Imported. Each game keeps its own
-settings in its folder under games/.
+Conflicting imports are preserved in Saves/Imported. Control bindings are shared
+in Controls; other settings stay in each game folder under games/.
 The root launcher handles preparation, updates and starting both games.
 Keep the games folders beside it; each contains that game's engine and tools.
 Settings: press F1 in the game.
+Controls: use Controller and Alternate to bind the D-pad and stick together.
+Hotkeys: bind Soft Reset to return to the current game's title screen.
+Soft Reset keeps disk saves; unsaved progress is lost.
 This download contains no game code, ROM, BIOS or generated game library.
 '@ | Set-Content -LiteralPath (Join-Path $outDir 'README.txt') -Encoding ascii
 

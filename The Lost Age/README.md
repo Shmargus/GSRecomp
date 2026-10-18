@@ -89,6 +89,14 @@ For a headless check:
 ROMs, BIOS files, saves and anything generated from them must never be
 committed; `.gitignore` excludes them.
 
+## Shared controls and Soft Reset
+
+F1 keyboard, controller and hotkey bindings carry between both games. In
+Controls, bind the D-pad under Controller and the stick under Alternate to
+use either. Soft Reset under Hotkeys is unassigned by default; bind it to
+restart TLA at its title screen, including after a Seamless handover, without
+repeating the import. Unsaved progress is lost.
+
 ## Import a Golden Sun team
 
 Leave **Import Golden Sun save files** checked in the launcher. Start a new
@@ -105,6 +113,13 @@ TLA applies its own full link-transfer rules to the team, Djinn, items,
 coins and story flags. The normal Isaac naming screen still follows import.
 The GS1 file is read only. Cancelling returns to the question. Uncheck the launcher option for the original Link/Password
 menu. On Linux, the save picker requires `zenity` or `kdialog`.
+
+To update an existing saved TLA adventure before the reunion, use
+**F1 → Game → Update from The Broken Seal**. Select the TBS save, its Clear
+Data slot and the destination TLA slot, then confirm. A backup is kept and
+other slots remain unchanged. Load the updated slot to use it; saving your
+old running state over that slot replaces the update. The TBS source is
+read only, and post-reunion TLA slots cannot be updated this way.
 
 ## License
 

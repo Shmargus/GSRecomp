@@ -11317,48 +11317,34 @@ void hard_mode_prompt_close(bool yes) {
 }
 
 // Seamless mode at the end of the game (seamless_mode.h). Emulation thread.
-enum class SeamlessPhase { Off, Leaving };
+enum class SeamlessPhase { Off, Choosing, Leaving };
 SeamlessPhase g_seamless_phase = SeamlessPhase::Off;
 std::uint16_t g_seamless_slot = 0;
 
-// The save screen's routine 0x080207C4 without its questions, text and sound:
-// true once both blocks of the Clear Data are written to `slot`.
-bool seamless_save_clear_data(std::uint16_t slot) {
-    using namespace gsr::seamless;
-    using gbarecomp::guest_call;
-    bus_write_u8(kClearFlagAddr, 1u);
-    std::uint32_t scan = 1, first = 1, second = 1;
-    bool saved = guest_call(kFlashScanPc, 0, 0, 0, 0, &scan) && scan == 0u &&
-        guest_call(kSummariesPc, 0, 0, 0, 0, nullptr) &&
-        guest_call(kClearStatePc, 0, 0, 0, 0, nullptr) &&
-        guest_call(kMapObjectsPc, 0, 0, 0, 0, nullptr) &&
-        guest_call(kWriteBlockPc, slot, kSaveBlockA, 0, 0, &first) &&
-        guest_call(kWriteBlockPc, slot + kSecondBlockOffset, kSaveBlockB, 0, 0,
-                   &second) &&
-        (first | second) == 0u;
-    guest_call(kSaveEndPc, 0, 0, 0, 0, nullptr);
-    return saved;
-}
-
-// When the ship sails off (the credits' room is about to load), save and
-// leave behind black; if the save fails, the ending carries on as usual.
+// Skip the credits into the game's own Clear Data save screen. It asks for
+// a slot and confirms overwrites; only a successful save hands over to TLA.
 void seamless_on_entry(std::uint32_t entry_pc) {
     using namespace gsr::seamless;
+    if (g_seamless_phase == SeamlessPhase::Choosing &&
+        entry_pc == kSaveEndPc &&
+        (g_cpu.R[14] & ~1u) == kSaveReturnPc && g_cpu.R[8] == 0u) {
+        g_seamless_slot = bus_read_u16(kCurrentSlotAddr);
+        if (g_seamless_slot >= gbarecomp::seamless::kSlotCount) return;
+        g_seamless_phase = SeamlessPhase::Leaving;
+        gbarecomp::set_screen_veil(true);
+        std::fprintf(stderr, "[seamless] Clear Data saved to chosen slot %u\n",
+                     g_seamless_slot + 1u);
+        return;
+    }
     if (entry_pc != kRoomCodeLoadPc || g_seamless_phase != SeamlessPhase::Off ||
         bus_read_u16(kRoomAddr) != kCreditsRoom ||
         bus_read_u16(kEntranceAddr) != kCreditsEntrance || !seamless_mode_on())
         return;
-    g_seamless_slot = bus_read_u16(kCurrentSlotAddr);
-    if (g_seamless_slot >= gbarecomp::seamless::kSlotCount ||
-        !seamless_save_clear_data(g_seamless_slot)) {
-        std::fprintf(stderr, "[seamless] Clear Data save to slot %u failed; "
-                     "the ending goes on\n", g_seamless_slot + 1u);
-        return;
-    }
-    g_seamless_phase = SeamlessPhase::Leaving;
-    gbarecomp::set_screen_veil(true);
-    std::fprintf(stderr, "[seamless] Clear Data saved to slot %u\n",
-                 g_seamless_slot + 1u);
+    g_seamless_phase = SeamlessPhase::Choosing;
+    bus_write_u16(kRoomAddr, kSaveRoom);
+    bus_write_u16(kEntranceAddr, kSaveEntrance);
+    bus_write_u16(kNextRoomAddr, kSaveRoom);
+    bus_write_u16(kNextEntranceAddr, kSaveEntrance);
 }
 
 // Once per game frame (the frame routine's wait): leave once saved and the

@@ -131,6 +131,7 @@ struct ConfigUiState {
     // GBA KEYINPUT bit order: 0=A 1=B 2=Sel 3=Start 4=Right 5=Left 6=Up 7=Down 8=R 9=L.
     int   key_bind[10] = {};        // SDL_Scancode, 0 = unbound
     int   pad_bind[10] = {};        // SDL_GameControllerButton, -1 = unbound
+    int   pad_bind_alt[10] = {-1,-1,-1,-1,-1,-1,-1,-1,-1,-1}; // optional second controller bind
     int   hotkey_key[16] = {};      // SDL_Keycode per HostHotkey
     unsigned hotkey_mods[16] = {};  // required KMOD_* bits
     int   hotkey_pad[16] = {};      // SDL_GameControllerButton, -1 = unbound
@@ -307,12 +308,15 @@ extern bool (*g_config_ui_extra_wants_keyboard)();
 
 // On/off switches a game adds to F1's "Game" page, each stored as 0/1 under
 // its key in game_options.ini (game_options.h). The array must outlive the
-// menu; a count of 0 hides the page. Declared unconditionally, same as above.
+// menu; without switches or game-owned controls the page is hidden.
+// Declared unconditionally, same as above.
 struct GameOptionSwitch {
     const char* label;
     const char* caption;
     const char* key;
 };
 void config_ui_set_game_switches(const GameOptionSwitch* switches, int count);
+// Optional game-owned controls below the switches on F1's Game page.
+void config_ui_set_game_page(void (*draw)());
 
 }  // namespace gbarecomp

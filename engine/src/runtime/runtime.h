@@ -173,6 +173,13 @@ int run_game(int argc, char** argv, const RunOptions& opts = {});
 // game that hands over to another program (The Broken Seal's Seamless mode).
 void request_exit(int code);
 
+// Save-editor transaction on the host/game thread while paused. Writes the
+// current battery file through normal persistence and updates its live flash
+// copy together; stale snapshots and unfinished flash commands are refused.
+bool update_flash_save(const std::vector<std::uint8_t>& expected,
+                       const std::vector<std::uint8_t>& replacement,
+                       std::string& error);
+
 // Covers the game's picture with black, for steps a game takes by itself that
 // the player should not watch (Seamless mode). It fades over kVeilFadeMs, or
 // changes at once when `immediately`; menus drawn over the picture stay

@@ -113,8 +113,27 @@ fi
 # ---- 1. Engine, launcher, builder, translator ------------------------------
 # The engine links against a library built from the block-timing corpus;
 # only the engine ships. Players build their own library from their ROM.
+# CMake clears cached project options when a compiler changes, then reruns
+# with defaults. Reapply the same arguments once after that migration so the
+# local runner, split library and release settings are not silently lost.
+configure_release() {
+    local cache=$1/CMakeCache.txt changed=0 spec key compiler previous
+    shift
+    if [ -f "$cache" ]; then
+        for spec in "CMAKE_C_COMPILER=$cc" "CMAKE_CXX_COMPILER=$cxx"; do
+            key=${spec%%=*}; compiler=${spec#*=}
+            previous=$(sed -n "s/^$key:[^=]*=//p" "$cache" | head -1)
+            if [ -n "$previous" ] &&
+               [ "$(readlink -f "$previous")" != "$(readlink -f "$compiler")" ]; then
+                changed=1
+            fi
+        done
+    fi
+    cmake "$@"
+    if [ "$changed" = 1 ]; then cmake "$@"; fi
+}
 echo "Configuring $build"
-cmake -S "$repo" -B "$build" -G Ninja \
+configure_release "$build" -S "$repo" -B "$build" -G Ninja \
     "-DGBARECOMP_ROOT=$engine" \
     "-DCMAKE_C_COMPILER=$cc" "-DCMAKE_CXX_COMPILER=$cxx" \
     -DCMAKE_BUILD_TYPE=Release \
@@ -148,7 +167,7 @@ imgui_source=$(dependency_source IMGUI imgui)
 toml_source=$(dependency_source TOMLPLUSPLUS tomlplusplus)
 # A fresh release tree avoids stale absolute paths in the developer build.
 # Use the existing Linux block corpus; never regenerate it through Windows.
-cmake -S "$tla_repo" -B "$tla_build" -G Ninja \
+configure_release "$tla_build" -S "$tla_repo" -B "$tla_build" -G Ninja \
     "-DGBARECOMP_ROOT=$engine" \
     "-DCMAKE_C_COMPILER=$cc" "-DCMAKE_CXX_COMPILER=$cxx" \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
@@ -367,6 +386,9 @@ This download contains no Golden Sun code or data. Everything from the game
 comes from your ROM, on your computer.
 
 Settings: press F1 in the game.
+Controls: use Controller and Alternate to bind the D-pad and stick together.
+Hotkeys: bind Soft Reset to return to the current game's title screen.
+Soft Reset keeps disk saves; unsaved progress is lost.
 TXT
 
 # dpkg may record a file under /lib or /usr/lib (usrmerge): ask for both.
@@ -374,7 +396,7 @@ packages=$(sort -u "$copied_list" | while read -r f; do
         dpkg -S "$f" 2>/dev/null || dpkg -S "${f#/usr}" 2>/dev/null || true
     done | cut -d: -f1 | tr ',' '\n' | sed 's/^ *//' | sort -u \
     | xargs -r dpkg-query -W -f='${Package} ${Version}\n' 2>/dev/null || true)
-cat > "$out/THIRD-PARTY.txt" <<TXT
+cat > "$out/THIRD_PARTY_NOTICES.txt" <<TXT
 Third-party software in this folder
 ===================================
 
@@ -417,7 +439,12 @@ for h in src/runtime/overlay_runtime_arm.h src/runtime/overlay_abi.h src/armv4t/
     cp "$engine/$h" "$tla_out/overlay_toolchain/include/"
 done
 cp -r "$tc" "$tla_builder/"
-cp "$out/THIRD-PARTY.txt" "$collection/"
+cp "$out/THIRD_PARTY_NOTICES.txt" "$collection/"
+mkdir -p "$collection/licenses"
+cp "$engine/LICENSE" "$collection/licenses/ENGINE_LICENSE.txt"
+cp "$engine/THIRD_PARTY_ATTRIBUTION.md" "$collection/licenses/"
+printf '%s\n' 'The engine is copyright Matthew Stan and uses the PolyForm Noncommercial License 1.0.0. See ENGINE_LICENSE.txt and THIRD_PARTY_ATTRIBUTION.md.' > "$collection/licenses/README.txt"
+
 cat > "$collection/README.txt" <<'TXT'
 Golden Sun Recompiled (Linux)
 =============================
@@ -428,12 +455,15 @@ prompt and choose your own matching USA/Europe ROM. Later selections start
 the game directly. New releases are offered before starting either game.
 Selected .gba files are copied into ROMs beside the launcher. Existing matching
 .sav files and savestates are copied into Saves; the originals are kept.
-Conflicting imports are preserved in Saves/Imported. Each game keeps its own
-settings in its folder under games/.
+Conflicting imports are preserved in Saves/Imported. Control bindings are shared
+in Controls; other settings stay in each game folder under games/.
 The root launcher handles preparation, updates and starting both games.
 Keep the games folders beside it; each contains that game's engine and tools.
 Needs a 64-bit Linux system with SDL2 and OpenGL.
 Settings: press F1 in the game.
+Controls: use Controller and Alternate to bind the D-pad and stick together.
+Hotkeys: bind Soft Reset to return to the current game's title screen.
+Soft Reset keeps disk saves; unsaved progress is lost.
 This download contains no game code, ROM, BIOS or generated game library.
 TXT
 

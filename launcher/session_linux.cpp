@@ -60,6 +60,7 @@
 #include "session_environment.h"
 #include "launcher_widescreen_diagnostics_policy.h"
 #include "../engine/src/runtime/seamless.h"
+#include "../engine/src/runtime/soft_reset.h"
 
 namespace fs = std::filesystem;
 using namespace gsr_launcher;
@@ -71,9 +72,8 @@ bool g_collection_tests_override = false;
 gsr_collection::GameSettings g_collection_settings;
 bool g_collection_update_checked = false;
 bool g_collection_activation_pending = false;
-// Set when The Broken Seal ended with a seamless exit code; the session then
-// exits with it so the collection window starts The Lost Age.
-int g_seamless_exit_code = 0;
+// Forward Seamless handovers to the collection window; Soft Reset stays here.
+int g_session_exit_code = 0;
 
 // Where players can still upload a report by hand when sending fails: the
 // Google Form the project page links; only the developer sees the answers.
@@ -392,6 +392,8 @@ GameResult run_game(const std::string& rom) {
     // widescreen slow on the Deck, so it is graphics card only.
     gsr::ChildEnvironmentPlan plan;
     gsr::CommonEnvironment common;
+    common.controls_dir = (g_collection_root / "Controls").string();
+    fs::create_directories(g_collection_root / "Controls");
     common.state_base = g_collection_play ? g_managed.state_base.string() : std::string();
     common.heal_cache = (g_root / "recomp_cache").string();
     // Release: point the game's self-heal at the bundled g++ (absent on dev).
@@ -1489,6 +1491,16 @@ int gsr_session_main(int game, int argc, char** argv) {
                 }
                 SDL_HideWindow(window);
                 const GameResult game = run_game(pending.substr(6));
+                if (game.started && game.storage_error.empty() &&
+                    game.exit_code == gbarecomp::soft_reset::kExitCode) {
+                    // Restart this session's game directly. Returning through
+                    // the collection selector ended the Linux play session.
+                    // After a handover this is TLA, without another import.
+                    unsetenv(gbarecomp::seamless::kSlotEnv);
+                    g_ui.pending_rom = pending;
+                    launcher_log("Soft Reset: restarting the current game at its title screen.");
+                    continue;
+                }
                 // Seamless mode: The Broken Seal wrote its Clear Data and asks
                 // for The Lost Age. A hand-over, not a failure: exit with the
                 // same code (no bug report offer); the collection window goes on.
@@ -1497,7 +1509,7 @@ int gsr_session_main(int game, int argc, char** argv) {
                     seamless_done >= 0) {
                     launcher_log("Seamless: The Broken Seal saved Clear Data to slot " +
                                  std::to_string(seamless_done + 1) + "; starting The Lost Age.");
-                    g_seamless_exit_code = game.exit_code;
+                    g_session_exit_code = game.exit_code;
                     running = false;
                     continue;
                 }
@@ -1582,5 +1594,5 @@ int gsr_session_main(int game, int argc, char** argv) {
     SDL_DestroyWindow(window);
     SDL_Quit();
     gbarecomp::crash_handler_mark_clean_exit();
-    return g_seamless_exit_code;
+    return g_session_exit_code;
 }

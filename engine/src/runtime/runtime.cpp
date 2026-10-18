@@ -17,6 +17,7 @@
 // server hook. step_once() drives execution through `runtime_dispatch`.
 
 #include "runtime.h"
+#include "soft_reset.h"
 #include "view_config.h"
 
 // Cost-attribution probe counters, defined in runtime_bus_bridge.cpp
@@ -883,8 +884,17 @@ extern "C" unsigned g_ws_view_height = 160;
 
 namespace {
 std::atomic<int> g_requested_exit_code{-1};
+std::function<bool(const std::vector<std::uint8_t>&,
+                   const std::vector<std::uint8_t>&, std::string&)> g_update_flash_save;
 }  // namespace
 void request_exit(int code) { g_requested_exit_code.store(code); }
+bool update_flash_save(const std::vector<std::uint8_t>& expected,
+                       const std::vector<std::uint8_t>& replacement,
+                       std::string& error) {
+    if (g_update_flash_save) return g_update_flash_save(expected, replacement, error);
+    error = "The game's save file is unavailable.";
+    return false;
+}
 
 int run_game(int argc, char** argv, const RunOptions& opts) {
     // Game runners install this before entering run_game(). Clear it on every
@@ -1486,6 +1496,32 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         }
         return true;
     };
+
+    g_update_flash_save = [&](const auto& expected, const auto& replacement,
+                             std::string& error) {
+        if (args.save_path.empty() || !bus.save().replace_flash_bytes(expected, replacement)) {
+            error = "The save changed or is still being written. Please try again.";
+            return false;
+        }
+        // Keep the complete pre-edit battery image, including every slot.
+        // Never reuse an existing backup name.
+        std::string backup = args.save_path + ".before-update.bak";
+        std::error_code backup_ec;
+        for (unsigned n = 1; std::filesystem::exists(backup, backup_ec) && !backup_ec; ++n)
+            backup = args.save_path + ".before-update-" + std::to_string(n) + ".bak";
+        if (backup_ec || !write_file(backup, expected, &error)) {
+            bus.save().replace_flash_bytes(replacement, expected);
+            error = "The backup could not be written. Nothing was updated.";
+            return false;
+        }
+        if (flush_save()) return true;
+        bus.save().replace_flash_bytes(replacement, expected);
+        error = "The update could not be written. The previous save is backed up beside the save file.";
+        return false;
+    };
+    struct SaveEditorScope {
+        ~SaveEditorScope() { g_update_flash_save = {}; }
+    } save_editor_scope;
 
     set_active_bus(&bus);
     set_active_ppu(&ppu);
@@ -3017,6 +3053,11 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         win.set_turbo_audio_muted(
             turbo_audio_should_mute(ev.fast_forward, ev.turbo_mute_audio));
         // System hotkeys (config.ini [KeyMap], rebindable in the launcher).
+        if (ev.soft_reset) {
+            request_exit(soft_reset::kExitCode);
+            host_quit = true;
+            host_paused = false;
+        }
         if (ev.toggle_fullscreen) win.set_fullscreen(!win.fullscreen());
         if (ev.window_bigger)  win.adjust_scale(+1);
         if (ev.window_smaller) win.adjust_scale(-1);

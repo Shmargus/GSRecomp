@@ -101,10 +101,8 @@ bool write_picture_ini(const std::string& dir, int screen_kind,
 struct Backend;
 bool write_video_ini(const Backend* b);
 
-// System hotkey ids (config.ini [KeyMap] rows this host implements). Reset,
-// PauseDimmed and ToggleRenderer are intentionally absent — gbarecomp has no
-// in-process reset, no attract-dim, and one renderer; the launcher's GBA
-// hotkey catalog omits them to match.
+// System hotkey ids (config.ini [KeyMap] rows this host implements).
+// Soft Reset asks the launcher for a fresh game process.
 //
 // HK_TURBO ("Fast Forward (hold)" in the UI) is level-triggered: on only while the
 // binding is down. HK_TURBO_TOGGLE is an edge-triggered latch. Both drive Events::fast_forward (see host_window.h). New ids are
@@ -129,6 +127,7 @@ enum HostHotkey {
     // Quit Game: the F1 menu's Quit Game button on a key. Appended so
     // existing [KeyMap] rows keep their meaning.
     HK_QUIT,
+    HK_SOFT_RESET,
     HK_COUNT
 };
 
@@ -440,7 +439,8 @@ struct Backend {
     SDL_Scancode bind_sc[10] = {};      // indexed by GBA KEYINPUT bit
     HotkeyBind   hotkeys[HK_COUNT];     // [KeyMap] bindings
 
-    std::string  config_dir = ".";        // where keybinds.ini lives
+    std::string  config_dir = ".";        // game-specific settings
+    std::string  controls_dir = ".";      // shared keyboard/controller bindings
     // The walking-speed multiplier config.ini last recorded. Game code may
     // change the live value (runtime_set_mem_write_override_enabled) from
     // its own menus; a difference from this is saved on the next pump.
@@ -458,6 +458,7 @@ struct Backend {
     bool           cfg_ready = false;
     SDL_GameController* pad = nullptr;    // first attached controller
     int            pad_bind[10];          // SDL_GameControllerButton per bit
+    int            pad_bind_alt[10] = {-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
     // Debounced digital state of the L2/R2 analog triggers, derived from
     // SDL_CONTROLLERAXISMOTION via kTriggerPressThreshold/
     // kTriggerReleaseThreshold. Doubles as the edge source for hotkey
@@ -708,6 +709,7 @@ const char* const kHotkeyNames[HK_COUNT] = {
     "AutoFireA",
     "AutoFireB",
     "QuitGame",
+    "SoftReset",
 };
 // UI display labels, same order as kHotkeyNames; they may differ from the
 // persisted key names.
@@ -721,6 +723,7 @@ const char* const kHotkeyLabels[HK_COUNT] = {
     "Auto Fire A",
     "Auto Fire B",
     "Quit Game",
+    "Soft Reset",
 };
 const char* const kHotkeyDefaults[HK_COUNT] = {
     "Alt+Return", "Shift+P", "Tab",
@@ -741,6 +744,8 @@ const char* const kHotkeyDefaults[HK_COUNT] = {
     "",
     "",
     // Quit Game ships unbound so no stray press closes the game.
+    "",
+    // Soft Reset also starts unbound; choose a keyboard or controller binding.
     "",
 };
 
@@ -867,6 +872,7 @@ void fire_hotkey(int h, Backend* b, HostWindow::Events& ev) {
         case HK_TURBO_TOGGLE:   b->turbo_toggle_on = !b->turbo_toggle_on; break;
         case HK_GAME_MENU:      ev.game_menu = true;                     break;
         case HK_QUIT:           ev.quit = true;                          break;
+        case HK_SOFT_RESET:     ev.soft_reset = true;                    break;
         default: break;  // HK_TURBO, HK_AUTOFIRE_*: level-triggered, read in pump()
     }
 }
@@ -2081,6 +2087,12 @@ void HostWindow::present(const uint8_t* rgb888) {
     }
 }
 
+namespace {
+bool write_keybinds_ini(const std::string& dir, const SDL_Scancode* bind_sc,
+                        const int* pad_bind, const int* pad_bind_alt);
+bool write_hotkeys_ini(const std::string& dir, const HotkeyBind* hotkeys);
+}
+
 void HostWindow::load_input_config(const char* dir) {
     if (!open_ || !impl_ || !dir) return;
     auto* b = static_cast<Backend*>(impl_);
@@ -2088,6 +2100,8 @@ void HostWindow::load_input_config(const char* dir) {
     // Remembered so the rebind menu writes keybinds.ini back where it was
     // read from, rather than into whatever the process CWD happens to be.
     b->config_dir = dir;
+    const char* shared_controls = std::getenv("GBARECOMP_CONTROLS_DIR");
+    b->controls_dir = shared_controls && *shared_controls ? shared_controls : dir;
 
     // Only special release packages supply this decoration. Ordinary and
     // developer packages have neither file and keep the existing F1 menu.
@@ -2131,71 +2145,100 @@ void HostWindow::load_input_config(const char* dir) {
         }
     });
 
-    // keybinds.ini [player1] (SDL scancode names).
-    ini_scan_section((base + "keybinds.ini").c_str(), "player1",
-                     [b](const char* key, const char* val) {
-        for (const auto& bk : kBindKeys) {
-            if (SDL_strcasecmp(key, bk.name) != 0) continue;
-            SDL_Scancode sc = scancode_from_name(val);
-            b->bind_sc[bk.bit] = sc;   // "None"/unknown => unbound (UNKNOWN)
-            return;
-        }
-    });
-
-    // keybinds.ini [player1_pad] (SDL game-controller button names). Absent
-    // section => the built-in pad layout set in open().
-    ini_scan_section((base + "keybinds.ini").c_str(), "player1_pad",
-                     [b](const char* key, const char* val) {
-        for (const auto& pk : kPadKeys) {
-            if (SDL_strcasecmp(key, pk.name) != 0) continue;
-            // Stick directions are synthetic ids with their own names.
-            const int synth = pad_synth_from_name(val);
-            if (synth >= 0) {
-                b->pad_bind[pk.bit] = synth;
+    // Read legacy per-game bindings, then let the shared collection copy win.
+    // One parser and the existing writers serve both games.
+    const auto load_controls = [b](const std::string& controls_dir) {
+        const std::string base = controls_dir + "/";
+        // keybinds.ini [player1] (SDL scancode names).
+        ini_scan_section((base + "keybinds.ini").c_str(), "player1",
+                         [b](const char* key, const char* val) {
+            for (const auto& bk : kBindKeys) {
+                if (SDL_strcasecmp(key, bk.name) != 0) continue;
+                SDL_Scancode sc = scancode_from_name(val);
+                b->bind_sc[bk.bit] = sc;   // "None"/unknown => unbound (UNKNOWN)
                 return;
             }
-            const SDL_GameControllerButton btn =
-                SDL_GameControllerGetButtonFromString(val);
-            b->pad_bind[pk.bit] = (btn == SDL_CONTROLLER_BUTTON_INVALID)
-                ? -1 : static_cast<int>(btn);   // "None"/unknown => unbound
-            return;
-        }
-    });
+        });
 
-    // config.ini [KeyMap] (keycode names with Ctrl+/Alt+/Shift+ prefixes).
-    ini_scan_section((base + "config.ini").c_str(), "KeyMap",
-                     [b](const char* key, const char* val) {
-        for (int h = 0; h < HK_COUNT; ++h) {
-            if (SDL_strcasecmp(key, kHotkeyNames[h]) != 0) continue;
-            b->hotkeys[h] = parse_hotkey(val);
-            return;
-        }
-    });
+        // Both controller columns use the same names and parser. Legacy
+        // files without the alternate section retain an unbound second slot.
+        for (int slot = 0; slot < 2; ++slot) {
+            int* bindings = slot == 0 ? b->pad_bind : b->pad_bind_alt;
+            ini_scan_section((base + "keybinds.ini").c_str(), slot == 0 ? "player1_pad" : "player1_pad_alt",
+                             [bindings](const char* key, const char* val) {
+                for (const auto& pk : kPadKeys) {
+                    if (SDL_strcasecmp(key, pk.name) != 0) continue;
+                    // Stick directions are synthetic ids with their own names.
+                    const int synth = pad_synth_from_name(val);
+                    if (synth >= 0) {
+                        bindings[pk.bit] = synth;
+                        return;
+                    }
+                    const SDL_GameControllerButton btn =
+                        SDL_GameControllerGetButtonFromString(val);
+                    bindings[pk.bit] = (btn == SDL_CONTROLLER_BUTTON_INVALID)
+                        ? -1 : static_cast<int>(btn);   // "None"/unknown => unbound
+                    return;
+                }
+            });
 
-    // config.ini [KeyMap.Pad]: the controller half of the same hotkey rows,
-    // same names, SDL game-controller button strings like keybinds.ini
-    // [player1_pad]. Scanned after [KeyMap] so it only fills in pad_button on
-    // the struct parse_hotkey() already built, leaving the keyboard half.
-    ini_scan_section((base + "config.ini").c_str(), "KeyMap.Pad",
-                     [b](const char* key, const char* val) {
-        for (int h = 0; h < HK_COUNT; ++h) {
-            if (SDL_strcasecmp(key, kHotkeyNames[h]) != 0) continue;
-            // Synthetic ids first: "lefttrigger"/"righttrigger" (SDL's axis
-            // names; L2/R2 are axes, so SDL_GameControllerGetButtonFromString
-            // does not know them) and the stick directions ("leftstickup",
-            // ...), all from one shared table.
-            const int synth = pad_synth_from_name(val);
-            if (synth >= 0) {
-                b->hotkeys[h].pad_button = synth;
+        }
+
+        // config.ini [KeyMap] (keycode names with Ctrl+/Alt+/Shift+ prefixes).
+        ini_scan_section((base + "config.ini").c_str(), "KeyMap",
+                         [b](const char* key, const char* val) {
+            for (int h = 0; h < HK_COUNT; ++h) {
+                if (SDL_strcasecmp(key, kHotkeyNames[h]) != 0) continue;
+                b->hotkeys[h] = parse_hotkey(val);
                 return;
             }
-            const SDL_GameControllerButton btn =
-                SDL_GameControllerGetButtonFromString(val);
-            b->hotkeys[h].pad_button = (btn == SDL_CONTROLLER_BUTTON_INVALID)
-                ? -1 : static_cast<int>(btn);   // "None"/unknown => unbound
-            return;
-        }
-    });
+        });
+
+        // config.ini [KeyMap.Pad]: the controller half of the same hotkey rows,
+        // same names, SDL game-controller button strings like keybinds.ini
+        // [player1_pad]. Scanned after [KeyMap] so it only fills in pad_button on
+        // the struct parse_hotkey() already built, leaving the keyboard half.
+        ini_scan_section((base + "config.ini").c_str(), "KeyMap.Pad",
+                         [b](const char* key, const char* val) {
+            for (int h = 0; h < HK_COUNT; ++h) {
+                if (SDL_strcasecmp(key, kHotkeyNames[h]) != 0) continue;
+                // Synthetic ids first: "lefttrigger"/"righttrigger" (SDL's axis
+                // names; L2/R2 are axes, so SDL_GameControllerGetButtonFromString
+                // does not know them) and the stick directions ("leftstickup",
+                // ...), all from one shared table.
+                const int synth = pad_synth_from_name(val);
+                if (synth >= 0) {
+                    b->hotkeys[h].pad_button = synth;
+                    return;
+                }
+                const SDL_GameControllerButton btn =
+                    SDL_GameControllerGetButtonFromString(val);
+                b->hotkeys[h].pad_button = (btn == SDL_CONTROLLER_BUTTON_INVALID)
+                    ? -1 : static_cast<int>(btn);   // "None"/unknown => unbound
+                return;
+            }
+        });
+
+    };
+    load_controls(b->config_dir);
+    if (b->controls_dir != b->config_dir) {
+        load_controls(b->controls_dir);
+        // Seed missing shared files from this game's existing bindings. Once
+        // present, they take precedence on subsequent launches of either game.
+        const auto missing = [](const std::string& path) {
+            if (std::FILE* file = std::fopen(path.c_str(), "rb")) {
+                std::fclose(file);
+                return false;
+            }
+            return true;
+        };
+        if (missing(b->controls_dir + "/keybinds.ini") &&
+            !write_keybinds_ini(b->controls_dir, b->bind_sc, b->pad_bind, b->pad_bind_alt))
+            std::fprintf(stderr, "host_window: could not migrate shared controls\n");
+        if (missing(b->controls_dir + "/config.ini") &&
+            !write_hotkeys_ini(b->controls_dir, b->hotkeys))
+            std::fprintf(stderr, "host_window: could not migrate shared hotkeys\n");
+    }
 
     // Speed settings share config.ini but live in their own section. Missing
     // or malformed values retain the conservative defaults.
@@ -2818,7 +2861,7 @@ namespace {
 // format load_input_config() reads. Unbound is written as "None", which
 // scancode_from_name() treats as unbound.
 bool write_keybinds_ini(const std::string& dir, const SDL_Scancode* bind_sc,
-                        const int* pad_bind) {
+                        const int* pad_bind, const int* pad_bind_alt) {
     const std::string path = dir + "/keybinds.ini";
     std::FILE* f = std::fopen(path.c_str(), "wb");
     if (!f) return false;
@@ -2833,17 +2876,18 @@ bool write_keybinds_ini(const std::string& dir, const SDL_Scancode* bind_sc,
         if (!name || !*name) name = "None";
         std::fprintf(f, "%s=%s\n", bk.name, name);
     }
-    // Controller half, in its own section so [player1] keeps the keyboard
-    // format.
-    std::fprintf(f, "\n[player1_pad]\n");
-    for (const auto& pk : kPadKeys) {
-        const int pb = pad_bind[pk.bit];
-        const char* name = (pb < 0) ? nullptr
-            : pad_synth_name(pb);
-        if (pb >= 0 && !name)
-            name = SDL_GameControllerGetStringForButton(
-                static_cast<SDL_GameControllerButton>(pb));
-        std::fprintf(f, "%s=%s\n", pk.name, (name && *name) ? name : "None");
+    for (int slot = 0; slot < 2; ++slot) {
+        const int* bindings = slot == 0 ? pad_bind : pad_bind_alt;
+        std::fprintf(f, "\n[%s]\n", slot == 0 ? "player1_pad" : "player1_pad_alt");
+        for (const auto& pk : kPadKeys) {
+            const int pb = bindings[pk.bit];
+            const char* name = (pb < 0) ? nullptr
+                : pad_synth_name(pb);
+            if (pb >= 0 && !name)
+                name = SDL_GameControllerGetStringForButton(
+                    static_cast<SDL_GameControllerButton>(pb));
+            std::fprintf(f, "%s=%s\n", pk.name, (name && *name) ? name : "None");
+        }
     }
     std::fclose(f);
     return true;
@@ -3513,6 +3557,7 @@ HostWindow::Events HostWindow::pump() {
         for (int i = 0; i < 10; ++i) {
             b->cfg.key_bind[i] = static_cast<int>(b->bind_sc[i]);
             b->cfg.pad_bind[i] = b->pad_bind[i];
+            b->cfg.pad_bind_alt[i] = b->pad_bind_alt[i];
         }
         for (int h = 0; h < HK_COUNT; ++h) {
             b->cfg.hotkey_key[h] = static_cast<int>(b->hotkeys[h].key);
@@ -3827,17 +3872,19 @@ HostWindow::Events HostWindow::pump() {
         // Controls page.
         if (b->pad) {
             for (int bit = 0; bit < 10; ++bit) {
-                const int pb = b->pad_bind[bit];
-                if (pb < 0) continue;
-                if (pad_is_stick(pb)) {
-                    if (stick_dir_held(b->pad, pb))
+                for (const int* bindings : {b->pad_bind, b->pad_bind_alt}) {
+                    const int pb = bindings[bit];
+                    if (pb < 0) continue;
+                    if (pad_is_stick(pb)) {
+                        if (stick_dir_held(b->pad, pb))
+                            keys &= static_cast<uint16_t>(~(1u << bit));
+                        continue;
+                    }
+                    if (pb >= SDL_CONTROLLER_BUTTON_MAX) continue;  // trigger id: not a gameplay bind
+                    if (SDL_GameControllerGetButton(
+                            b->pad, static_cast<SDL_GameControllerButton>(pb)))
                         keys &= static_cast<uint16_t>(~(1u << bit));
-                    continue;
                 }
-                if (pb >= SDL_CONTROLLER_BUTTON_MAX) continue;  // trigger id: not a gameplay bind
-                if (SDL_GameControllerGetButton(
-                        b->pad, static_cast<SDL_GameControllerButton>(pb)))
-                    keys &= static_cast<uint16_t>(~(1u << bit));
             }
         }
         // Auto Fire: two frames pressed, two released, so the game sees a
@@ -3861,21 +3908,22 @@ HostWindow::Events HostWindow::pump() {
             for (int i = 0; i < 10; ++i) {
                 b->bind_sc[i] = static_cast<SDL_Scancode>(b->cfg.key_bind[i]);
                 b->pad_bind[i] = b->cfg.pad_bind[i];
+                b->pad_bind_alt[i] = b->cfg.pad_bind_alt[i];
             }
             for (int h = 0; h < HK_COUNT; ++h) {
                 b->hotkeys[h].key = static_cast<SDL_Keycode>(b->cfg.hotkey_key[h]);
                 b->hotkeys[h].mods = static_cast<Uint16>(b->cfg.hotkey_mods[h]);
                 b->hotkeys[h].pad_button = b->cfg.hotkey_pad[h];
             }
-            if (!write_keybinds_ini(b->config_dir, b->bind_sc, b->pad_bind)) {
+            if (!write_keybinds_ini(b->controls_dir, b->bind_sc, b->pad_bind, b->pad_bind_alt)) {
                 std::fprintf(stderr,
                              "host_window: could not write %s/keybinds.ini\n",
-                             b->config_dir.c_str());
+                             b->controls_dir.c_str());
             }
-            if (!write_hotkeys_ini(b->config_dir, b->hotkeys)) {
+            if (!write_hotkeys_ini(b->controls_dir, b->hotkeys)) {
                 std::fprintf(stderr,
                              "host_window: could not write %s/config.ini\n",
-                             b->config_dir.c_str());
+                             b->controls_dir.c_str());
             }
             b->cfg.binds_changed = false;
         }

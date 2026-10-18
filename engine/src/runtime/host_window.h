@@ -198,6 +198,7 @@ public:
         // title-bar readout.
         bool     toggle_fullscreen = false;
         bool     toggle_pause = false;
+        bool     soft_reset = false;
         // The game-menu hotkey (HK_GAME_MENU, "CheatMenu" in config.ini) was
         // pressed this pump.
         bool     game_menu = false;
