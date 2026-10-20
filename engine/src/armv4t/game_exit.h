@@ -26,11 +26,15 @@ inline void run_game_exit() {
 }
 
 // The first job also registers run_game_exit with std::atexit, so a
-// standalone program still runs them all at exit.
+// standalone program still runs them all at exit. The list is created
+// before that registration, so it is destroyed after run_game_exit runs;
+// the other order left run_game_exit walking a destroyed list (it crashed
+// bus_tests, dma_tests and pool_ldm_probe_tests at exit).
 inline void at_game_exit(void (*fn)()) {
+    auto& list = game_exit_list();
     static const bool registered = std::atexit(run_game_exit) == 0;
     (void)registered;
-    game_exit_list().push_back(fn);
+    list.push_back(fn);
 }
 
 }  // namespace gbarecomp

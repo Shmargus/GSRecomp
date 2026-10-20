@@ -66,6 +66,7 @@ constexpr uint32_t kMapNumber = 0x02000428u;
 
 constexpr uint32_t kFollowStoreX = 0x0802AE9Cu, kFollowStoreY = 0x0802AE9Eu;
 constexpr uint32_t kClampStoreX = 0x0802B006u, kClampStoreY = 0x0802B010u;
+constexpr uint32_t kCameraYLimit = 0x0802AE80u;
 
 constexpr uint32_t kPreCullOffsetX = 0x08023940u;  // 0x001FFFFF: 32 << 16, - 1
 constexpr uint32_t kPreCullRangeX = 0x08023944u;   // 0x012FFFFE
@@ -87,6 +88,25 @@ constexpr uint32_t kRopePlaced = 0x080D9C80u;
 constexpr uint32_t kCoilOffsetX = 0x080D8AE0u, kCoilRangeX = 0x080D8AEAu;
 constexpr uint32_t kCoilMinY = 0x080D8AF0u, kCoilMaxY = 0x080D8AF6u;
 constexpr uint32_t kCoilPlaced = 0x080D8AFAu;
+
+// Climbing vines use the same four cull literals in their own segment loop.
+// F12 0081 f119: 0x080DAAB0 rejects the head at y=-40 before its -8 anchor
+// adjustment, leaving the five lower pieces. Its record is also r5+0x14.
+constexpr uint32_t kVineOffsetX = 0x080DABA4u, kVineRangeX = 0x080DABACu;
+constexpr uint32_t kVineMinY = 0x080DABB4u, kVineMaxY = 0x080DABBAu;
+constexpr uint32_t kVinePlaced = 0x080DABBEu;
+
+// ROM 0x0801401C computes one four-halfword OBJ transform. At 0x0801403E
+// it rejects allocation 32 and returns slot 31, even if that slot belongs
+// to a different rotation (0085: the bottom vine tips). Reuse byte-identical
+// completed transforms so margin pieces do not exhaust the hardware slots.
+constexpr uint32_t kMatrixCapacity = 0x0801403Eu;
+constexpr uint32_t kVineMatrixReturn = 0x080DAC3Cu;
+constexpr uint32_t kMatrixCount = 0x030011FCu, kMatrixData = 0x020054D0u;
+struct MatrixPending {
+    uint32_t return_pc = 0, depth = 0, index = 0;
+} g_matrix_pending;
+RuntimeCallReturnHook g_next_call_return = nullptr;
 
 // Builder tests: body x (r6), body y (r4), shadow y (r4).
 constexpr uint32_t kBodyX1 = 0x080222B2u, kBodyY1 = 0x080222B6u, kShadowY1 = 0x080221C8u;
@@ -185,7 +205,32 @@ struct CameraHold {
 };
 CameraHold g_hold[2];  // x, y
 
-int32_t held_camera(gba::GbaBus* b, bool x, int32_t requested, int32_t ruled) {
+int camera_y_limit(uint32_t original, uint32_t* out_decision) {
+    gba::GbaBus* b = bus();
+    const CameraHold& h = g_hold[1];
+    if (!b || !expanded(view()) || !field_running(b) || g_room_map <= 1u ||
+        !h.valid || !h.holding || b->read16(kMapNumber) != h.map)
+        return 0;
+    const uint32_t s = b->read32(kFieldStatePointer);
+    if ((s >> 24) != 0x02u) return 0;
+    const int32_t lo = static_cast<int32_t>(b->read32(s + 0xF0u));
+    const int32_t edge = static_cast<int32_t>(b->read32(s + 0xF8u));
+    if (lo > h.held_lo || edge < h.held_edge ||
+        (lo == h.held_lo && edge == h.held_edge))
+        return 0;  // the store will release the hold
+    // The game's limiter reads the previous *written* camera into r2, then
+    // compares r2-r7 with r5 (16 pixels). Undo our held offset for that read,
+    // so the store applies it once, rather than feeding it back every frame.
+    // Keep the game's own limiter, including its two branch paths.
+    g_cpu.R[2] -= static_cast<uint32_t>(h.offset);
+    g_cpu.R[3] = g_cpu.R[2] - g_cpu.R[7];
+    *out_decision = static_cast<int32_t>(g_cpu.R[3]) <=
+                    static_cast<int32_t>(g_cpu.R[5]);
+    return *out_decision != original;
+}
+
+int32_t held_camera(gba::GbaBus* b, bool x, int32_t requested, int32_t ruled,
+                    const View& v) {
     const uint32_t s = b->read32(kFieldStatePointer);
     CameraHold& h = g_hold[x ? 0 : 1];
     if ((s >> 24) != 0x02u) { h.valid = false; return ruled; }
@@ -210,8 +255,10 @@ int32_t held_camera(gba::GbaBus* b, bool x, int32_t requested, int32_t ruled) {
         h.offset = ruled - requested;
         return ruled;
     }
-    const int32_t size = (x ? 240 : 160) * 65536;
-    return std::clamp(requested + h.offset, lo, std::max(lo, edge - size));
+    // Preserve the cutscene offset within the expanded view's existing room
+    // limits. Native-only limits let a hold with zero offset bypass the
+    // margin rule entirely (0082: right edge1075 beyond room edge1024).
+    return camera_value(b, x, requested + h.offset, v);
 }
 
 int camera_store(uint32_t pc, uint32_t addr, uint32_t requested, uint32_t width,
@@ -225,7 +272,7 @@ int camera_store(uint32_t pc, uint32_t addr, uint32_t requested, uint32_t width,
         int32_t written = static_cast<int32_t>(requested);
         if (b && expanded(v) && field_running(b) && g_room_map > 1u)
             written = held_camera(b, x, static_cast<int32_t>(requested),
-                camera_value(b, x, static_cast<int32_t>(requested), v));
+                camera_value(b, x, static_cast<int32_t>(requested), v), v);
         if (y) {
             g_camera_y_requested = static_cast<int32_t>(requested);
             g_camera_y_written = written;
@@ -243,10 +290,10 @@ int camera_store(uint32_t pc, uint32_t addr, uint32_t requested, uint32_t width,
 int (*g_next_literal)(uint32_t, uint32_t, uint32_t*) = nullptr;
 
 int precull_literal(uint32_t pc, uint32_t original, uint32_t* out_value) {
-    if (pc == kRopeOffsetX || pc == kCoilOffsetX) pc = kPreCullOffsetX;
-    else if (pc == kRopeRangeX || pc == kCoilRangeX) pc = kPreCullRangeX;
-    else if (pc == kRopeMinY || pc == kCoilMinY) pc = kPreCullMinY;
-    else if (pc == kRopeMaxY || pc == kCoilMaxY) pc = kPreCullMaxY;
+    if (pc == kRopeOffsetX || pc == kCoilOffsetX || pc == kVineOffsetX) pc = kPreCullOffsetX;
+    else if (pc == kRopeRangeX || pc == kCoilRangeX || pc == kVineRangeX) pc = kPreCullRangeX;
+    else if (pc == kRopeMinY || pc == kCoilMinY || pc == kVineMinY) pc = kPreCullMinY;
+    else if (pc == kRopeMaxY || pc == kCoilMaxY || pc == kVineMaxY) pc = kPreCullMaxY;
     const bool ours = (pc == kPreCullOffsetX && original == 0x001FFFFFu) ||
                       (pc == kPreCullRangeX && original == 0x012FFFFEu) ||
                       (pc == kPreCullMinY && original == 0xFFE00000u) ||
@@ -280,15 +327,17 @@ void sync_placement_scene(gba::GbaBus* b) {
                       b->read32(kTlaBattleSlot), b->read16(kMapNumber));
 }
 
-void note_placed(uint32_t record, int x, int y, int placed_attr0 = -1) {
+void note_placed(uint32_t record, int x, int y, int placed_attr0 = -1,
+                 bool uses_tile_grant = false) {
     gba::GbaBus* b = bus();
     if (!b) return;
     sync_placement_scene(b);
     // The record's full tile now, while its sprite-memory grant is current.
     const uint16_t attr2 = b->read16(record + 8u);
-    const int tile = tla_sprite_memory_tile(record, attr2);
+    const int tile = uses_tile_grant ? tla_sprite_memory_tile(record, attr2) : -1;
     g_placements.note(*b, runtime_current_frame(), record, x, y,
-                      tile >= 0 ? tile : attr2 & 0x3FF, placed_attr0);
+                      tile >= 0 ? tile : attr2 & 0x3FF, placed_attr0,
+                      uses_tile_grant);
 }
 
 // A game window is open this frame (set by tla_widescreen_frame).
@@ -307,6 +356,33 @@ bool menu_sprite(uint16_t attr2) {
 }
 
 int (*g_next_branch)(uint32_t, uint32_t, uint32_t*) = nullptr;
+
+void matrix_return(uint32_t pc, uint32_t depth) {
+    if (g_next_call_return) g_next_call_return(pc, depth);
+    if (!g_matrix_pending.return_pc ||
+        (pc & ~1u) != g_matrix_pending.return_pc ||
+        depth + 1u != g_matrix_pending.depth)
+        return;
+    const auto pending = g_matrix_pending;
+    g_matrix_pending = {};
+    gba::GbaBus* b = bus();
+    if (!b || !expanded(view()) || !field_running(b) ||
+        g_cpu.R[0] != pending.index || pending.index >= 32u ||
+        b->read8(kMatrixCount) != pending.index + 1u)
+        return;
+    const uint32_t at = kMatrixData + pending.index * 8u;
+    const uint32_t first = b->read32(at), second = b->read32(at + 4u);
+    for (uint32_t i = 0; i < pending.index; ++i) {
+        const uint32_t previous = kMatrixData + i * 8u;
+        if (b->read32(previous) != first || b->read32(previous + 4u) != second)
+            continue;
+        // The caller has not filed its OBJ yet. Return the identical earlier
+        // transform and release only this last, still-unreferenced slot.
+        g_cpu.R[0] = i;
+        b->write8(kMatrixCount, static_cast<uint8_t>(pending.index));
+        return;
+    }
+}
 
 // F12 0001/0002: the world-map descriptor loader at 0x0200B6A8
 // unloads the cave when its focus-relative X crosses -240 world units,
@@ -372,7 +448,9 @@ int affine_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
         const int y = static_cast<int32_t>(b->read32(sl + 4u)) -
                       static_cast<int32_t>(g_cpu.R[11]) +
                       static_cast<int32_t>(b->read32(g_cpu.R[13]));
-        note_placed(g_cpu.R[7], x, y);
+        // This builder uses the same tile-owner records as character bodies.
+        // World-map landmarks in F12 0092 occupy the second sprite page.
+        note_placed(g_cpu.R[7], x, y, -1, true);
         return 0;
     }
     const int at = static_cast<int32_t>(g_cpu.R[3]) - 0x20;
@@ -397,21 +475,201 @@ int depth_branch(uint32_t original, uint32_t* out_decision) {
     return *out_decision != original;
 }
 
+// Apojii's Rainbow Water emitter (0096) masks X/Y before queueing its
+// sprite. At the existing depth hook its descriptor is still record-0x14
+// and r8/r9 retain the emitter's quantized camera. Keep the full placement,
+// including real negative rows, rather than guessing from its wrapped byte.
+void note_rainbow_placement() {
+    if (g_cpu.R[14] != 0x02009759u) return;
+    gba::GbaBus* b = bus();
+    if (!b || !expanded(view()) || !field_running(b) ||
+        b->read16(kMapNumber) != 154u ||
+        b->read32(0x020096F0u) != 0x14232000u ||
+        b->read32(0x02009700u) != 0x3C080040u ||
+        b->read32(0x02009718u) != 0x33FF005Bu ||
+        b->read32(0x02009744u) != 0x19834658u ||
+        b->read32(0x02009C40u) != 0x080001E9u)
+        return;
+    const uint32_t record = g_cpu.R[0];
+    if (record < 0x02000014u || record > 0x0203FFF4u) return;
+    const uint32_t descriptor = record - 0x14u;
+    const int x = (static_cast<int32_t>(b->read32(descriptor) - g_cpu.R[9]) >> 16) - 8;
+    const int y = (static_cast<int32_t>(b->read32(descriptor + 8u) - g_cpu.R[8] -
+                                        b->read32(descriptor + 4u)) >> 16) - 8;
+    // Refuse a stale/reused record, even with a matching caller image.
+    if ((b->read16(record + 4u) & 0xFFu) != (static_cast<unsigned>(y) & 0xFFu) ||
+        (b->read16(record + 6u) & 0x1FFu) != (static_cast<unsigned>(x) & 0x1FFu))
+        return;
+    note_placed(record, x, y);
+}
+
+bool jump_pad_image(gba::GbaBus* b) {
+    return b && field_running(b) &&
+        b->read32(0x0200B1CCu) == 0x401E33FFu &&
+        b->read32(0x0200B1F0u) == 0x30181C28u &&
+        b->read32(0x0200B1FAu) == 0x1A7C4641u &&
+        b->read32(0x0200B21Cu) == 0x3024401Cu &&
+        b->read32(0x0200B244u) == 0x990262ECu &&
+        b->read32(0x0200B26Cu) == 0xFFFF0000u &&
+        b->read32(0x0200BC98u) == 0x080001E9u;
+}
+
+// F12 0108/0109 and 0112/0113 carry the same pad and sparkle emitters
+// in different rooms. Identify the drawing code, not the room number.
+bool sparkle_image(gba::GbaBus* b) {
+    return jump_pad_image(b) &&
+        b->read32(0x0200B56Au) == 0x46901B57u &&
+        b->read32(0x0200B5B4u) == 0x2380D821u &&
+        b->read32(0x0200B5C4u) == 0x2300401Fu &&
+        b->read32(0x0200B5F4u) == 0xF0004641u;
+}
+
+struct SparkleMarginRandom {
+    uint32_t record = 0, seed = 0;
+};
+SparkleMarginRandom g_sparkle_margin_random;
+// ROM 0x08014878..0x08014898: the sparkle's third random call chooses
+// its artwork. An extra margin sprite must not advance the game's RNG.
+constexpr uint32_t kSparkleRandomState = 0x030011BCu;
+
+// F12 0103/0104: the pad emitter still rejects X outside -15..255,
+// and each section's Y outside -47..191. Extend those measured intervals
+// by the actual view margins, preserving the original unsigned tests.
+int jump_pad_range_branch(uint32_t pc, uint32_t original, uint32_t* out) {
+    if (pc < 0x02000000u || pc >= 0x02040000u) return -1;
+    const uint32_t live_pc = g_runtime_image_base + (pc - 0x02000000u);
+    uint32_t signature = 0;
+    switch (live_pc) {
+    case 0x0200B1BEu: signature = 0xD845429Au; break;
+    case 0x0200B1C6u: signature = 0xD8182BEEu; break;
+    case 0x0200B208u: signature = 0xD8202BEEu; break;
+    case 0x0200B5ACu: signature = 0xD82542A6u; break;
+    case 0x0200B5B4u: signature = 0xD8212BEEu; break;
+    default: return -1;
+    }
+    gba::GbaBus* b = bus();
+    const View v = view();
+    if (!expanded(v) || !jump_pad_image(b) ||
+        b->read32(live_pc - 2u) != signature) return 0;
+    const bool sparkle = live_pc == 0x0200B5ACu || live_pc == 0x0200B5B4u;
+    if (sparkle && !sparkle_image(b)) return 0;
+    if (live_pc == 0x0200B5ACu) g_sparkle_margin_random = {};
+    if (live_pc == 0x0200B1BEu || live_pc == 0x0200B5ACu) {
+        *out = g_cpu.R[sparkle ? 6 : 2] + static_cast<uint32_t>(v.left) >
+               g_cpu.R[sparkle ? 4 : 3] + static_cast<uint32_t>(v.left + v.right);
+    } else {
+        *out = g_cpu.R[3] + static_cast<uint32_t>(v.top) >
+               238u + static_cast<uint32_t>(v.top + v.bottom);
+    }
+    if (sparkle && original && !*out)
+        g_sparkle_margin_random = {g_cpu.R[9] + 0x10u,
+                                   b->read32(kSparkleRandomState)};
+    return *out != original;
+}
+
+// The sparkle queue retains full X in sl, but has already masked Y.
+// Its original instructions add random*10 >> 16, then subtract 10.
+// Recover that measured 0..9 jitter relative to the descriptor's full Y;
+// this distinguishes bottom rows from their identical wrapped top bytes.
+void note_sparkle_placement() {
+    if (g_cpu.R[14] != 0x0200B5FBu) return;
+    gba::GbaBus* b = bus();
+    if (!expanded(view()) || !sparkle_image(b)) return;
+    const uint32_t record = g_cpu.R[0];
+    if (record < 0x02000010u || record > 0x0203FFF4u) return;
+    const uint32_t descriptor = record - 0x10u;
+    if (descriptor != g_cpu.R[9]) return;
+    if (g_sparkle_margin_random.record == record) {
+        b->write32(kSparkleRandomState, g_sparkle_margin_random.seed);
+        g_sparkle_margin_random = {};
+    }
+    const uint32_t field = b->read32(kFieldStatePointer);
+    if (field < 0x02000000u || field > 0x0203FF18u) return;
+    const uint32_t camera_y = b->read32(field + 0xE8u) & 0xFFFF0000u;
+    const int base_y = (static_cast<int32_t>(b->read32(descriptor + 8u) -
+        camera_y - b->read32(descriptor + 4u)) >> 16) - 10;
+    const uint32_t jitter = (b->read16(record + 4u) -
+                             static_cast<uint32_t>(base_y)) & 0xFFu;
+    const int x = static_cast<int32_t>(g_cpu.R[10]);
+    if (jitter >= 10u || (b->read16(record + 6u) & 0x1FFu) !=
+                         (static_cast<unsigned>(x) & 0x1FFu)) return;
+    note_placed(record, x, base_y + static_cast<int>(jitter));
+}
+
+// F12 0099/0100: map 164's jumping pads queue the cap and stem separately,
+// after masking their coordinates. r7/r8 still retain the full projection.
+void note_jump_pad_placement() {
+    const uint32_t caller = g_cpu.R[14];
+    if (caller != 0x0200B1FBu && caller != 0x0200B24Du) return;
+    gba::GbaBus* b = bus();
+    if (!expanded(view()) || !jump_pad_image(b)) return;
+    const bool cap = caller == 0x0200B1FBu;
+    const uint32_t record = g_cpu.R[0], offset = cap ? 0x18u : 0x24u;
+    if (record < 0x02000000u + offset || record > 0x0203FFF0u) return;
+    // The queue's prologue has already replaced r5 with this record.
+    const uint32_t descriptor = record - offset;
+    const uint32_t field = b->read32(kFieldStatePointer);
+    if (field < 0x02000000u || field > 0x0203FF18u) return;
+    const uint32_t linked = b->read32(descriptor + 0x14u);
+    if (linked && (linked < 0x02000000u || linked > 0x0203FFF4u)) return;
+    const uint32_t camera_x = b->read32(field + 0xE4u) & 0xFFFF0000u;
+    const int x = (static_cast<int32_t>(b->read32(linked ? linked : descriptor) -
+                                        camera_x) >> 16) - 8;
+    const int y = (static_cast<int32_t>(g_cpu.R[7] - g_cpu.R[8]) >> 16) +
+                  (cap ? -8 : 8);
+    if ((b->read16(record + 4u) & 0xFFu) != (static_cast<unsigned>(y) & 0xFFu) ||
+        (b->read16(record + 6u) & 0x1FFu) != (static_cast<unsigned>(x) & 0x1FFu))
+        return;
+    // Use the normal position provider: F12 0102 also has caps wrapped
+    // above the view after they move back inside the original screen.
+    note_placed(record, x, y);
+}
+
 int builder_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
+    if (pc == kMatrixCapacity) {
+        g_matrix_pending = {};
+        gba::GbaBus* b = bus();
+        if (original == 0u && b && expanded(view()) && field_running(b) &&
+            (b->read32(g_cpu.R[13] + 24u) & ~1u) == kVineMatrixReturn) {
+            // Seven saved words; LR is the last (ROM 0x0801401C..24).
+            g_matrix_pending = {b->read32(g_cpu.R[13] + 24u) & ~1u,
+                                runtime_call_stack_depth(), g_cpu.R[2]};
+        }
+        return 0;
+    }
+    if (pc == kCameraYLimit) return camera_y_limit(original, out_decision);
+    if (const int result = jump_pad_range_branch(pc, original, out_decision);
+        result >= 0) return result;
     if (const int result = world_range_branch(pc, original, out_decision);
         result >= 0) return result;
     if (const int result = tla_sprite_memory_branch(pc, original, out_decision);
         result >= 0) return result;
+    if (pc == kDepthClampCharacters) {
+        note_rainbow_placement();
+        note_jump_pad_placement();
+        note_sparkle_placement();
+    }
     if (pc == kDepthClampCharacters || pc == kDepthClampAll)
         return depth_branch(original, out_decision);
     if (pc == kAffineX || pc == kAffineY || pc == kAffinePlaced)
         return affine_branch(pc, original, out_decision);
-    if (pc == kRopePlaced || pc == kCoilPlaced) {
+    if (pc == kRopePlaced || pc == kCoilPlaced || pc == kVinePlaced) {
         gba::GbaBus* b = bus();
-        if (original == 0u && b && expanded(view()) && field_running(b))
+        if (original == 0u && b && expanded(view()) && field_running(b)) {
+            const int anchor = pc == kVinePlaced ? 8 : 4;
+            const int x = (static_cast<int32_t>(g_cpu.R[0]) >> 16) - anchor;
+            const int y = (static_cast<int32_t>(g_cpu.R[2]) >> 16) - anchor;
+            // The vine builder writes 0x2000 | Y, then sets affine only
+            // when r7 (rotation) is nonzero (ROM 0x080DABC0..0x080DAC34).
+            // Snapshot that outgoing kind, not the previous rotation's:
+            // 0087 f30 loses the lagging non-affine section at Y261 once
+            // its live record becomes affine again, falling back to Y5.
+            const int attr0 = pc == kVinePlaced
+                ? 0x2000 | (y & 0xFF) | (g_cpu.R[7] ? 0x100 : 0)
+                : -1;
             note_placed(g_cpu.R[5] + 0x14u,
-                        (static_cast<int32_t>(g_cpu.R[0]) >> 16) - 4,
-                        (static_cast<int32_t>(g_cpu.R[2]) >> 16) - 4);
+                        x, y, attr0);
+        }
         return 0;
     }
     if (pc == kNearClip || pc == kFarClip) {
@@ -470,7 +728,7 @@ int builder_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
                      : (static_cast<int32_t>(b->read32(sp + 8u)) >> 16) -
                            static_cast<int32_t>(b->read32(sp + 0x10u));
         }
-        note_placed(record, ox, y, placed_attr0);
+        note_placed(record, ox, y, placed_attr0, body_y);
     }
     *out_decision = cull ? 1u : 0u;
     return *out_decision != original ? 1 : 0;
@@ -524,7 +782,7 @@ extern "C" int tla_obj_x_provider(int /*oam_index*/, uint16_t attr0,
 extern "C" int tla_obj_tile_provider(int /*oam_index*/, uint16_t attr0,
                                      uint16_t attr1, uint16_t attr2) {
     const Placement* p = placement_for(attr0, attr1, attr2);
-    if (!p) return -1;
+    if (!p || !p->uses_tile_grant) return -1;
     if (const int now = tla_sprite_memory_tile(p->record, attr2); now >= 0)
         return now;
     if (p->tile >= 0 && ((p->tile ^ attr2) & 0x3FF) == 0 && (p->tile & 0x400))
@@ -561,6 +819,9 @@ void tla_widescreen_frame(bool window_open) {
 
 // Chains in front of the hooks already installed.
 void tla_install_widescreen(gbarecomp::RunOptions& options) {
+    g_matrix_pending = {};
+    g_next_call_return = g_runtime_call_return_hook;
+    g_runtime_call_return_hook = matrix_return;
     g_next_write = g_runtime_mem_write_override;
     g_runtime_mem_write_override = camera_store;
     g_next_literal = options.thumb_literal_override;

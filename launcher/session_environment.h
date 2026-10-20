@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <string>
@@ -15,6 +16,7 @@
 #include <vector>
 
 #include "collection_settings.h"
+#include "launcher_test_policy.h"
 
 namespace gsr {
 
@@ -99,7 +101,9 @@ using TestOptionState = std::function<std::optional<bool>(const char* environmen
 // The sprite recorder also turns on the OAM-shadow write printout. The host
 // profiler's value is the file it writes to; empty means a plain "1".
 inline void add_test_environment(ChildEnvironmentPlan& plan, const TestOptionState& state,
-                                 const std::string& host_prof_file) {
+                                 const std::string& host_prof_file,
+                                 bool developer_launcher = false,
+                                 const std::string& music_file = {}) {
     const auto apply = [&](const char* name, std::optional<bool> selected,
                            const std::string& value) {
         if (!selected) return;
@@ -112,11 +116,30 @@ inline void add_test_environment(ChildEnvironmentPlan& plan, const TestOptionSta
         }
     };
     for (const auto& option : gsr_collection::test_options) {
+        if (developer_launcher && is_developer_performance_option(option.environment)) {
+            apply(option.environment, true,
+                  std::strcmp(option.environment, "GBARECOMP_HOST_PROF") == 0 &&
+                          !host_prof_file.empty()
+                      ? host_prof_file : "1");
+            continue;
+        }
         const bool host_prof = std::strcmp(option.environment, "GBARECOMP_HOST_PROF") == 0;
         apply(option.environment, state(option.environment),
               host_prof && !host_prof_file.empty() ? host_prof_file : "1");
     }
     apply("GSR_OAM_SHADOW_TRACE", state("GSR_OBJ_RECORD"), "1");
+    // The engine only knows an optional local WAV, not Golden Sun song IDs.
+    // A missing/invalid file leaves the game's original music intact.
+    if (state("GSR_INTRO_MUSIC").value_or(false) && !music_file.empty()) {
+        plan.put("GBARECOMP_MUSIC_WAV", music_file);
+        const std::u8string utf8_file(music_file.begin(), music_file.end());
+        const auto directory =
+            (std::filesystem::path(utf8_file).parent_path() / "GS1").generic_u8string();
+        plan.put("GBARECOMP_MUSIC_DIR", std::string(directory.begin(), directory.end()));
+    } else {
+        plan.remove("GBARECOMP_MUSIC_WAV");
+        plan.remove("GBARECOMP_MUSIC_DIR");
+    }
 }
 
 // The BIOS logs have no launcher box any more; both sessions remove them.

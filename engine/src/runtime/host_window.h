@@ -18,6 +18,19 @@
 
 namespace gbarecomp {
 
+// Optional host-side music playback sourced from GBARECOMP_MUSIC_DIR
+// (track-NN.wav files) or, when no directory is set, GBARECOMP_MUSIC_WAV.
+// Track selection and playback controls target the current HostWindow. Callers
+// run on the emulation thread; the SDL callback reads player state under the
+// host audio mutex.
+bool local_music_ready();
+// Select a cached-opening directory track without loading or allocating. True
+// only when its opening and stream worker are ready; local_music_ready()
+// reports the current player.
+bool local_music_select(unsigned track);
+void local_music_playback(bool active, bool paused, float gain,
+                          bool restart = false);
+
 class HostWindow {
 public:
     // A fixed logical framebuffer mode exposed by the in-game Visual page.
@@ -149,6 +162,9 @@ public:
     void push_audio_samples(const int16_t* samples, std::size_t count);
     // Interleaved stereo variant used by the opt-in native MP2K renderer.
     void push_audio_samples_stereo(const int16_t* samples, std::size_t count);
+    // Host pause is independent of the guest's pause state. It freezes the
+    // local music cursor while the window's normal pause control is active.
+    void set_local_music_paused(bool paused);
     // Drop host audio only while Turbo requests it. Transitions flush the
     // resampler so releasing Turbo cannot play stale, sped-up samples.
     void set_turbo_audio_muted(bool on);

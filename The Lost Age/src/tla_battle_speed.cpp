@@ -167,6 +167,34 @@ void keep_oam_parking(gba::GbaBus* b) {
     b->write16(kOamLastWords, b->read16(kOamCopyWords));
 }
 
+// The field canvas uploader (0x080EB594, VBlank task group 12) runs once
+// per real VBlank, while a fast cast runs two logic passes. Command 3 copies
+// its 4096-byte canvas, then 0x080EB51C fades it through the ROM's table.
+// Retire that fade on a skipped presentation too; leave the upload pending
+// for the next real VBlank. Otherwise Cyclone's final 16 fade requests get
+// only eight fades, and its last ring stays visible until task removal
+// (0114 f18..66). No artwork needs publishing for the skipped picture.
+void advance_skipped_field_fade(gba::GbaBus* b) {
+    constexpr uint32_t kCanvasSlot = 0x03000060u;
+    constexpr uint32_t kEffectSlot = 0x030000F0u;
+    constexpr uint32_t kCanvasBytes = 0x1000u;
+    constexpr uint32_t kFadeTable = 0x080F3BDCu;
+    const auto ram_contains = [](uint32_t at, uint32_t bytes) {
+        return (at >= 0x02000000u && at <= 0x02040000u - bytes) ||
+               (at >= 0x03000000u && at <= 0x03008000u - bytes);
+    };
+    const uint32_t effect = b->read32(kEffectSlot);
+    const uint32_t canvas = b->read32(kCanvasSlot);
+    if (!ram_contains(effect, 0xC4u) || !ram_contains(canvas, kCanvasBytes) ||
+        b->read8(effect + 0xC1u) != 3u ||
+        b->rom_size() < kFadeTable - 0x08000000u + 32u)
+        return;
+    for (uint32_t i = 0; i < kCanvasBytes; ++i) {
+        const uint8_t index = b->read8(canvas + i);
+        if (index) b->write8(canvas + i, b->read8(kFadeTable + (index & 31u)));
+    }
+}
+
 // The battle entry is paced by the display: while it runs the game keeps a
 // VCount interrupt at line 32 (IE bit 2, DISPSTAT bit 5, LYC 0x20) and opens
 // BG1's black entry stripes in step with it. Two frames per VBlank left every
@@ -226,6 +254,7 @@ void decide_pass() {
     g_skip_this_pass = !g_skip_this_pass && flag_set &&
                        !(battle_2x && entry_running(b));
     if (g_skip_this_pass) keep_oam_parking(b);
+    if (g_skip_this_pass && field_2x) advance_skipped_field_fade(b);
     if (battle_2x) keep_arena_table(b);
 }
 

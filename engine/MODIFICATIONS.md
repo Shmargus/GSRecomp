@@ -1,5 +1,281 @@
 # This is a modified copy of gbarecomp
 
+## Shared repeating-layer margins — 20 October 2026
+
+- `field/scene_repeat.h` (header only): `find_layer_repeat` finds a regular
+  layer's whole-screen repeat from its tile map (every shown map row equals
+  the row `period` further down, moved at most one period sideways, over the
+  full map width; at least two periods shown; one-tile layers ignored).
+  `continue_layer_repeat` fills a layer's margin scroll rows from the nearest
+  shown period. `continue_repeating_layers` applies it to every layer no game
+  rule claimed, except room scenery the room source fills unless the layer
+  is a see-through overlay. Needs the profile's `margin_scroll_rows`; The
+  Lost Age calls it, replacing its per-map haze/mist/sunlight rules. The
+  renderer itself is unchanged.
+- `tools/scene_repeat_bench.cpp`: offline bench over saved F12/rewind
+  captures of either game (built per game; not in CMake). Results:
+  `local/scene-repeat-20261020/FINDINGS.md`.
+
+## Preloaded local music bank — 20 October 2026
+
+Supersedes asynchronous selection below. The optional local directory is
+enumerated and decoded before the SDL device is unpaused. MusicBank keeps
+decoded buffers; selection only finds an existing entry and swaps vectors
+under the audio mutex. No selection-time file IO, conversion, PCM copying,
+allocation or worker thread. Failed/missing files are unavailable before
+gameplay, retaining original music from the outset. Single-WAV mode remains.
+Filename parsing accepts nonzero unsigned track-NN.wav; conflicting numeric
+IDs are rejected. Decoder's SDL buffer now has RAII ownership so allocation
+failure cannot leak it; per-track memory failure keeps original fallback.
+No game song IDs/addresses in the engine, no runtime_arm.h or generated-code
+change. Both games need rebuilding. Production host/runner objects compile;
+95 public tests and audit pass. Gameplay check pending; no full game build.
+Actual43-file production-extracted fixture:1752426432 decoded bytes,
+22.2s preload at stereo65536Hz.24 grouped assertions pass; eight complete
+selection cycles preserve PCM pointers with zero allocations/extra decodes.
+Linux syntax checks also pass. This shifts cost to startup and retains the
+whole decoded pack until close; it does not trim recorded fades/silence.
+
+## Background local music selection — 20 October 2026
+
+GBARECOMP_MUSIC_DIR selects generic track-NN.wav files through
+local_music_select(unsigned). One worker decodes/converts only requested
+audio outside the audio mutex; generation checks reject stale completions.
+Changing requests invalidates readiness/active playback immediately; repeated
+selection and failed files do not reload. Missing/invalid/currently loading
+audio remains unavailable so game policy can preserve original music.
+Selection zero cancels. Worker joins before audio teardown; callback only
+mixes already converted PCM under the existing audio mutex. No song IDs,
+game addresses, pack size or mapping in the engine. Single-WAV environment
+still supports only title track1 when no directory is configured.
+38 production-extracted assertions cover actual WAV conversion, selection,
+stale loads, no reload, failures, cancellation, pause/gain/loop and joining
+during a blocked decode. Targeted production host object compiles. Both
+games need rebuilding; full game build/playback confirmation pending.
+
+## Optional local PCM music — 20 October 2026
+
+HostWindow optionally loads GBARECOMP_MUSIC_WAV once through SDL and mixes
+converted signed16 PCM into existing audio output under its audio mutex.
+Game-side controls select active/paused/gain/restart; no game addresses or
+song rules in the engine. Invalid/missing audio remains unavailable, allowing
+original music fallback. Whole-file looping, host volume, host/guest pause
+and Turbo mute are supported. No callback decoding/allocation/file IO.
+Both runtime pause paths forward host pause. No runtime_arm.h change.
+Both games need rebuilding; targeted host/runtime objects and19 extracted
+production audio checks pass. No full build or gameplay confirmation.
+
+## Game-supplied side-margin scroll — 20 October 2026
+
+SceneMarginLayer adds scroll_sides, default false. When enabled, the
+existing per-row margin scroll table also supplies positions beside the
+native window; native pixels still use their captured registers. TLA uses
+this to continue its measured diagonal sunlight cycle through all margins.
+Recognition, map identity and cycle measurements remain game-side. No
+capture-format or runtime_arm.h change, regeneration or full game build.
+Both games need rebuilding. Both renderer tools and live TLA GPU object
+compile;120 affected replays retain native pixels,250 source checks and
+25067520 pixel comparisons pass;95 public tests/audit pass. Gameplay pending.
+307 TBS replay samples identical;690 TLA samples change only six Champa
+margin views,39 older samples unavailable identically before/after.
+Evidence local/champa-0115/ and TLA FACTS.md.
+
+## Game-supplied stationary silhouette clipping — 20 October 2026
+
+SceneMarginLayer adds rest_clip_y, default zero. The renderer forwards a
+nonzero game-supplied offset to its existing u_rest_dy room-silhouette
+clip. When zero it retains the existing Altin profile/history rule exactly.
+The shader itself is unchanged; the clipping test remains room-copy-only,
+leaving native pixels intact. TLA supplies measured inputs from its own
+background-margin helper for its draining pool. No game addresses added
+to the engine, new threshold, duplicate clip rule, capture-format change,
+runtime_arm.h modification or regeneration. Both games need rebuilding.
+
+All120 affected TLA saved frames preserve native pixels;130 captured-state/
+exclusion checks and the live TLA production object pass. Both offline
+renderer tools compile.307 GS1 replay samples are unchanged; TLA678
+samples change only four0107 margin views, with39 unavailable in both
+versions. Gameplay pending; no full game build. Evidence
+local/draining-water-0107/ and TLA FACTS.md.
+
+## Healed RAM conditional-branch hooks — 19 October 2026
+
+TLA pad reports0105/0106 exposed cached native drawing routines bypassing
+game conditional-branch overrides: their existing arm_cond_passes callback
+only evaluated flags. overlay_loader now installs overlay_condition_passes.
+It forwards only actual live Thumb/ARM RAM B instructions, matching opcode
+condition, to the existing game hook with packed bank-relative context.
+Caller image base is restored even on exceptions. Other instructions,
+BL, AL/NV and invalid/non-RAM locations retain original condition behavior.
+No game addresses, new ABI member/version, emitter/cache invalidation or
+runtime_arm.h/generated-code change. Existing cache DLLs use the new host
+callback. No new optional feature/toggle; game view/signature guards remain.
+
+20 actual cached-DLL cases from new captures pass before/after and Original/
+no-hook controls, reaching queue submission with correct positions.2565
+condition/exclusion/exception controls, both production engine source object
+compilations and95 public tests pass. No whole gameplay or performance check.
+Jimmy confirms TLA pad gameplay fixed after rebuilding. Shared mechanism
+has no scene/game-specific addresses; existing game handlers retain their
+guards and configured behavior. This does not establish coverage of all
+effects or TBS gameplay. No regeneration or agent full build. Evidence
+local/jump-pads-0105-0106/ and TLA FACTS.md.
+
+## Event-time crash/F12 context and write integrity — 19 October 2026
+
+Shared memory_snapshot helper writes crash_context.txt/capture_context.txt
+with live frame/CPU/CPSR/resume PC, pending guest returns and diagnostic build
+time. Pending returns are explicitly not a complete guest backtrace; live
+state is not attributed to older presented frames. Existing instruction ring
+is saved only when nonempty, never enabled here. F12's write path adds timing,
+scene/held/GPU availability and file-write completeness in capture_info.txt;
+index.csv appends image_written. Existing payload/reader formats retained.
+Failed saves retain partial evidence, log their folder and return failure.
+Memory and CSV tail writers now check stream/close errors. Launcher archives,
+clears and preserves crash_context alongside the existing crash evidence.
+
+All FrameHistory collection/capture/reset/record code is unchanged from HEAD;
+new work runs on save/crash. No new logging, ring growth, sampling threshold
+or toggle. Saving can still pause play; no FPS/save-latency benchmark claimed.
+Windows/Linux syntax checks for shared writers, runtime_arm.cpp and collection
+session pass; focused report-writer, CSV-error and collector fixtures plus
+95 public tests/audit pass. No full build, active-bus snapshot or real fatal
+crash test. Both games rebuild; runtime_arm.h is unchanged, no regeneration.
+Evidence local/diagnostics-context-20261019/verification.json.
+
+
+## Shared crash-state report writer — 19 October 2026
+
+memory_snapshot.cpp now owns gsr_install_crash_snapshot_writer, the existing
+TBS callback for crash_memory.bin and optional F1 Crash log crash_trail.csv.
+Both runners install it immediately after crash_handler_install, closing
+TLA's missing guest-state report path. Existing GSRMEM1 serialization,
+20000-instruction tail, disabled-ring message and failure reporting retained.
+No game addresses or new toggle. Production-flag syntax checks for both
+runners/shared unit and isolated actual-writer checks pass; real-crash
+confirmation pending. Shared engine source means both games rebuild.
+
+## Sprite positions confined to margins — 19 October 2026
+
+SceneMargins.object_position optionally supplies enabled/X/Y per sprite.
+For an enabled sprite the original draw is clipped to the original240x160
+window; a second draw uses the supplied full position and discards every
+native pixel. Parked/menu sprites are excluded; FieldScene and its stored
+ABI remain unchanged. TLA uses this for jumping pads0099/0100. Other games
+and absent margin positions keep their existing path. Both games rebuild.
+Removed 20 October 2026: the pads moved to the normal position provider,
+so no game supplied margin positions any more (always empty).
+
+## Sprite-effect margin continuation — 19 October 2026
+
+SceneMargins can supply a two-axis continuation period per object. It stays
+outside the raw FieldScene capture ABI. The renderer draws translated copies
+with the same sprite artwork, animation, depth and blend state, clipping each
+copy away from the original240x160 window. Original objects are unchanged;
+parked/menu sprites and object-window masks are not extended. No game addresses
+or effect identifiers enter the shared engine. No optional/debug mode added.
+TLA supplies its captured Apojii rain identities from0093 through
+tla_screen_effect_margins.h, using the console canvas240x160 as the requested
+continuation period. This is a chosen margin continuation, not a claim that
+the random rain artwork itself has a measured240x160 natural period. Both
+games rebuild; no generated-code or ROM-configuration change/regeneration.
+Saved-frame verification and limitations: TLA FACTS.md, local/effects-0093/.
+Follow-up0094/0095 removes Rainbow Water from the game's repetition request:
+it belongs to the stream, and canvas copies put it on unrelated scenery.
+The generic engine is unchanged by that correction.
+
+
+## Room-background repeat at both margins (0088/0089, 19 October 2026)
+
+The existing margin repeat width continues horizontal-only room patches at
+both ends. Patches with a vertical repeat retain their prior room-source
+condition; their live tilemap path is unchanged.
+It applies only outside the native window, within the room, when the game
+provides a nonzero measured repeat and the layer is not using the live-map
+margin path. TLA maps175/176 supply the measured128-pixel distant-scenery repeat; other
+backgrounds retain zero. No camera, guest memory, scale or native fetch changes.
+Both games rebuild because the shared renderer changed; no regeneration.
+TLA supplies only its two measured Gaia Rock origins. See TLA FACTS.md,
+local/camera-0088/ and local/gaia-0089/ for saved-frame verification.
+
+## Intro retest205754: allow real progress through the same RAM entry
+
+Jimmy subsequently confirms the intro freeze fixed after rebuilding/retesting.
+The checks below describe the preceding source/bench stage.
+
+The prior PC/mode-only resolver guard still caused the intro freeze. Existing
+build's headless bench captures03000CEC legitimately recurring28169 guest
+cycles after resolution, while the earlier host call remains active. Guard
+now also compares g_runtime_cycles+g_runtime_deferred_cycles, rejecting only
+re-entry with no guest progress. No timing threshold, new clock or header.
+Immediate stale/cyclic returns still bridge safely. Actual-function fixture
+and isolated existing-process function substitution remove this specific
+fallback; production syntax,95 tests/public audit pass. No full game build
+or normal gameplay claim. Both games rebuild, no regeneration. Evidence:
+local/startup-203419/retest-205754/ and retest-bench-patched.log.
+
+## Fresh TLA startup report203419 — 18 October 2026
+
+The immutable warm-cache lookup still enumerated the whole folder on the game
+thread. The reported0.871s interval is dominated by directory/file-metadata
+syscalls. Use overlay_compile_one's existing exact-file load-only path once
+per backend instead. The separate0.796s sound pause interprets7.62M instructions
+despite an exact active prebuilt variant. The earlier direct-guard handoff's
+blanket recursion flag also suppresses different nested RAM entries; replace
+it with a linked PC/mode resolution stack. The actual-function nested A→B
+fixture bridges before and stays native after; repeated-entry/cycle guards,
+mode/resume/PIC handling and overlay priority pass. The captured caller chain
+is unavailable, so no exact-replay or gameplay-speedup claim. Both production
+units pass syntax checks;95 public tests/public audit pass. Both games rebuild,
+no regeneration. Evidence: local/startup-203419/; Jimmy authorized both fixes.
+
+## Prebuilt RAM handoff after a direct guard miss — 18 October 2026
+
+TLA session190343 spends1.025s interpreting7.6 million instructions at03000CEC
+although its exact16-byte variant is already prebuilt in harv17. A direct
+call's failed fixed-code guard used runtime_mutable_ram_code_miss, which only
+looked for runtime-healed code before bridging. It now consults the existing
+game-owned verified RAM-image resolver after the fast healed-code check.
+Caller PIC context is restored; a thread-local re-entry guard handles a stale
+resolver result without recursion. No weakened identity check or runtime_arm.h
+change. Actual-function path/guard fixture and Windows syntax checks pass;
+95 public tests pass. Both games rebuild; gameplay pending. The separate
+2.271s intro miss is unproven and no blanket stutter fix is claimed.
+Evidence: local/vines-0085/intro-coverage-check.json and ram-handoff-check.cpp.
+
+## Warm-cache startup logging — 18 October 2026
+
+F12 0084's session181649 spends9.278s in startup ready drains while installing
+10,729 cached RAM routines. Raw samples for long-guest frame labels are99.535%
+at NtWriteFile's syscall return. These are cached loads, incorrectly logged
+individually as new compiles. overlay_drain_ready now logs those details only
+for requested work (has_request); the existing warm-loader summary remains.
+Extent tracking, dispatch installation, variants and probe counters remain
+active for all entries. Windows syntax check passes; no full game build or
+post-change gameplay measurement. Both games need rebuilding. Evidence:
+local/followup-0084/startup-evidence.json and loader-syntax.log.
+
+## Speed-state evidence — 18 October 2026
+
+HostWindow logs guest frame plus held/toggle/active fast-forward state on
+source transitions. F12 0080 skipped pictures during reported normal play,
+but its original log cannot establish the input state at that moment. This
+records the existing calculation without changing controls or pacing. Windows
+syntax compilation passes; shared engine change, both games inherit it.
+Evidence: local/remaining-0080-82/speed-log-syntax.log. Stutter remains open.
+
+## Parked sprite identity — 18 October 2026
+
+The shared field_obj_is_parked now matches the complete blank attr0/attr1
+pair rather than coordinates plus non-affine status. Izumo F12 0078 frame5
+contains a real non-affine pillar at raw(192,192), just as the earlier Pound
+report contained an affine pillar there. Across16,124 saved frames all
+1,792,362 dummy matches have the blank pair; both real pillars retain their
+shape/size/transform bits. Actual-header classification and a diagnostic
+saved-frame correction pass, with zero changed native pixels. Both games
+need rebuilding; runtime_arm.h is untouched. Evidence: collection
+local/f12-0078-0082/. Other reports0079..82 are diagnostic only in this task.
+
 ## 0.5.2 release verification — 18 October 2026
 
 Windows and Linux full release packaging completed from the final source.
@@ -792,3 +1068,56 @@ counter (the sound library's wait for line 159, TLA 0x081C1250/0x081C2498)
 can now be skipped up to the next PPU event like a RAM poll. Before: at 50x
 overclock 1.07M-1.7M passes per frame, 100-600 ms per start-up frame (TLA
 FACTS, "Start-up hitches"). Compiles; not yet built or played.
+
+
+## Placement tile-grant provenance (2026-10-18)
+
+field/obj_placements.h stores uses_tile_grant(default false) alongside each
+placement snapshot. TLA marks only its character-body placements; other
+builders reuse record+10 for unrelated state and must not consult the
+character allocation table. F12 0086 frame75 shows vine tops borrowing
+Whirlwind's page when that byte happens to equal its owner. GS1 callers
+retain the default and do not consume this TLA grant metadata. Targeted
+compile/source fixture and public checks pass; gameplay retest remains.
+
+
+## Engine review cleanup (2026-10-20)
+
+- `runtime/runtime.cpp`: `GBARECOMP_DEMO_INPUT` keeps `walk`, `campaign` and
+  the menu masher; the upstream Mega Man Zero tracks (`campaign-combat`,
+  `-traverse`, `-safe`, `-clear`) and `GBARECOMP_BOSS_STRATEGY` are removed.
+- `armv4t/runtime_arm.cpp`, `runtime/runtime_arm_default_aborts.cpp`: the
+  `GBARECOMP_AUDIO_PROBE` entry/bridge register traces with hard-coded GS1
+  sound-routine addresses are removed (game addresses do not belong in the
+  engine). The generic audio-bridge probe in `gba_io.cpp`/`host_window.cpp`
+  remains.
+- `runtime/host_local_music.{h,cpp}`: the local music player
+  (`GBARECOMP_MUSIC_DIR` / `GBARECOMP_MUSIC_WAV`) moved out of
+  `host_window.cpp` as `LocalMusicPlayer`; locking, epoch and generation
+  logic unchanged. Added to `gbarecomp_runtime` in `CMakeLists.txt`.
+- `PRINCIPLES.md`: upstream Minish Cap, template-path and missing-file
+  references replaced with this collection's equivalents.
+- `armv4t/game_exit.h`: `at_game_exit` now creates the job list before
+  registering `run_game_exit` with `std::atexit`, so the list outlives the
+  handler. Before, standalone programs walked a destroyed list at exit
+  (measured: `bus_tests`, `dma_tests`, `pool_ldm_probe_tests` crashed after
+  passing).
+- `gba/gba_ppu.h`: `g_ws_bg_x_provider` comment states it runs on margin
+  columns only (the renderer already skipped native columns).
+- Engine tests updated to current contracts: `ram_heal_test.cpp`,
+  `ram_overlay/registry_test.cpp`, `ppu_smoke/test_main.cpp`,
+  `armv4t/pool_ldm_probe_test.cpp`. `scripts/build_dev.ps1` runs 20 tests
+  before each developer game build.
+- `armv4t/game_ram_layout.h` (new), `armv4t/runtime_arm.cpp`,
+  `gba/gba_bus.cpp`, `gba/gba_io.cpp`, `gba/gba_vram_trace.cpp`,
+  `runtime/overlay_loader.cpp`, `runtime/runtime_arm_default_aborts.cpp`,
+  `field/effect_capture.cpp`: every Golden Sun RAM address (unpacker slot and
+  allocator pointer, RAM-image window, OAM shadow, IWRAM heap, CRASH-03
+  pool-LDM probe) comes from `g_game_ram_layout`, set by the game's runner;
+  zero = inert. Infinite HP/PP party layout defaults to 0 slots; each game
+  calls `runtime_set_party_layout`.
+- `runtime/heal_gate.{h,cpp}`, `tests/heal_gate/` archived (unused P6 gate),
+  with `gbarecomp_heal_gate` in `CMakeLists.txt` and the `GbaBus`
+  `BusWriteObserver` hook. `RUNTIME_POOL_LDM_WINDOW_*` and
+  `g_runtime_shadow_tick` in `runtime_arm.h` are now unused and wait for the
+  next edit of that header.

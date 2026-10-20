@@ -16,6 +16,9 @@
 //   memory.bin      the game's memory at the press (EWRAM 0x40000, IWRAM
 //                   0x8000, IO 0x400, palettes 0x400, VRAM 0x18000, OAM 0x400)
 //   gpu_frame.bin   the newest snapshot again, for report tools
+//   capture_context.txt live CPU/pending returns at the press, not a past frame
+//   capture_trail.csv existing optional instruction log, when already enabled
+//   capture_info.txt timing, available evidence and file-write completeness
 //   <note file>     the caller's note, when it gave one
 // The folder prefix tells the games apart: "gpu_rewind_" (The Broken Seal),
 // "tla_rewind_" (The Lost Age); the launcher packs both into bug reports.
@@ -78,7 +81,8 @@ public:
     // back(0) is the newest frame; back(i) for i < count().
     const HistoryFrame& back(std::size_t i) const;
 
-    // Writes the folder; returns its path, or empty when it could not.
+    // Writes the folder; returns its path, or empty on an incomplete write.
+    // Partial evidence is retained and its folder is named in the log.
     std::string write(const std::string& note = {},
                       const char* note_file = "note.txt") const;
 

@@ -381,10 +381,24 @@ const Family kFamilies[] = {
 constexpr unsigned kFamilyCount =
     sizeof(kFamilies) / sizeof(kFamilies[0]) - 1u;
 
-struct Member { uint16_t family; uint16_t routine; uint32_t offset; RuntimeGuestFn fn; };
+struct Member {
+    uint16_t family;
+    uint16_t routine;
+    uint32_t offset;
+    RuntimeGuestFn fn;
+    uint32_t order;
+};
+// One instruction puts up to 15,858 entries in a single measured bucket.
+// Eight opening bytes reduce the captured searches sharply. Short tails
+// keep the instruction index; full routine verification still decides identity.
+constexpr unsigned kMemberPrefixSize = sizeof(uint64_t);
+std::unordered_map<uint64_t, std::vector<Member>> g_members_by_prefix[2];
 std::unordered_map<uint64_t, std::vector<Member>> g_members_by_opcode;
 // The last base each routine was verified at.
-std::unordered_map<uint32_t, Placement> g_member_placement;
+// Family/routine indices are dense and fixed by the generated image tables.
+// Keep the verification result directly at those indices: this lookup runs
+// even on a cache hit, so hashing the packed indices repeats needless work.
+std::vector<std::vector<Placement>> g_member_placement;
 unsigned g_members_logged = 0;
 // The routine last dispatched at each entry address: checked first, since a
 // built routine is entered many times while it lives.
@@ -402,8 +416,11 @@ uint64_t opcode_key(const uint8_t* p, int thumb) {
 }
 
 void build_family_index() {
+    uint32_t order = 0;
+    g_member_placement.resize(kFamilyCount);
     for (unsigned f = 0; f < kFamilyCount; ++f) {
         const Family& fam = kFamilies[f];
+        g_member_placement[f].resize(*fam.count);
         for (unsigned e = 0; e < *fam.table_len; ++e) {
             const DispatchEntry& d = fam.table[e];
             const uint32_t rel = d.addr - *fam.origin;
@@ -412,9 +429,16 @@ void build_family_index() {
             if (routine >= *fam.count || offset >= fam.sizes[routine]) continue;
             if (fam.starts && offset < fam.starts[routine]) continue;
             const uint8_t* at = fam.expected + rel;
-            g_members_by_opcode[opcode_key(at, d.thumb)].push_back(Member{
+            const Member m{
                 static_cast<uint16_t>(f), static_cast<uint16_t>(routine),
-                offset, d.fn});
+                offset, d.fn, order++};
+            if (fam.sizes[routine] - offset >= kMemberPrefixSize) {
+                uint64_t prefix;
+                std::memcpy(&prefix, at, sizeof(prefix));
+                g_members_by_prefix[d.thumb ? 1 : 0][prefix].push_back(m);
+            } else {
+                g_members_by_opcode[opcode_key(at, d.thumb)].push_back(m);
+            }
         }
     }
 }
@@ -423,7 +447,7 @@ bool member_resident(const Member& m, uint32_t base) {
     const Family& fam = kFamilies[m.family];
     const uint32_t size = fam.sizes[m.routine];
     const uint32_t start = fam.starts ? fam.starts[m.routine] : 0u;
-    Placement& p = g_member_placement[(uint32_t{m.family} << 16) | m.routine];
+    Placement& p = g_member_placement[m.family][m.routine];
     if (p.valid && p.base == base && p.epoch_first == page_epoch(base) &&
         p.epoch_last == page_epoch(base + size - 1u)) {
         return true;
@@ -459,9 +483,26 @@ RuntimeGuestFn family_dispatch(uint32_t pc, int thumb) {
     if (hit != g_member_hit.end() &&
         member_resident(*hit->second, pc - hit->second->offset))
         return enter(*hit->second, pc - hit->second->offset);
-    auto it = g_members_by_opcode.find(opcode_key(live, thumb));
-    if (it == g_members_by_opcode.end()) return nullptr;
-    for (const Member& m : it->second) {
+    const std::vector<Member>* prefix_members = nullptr;
+    if (const uint8_t* opening = live_ptr(pc, kMemberPrefixSize)) {
+        uint64_t prefix;
+        std::memcpy(&prefix, opening, sizeof(prefix));
+        const auto& index = g_members_by_prefix[thumb ? 1 : 0];
+        auto it = index.find(prefix);
+        if (it != index.end()) prefix_members = &it->second;
+    }
+    const std::vector<Member>* short_members = nullptr;
+    auto short_it = g_members_by_opcode.find(opcode_key(live, thumb));
+    if (short_it != g_members_by_opcode.end()) short_members = &short_it->second;
+    // Merge the two buckets in their original generated order, preserving
+    // which entry wins if more than one complete routine matches.
+    size_t i = 0, j = 0;
+    while ((prefix_members && i < prefix_members->size()) ||
+           (short_members && j < short_members->size())) {
+        const bool take_prefix = prefix_members && i < prefix_members->size() &&
+            (!short_members || j == short_members->size() ||
+             (*prefix_members)[i].order < (*short_members)[j].order);
+        const Member& m = take_prefix ? (*prefix_members)[i++] : (*short_members)[j++];
         const uint32_t base = pc - m.offset;
         if ((base & 3u) != 0u || !member_resident(m, base)) continue;
         g_member_hit[at] = &m;

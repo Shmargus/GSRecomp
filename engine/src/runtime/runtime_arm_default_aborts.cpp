@@ -27,6 +27,7 @@
 #include "runtime_arm.h"
 #include "symbol_lookup.h"
 #include "env_flag.h"
+#include "game_ram_layout.h"
 #include "self_heal.h"
 #include "overlay_loader.h"
 #include "arm_cpu_bridge.h"
@@ -608,6 +609,44 @@ extern "C" void runtime_mutable_ram_code_miss(uint32_t entry_pc, int thumb) {
     // the same guarantee). For unknown content it is one hash-map probe that
     // returns 0.
     if (overlay_try_dispatch(actual_pc, thumb)) return;
+    // A direct call into stale fixed RAM code did not pass through
+    // runtime_dispatch, so the game's verified RAM-image resolver has not
+    // seen it. Prefer an already-prebuilt variant before runtime healing.
+    // TLA intro190343 missed03000CEC despite its exact16-byte variant being
+    // present in the harvested corpus, then interpreted7.6 million insns.
+    // A resolved function can reach other stale RAM entries before returning.
+    // Reject only a repeated PC/mode with no guest progress: a resolved body
+    // may legitimately loop back here before its host call returns. Include
+    // deferred cycles so block-timed code records progress before a flush.
+    struct RamResolution {
+        uint32_t pc;
+        int thumb;
+        unsigned long long cycles;
+        RamResolution* previous;
+    };
+    static thread_local RamResolution* resolving_game_ram = nullptr;
+    const unsigned long long resolution_cycles =
+        g_runtime_cycles + g_runtime_deferred_cycles;
+    bool resolving_same_entry = false;
+    for (auto* at = resolving_game_ram; at; at = at->previous) {
+        if (at->pc == actual_pc && at->thumb == thumb &&
+            at->cycles == resolution_cycles) {
+            resolving_same_entry = true;
+            break;
+        }
+    }
+    if (g_runtime_ram_dispatch_hook && !resolving_same_entry) {
+        const uint32_t saved_image_base = g_runtime_image_base;
+        RamResolution resolution{actual_pc, thumb, resolution_cycles,
+                                 resolving_game_ram};
+        resolving_game_ram = &resolution;
+        RuntimeGuestFn fn = g_runtime_ram_dispatch_hook(actual_pc, thumb);
+        if (fn) fn();
+        resolving_game_ram = resolution.previous;
+        // Like overlay_try_dispatch, this path returns to its C caller.
+        g_runtime_image_base = saved_image_base;
+        if (fn) return;
+    }
     runtime_dispatch_miss(actual_pc | (thumb ? 1u : 0u));
 }
 
@@ -778,11 +817,6 @@ extern "C" int runtime_bridge_interpret(uint32_t entry_pc, bool entry_thumb,
     std::array<BridgeGapInstruction, kBridgeGapHistory> gap_history{};
     std::size_t gap_history_count = 0;
     std::size_t gap_history_next = 0;
-    // GBARECOMP_AUDIO_PROBE is a debug-only switch for the MP2K audio-bridge
-    // trace below; read once per process, not once per interpreted
-    // instruction.
-    static const bool audio_probe_enabled =
-        std::getenv("GBARECOMP_AUDIO_PROBE") != nullptr;
     for (;;) {
         // Sync interp -> g_cpu (pre-execution state) so the fingerprint ring,
         // the BIOS-read gate, and any IRQ/SWI excursion all see exactly what
@@ -791,21 +825,6 @@ extern "C" int runtime_bridge_interpret(uint32_t entry_pc, bool entry_thumb,
         const std::uint32_t pc = cpu.R[15];
         const bool was_thumb = cpu.thumb;
         g_cpu.R[15] = pc;  // store_interp already set this; explicit for clarity
-        if (audio_probe_enabled &&
-            (pc == 0x080F9B74u || pc == 0x080F9C90u ||
-             pc == 0x080F9EE8u || pc == 0x080F9F6Cu ||
-             pc == 0x080FA1FCu)) {
-            static unsigned audio_bridge_logs = 0;
-            if (audio_bridge_logs++ < 24u) {
-                std::fprintf(stderr,
-                             "[audio-bridge] pc=0x%08x r0=0x%08x r1=0x%08x "
-                             "r2=0x%08x r3=0x%08x r4=0x%08x r5=0x%08x r6=0x%08x "
-                             "r7=0x%08x r9=0x%08x r10=0x%08x r11=0x%08x\n",
-                             pc, cpu.R[0], cpu.R[1], cpu.R[2], cpu.R[3],
-                             cpu.R[4], cpu.R[5], cpu.R[6], cpu.R[7], cpu.R[9],
-                             cpu.R[10], cpu.R[11]);
-            }
-        }
         bus->set_bios_access_enabled(pc < 0x00004000u);
         if (g_runtime_insn_trace) runtime_insn_fp();
 
@@ -1041,9 +1060,11 @@ extern "C" int runtime_bridge_interpret(uint32_t entry_pc, bool entry_thumb,
                 static_cast<unsigned long long>(kBridgeIterationCap),
                 stop_pc, cpu.R[15]);
             runtime_iwram_code_write_dump("bridge-abort");
-            if ((entry_pc >= 0x03002000u && entry_pc < 0x030022C4u) ||
-                (cpu.R[15] >= 0x03002000u && cpu.R[15] < 0x030022C4u) ||
-                (stop_pc >= 0x03002000u && stop_pc < 0x030022C4u)) {
+            const uint32_t slot = g_game_ram_layout.unpacker_slot;
+            const uint32_t slot_len = g_game_ram_layout.unpacker_slot_len;
+            if ((entry_pc - slot) < slot_len ||
+                (cpu.R[15] - slot) < slot_len ||
+                (stop_pc - slot) < slot_len) {
                 runtime_unpacker_slot_dump("bridge-abort");
             }
             runtime_trace_dump_recent(96);

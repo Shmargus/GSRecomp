@@ -31,6 +31,22 @@ an older generated corpus with a newer compiler does not add those transfers.
 
 ## Developer builds (Windows)
 
+Developer launcher sessions always capture host profiling, cost probe and
+present cadence, including when Test variables is off. These three boxes
+are fixed on in developer settings; other tests remain optional.
+
+TBS Test variables > Local music uses the43 prepared recordings in
+`Music/GS1/track-01.wav` through `track-43.wav`, converted from the supplied
+FLACs without quality loss. Keep music files local; `Music/` is ignored.
+The test repeats each full recording and restarts it on savestate load.
+Sound effects retain original playback; missing/invalid files use original
+music. The full pack loads before gameplay starts so track changes use
+cached audio immediately. This adds startup time and audio memory. The earlier
+single-title WAV is still supported when no music directory is configured.
+The supplied43-track pack measured about22 seconds to preload and1.63GiB
+of decoded audio at the normal output rate on this PC. Track changes then
+perform no loading or conversion; turning Local music off avoids that cost.
+
 `build_dev.bat` builds The Broken Seal, then The Lost Age, then the root
 launcher; a failure stops it. Close the launcher and games first.
 

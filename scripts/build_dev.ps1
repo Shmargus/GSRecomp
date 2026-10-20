@@ -174,6 +174,35 @@ function Invoke-NativeLogged([string]$Executable, [string[]]$NativeArguments, [s
     if ($nativeExit -ne 0) { throw "Command failed ($nativeExit). See $LogFile" }
 }
 
+# Engine self-tests (measured 20 October 2026: about a minute to build;
+# ram_heal_tests 27-41 s because it compiles real overlays, the rest under a
+# second each). Left out: the placeholder armv4t/thumb/timer/irq tests, and
+# heal_gate_tests, which covers code nothing calls.
+$engineTests = @(
+    'decoder_smoke', 'function_finder_tests', 'relocatable_image_tests',
+    'selfheal_cluster_test', 'interpreter_smoke', 'ram_heal_tests',
+    'pool_ldm_probe_tests', 'bus_tests', 'dma_tests', 'ppu_smoke_tests',
+    'view_config_tests', 'host_overlay_tests', 'presentation_layout_tests',
+    'frame_interpolation_tests', 'frame_timing_tests', 'temporal_blend_tests',
+    'audio_drc_tests', 'ram_overlay_registry_tests', 'ram_image_probe_tests',
+    'codegen_tests'
+)
+
+# Builds and runs the engine self-tests in The Broken Seal's tree before any
+# long game build, so an engine regression stops the build in minutes.
+function Test-Engine([string]$BuildDir, [string]$RunDir, [int]$Jobs) {
+    Assert-Idle
+    Invoke-NativeLogged $script:cmake (@('--build', $BuildDir, '--parallel', "$Jobs", '--target') + $engineTests) (Join-Path $RunDir 'engine-tests-build.log')
+    foreach ($test in $engineTests) {
+        $exe = Join-Path $BuildDir "$test.exe"
+        if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { $exe = Join-Path $BuildDir "gbarecomp_build/$test.exe" }
+        Require-File $exe "Engine test $test"
+        try { Invoke-NativeLogged $exe @() (Join-Path $RunDir "engine-test-$test.log") }
+        catch { throw "Engine check failed: $test. No game was built. See $RunDir" }
+    }
+    Write-Host "Engine checks passed ($($engineTests.Count) tests)."
+}
+
 function Configure-Plan($Plan, [string]$RunDir) {
     Assert-Idle
     $cacheBackup = Join-Path $RunDir "$($Plan.Name)-CMakeCache-before.txt"
@@ -256,6 +285,8 @@ try {
     Set-Location -LiteralPath $collectionRoot
 
     Configure-Plan $gsPlan $runDir
+    $jobs = [Math]::Max(1, [int][Math]::Floor([Environment]::ProcessorCount * $CpuPercent / 100.0))
+    if ($buildGs -or $buildTla) { Test-Engine $gsBuild $runDir $jobs }
     if ($buildGs) {
     & $python $buildStampScript --root $collectionRoot --game BrokenSeal --build-dir $gsBuild --begin --snapshot (Join-Path $runDir 'gs-inputs.txt')
     if ($LASTEXITCODE -ne 0) { throw "The Broken Seal input snapshot failed ($LASTEXITCODE)." }
@@ -276,7 +307,6 @@ try {
     # Both session implementations are built into this one collection launcher.
     Assert-Idle
     if (-not $SkipLauncher) {
-        $jobs = [Math]::Max(1, [int][Math]::Floor([Environment]::ProcessorCount * $CpuPercent / 100.0))
         Invoke-NativeLogged $cmake @('--build', $gsBuild, '--target', 'GoldenSunCollection', '--parallel', "$jobs") (Join-Path $runDir 'collection-build.log')
         $selector = Join-Path $gsBuild 'GoldenSunCollection.exe'
         Require-File $selector 'Built collection launcher'

@@ -59,8 +59,8 @@ void crash_handler_mark_clean_exit();
 // Optional extra writer run while a crash report is being written. It gets
 // the report directory and returns a short description of the files it wrote
 // there (or nullptr when it wrote nothing); the report then lists it. The
-// game writes a memory snapshot and, with the F1 "Crash log" on, the trail of
-// its last instructions.
+// game writes a memory snapshot and live CPU/pending-return context, plus
+// the trail of its last instructions when F1 "Crash log" was already on.
 using CrashExtraWriter = const char* (*)(const char* dir);
 void crash_handler_set_extra_writer(CrashExtraWriter writer);
 

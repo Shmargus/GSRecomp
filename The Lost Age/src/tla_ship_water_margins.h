@@ -7,17 +7,20 @@
 
 #include "field_scene.h"
 
-// Map 42's ship-deck water is a 4-by-2 tile pattern on BG3. Validate the
-// clean water strip against the captured top rows before exposing its repeat
-// in the margins. Other native rows contain local water details; those keep
-// the original map. The room source ends at the authored water strip.
+// The ship deck's water (map 42) is a 4-by-2 tile pattern on BG3. Validate
+// the clean water strip against the captured top rows before exposing its
+// repeat in the margins. Other native rows contain local water details; those
+// keep the original map. The room source ends at the authored water strip.
+// Recognised by that content alone, not the map number: over every saved
+// capture it matches only the ship deck (local/scene-repeat-20261020/
+// FINDINGS.md). Unlike the haze it is not a whole-screen repeat, so the
+// shared repeating-layer rule does not cover it.
 inline bool tla_ship_water_margins(const gsr::FieldScene& scene,
                                    gsr::SceneMargins& margins,
-                                   unsigned map,
                                    const std::vector<std::uint8_t>& vram) {
     margins.layers[3].vram_height = 0;
     margins.layers[3].repeat_width = margins.layers[3].repeat_height = 0;
-    if (map != 42 || scene.video_mode != 0 ||
+    if (scene.video_mode != 0 ||
         !scene.layers[3].enabled || scene.layers[3].affine)
         return false;
 

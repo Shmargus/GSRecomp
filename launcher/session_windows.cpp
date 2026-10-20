@@ -1460,7 +1460,8 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
         if (dot != std::wstring::npos) prof_path.resize(dot);
         host_prof_file = wide_to_utf8(prof_path + L".hostprof.txt");
     }
-    gsr::add_test_environment(plan, test_option_state, host_prof_file);
+    gsr::add_test_environment(plan, test_option_state, host_prof_file, !kReleaseLauncher,
+        wide_to_utf8((g_collection_root / L"Music" / L"TBS-intro.wav").wstring()));
     if (collection_gpu_check) plan.enabled_tests += ",GSR_GPU_FIELD=1,GSR_GPU_FIELD_ONLY=0";
     gsr::remove_variables(plan, gsr::bios_log_variables);
     gsr::remove_variables(plan, gsr::retired_test_variables);
@@ -1574,6 +1575,7 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
         for (const fs::path& dir : {game.parent_path(), host_dir}) {
             fs::remove(dir / L"crash_memory.bin", stale_ec);
             fs::remove(dir / L"crash_trail.csv", stale_ec);
+            fs::remove(dir / L"crash_context.txt", stale_ec);
         }
         // The unpacker catcher's pair (src/unpacker_catch.h), written in the
         // game's working folder: at most one pair ever exists, from this run.
@@ -1727,7 +1729,7 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
                     launcher_log(L"OpenGL startup crash archive could not be created; preserving loose evidence before retry.");
                     const std::wstring stem = fs::path(log_path).stem().wstring();
                     if (crashed) for (const wchar_t* file : {L"crash_report.txt", L"crash_dump.dmp",
-                                                L"crash_memory.bin", L"crash_trail.csv"}) {
+                                                L"crash_memory.bin", L"crash_trail.csv", L"crash_context.txt"}) {
                         std::error_code copy_ec;
                         const fs::path preserved = logs_dir / (stem + L"." + file);
                         fs::copy_file(crash_dir / file, preserved,

@@ -8292,6 +8292,10 @@ note = "character pre-cull: minimum y 0xFFE00000"
 addr = 0x08023954
 note = "character pre-cull: maximum y 0x00DFFFFF"
 
+[[conditional_branch_override]]
+addr = 0x0802AE80
+note = "SHA-1 verified ROM: follow camera 0x0802AD80; ldr r2,[S+0xE8] at 0x0802AE74, sub r3,r2,r7 at 0x0802AE78, cmp r3,r5 at 0x0802AE7E; ble 0x0802AE88. Undo held offset in prior camera before the original 16-pixel Y limiter (F12 0077)."
+
 # Sprite builders 0x080220F0 and 0x08022318: `cmp r6,#0xEF; bgt` (body x),
 # `cmp r4,#0x9F; bgt` (body y, shadow y) skip the object.
 [[conditional_branch_override]]
@@ -8564,6 +8568,30 @@ note = "Spell spark loop (stamp 0x0818DD50) x BHI: observe the skipped spark"
 [[conditional_branch_override]]
 addr = 0x0818DD1E
 note = "Spell spark loop (stamp 0x0818DD50) y < 0 BLT: observe the skipped spark"
+
+[[thumb_literal_override]]
+addr = 0x080DABA4
+note = "Verified ROM/SHA-1 and F12 0081 f119 original-routine bench: climbing vine 0x080DAAB0, ldr r1 from 0x080DACA4 (0x001FFFFF), X pre-cull offset."
+
+[[thumb_literal_override]]
+addr = 0x080DABAC
+note = "Same measured vine loop: ldr r1 from 0x080DACA8 (0x012FFFFE), X pre-cull range."
+
+[[thumb_literal_override]]
+addr = 0x080DABB4
+note = "Same measured vine loop: ldr r3 from 0x080DACAC (0xFFE00000), minimum Y; original rejects the captured head at Y=-40."
+
+[[thumb_literal_override]]
+addr = 0x080DABBA
+note = "Same measured vine loop: ldr r1 from 0x080DACB0 (0x00DFFFFF), maximum Y."
+
+[[conditional_branch_override]]
+addr = 0x080DABBE
+note = "Verified ROM and F12 0081 bench: final vine cull bgt 0x080DAC5A. If retained, body attrs are at r5+0x18/+0x1C (record r5+0x14), position floor(r0/r2)-8 at 0x080DABC2..D2; record for margin provenance."
+
+[[conditional_branch_override]]
+addr = 0x0801403E
+note = "ROM 0x0801401C..C8: four-halfword OBJ matrix allocator; bhi after cmp r2,#31 rejects a full bank and returns slot31. Literals at 0x080140CC/D0 name count0x030011FC/table0x020054D0. F12 0085 has13 frames with a margin vine tip incorrectly sharing slot31; observe successful allocations and reuse byte-identical completed matrices before their callers file sprites."
 
 # The Lash rope's segments (0x080D9B80; F4 state 3 walking right, write
 # watch on a segment's attrs caught 0x080D9CA8): the character pre-cull's

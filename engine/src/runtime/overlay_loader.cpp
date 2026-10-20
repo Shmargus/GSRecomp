@@ -24,6 +24,7 @@
 #include "game_exit.h"
 #include "overlay_compile.h"      // overlay_compile_one, HealBackend, heal_backend_name
 #include "hot_queue_policy.h"
+#include "game_ram_layout.h"      // g_game_ram_layout
 #include "runtime_arm.h"          // g_cpu, g_runtime_*, every runtime/bus/arm fn
 #include "runtime_bus_bridge.h"   // active_bus
 #include "host_prof_phase.h"      // host profiler phase marker
@@ -405,7 +406,7 @@ uint64_t                       s_ram_churn_dropped_frames = 0;
 uint64_t                       s_ram_churn_dropped_pcs = 0;
 uint64_t                       s_ram_churn_dropped_rows = 0;
 
-// Lifecycle evidence for the one measured 0x03005B0C image. This is kept
+// Lifecycle evidence for the one measured RAM image (g_game_ram_layout). This is kept
 // separate from the sparse churn rows because each exact DMA completion is a
 // distinct generation. CPU-writer completion and first dispatch are emitted
 // as bounded metadata rows. No guest bytes are retained.
@@ -545,8 +546,10 @@ void ram_churn_record_ram_pointer_write(
                             dest, pointer_target, pointer_thumb != 0u);
 }
 
-constexpr uint32_t kRamImageStart = 0x03005B0Cu;
-constexpr uint32_t kRamImageEnd = 0x03005D5Cu;
+// The measured transient RAM image comes from g_game_ram_layout; an empty
+// window records nothing.
+inline uint32_t ram_image_start() { return g_game_ram_layout.ram_image_start; }
+inline uint32_t ram_image_end() { return g_game_ram_layout.ram_image_end; }
 
 void ram_image_lifecycle_drop_oldest() {
     if (s_ram_image_lifecycle_rows.empty()) return;
@@ -568,9 +571,11 @@ std::size_t ram_image_lifecycle_append(const RamImageLifecycleRow& row) {
 }
 
 uint32_t ram_image_lifecycle_crc32() {
-    std::array<uint8_t, kRamImageEnd - kRamImageStart> image{};
+    const uint32_t start = ram_image_start();
+    std::vector<uint8_t> image(
+        ram_image_end() > start ? ram_image_end() - start : 0u);
     for (std::size_t i = 0; i < image.size(); ++i)
-        image[i] = bus_read_u8(kRamImageStart + static_cast<uint32_t>(i));
+        image[i] = bus_read_u8(start + static_cast<uint32_t>(i));
     return gba::crc32(image.data(), image.size());
 }
 
@@ -657,7 +662,7 @@ void ram_image_lifecycle_boundary(uint8_t outer, uint32_t return_pc,
 void ram_image_lifecycle_dispatch(uint64_t frame, uint32_t pc,
                                   uint8_t thumb) {
     if (!s_ram_churn_probe_enabled ||
-        pc < kRamImageStart || pc >= kRamImageEnd) {
+        pc < ram_image_start() || pc >= ram_image_end()) {
         return;
     }
     if (s_ram_image_writer_row != kNoRamImageLifecycleRow) {
@@ -855,7 +860,7 @@ bool is_ram_addr(uint32_t addr) {
 
 // Resolve a live pointer to `len` bytes at `addr` inside IWRAM/EWRAM, or
 // nullptr if `addr` isn't in a RAM region or the range would run off its end.
-// Used ONLY by the game-thread dispatch-time CRC recheck (never cached).
+// Used on the game thread for CRC checks and overlay branch callbacks.
 const uint8_t* ram_live_ptr(gba::GbaBus* bus, uint32_t addr, uint32_t len) {
     if (!bus) return nullptr;
     if (addr >= 0x03000000u && addr < 0x03008000u) {
@@ -869,6 +874,43 @@ const uint8_t* ram_live_ptr(gba::GbaBus* bus, uint32_t addr, uint32_t len) {
         return bus->ewram_ptr() + off;
     }
     return nullptr;
+}
+
+// Cached overlays already ask the host to evaluate each instruction's
+// condition. Forward actual RAM B instructions through the game's branch
+// hook too: otherwise a healed copy silently bypasses expanded-view rules
+// present in static translations (TLA F12 0105/0106).
+int overlay_condition_passes(unsigned cond) {
+    const int original = arm_cond_passes(cond);
+    if (!g_runtime_conditional_branch_override || cond >= 0xEu) return original;
+    const uint32_t pc = g_cpu.R[15];
+    const bool thumb = (g_cpu.cpsr & CPSR_T_BIT) != 0;
+    if (pc & (thumb ? 1u : 3u)) return original;
+    const uint8_t* code = ram_live_ptr(active_bus(), pc, thumb ? 2u : 4u);
+    if (!code) return original;
+    if (thumb) {
+        uint16_t instruction;
+        std::memcpy(&instruction, code, sizeof(instruction));
+        if ((instruction & 0xF000u) != 0xD000u ||
+            ((instruction >> 8u) & 0xFu) != cond) return original;
+    } else {
+        uint32_t instruction;
+        std::memcpy(&instruction, code, sizeof(instruction));
+        // B only: conditional BL and conditional data instructions retain
+        // their original condition, as in the static code generator.
+        if ((instruction & 0x0F000000u) != 0x0A000000u ||
+            (instruction >> 28u) != cond) return original;
+    }
+    // Match the packed RAM-image convention without inheriting the image
+    // base of a previously called routine. Restore it even if a hook throws.
+    struct RestoreBase {
+        uint32_t value;
+        ~RestoreBase() { g_runtime_image_base = value; }
+    } restore{g_runtime_image_base};
+    const uint32_t bank = pc & 0xFF000000u;
+    g_runtime_image_base = bank;
+    return static_cast<int>(runtime_conditional_branch(
+        0x02000000u + (pc - bank), static_cast<uint32_t>(original)));
 }
 
 // Re-verify `e` against LIVE RAM bytes using the exact [addr, end) range it
@@ -1081,7 +1123,7 @@ void fill_callbacks() {
     g_callbacks.bus_write_u16 = bus_write_u16;
     g_callbacks.bus_write_u8  = bus_write_u8;
 
-    g_callbacks.arm_cond_passes   = arm_cond_passes;
+    g_callbacks.arm_cond_passes   = overlay_condition_passes;
     g_callbacks.arm_shift_lsl     = arm_shift_lsl;
     g_callbacks.arm_shift_lsr     = arm_shift_lsr;
     g_callbacks.arm_shift_asr     = arm_shift_asr;
@@ -1401,8 +1443,9 @@ int warm_scan_ram() {
 // ── Targeted immutable-image warm lookup ──────────────────────────
 // warm_load_background() (below) can still be mid-scan when a dispatch miss
 // for an immutable key it hasn't reached yet arrives at
-// overlay_request_compile. ROM/BIOS keys are cheap to find: the scan only
-// loads an exact matching image, normally one file. RAM misses use the normal
+// overlay_request_compile. Let overlay_compile_one derive the exact cache
+// filename from the immutable image, without listing the cache directory.
+// RAM misses use the normal
 // worker path instead. A targeted RAM lookup would rebuild the index of every
 // RAM DLL in both cache directories on each miss, blocking the game thread
 // while the background scanner already does the same work.
@@ -1412,39 +1455,25 @@ int warm_scan_ram() {
 // it — it never touches g_healed directly.
 
 bool warm_load_rom_bios_key_now(uint32_t pc, bool want_thumb, uint64_t key) {
+    OverlayWorkItem w;
+    w.pc = pc; w.thumb = want_thumb;
+    if (!region_bytes(pc, &w)) return false;
     bool any = false;
     for (HealBackend backend : {HealBackend::Gcc, HealBackend::Tcc}) {
         const std::string dir = cache_dir_for(backend);
-        std::error_code ec;
-        if (!fs::exists(dir, ec)) continue;
-        for (const auto& de : fs::directory_iterator(dir, ec)) {
-            if (ec) break;
-            if (!de.is_regular_file()) continue;
-            uint32_t fpc = 0, fcrc = 0;
-            bool fthumb = false;
-            if (!parse_cache_filename(de.path().filename().string(), &fpc,
-                                      &fcrc, &fthumb))
-                continue;
-            if (fpc != pc || fthumb != want_thumb) continue;
-
-            OverlayWorkItem w;
-            w.pc = pc; w.thumb = want_thumb;
-            if (!region_bytes(pc, &w)) continue;
-
-            ReadyEntry r;
-            r.key = key;
-            std::string err;
-            r.ok = overlay_compile_one(w, dir, &g_callbacks,
-                                       /*compile_if_missing=*/false, backend,
-                                       &r.c, &err);
-            if (!r.ok) continue;  // stale/mismatched on disk — heals normally
-            {
-                std::lock_guard<std::mutex> lk(s_ready_mtx);
-                s_ready.push_back(r);
-                s_ready_pending.fetch_add(1, std::memory_order_release);
-            }
-            any = true;
+        ReadyEntry r;
+        r.key = key;
+        std::string err;
+        r.ok = overlay_compile_one(w, dir, &g_callbacks,
+                                   /*compile_if_missing=*/false, backend,
+                                   &r.c, &err);
+        if (!r.ok) continue;  // absent/stale on disk — heals normally
+        {
+            std::lock_guard<std::mutex> lk(s_ready_mtx);
+            s_ready.push_back(r);
+            s_ready_pending.fetch_add(1, std::memory_order_release);
         }
+        any = true;
     }
     return any;
 }
@@ -1886,8 +1915,8 @@ void overlay_drain_ready() {
             h.ram_backed = is_ram_addr(r.c.pc);
             h.relocatable = r.c.relocatable;
             h.code_bytes = r.c.code_bytes;
-            if (h.ram_backed) {
-                // One line per completed RAM-code compile (compiles are rare),
+            if (h.ram_backed && r.has_request) {
+                // One line per requested RAM-code compile (compiles are rare),
                 // always on so a long normal-speed session yields this data
                 // without the slow tracing mode. "reason": no HealSlot for
                 // this key yet ("no-variant"); alternates already at
@@ -1911,6 +1940,11 @@ void overlay_drain_ready() {
                              static_cast<unsigned long long>(s_ram_compile_seq),
                              h.addr, h.crc, h.addr, h.end, h.end - h.addr,
                              reason);
+            }
+            if (h.ram_backed) {
+                // Warm-cache entries already have the background loader's
+                // summary. Logging each as a new compile blocked startup on
+                // stderr writes (F12 0084 session: 10,729 cached RAM entries).
                 // Record the real extent this compile discovered so future
                 // request_identity() calls for this key can narrow their
                 // dedup comparison window — never below any extent we've

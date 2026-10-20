@@ -261,12 +261,10 @@ int main() {
     expect(g_c_calls == 1u,
            "recursive RAM decline re-entered the native overlay body");
 
-    g_runtime_ram_dispatch_hook = nullptr;
+    // With a game RAM resolver installed that declines this PC and confirms
+    // nothing, the generic dispatcher registers the page, observes a later
+    // write inside [entry,next-entry), and bypasses the stale static function.
     g_registry = nullptr;
-
-    // Existing generated RAM bodies have no entry CRC prologue. Prove the
-    // generic dispatcher registers the page, observes a later write inside
-    // [entry,next-entry), and bypasses the stale static function.
     codegen_test::bus_reset(kStaticRamPc, 0x100u);
     runtime_ram_code_dirty_reset();
     g_cpu.cpsr = 0x1Fu;
@@ -283,6 +281,17 @@ int main() {
            "modified static RAM fallback recorded the wrong PC");
     expect(codegen_test::g_static_ram_calls == 1u,
            "modified static RAM body executed stale AOT code");
+
+    // With no resolver (The Lost Age's bare runner), the dispatcher cannot
+    // confirm identity, so it runs the body: every generated RAM function
+    // opens with its own runtime_ram_code_guard over exactly its bytes
+    // (emit_function.cpp), which makes that decision.
+    g_runtime_ram_dispatch_hook = nullptr;
+    codegen_test::g_dispatch_called = false;
+    runtime_dispatch(kStaticRamPc);
+    expect(!codegen_test::g_dispatch_called &&
+               codegen_test::g_static_ram_calls == 2u,
+           "without a resolver the dirty static RAM body was not left to its guard");
     if (g_failures != 0) {
         std::fprintf(stderr, "%d ram overlay registry test(s) failed\n",
                      g_failures);

@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "game_exit.h"
+#include "game_ram_layout.h"
 
 namespace gsr {
 namespace {
@@ -123,7 +124,11 @@ bool stamp_operation(const Memory& memory, std::uint32_t pc, EffectSpark& stamp)
     const auto replace =
         stamp.flip_x ? p.replace_reverse_template : p.replace_template;
     bool matched = false, replaced = false;
-    for (; at <= 0x030077FCu; at += 4) {
+    // Last word start in the game's IWRAM heap. An unset heap gives 0, so the
+    // scan (which starts past pc + 12) does not run.
+    const std::uint32_t last_word = g_game_ram_layout.iwram_heap_last >= 3u
+        ? g_game_ram_layout.iwram_heap_last - 3u : 0u;
+    for (; at <= last_word; at += 4) {
         if (memory.word(at) == 0xE12FFF1Eu) { // ARM BX LR
             if (matched == replaced) return false;
             stamp.blend = replaced ? EffectBlend::Replace
@@ -160,7 +165,9 @@ bool effect_capture_enabled() { return g_enabled; }
 bool effect_capture_observes(std::uint32_t pc) {
     const auto& p = profile();
     pc = arm_entry(pc);
-    return (pc >= 0x03002000u && pc <= 0x030077FCu) ||
+    const auto& heap = g_game_ram_layout;
+    return (heap.iwram_heap_last >= 3u && pc >= heap.iwram_heap_first &&
+            pc <= heap.iwram_heap_last - 3u) ||
            copy_kind(pc) != Copy::None ||
            (pc != 0 && (pc == p.clear_canvas || pc == p.fill_canvas));
 }

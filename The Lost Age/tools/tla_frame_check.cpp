@@ -33,9 +33,12 @@
 #include "gpu_surface.h"
 #include "tla_water_ripple.h"
 #include "tla_tornado_margins.h"
+#include "scene_repeat.h"
 #include "tla_screen_effect_margins.h"
 #include "tla_ship_water_margins.h"
+#include "tla_background_margins.h"
 #include "tla_room_palette.h"
+#include "tla_room_sprite_clip.h"
 #include "tla_frame_capture.h"
 
 namespace {
@@ -103,7 +106,7 @@ int main(int argc, char** argv) {
         const auto ewram = saved.find("EWRAM"), iwram = saved.find("IWRAM");
         if (ewram.size != 0x40000 || iwram.size != 0x8000 ||
             state.size != 8 || objects.size != 128 * 12 ||
-            (room_vram.size && room_vram.size != 0x18000) ||
+            (room_vram.size && room_vram.size != 0x18000 && room_vram.size != 0x20000) ||
             (room_pal.size && room_pal.size != 0x400) ||
             fx_stamps.size % 36 ||
             fx_stamps.size / 36 > std::size_t(std::numeric_limits<int>::max()) ||
@@ -216,7 +219,10 @@ int main(int argc, char** argv) {
                             std::vector<std::uint8_t>* out) {
                 if (!renderer.set_output_size(w, h)) return false;
                 scene = saved_scene;
-                margins.layers[2].scroll.clear();
+                margins.layers = {};
+                if (room && memory.size() >= 0x48000u)
+                    tla_hide_outside_room(scene,
+                        memory.data(), 0x40000u, memory.data() + 0x40000u, 0x8000u);
                 tla_tornado_margins(scene, margins,
                     room && memory.size() >= 0x42A
                         ? unsigned(memory[0x428]) | (unsigned(memory[0x429]) << 8) : 0,
@@ -232,10 +238,7 @@ int main(int argc, char** argv) {
                 std::vector<std::uint8_t> vram(fr.vram, fr.vram + 0x18000);
                 const auto objx = saved.find("OBJX");
                 if (objx.size == 0x8000) vram.insert(vram.end(), objx.data, objx.data + objx.size);
-                const bool haze = tla_screen_effect_margins(scene, margins,
-                    room && memory.size() >= 0x42A
-                        ? unsigned(memory[0x428]) | (unsigned(memory[0x429]) << 8) : 0,
-                    vram);
+                tla_weather_sprite_margins(scene, margins, vram);
                 bool port = false;
                 if (room && !rom.empty() && (!saved.legacy || memory.size() >= 0x4122D)) {
                     const auto sine = [&](unsigned index) {
@@ -250,17 +253,15 @@ int main(int argc, char** argv) {
                     std::printf("port wave: %s\n", port ? "matched" : "not matched");
                 }
                 std::vector<std::uint8_t> haze_vram;
-                if ((haze && tla_haze_fill_rows(vram, scene, &haze_vram)) ||
-                    (port && tla_haze_fill_rows(vram, scene, &haze_vram, 2))) {
+                if (port && tla_haze_fill_rows(vram, scene, &haze_vram, 2)) {
                     std::printf("haze rows: refilled\n");
                     vram.swap(haze_vram);
                 }
-                if (tla_ship_water_margins(scene, margins,
-                        room && memory.size() >= 0x42A
-                            ? unsigned(memory[0x428]) | (unsigned(memory[0x429]) << 8) : 0,
-                        vram)) {
+                if (room && tla_ship_water_margins(scene, margins, vram)) {
                     std::printf("ship water: repeated\n");
                 }
+                tla_background_margins(scene, margins,
+                    room ? memory.data() : nullptr, room ? memory.size() : 0);
                 renderer.upload_vram(vram.data(), vram.size());
                 renderer.upload_palette(scene.palette.data(), scene.palette.size());
                 if (!saved.legacy) {
@@ -292,6 +293,20 @@ int main(int argc, char** argv) {
                         std::printf("  BG%d room agreement %d%% of %d tiles\n", bg,
                                     agree, compared);
                     }
+                }
+                // The shared repeating-layer rule, as tla_gpu_field.cpp runs it.
+                if (room) {
+                    gsr::continue_repeating_layers(scene, margins, vram.data(), vram.size(),
+                        [&](int bg) {
+                            bool from_record = false;
+                            return bg != 0 && renderer.room_known() &&
+                                   renderer.room_reference_for(scene, bg, &from_record);
+                        },
+                        -(h - 160) / 2, h);
+                    for (int bg = 0; bg < 4; ++bg)
+                        if (margins.layers[bg].vram_height < 0 &&
+                            !margins.layers[bg].scroll.empty())
+                            std::printf("BG%d: repeating layer continued\n", bg);
                 }
                 if (room && memory.size() >= 0x48000 &&
                     world_map.update(memory.data(), 0x40000, memory.data() + 0x40000,

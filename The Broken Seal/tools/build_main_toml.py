@@ -47,6 +47,8 @@ RESUME_RANGE_MAX_BYTES = 0x1000
 # viewport candidates before the unchanged PPU can clip them. The runner may
 # force only these decisions, and only for strict 360x240 geometry.
 REVIEWED_CONDITIONAL_BRANCH_OVERRIDES = (
+    (0x080F9F50, "Local intro music: title BGM left gain BLS, paired with MOVS080F9F52; loaded-file and R5 track ownership required"),
+    (0x080F9F64, "Local intro music: title BGM right gain BLS, paired with MOVS080F9F66; loaded-file and R5 track ownership required"),
     (0x0800B27E, "Func_b168 screen-Y BGT: force the reviewed writer path"),
     (0x0800B324, "Func_b168 screen-X BGT: force the reviewed writer path"),
     (0x0800B328, "Func_b168 screen-Y BGT: force the reviewed writer path"),
@@ -110,6 +112,8 @@ REVIEWED_CONDITIONAL_BRANCH_OVERRIDES = (
 # wraps each option by the choice count it stores at setup; the runner raises
 # only Message speed's count, and only while the launcher option is on.
 REVIEWED_THUMB_ALU_IMMEDIATE_OVERRIDES = (
+    (0x080F9F52, "Local intro music: title player's left gain MOVS R0,#255 ->0 only with active local playback; other music/effects unchanged"),
+    (0x080F9F66, "Local intro music: title player's right gain MOVS R0,#255 ->0 with the same playback and R5 ownership guards"),
     (0x0801D072, "Settings screen setup: Message-speed choice count movs #3"),
     (0x080180D0, "Text decoder: adds r7,r0,#0 takes each decoded character"),
     (0x08021732, "Icon loader: adds r2,r5,#0 picture source for the OBJ upload"),

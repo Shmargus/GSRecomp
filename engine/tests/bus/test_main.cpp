@@ -11,6 +11,7 @@
 
 #include "gba_rom_header.h"
 #include "gba_bus.h"
+#include "../gs1_test_layout.h"
 #include "gba_save.h"
 #include "snapshot.h"
 #include "runtime_arm.h"
@@ -462,6 +463,7 @@ void test_ram_image_common_bus_writer() {
 }  // namespace
 
 int main() {
+    set_gs1_test_layout();
     test_minishcap_like();
     test_corrupt_header();
     test_no_save_signature();

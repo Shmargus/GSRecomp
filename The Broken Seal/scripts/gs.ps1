@@ -218,8 +218,12 @@ if (Test-Stage 'recompile') {
         }
         Write-Host "    generated conditional-branch hook present: $site" -ForegroundColor Green
     }
-    # Instant text's fourth Message-speed choice needs these three hooks.
+    # Configured value/branch policies require these generated chokepoints.
     $valueHooks = @(
+        'runtime_conditional_branch(0x080F9F50u',
+        'runtime_conditional_branch(0x080F9F64u',
+        'runtime_thumb_alu_immediate(0x080F9F52u',
+        'runtime_thumb_alu_immediate(0x080F9F66u',
         'runtime_thumb_alu_immediate(0x0801D072u',
         'runtime_thumb_literal(0x08016E56u',
         'runtime_thumb_literal(0x08093332u',

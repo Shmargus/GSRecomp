@@ -4,6 +4,7 @@
 #include <cstdio>
 
 #include "runtime_arm.h"
+#include "../gs1_test_layout.h"
 
 extern "C" void runtime_ram_image_dma_begin(void);
 extern "C" void runtime_ram_image_dma_end(void);
@@ -101,6 +102,7 @@ bool check(bool ok, const char* what) {
 }  // namespace
 
 int main() {
+    set_gs1_test_layout();
     g_runtime_ram_pointer_write_probe = &record;
     g_cpu.R[15] = 0x08001234u;
     g_cpu.cpsr = 0u;

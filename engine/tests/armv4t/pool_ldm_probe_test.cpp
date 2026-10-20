@@ -32,6 +32,7 @@
 #include "gba_bus.h"
 #include "gba_vram_trace.h"
 #include "runtime_arm.h"
+#include "../gs1_test_layout.h"
 
 // Crash-dump seams live in runtime_arm.cpp but have no public header; they
 // are part of this probe's tested contract.
@@ -478,7 +479,13 @@ void test_arm_crc_and_ring_provenance() {
 
 }  // namespace
 
+// The probe arms only while the RAM Churn Probe's dispatch observer is
+// installed (runtime_pool_dispatch_history_record); stand one in.
+void churn_probe_dispatch_stub(uint64_t, uint32_t, uint8_t) {}
+
 int main() {
+    set_gs1_test_layout();
+    g_runtime_ram_image_dispatch_probe = churn_probe_dispatch_stub;
     test_arm_crc_and_ring_provenance();
     if (g_failures == 0) std::printf("pool_ldm_probe_tests: all passed\n");
     return g_failures == 0 ? 0 : 1;

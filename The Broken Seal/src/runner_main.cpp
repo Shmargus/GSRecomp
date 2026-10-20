@@ -21,6 +21,7 @@
 #include "frame_history.h"
 #include "texture_readback_queue.h"
 #include "crash_handler.h"
+#include "game_ram_layout.h"
 #include "map_recorder.h"
 #include "obj_recorder.h"
 #include "battle_view.h"
@@ -31,6 +32,7 @@
 #include "unpacker_catch.h"
 #include "unpacker_guard.h"
 #include "field_scene_renderer.h"
+#include "intro_music.h"
 #include "world_map_source.h"
 #include "cheat_menu.h"
 #include "hard_mode.h"
@@ -4326,6 +4328,10 @@ void report_golden_sun_field_producers(const char* reason) {
 // widescreen diagnostics are enabled; never consulted by gameplay/render code.
 constexpr std::uint32_t kGoldenSunObjRecordCensusStart = 0x03002000u;
 constexpr std::uint32_t kGoldenSunObjRecordCensusEnd = 0x030022E0u;
+// CRASH-03 pool-LDM probe's stack window [base,end), 16 words (the engine
+// probe's layout, set at startup, and the fast-IWRAM watch below).
+constexpr std::uint32_t kGoldenSunPoolLdmWindowBase = 0x03007E00u;
+constexpr std::uint32_t kGoldenSunPoolLdmWindowEnd = 0x03007E40u;
 // A 64-entry cap overflowed (Bilibin ~20005, Palace ~2912 write events; the
 // overflow counts rejected writes, not distinct keys). The range is 0x2E0 = 736
 // bytes. Worst measured case: one writer identity per byte (Palace's
@@ -8863,8 +8869,8 @@ inline bool golden_sun_fast_iwram_store_has_consumer(std::uint32_t address,
     const std::uint64_t physical = (address >> 24) == 0x03u
         ? 0x03000000u + (address & 0x00007FFFu)
         : address;
-    return physical < RUNTIME_POOL_LDM_WINDOW_END &&
-           physical + size > RUNTIME_POOL_LDM_WINDOW_BASE;
+    return physical < kGoldenSunPoolLdmWindowEnd &&
+           physical + size > kGoldenSunPoolLdmWindowBase;
 }
 
 // Fill the inline gate g_runtime_fast_iwram_watch (runtime_arm.h): one bit per
@@ -9602,8 +9608,9 @@ void native_page_patch_capture(std::vector<std::uint8_t>& vram,
                                gsr::FieldScene& scene);
 
 // Sprite edge continuity: see src/obj_y_continuity.h. Always on.
-// Field frames in the expanded view only; every change is logged as
-// [obj-y-continuity] (the first 400).
+// Field frames in the expanded view only. Sprite recorder logs the first
+// 400 changes; normal play must not fill the launcher's pipe with these
+// per-sprite diagnostics (Djinn menu report 190853).
 void apply_obj_y_continuity_if_enabled(gsr::FieldScene* scene,
                                        const std::uint8_t* oam,
                                        const std::vector<std::uint8_t>& io) {
@@ -9620,7 +9627,7 @@ void apply_obj_y_continuity_if_enabled(gsr::FieldScene* scene,
     gsr::apply_obj_y_continuity(
         scene, oam, guessed, field, &state,
         [&](const gsr::ObjYContinuityChange& c) {
-            if (reported >= 400) return;
+            if (!gsr::obj_recorder_enabled() || reported >= 400) return;
             ++reported;
             const char* source =
                 !scene->objects[c.slot].trusted ? "untrusted" : "fallback";
@@ -12072,6 +12079,7 @@ int golden_sun_iris_row_value(std::uint32_t pc, std::uint32_t original,
 
 int golden_sun_thumb_alu_immediate(std::uint32_t pc, std::uint32_t original,
                                    std::uint32_t* out_value) {
+    if (gsr::intro_music::immediate(pc, g_cpu.R[5], out_value)) return 1;
     using namespace gsr::text_speed_cheat;
     if (const int r = golden_sun_worldmap_range_box(pc, original, out_value);
         r >= 0) {
@@ -12359,6 +12367,7 @@ int golden_sun_overlay_sprite_branch(std::uint32_t pc, std::uint32_t original,
 // every view.
 int golden_sun_conditional_branch(std::uint32_t pc, std::uint32_t original,
                                   std::uint32_t* out_decision) {
+    if (gsr::intro_music::branch(pc, g_cpu.R[5], out_decision)) return 1;
     using namespace gsr::text_speed_cheat;
     if (const int r = golden_sun_worldmap_sprite_branch(pc, original,
                                                         out_decision);
@@ -12401,6 +12410,7 @@ int golden_sun_conditional_branch(std::uint32_t pc, std::uint32_t original,
 int golden_sun_write_override(std::uint32_t pc, std::uint32_t addr,
                               std::uint32_t requested, std::uint32_t width,
                               std::uint32_t* out_value) {
+    gsr::intro_music::header_write(pc, addr, requested, width);
     if (const int r = cheat_reward_write(pc, addr, requested, width, out_value);
         r >= 0) {
         return r;
@@ -14076,7 +14086,33 @@ void hard_mode_settings_teardown() {
     bus_write_u8(kAutoSleepFlag, value);
 }
 
+void update_local_music(bool restart = false) {
+    if (!gsr::intro_music::enabled()) return;
+    const bool was_active = gsr::intro_music::active;
+    const auto player = gsr::intro_music::kPlayer;
+    gsr::intro_music::player_state(bus_read_u32(player),
+        bus_read_u32(player + 4), bus_read_u16(player + 0x24),
+        bus_read_u16(player + 0x28), restart);
+    if (was_active != gsr::intro_music::active ||
+        (restart && gsr::intro_music::active)) {
+        // MPlayMain 080F9E34/3E checks active bit80 and dirty bits0F;
+        // 080F9E6A/70 recalculates existing voice gains for dirty bits03.
+        // Refresh existing voices when local selection takes ownership or
+        // relinquishes it after a failed load.
+        for (unsigned i = 0; i < gsr::intro_music::kTrackCount; ++i) {
+            const auto track = gsr::intro_music::kTracks +
+                i * gsr::intro_music::kTrackBytes;
+            const auto flags = bus_read_u8(track);
+            if (flags & 0x80u) bus_write_u8(track, flags | 3u);
+        }
+    }
+}
+
 void golden_sun_function_entry_observer(std::uint32_t entry_pc) {
+    if (entry_pc == gsr::intro_music::kPlayerMain &&
+        g_cpu.R[0] == gsr::intro_music::kPlayer && gsr::intro_music::enabled()) {
+        update_local_music();
+    }
     if (entry_pc == gsr::hard_mode::kSettingsSetupEntryPc) {
         g_settings_screen_text = true;
         hard_mode_settings_setup();
@@ -15309,28 +15345,51 @@ int main(int argc, char** argv) {
     // subsystem, so as much of the run as possible is covered. nullptr =
     // default to the directory this executable lives in.
     gbarecomp::crash_handler_install(nullptr);
+    // Game RAM addresses the shared engine's probes, journals and host effect
+    // capture need (engine/src/armv4t/game_ram_layout.h). Set before the guest
+    // runs; the engine holds none of these itself.
+    {
+        GameRamLayout layout;
+        // IWRAM allocation heap the game builds routines in.
+        layout.iwram_heap_first = 0x03002000u;
+        layout.iwram_heap_last = 0x030077FFu;
+        // Overlay unpacker (Func_2544) slot, 0x03002000..0x030022C4, and the
+        // game's IWRAM bump-allocator pointer ([0x03001E50] + 4, Func_4938):
+        // where the next copied routine lands.
+        layout.unpacker_slot = 0x03002000u;
+        layout.unpacker_slot_len = 0x2C4u;
+        layout.iwram_heap_ptr = 0x03001E54u;
+        // Measured transient RAM code image, half-open.
+        layout.ram_image_start = 0x03005B0Cu;
+        layout.ram_image_end = 0x03005D5Cu;
+        // OAM shadow buffer, copied whole to OAM at the frame handoff.
+        layout.oam_shadow_start = 0x0300347Cu;
+        layout.oam_shadow_end = 0x0300387Cu;
+        // CRASH-03 pool-LDM probe: the generated blitter pool's LDM at
+        // 0x03006100 loads two words from the stack cells 0x03007E24/28; the
+        // poison target is the neighbouring cell 0x03007E30; the tracked
+        // stack window is 0x03007E00..0x03007E40 (16 words). The probe arms
+        // on dispatch into either pool range.
+        layout.pool_ldm_pc = 0x03006100u;
+        layout.pool_ldm_slot0 = 0x03007E24u;
+        layout.pool_ldm_slot1 = 0x03007E28u;
+        layout.pool_ldm_poison_target = 0x03007E30u;
+        layout.pool_ldm_window_base = kGoldenSunPoolLdmWindowBase;
+        layout.pool_ldm_window_end = kGoldenSunPoolLdmWindowEnd;
+        layout.pool_range0_lo = 0x030057E0u;
+        layout.pool_range0_hi = 0x03005A64u;
+        layout.pool_range1_lo = 0x03006000u;
+        layout.pool_range1_hi = 0x03006500u;
+        runtime_set_game_ram_layout(layout);
+        // Party for the Infinite HP/PP cheats (USA/EU image): four slots at
+        // 0x02000534, 0x14C bytes apart.
+        runtime_set_party_layout(0x02000534u, 0x14Cu, 4u);
+    }
     // F1 "Crash log": a crash report also gets the game's last instructions
     // (freezes get the same trail from the hang watchdog, hang_fp_tail.csv).
     // Every crash also writes crash_memory.bin (gsr_write_memory_snapshot,
     // zero cost during play).
-    gbarecomp::crash_handler_set_extra_writer([](const char* dir) -> const char* {
-        static char desc[160];
-        char path[300];
-        std::snprintf(path, sizeof(path), "%s/crash_memory.bin", dir);
-        const bool wrote_mem = gsr_write_memory_snapshot(path);
-        const char* mem = wrote_mem ? "crash_memory.bin" : "crash_memory.bin FAILED";
-        if (runtime_fp_count() == 0) {
-            std::snprintf(desc, sizeof(desc),
-                          "%s (no game trail: Crash log is off in the F1 menu)",
-                          mem);
-        } else {
-            std::snprintf(path, sizeof(path), "%s/crash_trail.csv", dir);
-            const bool trail = runtime_fp_save_tail_csv(path, 20000);
-            std::snprintf(desc, sizeof(desc), "%s, %s", mem,
-                          trail ? "crash_trail.csv" : "crash_trail.csv FAILED");
-        }
-        return desc;
-    });
+    gsr_install_crash_snapshot_writer();
     gsr::unpacker_catch_install();
     gsr::unpacker_guard_install(0x08002808u);  // Func_2808 (FACTS.md)
     // The payload-free producer trace stays opt-in
@@ -15380,6 +15439,7 @@ int main(int argc, char** argv) {
     gsr::room_buffer_init();
     // gbarecomp keeps one savestate-load hook.
     gbarecomp::set_savestate_load_hook([] {
+        update_local_music(true);
         g_gpu_readback.invalidate();
         g_history.clear();
         g_world_settled_capture = {};

@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <array>
+#include <vector>
 #include <unordered_set>
 
 #include "gba_audio.h"
@@ -14,6 +15,7 @@
 #include "gba_vram_trace.h"
 #include "snapshot.h"
 #include "runtime_arm.h"
+#include "game_ram_layout.h"
 
 extern "C" void runtime_ram_image_dma_begin(void);
 extern "C" void runtime_ram_image_dma_end(void);
@@ -30,8 +32,14 @@ extern "C" uint32_t runtime_current_pc(void);
 
 namespace gba {
 namespace {
-constexpr uint32_t kMeasuredRamImageStart = 0x03005B0Cu;
-constexpr uint32_t kMeasuredRamImageEnd = 0x03005D5Cu;
+// The measured transient RAM image comes from g_game_ram_layout; an empty
+// window reports no overlaps.
+inline uint32_t measured_ram_image_start() {
+    return g_game_ram_layout.ram_image_start;
+}
+inline uint32_t measured_ram_image_end() {
+    return g_game_ram_layout.ram_image_end;
+}
 
 MmioCapEntry* g_mmio_ring  = nullptr;
 uint64_t      g_mmio_write = 0;      // total committed writes (monotonic)
@@ -53,9 +61,11 @@ inline void mmio_cap_record(uint32_t addr, uint32_t value, uint32_t size) {
 }
 
 uint32_t measured_ram_image_crc32(armv4t::Bus& bus) {
-    std::array<uint8_t, kMeasuredRamImageEnd - kMeasuredRamImageStart> bytes{};
+    const uint32_t start = measured_ram_image_start();
+    const uint32_t end = measured_ram_image_end();
+    std::vector<uint8_t> bytes(end > start ? end - start : 0u);
     for (std::size_t i = 0; i < bytes.size(); ++i) {
-        bytes[i] = bus.read8(kMeasuredRamImageStart + static_cast<uint32_t>(i));
+        bytes[i] = bus.read8(start + static_cast<uint32_t>(i));
     }
     return crc32(bytes.data(), bytes.size());
 }
@@ -77,13 +87,13 @@ bool dma_destination_overlaps_image(uint32_t dest, uint32_t step,
     } else {  // increment and increment+reload during this block
         last_exclusive = static_cast<uint64_t>(dest) + span;
     }
-    return first < kMeasuredRamImageEnd &&
-           last_exclusive > kMeasuredRamImageStart;
+    return first < measured_ram_image_end() &&
+           last_exclusive > measured_ram_image_start();
 }
 
 // Unpacker-slot journal entry point: returns true (and tells the journal a DMA
-// is in flight) when the destination of this block overlaps 0x03002000..
-// 0x030022C4. The caller pairs it with runtime_unpacker_slot_dma_end().
+// is in flight) when the destination of this block overlaps the game's
+// overlay unpacker slot (g_game_ram_layout). The caller pairs it with runtime_unpacker_slot_dma_end().
 bool unpacker_slot_dma_begin(uint32_t dest, uint32_t step,
                              uint32_t word_count, uint32_t dest_ctrl) {
     const uint64_t span = static_cast<uint64_t>(step) * word_count;

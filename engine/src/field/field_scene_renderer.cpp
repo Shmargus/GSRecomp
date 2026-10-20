@@ -176,6 +176,7 @@ const char* kBackgroundFragment =
     // (SceneMarginLayer::scroll); zero rows disables it.
     "uniform int u_margin_scroll_first_y;\n"
     "uniform int u_margin_scroll_rows;\n"
+    "uniform int u_margin_scroll_sides;\n"
     "uniform vec2 u_room_ref;\n"
     // Rows that jump vertically off the recorded position read it instead
     // (row_split_vertical).
@@ -446,9 +447,11 @@ const char* kBackgroundFragment =
     "  if (u_haze_mirror != 0 && u_room_ref_on != 0 && !continue_bg3_sky &&\n"
     "      console_px.y > 159)\n"
     "    scroll_row = max(318 - console_px.y, 0);\n"
-    // Game-supplied scroll rows for the vertical margins; native rows always
-    // use their captured registers. Rows hold HOFS, VOFS after the 160.
-    "  if ((console_px.y < 0 || console_px.y >= 160) &&\n"
+    // Game-supplied scroll rows for vertical margins and, when requested,
+    // side margins. Native pixels keep captured registers. Rows hold HOFS,
+    // VOFS after the 160.
+    "  if ((console_px.y < 0 || console_px.y >= 160 ||\n"
+    "       (u_margin_scroll_sides != 0 && (console_px.x < 0 || console_px.x >= 240))) &&\n"
     "      console_px.y >= u_margin_scroll_first_y &&\n"
     "      console_px.y < u_margin_scroll_first_y + u_margin_scroll_rows)\n"
     "    scroll_row = 160 + console_px.y - u_margin_scroll_first_y;\n"
@@ -1021,6 +1024,11 @@ const char* kBackgroundFragment =
     "        if (continue_bg3_sky && source.x < 0) {\n"
     "          source.x = source.x & (width_tiles * 8 - 1);\n"
     "        }\n"
+    // A game can expose a measured horizontal scenery repeat to fill the
+    // margins where a slower layer runs out before the room does.
+    "        if (!vram_margin && u_margin_repeat.x > 0.0 &&\n"
+    "            (source.x < 0 || u_margin_repeat.y == 0.0))\n"
+    "          source.x &= int(u_margin_repeat.x) - 1;\n"
     "        if (u_room_grid_wrap != 0) source &= ivec2(2047);\n"
     "        room_source = source;\n"
     "        if (source.x >= 0 && source.y >= 0) {\n"
@@ -1223,6 +1231,7 @@ const char* kObjectFragment =
     // the authentic 240x160 window as gba_ppu.cpp's emit_obj keeps it --
     // reproduced below by discarding outside it.
     "uniform int u_clip_native;\n"
+    "uniform int u_margin_only;\n"
     // 1: this draw is the object's lifted copy (draw_object's `lifter`),
     // kept inside the lifting object's box, in console pixels.
     "uniform int u_lift;\n"
@@ -1240,6 +1249,8 @@ const char* kObjectFragment =
     "\n"
     "void main() {\n"
     "  ivec2 console_px = ivec2(floor(v_screen + u_camera));\n"
+    "  if (u_margin_only != 0 && console_px.x >= 0 && console_px.x < 240 &&\n"
+    "      console_px.y >= 0 && console_px.y < 160) discard;\n"
     "  int reg_row = clamp(console_px.y, 0, 159);\n"
     "  uint dispcnt = row_u16(reg_row, 0x00);\n"
     "  if (((dispcnt >> 12u) & 1u) == 0u) discard;\n"
@@ -3546,8 +3557,9 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         const int rest_dy = rest_region_y_[bg] - layer_wrap_[bg].region_y;
         surface_->set_uniform_int(
             background_, "u_rest_dy",
-            rest_rule_on_ && scene.video_mode == 0 &&
-                    std::abs(rest_dy) >= 4 ? rest_dy : 0);
+            margin.rest_clip_y != 0 ? margin.rest_clip_y :
+                (rest_rule_on_ && scene.video_mode == 0 &&
+                    std::abs(rest_dy) >= 4 ? rest_dy : 0));
         surface_->set_uniform_int(background_, "u_compare_top",
                                   second_pass ? 1 : 0);
         surface_->set_uniform_int(background_, "u_affine", L.affine ? 1 : 0);
@@ -3602,6 +3614,8 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
                                   margin.scroll_first_y);
         surface_->set_uniform_int(background_, "u_margin_scroll_rows",
                                   static_cast<int>(margin.scroll.size()));
+        surface_->set_uniform_int(background_, "u_margin_scroll_sides",
+                                  margin.scroll_sides ? 1 : 0);
         surface_->set_uniform_int(background_, "u_margin_vram_height",
                                   margin.vram_height);
         surface_->set_uniform_vec2(background_, "u_margin_repeat",
@@ -3832,6 +3846,7 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
             menu_open_ && scene.video_mode == 0 && O.priority == 0;
         surface_->set_uniform_int(object_, "u_clip_native",
                                   (O.parked || menu_sprite) ? 1 : 0);
+        surface_->set_uniform_int(object_, "u_margin_only", 0);
         surface_->set_uniform_vec2(object_, "u_size",
                                    static_cast<float>(O.width),
                                    static_cast<float>(O.height));
@@ -3875,6 +3890,32 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         surface_->draw_quads(object_, &quad, 1,
                              second_pass ? textures3 : textures2,
                              second_pass ? 5 : 4);
+        // The game supplies the canvas continuation period, never an inferred
+        // sprite kind. Copies keep the same artwork, phase, blend and order;
+        // the fragment guard leaves every native pixel to the original draw.
+        if (!L && !O.parked && !menu_sprite && margins_) {
+            const auto& period = margins_->object_repeat[slot];
+            if (period[0] > 0 && period[1] > 0 &&
+                (output_w_ != 240 || output_h_ != 160)) {
+                const float x0 = quad.x, y0 = quad.y;
+                surface_->set_uniform_int(object_, "u_margin_only", 1);
+                const int left = static_cast<int>(std::floor((-x0 - box_w) / period[0])) + 1;
+                const int right = static_cast<int>(std::ceil((output_w_ - x0) / period[0]));
+                const int top = static_cast<int>(std::floor((-y0 - box_h) / period[1])) + 1;
+                const int bottom = static_cast<int>(std::ceil((output_h_ - y0) / period[1]));
+                for (int y = top; y < bottom; ++y)
+                    for (int x = left; x < right; ++x) {
+                        if (x == 0 && y == 0) continue;
+                        quad.x = x0 + x * period[0];
+                        quad.y = y0 + y * period[1];
+                        surface_->draw_quads(object_, &quad, 1,
+                            second_pass ? textures3 : textures2, second_pass ? 5 : 4);
+                    }
+                quad.x = x0;
+                quad.y = y0;
+                surface_->set_uniform_int(object_, "u_margin_only", 0);
+            }
+        }
         if (L) return;
         // A full-width strip carries on to the view's edges (see `strip`).
         const StripReach& reach = strip[static_cast<std::size_t>(slot)];

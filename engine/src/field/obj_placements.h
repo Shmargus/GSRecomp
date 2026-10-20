@@ -46,6 +46,9 @@ public:
         // -1: OAM shows a placement a frame after the game may have
         // released its tiles (TLA F12 tla_rewind_0047 frame 105).
         int tile = -1;
+        // Only character bodies have the game's tile-owner field. Other
+        // builders can reuse that byte for animation state.
+        bool uses_tile_grant = false;
     };
 
     // Forgets every placement when the frame goes back (a loaded state) or
@@ -61,7 +64,8 @@ public:
     // A hook before the game's attribute store can supply its outgoing attr0;
     // otherwise snapshot the record as it stands.
     void note(gba::GbaBus& bus, unsigned long long now, std::uint32_t record,
-              int x, int y, int tile = -1, int placed_attr0 = -1) {
+              int x, int y, int tile = -1, int placed_attr0 = -1,
+              bool uses_tile_grant = false) {
         if ((record >> 24) != 0x02u && (record >> 24) != 0x03u) return;
         Placed* slot = nullptr;
         for (Placed& p : placed_) {
@@ -84,6 +88,7 @@ public:
         p.attr2 = bus.read16(record + 8u);
         p.record = record;
         p.tile = tile;
+        p.uses_tile_grant = uses_tile_grant;
     }
 
     // The placement an OAM entry came from, or null. A record answers if it

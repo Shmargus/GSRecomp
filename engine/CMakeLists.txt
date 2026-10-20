@@ -172,16 +172,6 @@ target_include_directories(gbarecomp_gba PRIVATE src/debug)
 target_link_libraries(gbarecomp_gba PUBLIC gbarecomp_armv4t)
 set_property(TARGET gbarecomp_gba PROPERTY POSITION_INDEPENDENT_CODE ON)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# heal_gate — P6 differential-gate primitives (snapshot/journal/diff). PURE:
-# depends only on gbarecomp_gba (GbaBus + ArmCpuState), no runtime globals, so
-# it unit-tests standalone and the runtime gate state machine layers on top.
-# ─────────────────────────────────────────────────────────────────────────────
-add_library(gbarecomp_heal_gate STATIC src/runtime/heal_gate.cpp)
-target_include_directories(gbarecomp_heal_gate PUBLIC src/runtime)
-target_link_libraries(gbarecomp_heal_gate PUBLIC gbarecomp_gba)
-set_property(TARGET gbarecomp_heal_gate PROPERTY POSITION_INDEPENDENT_CODE ON)
-
 # Identity-aware dispatch registry for statically translated RAM overlays.
 # Pure game-thread logic: game integrations install it behind
 # g_runtime_ram_dispatch_hook and drive activation from verified load events.
@@ -263,6 +253,7 @@ add_library(gbarecomp_runtime STATIC
     src/runtime/host_platform.cpp
     src/runtime/crash_handler.cpp
     src/runtime/host_window.cpp
+    src/runtime/host_local_music.cpp
     src/runtime/screen_filter.cpp
     src/runtime/host_overlay.cpp
     src/runtime/host_config_ui.cpp
@@ -312,7 +303,7 @@ target_compile_definitions(gbarecomp_runtime PRIVATE
     GBARECOMP_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(gbarecomp_runtime PUBLIC
     gbarecomp_gba gbarecomp_debug gbarecomp_recompile_core
-    gbarecomp_heal_gate gbarecomp_ram_overlay)
+    gbarecomp_ram_overlay)
 set_property(TARGET gbarecomp_runtime PROPERTY POSITION_INDEPENDENT_CODE ON)
 if(GBARECOMP_SDL2_OK)
     target_compile_definitions(gbarecomp_runtime PUBLIC GBARECOMP_HAVE_SDL2)
@@ -374,7 +365,7 @@ endif()
 if(GSR_ENABLE_LTO AND GSR_IPO_SUPPORTED)
     foreach(GSR_LTO_TARGET IN ITEMS
             gbarecomp_armv4t gbarecomp_recompile_core gbarecomp_gba
-            gbarecomp_heal_gate gbarecomp_ram_overlay gbarecomp_runtime
+            gbarecomp_ram_overlay gbarecomp_runtime
             gbarecomp_debug)
         set_property(TARGET ${GSR_LTO_TARGET} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
     endforeach()
@@ -657,13 +648,6 @@ add_test(NAME temporal_blend_tests COMMAND temporal_blend_tests)
 add_executable(audio_drc_tests tests/audio_drc/test_main.cpp)
 target_include_directories(audio_drc_tests PRIVATE src/runtime)
 add_test(NAME audio_drc_tests COMMAND audio_drc_tests)
-
-# P6 differential-gate primitives (offline; full-RAM snapshot/restore/diff).
-add_executable(heal_gate_tests
-    tests/heal_gate/heal_gate_test.cpp
-    tests/heal_gate/runtime_stubs.cpp)
-target_link_libraries(heal_gate_tests PRIVATE gbarecomp_heal_gate)
-add_test(NAME heal_gate_tests COMMAND heal_gate_tests)
 
 add_executable(ram_overlay_registry_tests
     tests/ram_overlay/registry_test.cpp

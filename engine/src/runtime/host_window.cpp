@@ -8,19 +8,25 @@
 #include <atomic>
 #include <chrono>
 #include <cctype>
+#include <climits>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <map>
 #include <memory>
+#include <thread>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "cartridge_art.h"
 #include "color_lut.h"
 #include "env_flag.h"
 #include "host_config_ui.h"
+#include "host_local_music.h"
 #include "host_overlay.h"
 #include "frame_timing.h"
 #include "host_prof_phase.h"
@@ -376,6 +382,7 @@ struct Backend {
     rab_bridge    bridge{};
     bool          bridge_ready = false;
     SDL_mutex*    audio_mtx = nullptr;
+    LocalMusicPlayer local_music;  // host_local_music.h
     // Present-time screen-color simulation. Built once from
     // GBARECOMP_SCREEN; default Raw = exact passthrough (no copy, no
     // grading), so default behavior is byte-identical to upstream.
@@ -495,6 +502,7 @@ struct Backend {
     // Fast Forward (toggle) latch (see Events::fast_forward). Runtime-only: only the
     // bindings are saved, not whether turbo was latched on at exit.
     bool         turbo_toggle_on = false;
+    unsigned     logged_turbo_sources = 0;
     bool         frame_interpolation_game_allowed = false;
     bool         frame_interpolation_display_ok = false;
     bool         enhanced_timing_game_allowed = false;
@@ -525,6 +533,8 @@ struct Backend {
     // MC-WS-002: always-on per-present timing/scanout ring (see above).
     PresentCadence cadence;
 };
+
+Backend* s_current_audio_backend = nullptr;
 
 void apply_vsync(Backend* b, bool on) {
     if (on == b->vsync) return;
@@ -970,6 +980,8 @@ void gba_audio_callback(void* userdata, Uint8* stream, int len) {
     if (b && b->bridge_ready) {
         SDL_LockMutex(b->audio_mtx);
         rab_pull(&b->bridge, reinterpret_cast<int16_t*>(stream), frames);
+        if (b->local_music.has_prefix())
+            b->local_music.mix(reinterpret_cast<int16_t*>(stream), frames);
         SDL_UnlockMutex(b->audio_mtx);
     } else {
         SDL_memset(stream, 0, len);
@@ -991,6 +1003,21 @@ void release_window(Backend* b) {
 }
 
 }  // namespace
+
+bool local_music_ready() {
+    Backend* b = s_current_audio_backend;
+    return b && b->local_music.ready();
+}
+
+bool local_music_select(unsigned track) {
+    Backend* b = s_current_audio_backend;
+    return b && b->local_music.select(track);
+}
+
+void local_music_playback(bool active, bool paused, float gain, bool restart) {
+    Backend* b = s_current_audio_backend;
+    if (b) b->local_music.playback(active, paused, gain, restart);
+}
 
 void HostWindow::give_window(void* sdl_window) {
     s_given_window = static_cast<SDL_Window*>(sdl_window);
@@ -1302,7 +1329,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     }
 
     // Open the audio device at 65536 Hz 16-bit signed. The normal faithful
-    // path remains mono; canonical-stereo and native-MP2K opt-ins use stereo.
+    // path remains mono; canonical-stereo, native-MP2K and local music use stereo.
     // The running BIOS sets SOUNDBIAS resolution=1, which raises the mixer's
     // effective sample rate from 32768 to 65536; a device opened at 32768
     // (the power-on default) played back at half speed, with muffled, watery
@@ -1311,7 +1338,14 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     SDL_AudioSpec want{};
     want.freq     = 65536;
     want.format   = AUDIO_S16SYS;
-    b->audio_channels = stereo_audio ? 2 : 1;
+    const char* local_music_directory = std::getenv("GBARECOMP_MUSIC_DIR");
+    const bool local_music_directory_requested =
+        local_music_directory && local_music_directory[0] != '\0';
+    const char* local_music_path = std::getenv("GBARECOMP_MUSIC_WAV");
+    const bool local_music_requested =
+        !local_music_directory_requested && local_music_path && local_music_path[0] != '\0';
+    b->audio_channels = (stereo_audio || local_music_requested ||
+                         local_music_directory_requested) ? 2 : 1;
     want.channels = static_cast<Uint8>(b->audio_channels);
     want.samples  = 1024;  // ~15 ms callback quantum at 65 kHz
     want.callback = gba_audio_callback;  // pull mode (bridge-fed)
@@ -1332,6 +1366,15 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
         cfg.preroll_ms  = 250.0;                    // boot pre-roll: hide the cold-start
                                                     // recomp warm-up hitch (drains to target)
         if (rab_init(&b->bridge, &cfg) == 0) b->bridge_ready = true;
+        b->local_music.attach(b->audio_mtx, b->audio_channels);
+        if (local_music_directory_requested)
+            b->local_music.preload_directory(local_music_directory,
+                b->bridge_ready && b->audio_dev != 0, got,
+                b->bridge.cfg.preroll_ms);
+        else if (local_music_requested && b->bridge_ready && b->audio_mtx)
+            b->local_music.load_file(local_music_path, b->bridge_ready, got,
+                b->bridge.cfg.preroll_ms,
+                static_cast<float>(b->volume) / 100.0f);
         SDL_PauseAudioDevice(b->audio_dev, 0);      // start the callback
     }
 
@@ -1343,6 +1386,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
         b->graded_fb.resize(static_cast<std::size_t>(base_w) * base_h * 3);
 
     impl_ = b;
+    s_current_audio_backend = b;
     open_ = true;
     return true;
 }
@@ -1462,7 +1506,12 @@ void HostWindow::close() {
     if (!impl_) { open_ = false; return; }
     auto* b = static_cast<Backend*>(impl_);
     b->cadence.dump();  // MC-WS-002: flush the cadence ring (verbose only)
+    if (s_current_audio_backend == b) s_current_audio_backend = nullptr;
+    b->local_music.shutdown();
     if (b->audio_dev) SDL_CloseAudioDevice(b->audio_dev);  // stops the callback first
+    if (b->local_music.underrun_frames() != 0)
+        std::fprintf(stderr, "[local-music] underrun_frames=%llu\n",
+            static_cast<unsigned long long>(b->local_music.underrun_frames()));
     if (b->bridge_ready) rab_free(&b->bridge);
     if (b->audio_mtx) SDL_DestroyMutex(b->audio_mtx);
     // SHUTDOWN-FREEZE-01: with the OpenGL backend and multi-viewport, ImGui
@@ -2450,7 +2499,7 @@ void HostWindow::load_input_config(const char* dir) {
             b->cfg.mute = SDL_strcasecmp(val, "true") == 0 ||
                           std::strcmp(val, "1") == 0;
     });
-    b->volume = b->cfg.mute ? 0 : b->cfg.volume;
+    set_volume(b->cfg.mute ? 0 : b->cfg.volume);
     b->persisted_volume = b->cfg.volume;
     b->persisted_mute = b->cfg.mute;
 
@@ -2525,6 +2574,7 @@ void HostWindow::set_volume(int pct) {
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
     b->volume = pct;
+    b->local_music.set_host_gain(static_cast<float>(pct) / 100.0f);
 }
 
 int HostWindow::volume() const {
@@ -2667,7 +2717,14 @@ void HostWindow::set_turbo_audio_muted(bool on) {
     auto* b = static_cast<Backend*>(impl_);
     if (b->turbo_audio_muted == on) return;
     b->turbo_audio_muted = on;
+    b->local_music.set_turbo_muted(on);
     reset_audio();
+}
+
+void HostWindow::set_local_music_paused(bool paused) {
+    if (!open_ || !impl_) return;
+    auto* b = static_cast<Backend*>(impl_);
+    b->local_music.set_host_paused(paused);
 }
 
 void HostWindow::present_native(const uint8_t* rgb888, int width, int height) {
@@ -4013,7 +4070,7 @@ HostWindow::Events HostWindow::pump() {
             b->cfg.video_changed = false;
         }
         if (b->cfg.audio_changed) {
-            b->volume = b->cfg.mute ? 0 : b->cfg.volume;
+            set_volume(b->cfg.mute ? 0 : b->cfg.volume);
             b->cfg.audio_changed = false;
             persist_audio(b);
         }
@@ -4170,6 +4227,18 @@ HostWindow::Events HostWindow::pump() {
         b->cfg.enhanced_timing_available && b->cfg.enhanced_timing;
     const bool turbo_held = hotkey_held(b, b->hotkeys[HK_TURBO], ks);
     ev.fast_forward = turbo_held || b->turbo_toggle_on;
+    // Record transitions, including their source, so a captured hitch can be
+    // distinguished from fast-forward without inferring it from frame gaps.
+    const unsigned turbo_sources = (turbo_held ? 1u : 0u) |
+                                   (b->turbo_toggle_on ? 2u : 0u);
+    if (turbo_sources != b->logged_turbo_sources) {
+        std::fprintf(stderr,
+                     "[fast-forward] frame=%llu held=%d toggle=%d active=%d\n",
+                     static_cast<unsigned long long>(b->cfg.guest_frame),
+                     int(turbo_held), int(b->turbo_toggle_on),
+                     int(ev.fast_forward));
+        b->logged_turbo_sources = turbo_sources;
+    }
     if (pump_timing) {
         const uint64_t end = host_pump_now_ns();
         ev.pump_setup_us = host_pump_elapsed_us(pump_t0, pump_events_start);
@@ -4201,6 +4270,10 @@ namespace gbarecomp {
 
 HostWindow::HostWindow()  = default;
 HostWindow::~HostWindow() = default;
+
+bool local_music_ready() { return false; }
+bool local_music_select(unsigned) { return false; }
+void local_music_playback(bool, bool, float, bool) {}
 
 void set_screen_veil(bool, bool) {}
 bool screen_veil_covered() { return true; }
@@ -4262,6 +4335,7 @@ void HostWindow::set_guest_frame(std::uint64_t) {}
 void HostWindow::set_debug_overlay_audio_state(bool, bool) {}
 void HostWindow::push_audio_samples(const int16_t*, std::size_t) {}
 void HostWindow::push_audio_samples_stereo(const int16_t*, std::size_t) {}
+void HostWindow::set_local_music_paused(bool) {}
 void HostWindow::set_turbo_audio_muted(bool) {}
 void HostWindow::reset_audio() {}
 void HostWindow::audio_bridge_stats(std::uint64_t* underruns,

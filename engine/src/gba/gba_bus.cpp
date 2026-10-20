@@ -9,6 +9,7 @@
 #include "gba_bus.h"
 #include "gba_vram_trace.h"
 #include "env_flag.h"
+#include "game_ram_layout.h"
 
 #include <cstdlib>
 #include <cstdio>
@@ -124,7 +125,10 @@ static bool ram_code_write_affects_bus(uint32_t addr, uint32_t width) {
 
 static inline void note_ram_code_write_bus(uint32_t addr, uint32_t width) {
     // Unpacker-slot journal: always on, not gated by the RAM-code page mask.
-    if ((addr >> 24) == 0x03u && (addr & 0x7FFFu) - 0x2000u < 0x2C4u)
+    // A zero slot length makes the range test false for every address.
+    if ((addr >> 24) == 0x03u &&
+        (addr & 0x7FFFu) - (g_game_ram_layout.unpacker_slot & 0x7FFFu) <
+            g_game_ram_layout.unpacker_slot_len)
         runtime_unpacker_slot_note_cpu(addr, width);
     if (!ram_code_write_affects_bus(addr, width)) return;
     runtime_note_ram_code_write(addr, width);
@@ -283,7 +287,6 @@ uint8_t GbaBus::read8(uint32_t addr) {
                              : static_cast<uint8_t>(hw & 0xFFu);
         }
         case Region::Io:
-            if (write_observer_) write_observer_->on_bus_read(addr);
             return io_dispatch_.read8(static_cast<uint32_t>(off));
         case Region::Save:
             if (save_.sram_enabled())
@@ -331,7 +334,6 @@ uint16_t GbaBus::read16(uint32_t addr) {
             return static_cast<uint16_t>((off >> 1) & 0xFFFFu);
         }
         case Region::Io:
-            if (write_observer_) write_observer_->on_bus_read(addr);
             return io_dispatch_.read16(static_cast<uint32_t>(off));
         case Region::Save:
             if (save_.sram_enabled()) {
@@ -398,7 +400,6 @@ uint32_t GbaBus::read32(uint32_t addr) {
             return hw_lo | (hw_hi << 16);
         }
         case Region::Io:
-            if (write_observer_) write_observer_->on_bus_read(addr);
             return io_dispatch_.read32(static_cast<uint32_t>(off));
         case Region::Save:
             if (save_.sram_enabled()) {
@@ -425,34 +426,9 @@ uint32_t GbaBus::read32(uint32_t addr) {
 // Writes
 // ─────────────────────────────────────────────────────────────────────
 
-bool GbaBus::observe_write(Region region, std::size_t off, uint32_t addr,
-                           uint8_t width, uint32_t new_value) {
-    BusWriteRegion br;
-    const uint8_t* p = nullptr;
-    std::size_t cap = 0;
-    switch (region) {
-        case Region::Ewram: br = BusWriteRegion::Ewram; p = ewram_.data(); cap = ewram_.size(); break;
-        case Region::Iwram: br = BusWriteRegion::Iwram; p = iwram_.data(); cap = iwram_.size(); break;
-        case Region::Pal:   br = BusWriteRegion::Pal;   p = pal_.data();   cap = pal_.size();   break;
-        case Region::Vram:  br = BusWriteRegion::Vram;  p = vram_.data();  cap = vram_limit();  break;
-        case Region::Oam:   br = BusWriteRegion::Oam;   p = oam_.data();   cap = oam_.size();   break;
-        default:            br = BusWriteRegion::Device; break;
-    }
-    uint32_t old = 0;
-    if (p && off + width <= cap) {
-        if (width == 1) old = p[off];
-        else if (width == 2) old = uint32_t(p[off]) | (uint32_t(p[off + 1]) << 8);
-        else old = uint32_t(p[off]) | (uint32_t(p[off + 1]) << 8) |
-                   (uint32_t(p[off + 2]) << 16) | (uint32_t(p[off + 3]) << 24);
-    }
-    return write_observer_->on_bus_write(br, static_cast<uint32_t>(off), addr,
-                                         width, old, new_value);
-}
-
 void GbaBus::write8(uint32_t addr, uint8_t v) {
     auto region = classify(addr);
     auto off    = resolve_offset(addr, region);
-    if (write_observer_ && observe_write(region, off, addr, 1, v)) return;
     switch (region) {
         case Region::Ewram:
             if (g_ws_ewram_write_observer) g_ws_ewram_write_observer(addr, 1u);
@@ -520,7 +496,6 @@ void GbaBus::write8(uint32_t addr, uint8_t v) {
 void GbaBus::write16(uint32_t addr, uint16_t v) {
     auto region = classify(addr);
     auto off    = resolve_offset(addr, region);
-    if (write_observer_ && observe_write(region, off, addr, 2, v)) return;
     switch (region) {
         case Region::Ewram:
             if (g_ws_ewram_write_observer) g_ws_ewram_write_observer(addr, 2u);
@@ -587,7 +562,6 @@ void GbaBus::write16(uint32_t addr, uint16_t v) {
 void GbaBus::write32(uint32_t addr, uint32_t v) {
     auto region = classify(addr);
     auto off    = resolve_offset(addr, region);
-    if (write_observer_ && observe_write(region, off, addr, 4, v)) return;
     switch (region) {
         case Region::Ewram:
             if (g_ws_ewram_write_observer) g_ws_ewram_write_observer(addr, 4u);

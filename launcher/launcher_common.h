@@ -206,7 +206,7 @@ inline void copy_report_files(const fs::path& game_dir, const fs::path& crash_di
     copy_into_report(game_dir / session_game().build_stamp, staging);
     if (crashed)
         for (const char* file : {"crash_report.txt", "crash_dump.dmp",
-                                 "crash_memory.bin", "crash_trail.csv"})
+                                 "crash_memory.bin", "crash_trail.csv", "crash_context.txt"})
             copy_into_report(crash_dir / file, staging);
     for (const char* file : {"unpacker_catch.txt", "unpacker_catch.bin",
                              "unpacker_recovered.txt", "unpacker_recovered.bin",

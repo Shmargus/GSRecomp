@@ -377,6 +377,7 @@ GameResult run_game(const std::string& rom) {
     // A crash file left by an earlier run must not end up in this run's report.
     fs::remove(g_root / "crash_memory.bin", ec);
     fs::remove(g_root / "crash_trail.csv", ec);
+    fs::remove(g_root / "crash_context.txt", ec);
     // The unpacker catcher's pair (src/unpacker_catch.h): only this run's.
     fs::remove(g_root / "unpacker_catch.txt", ec);
     fs::remove(g_root / "unpacker_catch.bin", ec);
@@ -422,10 +423,20 @@ GameResult run_game(const std::string& rom) {
     gsr::remove_variables(plan, gsr::bios_log_variables);
     std::string enabled_tests;
     std::string input_record_path;
-    if (g_collection_tests_override) {
+#ifdef GSR_LINUX_DEV_LAUNCHER
+    const bool developer_launcher = true;
+#else
+    const bool developer_launcher = false;
+#endif
+    if (g_collection_tests_override || developer_launcher) {
         gsr::add_test_environment(
-            plan, [&](const char* name) -> std::optional<bool> { return test_enabled(name); },
-            fs::path(result.log_path).replace_extension(".hostprof.txt").string());
+            plan, [&](const char* name) -> std::optional<bool> {
+                if (!g_collection_tests_override) return std::nullopt;
+                return test_enabled(name);
+            },
+            fs::path(result.log_path).replace_extension(".hostprof.txt").string(),
+            developer_launcher,
+            (g_collection_root / "Music" / "TBS-intro.wav").string());
         enabled_tests = plan.enabled_tests;
         if (gpu_field_check) enabled_tests += ",GSR_GPU_FIELD,GSR_GPU_FIELD_ONLY";
         const char* record = std::getenv("GBARECOMP_INPUT_RECORD");
@@ -468,7 +479,11 @@ GameResult run_game(const std::string& rom) {
             "input_record=ENABLED path=\"" + input_record_path + "\"");
     } else {
 #ifdef GSR_LINUX_DEV_LAUNCHER
-    log.line("[launcher] ", "dev launcher: test_variables=ON set=GBARECOMP_SELFHEAL_RAM,GSR_FRAME_REWIND,GSR_UNPACKER_CATCH gpu_field_only=1");
+    log.line("[launcher] ", std::string("dev launcher: test_variables=") +
+        (g_collection_tests_override && g_collection_settings.test_variables ? "ON" : "OFF") +
+        " set=GBARECOMP_SELFHEAL_RAM," +
+        (enabled_tests.empty() ? "" : enabled_tests + ",") +
+        "GSR_FRAME_REWIND,GSR_SCREEN_FILTERS,GSR_UNPACKER_CATCH gpu_field_only=1");
 #else
     log.line("[launcher] ", "test_variables=OFF set=GBARECOMP_SELFHEAL_RAM,GSR_FRAME_REWIND,GSR_UNPACKER_CATCH gpu_field_only=1");
 #endif

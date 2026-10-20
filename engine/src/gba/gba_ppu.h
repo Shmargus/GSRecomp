@@ -430,7 +430,8 @@ extern "C" int g_ws_obj_census_line;
 // Optional per-game presentation remap for regular BG samples in the expanded
 // renderer. The callback receives the physical output X and may suppress the
 // sample (-1), leave the hardware X unchanged (0), or provide an authentic
-// hardware X through out_hw_x (1). The native 240x160 renderer never calls it.
+// hardware X through out_hw_x (1). It is called for margin columns only; the
+// native 240 columns and the native 240x160 renderer never call it.
 extern "C" int (*g_ws_bg_x_provider)(int bg, int output_x, int screen_y,
                                      int* out_hw_x);
 // Bitmask of regular BG layers that may use g_ws_bg_x_provider. Defaults to

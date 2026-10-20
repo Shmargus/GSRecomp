@@ -6,6 +6,7 @@
 #include "gba_io.h"
 #include "gba_vram_trace.h"
 #include "runtime_arm.h"
+#include "../gs1_test_layout.h"
 
 extern "C" unsigned long long g_runtime_vblank_starts;
 
@@ -349,6 +350,7 @@ void test_mode0_field_map_trace_scope() {
 }  // namespace
 
 int main() {
+    set_gs1_test_layout();
     // Arm the opt-in payload-free trace before any DMA path can cache the
     // environment decision. The production runner leaves this unset unless
     // the WIDE-01 diagnostics toggle is selected.

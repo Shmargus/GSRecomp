@@ -20,6 +20,8 @@
 #include <string>
 
 #include "crash_handler.h"
+#include "game_ram_layout.h"
+#include "memory_snapshot.h"
 #include "runtime.h"
 #include "view_config.h"
 #include "tla.h"
@@ -39,6 +41,18 @@ void on_function_entry(std::uint32_t pc) {
 int main(int argc, char** argv) {
     // First thing in main, so as much of the run as possible is covered.
     gbarecomp::crash_handler_install(nullptr);
+    // Game RAM layout for the shared engine (game_ram_layout.h). All other
+    // fields stay zero, so the Broken Seal-only crash recorders are inactive.
+    // TODO-EVIDENCE: inherited from the engine's former built-in Broken Seal
+    // value so host effect capture behaves as before; not measured on this
+    // ROM.
+    {
+        GameRamLayout layout;
+        layout.iwram_heap_first = 0x03002000u;
+        layout.iwram_heap_last = 0x030077FFu;
+        runtime_set_game_ram_layout(layout);
+    }
+    gsr_install_crash_snapshot_writer();
 
     bool headless = false;
     for (int i = 1; i < argc; ++i) {

@@ -12,6 +12,7 @@
 #include "collection_preferences.h"
 #include "collection_view_settings.h"
 #include "launcher_common.h"
+#include "launcher_test_policy.h"
 #include "collection_build.h"
 #include "collection_build_state.h"
 #include "collection_rom.h"
@@ -1189,13 +1190,14 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
 #endif
             ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "Developer diagnostics");
             ImGui::Checkbox("Test variables", &game.test_variables);
-            ImGui::TextWrapped("Diagnostics reset when this launcher closes. Self-heal RAM can stay enabled independently.");
+            ImGui::TextWrapped("Cost probe, host profiler and present cadence are always on in developer launches. Other diagnostics reset when this launcher closes; self-heal RAM can stay enabled independently.");
             ImGui::Spacing();
             for (std::size_t i = 0; i < gsr_collection::test_options.size(); ++i) {
                 const auto& option = gsr_collection::test_options[i];
                 const bool supported = option.games & (1u << settings_game);
-                ImGui::BeginDisabled(!supported || (!game.test_variables && i != 0));
-                bool shown = supported && game.tests[i];
+                const bool always_on = gsr::is_developer_performance_option(option.environment);
+                ImGui::BeginDisabled(!supported || always_on || (!game.test_variables && i != 0));
+                bool shown = supported && (always_on || game.tests[i]);
                 if (ImGui::Checkbox(option.label, &shown) && supported) game.tests[i] = shown;
                 if (!supported) {
                     ImGui::SameLine();
@@ -1204,6 +1206,9 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 if (i == gsr_collection::test_index("TLA_GPU_FIELD_CHECK") &&
                     ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                     ImGui::SetTooltip("Enables the GPU field renderer for this check. Unavailable with Direct3D.");
+                if (i == gsr_collection::test_index("GSR_INTRO_MUSIC") &&
+                    ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("Uses Music/GS1/track-01.wav through track-43.wav. Repeats full recordings; keeps original sound effects and falls back if a file cannot load.");
                 ImGui::EndDisabled();
             }
 #endif

@@ -9,6 +9,7 @@
 #include "gba_io.h"
 #include "env_flag.h"
 #include "game_exit.h"
+#include "game_ram_layout.h"
 #include "bus.h"
 
 extern "C" unsigned long long g_runtime_cycles;
@@ -646,9 +647,8 @@ void effect_note(const std::uint8_t* io, std::uint8_t kind, std::uint32_t pc,
 // trace_oam_shadow_write() (gba_bus.cpp, all three widths); nothing outside
 // the OAM shadow range consumed it. This is that consumer.
 //
-// The range is the game's own IWRAM heap, whose bounds are literals in its
-// allocator: it bumps from 0x03002000 and refuses past 0x030077FF
-// (Func_4858 / Func_48b0, ROM 0x08004858 / 0x080048B0). Watching the whole
+// The range is the game's own IWRAM heap (g_game_ram_layout.iwram_heap_first
+// ..iwram_heap_last), whose bounds are literals in its allocator. Watching the whole
 // heap rather than a remembered buffer address is deliberate -- the canvas is
 // an allocation, so its address moves between effects and between runs, and
 // the pointer lives in a global this hook cannot read.
@@ -664,8 +664,14 @@ void effect_note(const std::uint8_t* io, std::uint8_t kind, std::uint32_t pc,
 //     Aggregates cannot show that; only the order of the addresses can.
 //
 // Payload-free like every other stream here: PC, address, size. Never a value.
-constexpr std::uint32_t kStageHeapFirst = 0x03002000u;
-constexpr std::uint32_t kStageHeapLast = 0x030077FFu;
+// The game's IWRAM allocation heap comes from g_game_ram_layout. An unset
+// (zero) range is empty: first = 0, last = 0 would still match address 0, so
+// the helpers below reject it explicitly.
+inline bool stage_heap_contains(std::uint32_t a) {
+    const auto& l = g_game_ram_layout;
+    return l.iwram_heap_last != 0u && a >= l.iwram_heap_first &&
+           a <= l.iwram_heap_last;
+}
 
 bool g_stage_open_failed = false;
 bool g_stage_atexit_registered = false;
@@ -791,7 +797,7 @@ void stage_emit_frame() {
 void effect_stage_note(std::uint32_t pc, std::uint32_t address,
                        std::uint32_t size) {
     if (size == 0u) return;
-    if (address < kStageHeapFirst || address > kStageHeapLast) return;
+    if (!stage_heap_contains(address)) return;
 
     const unsigned long long frame = runtime_current_frame();
     if (g_stage_frame_open && frame != g_stage_frame) stage_emit_frame();
@@ -829,7 +835,7 @@ void effect_stage_note(std::uint32_t pc, std::uint32_t address,
     // 32 sampled frames across two thousand, which is a whole session rather
     // than its first few seconds.
     const bool walk_candidate =
-        size == 1u && pc >= kStageHeapFirst && pc <= kStageHeapLast;
+        size == 1u && stage_heap_contains(pc);
     if (walk_candidate && g_stage_walk_frame_taken &&
         g_stage_walk_rows < kStageMaxWalkRows &&
         g_stage_walk_this_frame < kStageWalkRowsPerFrame) {
@@ -942,8 +948,14 @@ unsigned& dma_depth() {
     return n;
 }
 
-constexpr std::uint32_t kOamShadowStart = 0x0300347Cu;
-constexpr std::uint32_t kOamShadowEnd   = 0x0300387Cu;
+// The OAM shadow buffer comes from g_game_ram_layout; an empty range matches
+// nothing.
+inline std::uint32_t oam_shadow_start() {
+    return g_game_ram_layout.oam_shadow_start;
+}
+inline std::uint32_t oam_shadow_end() {
+    return g_game_ram_layout.oam_shadow_end;
+}
 constexpr std::uint32_t kOamStart = 0x07000000u;
 constexpr std::uint32_t kOamEnd = 0x07000400u;
 constexpr std::size_t kOamSlotBytes = 8u;
@@ -1016,14 +1028,14 @@ void note_oam_attr0_write(std::uint32_t pc, std::uint32_t address,
     address = normalize_oam_shadow_address(address);
     const std::uint64_t first = address;
     const std::uint64_t last = first + size;
-    if (size == 0u || first >= kOamShadowEnd || last <= kOamShadowStart)
+    if (size == 0u || first >= oam_shadow_end() || last <= oam_shadow_start())
         return;
     const std::uint64_t clipped_first =
-        std::max<std::uint64_t>(first, kOamShadowStart);
+        std::max<std::uint64_t>(first, oam_shadow_start());
     const std::uint64_t clipped_last =
-        std::min<std::uint64_t>(last, kOamShadowEnd);
+        std::min<std::uint64_t>(last, oam_shadow_end());
     for (std::size_t slot = 0; slot < kOamSlotCount; ++slot) {
-        const std::uint32_t attr0 = kOamShadowStart +
+        const std::uint32_t attr0 = oam_shadow_start() +
             static_cast<std::uint32_t>(slot * kOamSlotBytes);
         const std::uint64_t attr0_end = static_cast<std::uint64_t>(attr0) + 2u;
         if (clipped_first >= attr0_end || clipped_last <= attr0) continue;
@@ -1281,15 +1293,15 @@ OamShadowRange account_oam_shadow_range(std::uint32_t address,
     address = normalize_oam_shadow_address(address);
     const std::uint64_t first = address;
     const std::uint64_t last = first + size;
-    if (first >= kOamShadowEnd || last <= kOamShadowStart) return result;
+    if (first >= oam_shadow_end() || last <= oam_shadow_start()) return result;
     const std::uint64_t overlap_first =
-        std::max<std::uint64_t>(first, kOamShadowStart);
+        std::max<std::uint64_t>(first, oam_shadow_start());
     const std::uint64_t overlap_last =
-        std::min<std::uint64_t>(last, kOamShadowEnd);
+        std::min<std::uint64_t>(last, oam_shadow_end());
     result.first_slot = static_cast<std::size_t>(
-        (overlap_first - kOamShadowStart) / kOamSlotBytes);
+        (overlap_first - oam_shadow_start()) / kOamSlotBytes);
     result.last_slot = static_cast<std::size_t>(
-        (overlap_last - 1u - kOamShadowStart) / kOamSlotBytes);
+        (overlap_last - 1u - oam_shadow_start()) / kOamSlotBytes);
     ++g_oam_shadow_stats.write_calls;
     g_oam_shadow_stats.bytes += overlap_last - overlap_first;
     if (from_dma) {
@@ -1424,7 +1436,8 @@ void trace_oam_dma(armv4t::Bus* bus, int channel, std::uint32_t pc,
     // raw Y metadata from the committed image and join it with the latest
     // shadow ATTR0 provenance; slots 89..127 remain unseen unless separately
     // written by a CPU/DMA producer.
-    if (bus && source == kOamShadowStart && destination == kOamStart &&
+    if (bus && oam_shadow_end() > oam_shadow_start() &&
+        source == oam_shadow_start() && destination == kOamStart &&
         bytes == 1024u && (control & 0x0060u) == 0u) {
         ++g_oam_attr0_stats.post_copies;
         for (std::size_t slot = 0; slot < kOamSlotCount; ++slot) {

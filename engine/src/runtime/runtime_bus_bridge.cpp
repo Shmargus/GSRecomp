@@ -251,7 +251,8 @@ static unsigned long long g_idle_skipped_cycles = 0;
 static unsigned long long g_idle_skipped_iters  = 0;
 static unsigned long long g_idle_confirmed_sites = 0;
 
-// Shadow-tick mode for the differential gate (see heal_gate.h). While
+// Shadow-tick mode for the differential gate (archived unused 2026-10-20,
+// Archive/2026-10-20-heal-gate). While
 // g_runtime_shadow_tick is set (during a throwaway validation or transactional
 // guest re-run), runtime_tick accumulates the cycle cost into
 // g_runtime_shadow_cycles and does NOTHING else: no device pump, no IRQ

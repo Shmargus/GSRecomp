@@ -33,12 +33,15 @@
 #include <vector>
 
 #include "field_scene.h"
+#include "scene_repeat.h"
 #include "tla_frame_capture.h"
 #include "tla_water_ripple.h"
 #include "tla_tornado_margins.h"
 #include "tla_screen_effect_margins.h"
 #include "tla_ship_water_margins.h"
+#include "tla_background_margins.h"
 #include "tla_room_palette.h"
+#include "tla_room_sprite_clip.h"
 #include "effect_capture.h"
 #include "field_scene_renderer.h"
 #include "world_map_source.h"
@@ -477,13 +480,16 @@ bool draw_capture(const Capture& capture, std::uint8_t* rgb,
     // The room source only where there is a margin to fill: the native view
     // stays exactly the picture checked against the console compositor.
     const bool expanded = width > 240u || height > 160u;
+    if (expanded)
+        tla_hide_outside_room(scene,
+            capture.ewram.data(), capture.ewram.size(),
+            capture.iwram.data(), capture.iwram.size());
     const unsigned map_id = expanded && capture.ewram.size() >= 0x42A
         ? unsigned(capture.ewram[0x428]) |
             (unsigned(capture.ewram[0x429]) << 8) : 0;
+    tla_weather_sprite_margins(scene, margins, capture.vram);
     tla_tornado_margins(scene, margins, map_id,
         -(static_cast<int>(height) - 160) / 2, capture.camera_hold_y);
-    const bool haze =
-        tla_screen_effect_margins(scene, margins, map_id, capture.vram);
     bool port = false;
     if (expanded && capture.rom && capture.rom_bytes >= 0x20A8u + 1024u * 2u) {
         const auto sine = [&](unsigned index) {
@@ -501,11 +507,12 @@ bool draw_capture(const Capture& capture, std::uint8_t* rgb,
     }
     static std::vector<std::uint8_t> haze_vram;
     const bool haze_filled =
-        (haze && tla_haze_fill_rows(capture.vram, scene, &haze_vram)) ||
-        (port && tla_haze_fill_rows(capture.vram, scene, &haze_vram, 2));
-    tla_ship_water_margins(scene, margins,
-        expanded ? capture.ewram[0x428] | (unsigned(capture.ewram[0x429]) << 8) : 0,
-        capture.vram);
+        port && tla_haze_fill_rows(capture.vram, scene, &haze_vram, 2);
+    if (expanded) {
+        tla_ship_water_margins(scene, margins, capture.vram);
+        tla_background_margins(scene, margins,
+            capture.ewram.data(), capture.ewram.size());
+    }
     const std::vector<std::uint8_t>& vram = haze_filled ? haze_vram : capture.vram;
     renderer.upload_vram(vram.data(), vram.size());
     if (!capture.room_vram.empty())
@@ -520,8 +527,18 @@ bool draw_capture(const Capture& capture, std::uint8_t* rgb,
     renderer.set_menu_open(capture.window_open);
     // Better Field Psy: Reveal covers the whole view, as in The Broken Seal.
     renderer.set_reveal_full(tla_field_psy_fast());
-    if (expanded)
+    if (expanded) {
         renderer.upload_room(capture.ewram.data(), capture.ewram.size());
+        // Haze, mist, sunlight and any other repeating layer: the shared
+        // rule, once the room source can say which layers it fills.
+        gsr::continue_repeating_layers(scene, margins, vram.data(), vram.size(),
+            [&](int bg) {
+                bool from_record = false;
+                return bg != 0 && renderer.room_known() &&
+                       renderer.room_reference_for(scene, bg, &from_record);
+            },
+            -(static_cast<int>(height) - 160) / 2, static_cast<int>(height));
+    }
     // Complete map tiles are shared code; this game's wrapper supplies its layout.
     static gsr::WorldMapSource world_map;
     if (expanded && scene.video_mode == 2 &&

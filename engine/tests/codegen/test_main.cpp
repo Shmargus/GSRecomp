@@ -653,6 +653,8 @@ bool run_infinite_cheat_cases() {
     constexpr uint32_t kBase = 0x02000534u;
     constexpr uint32_t kStride = 0x14Cu;
     codegen_test::bus_reset(0x02000000u, 0x1000u);
+    // The engine's party layout defaults to inert; a game supplies its own.
+    runtime_set_party_layout(kBase, kStride, 4u);
     runtime_set_infinite_hp(0);
     runtime_set_infinite_pp(0);
 

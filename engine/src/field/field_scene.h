@@ -66,18 +66,26 @@ struct SceneLayer {
 // or grow without orphaning every saved capture. A game that has these hands
 // them to the renderer with set_scene_margins().
 struct SceneMarginLayer {
-    // Scroll rows for the vertical margins; native rows always use their
+    // Scroll rows for the margins; native pixels always use their
     // captured registers. Entries are HOFS, VOFS. Row 0 sits at
     // `scroll_first_y` (negative: above the console's top row).
     int scroll_first_y = 0;
     std::vector<std::array<std::uint16_t, 2>> scroll;
+    // Also use supplied rows beside the native view; native pixels keep
+    // their captured registers. Needed for diagonally repeating effects.
+    bool scroll_sides = false;
     // Regular effects may expose their live tilemap in the margins. Positive
     // gives one unwrapped tilemap height; negative fills the screen by wrapping
     // the effect map. Zero disables it.
     int vram_height = 0;
     // A measured repeating patch within that map, for margin pixels only.
     // Zero keeps the full hardware map. Dimensions are powers of two.
+    // For room-backed scenery (vram_height == 0, repeat_height == 0),
+    // width repeats this patch horizontally throughout the margins.
     int repeat_width = 0, repeat_height = 0;
+    // Clip a moving room layer against its stationary silhouette, sampled
+    // this many rows below its current source. Margin pixels only.
+    int rest_clip_y = 0;
 };
 // The iris wipe's ellipse in console pixels, drawn outside the console's
 // screen (field_scene_renderer.cpp, fit_iris_window).
@@ -89,6 +97,9 @@ struct IrisWindow {
 
 struct SceneMargins {
     std::array<SceneMarginLayer, 4> layers;
+    // Game-identified screen effects repeat their sprite layout into margins.
+    // Kept outside FieldScene so stored raw SCENE captures retain their ABI.
+    std::array<std::array<int, 2>, 128> object_repeat{};
     // The game's own iris, when it knows it; otherwise the renderer fits one
     // to the console's rows.
     IrisWindow iris;

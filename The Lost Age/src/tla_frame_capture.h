@@ -113,7 +113,10 @@ inline bool parse(const std::vector<std::uint8_t>& bytes, View* out) {
                  Section{"IWRAM", nullptr, 0x8000}, Section{"OBJECTS", nullptr, 128 * 12},
                  Section{"STATE", nullptr, 8}})
             if (result.find(expected.name.c_str()).size != expected.size) return false;
-        if (result.find("ROOMVRAM").size != 0 && result.find("ROOMVRAM").size != 0x18000)
+        // Menu-open frames copy the whole video memory, the second sprite
+        // page included (build_room_vram), since that page was added.
+        const auto room_vram = result.find("ROOMVRAM").size;
+        if (room_vram != 0 && room_vram != 0x18000 && room_vram != 0x20000)
             return false;
         if (result.find("ROOMPAL").size != 0 && result.find("ROOMPAL").size != 0x400)
             return false;

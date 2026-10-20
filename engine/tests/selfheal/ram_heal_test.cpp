@@ -54,11 +54,24 @@ void check(bool cond, const std::string& what) {
     ++g_failures;
 }
 
+// The fixtures write guest RAM through raw pointers. Report each write the
+// way generated stores do (note_ram_write_for_identity), so the RAM-code
+// page epochs that gate re-hashing see it as the game's own writes would be.
+void note_raw_ram_write(const uint8_t* dst, uint32_t off, uint32_t width) {
+    gba::GbaBus* bus = gbarecomp::active_bus();
+    if (!bus) return;
+    if (dst == bus->iwram_ptr())
+        note_ram_write_for_identity(0x03000000u + off, width);
+    else if (dst == bus->ewram_ptr())
+        note_ram_write_for_identity(0x02000000u + off, width);
+}
+
 void put32(uint8_t* dst, uint32_t off, uint32_t value) {
     dst[off + 0] = static_cast<uint8_t>(value);
     dst[off + 1] = static_cast<uint8_t>(value >> 8);
     dst[off + 2] = static_cast<uint8_t>(value >> 16);
     dst[off + 3] = static_cast<uint8_t>(value >> 24);
+    note_raw_ram_write(dst, off, 4u);
 }
 
 void test_hot_queue_priority_and_fairness() {
@@ -83,6 +96,7 @@ void test_hot_queue_priority_and_fairness() {
 void put16(uint8_t* dst, uint32_t off, uint16_t value) {
     dst[off + 0] = static_cast<uint8_t>(value);
     dst[off + 1] = static_cast<uint8_t>(value >> 8);
+    note_raw_ram_write(dst, off, 2u);
 }
 
 // "MOV r0, #imm8; BX LR" — a two-instruction ARM leaf function. Distinct

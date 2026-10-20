@@ -9,7 +9,7 @@
 # reviewed section seeds: 2539
 # reviewed interworking resumes: 216
 # derived veneer resumes: 705
-# reviewed conditional branch overrides: 46
+# reviewed conditional branch overrides: 48
 # reviewed resume ranges: 555 from 234 function(s)
 
 [program]
@@ -23,6 +23,14 @@ codegen_shards = 32
 
 [identity]
 sha1 = "5c4695205413df7db52b9a184815a07783999971"
+
+[[conditional_branch_override]]
+addr = 0x080f9f50
+note = "Local intro music: title BGM left gain BLS, paired with MOVS080F9F52; loaded-file and R5 track ownership required"
+
+[[conditional_branch_override]]
+addr = 0x080f9f64
+note = "Local intro music: title BGM right gain BLS, paired with MOVS080F9F66; loaded-file and R5 track ownership required"
 
 [[conditional_branch_override]]
 addr = 0x0800b27e
@@ -207,6 +215,14 @@ note = "Spell spark loop (stamp 0x080ECDDA) x > 126 BGT: observe the skipped spa
 [[conditional_branch_override]]
 addr = 0x080ecda2
 note = "Spell spark loop (stamp 0x080ECDDA) y < 0 BLT: observe the skipped spark"
+
+[[thumb_alu_immediate_override]]
+addr = 0x080f9f52
+note = "Local intro music: title player's left gain MOVS R0,#255 ->0 only with active local playback; other music/effects unchanged"
+
+[[thumb_alu_immediate_override]]
+addr = 0x080f9f66
+note = "Local intro music: title player's right gain MOVS R0,#255 ->0 with the same playback and R5 ownership guards"
 
 [[thumb_alu_immediate_override]]
 addr = 0x0801d072

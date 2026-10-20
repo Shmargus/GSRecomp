@@ -36,53 +36,47 @@ inline void shown_rows(const gsr::FieldScene& scene, bool (&shown)[kRows],
 
 }  // namespace tla_haze
 
-// Yampi Desert's captured heat haze is a screen-filling live BG1 tilemap.
-// Continue its wrapped map only when every captured row identifies it.
-// Map 69 carries the same haze (F12 tla_rewind_0031, 2026-10-16: every row
-// BG1CNT 0x0709, BLDCNT 0x3F42, decoded rows already repeat every eight).
-// Air's Rock's mist (map 84) is the same kind of layer: BG1CNT 0x0709, or
-// 0x0708 while the tornado blows, BLDCNT 0x3F42 on every row (F12
-// tla_rewind_0024/0025, 2026-10-15; BG1 matches the room in 19-28% of tiles).
-// The registers alone are not enough: Madra's town (map 44, F12
-// tla_rewind_0054) has a see-through room layer with the very same BG1CNT,
-// DISPCNT and BLDCNT. What sets the haze apart is its content: map row r
-// equals row r + 8 on every pair of rows the console shows, in every frame
-// of every haze capture (tla_rewind_0003..0055: Yampi maps 68, 69, 71, 74,
-// 75, 78, Air's Rock 84) and in none of Madra's 120. A list of maps left the
-// haze in a 240x160 box on 74 (0048) and 78 (0050).
-inline bool tla_screen_effect_margins(gsr::FieldScene& scene,
-                                      gsr::SceneMargins& margins,
-                                      unsigned map,
-                                      const std::vector<std::uint8_t>& vram) {
-    auto& layer = scene.layers[1];
-    margins.layers[1].vram_height = 0;
-    if (scene.video_mode != 0 || !layer.enabled || layer.affine)
-        return false;
-    for (int row = 0; row < gsr::FieldScene::kRows; ++row) {
-        if (!scene.row_io_valid[row]) return false;
-        const auto& io = scene.row_io[row];
-        auto reg = [&](int at) {
-            return unsigned(io[at]) | (unsigned(io[at + 1]) << 8);
-        };
-        const unsigned bg1cnt = reg(0x0A);
-        if ((bg1cnt != 0x0709 && !(map == 84 && bg1cnt == 0x0708)) ||
-            (reg(0x00) & 0xE207) != 0x0200 || reg(0x50) != 0x3F42)
-            return false;
+// Recognize rain by its complete 4bpp artwork, not map, palette or tile slot.
+// These FNV-1a fingerprints were measured from 0093 and agree in every rain
+// object in 0097/0098 despite their different sprite-memory allocations.
+inline bool tla_rain_artwork(const gsr::FieldScene& scene,
+                              const gsr::SceneObject& object,
+                              const std::vector<std::uint8_t>& vram) {
+    if (object.palette < 0 || object.width != 16 ||
+        (object.height != 16 && object.height != 32)) return false;
+    std::uint64_t hash = UINT64_C(14695981039346656037);
+    for (int y = 0; y < object.height / 8; ++y)
+        for (int x = 0; x < 2; ++x) {
+            const std::size_t tile = object.tile +
+                y * (scene.one_dimensional_objects ? 2u : 32u) + x;
+            const std::size_t at = 0x10000u + tile * 32u;
+            if (at > vram.size() || vram.size() - at < 32u) return false;
+            for (int byte = 0; byte < 32; ++byte)
+                hash = (hash ^ vram[at + byte]) * UINT64_C(1099511628211);
+        }
+    if (object.height == 32) return hash == UINT64_C(0x78bccfb7740d43e5);
+    return hash == UINT64_C(0x9b7f9d206c16534f) ||
+           hash == UINT64_C(0x27418cc15f5fe5fe) ||
+           hash == UINT64_C(0xba5aa823f24b688a) ||
+           hash == UINT64_C(0x9179ca96918010b8);
+}
+
+// Apojii's rain is a screen-space sprite layout (0093/0097/0098).
+// Continue it at its original density and animation phase. Rainbow Water
+// is attached to the stream: repeating its sprites across the screen puts
+// copies on unrelated ground and sea (0094/0095). Keep its real placements.
+inline void tla_weather_sprite_margins(const gsr::FieldScene& scene,
+                                       gsr::SceneMargins& margins,
+                                       const std::vector<std::uint8_t>& vram) {
+    margins.object_repeat = {};
+    if (scene.video_mode != 0) return;
+    for (int slot = 0; slot < gsr::FieldScene::kObjects; ++slot) {
+        const auto& o = scene.objects[slot];
+        if (!o.present || o.parked || o.window || o.affine || !o.blended)
+            continue;
+        if (tla_rain_artwork(scene, o, vram))
+            margins.object_repeat[slot] = {240, 160};
     }
-    using namespace tla_haze;
-    const std::size_t base = map_base(vram, scene);
-    if (base == std::size_t(-1)) return false;
-    bool shown[kRows];
-    shown_rows(scene, shown);
-    for (int r = 0; r < kRows; ++r) {
-        const int next = (r + kCycle) % kRows;
-        if (shown[r] && shown[next] &&
-            std::memcmp(vram.data() + base + r * kRowBytes,
-                        vram.data() + base + next * kRowBytes, kRowBytes) != 0)
-            return false;
-    }
-    margins.layers[1].vram_height = -1;
-    return true;
 }
 
 // The haze and mist are one 64-pixel tile pattern: eight different map rows,
@@ -92,9 +86,11 @@ inline bool tla_screen_effect_margins(gsr::FieldScene& scene,
 // the layer drifts. Rows out of its view keep what they held: blank entries
 // (0x5180) above Air's Rock's screen, black stripes in the margin; rows one
 // step out of the cycle in the Yampi cave (0036 f119: rows 2..11 one row
-// behind), seams at the old screen edge. In the copy sent to the renderer,
-// every row the console does not show takes the visible row at the same
-// place in the eight-row cycle.
+// behind), seams at the old screen edge. The haze, mist and Champa's
+// sunlight are now continued by the shared repeating-layer rule
+// (engine/src/field/scene_repeat.h), which draws margins only from shown
+// rows. This copy-in of the cycle remains for the port water below, whose
+// wave moves rows up and down so the shared rule does not apply.
 //
 // Alhafra's port water (map 98, tla_port_wave) is the same kind of layer:
 // the room's BG1 is the 0x3E0..0x3E7 pattern, four map rows a cycle, and

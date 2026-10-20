@@ -244,8 +244,8 @@ void trace_oam_shadow_dma(armv4t::Bus* bus, int channel, std::uint32_t pc,
 void begin_dma();
 
 // Independent bounded probe: identify the writer(s) of the field-object OAM
-// shadow buffer (IWRAM 0x0300347C..0x0300387C), which the ROM 0x080036A4
-// DMA later copies into real OAM 0x07000000. Opt-in only via the launcher's
+// shadow buffer (g_game_ram_layout.oam_shadow_*), which the game's DMA
+// later copies into real OAM 0x07000000. Opt-in only via the launcher's
 // OAM shadow writer trace toggle (GSR_OAM_SHADOW_TRACE); off by default and
 // bounded independently of the VRAM map probe above.
 void trace_oam_shadow_write(std::uint32_t pc, std::uint32_t address,

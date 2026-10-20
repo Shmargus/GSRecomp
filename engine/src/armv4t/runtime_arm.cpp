@@ -10,6 +10,7 @@
 #include "runtime_arm.h"
 #include "symbol_lookup.h"
 #include "env_flag.h"
+#include "game_ram_layout.h"
 
 #include <algorithm>
 #include <atomic>
@@ -17,6 +18,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
+
+// The active game layout (see game_ram_layout.h); zero = every probe inert.
+GameRamLayout g_game_ram_layout{};
 
 namespace {
 
@@ -218,27 +222,52 @@ struct PoolLdmPoisonLatch {
     const char* seam = "unknown";
 };
 
-constexpr uint32_t kPoolLdmPc = 0x03006100u;
-constexpr uint32_t kPoolLdmSlot0 = 0x03007E24u;
-constexpr uint32_t kPoolLdmSlot1 = 0x03007E28u;
+// The probed pc, slots, poison target, stack window and dispatch ranges come
+// from g_game_ram_layout (supplied by the game's runner).
 constexpr uint32_t kPoolLdmSlotCount = 2u;
 PoolLdmWriteRing g_pool_ldm_slot_writes[kPoolLdmSlotCount]{};
 // The crash context reports the post-LDM SP, not necessarily the pre-LDM
 // address. Keep a small, payload-free window around the measured stack so a
 // future invalid-pool dump can identify the actual two loaded words even when
-// the entry SP is not 0x03007E24.
-constexpr uint32_t kPoolLdmStackBase = RUNTIME_POOL_LDM_WINDOW_BASE;
-constexpr uint32_t kPoolLdmStackEnd = RUNTIME_POOL_LDM_WINDOW_END;
-constexpr uint32_t kPoolLdmStackSlotCount =
-    (kPoolLdmStackEnd - kPoolLdmStackBase) / 4u;
-PoolLdmWriteRing g_pool_ldm_stack_writes[kPoolLdmStackSlotCount]{};
+// the entry SP is not the first fixed slot. Fixed capacity; a layout whose
+// window is larger leaves the probe unarmed (pool_ldm_layout_usable).
+constexpr uint32_t kPoolLdmStackCapacity =
+    GameRamLayout::kPoolLdmWindowMaxWords;
+PoolLdmWriteRing g_pool_ldm_stack_writes[kPoolLdmStackCapacity]{};
 PoolLdmSourceSnapshot g_pool_ldm_source{};
 bool g_pool_ldm_probe_armed = false;
 PoolLdmPoisonLatch g_pool_ldm_poison_latch{};
 bool g_pool_ldm_poison_present = false;
 
 constexpr uint32_t kPoolLdmPoison = 0xDCEF0210u;
-constexpr uint32_t kPoolLdmPoisonTarget = 0x03007E30u;
+
+// True when the game supplied a probe layout this build can track: a probed
+// pc, a non-empty word-aligned window within capacity. Logs once when a
+// supplied window is too large. A zero layout is silently unusable.
+bool pool_ldm_layout_usable() {
+    const GameRamLayout& l = g_game_ram_layout;
+    if (l.pool_ldm_pc == 0u || l.pool_ldm_window_end <= l.pool_ldm_window_base)
+        return false;
+    const uint32_t bytes = l.pool_ldm_window_end - l.pool_ldm_window_base;
+    if ((bytes & 3u) != 0u || (l.pool_ldm_window_base & 3u) != 0u ||
+        bytes / 4u > kPoolLdmStackCapacity) {
+        static bool logged = false;
+        if (!logged) {
+            logged = true;
+            std::fprintf(stderr,
+                "runtime_arm: pool-ldm probe disabled: window "
+                "0x%08X-0x%08X exceeds %u words or is misaligned\n",
+                l.pool_ldm_window_base, l.pool_ldm_window_end,
+                kPoolLdmStackCapacity);
+        }
+        return false;
+    }
+    return true;
+}
+inline uint32_t pool_ldm_stack_words() {
+    return (g_game_ram_layout.pool_ldm_window_end -
+            g_game_ram_layout.pool_ldm_window_base) / 4u;
+}
 
 // GBA IWRAM is mirrored throughout the 0x03xxxxxx region. Generated stores
 // normally use the canonical 0x0300xxxx address, but a direct CPU/DMA store
@@ -260,7 +289,7 @@ uint32_t pool_ldm_poison_register_mask() {
 }
 
 void pool_ldm_poison_arm(const char* reason) {
-    const uint32_t live = bus_read_u32(kPoolLdmPoisonTarget);
+    const uint32_t live = bus_read_u32(g_game_ram_layout.pool_ldm_poison_target);
     g_pool_ldm_poison_present = live == kPoolLdmPoison;
     std::fprintf(stderr,
         "runtime_arm: [pool-ldm-poison-arm] reason=%s classification=%s "
@@ -272,13 +301,13 @@ void pool_ldm_poison_arm(const char* reason) {
 
 uint32_t pool_ldm_reconstruct_post_word(uint32_t addr, uint32_t value,
                                         uint32_t width) {
-    uint32_t result = bus_read_u32(kPoolLdmPoisonTarget);
+    uint32_t result = bus_read_u32(g_game_ram_layout.pool_ldm_poison_target);
     const uint32_t physical = pool_ldm_normalize_iwram_addr(addr);
     for (uint32_t i = 0; i < width && i < 4u; ++i) {
         const uint32_t byte_addr = physical + i;
-        if (byte_addr < kPoolLdmPoisonTarget ||
-            byte_addr >= kPoolLdmPoisonTarget + 4u) continue;
-        const uint32_t shift = (byte_addr - kPoolLdmPoisonTarget) * 8u;
+        if (byte_addr < g_game_ram_layout.pool_ldm_poison_target ||
+            byte_addr >= g_game_ram_layout.pool_ldm_poison_target + 4u) continue;
+        const uint32_t shift = (byte_addr - g_game_ram_layout.pool_ldm_poison_target) * 8u;
         result = (result & ~(0xFFu << shift)) |
                  (((value >> (i * 8u)) & 0xFFu) << shift);
     }
@@ -317,11 +346,11 @@ void pool_ldm_note_write(uint32_t addr, uint32_t value, uint32_t width,
     if (!g_pool_ldm_probe_armed || width == 0u) return;
     const uint32_t physical_addr = pool_ldm_normalize_iwram_addr(addr);
     const uint64_t write_end = static_cast<uint64_t>(physical_addr) + width;
-    if (physical_addr < kPoolLdmPoisonTarget + 4u &&
-        write_end > kPoolLdmPoisonTarget) {
+    if (physical_addr < g_game_ram_layout.pool_ldm_poison_target + 4u &&
+        write_end > g_game_ram_layout.pool_ldm_poison_target) {
         const uint32_t post = pre_write
             ? pool_ldm_reconstruct_post_word(addr, value, width)
-            : bus_read_u32(kPoolLdmPoisonTarget);
+            : bus_read_u32(g_game_ram_layout.pool_ldm_poison_target);
         pool_ldm_poison_transition(post, pc, sp, seam);
     }
     PoolLdmSlotWrite rec{};
@@ -335,24 +364,24 @@ void pool_ldm_note_write(uint32_t addr, uint32_t value, uint32_t width,
     rec.r9 = r9;
     rec.state_epoch = g_runtime_state_epoch;
     for (uint32_t i = 0; i < kPoolLdmSlotCount; ++i) {
-        const uint32_t slot = i == 0u ? kPoolLdmSlot0 : kPoolLdmSlot1;
+        const uint32_t slot = i == 0u ? g_game_ram_layout.pool_ldm_slot0 : g_game_ram_layout.pool_ldm_slot1;
         const uint64_t slot_end = static_cast<uint64_t>(slot) + 4u;
         if (write_end <= slot || static_cast<uint64_t>(physical_addr) >= slot_end)
             continue;
         g_pool_ldm_slot_writes[i].push(rec);
     }
     const uint64_t tracked_end =
-        static_cast<uint64_t>(kPoolLdmStackEnd);
+        static_cast<uint64_t>(g_game_ram_layout.pool_ldm_window_end);
     if (static_cast<uint64_t>(physical_addr) < tracked_end && write_end >
-        static_cast<uint64_t>(kPoolLdmStackBase)) {
-        const uint32_t first = physical_addr < kPoolLdmStackBase
-            ? 0u : (physical_addr - kPoolLdmStackBase) / 4u;
+        static_cast<uint64_t>(g_game_ram_layout.pool_ldm_window_base)) {
+        const uint32_t first = physical_addr < g_game_ram_layout.pool_ldm_window_base
+            ? 0u : (physical_addr - g_game_ram_layout.pool_ldm_window_base) / 4u;
         const uint32_t last = (write_end - 1u) >= tracked_end
-            ? kPoolLdmStackSlotCount - 1u
+            ? pool_ldm_stack_words() - 1u
             : static_cast<uint32_t>((write_end - 1u -
-                                     kPoolLdmStackBase) / 4u);
+                                     g_game_ram_layout.pool_ldm_window_base) / 4u);
         for (uint32_t i = first; i <= last &&
-             i < kPoolLdmStackSlotCount; ++i) {
+             i < pool_ldm_stack_words(); ++i) {
             g_pool_ldm_stack_writes[i].push(rec);
         }
     }
@@ -360,7 +389,7 @@ void pool_ldm_note_write(uint32_t addr, uint32_t value, uint32_t width,
 
 void pool_ldm_snapshot_before_body() {
     const uint32_t sp = g_cpu.R[13];
-    if (sp < kPoolLdmStackBase || sp + 8u > kPoolLdmStackEnd ||
+    if (sp < g_game_ram_layout.pool_ldm_window_base || sp + 8u > g_game_ram_layout.pool_ldm_window_end ||
         (sp & 3u) != 0u) {
         g_pool_ldm_source = {};
         return;
@@ -375,7 +404,7 @@ void pool_ldm_snapshot_before_body() {
     snapshot.slot_addr[1] = sp + 4u;
     snapshot.slot_value[0] = bus_read_u32(sp);
     snapshot.slot_value[1] = bus_read_u32(sp + 4u);
-    const uint32_t stack_index = (sp - kPoolLdmStackBase) / 4u;
+    const uint32_t stack_index = (sp - g_game_ram_layout.pool_ldm_window_base) / 4u;
     snapshot.ring[0] = g_pool_ldm_stack_writes[stack_index];
     snapshot.ring[1] = g_pool_ldm_stack_writes[stack_index + 1u];
     snapshot.fixed_ring[0] = g_pool_ldm_slot_writes[0];
@@ -387,7 +416,7 @@ void pool_ldm_snapshot_before_body() {
 // Payload-free: the window is hashed, never retained.
 uint32_t pool_ldm_window_crc(void) {
     uint32_t crc = 0xFFFFFFFFu;
-    for (uint32_t a = kPoolLdmStackBase; a < kPoolLdmStackEnd; a += 4u) {
+    for (uint32_t a = g_game_ram_layout.pool_ldm_window_base; a < g_game_ram_layout.pool_ldm_window_end; a += 4u) {
         uint32_t v = bus_read_u32(a);
         for (int b = 0; b < 4; ++b) {
             crc ^= v & 0xFFu;
@@ -418,11 +447,13 @@ extern "C" void runtime_pool_dispatch_history_record(uint32_t pc,
                                                          int thumb) {
     // The generated blitter pool is the only requested source; keep this
     // range test on the dispatch hot path and retain no guest bytes.
+    const GameRamLayout& layout = g_game_ram_layout;
     if (thumb ||
-        !((pc >= 0x030057E0u && pc < 0x03005A64u) ||
-          (pc >= 0x03006000u && pc < 0x03006500u)))
+        !((pc >= layout.pool_range0_lo && pc < layout.pool_range0_hi) ||
+          (pc >= layout.pool_range1_lo && pc < layout.pool_range1_hi)))
         return;
     if (!g_runtime_ram_image_dispatch_probe) return;
+    if (!pool_ldm_layout_usable()) return;
     const bool was_armed = g_pool_ldm_probe_armed;
     g_pool_ldm_probe_armed = true;
     if (!was_armed) {
@@ -430,7 +461,7 @@ extern "C" void runtime_pool_dispatch_history_record(uint32_t pc,
         std::fprintf(stderr,
             "runtime_arm: [pool-ldm-crc] reason=arm "
             "range=0x%08X-0x%08X crc=0x%08X epoch=%llu frame=%llu\n",
-            kPoolLdmStackBase, kPoolLdmStackEnd, pool_ldm_window_crc(),
+            g_game_ram_layout.pool_ldm_window_base, g_game_ram_layout.pool_ldm_window_end, pool_ldm_window_crc(),
             static_cast<unsigned long long>(g_runtime_state_epoch),
             static_cast<unsigned long long>(g_runtime_vblank_starts));
     }
@@ -444,7 +475,7 @@ extern "C" void runtime_pool_dispatch_history_record(uint32_t pc,
         (g_pool_dispatch_history_next + 1u) % kPoolDispatchHistoryCapacity;
     if (g_pool_dispatch_history_count < kPoolDispatchHistoryCapacity)
         ++g_pool_dispatch_history_count;
-    if (pc == kPoolLdmPc) pool_ldm_snapshot_before_body();
+    if (pc == g_game_ram_layout.pool_ldm_pc) pool_ldm_snapshot_before_body();
 }
 
 extern "C" void runtime_pool_ldm_probe_restore_boundary(void) {
@@ -452,13 +483,14 @@ extern "C" void runtime_pool_ldm_probe_restore_boundary(void) {
     // The provenance recorder is diagnostic work, including a check on every
     // guest store once armed. Share the launcher's existing RAM Churn Probe
     // gate, which installs this dispatch observer before loading a state.
-    g_pool_ldm_probe_armed = g_runtime_ram_image_dispatch_probe != nullptr;
+    g_pool_ldm_probe_armed = g_runtime_ram_image_dispatch_probe != nullptr &&
+                             pool_ldm_layout_usable();
     if (!g_pool_ldm_probe_armed) return;
     pool_ldm_poison_arm("restore");
     std::fprintf(stderr,
         "runtime_arm: [pool-ldm-crc] reason=restore "
         "range=0x%08X-0x%08X crc=0x%08X epoch=%llu frame=%llu\n",
-        kPoolLdmStackBase, kPoolLdmStackEnd, pool_ldm_window_crc(),
+        g_game_ram_layout.pool_ldm_window_base, g_game_ram_layout.pool_ldm_window_end, pool_ldm_window_crc(),
         static_cast<unsigned long long>(g_runtime_state_epoch),
         static_cast<unsigned long long>(g_runtime_vblank_starts));
 }
@@ -491,7 +523,7 @@ extern "C" void runtime_pool_dispatch_history_dump(uint32_t invalid_pc) {
             "pc=0x%08X sp=0x%08X pre_r9=0x%08X\n",
             static_cast<unsigned long long>(g_pool_ldm_source.frame),
             static_cast<unsigned long long>(g_pool_ldm_source.state_epoch),
-            kPoolLdmPc, g_pool_ldm_source.sp, g_pool_ldm_source.r9);
+            g_game_ram_layout.pool_ldm_pc, g_pool_ldm_source.sp, g_pool_ldm_source.r9);
         for (uint32_t i = 0; i < kPoolLdmSlotCount; ++i) {
             const PoolLdmWriteRing& ring = g_pool_ldm_source.ring[i];
             const PoolLdmSlotWrite* nw = ring.newest();
@@ -536,14 +568,14 @@ extern "C" void runtime_pool_dispatch_history_dump(uint32_t invalid_pc) {
                 std::fprintf(stderr,
                     "runtime_arm: pool-ldm fixed-slot=0x%08X "
                     "last-write=none\n",
-                    i == 0u ? kPoolLdmSlot0 : kPoolLdmSlot1);
+                    i == 0u ? g_game_ram_layout.pool_ldm_slot0 : g_game_ram_layout.pool_ldm_slot1);
             } else {
                 std::fprintf(stderr,
                     "runtime_arm: pool-ldm fixed-slot=0x%08X "
                     "last-write addr=0x%08X value=0x%08X width=%u "
                     "pc=0x%08X frame=%llu sp=0x%08X r9=0x%08X"
                     " state_epoch=%llu\n",
-                    i == 0u ? kPoolLdmSlot0 : kPoolLdmSlot1,
+                    i == 0u ? g_game_ram_layout.pool_ldm_slot0 : g_game_ram_layout.pool_ldm_slot1,
                     nw->addr, nw->value, nw->width, nw->pc,
                     static_cast<unsigned long long>(nw->frame), nw->sp,
                     nw->r9,
@@ -585,7 +617,8 @@ extern "C" void runtime_note_ram_pointer_write(uint32_t dest,
                                                  uint32_t width) {
     if (!g_runtime_ram_pointer_write_probe || width != 4u) return;
     const uint32_t target = value & ~1u;
-    if (target < 0x03005B0Cu || target >= 0x03005D5Cu) return;
+    if (target < g_game_ram_layout.ram_image_start ||
+        target >= g_game_ram_layout.ram_image_end) return;
     g_runtime_ram_pointer_write_probe(
         g_runtime_vblank_starts, dest, g_cpu.R[15],
         (g_cpu.cpsr & CPSR_T_BIT) != 0u ? 1u : 0u,
@@ -607,8 +640,8 @@ extern "C" void runtime_note_ram_image_cpu_write(uint32_t pc,
                                                     uint32_t addr,
                                                     uint32_t width) {
     if (!g_runtime_ram_image_write_probe || width == 0u) return;
-    constexpr uint32_t kImageStart = 0x03005B0Cu;
-    constexpr uint32_t kImageEnd = 0x03005D5Cu;
+    const uint32_t kImageStart = g_game_ram_layout.ram_image_start;
+    const uint32_t kImageEnd = g_game_ram_layout.ram_image_end;
     const uint64_t write_end = static_cast<uint64_t>(addr) + width;
     if (write_end <= kImageStart || addr >= kImageEnd) return;
     const uint32_t clipped_start =
@@ -625,10 +658,11 @@ extern "C" void runtime_note_ram_image_cpu_write(uint32_t pc,
 // Diagnostic-only window re-CRC, callable from the runner alongside each
 // [wide-auth-epoch] emission. Payload-free.
 extern "C" void runtime_note_pool_ldm_epoch_crc(void) {
+    if (!pool_ldm_layout_usable()) return;
     std::fprintf(stderr,
         "runtime_arm: [pool-ldm-crc] reason=auth-epoch "
         "range=0x%08X-0x%08X crc=0x%08X epoch=%llu frame=%llu\n",
-        kPoolLdmStackBase, kPoolLdmStackEnd, pool_ldm_window_crc(),
+        g_game_ram_layout.pool_ldm_window_base, g_game_ram_layout.pool_ldm_window_end, pool_ldm_window_crc(),
         static_cast<unsigned long long>(g_runtime_state_epoch),
         static_cast<unsigned long long>(g_runtime_vblank_starts));
 }
@@ -638,12 +672,12 @@ extern "C" void runtime_note_pool_ldm_bus_write(uint32_t addr,
     if (!g_pool_ldm_probe_armed || width == 0u) return;
     // This seam runs after a direct/interpreter/DMA bus write commits. Feed
     // every write in the measured stack window, not only the two fixed slots:
-    // the LDM's actual cells are selected by SP and may be 0x03007E2C/30.
+    // the LDM's actual cells are selected by SP and may be the cell after either fixed slot.
     const uint32_t physical_addr = pool_ldm_normalize_iwram_addr(addr);
     const uint64_t write_end = static_cast<uint64_t>(physical_addr) + width;
     if (static_cast<uint64_t>(physical_addr) >=
-            static_cast<uint64_t>(kPoolLdmStackEnd) ||
-        write_end <= static_cast<uint64_t>(kPoolLdmStackBase)) {
+            static_cast<uint64_t>(g_game_ram_layout.pool_ldm_window_end) ||
+        write_end <= static_cast<uint64_t>(g_game_ram_layout.pool_ldm_window_base)) {
         return;
     }
     pool_ldm_note_write(addr, bus_read_u32(physical_addr & ~3u), width,
@@ -700,9 +734,17 @@ extern "C" void runtime_register_ram_code_page(uint32_t pc) {
 // flood it. Dumped when the bridge aborts or the IWRAM code stops matching
 // any registered identity, to show what last rewrote the code and when.
 namespace {
-// Covers the whole overlay unpacker (Func_2544) at 0x03002000..0x030022C4.
-constexpr uint32_t kIwramCodeDiagEnd = 0x2300u;
-constexpr uint32_t kIwramCodeDiagWords = kIwramCodeDiagEnd / 4u;
+// Covers IWRAM from 0 up to the end of the game's overlay unpacker slot,
+// rounded up to 0x100 (g_game_ram_layout.unpacker_slot/_len). Zero slot length
+// = empty range = the ring records nothing. Storage spans all of IWRAM.
+constexpr uint32_t kIwramCodeDiagWords = 0x8000u / 4u;
+inline uint32_t iwram_code_diag_end() {
+    const uint32_t len = g_game_ram_layout.unpacker_slot_len;
+    if (len == 0u) return 0u;
+    const uint32_t end =
+        ((g_game_ram_layout.unpacker_slot & 0x7FFFu) + len + 0xFFu) & ~0xFFu;
+    return end < 0x8000u ? end : 0x8000u;
+}
 constexpr uint32_t kIwramCodeRing = 256u;
 struct IwramCodeWrite {
     unsigned long long frame;
@@ -717,13 +759,13 @@ unsigned long long g_iwram_code_word_frame[kIwramCodeDiagWords];
 // ring above: that ring only sees writes to pages registered as RAM-code pages
 // (runtime_register_ram_code_page), which is not guaranteed for the unpacker
 // page, and it is flooded by data writes elsewhere. This one records only
-// events touching the overlay unpacker's slot 0x03002000..0x030022C4:
+// events touching the overlay unpacker's slot (g_game_ram_layout.unpacker_slot):
 //   dma   one entry per DMA transfer whose destination overlaps the slot
-//         (dst, src, byte count) plus the first word at 0x03002000 afterwards,
+//         (dst, src, byte count) plus the first word at the slot afterwards,
 //         which says which routine was copied in;
 //   cpu   one entry per (word, frame) for bus/interpreter CPU stores, and for
 //         generated-code stores on registered RAM-code pages;
-//   enter every runtime_dispatch to exactly 0x03002000 (ARM), with r0, r1,
+//   enter every runtime_dispatch to exactly the slot start (ARM), with r0, r1,
 //         r6, sp, lr, the game's IWRAM allocator pointer and whether the
 //         dispatch resumed a yield;
 //   yield_resume  a yield restore whose resume pc lies inside the slot
@@ -742,15 +784,16 @@ extern "C" bool g_frame_present_in_progress = false;  // set by the host bridge
 extern "C" uint32_t g_irq_nest_depth;
 
 namespace {
-constexpr uint32_t kUnpackerSlotOff = 0x2000u;   // within the 32 KiB IWRAM
-constexpr uint32_t kUnpackerSlotLen = 0x2C4u;
+// The slot, its length and the game's allocator pointer come from
+// g_game_ram_layout. Journal storage is sized for this many words; stores
+// past it (or past the layout's length) are not journalled.
+constexpr uint32_t kUnpackerSlotMaxWords = 1024u;
+inline uint32_t unpacker_slot_off() {   // within the 32 KiB IWRAM
+    return g_game_ram_layout.unpacker_slot & 0x7FFFu;
+}
 constexpr uint32_t kUnpackerEventDepth = 256u;  // everything but cpu stores
 constexpr uint32_t kUnpackerCpuDepth = 32u;
 constexpr uint32_t kRecentDispatchDepth = 16u;
-// Golden Sun's IWRAM bump-allocator pointer ([0x03001E50] + 4, Func_4938):
-// where the next copied routine lands.
-constexpr uint32_t kGameIwramHeapPtr = 0x03001E54u;
-constexpr uint32_t kUnpackerSlotWords = kUnpackerSlotLen / 4u;
 enum UnpackerSlotKind : uint8_t {
     kUnpackerDma = 0, kUnpackerCpu = 1, kUnpackerEnter = 2,
     kUnpackerPush = 3, kUnpackerRetMatch = 4, kUnpackerRetUnwind = 5,
@@ -778,18 +821,20 @@ uint32_t g_recent_dispatch_next = 0;
 // Set by runtime_yield_restore_pc() when it put a resume pc back; the next
 // dispatch reads and clears it.
 bool g_dispatch_is_yield_resume = false;
-unsigned long long g_unpacker_word_frame[kUnpackerSlotWords];
+unsigned long long g_unpacker_word_frame[kUnpackerSlotMaxWords];
 bool g_unpacker_in_dma = false;
 
 // True when [addr, addr+len) (IWRAM, mirror-normalized) overlaps the slot.
 bool unpacker_slot_overlaps(uint32_t addr, uint32_t len) {
-    if ((addr >> 24) != 0x03u || len == 0u) return false;
+    const uint32_t slot_off = unpacker_slot_off();
+    const uint32_t slot_len = g_game_ram_layout.unpacker_slot_len;
+    if ((addr >> 24) != 0x03u || len == 0u || slot_len == 0u) return false;
     if (len >= 0x8000u) return true;
     const uint32_t lo = addr & 0x7FFFu;
     const uint32_t hi = lo + len;   // may run past 0x8000: wrap check below
-    if (lo < kUnpackerSlotOff + kUnpackerSlotLen && hi > kUnpackerSlotOff)
+    if (lo < slot_off + slot_len && hi > slot_off)
         return true;
-    return hi > 0x8000u && (hi - 0x8000u) > kUnpackerSlotOff;
+    return hi > 0x8000u && (hi - 0x8000u) > slot_off;
 }
 
 UnpackerSlotEntry& unpacker_journal_next(uint8_t kind) {
@@ -810,7 +855,8 @@ UnpackerSlotEntry& unpacker_journal_next(uint8_t kind) {
 // True when a (thumb-bit-stripped) return pc lies inside the slot. This is the
 // only cost the call-return hooks pay when the pc is elsewhere.
 inline bool unpacker_pc_in_slot(uint32_t pc) {
-    return (pc - (0x03000000u + kUnpackerSlotOff)) < kUnpackerSlotLen;
+    return (pc - g_game_ram_layout.unpacker_slot) <
+           g_game_ram_layout.unpacker_slot_len;
 }
 
 // Call-return stack events. Callers gate on unpacker_pc_in_slot() (except the
@@ -829,7 +875,7 @@ void unpacker_note_callret(uint8_t kind, uint32_t pc, uint32_t a, uint32_t b,
     e.src_or_width = a;
     e.count = b;
     e.aux = aux;
-    e.first_word = bus_read_u32(0x03000000u + kUnpackerSlotOff);
+    e.first_word = bus_read_u32(g_game_ram_layout.unpacker_slot);
 }
 
 // Defined next to the call-return stack (which is declared further down).
@@ -841,9 +887,10 @@ void unpacker_dump_live_ret();
 extern "C" void runtime_unpacker_slot_note_cpu(uint32_t addr, uint32_t width) {
     if (g_unpacker_in_dma || !unpacker_slot_overlaps(addr, width)) return;
     uint32_t off = (addr & 0x7FFFu);
-    if (off < kUnpackerSlotOff) off = kUnpackerSlotOff;
-    const uint32_t word = (off - kUnpackerSlotOff) >> 2;
-    if (word >= kUnpackerSlotWords) return;
+    if (off < unpacker_slot_off()) off = unpacker_slot_off();
+    const uint32_t word = (off - unpacker_slot_off()) >> 2;
+    if (word >= g_game_ram_layout.unpacker_slot_len / 4u ||
+        word >= kUnpackerSlotMaxWords) return;
     if (g_unpacker_word_frame[word] == g_runtime_vblank_starts + 1u) return;
     g_unpacker_word_frame[word] = g_runtime_vblank_starts + 1u;
     UnpackerSlotEntry& e = unpacker_journal_next(kUnpackerCpu);
@@ -867,18 +914,18 @@ extern "C" void runtime_unpacker_slot_dma_end(uint32_t dst, uint32_t src,
     e.dst = dst;
     e.src_or_width = src;
     e.count = bytes;
-    e.first_word = bus_read_u32(0x03000000u + kUnpackerSlotOff);
+    e.first_word = bus_read_u32(g_game_ram_layout.unpacker_slot);
 }
 
 extern "C" void runtime_unpacker_slot_note_dispatch(bool resumed) {
     UnpackerSlotEntry& e = unpacker_journal_next(kUnpackerEnter);
-    e.dst = 0x03000000u + kUnpackerSlotOff;
-    e.first_word = bus_read_u32(0x03000000u + kUnpackerSlotOff);
+    e.dst = g_game_ram_layout.unpacker_slot;
+    e.first_word = bus_read_u32(g_game_ram_layout.unpacker_slot);
     e.r0 = g_cpu.R[0];
     e.r1 = g_cpu.R[1];
     e.r6 = g_cpu.R[6];
     e.sp = g_cpu.R[13];
-    e.heap = bus_read_u32(kGameIwramHeapPtr);
+    e.heap = bus_read_u32(g_game_ram_layout.iwram_heap_ptr);
     e.resumed = resumed ? 1u : 0u;
 }
 
@@ -896,7 +943,7 @@ static void unpacker_note_yield_resume(uint32_t pc) {
     UnpackerSlotEntry& e = unpacker_journal_next(kUnpackerYieldResume);
     e.dst = pc;
     e.aux = 1u;
-    e.first_word = bus_read_u32(0x03000000u + kUnpackerSlotOff);
+    e.first_word = bus_read_u32(g_game_ram_layout.unpacker_slot);
 }
 
 extern "C" void runtime_unpacker_slot_dump(const char* why) {
@@ -1076,7 +1123,7 @@ extern "C" void runtime_note_ram_code_write(uint32_t addr, uint32_t width) {
     if (width == 0u) return;
     const uint32_t region = addr >> 24;
     if (region == 0x03u) runtime_unpacker_slot_note_cpu(addr, width);
-    if (region == 0x03u && (addr & 0x7FFFu) < kIwramCodeDiagEnd) {
+    if (region == 0x03u && (addr & 0x7FFFu) < iwram_code_diag_end()) {
         const uint32_t word = (addr & 0x7FFFu) >> 2;
         if (g_iwram_code_word_frame[word] != g_runtime_vblank_starts + 1u) {
             g_iwram_code_word_frame[word] = g_runtime_vblank_starts + 1u;
@@ -1132,16 +1179,15 @@ std::atomic<int> g_additional_debug_logging{0};
 // The factor is in halves (2 = 1x, 3 = 1.5x, 4 = 2x, 6 = 3x).
 std::atomic<int> g_mem_write_override_factor{2};
 
-// Golden Sun party layout, confirmed for the USA/EU image: four slots at
-// 0x02000534, 0x14C bytes apart; a game sets its own with
-// runtime_set_party_layout. State is host-controlled and intentionally off
-// by default; the VBlank hook applies it only when enabled.
+// Party layout: a game sets its own with runtime_set_party_layout; the
+// defaults (all zero) leave the cheats inert. State is host-controlled and
+// intentionally off by default; the VBlank hook applies it only when enabled.
 constexpr unsigned kInfiniteHp = 1u << 0;
 constexpr unsigned kInfinitePp = 1u << 1;
 std::atomic<unsigned> g_infinite_cheats{0};
-uint32_t g_party_base = 0x02000534u;
-uint32_t g_party_stride = 0x14Cu;
-unsigned g_party_slots = 4u;
+uint32_t g_party_base = 0u;
+uint32_t g_party_stride = 0u;
+unsigned g_party_slots = 0u;
 
 }  // namespace
 
@@ -1183,6 +1229,10 @@ extern "C" int runtime_get_infinite_hp(void) {
 extern "C" int runtime_get_infinite_pp(void) {
     return (g_infinite_cheats.load(std::memory_order_relaxed) & kInfinitePp)
         ? 1 : 0;
+}
+
+void runtime_set_game_ram_layout(const GameRamLayout& layout) {
+    g_game_ram_layout = layout;
 }
 
 extern "C" void runtime_set_party_layout(uint32_t base, uint32_t stride,
@@ -1283,9 +1333,10 @@ uint32_t g_call_return_depth = 0;
 // The guest code around each RAM return point when it was pushed (the call
 // instruction before it and the instruction at it). RAM code is copied in and
 // replaced at the same addresses, so an address alone does not say the frame
-// still belongs to the code now there: Golden Sun's Func_2544 leaves a
-// never-matched return 0x030060AC behind, and Func_2808, later loaded at the
-// same 0x03006000, matched it and ran Func_2544's host code on its registers.
+// still belongs to the code now there: a routine that leaves a
+// never-matched return behind can be matched by a different routine later
+// loaded at the same address, which then runs the first routine's host code
+// on its registers (seen in Golden Sun; FACTS.md).
 // A RAM entry matches only while these words are unchanged.
 uint64_t g_call_return_code[kCallReturnStackSize] = {};
 
@@ -1332,8 +1383,8 @@ void unpacker_dump_live_ret() {
         "[unpacker-slot] live_ret depth=%u floor=%u (entries inside "
         "0x%08X..0x%08X follow)\n",
         g_call_return_depth, g_call_return_floor,
-        0x03000000u + kUnpackerSlotOff,
-        0x03000000u + kUnpackerSlotOff + kUnpackerSlotLen);
+        g_game_ram_layout.unpacker_slot,
+        g_game_ram_layout.unpacker_slot + g_game_ram_layout.unpacker_slot_len);
     for (uint32_t i = 0; i < g_call_return_depth; ++i) {
         if (!unpacker_pc_in_slot(g_call_return_stack[i])) continue;
         std::fprintf(stderr,
@@ -1860,8 +1911,8 @@ extern "C" uint32_t runtime_fp_save_tail_csv(const char* path, uint32_t n) {
         for (int k = 0; k < 16; ++k) std::fprintf(f, ",0x%08X", e.r[k]);
         std::fputc('\n', f);
     }
-    std::fclose(f);
-    return n;
+    const bool ok = std::ferror(f) == 0;
+    return std::fclose(f) == 0 && ok ? n : 0;
 }
 
 // Filter the insn-fingerprint ring by guest PC: collect up to `max_hits`
@@ -2249,21 +2300,6 @@ inline bool coverage_marked(const std::vector<uint8_t>& bits, unsigned idx) {
 // to match the g_runtime_fn_entry_hook pointer's C linkage.
 extern "C" void coverage_fn_entry_hook(uint32_t entry_pc) {
     const uint32_t pc = entry_pc & ~1u;
-    if (std::getenv("GBARECOMP_AUDIO_PROBE") &&
-        (pc == 0x080F9B74u || pc == 0x080F9C90u ||
-         pc == 0x080F9EE8u || pc == 0x080F9F6Cu ||
-         pc == 0x080FA1FCu)) {
-        static unsigned audio_entry_logs = 0;
-        if (audio_entry_logs++ < 24u) {
-            std::fprintf(stderr,
-                         "[audio-entry] pc=0x%08x r0=0x%08x r1=0x%08x "
-                         "r2=0x%08x r3=0x%08x r4=0x%08x r5=0x%08x r6=0x%08x "
-                         "r7=0x%08x r9=0x%08x r10=0x%08x r11=0x%08x\n",
-                         pc, g_cpu.R[0], g_cpu.R[1], g_cpu.R[2], g_cpu.R[3],
-                         g_cpu.R[4], g_cpu.R[5], g_cpu.R[6], g_cpu.R[7],
-                         g_cpu.R[9], g_cpu.R[10], g_cpu.R[11]);
-        }
-    }
     const bool thumb = (g_cpu.cpsr & CPSR_T_BIT) != 0;
     unsigned idx = 0;
     if (pc < kBiosRegionEnd) {
@@ -2283,8 +2319,6 @@ namespace {
 void coverage_arm_from_env() {
     const char* cov = std::getenv("GBARECOMP_FUNC_COVERAGE");
     if (!cov || !cov[0]) return;
-    if (std::getenv("GBARECOMP_AUDIO_PROBE"))
-        std::fprintf(stderr, "[audio-entry] coverage hook armed\n");
     if (!g_coverage_armed) {
         g_coverage_bios.assign((kBiosDispatchTableLen + 7u) / 8u, 0u);
         g_coverage_cart.assign((kDispatchTableLen + 7u) / 8u, 0u);
@@ -2316,7 +2350,8 @@ void runtime_dispatch(uint32_t target_pc) {
     g_recent_dispatch[g_recent_dispatch_next] = pc | (thumb ? 1u : 0u);
     g_recent_dispatch_resume[g_recent_dispatch_next] = yield_resume ? 1u : 0u;
     g_recent_dispatch_next = (g_recent_dispatch_next + 1u) % kRecentDispatchDepth;
-    if (pc == 0x03002000u && !thumb)
+    if (pc == g_game_ram_layout.unpacker_slot &&
+        g_game_ram_layout.unpacker_slot_len != 0u && !thumb)
         runtime_unpacker_slot_note_dispatch(yield_resume);
     if (g_runtime_ram_image_dispatch_probe) {
         g_runtime_ram_image_dispatch_probe(
