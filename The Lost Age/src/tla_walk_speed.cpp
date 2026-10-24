@@ -13,6 +13,11 @@
 //               2026-10-15)
 //   0x08028534  sailing:   0x14000 at 0x080285AC (action 0x20;
 //               F12 0071, FACTS 2026-10-17)
+//   0x08027E20  boat:      0x10000 at 0x08027E7A, B held 0x40000 at
+//               0x08027E9A (action 0x1F, the Sea of Time boat; F12 0132,
+//               FACTS 2026-10-23)
+//   0x08028AAC  flying:    0x14000 + height / 16 at 0x08028B3C (action
+//               0x21, the ship with wings; F12 0152/0153, FACTS 2026-10-24)
 // (Golden Sun 1's field and world-map routines store the same numbers.) Two
 // other routines with fixed speeds, 0x08026300 (0x8000 both) and 0x080267BC
 // (0x10000 both), keep the game's own.
@@ -27,10 +32,22 @@
 //
 // The multiplier is the engine's (F1 menu Cheats -> Player -> Walking speed,
 // saved in config.ini), in halves: 2 = 1x, 3 = 1.5x, 4 = 2x, 6 = 3x.
+//
+// Walk through walls (developer F1 cheat, engine/src/runtime/
+// developer_session.h; FACTS.md 2026-10-23). The field routine 0x08027064
+// tests each step with 0x0802D87C (2: wall tile, 1: ground over 8 px
+// higher, -1: over 12 px lower) and the other objects. Before those tests
+// the developers left a path that skips them all: when the debug byte
+// [0x03001238] is set and L is held ([0x03001150] & 0x200), `b 0x08027664`
+// moves the player straight to the point ahead with no wall or people tests
+// (the same path as Golden Sun 1's). The cheat takes it by deciding its two
+// `beq`s as not taken; the debug byte itself is never written.
 
 #include <cstdint>
 #include <cstdio>
 
+#include "developer_session.h"
+#include "host_config_ui.h"
 #include "gba_bus.h"
 #include "runtime.h"
 #include "runtime_arm.h"
@@ -48,6 +65,9 @@ constexpr uint32_t kWriterPcs[] = {
     0x08029592u,  // rope walk
     0x08029118u,  // climb
     0x080285ACu,  // sailing
+    0x08027E7Au,  // boat
+    0x08027E9Au,  // boat, B held
+    0x08028B3Cu,  // flying ship
 };
 constexpr unsigned kWriterCount = sizeof(kWriterPcs) / sizeof(kWriterPcs[0]);
 
@@ -128,6 +148,23 @@ int climb_down_test(uint32_t pc, uint32_t original, uint32_t* out_value) {
     return g_next_literal ? g_next_literal(pc, original, out_value) : 0;
 }
 
+constexpr uint32_t kDebugByteBranchPc = 0x08027274u;  // beq: byte 0
+constexpr uint32_t kDebugKeyBranchPc = 0x08027282u;   // beq: L up
+
+int (*g_next_branch)(uint32_t, uint32_t, uint32_t*) = nullptr;
+
+int walk_through_walls_branch(uint32_t pc, uint32_t original,
+                              uint32_t* out_decision) {
+    if (pc == kDebugByteBranchPc || pc == kDebugKeyBranchPc)
+        return gbarecomp::walk_through_walls::decide_branch(original, out_decision);
+    return g_next_branch ? g_next_branch(pc, original, out_decision) : 0;
+}
+
+const gbarecomp::GameOptionSwitch kDeveloperSwitches[] = {
+    {gbarecomp::walk_through_walls::kSwitchLabel,
+     gbarecomp::walk_through_walls::kSwitchCaption,
+     gbarecomp::walk_through_walls::kOptionKey}};
+
 }  // namespace
 
 // Chains in front of whatever write hook is installed (Instant text's) and
@@ -139,4 +176,15 @@ void tla_install_walk_speed(gbarecomp::RunOptions& options) {
     options.thumb_alu_immediate_override = climb_up_test;
     g_next_literal = options.thumb_literal_override;
     options.thumb_literal_override = climb_down_test;
+}
+
+// The F1 Game page lists the switch in developer sessions only.
+void tla_install_walk_through_walls(gbarecomp::RunOptions& options) {
+    g_next_branch = options.conditional_branch_override;
+    options.conditional_branch_override = walk_through_walls_branch;
+    if (gbarecomp::developer_session())
+        gbarecomp::config_ui_set_game_switches(
+            kDeveloperSwitches,
+            static_cast<int>(sizeof(kDeveloperSwitches) /
+                             sizeof(kDeveloperSwitches[0])));
 }

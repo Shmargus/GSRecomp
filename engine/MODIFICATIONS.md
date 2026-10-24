@@ -1,497 +1,449 @@
 # This is a modified copy of gbarecomp
 
-## Shared repeating-layer margins — 20 October 2026
-
-- `field/scene_repeat.h` (header only): `find_layer_repeat` finds a regular
-  layer's whole-screen repeat from its tile map (every shown map row equals
-  the row `period` further down, moved at most one period sideways, over the
-  full map width; at least two periods shown; one-tile layers ignored).
-  `continue_layer_repeat` fills a layer's margin scroll rows from the nearest
-  shown period. `continue_repeating_layers` applies it to every layer no game
-  rule claimed, except room scenery the room source fills unless the layer
-  is a see-through overlay. Needs the profile's `margin_scroll_rows`; The
-  Lost Age calls it, replacing its per-map haze/mist/sunlight rules. The
-  renderer itself is unchanged.
-- `tools/scene_repeat_bench.cpp`: offline bench over saved F12/rewind
-  captures of either game (built per game; not in CMake). Results:
-  `local/scene-repeat-20261020/FINDINGS.md`.
-
-## Preloaded local music bank — 20 October 2026
-
-Supersedes asynchronous selection below. The optional local directory is
-enumerated and decoded before the SDL device is unpaused. MusicBank keeps
-decoded buffers; selection only finds an existing entry and swaps vectors
-under the audio mutex. No selection-time file IO, conversion, PCM copying,
-allocation or worker thread. Failed/missing files are unavailable before
-gameplay, retaining original music from the outset. Single-WAV mode remains.
-Filename parsing accepts nonzero unsigned track-NN.wav; conflicting numeric
-IDs are rejected. Decoder's SDL buffer now has RAII ownership so allocation
-failure cannot leak it; per-track memory failure keeps original fallback.
-No game song IDs/addresses in the engine, no runtime_arm.h or generated-code
-change. Both games need rebuilding. Production host/runner objects compile;
-95 public tests and audit pass. Gameplay check pending; no full game build.
-Actual43-file production-extracted fixture:1752426432 decoded bytes,
-22.2s preload at stereo65536Hz.24 grouped assertions pass; eight complete
-selection cycles preserve PCM pointers with zero allocations/extra decodes.
-Linux syntax checks also pass. This shifts cost to startup and retains the
-whole decoded pack until close; it does not trim recorded fades/silence.
-
-## Background local music selection — 20 October 2026
-
-GBARECOMP_MUSIC_DIR selects generic track-NN.wav files through
-local_music_select(unsigned). One worker decodes/converts only requested
-audio outside the audio mutex; generation checks reject stale completions.
-Changing requests invalidates readiness/active playback immediately; repeated
-selection and failed files do not reload. Missing/invalid/currently loading
-audio remains unavailable so game policy can preserve original music.
-Selection zero cancels. Worker joins before audio teardown; callback only
-mixes already converted PCM under the existing audio mutex. No song IDs,
-game addresses, pack size or mapping in the engine. Single-WAV environment
-still supports only title track1 when no directory is configured.
-38 production-extracted assertions cover actual WAV conversion, selection,
-stale loads, no reload, failures, cancellation, pause/gain/loop and joining
-during a blocked decode. Targeted production host object compiles. Both
-games need rebuilding; full game build/playback confirmation pending.
-
-## Optional local PCM music — 20 October 2026
-
-HostWindow optionally loads GBARECOMP_MUSIC_WAV once through SDL and mixes
-converted signed16 PCM into existing audio output under its audio mutex.
-Game-side controls select active/paused/gain/restart; no game addresses or
-song rules in the engine. Invalid/missing audio remains unavailable, allowing
-original music fallback. Whole-file looping, host volume, host/guest pause
-and Turbo mute are supported. No callback decoding/allocation/file IO.
-Both runtime pause paths forward host pause. No runtime_arm.h change.
-Both games need rebuilding; targeted host/runtime objects and19 extracted
-production audio checks pass. No full build or gameplay confirmation.
-
-## Game-supplied side-margin scroll — 20 October 2026
-
-SceneMarginLayer adds scroll_sides, default false. When enabled, the
-existing per-row margin scroll table also supplies positions beside the
-native window; native pixels still use their captured registers. TLA uses
-this to continue its measured diagonal sunlight cycle through all margins.
-Recognition, map identity and cycle measurements remain game-side. No
-capture-format or runtime_arm.h change, regeneration or full game build.
-Both games need rebuilding. Both renderer tools and live TLA GPU object
-compile;120 affected replays retain native pixels,250 source checks and
-25067520 pixel comparisons pass;95 public tests/audit pass. Gameplay pending.
-307 TBS replay samples identical;690 TLA samples change only six Champa
-margin views,39 older samples unavailable identically before/after.
-Evidence local/champa-0115/ and TLA FACTS.md.
-
-## Game-supplied stationary silhouette clipping — 20 October 2026
-
-SceneMarginLayer adds rest_clip_y, default zero. The renderer forwards a
-nonzero game-supplied offset to its existing u_rest_dy room-silhouette
-clip. When zero it retains the existing Altin profile/history rule exactly.
-The shader itself is unchanged; the clipping test remains room-copy-only,
-leaving native pixels intact. TLA supplies measured inputs from its own
-background-margin helper for its draining pool. No game addresses added
-to the engine, new threshold, duplicate clip rule, capture-format change,
-runtime_arm.h modification or regeneration. Both games need rebuilding.
-
-All120 affected TLA saved frames preserve native pixels;130 captured-state/
-exclusion checks and the live TLA production object pass. Both offline
-renderer tools compile.307 GS1 replay samples are unchanged; TLA678
-samples change only four0107 margin views, with39 unavailable in both
-versions. Gameplay pending; no full game build. Evidence
-local/draining-water-0107/ and TLA FACTS.md.
-
-## Healed RAM conditional-branch hooks — 19 October 2026
-
-TLA pad reports0105/0106 exposed cached native drawing routines bypassing
-game conditional-branch overrides: their existing arm_cond_passes callback
-only evaluated flags. overlay_loader now installs overlay_condition_passes.
-It forwards only actual live Thumb/ARM RAM B instructions, matching opcode
-condition, to the existing game hook with packed bank-relative context.
-Caller image base is restored even on exceptions. Other instructions,
-BL, AL/NV and invalid/non-RAM locations retain original condition behavior.
-No game addresses, new ABI member/version, emitter/cache invalidation or
-runtime_arm.h/generated-code change. Existing cache DLLs use the new host
-callback. No new optional feature/toggle; game view/signature guards remain.
-
-20 actual cached-DLL cases from new captures pass before/after and Original/
-no-hook controls, reaching queue submission with correct positions.2565
-condition/exclusion/exception controls, both production engine source object
-compilations and95 public tests pass. No whole gameplay or performance check.
-Jimmy confirms TLA pad gameplay fixed after rebuilding. Shared mechanism
-has no scene/game-specific addresses; existing game handlers retain their
-guards and configured behavior. This does not establish coverage of all
-effects or TBS gameplay. No regeneration or agent full build. Evidence
-local/jump-pads-0105-0106/ and TLA FACTS.md.
-
-## Event-time crash/F12 context and write integrity — 19 October 2026
-
-Shared memory_snapshot helper writes crash_context.txt/capture_context.txt
-with live frame/CPU/CPSR/resume PC, pending guest returns and diagnostic build
-time. Pending returns are explicitly not a complete guest backtrace; live
-state is not attributed to older presented frames. Existing instruction ring
-is saved only when nonempty, never enabled here. F12's write path adds timing,
-scene/held/GPU availability and file-write completeness in capture_info.txt;
-index.csv appends image_written. Existing payload/reader formats retained.
-Failed saves retain partial evidence, log their folder and return failure.
-Memory and CSV tail writers now check stream/close errors. Launcher archives,
-clears and preserves crash_context alongside the existing crash evidence.
-
-All FrameHistory collection/capture/reset/record code is unchanged from HEAD;
-new work runs on save/crash. No new logging, ring growth, sampling threshold
-or toggle. Saving can still pause play; no FPS/save-latency benchmark claimed.
-Windows/Linux syntax checks for shared writers, runtime_arm.cpp and collection
-session pass; focused report-writer, CSV-error and collector fixtures plus
-95 public tests/audit pass. No full build, active-bus snapshot or real fatal
-crash test. Both games rebuild; runtime_arm.h is unchanged, no regeneration.
-Evidence local/diagnostics-context-20261019/verification.json.
-
-
-## Shared crash-state report writer — 19 October 2026
-
-memory_snapshot.cpp now owns gsr_install_crash_snapshot_writer, the existing
-TBS callback for crash_memory.bin and optional F1 Crash log crash_trail.csv.
-Both runners install it immediately after crash_handler_install, closing
-TLA's missing guest-state report path. Existing GSRMEM1 serialization,
-20000-instruction tail, disabled-ring message and failure reporting retained.
-No game addresses or new toggle. Production-flag syntax checks for both
-runners/shared unit and isolated actual-writer checks pass; real-crash
-confirmation pending. Shared engine source means both games rebuild.
-
-## Sprite positions confined to margins — 19 October 2026
-
-SceneMargins.object_position optionally supplies enabled/X/Y per sprite.
-For an enabled sprite the original draw is clipped to the original240x160
-window; a second draw uses the supplied full position and discards every
-native pixel. Parked/menu sprites are excluded; FieldScene and its stored
-ABI remain unchanged. TLA uses this for jumping pads0099/0100. Other games
-and absent margin positions keep their existing path. Both games rebuild.
-Removed 20 October 2026: the pads moved to the normal position provider,
-so no game supplied margin positions any more (always empty).
-
-## Sprite-effect margin continuation — 19 October 2026
-
-SceneMargins can supply a two-axis continuation period per object. It stays
-outside the raw FieldScene capture ABI. The renderer draws translated copies
-with the same sprite artwork, animation, depth and blend state, clipping each
-copy away from the original240x160 window. Original objects are unchanged;
-parked/menu sprites and object-window masks are not extended. No game addresses
-or effect identifiers enter the shared engine. No optional/debug mode added.
-TLA supplies its captured Apojii rain identities from0093 through
-tla_screen_effect_margins.h, using the console canvas240x160 as the requested
-continuation period. This is a chosen margin continuation, not a claim that
-the random rain artwork itself has a measured240x160 natural period. Both
-games rebuild; no generated-code or ROM-configuration change/regeneration.
-Saved-frame verification and limitations: TLA FACTS.md, local/effects-0093/.
-Follow-up0094/0095 removes Rainbow Water from the game's repetition request:
-it belongs to the stream, and canvas copies put it on unrelated scenery.
-The generic engine is unchanged by that correction.
-
-
-## Room-background repeat at both margins (0088/0089, 19 October 2026)
-
-The existing margin repeat width continues horizontal-only room patches at
-both ends. Patches with a vertical repeat retain their prior room-source
-condition; their live tilemap path is unchanged.
-It applies only outside the native window, within the room, when the game
-provides a nonzero measured repeat and the layer is not using the live-map
-margin path. TLA maps175/176 supply the measured128-pixel distant-scenery repeat; other
-backgrounds retain zero. No camera, guest memory, scale or native fetch changes.
-Both games rebuild because the shared renderer changed; no regeneration.
-TLA supplies only its two measured Gaia Rock origins. See TLA FACTS.md,
-local/camera-0088/ and local/gaia-0089/ for saved-frame verification.
-
-## Intro retest205754: allow real progress through the same RAM entry
-
-Jimmy subsequently confirms the intro freeze fixed after rebuilding/retesting.
-The checks below describe the preceding source/bench stage.
-
-The prior PC/mode-only resolver guard still caused the intro freeze. Existing
-build's headless bench captures03000CEC legitimately recurring28169 guest
-cycles after resolution, while the earlier host call remains active. Guard
-now also compares g_runtime_cycles+g_runtime_deferred_cycles, rejecting only
-re-entry with no guest progress. No timing threshold, new clock or header.
-Immediate stale/cyclic returns still bridge safely. Actual-function fixture
-and isolated existing-process function substitution remove this specific
-fallback; production syntax,95 tests/public audit pass. No full game build
-or normal gameplay claim. Both games rebuild, no regeneration. Evidence:
-local/startup-203419/retest-205754/ and retest-bench-patched.log.
-
-## Fresh TLA startup report203419 — 18 October 2026
-
-The immutable warm-cache lookup still enumerated the whole folder on the game
-thread. The reported0.871s interval is dominated by directory/file-metadata
-syscalls. Use overlay_compile_one's existing exact-file load-only path once
-per backend instead. The separate0.796s sound pause interprets7.62M instructions
-despite an exact active prebuilt variant. The earlier direct-guard handoff's
-blanket recursion flag also suppresses different nested RAM entries; replace
-it with a linked PC/mode resolution stack. The actual-function nested A→B
-fixture bridges before and stays native after; repeated-entry/cycle guards,
-mode/resume/PIC handling and overlay priority pass. The captured caller chain
-is unavailable, so no exact-replay or gameplay-speedup claim. Both production
-units pass syntax checks;95 public tests/public audit pass. Both games rebuild,
-no regeneration. Evidence: local/startup-203419/; Jimmy authorized both fixes.
-
-## Prebuilt RAM handoff after a direct guard miss — 18 October 2026
-
-TLA session190343 spends1.025s interpreting7.6 million instructions at03000CEC
-although its exact16-byte variant is already prebuilt in harv17. A direct
-call's failed fixed-code guard used runtime_mutable_ram_code_miss, which only
-looked for runtime-healed code before bridging. It now consults the existing
-game-owned verified RAM-image resolver after the fast healed-code check.
-Caller PIC context is restored; a thread-local re-entry guard handles a stale
-resolver result without recursion. No weakened identity check or runtime_arm.h
-change. Actual-function path/guard fixture and Windows syntax checks pass;
-95 public tests pass. Both games rebuild; gameplay pending. The separate
-2.271s intro miss is unproven and no blanket stutter fix is claimed.
-Evidence: local/vines-0085/intro-coverage-check.json and ram-handoff-check.cpp.
-
-## Warm-cache startup logging — 18 October 2026
-
-F12 0084's session181649 spends9.278s in startup ready drains while installing
-10,729 cached RAM routines. Raw samples for long-guest frame labels are99.535%
-at NtWriteFile's syscall return. These are cached loads, incorrectly logged
-individually as new compiles. overlay_drain_ready now logs those details only
-for requested work (has_request); the existing warm-loader summary remains.
-Extent tracking, dispatch installation, variants and probe counters remain
-active for all entries. Windows syntax check passes; no full game build or
-post-change gameplay measurement. Both games need rebuilding. Evidence:
-local/followup-0084/startup-evidence.json and loader-syntax.log.
-
-## Speed-state evidence — 18 October 2026
-
-HostWindow logs guest frame plus held/toggle/active fast-forward state on
-source transitions. F12 0080 skipped pictures during reported normal play,
-but its original log cannot establish the input state at that moment. This
-records the existing calculation without changing controls or pacing. Windows
-syntax compilation passes; shared engine change, both games inherit it.
-Evidence: local/remaining-0080-82/speed-log-syntax.log. Stutter remains open.
-
-## Parked sprite identity — 18 October 2026
-
-The shared field_obj_is_parked now matches the complete blank attr0/attr1
-pair rather than coordinates plus non-affine status. Izumo F12 0078 frame5
-contains a real non-affine pillar at raw(192,192), just as the earlier Pound
-report contained an affine pillar there. Across16,124 saved frames all
-1,792,362 dummy matches have the blank pair; both real pillars retain their
-shape/size/transform bits. Actual-header classification and a diagnostic
-saved-frame correction pass, with zero changed native pixels. Both games
-need rebuilding; runtime_arm.h is untouched. Evidence: collection
-local/f12-0078-0082/. Other reports0079..82 are diagnostic only in this task.
-
-## 0.5.2 release verification — 18 October 2026
-
-Windows and Linux full release packaging completed from the final source.
-The 330 Windows and 323 Linux packaged files pass archive/layout/permissions,
-version/feature/notices and ROM-content checks; all 95 public tests pass.
-Packaged first-run builder tests were disabled and gameplay was not verified
-by this audit. Earlier pending-build notes below record their original checks.
-
-
-## Two gameplay controller bindings — 18 October 2026
-
-F1 Controls offers primary/alternate bindings per GBA button. Shared
-keybinds.ini retains [player1_pad] and adds [player1_pad_alt]; the existing
-parser/writer handles both. Input ORs both sources before guest KEYINPUT,
-using the same stick dead zone/sector rules. Capture conflict removal spans
-both columns; clear affects one column and defaults clear all alternates.
-Windows/Linux syntax checks and a native SDL virtual-controller regression
-pass, including independent release and cross-game persistence. Evidence:
-local/release-audit-20261018/source_checks/shared_controls.cpp and associated
-syntax/compile logs. No full build or gameplay test.
-
-## Shared controls and Linux Soft Reset — 18 October 2026
-
-The collection sessions set GBARECOMP_CONTROLS_DIR to collection/Controls.
-HostWindow uses its existing parsers/writers for shared keybinds.ini and
-config.ini [KeyMap]/[KeyMap.Pad], leaving all other game settings local.
-The first launched game seeds missing shared files from its legacy bindings;
-subsequent launches of either game use the shared copy. The isolated native
-regression fixture passes migration, keyboard/pad/hotkey round trips in both
-directions and preservation of per-game video settings. HostWindow and both
-platform session translation units pass syntax compilation.
-Linux handles the Soft Reset exit by requeuing the current session's ROM
-and clearing the Seamless slot environment variable. No session exit to the
-collection selector is involved. The extracted production branch passes
-reset/normal-quit/start-failure/storage-error cases. Gameplay is not tested.
-
 Upstream is [`mstan/gbarecomp`](https://github.com/mstan/gbarecomp) by Matthew
 Stan, licensed PolyForm Noncommercial 1.0.0 (`LICENSE`, unmodified). This
 directory is a **changed** copy of it, carried inside
 [Golden Sun Recompiled](https://github.com/Shmargus/GSRecomp) so that a
-checkout of that project describes the shared engine used by both games.
+checkout of that project describes the one engine both games use. It diverged
+from upstream commit `af51d0e` (2026-07-17) and has not been merged back.
 
-Do not mistake this for upstream. It diverged from upstream commit `af51d0e`
-(2026-07-17) and has not been merged back.
+Game-specific code (addresses, hooks, ROM configuration) lives in the game
+folders. Engine changes are meant to be general to ARMv4T, GBA hardware,
+recompilation or the host, and are candidates to send upstream. The public
+overview and build instructions are in the root `README.md` and `BUILDING.md`.
 
-## What was changed
+## What this copy changes
 
-- **Paused saved-slot updates (2026-10-18)** — games can add controls to
-  F1's Game page through `config_ui_set_game_page`. `update_flash_save`
-  replaces a verified flash snapshot, rejecting stale data and unfinished
-  commands, backing up all slots before writing, using the normal save
-  persistence path and restoring the in-memory image on failure. TLA uses
-  this for manual TBS transfer updates prepared in an isolated machine;
-  no game addresses or import rules are in the engine. Focused original-ROM
-  comparison and flash checks pass; full builds/gameplay remain unverified.
-- **Configurable Soft Reset (2026-10-18)** — F1's Hotkeys page adds an
-  initially unbound keyboard/controller action, persisted as `SoftReset` in
-  the shared `[KeyMap]`/`[KeyMap.Pad]` sections. The runtime flushes saves and
-  exits with the action code from `soft_reset.h`. Windows forwards the code
-  after save synchronization and the collection starts the same game again.
-  Linux requeues the current ROM inside its active session, clearing the
-  Seamless slot so a reset after handover boots TLA without repeating import.
-  Changed units pass Windows/Linux syntax checks; native reset/input checks
-  pass. Full release builds and gameplay remain pending.
+### Recompiler and generated code
 
-- **Guaranteed tail jumps in generated code (2026-10-17)** — every guest
-  transfer that never returns (B, computed jumps, non-return BX/POP/LDR PC,
-  fall-through, the mid-function alias entry stubs in `gba_recompile`) is
-  emitted as `GBARECOMP_TAIL_TRANSFER(call)` (`runtime_arm_types.h`, one
-  helper `emit_tail_transfer` in `arm_codegen`). The map bench at plain
-  -Og: constant 288 bytes of stack for 32/256/4096 copies, output exact.
-  Under GCC 15+ in C++ it is `[[gnu::musttail]] return call`, a host jump at
-  any optimisation level; elsewhere (tcc heal overlays, older GCC) it stays
-  call-and-return. Cause: at -Og GCC kept every `call(); return;` frame, so
-  TLA's copied map decompressor (length-2 path, no BL) grew the native stack
-  until R crashed. Replaces the per-file -O1 override on `reloc_128a8`.
-  Linux packaging now selects and bundles GCC 15+ (2026-10-18); the isolated
-  bundled-compiler map bench also passes with constant 288-byte stack use.
-  Existing generated sources must be regenerated to receive the new transfer
-  statements; the compiler upgrade alone does not rewrite them.
-- **Room margins and sprite placement (0.5.2)** — room-grid wrapping is a
-  game-profile choice shared by the CPU room queries and GPU shader. Margin
-  layers can expose validated repeat dimensions without replacing the native
-  map. Placement records can accept the outgoing sprite attributes from a
-  builder hook, so a pose change does not lose the correct sprite-page
-  identity. Game-specific addresses, palette selection and scenery validation
-  remain in each game's adapter.
-- **Shared field scene and GPU field renderer (2026-10-13)** — `src/field/` is the one copy of the field scene model, the GPU field renderer, the spell sparks, bursts and battle view that both games compile; each game's `src/field_game_profile.cpp` supplies the addresses and switches the rules that exist in one game only (`field_game_profile.h`).
-- **Shared collection engine (2026-10-13)** — Broken Seal owns this source;
-  Lost Age forwards here and builds it separately. Both games share F1/backend,
-  translator dynamic-operand support and the union of their generic runtime
-  fixes. Game hooks, ROM configuration and binaries remain separate. Overlay
-  caches use engine-v2. Native MP2K/shadow/wall/independent Turbo audio was
-  removed; canonical GBA audio and AUD1 layout match TLA's previous engine.
-  Same colour/filter/controller options are now available in both games.
+- **Guaranteed tail jumps.** Every guest transfer that never returns (B,
+  computed jumps, non-return BX/POP/LDR PC, fall-through, and the mid-function
+  alias entry stubs in `gba_recompile`) is emitted as
+  `GBARECOMP_TAIL_TRANSFER(call)` (`runtime_arm_types.h`; one helper,
+  `emit_tail_transfer`, in `arm_codegen`). Under GCC 15+ in C++ it is
+  `[[gnu::musttail]] return call`, a host jump at any optimisation level;
+  elsewhere (tcc heal overlays, older GCC) it stays call-and-return. At `-Og`
+  GCC otherwise kept every `call(); return;` frame and a copied map
+  decompressor grew the native stack until it crashed. Existing generated
+  sources must be regenerated to receive the new statements.
+- **Dynamic-operand support** in the translator, and extra options in
+  `tools/gba_recompile/`.
+- **Deep unmatched returns unwind instead of nesting.**
+  `runtime_call_should_return` (`runtime_arm.cpp`) reports "return" for an
+  unmatched target once 256 call-return frames (a quarter of the stack) are
+  live above the IRQ floor; generated call sites above see the R15 mismatch,
+  cancel their frames and return, and the dispatch loop continues at R15. This
+  fixed a bit-refill helper that rewrites its own return address and nested one
+  frame deeper per refill.
+- **A yield unwind hides the resume PC.** `runtime_should_yield()` stores the
+  real PC in `g_yield_resume_pc` and leaves `R15 = 0xFFFFFFF0` (outside the GBA
+  bus), so a stale call site cannot match the yield PC and keep running old C
+  code on new state. `runtime_yield_restore_pc()` restores it after each
+  `runtime_dispatch()` in the run loop, the IRQ drive loop and the force-interp
+  step.
+- **Block timing hooks.** `runtime_arm.h` declares `g_runtime_deferred_cycles`,
+  `runtime_tick_deferred`, `runtime_insn_fetch` and `runtime_flush_deferred`, so
+  generated code with batched block timing can defer cycle charges; the tick,
+  dispatch, SWI, MSR, idle-backedge, run-loop and load/store paths pay them
+  (the latter with the interrupt check held, `g_tick_irq_held`). With ordinary
+  code the deferred count is 0.
+- **Memory timing table.** `runtime_mem_cycles` (`runtime_bus_bridge.cpp`)
+  answers from a table of `GbaBus::access_cycles` per region x width x S/N,
+  rebuilt when WAITCNT changes, unless the bus's prefetch adjustment applies.
+  Exported as `g_runtime_mem_cost`, `g_runtime_mem_cost_key` and
+  `g_runtime_waitcnt_live`.
+- **Fast IWRAM store observer gated inline.** `g_runtime_fast_iwram_watch[8]`
+  is a 512-bit bitmap over IWRAM at 64-byte granularity. The inline
+  `bus_write_u32/16/8_inline` stores call the installed observer only when a
+  block they touch is set; all zero means it is never called. The game fills
+  the bitmap when it installs the observer.
+- **Idle skip for screen-line waits.** `is_idle_safe_read` accepts
+  DISPSTAT/VCOUNT, so a loop polling the scanline counter is skipped up to the
+  next PPU event like a RAM poll.
+- **Host calls into game routines.** `gbarecomp::guest_call` (`runtime.h`) runs
+  one game routine from host code like a `bl`, returns r0 and restores every
+  register. While it runs, `runtime_should_yield` never unwinds: a HALT is
+  waited out one presented frame at a time, and a HALT no interrupt can end
+  (IE 0) or a window close abandons the call. `guest_return_now`, called from a
+  function-entry observer, makes that routine return at once with a given r0.
 
-- **GPU uniforms and delayed readback (2026-10-09, restored safely 2026-10-17)** —
-  the original joostg patch (Shmargus/GSRecomp#3) measured Intel UHD 630
-  render time 10.4 → 4.4 ms. This historic result does not measure current
-  code. Uniform location/value caching and `glProgramUniform*` remain.
-  The 17 October audit found both games had returned to synchronous reads
-  to preserve F12 identity; the old async helpers had no live game callers.
-  Both live game callers now use one shared `TextureReadbackQueue` for
-  fenced PBO copies, carrying owned game captures and `HistoryFrame` state
-  with each picture. World-map holds process the delivered capture;
-  settings/import/held-spell boundaries stay synchronous. First/resize/
-  repeated/failed frames use matched fallback state; savestates discard
-  queued identity. The helper's original 50 ms fence wait ceiling remains;
-  this is overlap, not guaranteed nonblocking transfer. PBO slots alternate
-  independently of the consumed slot, GL pack state is restored, and failed
-  reads reject invalid textures/dimensions/GL errors without writing RGB.
-  A failed enqueue after a successful receive may show that older picture,
-  with its own metadata; it never relabels old pixels as the current frame.
-  FrameHistory captures rows/guest identity before queuing and assigns host
-  elapsed time only at presentation; held pictures retain their own scene.
-  A consumed presentation shutdown hook releases each game's renderer,
-  fences and PBOs before HostWindow destroys its context. No runtime_arm.h
-  change or corpus regeneration. Synthetic queue/GL and actual TLA/TBS
-  presentation benches pass; saved renderer checks unchanged (301 TBS/
-  444 TLA, 29 legacy-format samples normalized for comparison). These checks
-  are not full release/gameplay validation or a current integrated-GPU
-  performance measurement. Resetting queued identity on a savestate load
-  does not repair missing graphics when a state is loaded into a larger view
-  than the one in which it was created; that remains a known issue.
+### ARM runtime, RAM code and overlays
 
-- **Optional release badge (2026-10-09)** — the host reads
-  `edition_badge.txt` (caption and ASCII flourish) and `edition_badge.bmp`
-  beside the executable. When both are supplied, F1 reserves space at the
-  bottom right for the caption and image, with SDL and OpenGL texture paths.
-  Missing files retain the normal menu. Release artwork and edition choices
-  belong to this repository's packaging scripts, outside the generic engine.
+- **Hand-off and caches.** Native hand-off at bridge call boundaries, a
+  multi-variant healed-code cache, background warm-load, asynchronous RAM cache
+  lookup during warm-up, and removal of a dispatch recursion cap
+  (`runtime_arm.{cpp,h}`, `runtime_bus_bridge.cpp`, `overlay_loader.cpp`).
+  Overlay caches use the `engine-v2` layout. `overlay_compile_one`'s exact-file
+  load-only path is used once per backend instead of enumerating the cache
+  folder on the game thread, and `overlay_drain_ready` logs per-routine details
+  only for requested work, not cached loads.
+- **RAM handoff after a direct guard miss.** When a direct call's fixed-code
+  guard fails, `runtime_mutable_ram_code_miss` checks runtime-healed code, then
+  consults the game-owned verified RAM-image resolver before bridging into the
+  interpreter. Re-entry is guarded by a linked PC/mode resolution stack and by
+  comparing `g_runtime_cycles + g_runtime_deferred_cycles`, so only re-entry
+  with no guest progress is rejected.
+- **Healed RAM conditional-branch hooks.** The overlay loader installs a
+  condition callback (`overlay_condition_passes`) that forwards live Thumb/ARM RAM conditional `B`
+  instructions to the game's existing hook with packed bank-relative context,
+  so cached native routines do not skip the game's overrides. Other
+  instructions, BL, AL/NV and non-RAM locations keep the original behaviour.
+- **Game RAM layout.** `armv4t/game_ram_layout.h`: `g_game_ram_layout`, set by
+  the game's runner, holds the unpacker slot and allocator pointer, RAM-image
+  window, OAM shadow, IWRAM heap and pool-LDM probe region. Zero means inert, so
+  no game address lives in the engine. The Infinite HP/PP party layout defaults
+  to 0 slots; each game calls `runtime_set_party_layout`.
+- **Unpacker-slot journal.** CPU stores to the unpacker slot have their own
+  32-entry ring and other event kinds a 256-entry ring, merged by sequence
+  number in the dump. `enter` events record r0, r1, r6, sp, the allocator
+  pointer and whether a yield was resumed. The dump ends with the last 16
+  `runtime_dispatch` targets (`runtime_recent_dispatch_copy`, oldest first).
+- **Fallback probe and unmatched-return hook.** `g_runtime_ram_fallback_probe`
+  (null by default) is called first by `runtime_mutable_ram_code_miss` and
+  `runtime_dispatch_miss` with the pc execution continues at, the pc requested,
+  the mode and the path. `g_runtime_unmatched_return_hook` is called by
+  `runtime_call_should_return` when a return idiom matches no live call-return
+  entry; a nonzero answer means the hook already set g_cpu and the call-return
+  stack to where the guest really continues.
+- **Sprite and placement records** (`field/`). The shared `field_obj_is_parked`
+  matches the complete blank attr0/attr1 pair, not coordinates plus a
+  non-affine status. `field/obj_placements.h` stores `uses_tile_grant` (default
+  false) with each placement snapshot so only builders whose records carry a
+  character-allocation byte consult that table. Placement records can accept
+  outgoing sprite attributes from a builder hook, so a pose change keeps the
+  right sprite-page identity.
 
-- **F1 preference persistence (2026-10-09)** — `host_window.cpp` reads and
-  writes `[Video]` window scale, fullscreen, V-Sync, linear/integer scaling,
-  screen-filter preference and FPS display in `config.ini`, preserving other
-  sections. Filter preferences survive launches that cannot enable filters.
-  Custom colour slider releases now reach the existing picture save handler
-  even when the release itself does not change the value.
+### BIOS and no-BIOS mode
 
-Earlier changes by area:
+- **No-BIOS mode.** `--no-bios` / `GBARECOMP_NO_BIOS=1` (`runtime_set_no_bios`,
+  `g_runtime_no_bios`): no BIOS file is resolved, loaded or executed. Boot uses
+  `bios_hle_boot_skip(0x08000000)`, POSTFLG = 1 and the post-boot open-bus word.
+  `runtime_irq` pushes r0-r3, r12, LR_irq, sets r0 = 0x04000000 and
+  LR = 0x138 and jumps to the handler at [0x03FFFFFC]; dispatching 0x138 pops
+  them and returns from the exception. `runtime_swi` services Halt and Stop by
+  writing HALTCNT and every other SWI through the HLE hook, and aborts on one
+  without a stand-in. Dispatching 0x1B4 or 0x170 finishes a SWI exit that a
+  BIOS-backed Halt wait left on the stacks, so older savestates resume. Any
+  other PC below 0x4000 aborts. Protected BIOS reads return the value hardware
+  latches at each exit (`GbaBus::set_bios_open_bus`,
+  `g_runtime_bios_open_bus_hook`). Written from GBATEK's descriptions, not from
+  running BIOS code. The BIOS-backed path is unchanged.
+- **Building without the BIOS.** CMake option `GBARECOMP_LINK_BIOS` (default ON,
+  upstream behaviour). The locally generated `generated_bios/` sources are
+  linked only when it is on and both exist; otherwise the empty
+  `src/runtime/no_bios_dispatch_table.cpp` is linked and
+  `GBARECOMP_HAVE_BIOS_RECOMP` is undefined, so `run_game` runs only in no-BIOS
+  mode (`--bios` or `GBARECOMP_NO_BIOS=0` then fails with a message).
+  `bios_dispatch_table.cpp` is no longer committed.
+  `RunOptions::no_bios_by_default` makes no-BIOS the default unless `--bios` is
+  given; both games set it and build with `GBARECOMP_LINK_BIOS` off.
+- **BIOS inventory logs.** `GBARECOMP_BIOS_PC_LOG` output has a `phase` column
+  (`boot`, `play` or `both`, split at the first instruction at or above
+  0x08000000). `GBARECOMP_BIOS_READ_LOG=path` (`gba_bus.cpp`) counts data reads
+  of 0x0000-0x3FFF made while BIOS access is locked, keyed by reading PC, address
+  and width (`pc,addr,width,count`; at most 100,000 keys). Counts only, never
+  values. Both default off.
+- **SWI override.** `RunOptions::swi_override(return_pc, swi_num)` (default
+  null, `g_runtime_swi_override`): `runtime_swi` calls it first, and returning 1
+  drops that SWI (guest resumes at the return address, no BIOS entry, no HLE).
 
-- **PPU** (`src/gba/gba_ppu.{cpp,h}`) — the expanded view: per-layer
-  background sample remapping for regular and affine layers, with the window
-  registers asked about the source pixel and an opt-out for layers whose
-  placement the game adapter owns; whole-frame assembly at VBlank
-  (`g_ws_defer_native_rows`) for frames that magnify a layer; margin
-  reconstruction policy hooks; a per-row field-source preparation seam whose
-  callback receives the render row's DISPCNT and IO snapshot; and the
-  diagnostic dumps the Golden Sun work is measured with. The PPU cost
-  attribution in the runtime bridge includes VBlank-rendered expanded rows.
-  The wide scanline compositor also builds only the columns a row actually
-  draws, asks its row-constant margin questions once per row, and converts a
-  colour to RGB888 once at output rather than on every submitted candidate --
-  a third off the cost of an expanded frame, pixel-identical, and general to
-  any game using the expanded view.
-  When no hardware window is enabled, the wide renderer fills the constant
-  per-column controls directly; active-window handling is unchanged. The
-  isolated full-layer Tret harness case measured a further 3.1% saving, with
-  matching before/after pixels (2026-09-14; not a live-game speedup claim).
-  Compact wide-path pixel records also reduce the windowed auto-attack/Ray
-  harness times by 2.31%/2.66%, with 20 matching framebuffer comparisons.
-  The native compositor and pixel ordering are unchanged.
-- **Host profiler** (`src/runtime/runtime_bus_bridge.cpp`) — the earlier
-  Windows x64 CRT-caller attribution suspended the target then invoked
-  RtlLookupFunctionEntry, which could block behind a loader lock held by the
-  suspended main thread. On 2026-10-17 that unsafe in-process caller unwind
-  was removed: only registers and phase/frame atomics are read while the
-  target is suspended. Direct-function/phase/frame samples remain opt-in;
-  dumps and offline analysis explicitly mark caller tracing unavailable.
-  The actual-sampler SDL startup/load-unload bench passed, and Jimmy's
-  rebuilt TLA subsequently started with all probes enabled. The map-loader
-  stack overflow was a separate fault, addressed by guaranteed tail transfers.
-- **GPU surface** (`src/runtime/gpu_surface.cpp`) — rejects texture requests
-  above the active context's measured `GL_MAX_TEXTURE_SIZE` and verifies level-0
-  storage before returning a handle, so callers can recover from failed
-  allocations instead of treating an empty texture as valid.
-- **VRAM trace** (`src/gba/gba_vram_trace.cpp`) — tile and text tracing used to
-  identify what the game draws where.
-- **Diagnostic settings** (`src/gba/gba_io.cpp`, `src/gba/gba_bus.cpp`) —
-  cache the launch-time audio-DMA and unmapped-access logging flags on first
-  use, avoiding repeated environment scans while preserving presence-based
-  enablement and existing logging limits.
-- **ARM runtime** (`src/armv4t/runtime_arm.{cpp,h}`,
-  `src/runtime/runtime_bus_bridge.cpp`, `src/runtime/overlay_loader.cpp`) —
-  native hand-off at bridge call boundaries, multi-variant healed-code cache,
-  background warm-load, asynchronous RAM cache lookup during warm-up,
-  removal of a dispatch recursion cap, and RAM overlay work.
-- **Audio** (`src/gba/gba_audio.*`) — canonical GBA audio and stereo output.
+### PPU, wider views and the field renderer
+
+- **Expanded view in the PPU** (`gba/gba_ppu.{cpp,h}`). Per-layer background
+  sample remapping for regular and affine layers, with the window registers
+  asked about the source pixel and an opt-out for layers whose placement the
+  game adapter owns; whole-frame assembly at VBlank (`g_ws_defer_native_rows`)
+  for frames that magnify a layer; margin reconstruction policy hooks; a
+  per-row field-source preparation seam whose callback receives the row's
+  DISPCNT and IO snapshot. `GBARECOMP_WS_WIP` lets a game exceed its declared
+  maximum view size.
+- **Faster wide compositor.** It builds only the columns a row draws, asks
+  row-constant margin questions once per row, converts colour to RGB888 once at
+  output and uses compact pixel records; pixel-identical. A row whose left
+  margin, right margin and native columns are all pillarboxed is memset before
+  any sampling (not while margin diagnostics or the row census are armed).
+- **Native raster can be switched off.** `GbaPpu::set_native_raster_enabled(
+  bool)`, default on. Off, `render_scanline()` still records each row's register
+  file and DISPCNT into `line_io_` and advances the affine accumulators, but does
+  not draw (`render_scanline_internal()`, `render_scanline_wide()`, deferred
+  native and vertical-margin rows). A host that draws frames itself pays for the
+  raster once, and a frame its renderer refuses shows as refused instead of
+  being hidden by a fallback picture.
+- **Blending rules.** In both scanline paths only the frontmost sprite takes part
+  in blending. An OBJ is a first target when semi-transparent or when BLDCNT
+  selects the OBJ layer; only a semi-transparent OBJ forces alpha (GBATEK, "LCD
+  I/O Color Special Effects").
+- **Window horizontal edges follow mGBA** (`video-software.c`, `GBA_REG_WIN0H`,
+  `_breakWindow`): X1 > 240 and X1 > X2 reads X1 = 0; X2 > 240 clamps to 240
+  (and X1 with it); X1 > X2 wraps to [X1,240) plus [0,X2). Vertical edges are
+  unchanged.
+- **HBlank DMA table latch.** `gba::g_hblank_dma_latch` (`gba_io.h`, default
+  false): while set, an HBlank-timed DMA channel with an incrementing source
+  copies its table (`word_count * unit * 160` bytes) at the first visible line
+  or when it starts mid-frame, and reads that copy for the rest of the frame.
+- **Video write observer.** `vram_trace::set_video_write_observer`
+  (`gba_vram_trace.h`, default null) receives writer PC, destination, byte
+  count, DMA source and channel for every CPU write into palette RAM or VRAM and
+  once per DMA transfer into either. Payload-free.
+- **Shared field scene and GPU field renderer.** `src/field/` holds the one
+  field scene model, GPU field renderer, spell sparks, bursts and battle view
+  both games compile. Each game's `src/field_game_profile.cpp` supplies the
+  addresses and switches rules that exist in one game only
+  (`field_game_profile.h`). Room-grid wrapping is a profile choice shared by the
+  CPU room queries and the GPU shader.
+- **Margin layers.** Margin layers can expose validated repeat dimensions
+  without replacing the native map. `SceneMarginLayer` has `scroll_sides`
+  (default false; the per-row margin scroll table then also positions pixels
+  beside the native window) and `rest_clip_y` (default zero; a nonzero
+  game-supplied offset feeds the renderer's existing `u_rest_dy` room-silhouette
+  clip). The margin repeat width continues horizontal-only room patches at both
+  ends of the room, outside the native window, when the game gives a nonzero
+  measured repeat.
+- **Repeating-layer margins.** `field/scene_repeat.h` (header only):
+  `find_layer_repeat` finds a regular layer's whole-screen repeat from its tile
+  map (each shown row equals the row `period` further down, shifted at most one
+  period sideways, at least two periods shown; one-tile layers ignored);
+  `continue_layer_repeat` fills margin scroll rows from the nearest shown
+  period; `continue_repeating_layers` applies it to every layer no game rule
+  claimed, except room scenery the room source fills. It needs the profile's
+  `margin_scroll_rows`. `tools/scene_repeat_bench.cpp` is an offline bench over
+  saved captures (built per game; not in CMake).
+- **Sprite-effect continuation.** `SceneMargins` can supply a two-axis
+  continuation period per object, outside the raw `FieldScene` capture format.
+  The renderer draws translated copies with the same artwork, animation, depth
+  and blend state, clipped away from the original 240x160 window. Parked and
+  menu sprites and object-window masks are not extended. (The earlier
+  `object_position` mechanism was removed; games use the normal position
+  provider.)
+- **GPU surface** (`runtime/gpu_surface.{h,cpp}`). A game-agnostic OpenGL helper
+  with no window or context of its own: it attaches to the context the host
+  already runs and saves and restores every piece of GL state it touches.
+  Shaders, textures (8-bit, RGBA, 16-bit integer), an offscreen target, batched
+  textured quads; entry points load through `SDL_GL_GetProcAddress`. `init()`
+  reports failure honestly and the caller keeps its previous renderer. Also:
+  `create_program` pins `a_pos`, `a_uv`, `a_depth` and `a_tint` to attribute
+  slots 0-3; a depth renderbuffer (`set_depth_enabled`, `clear_depth`) that is
+  resized whenever the target changes (`resize_depth_to_target()`, because
+  drivers silently clip to the overlap of mismatched attachments);
+  `bind_color_target(texture)`; `set_blend_mode(GpuBlendMode::Off/Alpha/
+  Additive)` (`begin_frame`/`end_frame` save and restore the blend function and
+  `GL_DEPTH_WRITEMASK`); texture requests above `GL_MAX_TEXTURE_SIZE` are
+  rejected and level-0 storage is verified; uniform location/value caching.
+- **Delayed GPU readback.** One shared `TextureReadbackQueue` does fenced PBO
+  copies for both games, carrying owned game captures and `HistoryFrame` state
+  with each picture; failed reads and failed frames use matched fallback state.
+  The 50 ms fence-wait ceiling remains, so this is overlap, not guaranteed
+  non-blocking transfer. Savestates discard queued identity (known issue: a
+  state loaded into a larger view than it was made in can miss graphics). A
+  presentation shutdown hook releases each game's renderer, fences and PBOs
+  before `HostWindow` destroys its context.
+- **Screen filters** (`runtime/screen_filter.{h,cpp}`). LCD3x, xBR, CRT Lottes
+  and ScaleFX (multi-stage) GLSL filters at the final present on the OpenGL
+  renderer, behind `GSR_SCREEN_FILTERS` (set by every launcher except under
+  Direct3D). Nothing runs when it is off.
+- **Release badge and cover cartridge.** The host reads `edition_badge.txt`
+  (caption and ASCII flourish) and `edition_badge.bmp` beside the executable;
+  when both exist F1 reserves space at the bottom right for them.
+  `runtime/cartridge_art.h` holds the launcher's cartridge glow and idle
+  animation as plain draw pieces (ImGui in the launcher, SDL in the engine);
+  when `GSR_COVER_CARTRIDGE` names a 32-bit BMP (`GSR_COVER_CARTRIDGE_GAME` sets
+  the glow colour), `draw_screen_veil` draws it centred over the black cover.
+
+### Audio and music mods
+
+- **Music mods** (`runtime/host_local_music.{h,cpp}`, `runtime/local_music_m4a.h`):
+  WAV (16-bit PCM) or FLAC recordings, decoded with dr_flac
+  (`third_party/dr_libs`, pinned commit d422edf, fetched by CMake when no
+  local copy exists), play in place of a game's songs. `GBARECOMP_MUSIC_DIR`
+  lists folders like PATH; folder i's album track NN (file
+  `<disc>-<NN> <title>.flac|.wav`) is track i * `kLocalMusicFolderTracks` + NN.
+  Each folder's `loops.txt` (`<track> <from> <to>` in file frames, or
+  `<track> once`) sets the loop jump, applied before resampling so the
+  stream stays continuous; no entry repeats the whole file. The first quarter
+  second of every recording is decoded at startup, the rest streams from a
+  worker thread. Missing or unreadable files keep the game's own music.
+- `local_music_m4a.h` lets a game hand one m4a music player to those
+  recordings: the game supplies the player's addresses, its song table and
+  the two gain-saturation sites (a branch and `MOVS #255`); while a recording
+  plays, that player's voices get gain 0, so the song keeps its timing, fades
+  and pauses but is silent. The `MusicMod` option in `game_options.ini` is
+  read live; F1 > Audio has "Enable Music Mod", greyed out unless
+  `local_music_available()`.
+- **Audio core** (`gba/gba_audio.*`). Canonical GBA audio with stereo output.
   The experimental native MP2K/shadow/wall mixers and independent Turbo audio
-  were removed during the shared-engine consolidation.
-- **Host** (`src/runtime/host_window.cpp`, `src/runtime/host_config_ui.*`,
-  `src/runtime/runtime.cpp`, `src/runtime/crash_handler.cpp`) — presentation,
-  the configuration UI, crash reporting, and an opt-in `GSR_OBJ_RECORD`
-  guest-frame marker drawn into a presentation copy for sprite diagnostics.
-- **Screen filters** (`src/runtime/screen_filter.{h,cpp}`) — LCD3x,
-  xBR, CRT Lottes and ScaleFX (multi-pass) GLSL filters at the final present
-  on the OpenGL renderer, behind `GSR_SCREEN_FILTERS`, which every launcher
-  sets except under Direct3D; nothing runs when it is off.
-- **Environment switches** (`src/armv4t/env_flag.h`) — on/off switches share
-  one parser: empty, `0`, `false`, `off` and `no` are off, anything else is on.
-- **Tests and tools** — new suites under `tests/` covering the above, and
-  options in `tools/gba_recompile/`.
-- **Removed** (2026-09-17) — upstream's Pokémon FireRed widescreen
-  experiment, `src/debug/ws_sidecar.*` and `src/debug/ws_provenance.*` with
-  their `GBARECOMP_WS_SC_*`/`GBARECOMP_WS_PROBE_*` environment options and
-  `docs/WIDESCREEN_STEPC_PLAN.md`. Both were armed only by FireRed program
-  counters and were never used by Golden Sun, which solves the same problem
-  from reconstructed room data instead. `GBARECOMP_WS_WIP` is kept: it still
-  lets a game exceed its declared maximum view size. Deleting them also takes
-  the sidecar's per-frame hooks out of the runtime loop and its veto out of
-  the present-in-place decision.
+  were removed.
+- **Volume and Mute are saved.** `config.ini` `[Audio]` holds `Volume=0..100`
+  and `Mute=true|false`, written whenever they change (menu or Volume Up/Down
+  hotkeys). `--volume` is applied only when actually given, and then wins for
+  that run.
 
-Game-specific hooks and ROM configurations live in the two game directories;
-the collection's public overview and build instructions are in the root
-`README.md` and `BUILDING.md`. Engine changes are meant to be general to
-ARMv4T, GBA hardware or recompilation, and are candidates to send upstream.
+### Host window, input, hotkeys and menus
+
+- **F1 preferences.** `host_window.cpp` reads and writes `[Video]` window
+  scale, fullscreen, V-Sync, linear/integer scaling, screen filter and FPS
+  display in `config.ini`, preserving other sections. Filter preferences
+  survive launches that cannot enable filters.
+- **Game-owned hotkeys.** `runtime/game_hotkeys.h` lets a game register extra
+  actions before the host is created. `host_window.cpp` appends their names,
+  labels and defaults after the 15 built-in actions, using the standard
+  capture, keyboard/modifier/controller dispatch and INI persistence;
+  `host_config_ui.h` sizes its binding vectors to the registered count. Games
+  without registrations keep the 15.
+- **Cheat/game menu hooks.** Rebindable hotkey `HK_GAME_MENU` (`[KeyMap]
+  CheatMenu=`, "Cheat Menu" in F1 Hotkeys, default F11) sets
+  `HostWindow::Events::game_menu`. Three `RunOptions` hooks, all null by
+  default: `game_menu_toggle` (on that press), `keyinput_filter` (sees every
+  pump's keys before the guest and input recording, returns what they get) and
+  `paused_overlay` (paints over a copy of the frozen frame on each pump of the
+  paused loop). The game requests the pause through `pause_request_poll`.
+  Infinite HP/PP set by game code (`runtime_set_infinite_hp/pp`) are saved to
+  `[Cheats]`.
+- **Two bindings per gameplay button.** F1 Controls offers primary and
+  alternate bindings per GBA button (`keybinds.ini` `[player1_pad]` plus
+  `[player1_pad_alt]`). Input ORs both sources before KEYINPUT, with the same
+  stick dead zone and sector rules. Capture conflicts remove from both columns;
+  clear affects one column; defaults clear alternates.
+- **Shared controls.** When `GBARECOMP_CONTROLS_DIR` is set, `HostWindow` reads
+  and writes shared `keybinds.ini` and `config.ini` `[KeyMap]`/`[KeyMap.Pad]`
+  there, leaving other settings per game. The first game launched seeds missing
+  shared files from its legacy bindings.
+- **Soft Reset.** F1's Hotkeys page has an initially unbound `SoftReset`
+  action (keyboard/controller, shared `[KeyMap]`/`[KeyMap.Pad]`). The runtime
+  flushes saves and exits with the action code from `soft_reset.h`; on Windows
+  the collection restarts the same game; on Linux the running launcher process
+  requeues its ROM and clears the Seamless slot variable, so a reset after a
+  hand-over boots the second game without repeating an import.
+- **Game settings page and No Slowdown.** Games can add controls to F1's Game
+  page through `config_ui_set_game_page`. `kOverclockFactors`
+  (`host_config_ui.h`) is {1, 50}: On (the game's "No Slowdown") allows up to
+  50x GBA cycles per frame; saved values above 1 map to On.
+- **Settings requested by game code.** A walking speed set by game code is
+  saved: `Backend::persisted_player_speed` records what `config.ini` last held,
+  and a differing live multiplier (`runtime_get_mem_write_override_enabled`)
+  outside the F1 menu makes the next pump write `[Cheats]`.
+  `runtime_request_view_mode(mode)` queues a fixed view mode that the next
+  `HostWindow::pump` applies through the F1 menu's own path (view-mode event and
+  `config.ini` write), then publishes the mode in effect
+  (`runtime_publish_view_mode` / `runtime_get_view_mode`).
+  `runtime_request_no_slowdown(on)` switches Enhanced Timing (where the game
+  allows it) and CPU Overclock together, published via
+  `runtime_get_no_slowdown`.
+- **One window for both games.** `HostWindow::give_window` makes the next
+  `open()` use a window the player program already has;
+  `keep_window_on_close` makes `close()` leave it open and `take_kept_window`
+  hands it back; a given window is never destroyed by the engine. End-of-game
+  jobs register through `at_game_exit` (`armv4t/game_exit.h`) instead of
+  `std::atexit`; a plug-in's player program calls `run_game_exit()`.
+- **Games as plug-ins (Windows).** Each game's engine builds as a DLL
+  (`GoldenSunEngine.dll`, `TLAEngine.dll`; CMake targets keep the names
+  `GoldenSunRecomp`/`TLARecomp`) exporting `gsr_game_main(argc, argv,
+  window_in, window_out)` from `runtime/game_module.cpp`;
+  `runtime/player_main.cpp` is the program under the old exe name (16 MB stack)
+  that loads it. Linux is unchanged (engine = program).
+- **Seamless hand-over.** `runtime/handover.h` uses a named pipe
+  (`\\.\pipe\gsr-handover-<launcher pid>`, `GSR_HANDOVER_LAUNCHER`) so a game
+  ending with a Seamless code keeps the window and the second game's launch is
+  sent to the waiting program instead of starting a new exe. Any failure falls
+  back to a separate start.
+- **Skip the ROM check.** With `GSR_ANY_ROM` on (`armv4t/any_rom.h`), `run_game`
+  logs a ROM SHA-1 mismatch and goes on instead of refusing to start.
+- **Speed-state logging.** `HostWindow` logs the guest frame plus
+  held/toggle/active fast-forward state on source transitions.
+
+### Saves and ROM data
+
+- **Flash chip IDs.** `GbaSave::configure_flash` reports Macronix MX29L512
+  (`0xC2`/`0x1C`) for a 64 KB chip, because the 512 Kbit-only SDK driver does
+  not list the 1 Mbit ID `0x09` and found no usable chip; 1 Mbit chips still
+  report MX29L010 (`0xC2`/`0x09`).
+- **Paused saved-slot updates.** `update_flash_save` replaces a verified flash
+  snapshot, rejecting stale data and unfinished commands, backing up all slots
+  before writing, using the normal save persistence path and restoring the
+  in-memory image on failure. No game addresses or import rules in the engine.
+- **Game-owned ROM patch hook.** `RunOptions::rom_patch`,
+  `void (*)(std::vector<std::uint8_t>*)`, is called once in `runtime.cpp`
+  immediately before `bus.set_rom(...)`, after the SHA-1 check, so patched
+  bytes never fail verification. The game may append data past the original end
+  (served at `0x08000000 + N` and its mirrors; stay within 16 MB). It is for
+  data read at run time; code and literal pools are built into translated code
+  and must not be patched here.
+- **Value overrides installed at startup.**
+  `RunOptions::thumb_alu_immediate_override` and `thumb_literal_override`
+  (default null) are installed after the ROM-identity check, under the same
+  gate as `function_entry_observer`, so reviewed override sites work in every
+  view mode. Null keeps each generated site at its original value.
+
+### Crash reports, F12 captures and diagnostics
+
+- **Shared crash-state writer.** `memory_snapshot.cpp` owns
+  `gsr_install_crash_snapshot_writer` (callback for `crash_memory.bin` and, with
+  the F1 Crash log option, `crash_trail.csv`); both runners install it right
+  after `crash_handler_install`. It keeps the GSRMEM1 serialization and a
+  20000-instruction tail.
+- **Event-time context.** A shared helper writes `crash_context.txt` /
+  `capture_context.txt` with live frame, CPU, CPSR, resume PC, outstanding guest
+  returns and diagnostic build time (the returns are not a full backtrace). The
+  F12 capture write path adds timing, scene/held/GPU availability and file-write
+  completeness to `capture_info.txt`, and `index.csv` appends `image_written`.
+  Failed saves keep partial evidence, log their folder and return failure;
+  memory and CSV tail writers check stream and close errors.
+- **Host profiler** (`runtime_bus_bridge.cpp`). While the target is suspended
+  only registers and phase/frame atomics are read; the earlier in-process
+  Windows x64 caller unwind (it could block behind the loader lock) was removed.
+  Direct-function/phase/frame samples remain opt-in; dumps mark caller tracing
+  unavailable.
+- **Other diagnostics.** `gba/gba_vram_trace.cpp` (tile and text tracing); an
+  opt-in `GSR_OBJ_RECORD` guest-frame marker drawn into a presentation copy for
+  sprite diagnostics; audio-DMA and unmapped-access logging flags cached on
+  first use (`gba_io.cpp`, `gba_bus.cpp`); a generic audio-bridge probe;
+  `GBARECOMP_DEMO_INPUT` modes `walk`, `campaign` and the menu masher.
+- **Environment switches** (`armv4t/env_flag.h`). On/off switches share one
+  parser: empty, `0`, `false`, `off` and `no` are off, anything else is on.
+
+### Game hooks (what a game can install)
+
+All null or off by default and installed by the game's runner. `RunOptions`:
+`function_entry_observer`, `thumb_alu_immediate_override`,
+`thumb_literal_override`, `swi_override`, `rom_patch`, `game_menu_toggle`,
+`keyinput_filter`, `paused_overlay`, `pause_request_poll`,
+`no_bios_by_default`, the frame-present override. Globals and setters:
+`g_runtime_fast_iwram_write_observer`, `g_runtime_ram_fallback_probe`,
+`g_runtime_unmatched_return_hook`, `g_runtime_bios_open_bus_hook`,
+`g_game_ram_layout`, the RAM-image resolver, the conditional-branch hook,
+`vram_trace::set_video_write_observer`, `gba::g_hblank_dma_latch`,
+`runtime_request_view_mode`, `runtime_request_no_slowdown`,
+`runtime_set_infinite_hp/pp`, `runtime_set_party_layout`. Also
+`game_hotkeys.h`, `config_ui_set_game_page`, the field game profile,
+`SceneMargins` providers and `gbarecomp::guest_call` / `guest_return_now`.
+
+### Build and tests
+
+- Every translated game file includes `armv4t/runtime_arm.h`, so editing it
+  rebuilds all generated code in both games; any engine change rebuilds both.
+- `GBARECOMP_LINK_BIOS` (above); the `third_party/dr_libs` fetch;
+  `runtime/host_local_music.{h,cpp}` belongs to `gbarecomp_runtime`.
+- GCC 15+ is wanted for the guaranteed tail jumps; Linux packaging selects and
+  bundles it.
+- `scripts/build_dev.ps1` runs 20 engine tests before each developer game
+  build. Suites under `tests/` cover the areas above; `ram_heal_test.cpp`,
+  `ram_overlay/registry_test.cpp`, `ppu_smoke/test_main.cpp` and
+  `armv4t/pool_ldm_probe_test.cpp` were updated to current contracts.
+
+### Removed from upstream
+
+- Upstream's Pokemon FireRed widescreen experiment: `src/debug/ws_sidecar.*`,
+  `src/debug/ws_provenance.*`, their `GBARECOMP_WS_SC_*`/`GBARECOMP_WS_PROBE_*`
+  options and `docs/WIDESCREEN_STEPC_PLAN.md`. They were armed only by FireRed
+  program counters. `GBARECOMP_WS_WIP` is kept.
+- Upstream's Mega Man Zero demo-input tracks (`campaign-combat`, `-traverse`,
+  `-safe`, `-clear`) and `GBARECOMP_BOSS_STRATEGY`.
+- The `GBARECOMP_AUDIO_PROBE` entry/bridge register traces (they hard-coded
+  Golden Sun sound-routine addresses).
+- `runtime/heal_gate.{h,cpp}` and `tests/heal_gate/` (an unused gate, archived),
+  with `gbarecomp_heal_gate` in `CMakeLists.txt` and the `GbaBus`
+  `BusWriteObserver` hook.
+- `PRINCIPLES.md` references to upstream's Minish Cap and template paths were
+  replaced with this collection's equivalents.
 
 ## What was left out of this copy
 
@@ -510,614 +462,3 @@ Present upstream, not carried here because none of it is needed to build:
 
 Upstream's own documentation is still here: `README.md`, `PRINCIPLES.md`,
 `docs/`, and the rest.
-
-## Skip rows that can only be black (2026-09-13)
-
-`src/gba/gba_ppu.cpp`, `render_scanline_wide`. A row on which every column is
-pillarboxed used to run the full BG and sprite pipeline across the canvas and
-then have the output loop overwrite it with black. It now probes one column
-per class (left margin, right margin, native), and when all three are
-pillarboxed it memsets the row and returns before any sampling. The shortcut
-stands down while margin diagnostics or the row census are armed, since both
-want per-column records.
-
-General engine behaviour, not Golden Sun specific -- any game whose margin
-policy pillarboxes a whole edge benefits. Verified pixel-identical with
-`tools/ppu_bench.cpp` over five recorded scenes in three provider modes;
-20-25% faster on frames with a vertical pillarbox, unchanged without one.
-
-## A generic OpenGL surface for host rendering (2026-09-14)
-
-New: `src/runtime/gpu_surface.{h,cpp}`. A small, game-agnostic OpenGL surface —
-shaders, textures (8-bit, RGBA and 16-bit integer), an offscreen render target,
-and batched textured quads. It knows nothing about any game.
-
-It deliberately creates no window and no context. The host window already runs
-its SDL renderer on the "opengl" driver and Dear ImGui already issues its own
-GL beside it at present time, so this attaches to that existing context and
-saves and restores every piece of GL state it touches — otherwise SDL's batched
-drawing would be corrupted.
-
-Entry points are fetched through `SDL_GL_GetProcAddress` rather than a loader
-library, because Windows' `opengl32` exports only OpenGL 1.1. ImGui ships a
-loader for its own use; depending on it would couple us to its internals, and
-the set needed here is small.
-
-Availability is a runtime question: `init()` reports failure honestly when a
-context cannot support shaders or framebuffers, and the caller keeps whatever
-renderer it had. There is no partial mode.
-
-Verified on real hardware with `tools/gpu_surface_smoke.cpp` (AMD Radeon RX
-7800 XT, GL 4.6 compatibility, GLSL 4.60): entry points load, the offscreen
-target is complete, a textured quad samples with the correct orientation, and a
-shader reads an exact 16-bit integer texel — the capability the Golden Sun
-scene renderer needs for map entries and palettes.
-
-That smoke test found a real defect before anything depended on it: quads are
-filled into vertex attribute slots 0-3, but nothing bound the shaders' inputs
-to those slots, so the linker assigned them freely and a shader whose inputs
-were declared in a different order read the wrong data. `create_program` now
-pins `a_pos`, `a_uv`, `a_depth` and `a_tint` to slots 0-3 before linking, and
-the smoke test declares its inputs in a deliberately different order to keep
-that honest.
-
-## Depth testing and a redirectable colour attachment (2026-09-15)
-
-`src/runtime/gpu_surface.{h,cpp}`. Two additions, still game-agnostic: a depth
-renderbuffer with `set_depth_enabled`/`clear_depth`, and
-`bind_color_target(texture)` to point the surface's one framebuffer object at
-any texture the caller owns instead of its own target, so a caller can do
-multi-pass rendering into scratch textures without a second FBO. Both are
-attached to the existing `fbo_`; `bind_color_target` only ever touches the
-colour attachment, leaving the depth attachment (if any) alone, and vice
-versa. The depth renderbuffer is sized to the current target, kept in step by
-`resize_depth_to_target()` (see the entry below -- the lazy, enabled-only
-resize described here was the defect that entry fixes).
-
-`GL_DEPTH_WRITEMASK` joins the state `begin_frame`/`end_frame` save and
-restore, since these additions are the first thing in this file that ever
-writes it.
-
-Checked, not assumed: this file's own `ortho()` (used only for `present_target`
-blitting, always with depth 0) needed no change. Golden Sun's scene renderer,
-the first real caller of depth testing, found its own copy of the same
-ortho shape had the z row backwards for that purpose -- see that project's
-`field_scene_renderer.cpp` for the fix and why it was never visible before
-depth was actually used for anything.
-
-Driving caller and verification: `docs/NATIVE_SCENE_RENDERER_PLAN.md` step 5,
-alpha blending and semi-transparent objects, in the Golden Sun repository.
-
-## Depth renderbuffer resized whenever the target changes, not only when depth testing turns on (2026-09-15)
-
-`src/runtime/gpu_surface.{h,cpp}`. The resize above was, in fact, lazy in a way
-that lost pixels: it only ran inside `set_depth_enabled(true)`, so a caller
-that changed `set_target_size()` and then drew with depth testing OFF kept
-rendering into a framebuffer whose colour attachment was the new size and
-whose depth attachment was still the old one. New private
-`resize_depth_to_target()` keeps the two in step unconditionally, called at
-the top of `set_depth_enabled()` regardless of `enabled`.
-
-Real driver behaviour this makes safe to forget: differently sized colour and
-depth attachments are not reported `GL_FRAMEBUFFER_INCOMPLETE` on the hardware
-this was found on. The renderable area is silently restricted to the
-overlap of the two attachments instead, so every pixel outside the smaller
-one draws and clears as if untouched -- with no error, no validation
-failure, nothing to catch in a log. Found via Golden Sun's widened scene
-renderer, which turns depth testing off for two full-screen passes (the
-window-control texture and the object-window mask) before ever turning it on
-for the two-pass depth peel later in the same frame; on the first frame that
-widened the output after a native-sized one, those two off-depth passes ran
-against a depth attachment still sized from the native frame. Verified with
-`tools/scene_renderer_check.cpp --room --wide 360` over the Golden Sun
-snapshot corpus -- see that project's `FACTS.md`, 2026-09-15, for the
-before/after pixel counts.
-## The scanline compositor can be told to stop drawing (2026-09-16)
-
-`GbaPpu::set_native_raster_enabled(bool)`, default on, so an engine nobody
-calls it from behaves exactly as before.
-
-Off, `render_scanline()` still does all of its bookkeeping -- it records that
-row's register file and DISPCNT into `line_io_`, stores the row's affine
-reference, and advances the affine accumulators by PB/PD -- and simply does
-not call `render_scanline_internal()` or `render_scanline_wide()`.
-`mark_framebuffer_latched()` likewise skips the deferred native rows and the
-vertical margin rows, which are also drawing. The expanded branch still calls
-`g_ws_margin_policy`, because that is how a game adapter learns what the frame
-is rather than part of putting pixels down.
-
-The split matters because the recorded per-row state is what a host renderer
-reads: a host drawing the frame itself through the frame-present override
-still needs every register the raster saw, and would otherwise have to run a
-whole compositor it then throws away. Two uses, both general:
-
-- a host that draws frames some other way pays for the raster once, not twice;
-- a host whose renderer can refuse a frame shows what it refused, instead of
-  the picture from here silently standing in for it. A fallback that always
-  works is indistinguishable from a renderer that always works.
-
-Found this way in GoldenSunRecomp: its GPU renderer was quietly handing frames
-back and the fallback hid every one of them. See that project's `FACTS.md`,
-2026-09-16.
-## Game value overrides can be installed at startup (2026-09-22)
-
-`RunOptions::thumb_alu_immediate_override` and
-`RunOptions::thumb_literal_override`, default null. `run_game` clears
-`g_runtime_thumb_alu_imm_override` / `g_runtime_thumb_literal_override` at
-start, and until now a game could only set them again from
-`extended_view_init`, which runs at startup only when the view is expanded.
-The new fields are installed after the ROM-identity check, under the same
-gate as `function_entry_observer`, so a game's reviewed override sites work
-in the native 240x160 view too. Null keeps every generated site at its
-original value, exactly as before.
-
-Found this way in GoldenSunRecomp: the fourth Message-speed choice needs its
-overrides in every view mode. See that project's `FACTS.md`, 2026-09-22.
-
-## A 64 KB flash chip reports a 64 KB device ID (2026-09-22)
-
-`GbaSave::configure_flash` reported Macronix MX29L010 (`0xC2`/`0x09`, a
-1 Mbit part) for both chip sizes. The 512 Kbit-only SDK driver
-(`FLASH_V12x`) does not list `0x09`, so games using it found no usable save
-chip and never wrote a save. A 64 KB chip now reports MX29L512 (`0xC2`/`0x1C`),
-which that driver lists; 1 Mbit chips are unchanged. The command set the
-controller models (byte program, 4 KB sector erase, chip erase) is the one
-that part uses.
-
-Found this way in GoldenSunRecomp (`FLASH_V123`). See that project's
-`FACTS.md`, 2026-09-22.
-
-## Walking speed changed by game code is saved (2026-09-22)
-
-`host_window.cpp` records the walking-speed multiplier `config.ini` last
-held (`Backend::persisted_player_speed`). When the live value
-(`runtime_get_mem_write_override_enabled`) differs from it outside the F1
-menu, the next pump writes `[Cheats]` through the same `write_cheats_ini`.
-Game code can therefore offer the setting in its own menus without a second
-save path. Found this way in GoldenSunRecomp (settings page two).
-
-## View mode requested by game code (2026-09-23)
-
-`runtime_request_view_mode(mode)` (`runtime_arm.cpp`) queues a fixed view
-mode. The next `HostWindow::pump` takes it with
-`runtime_take_view_mode_request`, sets `cfg.fixed_view_mode` and raises
-`enhancements_changed`, so it goes through the F1 menu's own apply path:
-the view-mode event and the `config.ini` write. After the apply step every
-pump publishes the mode in effect (`runtime_publish_view_mode`), read with
-`runtime_get_view_mode`. Found this way in GoldenSunRecomp (settings page
-two, Screen row).
-
-## SWI override (2026-09-23)
-
-`RunOptions::swi_override(return_pc, swi_num)`, default null, installed
-into `g_runtime_swi_override` under the same ROM-identity gate as the other
-value overrides and cleared by `run_game`. `runtime_swi` calls it first;
-returning 1 drops that SWI (the guest resumes at the return address with
-its registers unchanged, no BIOS entry, no HLE). The SWI log does not record
-dropped calls. Found this way in GoldenSunRecomp (battle speed-up: one
-frame wait's Halt is dropped every other frame in battle).
-
-## No Slowdown requested by game code (2026-09-23)
-
-`runtime_request_no_slowdown(on)` (`runtime_arm.cpp`) queues Enhanced
-Timing and CPU Overclock (10x) both on or both off. The next
-`HostWindow::pump` sets `cfg.enhanced_timing` (only where the game allows
-it) and `cfg.overclock_index`, raises `enhancements_changed`, and so applies
-and saves them through the F1 menu's path. Every pump publishes whether both
-are on (`runtime_get_no_slowdown`). Found this way in GoldenSunRecomp
-(settings page two, No Slowdown row).
-
-## HBlank DMA table latch (2026-09-23)
-
-`gba::g_hblank_dma_latch` (`gba_io.h`), default false. While set, an
-HBlank-timed DMA channel with an incrementing source copies its source table
-(`word_count * unit * 160` bytes) at the first visible line's trigger, or
-when it starts mid-frame, and reads that copy for the rest of the frame.
-Game code sets it while it runs two frames of guest work per VBlank, when a
-per-line table can be rewritten while it is being scanned out. Found this
-way in GoldenSunRecomp (battle speed-up: background tearing in battle).
-
-## Video write observer (2026-09-23)
-
-`vram_trace::set_video_write_observer` (`gba_vram_trace.h`), default null.
-Receives writer PC, destination, byte count, DMA source and channel for
-every CPU write into palette RAM or VRAM (palette writes reach it through
-`note_palette_cpu_write`, called from `gba_bus.cpp`) and once per DMA
-transfer whose destination is palette RAM or VRAM. Payload-free. Found this
-way in GoldenSunRecomp (recorder for battle BG1 writes, to find the updates
-lost at battle speed 2x).
-
-## BIOS inventory: boot/play split and protected reads (2026-09-24)
-
-`GBARECOMP_BIOS_PC_LOG` output gains a `phase` column: `boot` for a BIOS
-PC seen only before the first instruction at or above `0x08000000`, `play`
-only after it, `both` for either. New `GBARECOMP_BIOS_READ_LOG=path`
-(`gba_bus.cpp`, saved at exit by `gba::bios_read_log_save_file`) counts
-every data read of `0x0000..0x3FFF` made while BIOS access is locked, keyed
-by reading PC, address and width (`pc,addr,width,count`; at most 100,000
-keys, overflow counted). Addresses and counts only, never the returned
-value. Both default off. Found this way in GoldenSunRecomp (step 1 of
-running without a BIOS: what the game needs from it after boot).
-
-## Deep unmatched returns unwind instead of nesting (2026-09-24)
-
-`runtime_call_should_return` (`runtime_arm.cpp`) reports "return" for an
-unmatched target once 256 call-return frames (a quarter of the stack) are
-live above the IRQ floor. Generated code then returns from the C frame with
-R15 set; every generated call site above sees the mismatch, cancels its own
-frame and returns, and the dispatch loop (or `runtime_irq`'s re-dispatch
-loop) continues at R15. Below the threshold nothing changes. Found this way
-in GoldenSunRecomp: the decompressor `Func_2544` calls a bit-refill helper
-that rewrites its own return address (`sub lr, pc, #0x11c; ...; bx lr`),
-so each refill nested one frame deeper; a large decompression (the world
-map's R-button view) overflowed the 1024-entry stack and aborted.
-
-## No-BIOS mode (2026-09-24)
-
-`--no-bios` / `GBARECOMP_NO_BIOS=1` (default off; `runtime_set_no_bios`,
-`g_runtime_no_bios`, `runtime_arm.h`). No BIOS file is resolved, loaded or
-executed: boot uses `bios_hle_boot_skip(0x08000000)` plus POSTFLG = 1 and the
-post-boot open-bus word; `runtime_irq` pushes r0-r3, r12, LR_irq on the IRQ
-stack, sets r0 = 0x04000000 and LR = 0x138 and jumps to the handler at
-[0x03FFFFFC]; dispatching 0x138 pops them and returns from the exception;
-`runtime_swi` services Halt and Stop by writing HALTCNT, every other SWI
-through the HLE hook, and aborts on one without a stand-in; dispatching
-0x1B4 or 0x170 finishes the SWI exit a BIOS-backed Halt wait left on the
-stacks, so existing savestates resume; any other PC below 0x4000 aborts.
-Protected BIOS reads return the value hardware latches at each exit
-(`GbaBus::set_bios_open_bus`, `g_runtime_bios_open_bus_hook`). The overlay
-loader gets no BIOS image. Written from GBATEK's descriptions and the
-register/stack layout, not from running BIOS code. Found this way in
-GoldenSunRecomp: after boot the game needs only IRQ entry, Halt, Stop and
-CpuSet (BIOS_REMOVAL_PLAN.md, step 1). The BIOS-backed path is unchanged.
-
-## Building without the BIOS; no-BIOS by default for a game (2026-09-24)
-
-CMake option `GBARECOMP_LINK_BIOS` (default ON, upstream behaviour): the
-locally generated `generated_bios/bios_recompiled.cpp` and
-`bios_dispatch_table.cpp` are linked only when it is on and both exist;
-otherwise the empty `src/runtime/no_bios_dispatch_table.cpp` is linked and
-`GBARECOMP_HAVE_BIOS_RECOMP` is not defined, so the build holds no BIOS code
-and `run_game` runs only in no-BIOS mode (an explicit `--bios` or
-`GBARECOMP_NO_BIOS=0` then fails with a message). `bios_dispatch_table.cpp`
-is no longer committed (it lists every BIOS function's address and name).
-`RunOptions::no_bios_by_default` makes no-BIOS the default unless `--bios`
-is given on the command line. GoldenSunRecomp sets both: LINK_BIOS off in its
-root CMakeLists and `no_bios_by_default = true` in its runner.
-
-## Game-owned menu over the paused picture (2026-09-25)
-
-A new rebindable hotkey `HK_GAME_MENU` (config.ini `[KeyMap] CheatMenu=`,
-shown as "Cheat Menu" in the F1 Hotkeys tab, default F11, keyboard or
-controller) sets `HostWindow::Events::game_menu`. Three `RunOptions` hooks,
-all null by default: `game_menu_toggle` runs on that press;
-`keyinput_filter` sees every pump's keys before the guest and input
-recording and returns what they get; `paused_overlay` paints over a copy of
-the frozen frame on each pump of the paused loop, which then presents the
-copy. The game asks for the pause itself through the existing
-`pause_request_poll`. Infinite HP/PP switched by game code
-(`runtime_set_infinite_hp/pp`) are now saved to `[Cheats]` the same way a
-walking-speed change from game code already was. GoldenSunRecomp's cheat
-menu uses all of it (`src/cheat_menu.h`).
-
-## Sprites are one layer for blending; non-transparent sprites take BLDCNT (2026-09-25)
-
-Two compositor rules in `gba_ppu.cpp` (both scanline paths), mirrored in
-GoldenSunRecomp's GPU renderer:
-
-- At each pixel only the frontmost sprite takes part in blending; a sprite
-  is never the "layer below" another sprite. Before, the sprite behind was
-  kept as the second target, so a semi-transparent sprite over another
-  sprite found no blend partner and fell through to the brightness effect.
-- An OBJ is a first target when it is semi-transparent (always) or when
-  BLDCNT selects the OBJ layer; only a semi-transparent OBJ forces alpha.
-  Before, only semi-transparent OBJs were ever first targets, so a plain
-  sprite never brightened or darkened, and any OBJ forced alpha.
-
-GBATEK, "LCD I/O Color Special Effects". Found on Golden Sun's defend and
-target-selection flashes (FACTS.md, 2026-09-25).
-
-## A yield unwind hides the resume PC (2026-09-29)
-
-Generated code calls a callee in C and continues only if `R15` equals its
-return address. When a scheduler yield unwinds the host stack, a stale call
-site (left live by code whose trampoline returned elsewhere, such as the
-overlay unpacker) could see `R15` equal to the yield PC and keep running old
-C code on new state. `runtime_should_yield()` now stores the real PC in
-`g_yield_resume_pc` and leaves `R15 = 0xFFFFFFF0` (outside the GBA bus) so no
-site matches and every frame cancels itself. `runtime_yield_restore_pc()`
-puts the PC back right after each `runtime_dispatch()` in the run loop
-(`runtime.cpp`, both branches), the IRQ drive loop (`runtime_irq`), the
-force-interp step and `test_rom_runner`. The `kUnwindDepth` unwind in
-`runtime_call_should_return` is unchanged: there the target PC is meant to
-match. See FACTS.md "Door+Turbo crash".
-
-## Fast IWRAM store observer gated inline (2026-09-29)
-
-The fast-path `bus_write_u32/16/8_inline` stores called
-`g_runtime_fast_iwram_write_observer` twice (START and COMMITTED) through a
-function pointer for every IWRAM store, though most stores are stack traffic
-the game's observer ignores. `runtime_arm.h` now declares
-`g_runtime_fast_iwram_watch[8]` (defined in `runtime_arm.cpp`, zero by
-default): a 512-bit bitmap over IWRAM at 64-byte granularity, bit
-`(off >> 6) & 63` of word `off >> 12` with `off = addr & 0x7FFF`. The inline
-stores call the observer only when it is installed and a block the store
-touches (first and last byte, so a straddling store is covered) is set;
-START/COMMITTED pairing is unchanged when it is called. The game owner fills
-the bitmap when it installs the observer (set every block for a debug store
-trace); `runtime.cpp` clears it together with the observer. The observer
-keeps its own precise range check, so the bitmap only has to be a superset.
-With the bitmap all zero an installed observer is never called.
-
-## Game-owned ROM patch hook (2026-09-30)
-
-`RunOptions::rom_patch` (`runtime.h`) is an optional
-`void (*)(std::uint8_t* rom, std::size_t size)`. `run_game` calls it once, in
-`runtime.cpp` just before `bus.set_rom(...)`, after the ROM has been read, its
-size checked and its SHA-1 verified against the expected value, so the patched
-bytes can never fail verification. The bus keeps a pointer to that same buffer
-and no other copy is made, so every later ROM read sees the patch. It is meant
-for data the game reads at run time only (tables, text). Code and literal
-pools are built into the translated code and must not be patched here.
-
-## Alpha blending switch and blend-function save/restore in the GPU surface (2026-09-30)
-
-`src/runtime/gpu_surface.{h,cpp}`. New `set_blend_alpha(bool)`: on enables
-`GL_BLEND` with `glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)`, off
-disables it; only valid between `begin_frame` and `end_frame`. The surface had
-no blend control, and a caller drawing translucent quads over its finished
-picture (a host particle burst) needs it. `begin_frame`/`end_frame` now also
-save and restore the blend function (`GL_BLEND_SRC_RGB`/`DST_RGB`/
-`SRC_ALPHA`/`DST_ALPHA`, restored with `glBlendFuncSeparate`), because the
-surface now changes it and SDL's renderer relies on its own. `glBlendFuncSeparate`
-(GL 1.4, not in Windows' 1.1 headers) is added to the entry points
-`load_entry_points` fetches. Nothing changes for callers that never call
-`set_blend_alpha`; no game-code file includes these headers.
-
-Addendum, same day: `set_blend_mode(GpuBlendMode::Off/Alpha/Additive)`. Additive
-is `glBlendFunc(GL_SRC_ALPHA, GL_ONE)`, for glowing particles that brighten
-where they overlap; `set_blend_alpha(bool)` is now shorthand for Alpha/Off. The
-save/restore above already covers both modes.
-
-## The ROM patch hook may grow the ROM (2026-09-30)
-
-`RunOptions::rom_patch` now takes the ROM vector,
-`void (*)(std::vector<std::uint8_t>*)`, so a game patch can append data (new
-text, for instance) past the original end. It is still called in `runtime.cpp`
-immediately before `bus.set_rom(rom.data(), rom.size())`; nothing captured
-`rom.data()` or `rom.size()` earlier (they are used only to read the file,
-check its size and hash, and parse the header, all before the patch). The bus,
-the fast ROM path (`g_fast_rom`/`g_fast_rom_size`, taken from `bus->rom_size()`)
-and the audio/overlay users all index by `addr & 0x01FFFFFF` against the
-buffer's size, so appended bytes at offset N are served at `0x08000000 + N`
-(and its mirrors) with no further change. Grow only when needed and stay
-within 16 MB.
-
-## CPU overclock ceiling raised to 50x (2026-09-30)
-
-`kOverclockFactors` (`src/runtime/host_config_ui.h`) is now {1, 50}: the On
-setting (the game's "No Slowdown") pins the guest CPU at up to 50x GBA cycles
-per frame instead of 10x. Saved `CpuOverclock=` values above 1 still map to On,
-so an existing config.ini picks up 50x. The game HALTs once its frame's work is
-done, so the ceiling only matters on frames that need more than 10x.
-
-## Window horizontal edges follow mGBA (2026-09-30)
-
-`gba_ppu.cpp`'s two `win_h_in` rules used GBATEK's "X2 > 240 or X1 > X2
--> X2 = 240". They now follow mGBA (`video-software.c`, `GBA_REG_WIN0H` and
-`_breakWindow`): X1 > 240 and X1 > X2 reads X1 = 0; X2 > 240 clamps to 240
-(and X1 with it); X1 > X2 then wraps to [X1,240) plus [0,X2). Golden Sun's
-Boreas summon writes WIN0H 0xFFF1 for the full width; the old rule made the
-window empty and hid the summon. Vertical edges are unchanged (mGBA's
-vertical window is a per-scanline on/off latch; not needed so far).
-
-## Block timing hooks (2026-09-30)
-
-For the block-timing game code (`scripts/block_timing.py` in the game repo):
-`runtime_arm.h` declares `g_runtime_deferred_cycles`,
-`runtime_tick_deferred` (inline add), `runtime_insn_fetch` (R15 + fetch
-cost, no yield check) and `runtime_flush_deferred`. `runtime_tick` first
-takes the deferred cycles; `runtime_insn_boundary`, `runtime_dispatch`,
-`runtime_swi`, `runtime_msr_cpsr`, `runtime_idle_backedge` and the run loop
-after each top-level dispatch pay them. Every load/store helper the game
-code calls pays them before an access to 0x04000000-0x07FFFFFF, with the
-interrupt check held (`g_tick_irq_held`) so an IRQ is never taken in the
-middle of an instruction. With normal game code the deferred count is
-always 0 and behaviour is unchanged.
-
-## Memory timing table (2026-09-30)
-
-`runtime_mem_cycles` (`runtime_bus_bridge.cpp`) answers from a table of
-`GbaBus::access_cycles` per region x width x S/N, rebuilt whenever WAITCNT
-differs from the value it was built with. Data accesses (`sequential ==
-2`) use the table unless `data_access_cycles` would apply its prefetch
-adjustment (below-cart access, cart code running, WAITCNT prefetch on),
-which still goes to the bus. Results are identical; only the virtual call
-and switch per access are gone. The rebuild and the prefetch call are
-kept out of line so the common path does not save registers.
-The table is exported (`g_runtime_mem_cost`, `g_runtime_mem_cost_key` =
-the WAITCNT it was built for, `g_runtime_waitcnt_live` = the active bus's
-live WAITCNT bytes, set by `set_active_bus`) for the block-timing game code,
-which reads it inline and calls `runtime_mem_cycles` when the key differs.
-
-## Volume and Mute are saved (2026-10-01)
-
-The F1 menu's Audio tab (Volume, Mute) changed only the running session:
-nothing wrote it, and `runtime.cpp` applied `--volume` (default 100) at
-every start, so each run began at 100%. `host_window.cpp` now keeps them in
-their own `config.ini` section, `[Audio]` `Volume=0..100` and
-`Mute=true|false`, read in `load_input_config` and written by
-`write_audio_ini` whenever they differ from what was last recorded -- from
-the menu, or from the Volume Up/Down hotkeys. `runtime.cpp` applies
-`--volume` only when it is actually passed (`volume_given`), and then it
-still wins for that run.
-
-## Unpacker-slot journal keeps its events (2026-10-03)
-
-The `[unpacker-slot]` journal in `runtime_arm.cpp` had one 64-entry ring, and a
-decompressor writing over `0x03002000` filled it with CPU stores, so a player
-crash report lost the copies, entries and returns that explain it (FACTS.md
-2026-10-03). CPU stores now have their own 32-entry ring and every other kind
-a 256-entry ring; the dump merges both by sequence number. Each `enter` also
-records r0, r1, r6, sp, Golden Sun's IWRAM allocator pointer (`0x03001E54`)
-and whether the dispatch resumed a yield. A new `yield_resume` kind records
-yield restores whose resume PC is in the slot (repeats collapse into a count).
-The dump ends with the last 16 `runtime_dispatch` targets, kept by
-`runtime_dispatch` in a 16-entry ring (one store per dispatch).
-
-## RAM fallback probe and resume marks on the dispatch ring (2026-10-08)
-
-`runtime_arm_default_aborts.cpp` exports `g_runtime_ram_fallback_probe`, a
-null-by-default hook that `runtime_mutable_ram_code_miss` and
-`runtime_dispatch_miss` call first, with the pc execution will continue at,
-the pc that was asked for, the mode and which path it is. The game installs
-it only for its "Catch unpacker faults" test toggle. The 16-entry dispatch
-ring in `runtime_arm.cpp` now also keeps, per entry, whether that dispatch
-resumed a scheduler yield (one byte store per dispatch), and
-`runtime_recent_dispatch_copy` returns the ring oldest first.
-
-## Unmatched-return hook (2026-10-08)
-
-`runtime_arm.cpp` exports `g_runtime_unmatched_return_hook`, null by default.
-`runtime_call_should_return` calls it with the target when a return idiom
-matches no live call-return entry, after the existing return hook and probe
-and before the deep-unwind check. A nonzero answer makes the call report
-"return": the hook has already set g_cpu (R15 included) and the call-return
-stack to where the guest really continues, and the generated call sites above
-cancel or continue by comparing R15, as after a yield. The game uses it for
-its unpacker safety net (`src/unpacker_guard.h`).
-
-## Host calls into game routines and direct answers (2026-10-15)
-
-`runtime.h` declares `gbarecomp::guest_call` and `gbarecomp::guest_return_now`
-(implemented in `runtime_bus_bridge.cpp`). `guest_call` runs one game routine
-from host code like a `bl` (return address 0x08000000 pushed on the
-call-return stack), gives back r0 and restores every register. While one
-runs, `runtime_should_yield` never unwinds: a HALT is waited out in place
-and other yield reasons are skipped (present-in-place still happens). The HALT
-wait runs a frame at a time with each frame presented; a HALT no interrupt
-can end (IE 0) or a window close abandons the call (the guest unwinds and
-`guest_call` returns false) instead of freezing.
-`guest_return_now`, called from a function-entry observer, makes that
-routine return at once with the given r0, as its own `bx lr` would: the
-first instruction's yield check closes the caller's call-return frame (or
-dispatches the return when none matches) and reports a yield so the C body
-returns. Cost on every guest instruction: one flag test in
-`runtime_should_yield`. The halt-wait loop the interpreter bridge had is now
-the shared `runtime_idle_while_halted` (same steps). Used by both games'
-Seamless mode.
-
-**One window for both games (2026-10-15).** `HostWindow::give_window` makes
-the next `open()` use a window the player program already has (no new
-window; its size, position and fullscreen state are not changed by the
-game's saved window settings or view changes; the player's own size and
-fullscreen keys still work). `keep_window_on_close` makes `close()` leave
-the window open and `take_kept_window` hands it back; a given window is
-never destroyed by the engine. `close()` now also closes the game
-controller. End-of-game jobs (cost/idle/trace reports, joining the sampler
-and host-profiler threads, TBS's recorder reports) register through
-`at_game_exit` (`armv4t/game_exit.h`) instead of `std::atexit`; a standalone
-exe still runs them at program exit, and a plug-in's player program calls
-`run_game_exit()` when the game returns.
-
-**Games as plug-ins (2026-10-15).** On Windows each game's engine builds as
-a DLL (GoldenSunEngine.dll, TLAEngine.dll; CMake targets keep their old
-names GoldenSunRecomp/TLARecomp) with `runtime/game_module.cpp`'s exported
-`gsr_game_main(argc, argv, window_in, window_out)`, which calls the game's
-`main`, then `run_game_exit()`, and hands back a kept window.
-`runtime/player_main.cpp` is the program under the old name
-(GoldenSunRecomp.exe, TLARecomp.exe; 16 MB stack) that loads the plug-in
-beside it. The game DLL imports from the plug-in instead of the exe. The
-host profiler measures the engine's own module, not the program. Linux is
-unchanged (engine = program).
-
-**Seamless hand-over in one window (2026-10-15).** `runtime/handover.h`: a
-named pipe (`\.\pipe\gsr-handover-<launcher pid>`, the collection launcher
-sets `GSR_HANDOVER_LAUNCHER`). When a game run by `player_main.cpp` from the
-collection ends with a Seamless code, the program keeps the window, opens the
-pipe, sends its output to NUL and waits. The Broken Seal's session sees its
-output end while the program still runs, asks for the code (Query) and goes
-on as before; the Lost Age session sends its launch (Run: plug-in path,
-command line, folder, environment, and its log pipes duplicated into the
-program) instead of starting TLARecomp.exe, then waits on the program as on
-its own child. Quit releases a waiting program on every path that does not
-hand over; any failure falls back to the old separate start.
-
-**Cartridge on the black cover (2026-10-15).** `runtime/cartridge_art.h`
-holds the launcher's selected-cartridge glow (moved from the launcher) and
-its idle animation (pulse, drifting glow, rising motes) as plain draw
-pieces; the launcher draws them with ImGui, the engine with SDL. When
-`GSR_COVER_CARTRIDGE` names a 32-bit BMP (the launcher writes the cut-out
-cartridge to the temp folder for the Seamless start of The Lost Age, with
-`GSR_COVER_CARTRIDGE_GAME` for the glow colour), `draw_screen_veil` draws it
-centred over the black, faded with the cover. Launcher preview captures
-before/after: identical apart from the build-status text line, which
-depends on the folder the copy ran from.
-
-**Skip the ROM check (2026-10-15).** `armv4t/any_rom.h`: with `GSR_ANY_ROM`
-on (the launcher's per-game "Skip the ROM check"; the session sets it for
-itself, the player builder and the game), `run_game` logs a ROM SHA-1
-mismatch and goes on instead of refusing to start.
-
-## Idle skip for screen-line waits (2026-10-15)
-
-`runtime/runtime_bus_bridge.cpp`: `is_idle_safe_read` also accepts
-DISPSTAT/VCOUNT (0x04000004-0x04000007), and `runtime_mmio_catch_up` keeps
-the idle epoch (its flush crosses no event). A loop polling the scanline
-counter (the sound library's wait for line 159, TLA 0x081C1250/0x081C2498)
-can now be skipped up to the next PPU event like a RAM poll. Before: at 50x
-overclock 1.07M-1.7M passes per frame, 100-600 ms per start-up frame (TLA
-FACTS, "Start-up hitches"). Compiles; not yet built or played.
-
-
-## Placement tile-grant provenance (2026-10-18)
-
-field/obj_placements.h stores uses_tile_grant(default false) alongside each
-placement snapshot. TLA marks only its character-body placements; other
-builders reuse record+10 for unrelated state and must not consult the
-character allocation table. F12 0086 frame75 shows vine tops borrowing
-Whirlwind's page when that byte happens to equal its owner. GS1 callers
-retain the default and do not consume this TLA grant metadata. Targeted
-compile/source fixture and public checks pass; gameplay retest remains.
-
-
-## Engine review cleanup (2026-10-20)
-
-- `runtime/runtime.cpp`: `GBARECOMP_DEMO_INPUT` keeps `walk`, `campaign` and
-  the menu masher; the upstream Mega Man Zero tracks (`campaign-combat`,
-  `-traverse`, `-safe`, `-clear`) and `GBARECOMP_BOSS_STRATEGY` are removed.
-- `armv4t/runtime_arm.cpp`, `runtime/runtime_arm_default_aborts.cpp`: the
-  `GBARECOMP_AUDIO_PROBE` entry/bridge register traces with hard-coded GS1
-  sound-routine addresses are removed (game addresses do not belong in the
-  engine). The generic audio-bridge probe in `gba_io.cpp`/`host_window.cpp`
-  remains.
-- `runtime/host_local_music.{h,cpp}`: the local music player
-  (`GBARECOMP_MUSIC_DIR` / `GBARECOMP_MUSIC_WAV`) moved out of
-  `host_window.cpp` as `LocalMusicPlayer`; locking, epoch and generation
-  logic unchanged. Added to `gbarecomp_runtime` in `CMakeLists.txt`.
-- `PRINCIPLES.md`: upstream Minish Cap, template-path and missing-file
-  references replaced with this collection's equivalents.
-- `armv4t/game_exit.h`: `at_game_exit` now creates the job list before
-  registering `run_game_exit` with `std::atexit`, so the list outlives the
-  handler. Before, standalone programs walked a destroyed list at exit
-  (measured: `bus_tests`, `dma_tests`, `pool_ldm_probe_tests` crashed after
-  passing).
-- `gba/gba_ppu.h`: `g_ws_bg_x_provider` comment states it runs on margin
-  columns only (the renderer already skipped native columns).
-- Engine tests updated to current contracts: `ram_heal_test.cpp`,
-  `ram_overlay/registry_test.cpp`, `ppu_smoke/test_main.cpp`,
-  `armv4t/pool_ldm_probe_test.cpp`. `scripts/build_dev.ps1` runs 20 tests
-  before each developer game build.
-- `armv4t/game_ram_layout.h` (new), `armv4t/runtime_arm.cpp`,
-  `gba/gba_bus.cpp`, `gba/gba_io.cpp`, `gba/gba_vram_trace.cpp`,
-  `runtime/overlay_loader.cpp`, `runtime/runtime_arm_default_aborts.cpp`,
-  `field/effect_capture.cpp`: every Golden Sun RAM address (unpacker slot and
-  allocator pointer, RAM-image window, OAM shadow, IWRAM heap, CRASH-03
-  pool-LDM probe) comes from `g_game_ram_layout`, set by the game's runner;
-  zero = inert. Infinite HP/PP party layout defaults to 0 slots; each game
-  calls `runtime_set_party_layout`.
-- `runtime/heal_gate.{h,cpp}`, `tests/heal_gate/` archived (unused P6 gate),
-  with `gbarecomp_heal_gate` in `CMakeLists.txt` and the `GbaBus`
-  `BusWriteObserver` hook. `RUNTIME_POOL_LDM_WINDOW_*` and
-  `g_runtime_shadow_tick` in `runtime_arm.h` are now unused and wait for the
-  next edit of that header.

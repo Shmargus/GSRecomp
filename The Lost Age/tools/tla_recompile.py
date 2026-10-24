@@ -24,7 +24,7 @@ def helper(name, *args):
     return run(sys.executable, ROOT / "tools" / name, *args, capture=True)
 
 
-def generate(rom, recompiler, output, cache):
+def generate(rom, recompiler, output, cache, harvest_ram_code=True):
     if hashlib.sha1(rom.read_bytes()).hexdigest() != SHA1:
         raise ValueError(f"Wrong ROM: expected USA/Europe SHA-1 {SHA1}.")
     # Check dependencies before replacing any generated output.
@@ -92,7 +92,10 @@ def generate(rom, recompiler, output, cache):
     for pic in cache.rglob("*.pic"):
         shutil.copyfile(pic, keep / SHA1 / pic.name)
     harvest = fresh("harvest")
-    for line in helper("tla_harvest.py", "--rom", rom, "--cache", keep, "--out", harvest):
+    # --no-harvest: no harv families, as a build with "Pre-built RAM code" off
+    # (TLA_NO_HARVEST) compiles none; the pieces above are still kept.
+    for line in (helper("tla_harvest.py", "--rom", rom, "--cache", keep, "--out", harvest)
+                 if harvest_ram_code else []):
         name, spec = line.split()
         src = harvest / name
         dest = image(name, harvest / "harvest.gba", src / "variant.toml", spec)
@@ -112,6 +115,8 @@ def main():
     parser.add_argument("--recompile", type=Path)
     parser.add_argument("--out", type=Path, default=ROOT / "local/tla")
     parser.add_argument("--cache", type=Path, default=ROOT / "recomp_cache")
+    parser.add_argument("--no-harvest", action="store_true",
+                        help="leave out the harvested RAM code (Pre-built RAM code off)")
     args = parser.parse_args()
     try:
         config = {}
@@ -124,7 +129,7 @@ def main():
             raise ValueError("Generated output must be a directory inside this repository's local/.")
         if not recompiler.is_file():
             raise ValueError("Recompiler not found; build gba_recompile first.")
-        generate(rom, recompiler, output, args.cache.resolve())
+        generate(rom, recompiler, output, args.cache.resolve(), not args.no_harvest)
         return 0
     except (OSError, ValueError, KeyError, ImportError, subprocess.CalledProcessError) as error:
         print(f"tla_recompile: {error}", file=sys.stderr)

@@ -33,6 +33,11 @@ struct WorldMapLayout {
     bool zero_offset_is_empty = false;
 };
 
+// The game's own decompressor, the ARM routine at ROM 0x08001B70 (see
+// world_map_source.cpp). False on a malformed stream or past `max_bytes`.
+bool lz_decompress(const std::uint8_t* src, std::size_t avail,
+                   std::vector<std::uint8_t>* out, std::size_t max_bytes);
+
 class WorldMapSource {
 public:
     explicit WorldMapSource(WorldMapLayout layout) : layout_(layout) {}
@@ -53,6 +58,10 @@ public:
     // layer), then BG2's. One affine tile index per byte, exactly what the
     // console's map would hold there.
     const std::vector<std::uint8_t>& tiles() const { return tiles_; }
+    // side_tiles() / 2 square, one byte per 16-pixel cell of the first layer:
+    // the top byte of the cell's word, which the game keeps per-cell
+    // attributes in (The Lost Age reads its climate there). Follows tiles().
+    const std::vector<std::uint8_t>& cell_attributes() const { return attributes_; }
 
     // Go back to the map built before the latest rebuild, and keep it while
     // the game's memory stays as it is now. For a rebuild that disagrees
@@ -75,8 +84,10 @@ private:
     std::uint64_t previous_key_ = 0;
     std::uint64_t rejected_key_ = 0;
     std::vector<std::uint8_t> previous_tiles_;
+    std::vector<std::uint8_t> previous_attributes_;
     std::uint32_t cached_directory_ = 0;
     std::vector<std::uint8_t> tiles_;
+    std::vector<std::uint8_t> attributes_;
     // Decoded pieces, 1024 bytes each (16x16 cells of 4 bytes), by id.
     std::unordered_map<unsigned, std::vector<std::uint8_t>> pieces_;
     bool reported_mismatch_ = false;

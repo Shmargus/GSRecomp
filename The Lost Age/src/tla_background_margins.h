@@ -5,6 +5,12 @@
 
 #include "field_scene.h"
 
+// Little-endian word at EWRAM offset `at` (ewram[0] is 0x02000000).
+inline std::uint32_t tla_ewram_word(const std::uint8_t* ewram, std::size_t at) {
+    return std::uint32_t(ewram[at]) | (std::uint32_t(ewram[at + 1]) << 8) |
+           (std::uint32_t(ewram[at + 2]) << 16) | (std::uint32_t(ewram[at + 3]) << 24);
+}
+
 // Map165's draining water and Gaia Rock's distant scenery (below) need
 // game-measured inputs to the shared margin renderer.
 // Gaia Rock's distant scenery repeats every eight 16-pixel metatiles
@@ -12,21 +18,50 @@
 // Its quarter-speed scroll exposes both ends in the expanded margins.
 // Maps 175/176 (0088..0090) use two origins into the same background grid.
 // Repeat that artwork there, keeping its scale and the original screen.
+//
+// Map 248's sky, mountains and forest (F12 tla_rewind_0139, 2026-10-23) are
+// BG3, field layer 0 (record 0x02030E58: origin 0,0, half-speed scroll, grid
+// 0x02010000). The art is grid columns 0..29 (480 px), rows 0..21; rows 3..10
+// repeat every 6 columns exactly (later rows vary a few tiles), so the right
+// end continues into the left. Half speed with the camera at the room's left
+// (x 0..416) shows BG3 x < 0 in the expanded left margin, which the art never
+// covers: repeat it at its width. As a distant backdrop it also fills the
+// strips past the room's edge (Jimmy, 2026-10-23).
+inline bool tla_backdrop_margins(const gsr::FieldScene& scene,
+                                 gsr::SceneMargins& margins,
+                                 std::uint32_t map,
+                                 const std::uint8_t* ewram) {
+    if (map != 248u || !scene.layers[3].enabled || scene.layers[3].affine)
+        return false;
+    auto word = [&](std::size_t at) { return tla_ewram_word(ewram, at); };
+    if (word(0x30E60) != 0u || word(0x30E64) != 0u ||
+        word(0x30E68) != 0x8000u || word(0x30E6C) != 0x8000u ||
+        word(0x30E88) != 0x02010000u)
+        return false;
+    constexpr int kColumns = 128, kWidth = 30, kPeriod = 6;
+    auto cell = [&](int x, int y) { return word(0x10000u + (y * kColumns + x) * 4u); };
+    for (int y = 3; y <= 10; ++y)
+        for (int x = kPeriod; x < kWidth; ++x)
+            if (cell(x, y) != cell(x % kPeriod, y)) return false;
+    margins.layers[3].repeat_width = kWidth * 16;
+    margins.layers[3].past_room_edge = true;
+    return true;
+}
+
 inline bool tla_background_margins(const gsr::FieldScene& scene,
                                    gsr::SceneMargins& margins,
                                    const std::uint8_t* ewram,
                                    std::size_t bytes) {
     margins.layers[2].repeat_width = 0;
     margins.layers[2].rest_clip_y = 0;
-    if (!ewram || bytes < 0x40000u || scene.video_mode != 0 ||
-        !scene.layers[2].enabled || scene.layers[2].affine)
+    margins.layers[2].past_room_edge = false;
+    if (!ewram || bytes < 0x40000u || scene.video_mode != 0)
         return false;
-    auto word = [&](std::size_t at) {
-        return std::uint32_t(ewram[at]) | (std::uint32_t(ewram[at + 1]) << 8) |
-               (std::uint32_t(ewram[at + 2]) << 16) |
-               (std::uint32_t(ewram[at + 3]) << 24);
-    };
+    auto word = [&](std::size_t at) { return tla_ewram_word(ewram, at); };
     const auto map = word(0x428) & 0xFFFFu;
+    if (tla_backdrop_margins(scene, margins, map, ewram)) return true;
+    if (!scene.layers[2].enabled || scene.layers[2].affine)
+        return false;
     if (map == 165u) {
         // F12 0107: BG2's grid origin is (1024,0), independently named by
         // its grid pointer. Its region sinks to y=-32 while the stone and
@@ -67,5 +102,6 @@ inline bool tla_background_margins(const gsr::FieldScene& scene,
                 word(0x10000u + (y * kColumns + x % kPeriod) * 4u))
                 return false;
     margins.layers[2].repeat_width = kPeriod * 16;
+    margins.layers[2].past_room_edge = true;  // distant scenery, as map 248's
     return true;
 }

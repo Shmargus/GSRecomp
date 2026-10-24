@@ -16,7 +16,9 @@
 #include <vector>
 
 #include "collection_settings.h"
+#include "music_mod_settings.h"
 #include "launcher_test_policy.h"
+#include "../engine/src/runtime/developer_session.h"
 
 namespace gsr {
 
@@ -57,6 +59,7 @@ struct CommonEnvironment {
     bool enhanced_options = true; // experimental fixes, room buffer, host effects
     bool gpu_field = true;        // GSR_GPU_FIELD
     bool gpu_field_only = true;   // GSR_GPU_FIELD_ONLY
+    bool developer = false;       // developer launcher: developer-only F1 cheats
 };
 
 inline void add_common_environment(ChildEnvironmentPlan& plan, const CommonEnvironment& c) {
@@ -85,6 +88,10 @@ inline void add_common_environment(ChildEnvironmentPlan& plan, const CommonEnvir
     }
     plan.put("GSR_GPU_FIELD", c.gpu_field ? "1" : "0");
     plan.put("GSR_GPU_FIELD_ONLY", c.gpu_field_only ? "1" : "0");
+    // Only the developer launcher's games offer the developer-only cheats;
+    // a player launch removes the marker so a shell value cannot add them.
+    if (c.developer) plan.put(gbarecomp::kDeveloperSessionEnv, "1");
+    else plan.remove(gbarecomp::kDeveloperSessionEnv);
     // Every launch: F12 saves the last 2 seconds, F1 > Video offers the screen
     // filters, and the unpacker catcher is armed (it costs nothing until the
     // Sol Sanctum fault).
@@ -97,13 +104,25 @@ inline void add_common_environment(ChildEnvironmentPlan& plan, const CommonEnvir
 // leaves whatever the launcher inherited alone.
 using TestOptionState = std::function<std::optional<bool>(const char* environment)>;
 
+// Music mod (music_mod_settings.h): whenever a game's music folders hold
+// recordings, the game gets them as GBARECOMP_MUSIC_DIR (host_window.h
+// kLocalMusicFolderTracks), so F1 > Audio can switch the mod at any time; the
+// game's own MusicMod option decides whether they play. Every launcher, player
+// or developer, passes it.
+inline void add_music_environment(ChildEnvironmentPlan& plan,
+                                  const std::filesystem::path& collection, int game) {
+    if (gsr_collection::music_mod_available(collection, game))
+        plan.put("GBARECOMP_MUSIC_DIR", gsr_collection::music_folder_list(collection, game));
+    else
+        plan.remove("GBARECOMP_MUSIC_DIR");
+}
+
 // Applies the launcher's test options (collection_settings.h test_options).
 // The sprite recorder also turns on the OAM-shadow write printout. The host
 // profiler's value is the file it writes to; empty means a plain "1".
 inline void add_test_environment(ChildEnvironmentPlan& plan, const TestOptionState& state,
                                  const std::string& host_prof_file,
-                                 bool developer_launcher = false,
-                                 const std::string& music_file = {}) {
+                                 bool developer_launcher = false) {
     const auto apply = [&](const char* name, std::optional<bool> selected,
                            const std::string& value) {
         if (!selected) return;
@@ -128,18 +147,6 @@ inline void add_test_environment(ChildEnvironmentPlan& plan, const TestOptionSta
               host_prof && !host_prof_file.empty() ? host_prof_file : "1");
     }
     apply("GSR_OAM_SHADOW_TRACE", state("GSR_OBJ_RECORD"), "1");
-    // The engine only knows an optional local WAV, not Golden Sun song IDs.
-    // A missing/invalid file leaves the game's original music intact.
-    if (state("GSR_INTRO_MUSIC").value_or(false) && !music_file.empty()) {
-        plan.put("GBARECOMP_MUSIC_WAV", music_file);
-        const std::u8string utf8_file(music_file.begin(), music_file.end());
-        const auto directory =
-            (std::filesystem::path(utf8_file).parent_path() / "GS1").generic_u8string();
-        plan.put("GBARECOMP_MUSIC_DIR", std::string(directory.begin(), directory.end()));
-    } else {
-        plan.remove("GBARECOMP_MUSIC_WAV");
-        plan.remove("GBARECOMP_MUSIC_DIR");
-    }
 }
 
 // The BIOS logs have no launcher box any more; both sessions remove them.
@@ -152,7 +159,7 @@ inline constexpr const char* bios_log_variables[] = {
 inline constexpr const char* retired_test_variables[] = {
     "GSR_RAM_CHURN_PROBE", "GSR_TEXT_RECORD", "GBARECOMP_HEADROOM_PROBE",
     "GBARECOMP_FN_TRACER", "GBARECOMP_VRAM_MAP_TRACE", "GSR_AUTO_CAPTURE",
-    "GSR_BATTLE_BG1_RECORD", "GSR_ROOM_BUFFER"};
+    "GSR_BATTLE_BG1_RECORD", "GSR_ROOM_BUFFER", "GSR_INTRO_MUSIC"};
 
 template <std::size_t N>
 inline void remove_variables(ChildEnvironmentPlan& plan, const char* const (&names)[N]) {

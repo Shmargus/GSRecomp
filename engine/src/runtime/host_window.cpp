@@ -26,6 +26,7 @@
 #include "color_lut.h"
 #include "env_flag.h"
 #include "host_config_ui.h"
+#include "game_hotkeys.h"
 #include "host_local_music.h"
 #include "host_overlay.h"
 #include "frame_timing.h"
@@ -444,7 +445,7 @@ struct Backend {
     // GBA KEYINPUT bit (0..9) per bound SDL scancode; seeded from the
     // built-in defaults, overridden by keybinds.ini [player1].
     SDL_Scancode bind_sc[10] = {};      // indexed by GBA KEYINPUT bit
-    HotkeyBind   hotkeys[HK_COUNT];     // [KeyMap] bindings
+    std::vector<HotkeyBind> hotkeys;     // [KeyMap] bindings
 
     std::string  config_dir = ".";        // game-specific settings
     std::string  controls_dir = ".";      // shared keyboard/controller bindings
@@ -759,6 +760,24 @@ const char* const kHotkeyDefaults[HK_COUNT] = {
     "",
 };
 
+int hotkey_count() { return HK_COUNT + static_cast<int>(game_hotkeys().size()); }
+const std::vector<const char*>& all_hotkey_names() {
+    static const auto names = [] {
+        std::vector<const char*> result(std::begin(kHotkeyNames), std::end(kHotkeyNames));
+        for (const auto& action : game_hotkeys()) result.push_back(action.name);
+        return result;
+    }();
+    return names;
+}
+const std::vector<const char*>& all_hotkey_labels() {
+    static const auto labels = [] {
+        std::vector<const char*> result(std::begin(kHotkeyLabels), std::end(kHotkeyLabels));
+        for (const auto& action : game_hotkeys()) result.push_back(action.label);
+        return result;
+    }();
+    return labels;
+}
+
 // keybinds.ini [player1_pad] key name -> GBA KEYINPUT bit. Same key names as
 // [player1] above, so the two halves of a layout read alike; values are SDL
 // game-controller button names (a, b, dpup, leftshoulder, ...).
@@ -869,6 +888,10 @@ bool hotkey_held(const Backend* b, const HotkeyBind& hb, const Uint8* ks) {
 // be bound to either device through the same HotkeyBind table. Level-triggered
 // ones (HK_TURBO, auto fire) are not here; pump() reads them each frame.
 void fire_hotkey(int h, Backend* b, HostWindow::Events& ev) {
+    if (h >= HK_COUNT && h < hotkey_count()) {
+        if (const auto callback = game_hotkeys()[h - HK_COUNT].pressed) callback();
+        return;
+    }
     switch (h) {
         case HK_FULLSCREEN:     ev.toggle_fullscreen = true;             break;
         case HK_PAUSE:          ev.toggle_pause = true;                  break;
@@ -1009,6 +1032,11 @@ bool local_music_ready() {
     return b && b->local_music.ready();
 }
 
+bool local_music_available() {
+    Backend* b = s_current_audio_backend;
+    return b && b->local_music.available();
+}
+
 bool local_music_select(unsigned track) {
     Backend* b = s_current_audio_backend;
     return b && b->local_music.select(track);
@@ -1098,8 +1126,10 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
         for (int i = 0; i < 10; ++i) b->pad_bind[i] = kDefaultPads[i];
     }
     std::memcpy(b->bind_sc, kDefaultBinds, sizeof(kDefaultBinds));
-    for (int h = 0; h < HK_COUNT; ++h)
-        b->hotkeys[h] = parse_hotkey(kHotkeyDefaults[h]);
+    b->hotkeys.resize(hotkey_count());
+    for (int h = 0; h < hotkey_count(); ++h)
+        b->hotkeys[h] = parse_hotkey(h < HK_COUNT ? kHotkeyDefaults[h] :
+            game_hotkeys()[h - HK_COUNT].default_key.c_str());
     // Linear vs nearest scaling is a texture-creation-time hint.
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, linear_filter ? "linear" : "nearest");
     const int win_w = shown_width(b, base_w, base_h) * scale;
@@ -1341,11 +1371,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     const char* local_music_directory = std::getenv("GBARECOMP_MUSIC_DIR");
     const bool local_music_directory_requested =
         local_music_directory && local_music_directory[0] != '\0';
-    const char* local_music_path = std::getenv("GBARECOMP_MUSIC_WAV");
-    const bool local_music_requested =
-        !local_music_directory_requested && local_music_path && local_music_path[0] != '\0';
-    b->audio_channels = (stereo_audio || local_music_requested ||
-                         local_music_directory_requested) ? 2 : 1;
+    b->audio_channels = (stereo_audio || local_music_directory_requested) ? 2 : 1;
     want.channels = static_cast<Uint8>(b->audio_channels);
     want.samples  = 1024;  // ~15 ms callback quantum at 65 kHz
     want.callback = gba_audio_callback;  // pull mode (bridge-fed)
@@ -1371,10 +1397,6 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
             b->local_music.preload_directory(local_music_directory,
                 b->bridge_ready && b->audio_dev != 0, got,
                 b->bridge.cfg.preroll_ms);
-        else if (local_music_requested && b->bridge_ready && b->audio_mtx)
-            b->local_music.load_file(local_music_path, b->bridge_ready, got,
-                b->bridge.cfg.preroll_ms,
-                static_cast<float>(b->volume) / 100.0f);
         SDL_PauseAudioDevice(b->audio_dev, 0);      // start the callback
     }
 
@@ -2236,8 +2258,8 @@ void HostWindow::load_input_config(const char* dir) {
         // config.ini [KeyMap] (keycode names with Ctrl+/Alt+/Shift+ prefixes).
         ini_scan_section((base + "config.ini").c_str(), "KeyMap",
                          [b](const char* key, const char* val) {
-            for (int h = 0; h < HK_COUNT; ++h) {
-                if (SDL_strcasecmp(key, kHotkeyNames[h]) != 0) continue;
+            for (int h = 0; h < hotkey_count(); ++h) {
+                if (SDL_strcasecmp(key, all_hotkey_names()[h]) != 0) continue;
                 b->hotkeys[h] = parse_hotkey(val);
                 return;
             }
@@ -2249,8 +2271,8 @@ void HostWindow::load_input_config(const char* dir) {
         // the struct parse_hotkey() already built, leaving the keyboard half.
         ini_scan_section((base + "config.ini").c_str(), "KeyMap.Pad",
                          [b](const char* key, const char* val) {
-            for (int h = 0; h < HK_COUNT; ++h) {
-                if (SDL_strcasecmp(key, kHotkeyNames[h]) != 0) continue;
+            for (int h = 0; h < hotkey_count(); ++h) {
+                if (SDL_strcasecmp(key, all_hotkey_names()[h]) != 0) continue;
                 // Synthetic ids first: "lefttrigger"/"righttrigger" (SDL's axis
                 // names; L2/R2 are axes, so SDL_GameControllerGetButtonFromString
                 // does not know them) and the stick directions ("leftstickup",
@@ -2285,7 +2307,7 @@ void HostWindow::load_input_config(const char* dir) {
             !write_keybinds_ini(b->controls_dir, b->bind_sc, b->pad_bind, b->pad_bind_alt))
             std::fprintf(stderr, "host_window: could not migrate shared controls\n");
         if (missing(b->controls_dir + "/config.ini") &&
-            !write_hotkeys_ini(b->controls_dir, b->hotkeys))
+            !write_hotkeys_ini(b->controls_dir, b->hotkeys.data()))
             std::fprintf(stderr, "host_window: could not migrate shared hotkeys\n");
     }
 
@@ -3046,16 +3068,16 @@ bool write_hotkeys_ini(const std::string& dir, const HotkeyBind* hotkeys) {
         std::fclose(in);
     }
 
-    std::vector<std::string> key_values(HK_COUNT);
-    std::vector<std::string> pad_values(HK_COUNT);
-    for (int h = 0; h < HK_COUNT; ++h) {
+    std::vector<std::string> key_values(hotkey_count());
+    std::vector<std::string> pad_values(hotkey_count());
+    for (int h = 0; h < hotkey_count(); ++h) {
         key_values[static_cast<std::size_t>(h)] = render_key(hotkeys[h]);
         pad_values[static_cast<std::size_t>(h)] = render_pad(hotkeys[h]);
     }
-    rewrite_ini_section(lines, "KeyMap", kHotkeyNames, key_values.data(),
-                        HK_COUNT);
-    rewrite_ini_section(lines, "KeyMap.Pad", kHotkeyNames, pad_values.data(),
-                        HK_COUNT);
+    rewrite_ini_section(lines, "KeyMap", all_hotkey_names().data(), key_values.data(),
+                        hotkey_count());
+    rewrite_ini_section(lines, "KeyMap.Pad", all_hotkey_names().data(), pad_values.data(),
+                        hotkey_count());
 
     std::FILE* f = std::fopen(path.c_str(), "wb");
     if (!f) return false;
@@ -3606,17 +3628,20 @@ HostWindow::Events HostWindow::pump() {
         static_cast<int>(sizeof(colour_choices) / sizeof(colour_choices[0]));
     b->cfg.stick_bindings_available = true;
     b->cfg.screen_filters_supported = true;
-    b->cfg.hotkey_count = HK_COUNT;
+    b->cfg.hotkey_count = hotkey_count();
+    b->cfg.hotkey_key.resize(hotkey_count());
+    b->cfg.hotkey_mods.resize(hotkey_count());
+    b->cfg.hotkey_pad.resize(hotkey_count(), -1);
     // hotkey_names is display-only (see ConfigUiState); config.ini persists
     // under the kHotkeyNames keys.
-    b->cfg.hotkey_names = kHotkeyLabels;
+    b->cfg.hotkey_names = all_hotkey_labels().data();
     if (!b->cfg.binds_changed) {
         for (int i = 0; i < 10; ++i) {
             b->cfg.key_bind[i] = static_cast<int>(b->bind_sc[i]);
             b->cfg.pad_bind[i] = b->pad_bind[i];
             b->cfg.pad_bind_alt[i] = b->pad_bind_alt[i];
         }
-        for (int h = 0; h < HK_COUNT; ++h) {
+        for (int h = 0; h < hotkey_count(); ++h) {
             b->cfg.hotkey_key[h] = static_cast<int>(b->hotkeys[h].key);
             b->cfg.hotkey_mods[h] = b->hotkeys[h].mods;
             b->cfg.hotkey_pad[h] = b->hotkeys[h].pad_button;
@@ -3872,7 +3897,7 @@ HostWindow::Events HostWindow::pump() {
             } else {
                 // Rebindable system hotkeys (config.ini [KeyMap]), including
                 // Menu, all dispatched through fire_hotkey.
-                for (int h = 0; h < HK_COUNT; ++h) {
+                for (int h = 0; h < hotkey_count(); ++h) {
                     const HotkeyBind& hb = b->hotkeys[h];
                     if (hb.key == SDLK_UNKNOWN || hb.key != sym ||
                         !hotkey_mods_ok(hb, mods))
@@ -3883,7 +3908,7 @@ HostWindow::Events HostWindow::pump() {
         } else if (e.type == SDL_CONTROLLERBUTTONDOWN && !config_ui_visible()) {
             // Controller half of the same edge-triggered hotkeys. Gated by
             // !config_ui_visible() like the gameplay pad read below.
-            for (int h = 0; h < HK_COUNT; ++h) {
+            for (int h = 0; h < hotkey_count(); ++h) {
                 const HotkeyBind& hb = b->hotkeys[h];
                 if (hb.pad_button < 0 || hb.pad_button != e.cbutton.button)
                     continue;
@@ -3894,7 +3919,7 @@ HostWindow::Events HostWindow::pump() {
             // on the debounced press edge computed above, so a trigger bound
             // to Fast Forward (toggle) latches once per pull, not once per
             // SDL_CONTROLLERAXISMOTION event.
-            for (int h = 0; h < HK_COUNT; ++h) {
+            for (int h = 0; h < hotkey_count(); ++h) {
                 const HotkeyBind& hb = b->hotkeys[h];
                 if (hb.pad_button != synth_pad_button) continue;
                 fire_hotkey(h, b, ev);
@@ -3967,7 +3992,7 @@ HostWindow::Events HostWindow::pump() {
                 b->pad_bind[i] = b->cfg.pad_bind[i];
                 b->pad_bind_alt[i] = b->cfg.pad_bind_alt[i];
             }
-            for (int h = 0; h < HK_COUNT; ++h) {
+            for (int h = 0; h < hotkey_count(); ++h) {
                 b->hotkeys[h].key = static_cast<SDL_Keycode>(b->cfg.hotkey_key[h]);
                 b->hotkeys[h].mods = static_cast<Uint16>(b->cfg.hotkey_mods[h]);
                 b->hotkeys[h].pad_button = b->cfg.hotkey_pad[h];
@@ -3977,7 +4002,7 @@ HostWindow::Events HostWindow::pump() {
                              "host_window: could not write %s/keybinds.ini\n",
                              b->controls_dir.c_str());
             }
-            if (!write_hotkeys_ini(b->controls_dir, b->hotkeys)) {
+            if (!write_hotkeys_ini(b->controls_dir, b->hotkeys.data())) {
                 std::fprintf(stderr,
                              "host_window: could not write %s/config.ini\n",
                              b->controls_dir.c_str());
@@ -4225,6 +4250,10 @@ HostWindow::Events HostWindow::pump() {
         b->cfg.frame_interpolation_available && b->cfg.frame_interpolation_2x;
     ev.enhanced_timing =
         b->cfg.enhanced_timing_available && b->cfg.enhanced_timing;
+    const bool game_hotkeys_active = !config_ui_visible() && !extra_wants_keyboard && SDL_GetKeyboardFocus();
+    for (int h = HK_COUNT; h < hotkey_count(); ++h)
+        if (const auto callback = game_hotkeys()[h - HK_COUNT].held)
+            callback(game_hotkeys_active && hotkey_held(b, b->hotkeys[h], ks));
     const bool turbo_held = hotkey_held(b, b->hotkeys[HK_TURBO], ks);
     ev.fast_forward = turbo_held || b->turbo_toggle_on;
     // Record transitions, including their source, so a captured hitch can be
@@ -4272,6 +4301,7 @@ HostWindow::HostWindow()  = default;
 HostWindow::~HostWindow() = default;
 
 bool local_music_ready() { return false; }
+bool local_music_available() { return false; }
 bool local_music_select(unsigned) { return false; }
 void local_music_playback(bool, bool, float, bool) {}
 

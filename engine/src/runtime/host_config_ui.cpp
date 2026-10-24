@@ -2,6 +2,7 @@
 
 #include "host_config_ui.h"
 #include "game_options.h"
+#include "host_window.h"
 #include "view_config.h"
 
 namespace gbarecomp {
@@ -584,6 +585,19 @@ void draw_audio_page(ConfigUiState* st) {
     if (slider_int("Volume", &st->volume, 0, 100, "%d%%").changed)
         st->audio_changed = true;
     if (ImGui::Checkbox("Mute", &st->mute)) st->audio_changed = true;
+    // Same game_options.ini key as the launcher's cog; the game reads it live.
+    section("Music mod");
+    const bool available = local_music_available();
+    ImGui::BeginDisabled(!available);
+    bool music_mod = available && game_option_get(kOptionMusicMod, 0) != 0;
+    if (ImGui::Checkbox("Enable Music Mod", &music_mod))
+        game_option_set(kOptionMusicMod, music_mod ? 1 : 0);
+    ImGui::EndDisabled();
+    caption(available
+        ? "Plays the recordings in the collection's Music folder instead of "
+          "the game's songs. Sound effects stay the same. Switches straight away."
+        : "No music folder found. Put recordings in Music/TBS or Music/TLA "
+          "next to the launcher (see MUSIC_MODS.md) and restart the game.");
 }
 
 void draw_turbo_page(ConfigUiState* st) {

@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "field_scene.h"
+#include "object_artwork.h"
 
 namespace tla_haze {
 
@@ -44,16 +45,9 @@ inline bool tla_rain_artwork(const gsr::FieldScene& scene,
                               const std::vector<std::uint8_t>& vram) {
     if (object.palette < 0 || object.width != 16 ||
         (object.height != 16 && object.height != 32)) return false;
-    std::uint64_t hash = UINT64_C(14695981039346656037);
-    for (int y = 0; y < object.height / 8; ++y)
-        for (int x = 0; x < 2; ++x) {
-            const std::size_t tile = object.tile +
-                y * (scene.one_dimensional_objects ? 2u : 32u) + x;
-            const std::size_t at = 0x10000u + tile * 32u;
-            if (at > vram.size() || vram.size() - at < 32u) return false;
-            for (int byte = 0; byte < 32; ++byte)
-                hash = (hash ^ vram[at + byte]) * UINT64_C(1099511628211);
-        }
+    std::uint64_t hash = 0;
+    if (!gsr::object_artwork_fingerprint_4bpp(scene, object, vram, &hash))
+        return false;
     if (object.height == 32) return hash == UINT64_C(0x78bccfb7740d43e5);
     return hash == UINT64_C(0x9b7f9d206c16534f) ||
            hash == UINT64_C(0x27418cc15f5fe5fe) ||

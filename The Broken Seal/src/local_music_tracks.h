@@ -1,9 +1,10 @@
 #pragma once
 #include <array>
 #include <cstdint>
+#include "local_music_m4a.h"
 
 namespace gsr::intro_music {
-struct Recording { std::uint32_t header; unsigned track; };
+using gbarecomp::m4a_music::Recording;
 // Approved GS1 ROM sequences matched to the supplied recordings.
 // Album track numbers are independent of the game song IDs.
 inline constexpr std::array<Recording, 43> recordings{{
@@ -52,9 +53,4 @@ inline constexpr std::array<Recording, 43> recordings{{
     {0x817FE48u, 43u}, // song 75: The Golden Sun Sets
 }};
 
-inline constexpr unsigned recording_for(std::uint32_t header) {
-    for (const auto& recording : recordings)
-        if (recording.header == header) return recording.track;
-    return 0;
-}
 } // namespace gsr::intro_music

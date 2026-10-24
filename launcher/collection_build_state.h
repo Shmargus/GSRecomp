@@ -1,5 +1,6 @@
 #pragma once
 #include "launcher_common.h"
+#include "collection_preferences.h"
 #include <algorithm>
 #include <atomic>
 #include <map>
@@ -99,6 +100,16 @@ inline bool developer_build_ready(const fs::path& game_root, int choice,
                 fs::file_size(output) == 0) return false;
         for (const auto& output : outputs) add(output);
         add(engine.parent_path() / "CMakeCache.txt");
+#ifdef _WIN32
+        // The Lost Age's "Pre-built RAM code" setting is a build setting: the
+        // tree must have been built with the current choice. A tree from
+        // before the setting existed has no key and was built with it.
+        if (choice == 1) {
+            const auto cache = gsr_launcher::read_text(engine.parent_path() / "CMakeCache.txt");
+            const bool built_with = cache.find("TLA_PREBUILT_RAM_CODE:BOOL=OFF") == std::string::npos;
+            if (built_with != gsr_session::load_launcher_audio_settings(game_root).prebuilt_ram_code) return false;
+        }
+#endif
         // Hashing one file at a time took ~10 s for both games; spread it over
         // every core (measured ~0.3 s warm).
         std::vector<std::string> digests(inputs.size());

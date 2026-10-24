@@ -477,27 +477,14 @@ try {
             mingw-w64-x86_64-libiconv mingw-w64-x86_64-gettext-runtime mingw-w64-x86_64-libwinpthread `
             mingw-w64-x86_64-SDL2 2>$null
         @"
-Golden Sun Recompiled
-=====================
-
-Start GoldenSunLauncher.exe in the collection's top folder and select
-The Broken Seal. On first play, choose your own Golden Sun (USA, Europe) ROM.
-Preparation happens once; later selections start the game directly.
-
-This download contains no Golden Sun code or data. Everything from the game
-comes from your ROM, on your PC.
-
-Settings: press F1 in the game.
-Controls: use Controller and Alternate to bind the D-pad and stick together.
-Hotkeys: bind Soft Reset to return to the current game's title screen.
-Soft Reset keeps disk saves; unsaved progress is lost.
-"@ | Set-Content -LiteralPath (Join-Path $gameOut 'README.txt') -Encoding ascii
-
-        @"
 Third-party software in this folder
 ===================================
 
 SDL2 (SDL2.dll): zlib license. https://www.libsdl.org/
+Dear ImGui (launcher and in-game menus): MIT license.
+https://github.com/ocornut/imgui
+dr_flac (music mod FLAC files, built into the engine): public domain or
+MIT No Attribution. https://github.com/mackron/dr_libs
 
 The builder\mingw64 folder and the lib*.dll files beside the game are
 unmodified binaries from the MSYS2 MinGW-w64 packages listed below. GCC and
@@ -549,26 +536,10 @@ $($packages -join "`r`n")
         Copy-Item -LiteralPath (Join-Path $engineRoot 'THIRD_PARTY_ATTRIBUTION.md') -Destination $licenses
         'The engine is copyright Matthew Stan and uses the PolyForm Noncommercial License 1.0.0. See ENGINE_LICENSE.txt and THIRD_PARTY_ATTRIBUTION.md.' | Set-Content -LiteralPath (Join-Path $licenses 'README.txt') -Encoding ascii
 
-        @'
-Golden Sun Recompiled
-=====================
-
-Start GoldenSunLauncher.exe and click The Broken Seal or The Lost Age.
-The selected cartridge breathes and glows. On first play, accept the preparation
-prompt and choose your own matching USA/Europe ROM. Later selections start
-the game directly. New releases are offered before starting either game.
-Selected .gba files are copied into ROMs beside the launcher. Existing matching
-.sav files and savestates are copied into Saves; the originals are kept.
-Conflicting imports are preserved in Saves/Imported. Control bindings are shared
-in Controls; other settings stay in each game folder under games/.
-The root launcher handles preparation, updates and starting both games.
-Keep the games folders beside it; each contains that game's engine and tools.
-Settings: press F1 in the game.
-Controls: use Controller and Alternate to bind the D-pad and stick together.
-Hotkeys: bind Soft Reset to return to the current game's title screen.
-Soft Reset keeps disk saves; unsaved progress is lost.
-This download contains no game code, ROM, BIOS or generated game library.
-'@ | Set-Content -LiteralPath (Join-Path $outDir 'README.txt') -Encoding ascii
+        # Player notes: one copy for both platforms (scripts/release/).
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'release/README.txt') -Destination $outDir
+        New-Item -ItemType Directory -Force -Path (Join-Path $outDir 'Music') | Out-Null
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'release/MUSIC_README.txt') -Destination (Join-Path $outDir 'Music/README.txt')
 
         # ---- 6. Checks -------------------------------------------------------------
         foreach ($forbidden in @('GoldenSunGame.dll', 'TLAGame.dll', 'libGoldenSunGame.so', 'libTLAGame.so', 'gssplash.jpg', '*.gba', '*.sav', '*.state*', '*.ini', 'recompiled*.cpp', 'bios*.bin')) {

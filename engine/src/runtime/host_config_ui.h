@@ -16,6 +16,7 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
 
 struct SDL_Window;
 struct SDL_Renderer;
@@ -132,9 +133,9 @@ struct ConfigUiState {
     int   key_bind[10] = {};        // SDL_Scancode, 0 = unbound
     int   pad_bind[10] = {};        // SDL_GameControllerButton, -1 = unbound
     int   pad_bind_alt[10] = {-1,-1,-1,-1,-1,-1,-1,-1,-1,-1}; // optional second controller bind
-    int   hotkey_key[16] = {};      // SDL_Keycode per HostHotkey
-    unsigned hotkey_mods[16] = {};  // required KMOD_* bits
-    int   hotkey_pad[16] = {};      // SDL_GameControllerButton, -1 = unbound
+    std::vector<int> hotkey_key;      // SDL_Keycode per HostHotkey
+    std::vector<unsigned> hotkey_mods;  // required KMOD_* bits
+    std::vector<int> hotkey_pad;      // SDL_GameControllerButton, -1 = unbound
     int   hotkey_count = 0;
     const char* const* hotkey_names = nullptr;  // display labels, not the persisted config.ini keys
 

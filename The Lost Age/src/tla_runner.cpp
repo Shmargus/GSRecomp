@@ -32,8 +32,10 @@ constexpr char kRomSha1[] = "b500663220cb9bf56b9f8e8c0c544f1d6fa3a824";
 
 void on_function_entry(std::uint32_t pc) {
     tla_gpu_field_on_entry(pc);
+    tla_widescreen_on_entry(pc);
     tla_hard_mode_on_entry(pc);
     tla_gs_save_import_on_entry(pc);
+    tla_local_music_on_entry(pc);
 }
 
 }  // namespace
@@ -86,6 +88,8 @@ int main(int argc, char** argv) {
     tla_install_settings_page(options);
     tla_install_hard_mode(options);
     tla_install_cheat_menu(options);
+    tla_install_local_music(options);
+    tla_install_walk_through_walls(options);
     tla_install_spell_sparks(options);
     tla_install_gs_save_import(options, headless);
     tla_install_text(options);

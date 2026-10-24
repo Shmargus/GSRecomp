@@ -18,9 +18,9 @@
 
 namespace gbarecomp {
 
-// Optional host-side music playback sourced from GBARECOMP_MUSIC_DIR
-// (track-NN.wav files) or, when no directory is set, GBARECOMP_MUSIC_WAV.
-// Track selection and playback controls target the current HostWindow. Callers
+// Optional host-side music playback (music mods) from the recordings in
+// GBARECOMP_MUSIC_DIR (host_local_music.h). Track selection and playback
+// controls target the current HostWindow. Callers
 // run on the emulation thread; the SDL callback reads player state under the
 // host audio mutex.
 bool local_music_ready();
@@ -28,6 +28,17 @@ bool local_music_ready();
 // only when its opening and stream worker are ready; local_music_ready()
 // reports the current player.
 bool local_music_select(unsigned track);
+// True when GBARECOMP_MUSIC_DIR held at least one playable recording.
+bool local_music_available();
+// GBARECOMP_MUSIC_DIR may list several folders, first choice first,
+// separated like PATH. Folder i's track NN (and its loops.txt line) is
+// selected as i * kLocalMusicFolderTracks + NN.
+inline constexpr unsigned kLocalMusicFolderTracks = 1000;
+#if defined(_WIN32)
+inline constexpr char kLocalMusicFolderSeparator = ';';
+#else
+inline constexpr char kLocalMusicFolderSeparator = ':';
+#endif
 void local_music_playback(bool active, bool paused, float gain,
                           bool restart = false);
 

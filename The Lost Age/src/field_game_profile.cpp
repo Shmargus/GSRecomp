@@ -29,6 +29,14 @@ const FieldGameProfile& field_game_profile() {
         // kTlaMapIdAddr: 1 on the title screen, which Golden Sun 1's 0 never
         // was; the layer agreement check still guards it.
         p.map_id_addr = kTlaMapIdAddr;
+        // [0x02030E4C] (field state +0xFC): 0x0802AA74 pushes the camera so
+        // the 240x160 view never overlaps any rectangle on this list, x0 = -1
+        // ending it. Only Gondowan Cliffs (map 102) sets one: its overlay
+        // (file 1643) stores 0x02009AC8 when the map is 102 (0x02008BD2),
+        // listing (512,512)-(1024,864) and (1536,0)-(4096,352); no other map
+        // overlay and no ROM code writes that word (2026-10-21). Inside them
+        // the shared grid holds other layers' tiles (F12 0060/0061/0065-0067).
+        p.keep_out_list_addr = 0x02030E4Cu;
         // The expanded view adds 60 columns per side (as Golden Sun 1).
         p.expanded_extra_x = 60;
         // Unused sprites are parked at raw OAM (192, 192), as in Golden Sun 1
@@ -40,6 +48,11 @@ const FieldGameProfile& field_game_profile() {
         // for 127, Madra's rays 0x1F80 for 63: F12 0104/0105); read raw, the
         // rays never wrapped down and stopped at their region's edge.
         p.layer_wrap_y_shift = 7;
+        // ... and counts it in 16-px grid cells: Lemuria's clouds (map 202,
+        // mask 31, F12 0135) wrap every 512 px, and read every 256 they
+        // matched the console's tiles 41%. Over all 21 saved captures with
+        // an auto-scrolling layer, 16 px matches 100% (8 px: 22..100%).
+        p.layer_wrap_unit = 16;
         // The room gate returns with the widened view, re-measured on this
         // ROM; until then video memory alone supplies the 240x160.
         p.room_source_ready = nullptr;

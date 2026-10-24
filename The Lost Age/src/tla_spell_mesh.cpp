@@ -381,15 +381,12 @@ Box visible_canvas(gba::GbaBus* bus) {
     return box;
 }
 
-}  // namespace
-
-void tla_spell_mesh_on_entry(std::uint32_t pc) {
-    if (!gsr::effect_capture_enabled() || pc < 0x03000000u || pc >= 0x03008000u)
-        return;
-    gba::GbaBus* bus = gbarecomp::active_bus();
-    if (!bus || bus->read32(pc) != kEntryPush) return;
-    for (std::size_t i = 0; i < kEntryAt16.size(); ++i)
-        if (bus->read32(pc + 0x10u + u32(i) * 4u) != kEntryAt16[i]) return;
+// The mesh routine was entered: paint its triangles into the margin squares.
+// Kept out of tla_spell_mesh_on_entry, which runs on every guest function
+// entry: this body's ~35 KB of locals made the entry hook probe ~9 stack
+// pages before its early returns (241-273 us per TLA frame in the 20 October
+// profile, local/kanban-investigation-20261021/performance/).
+__attribute__((noinline)) void paint_mesh_margins(gba::GbaBus* bus, u32 pc) {
     const Box seen = visible_canvas(bus);
     if (seen.empty()) return;
     const Variant* variant = live_variant(bus, pc);
@@ -482,4 +479,16 @@ void tla_spell_mesh_on_entry(std::uint32_t pc) {
             gsr::effect_capture_history_paint(canvas, left + x0, top + y0, w, h,
                                               changed.data());
         }
+}
+
+}  // namespace
+
+void tla_spell_mesh_on_entry(std::uint32_t pc) {
+    if (!gsr::effect_capture_enabled() || pc < 0x03000000u || pc >= 0x03008000u)
+        return;
+    gba::GbaBus* bus = gbarecomp::active_bus();
+    if (!bus || bus->read32(pc) != kEntryPush) return;
+    for (std::size_t i = 0; i < kEntryAt16.size(); ++i)
+        if (bus->read32(pc + 0x10u + u32(i) * 4u) != kEntryAt16[i]) return;
+    paint_mesh_margins(bus, pc);
 }

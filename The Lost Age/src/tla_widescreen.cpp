@@ -57,6 +57,7 @@
 #include "view_config.h"
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
+#include "tile_ring_redraw.h"
 #include "tla.h"
 
 namespace {
@@ -95,6 +96,16 @@ constexpr uint32_t kCoilPlaced = 0x080D8AFAu;
 constexpr uint32_t kVineOffsetX = 0x080DABA4u, kVineRangeX = 0x080DABACu;
 constexpr uint32_t kVineMinY = 0x080DABB4u, kVineMaxY = 0x080DABBAu;
 constexpr uint32_t kVinePlaced = 0x080DABBEu;
+
+// Field effect sprites (0x080EB01C, 27 callers 0x080D1E0E..0x080EBB3A; the
+// summon tablet's letters, F12 0155): record r7, attrs at +4, screen x/y
+// 16.16 at +0xC/+0x10, box w/h at +0x20/+0x22. r5/r6 = box left/top; the
+// sprite is dropped when r5 + w < 0 (`blt`), r5 > 239 (`bgt`), r6 + h <= 0
+// (`ble`), r6 > 159 (`bgt`), the console's screen exactly (measured: left
+// 239 drawn, 240 dropped; top -7 drawn, -8 dropped). The letters' loop ran to
+// x 270 and was cut at the screen's right edge.
+constexpr uint32_t kEffectLeft = 0x080EB22Au, kEffectRight = 0x080EB22Eu;
+constexpr uint32_t kEffectTop = 0x080EB236u, kEffectBottom = 0x080EB23Au;
 
 // ROM 0x0801401C computes one four-halfword OBJ transform. At 0x0801403E
 // it rejects allocation 32 and returns slot 31, even if that slot belongs
@@ -159,13 +170,21 @@ bool field_running(gba::GbaBus* b) {
     return b->read16(kMapNumber) > 1u && b->read32(kTlaBattleSlot) == 0u;
 }
 
+// A battle draws its objects with the same character builders (veneers
+// 0x08020010 / 0x08020018). Eclipse's dragon (F12 tla_rewind_0140) is 32
+// such objects, one per 32x32 cell of a 256x160 picture: a cell past x 239
+// is skipped at 0x080222B2 / 0x080224EC and its record keeps the last x it
+// was drawn at (239), so the wing ended at the console's right edge. In a
+// battle only the sideways tests are widened: its rows are a band, and an
+// 8-bit Y past row 159 would read as the top.
+bool battle_running(gba::GbaBus* b) {
+    return b->read32(kTlaBattleSlot) != 0u;
+}
+
 // ---- Camera -------------------------------------------------------------
 
-int32_t camera_value(gba::GbaBus* b, bool x, int32_t value, const View& v) {
-    const uint32_t s = b->read32(kFieldStatePointer);
-    if ((s >> 24) != 0x02u) return value;
-    const int32_t lo = static_cast<int32_t>(b->read32(s + (x ? 0xECu : 0xF0u)));
-    const int32_t edge = static_cast<int32_t>(b->read32(s + (x ? 0xF4u : 0xF8u)));
+// The rule for room bounds lo..edge (16.16).
+int32_t camera_value_in(bool x, int32_t value, const View& v, int32_t lo, int32_t edge) {
     const int32_t size = x ? 240 : 160;
     const int64_t spare = (static_cast<int64_t>(edge) - lo) - int64_t(size) * 65536;
     if (spare <= 0) return value;
@@ -178,6 +197,14 @@ int32_t camera_value(gba::GbaBus* b, bool x, int32_t value, const View& v) {
     const int32_t max = static_cast<int32_t>(int64_t(edge) - int64_t(size) * 65536 -
         inset.after);
     return std::min(std::max(value, min), max);
+}
+
+int32_t camera_value(gba::GbaBus* b, bool x, int32_t value, const View& v) {
+    const uint32_t s = b->read32(kFieldStatePointer);
+    if ((s >> 24) != 0x02u) return value;
+    return camera_value_in(x, value, v,
+        static_cast<int32_t>(b->read32(s + (x ? 0xECu : 0xF0u))),
+        static_cast<int32_t>(b->read32(s + (x ? 0xF4u : 0xF8u))));
 }
 
 RuntimeMemWriteOverrideHook g_next_write = nullptr;
@@ -196,12 +223,48 @@ uint16_t g_room_map = 0;
 // that move or shrink in the same map (0014 f89, 0024 f13, 0030 f34: other
 // parts of the room) and a new map take the rule again (Jimmy, 2026-10-16:
 // hold steady, shake included).
+//
+// The hold lets go as the game's camera travels: each pixel the request
+// moves past the farthest it has been since the hold began takes one pixel
+// off the offset, so walking eases the view back to the game's camera and a
+// shake (inside the range already travelled) does not. Jupiter Lighthouse
+// (map 257, F12 0141) began a hold in ordinary play, bounds 16..800 never
+// changed back, and Felix stayed 120 px off centre (Jimmy, 2026-10-24:
+// catch up while he walks, no jump).
+//
+// Bounds that shrink inside the old ones while the game's own camera does
+// not jump keep the old bounds for the expanded view instead (`kept`):
+// stepping off Lemuria's dock stairs (map 201, F12 0136 f24) narrows y
+// 352..928 to 750..928, and the rule moved the camera 71 rows in one frame
+// and blacked out the scenery above 750 (Jimmy, 2026-10-23: keep the camera
+// still; a 16 px/frame glide was rejected). 0024/0030 (another part of the
+// room) do not narrow inside the old bounds; 0014 does, but as a new room
+// behind a fade (below). The game's own camera jumping more than it moves in
+// a frame (16 px, r5 at 0x0802AE7E) past its new clamp, bounds that grow past
+// the kept ones, or bounds back to them end it.
 struct CameraHold {
     bool valid = false, holding = false;
     uint16_t map = 0;
     int32_t lo = 0, edge = 0;            // bounds at the last store
     int32_t held_lo = 0, held_edge = 0;  // bounds when the hold began
+    int32_t travel_lo = 0, travel_hi = 0;  // requests seen since then
     int32_t offset = 0;                  // written - requested
+    bool kept = false;
+    int32_t kept_lo = 0, kept_edge = 0;  // the wider bounds still in force
+    bool have_requested = false;
+    int32_t requested = 0;               // the game's last request
+
+    // New bounds that end the hold: no longer around the held ones, or the
+    // held ones again.
+    bool hold_ends(int32_t new_lo, int32_t new_edge) const {
+        return new_lo > held_lo || new_edge < held_edge ||
+               (new_lo == held_lo && new_edge == held_edge);
+    }
+    // New bounds that end the kept ones: grown past them, or them again.
+    bool kept_ends(int32_t new_lo, int32_t new_edge) const {
+        return new_lo < kept_lo || new_edge > kept_edge ||
+               (new_lo == kept_lo && new_edge == kept_edge);
+    }
 };
 CameraHold g_hold[2];  // x, y
 
@@ -209,14 +272,13 @@ int camera_y_limit(uint32_t original, uint32_t* out_decision) {
     gba::GbaBus* b = bus();
     const CameraHold& h = g_hold[1];
     if (!b || !expanded(view()) || !field_running(b) || g_room_map <= 1u ||
-        !h.valid || !h.holding || b->read16(kMapNumber) != h.map)
+        !h.valid || !(h.holding || h.kept) || b->read16(kMapNumber) != h.map)
         return 0;
     const uint32_t s = b->read32(kFieldStatePointer);
     if ((s >> 24) != 0x02u) return 0;
     const int32_t lo = static_cast<int32_t>(b->read32(s + 0xF0u));
     const int32_t edge = static_cast<int32_t>(b->read32(s + 0xF8u));
-    if (lo > h.held_lo || edge < h.held_edge ||
-        (lo == h.held_lo && edge == h.held_edge))
+    if (h.kept ? h.kept_ends(lo, edge) : h.hold_ends(lo, edge))
         return 0;  // the store will release the hold
     // The game's limiter reads the previous *written* camera into r2, then
     // compares r2-r7 with r5 (16 pixels). Undo our held offset for that read,
@@ -240,16 +302,61 @@ int32_t held_camera(gba::GbaBus* b, bool x, int32_t requested, int32_t ruled,
     if (!h.valid || map != h.map) {
         h = CameraHold{true, false, map, lo, edge};
     } else {
-        if (!h.holding && (lo != h.lo || edge != h.edge) && lo <= h.lo && edge >= h.edge) {
+        const int32_t size = (x ? 240 : 160) << 16;
+        constexpr int32_t kGameStep = 16 << 16;
+        // Where the game's last request lands inside the new bounds: its own
+        // clamp moving it is not a jump.
+        const int32_t settled = std::min(std::max(h.requested, lo),
+                                         std::max(lo, edge - size));
+        const bool jumped = !h.have_requested ||
+            std::abs(int64_t(requested) - settled) > kGameStep;
+        // Back to the kept bounds: the rule there is where the kept camera
+        // already is, so neither hold starts.
+        const bool returned = h.kept && lo == h.kept_lo && edge == h.kept_edge;
+        if (h.kept && (h.kept_ends(lo, edge) || jumped))
+            h.kept = false;
+        if (h.holding && h.hold_ends(lo, edge))
+            h.holding = false;
+        const bool changed = lo != h.lo || edge != h.edge;
+        // Only in plain view: 0014 f89 sets a new room's bounds inside the
+        // old 0..512 with the field layers off (DISPCNT 0x0140, faded out);
+        // 0136 f24 has them on (0x1F40).
+        const bool field_shown = (b->read16(0x04000000u) & 0x0C00u) == 0x0C00u;
+        if (!h.kept && !h.holding && !returned && !jumped && changed && field_shown &&
+            lo >= h.lo && edge <= h.edge) {
+            h.kept = true;
+            h.kept_lo = h.lo;
+            h.kept_edge = h.edge;
+        }
+        if (!h.holding && !h.kept && !returned && changed &&
+            lo <= h.lo && edge >= h.edge) {
             h.holding = true;
             h.held_lo = h.lo;
             h.held_edge = h.edge;
+            h.travel_lo = h.travel_hi = requested;
         }
-        if (h.holding && (lo > h.held_lo || edge < h.held_edge ||
-                          (lo == h.held_lo && edge == h.held_edge)))
-            h.holding = false;
         h.lo = lo;
         h.edge = edge;
+    }
+    h.have_requested = true;
+    h.requested = requested;
+    if (h.kept) {
+        const int32_t kept = camera_value_in(x, requested, v, h.kept_lo, h.kept_edge);
+        h.offset = kept - requested;
+        return kept;
+    }
+    if (h.holding) {
+        int64_t travelled = 0;
+        if (requested > h.travel_hi) {
+            travelled = int64_t(requested) - h.travel_hi;
+            h.travel_hi = requested;
+        } else if (requested < h.travel_lo) {
+            travelled = int64_t(h.travel_lo) - requested;
+            h.travel_lo = requested;
+        }
+        const int64_t left = std::max<int64_t>(0, std::abs(int64_t(h.offset)) - travelled);
+        h.offset = static_cast<int32_t>(h.offset < 0 ? -left : left);
+        if (h.offset == 0) h.holding = false;
     }
     if (!h.holding) {
         h.offset = ruled - requested;
@@ -301,7 +408,10 @@ int precull_literal(uint32_t pc, uint32_t original, uint32_t* out_value) {
     if (!ours) return g_next_literal ? g_next_literal(pc, original, out_value) : 0;
     const View v = view();
     gba::GbaBus* b = bus();
-    if (!expanded(v) || !b || !field_running(b)) return 0;
+    if (!expanded(v) || !b) return 0;
+    if (!field_running(b) &&
+        !(battle_running(b) && (pc == kPreCullOffsetX || pc == kPreCullRangeX)))
+        return 0;
     const uint32_t left = static_cast<uint32_t>(32 + v.left + kSlack);
     const uint32_t right = static_cast<uint32_t>(272 + v.right + kSlack);
     const uint32_t offset = (left << 16) - 1u;
@@ -625,7 +735,104 @@ void note_jump_pad_placement() {
     note_placed(record, x, y);
 }
 
+// F12 tla_rewind_0144/0145 (map 255, Jupiter Lighthouse): the room's own
+// Thumb routine (0x0200925C there) draws a top piece over each pillar in its
+// list (0x0200ABDC, count 0x0200ABDA), 16x16, or 32x64 while its mode word
+// (0x0200ACDC) is nonzero. It skips a piece whose x + 7 (+ 0x17) is above
+// 334 (350) unsigned, or whose row is <= -16 (-64) or > 239 (175): the
+// console's screen. A pillar at the top edge (0144: base row 0, top row -16)
+// kept its base and lost its top. Extend those tests by the view's margins
+// and record the placement, since a wrapped row cannot tell -16 from 240.
+// Map 264 (F12 0148) loads the same code at 0x02009A78: only its two BLs
+// and its pool's data addresses differ. So the code is found from the
+// branch, by its own words relative to its start, not by room or address.
+struct PillarTopSite {
+    uint32_t offset;    // from the routine's start
+    uint16_t opcode;
+    bool x_test, low, tall;
+};
+constexpr PillarTopSite kPillarTopSites[] = {
+    {0xB6u, 0xD85Eu, true, false, false},   // x + 7 against 334
+    {0xBEu, 0xDD5Au, false, true, false},   // row <= -16
+    {0xC2u, 0xDC58u, false, false, false},  // row > 239
+    {0xF4u, 0xD83Fu, true, false, true},    // x + 0x17 against 350
+    {0xFCu, 0xDD3Bu, false, true, true},    // row <= -64
+    {0x100u, 0xDC39u, false, false, true},  // row > 175
+};
+
+bool pillar_top_image(gba::GbaBus* b, uint32_t start) {
+    return b->read32(start) == 0x465FB5E0u &&
+        b->read32(start + 0xB4u) == 0xD85E428Bu &&
+        b->read32(start + 0xBCu) == 0xDD5A4294u &&
+        b->read32(start + 0xC0u) == 0xDC582CEFu &&
+        b->read32(start + 0xF2u) == 0xD83F428Bu &&
+        b->read32(start + 0xFAu) == 0xDD3B4294u &&
+        b->read32(start + 0xFEu) == 0xDC392CAFu &&
+        b->read32(start + 0x194u) == 0xFFFF0000u &&
+        b->read32(start + 0x19Cu) == 0x020036E0u &&
+        b->read32(start + 0x1B0u) == 0x40002000u &&
+        b->read32(start + 0x1B4u) == 0xC000A000u;
+}
+
+int pillar_top_branch(uint32_t pc, uint32_t original, uint32_t* out) {
+    if (pc < 0x02000000u || pc >= 0x02040000u) return -1;
+    const uint32_t live_pc = g_runtime_image_base + (pc - 0x02000000u);
+    gba::GbaBus* b = bus();
+    if (!b || live_pc < 0x02000100u || live_pc >= 0x0203FE00u) return -1;
+    const PillarTopSite* site = nullptr;
+    const uint16_t opcode = b->read16(live_pc);
+    for (const PillarTopSite& s : kPillarTopSites)
+        if (s.opcode == opcode && pillar_top_image(b, live_pc - s.offset)) {
+            site = &s;
+            break;
+        }
+    if (!site) return -1;
+    const bool x_test = site->x_test, low = site->low, tall = site->tall;
+    const View v = view();
+    if (!expanded(v) || !field_running(b)) return 0;
+    const int row = static_cast<int32_t>(g_cpu.R[4]);
+    if (x_test) {
+        *out = g_cpu.R[3] + static_cast<uint32_t>(v.left) >
+               (tall ? 350u : 334u) + static_cast<uint32_t>(v.left + v.right);
+    } else if (low) {
+        *out = row <= -(tall ? 64 : 16) - v.top;
+    } else {
+        *out = row > (tall ? 175 : 239) + v.bottom;
+        // Kept: r0 is the piece's x (r1 - 8), r6 its record; the routine
+        // writes 0x2000 | row (0xA000 | row when tall) next.
+        if (!*out)
+            note_placed(g_cpu.R[6], static_cast<int32_t>(g_cpu.R[0]), row,
+                        (tall ? 0xA000 : 0x2000) | (row & 0xFF));
+    }
+    return *out != original;
+}
+
+// Field effect sprites (kEffectLeft..kEffectBottom): taken drops the sprite.
+// The view's margins widen each test; a sprite kept past the last one is
+// placed, so its real position is recorded.
+int effect_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
+    const View v = view();
+    gba::GbaBus* b = bus();
+    if (!expanded(v) || !b || !field_running(b)) return 0;
+    const int r3 = static_cast<int32_t>(g_cpu.R[3]);
+    const int left = static_cast<int32_t>(g_cpu.R[5]);
+    const int top = static_cast<int32_t>(g_cpu.R[6]);
+    bool drop = false;
+    switch (pc) {
+    case kEffectLeft: drop = r3 < -(v.left + kSlack); break;
+    case kEffectRight: drop = left > 239 + v.right + kSlack; break;
+    case kEffectTop: drop = r3 <= -(v.top + kSlack); break;
+    default: drop = top > 159 + v.bottom + kSlack; break;
+    }
+    if (pc == kEffectBottom && !drop) note_placed(g_cpu.R[7], left, top);
+    *out_decision = drop ? 1u : 0u;
+    return *out_decision != original ? 1 : 0;
+}
+
 int builder_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
+    if (pc == kEffectLeft || pc == kEffectRight || pc == kEffectTop ||
+        pc == kEffectBottom)
+        return effect_branch(pc, original, out_decision);
     if (pc == kMatrixCapacity) {
         g_matrix_pending = {};
         gba::GbaBus* b = bus();
@@ -641,6 +848,8 @@ int builder_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
     if (const int result = jump_pad_range_branch(pc, original, out_decision);
         result >= 0) return result;
     if (const int result = world_range_branch(pc, original, out_decision);
+        result >= 0) return result;
+    if (const int result = pillar_top_branch(pc, original, out_decision);
         result >= 0) return result;
     if (const int result = tla_sprite_memory_branch(pc, original, out_decision);
         result >= 0) return result;
@@ -692,7 +901,16 @@ int builder_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
         return g_next_branch ? g_next_branch(pc, original, out_decision) : 0;
     const View v = view();
     gba::GbaBus* b = bus();
-    if (!expanded(v) || !b || !field_running(b)) return 0;
+    // Back at the console's size, people granted from the second sprite page
+    // keep it until the game grants them again, so their placements are still
+    // recorded for the tile lookup; the console's own tests decide (F12
+    // tla_rewind_0117: two people striped after switching to Original).
+    const bool wide = expanded(v);
+    if (body_x && wide && b && battle_running(b)) {
+        *out_decision = static_cast<int32_t>(g_cpu.R[6]) > 239 + v.right + kSlack;
+        return *out_decision != original ? 1 : 0;
+    }
+    if (!b || !field_running(b) || (!wide && !b->obj_extra())) return 0;
     const int x = static_cast<int32_t>(g_cpu.R[6]);
     const int y = static_cast<int32_t>(g_cpu.R[4]);
     // `bgt` skips the object: taken when past the widened edge. A menu
@@ -701,7 +919,8 @@ int builder_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
     // which the console drops and the widened test drew in the bottom margin
     // (F12 tla_rewind_0035 frames 53..119, bodies priority 0 at -86/-83).
     const bool menu_shadow = shadow_y && menu_sprite(b->read16(g_cpu.R[7] + 8u));
-    const bool cull = body_x ? x > 239 + v.right + kSlack
+    const bool cull = !wide ? original != 0
+                    : body_x ? x > 239 + v.right + kSlack
                              : y > 159 + (menu_shadow ? 0 : v.bottom + kSlack);
     if (!cull && (body_y || shadow_y)) {
         // Every placement is recorded, so a record that moves back above
@@ -730,6 +949,7 @@ int builder_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
         }
         note_placed(record, ox, y, placed_attr0, body_y);
     }
+    if (!wide) return 0;
     *out_decision = cull ? 1u : 0u;
     return *out_decision != original ? 1 : 0;
 }
@@ -804,6 +1024,38 @@ int tla_camera_hold_y() {
     if (static_cast<int32_t>(b->read32(s + 0xE8u)) != g_camera_y_written) return 0;
     return static_cast<int>(
         (int64_t(g_camera_y_written) - int64_t(g_camera_y_requested)) / 65536);
+}
+
+// The wider room bounds the camera rule still uses on each axis while a
+// narrowing is kept (CameraHold::kept), whole pixels; false when none is.
+bool tla_camera_kept_bounds(bool kept[2], int lo[2], int edge[2]) {
+    gba::GbaBus* b = bus();
+    bool any = false;
+    for (int n = 0; n < 2; ++n) {
+        const CameraHold& h = g_hold[n];
+        kept[n] = b && expanded(view()) && field_running(b) && h.valid && h.kept &&
+                  b->read16(kMapNumber) == h.map;
+        lo[n] = h.kept_lo >> 16;
+        edge[n] = h.kept_edge >> 16;
+        any = any || kept[n];
+    }
+    return any;
+}
+
+// The camera follow 0x0802AD84 keeps the three field layers at [S + 0x108 +
+// 0x38 * n] (x, y; 16.16; S = [0x03000020]; F12 0113..0115: n = 0, 1, 2
+// match BG3, BG2, BG1's scroll) and redraws only the strip it scrolls onto:
+// column writer 0x0802AC90 (bl 0x0802AF16) on an 8-pixel x tile, row writer
+// 0x0802ABBC (bl 0x0802AF38/44, 16 cells, the ring's width) on a 16-pixel y
+// row; tiles are `lsr #19` (0x0802AEEC/F8). Repaint after a jump:
+// tile_ring_redraw.h.
+namespace {
+gsr::TileRingRedraw g_tile_rings({kFieldStatePointer, 0x108u, 0x38u, 0x0802ABBCu, kMapNumber,
+                                  false});
+}  // namespace
+
+void tla_widescreen_on_entry(std::uint32_t pc) {
+    if (pc == 0x0802AD84u) g_tile_rings.on_follow_entry();
 }
 
 // Called by the graphics card's capture (src/tla_gpu_field.cpp) each frame:

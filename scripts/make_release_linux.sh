@@ -369,28 +369,6 @@ if echo "$search" | grep -qE '^ /usr/'; then
 fi
 
 # ---- 4. Notes for players and third-party notices ----------------------------
-cat > "$out/README.txt" <<'TXT'
-Golden Sun Recompiled (Linux)
-=============================
-
-Start GoldenSunLauncher in the collection's top folder and select
-The Broken Seal. On first play, choose your own Golden Sun (USA, Europe) ROM.
-Preparation happens once; later selections start the game directly.
-
-Needs: a 64-bit Linux with SDL2 and OpenGL (installed on SteamOS and on most
-desktop distributions). If the launcher does not open, install your
-distribution's SDL2 package (libsdl2-2.0-0 on Debian/Ubuntu, sdl2 on Arch,
-SDL2 on Fedora).
-
-This download contains no Golden Sun code or data. Everything from the game
-comes from your ROM, on your computer.
-
-Settings: press F1 in the game.
-Controls: use Controller and Alternate to bind the D-pad and stick together.
-Hotkeys: bind Soft Reset to return to the current game's title screen.
-Soft Reset keeps disk saves; unsaved progress is lost.
-TXT
-
 # dpkg may record a file under /lib or /usr/lib (usrmerge): ask for both.
 packages=$(sort -u "$copied_list" | while read -r f; do
         dpkg -S "$f" 2>/dev/null || dpkg -S "${f#/usr}" 2>/dev/null || true
@@ -400,7 +378,9 @@ cat > "$out/THIRD_PARTY_NOTICES.txt" <<TXT
 Third-party software in this folder
 ===================================
 
-GoldenSunLauncher uses Dear ImGui (MIT license, https://github.com/ocornut/imgui).
+GoldenSunLauncher and the in-game menus use Dear ImGui (MIT license,
+https://github.com/ocornut/imgui). The engine plays music mod FLAC files with
+dr_flac (public domain or MIT No Attribution, https://github.com/mackron/dr_libs).
 The game uses SDL2 (zlib license, https://www.libsdl.org/) from your system.
 
 builder/toolchain holds unmodified binaries, headers and libraries from the
@@ -445,27 +425,10 @@ cp "$engine/LICENSE" "$collection/licenses/ENGINE_LICENSE.txt"
 cp "$engine/THIRD_PARTY_ATTRIBUTION.md" "$collection/licenses/"
 printf '%s\n' 'The engine is copyright Matthew Stan and uses the PolyForm Noncommercial License 1.0.0. See ENGINE_LICENSE.txt and THIRD_PARTY_ATTRIBUTION.md.' > "$collection/licenses/README.txt"
 
-cat > "$collection/README.txt" <<'TXT'
-Golden Sun Recompiled (Linux)
-=============================
-
-Start GoldenSunLauncher and click The Broken Seal or The Lost Age.
-The selected cartridge breathes and glows. On first play, accept the preparation
-prompt and choose your own matching USA/Europe ROM. Later selections start
-the game directly. New releases are offered before starting either game.
-Selected .gba files are copied into ROMs beside the launcher. Existing matching
-.sav files and savestates are copied into Saves; the originals are kept.
-Conflicting imports are preserved in Saves/Imported. Control bindings are shared
-in Controls; other settings stay in each game folder under games/.
-The root launcher handles preparation, updates and starting both games.
-Keep the games folders beside it; each contains that game's engine and tools.
-Needs a 64-bit Linux system with SDL2 and OpenGL.
-Settings: press F1 in the game.
-Controls: use Controller and Alternate to bind the D-pad and stick together.
-Hotkeys: bind Soft Reset to return to the current game's title screen.
-Soft Reset keeps disk saves; unsaved progress is lost.
-This download contains no game code, ROM, BIOS or generated game library.
-TXT
+# Player notes: one copy for both platforms (scripts/release/).
+cp "$collection_root/scripts/release/README.txt" "$collection/"
+mkdir -p "$collection/Music"
+cp "$collection_root/scripts/release/MUSIC_README.txt" "$collection/Music/README.txt"
 
 # Resolve a moved checkout's local ROM path without changing local settings.
 resolve_test_rom() {

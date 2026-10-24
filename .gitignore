@@ -43,3 +43,6 @@
 
 __pycache__/
 *.py[cod]
+
+# Dear ImGui window layout written beside the launcher.
+/imgui.ini

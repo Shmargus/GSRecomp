@@ -62,7 +62,7 @@ struct DispatchEntry { uint32_t addr; uint8_t thumb; void (*fn)(void); };
     TLA_RELOC(name, 0u)   \
     extern "C" const uint8_t name##_kExpected[];
 #define TLA_FAMILY(name)                              TLA_RELOC(name, 0u)                               extern "C" const uint8_t name##_kExpected[];      extern "C" const uint32_t name##_kSizes[];        extern "C" const unsigned name##_kCount;          extern "C" const uint32_t name##_kStride;
-#ifdef TLA_PLAYER_RELEASE
+#ifdef TLA_NO_HARVEST
 #define TLA_HARVEST(name)
 #else
 #define TLA_HARVEST(name) TLA_FAMILY(name) extern "C" const uint8_t name##_kStarts[];
@@ -364,7 +364,7 @@ struct Family {
 #define TLA_VARIANT(name)
 #define TLA_SKIP(name, start, end)
 #define TLA_FAMILY(name)                                                        {#name, name##_kDispatchTable, &name##_kDispatchTableLen,                  &name##_kImageOrigin, name##_kExpected, name##_kSizes, &name##_kCount,      &name##_kStride, nullptr},
-#ifdef TLA_PLAYER_RELEASE
+#ifdef TLA_NO_HARVEST
 #define TLA_HARVEST(name)
 #else
 #define TLA_HARVEST(name) {#name, name##_kDispatchTable, &name##_kDispatchTableLen, &name##_kImageOrigin, name##_kExpected, name##_kSizes, &name##_kCount, &name##_kStride, name##_kStarts},

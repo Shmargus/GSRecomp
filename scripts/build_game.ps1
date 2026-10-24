@@ -56,10 +56,11 @@ $games = @{
         Root = 'The Lost Age'; BuildDir = 'build/tla'; Prefix = 'TLA'
         BusyCheck = $true; CodeName = 'tla'; BlockParts = @('main', 'reloc')
         Targets = @('TLARecomp', 'TLAGame', 'TLAPlayer')
-        # Most memory one game-code file takes to compile: reloc/harv60 at
-        # -Og, 6.4 GiB committed (measured 2026-10-16). Sets how many compile
-        # at once (TLA_GAME_CODE_COMPILE_JOBS).
-        GameCodeCompileGiB = 6.4
+        # Most memory one game-code file takes to compile: reloc/harv56 at
+        # -Og, 1.27 GiB peak commit (measured 2026-10-23, the largest file
+        # since the 17 October sharding; 6.4 GiB before it). Sets how many
+        # compile at once (TLA_GAME_CODE_COMPILE_JOBS).
+        GameCodeCompileGiB = 1.3
     }
 }
 $cfg = $games[$Game]
@@ -211,8 +212,23 @@ public static class GoldenSunBuildLimits {
         $gameCodeJobs = [Math]::Max(1, [Math]::Min($jobs,
             [int][Math]::Floor($memoryLimit / ($cfg.GameCodeCompileGiB * 1GB))))
         Write-Host "Game-code files compiled at once: $gameCodeJobs."
+        # The launcher's "Pre-built RAM code" setting (launcher
+        # collection_preferences.h, PrebuiltRamCode; off when unset).
+        $prebuiltRamCode = 'OFF'
+        $settingsFile = Join-Path $repo 'local/launcher-settings.ini'
+        if (Test-Path -LiteralPath $settingsFile -PathType Leaf) {
+            $section = ''
+            foreach ($line in Get-Content -LiteralPath $settingsFile) {
+                $line = $line.Trim()
+                if ($line -match '^\[.*\]$') { $section = $line; continue }
+                if ($section -eq '[Launcher]' -and $line -match '^PrebuiltRamCode\s*=\s*(.*)$') {
+                    $prebuiltRamCode = if ($Matches[1].Trim() -cin @('1', 'true', 'TRUE', 'yes', 'on')) { 'ON' } else { 'OFF' }
+                }
+            }
+        }
+        Write-Host ('Pre-built RAM code: {0}.' -f $(if ($prebuiltRamCode -eq 'ON') { 'included' } else { 'skipped (compiled while playing)' }))
         $configureArgs += @('-DTLA_SPLIT_GAME_CODE=ON', "-DTLA_LTO_JOBS=$jobs", "-DTLA_GAME_CODE_OPT=-$GameCodeOpt",
-            "-DTLA_GAME_CODE_COMPILE_JOBS=$gameCodeJobs",
+            "-DTLA_GAME_CODE_COMPILE_JOBS=$gameCodeJobs", "-DTLA_PREBUILT_RAM_CODE=$prebuiltRamCode",
             "-DTLA_GENERATED_DIR:PATH=$codeRoot/main")
     }
     $configureOutput = & $cmake @configureArgs 2>&1

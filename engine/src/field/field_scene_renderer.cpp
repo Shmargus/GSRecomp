@@ -197,6 +197,10 @@ const char* kBackgroundFragment =
     "uniform vec2 u_room_min;\n"        // room rect, pixels (min_x, min_y)
     "uniform vec2 u_room_max;\n"        // room rect, pixels (max_x, max_y)
     "uniform vec2 u_ewram_camera;\n"    // the game's own camera, room pixels
+    // The camera's keep-out rectangles (x0, y0, x1, y1), outside the room;
+    // the array size is FieldSceneRenderer::kKeepOutMax.
+    "uniform int u_keep_out_count;\n"
+    "uniform vec4 u_keep_out[2];\n"
     // Our own spell-effect canvas, drawn host-side from the game's particles
     // because the game clips every spark to a canvas as wide as the console
     // screen, and that limit cannot be widened in place (effect_sources.h).
@@ -263,6 +267,8 @@ const char* kBackgroundFragment =
     // (gpu_rewind_0025, FACTS.md 2026-09-24).
     "uniform usampler2D u_room_vram;\n"
     "uniform vec2 u_margin_repeat;\n"
+    "uniform vec4 u_art_repeat;\n"   // period down, its shift, period across
+    "uniform int u_past_room_edge;\n"
     // Golden Sun's whole world map as tile indices (world_map_source.h):
     // 512 tiles wide, BG3 in rows 0..511 and BG2 in rows 512..1023. The
     // game's own map is a 512-pixel ring refilled around the camera, and
@@ -355,6 +361,13 @@ const char* kBackgroundFragment =
     "  int lo = int(texelFetch(u_row_affine, ivec2(which * 2, row), 0).r);\n"
     "  int hi = int(texelFetch(u_row_affine, ivec2(which * 2 + 1, row), 0).r);\n"
     "  return (hi << 16) + lo - 536870912;\n"
+    "}\n"
+    "\n"
+    // A battle window's rows y1..y2 (WINxV) as the arena band: they start on
+    // the console's screen and end in its lower half. True when row `y` is in
+    // that band.
+    "bool in_arena_band(int y1, int y2, int y) {\n"
+    "  return y1 < 160 && y1 < y2 && y2 >= 80 && y2 <= 160 && y >= y1 && y < y2;\n"
     "}\n"
     "\n"
     "void main() {\n"
@@ -525,10 +538,21 @@ const char* kBackgroundFragment =
     // clamp to row 159 stands: down there the nearest real row is the
     // command menu, and the arena genuinely does not continue into it.
     "    if (console_px.y < 0) band_y = y1;\n"
-    "    bool band = y1 < 160 && y1 < y2 && y2 >= 80 && y2 <= 160;\n"
+    "    bool in_band = in_arena_band(y1, y2, band_y);\n"
+    // Window 1 can carry the arena past window 0's band. The Lost Age's
+    // Trident narrows WIN0V to 16..124 while window 1 (16..136, WININ's high
+    // byte showing BG0..BG2) keeps the console's arena to row 136; the
+    // margins stopped 12 rows short (F12 tla_rewind_0134, f18 onwards).
+    "    uint win1v = row_u16(reg_row, 0x46);\n"
+    "    int w1y1 = int((win1v >> 8) & 0xFFu);\n"
+    "    int w1y2 = int(win1v & 0xFFu);\n"
+    "    if (console_px.y < 0 && !in_band) band_y = w1y1;\n"
+    "    if ((rdisp & 0x4000u) != 0u &&\n"
+    "        ((row_u16(reg_row, 0x48) >> (8u + uint(u_layer))) & 1u) != 0u &&\n"
+    "        in_arena_band(w1y1, w1y2, band_y))\n"
+    "      in_band = true;\n"
     "    if ((rdisp & 7u) == 1u &&\n"
-    "        (rdisp & 0x0600u) != 0u && band &&\n"
-    "        band_y >= y1 && band_y < y2) {\n"
+    "        (rdisp & 0x0600u) != 0u && in_band) {\n"
     "      uint bgcnt = row_u16(reg_row, 0x08 + u_layer * 2);\n"
     // An effect is a first target of an alpha blend sitting at priority 1;
     // it is drawn where the battlers are. Two things have been tried and
@@ -570,6 +594,9 @@ const char* kBackgroundFragment =
     // Set together with room_copy below: this pixel also takes its colour
     // from the saved field palette (palette row 1, upload_room_palette).
     "  bool room_colours = false;\n"
+    // A world-map cell drawn with another terrain set's artwork takes that
+    // set's colours (palette row 2 + set, upload_world_cell_art).
+    "  int world_colour_row = 0;\n"
     // Whether this pixel lies inside the room at all, kept separate from
     // whether the room buffer had an answer for it. A margin pixel past the
     // room's own edge is outside the world, and the only honest thing out
@@ -966,10 +993,19 @@ const char* kBackgroundFragment =
     "    }\n"
     "    if (room_row_authorized && (outside_native || haze_above)) {\n"
     "      ivec2 room_px = console_px + ivec2(u_ewram_camera);\n"
-    "      room_covers = room_px.x >= int(u_room_min.x) &&\n"
-    "                    room_px.y >= int(u_room_min.y) &&\n"
-    "                    room_px.x < int(u_room_max.x) &&\n"
-    "                    room_px.y < int(u_room_max.y);\n"
+    // A game-measured distant backdrop (SceneMarginLayer::past_room_edge)
+    // continues past the room's own edge; the keep-outs below still hold.
+    "      room_covers = u_past_room_edge != 0 ||\n"
+    "                    (room_px.x >= int(u_room_min.x) &&\n"
+    "                     room_px.y >= int(u_room_min.y) &&\n"
+    "                     room_px.x < int(u_room_max.x) &&\n"
+    "                     room_px.y < int(u_room_max.y));\n"
+    "      for (int k = 0; k < u_keep_out_count; ++k) {\n"
+    "        ivec4 r = ivec4(u_keep_out[k]);\n"
+    "        if (room_px.x >= r.x && room_px.y >= r.y &&\n"
+    "            room_px.x < r.z && room_px.y < r.w)\n"
+    "          room_covers = false;\n"
+    "      }\n"
     "      if (room_covers) {\n"
     "        ivec2 room_scroll = ivec2(int(hofs_raw), int(vofs_raw));\n"
     // Kolima's flood shows the flooded copy of the area, kept 176 rows
@@ -1025,11 +1061,30 @@ const char* kBackgroundFragment =
     "          source.x = source.x & (width_tiles * 8 - 1);\n"
     "        }\n"
     // A game can expose a measured horizontal scenery repeat to fill the
-    // margins where a slower layer runs out before the room does.
+    // margins where a slower layer runs out before the room does. Any width
+    // (TLA map 248's backdrop is 480): a floored modulo, since GLSL leaves
+    // % of a negative undefined; for a power of two it equals the old mask.
     "        if (!vram_margin && u_margin_repeat.x > 0.0 &&\n"
-    "            (source.x < 0 || u_margin_repeat.y == 0.0))\n"
-    "          source.x &= int(u_margin_repeat.x) - 1;\n"
-    "        if (u_room_grid_wrap != 0) source &= ivec2(2047);\n"
+    "            (source.x < 0 || u_margin_repeat.y == 0.0)) {\n"
+    "          int repeat_x = int(u_margin_repeat.x);\n"
+    "          source.x -= repeat_x * int(floor(float(source.x) / float(repeat_x)));\n"
+    "        }\n"
+    // Above or left of the layer's art, its repeat measured on the console's
+    // own rows and columns (SceneMarginLayer::art_repeat_y / _x).
+    "        if (u_art_repeat.x > 0.0 && source.y < 0) {\n"
+    "          ivec2 art = ivec2(u_art_repeat.xy);\n"
+    "          int copies = (-source.y + art.x - 1) / art.x;\n"
+    "          source += copies * ivec2(art.y, art.x);\n"
+    "        }\n"
+    "        if (u_art_repeat.z > 0.0 && source.x < 0) {\n"
+    "          int art_x = int(u_art_repeat.z);\n"
+    "          source.x += ((-source.x + art_x - 1) / art_x) * art_x;\n"
+    "        }\n"
+    // Past the grid's far edge only (room_grid_pixel).
+    "        if (u_room_grid_wrap != 0) {\n"
+    "          if (source.x >= 0) source.x &= 2047;\n"
+    "          if (source.y >= 0) source.y &= 2047;\n"
+    "        }\n"
     "        room_source = source;\n"
     "        if (source.x >= 0 && source.y >= 0) {\n"
     "          int stx = source.x >> 3;\n"
@@ -1163,7 +1218,7 @@ const char* kBackgroundFragment =
     "  }\n"
     "\n"
     "  uint c = texelFetch(u_palette, ivec2(u_palette_half + index,\n"
-    "                                        room_colours ? 1 : 0), 0).r;\n"
+    "                                        room_colours ? 1 : world_colour_row), 0).r;\n"
     // Priority is a per-row value now, so the depth the two-layer peel sorts
     // by cannot come from the quad any more. This reproduces exactly what the
     // vertex path produced for a quad of depth key/1024: ortho() leaves clip
@@ -1752,6 +1807,8 @@ FieldSceneRenderer::~FieldSceneRenderer() {
     if (row_io_) surface_->destroy_texture(row_io_);
     if (row_affine_) surface_->destroy_texture(row_affine_);
     if (world_map_) surface_->destroy_texture(world_map_);
+    if (world_cell_art_) surface_->destroy_texture(world_cell_art_);
+    if (world_art_) surface_->destroy_texture(world_art_);
     if (top_) surface_->destroy_texture(top_);
     if (second_) surface_->destroy_texture(second_);
     if (obj_window_mask_) surface_->destroy_texture(obj_window_mask_);
@@ -1820,7 +1877,9 @@ bool FieldSceneRenderer::init(gbarecomp::GpuSurface* surface) {
     // Row 0 is the live palette; row 1 what room tiles in the margins use,
     // the field's colours from before a menu replaced some of them
     // (upload_room_palette). Row 1 follows row 0 whenever no menu is open.
-    palette_ = surface_->create_texture(kPaletteEntries, 2,
+    // Rows 2 onward are the world map's other artwork sets
+    // (upload_world_cell_art).
+    palette_ = surface_->create_texture(kPaletteEntries, 2 + kWorldArtSets,
                                         gbarecomp::GpuTextureFormat::R16UI,
                                         false);
     id_grid_ = surface_->create_texture(kGridSide, kGridSide,
@@ -1849,8 +1908,17 @@ bool FieldSceneRenderer::init(gbarecomp::GpuSurface* surface) {
                                           2 * prof().world_map_side_tiles,
                                           gbarecomp::GpuTextureFormat::R8UI,
                                           false);
+    world_cell_art_ = surface_->create_texture(prof().world_map_side_tiles / 2,
+                                               prof().world_map_side_tiles / 2,
+                                               gbarecomp::GpuTextureFormat::R8UI,
+                                               false);
+    world_art_ = surface_->create_texture(kVramTextureWidth,
+                                          kWorldArtSets * 0x8000 / kVramTextureWidth,
+                                          gbarecomp::GpuTextureFormat::R8UI,
+                                          false);
     if (!vram_ || !palette_ || !id_grid_ || !atlas_ || !row_io_ ||
-        !row_affine_ || !effect_canvas_ || !world_map_) {
+        !row_affine_ || !effect_canvas_ || !world_map_ ||
+        !world_cell_art_ || !world_art_) {
         failure_ = "could not create the video memory, palette, room "
                   "buffer or per-row register textures";
         return false;
@@ -1962,8 +2030,12 @@ bool FieldSceneRenderer::object_is_solid(const SceneObject& O,
     return true;
 }
 
+// Only past the grid's far edge: a source left of or above 0 is before a
+// layer's art, not around the grid. Wrapped, Jupiter Lighthouse's clouds
+// (TLA map 264, F12 tla_rewind_0149, BG3 HOFS 90) read the grid's last
+// columns, another layer's art, into the left margin.
 static int room_grid_pixel(int pixel) {
-    return prof().room_grid_wrap ? (pixel & (kGridSide * 16 - 1)) : pixel;
+    return prof().room_grid_wrap && pixel >= 0 ? (pixel & (kGridSide * 16 - 1)) : pixel;
 }
 
 bool FieldSceneRenderer::room_entry(int screen_x, int screen_y, int scroll_x,
@@ -2200,6 +2272,29 @@ void FieldSceneRenderer::upload_world_map(const std::uint8_t* tiles,
     surface_->update_texture(world_map_, 0, 0, side, 2 * side, tiles);
     world_tiles_.assign(tiles, tiles + side * side * 2);
     world_map_generation_ = generation;
+}
+
+void FieldSceneRenderer::upload_world_cell_art(const std::uint8_t* cells,
+                                               std::uint32_t cells_generation,
+                                               const std::uint8_t* art,
+                                               const std::uint16_t* palettes,
+                                               int sets,
+                                               std::uint32_t art_generation) {
+    world_art_sets_ = 0;
+    if (!ready_ || !cells || !art || !palettes || sets <= 0 || sets > kWorldArtSets)
+        return;
+    if (art_generation != world_art_generation_) {
+        surface_->update_texture(world_art_, 0, 0, kVramTextureWidth,
+                                 sets * 0x8000 / kVramTextureWidth, art);
+        world_art_generation_ = art_generation;
+    }
+    if (cells_generation != world_cells_generation_) {
+        const int side = prof().world_map_side_tiles / 2;
+        surface_->update_texture(world_cell_art_, 0, 0, side, side, cells);
+        world_cells_generation_ = cells_generation;
+    }
+    surface_->update_texture(palette_, 0, 2, 256, sets, palettes);
+    world_art_sets_ = sets;
 }
 
 // The whole-map decode trusts the game's piece-to-tile table at 0x02010000,
@@ -2839,6 +2934,7 @@ void FieldSceneRenderer::log_effect_state() const {
 bool FieldSceneRenderer::upload_room(const std::uint8_t* ewram,
                                      std::size_t ewram_bytes) {
     room_valid_ = false;
+    keep_out_count_ = 0;
     if (!ready_ || !ewram || ewram_bytes < kEwramBytes) return false;
 
     // Read this FIRST and keep it even when the rect below is refused: the
@@ -2881,6 +2977,27 @@ bool FieldSceneRenderer::upload_room(const std::uint8_t* ewram,
     room_camera_x_ = static_cast<int>(ewram_u16(ewram, ewram_bytes, prof().camera_addr + 2));
     room_camera_y_ = static_cast<int>(ewram_u16(ewram, ewram_bytes, prof().camera_addr + 6));
 
+    // The camera's keep-out rectangles (FieldGameProfile::keep_out_list_addr):
+    // the game never shows them, so they are outside the room.
+    if (prof().keep_out_list_addr != 0) {
+        const std::uint32_t list =
+            ewram_u16(ewram, ewram_bytes, prof().keep_out_list_addr) |
+            (static_cast<std::uint32_t>(
+                 ewram_u16(ewram, ewram_bytes, prof().keep_out_list_addr + 2)) << 16);
+        if (list >= kEwramBase && list - kEwramBase < kEwramBytes) {
+            int n = 0;
+            for (;; ++n) {
+                const std::uint32_t at = list + static_cast<std::uint32_t>(n) * 8u;
+                if (ewram_u16(ewram, ewram_bytes, at) == 0xFFFFu) break;
+                if (n == kKeepOutMax) { n = 0; break; }
+                for (int k = 0; k < 4; ++k)
+                    keep_out_[n][k] = static_cast<std::int16_t>(
+                        ewram_u16(ewram, ewram_bytes, at + 2u * k));
+            }
+            keep_out_count_ = n;
+        }
+    }
+
     // Per-layer scroll records. Only two things are taken from them:
     //  - an auto-scrolling layer (the Suhalla sandstorm, BG1: speed -7.56,
     //    2.19, mask 31x31, region x 1024) wraps inside its own region every
@@ -2903,9 +3020,10 @@ bool FieldSceneRenderer::upload_room(const std::uint8_t* ewram,
                    (static_cast<std::uint32_t>(ewram_u16(ewram, ewram_bytes, at + off + 2)) << 16);
         };
         const bool autoscroll = word(0x18) != 0 || word(0x1C) != 0;
-        const int wrap_x = (ewram_u16(ewram, ewram_bytes, at + 0x28) + 1) * 8;
+        const int unit = prof().layer_wrap_unit;
+        const int wrap_x = (ewram_u16(ewram, ewram_bytes, at + 0x28) + 1) * unit;
         const int wrap_y =
-            ((ewram_u16(ewram, ewram_bytes, at + 0x2A) >> prof().layer_wrap_y_shift) + 1) * 8;
+            ((ewram_u16(ewram, ewram_bytes, at + 0x2A) >> prof().layer_wrap_y_shift) + 1) * unit;
         const bool pow2 = (wrap_x & (wrap_x - 1)) == 0 && (wrap_y & (wrap_y - 1)) == 0;
         LayerWrap& w = layer_wrap_[bg];
         w = LayerWrap{};
@@ -2968,13 +3086,23 @@ bool FieldSceneRenderer::upload_room(const std::uint8_t* ewram,
     return true;
 }
 
+bool FieldSceneRenderer::in_keep_out(int room_x, int room_y) const {
+    for (int i = 0; i < keep_out_count_; ++i) {
+        const int* r = keep_out_[i];
+        if (room_x >= r[0] && room_y >= r[1] && room_x < r[2] && room_y < r[3])
+            return true;
+    }
+    return false;
+}
+
 bool FieldSceneRenderer::query_room_known(int screen_x, int screen_y,
                                           int scroll_x, int scroll_y) const {
     if (!room_valid_) return false;
     const int room_x = room_camera_x_ + screen_x;
     const int room_y = room_camera_y_ + screen_y;
     if (room_x < room_min_x_ || room_y < room_min_y_ ||
-        room_x >= room_max_x_ || room_y >= room_max_y_) {
+        room_x >= room_max_x_ || room_y >= room_max_y_ ||
+        in_keep_out(room_x, room_y)) {
         return false;
     }
     const int source_x = room_grid_pixel(scroll_x + screen_x);
@@ -3270,6 +3398,10 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
     }
     surface_->set_uniform_int(background_, "u_use_world",
                               world_map_used_ ? 1 : 0);
+    surface_->set_uniform_int(background_, "u_world_cell_art", 11);
+    surface_->set_uniform_int(background_, "u_world_art", 12);
+    surface_->set_uniform_int(background_, "u_world_art_sets",
+                              world_map_used_ ? world_art_sets_ : 0);
     surface_->set_uniform_int(background_, "u_palette_half", 0);
     // The native viewport starts at the console's own origin. A wider output
     // is centred on it, so the extra width appears on both sides.
@@ -3285,6 +3417,16 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
     surface_->set_uniform_vec2(background_, "u_ewram_camera",
                                static_cast<float>(room_camera_x_),
                                static_cast<float>(room_camera_y_));
+    static_assert(kKeepOutMax == 2, "u_keep_out's size in the shader");
+    surface_->set_uniform_int(background_, "u_keep_out_count", keep_out_count_);
+    for (int i = 0; i < keep_out_count_; ++i) {
+        const char* name = i == 0 ? "u_keep_out[0]" : "u_keep_out[1]";
+        surface_->set_uniform_vec4(background_, name,
+                                   static_cast<float>(keep_out_[i][0]),
+                                   static_cast<float>(keep_out_[i][1]),
+                                   static_cast<float>(keep_out_[i][2]),
+                                   static_cast<float>(keep_out_[i][3]));
+    }
 
     surface_->set_uniform_mat4(object_, "u_transform", transform);
     surface_->set_uniform_int(object_, "u_vram", 0);
@@ -3331,14 +3473,17 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
     // use row_io at unit 3 and top at unit 4.
     // Unit 8 is our own effect canvas, always bound so the uniform can switch
     // it on per layer without reshuffling the array.
-    // Unit 10 is the world map (upload_world_map), bound always for the
-    // same reason.
-    const gbarecomp::GpuTexture bg_textures2[11] = {
+    // Unit 10 is the world map (upload_world_map), 11 and 12 its cells'
+    // other artwork (upload_world_cell_art), bound always for the same
+    // reason.
+    const gbarecomp::GpuTexture bg_textures2[13] = {
         vram_, palette_, window_control_, id_grid_, atlas_, row_io_,
-        row_affine_, effect_canvas_, effect_canvas_, room_vram_, world_map_};
-    const gbarecomp::GpuTexture bg_textures3[11] = {
+        row_affine_, effect_canvas_, effect_canvas_, room_vram_, world_map_,
+        world_cell_art_, world_art_};
+    const gbarecomp::GpuTexture bg_textures3[13] = {
         vram_, palette_, window_control_, id_grid_, atlas_, row_io_,
-        row_affine_, top_, effect_canvas_, room_vram_, world_map_};
+        row_affine_, top_, effect_canvas_, room_vram_, world_map_,
+        world_cell_art_, world_art_};
 
     // The console picks the winning pixel by a sort key: a background's key is
     // its priority times 256 plus 128 plus its layer number, an object's is its
@@ -3621,6 +3766,13 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         surface_->set_uniform_vec2(background_, "u_margin_repeat",
                                    static_cast<float>(margin.repeat_width),
                                    static_cast<float>(margin.repeat_height));
+        surface_->set_uniform_vec4(background_, "u_art_repeat",
+                                   static_cast<float>(use_room ? margin.art_repeat_y : 0),
+                                   static_cast<float>(margin.art_repeat_shift),
+                                   static_cast<float>(use_room ? margin.art_repeat_x : 0),
+                                   0.0f);
+        surface_->set_uniform_int(background_, "u_past_room_edge",
+                                  margin.past_room_edge ? 1 : 0);
         surface_->set_uniform_int(background_, "u_room_ref_on",
                                   use_room && from_record ? 1 : 0);
         surface_->set_uniform_vec2(background_, "u_room_ref",
@@ -3648,6 +3800,10 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         // at the region's origin (the crow's nest: 0x0020 everywhere above
         // y 776, the sky from 776; gpu_rewind_0093). Holding the console's
         // own row 0 instead streaked the clouds upward (gpu_rewind_0083/86).
+        // The filler must fill the whole row the console shows: one cloud
+        // tile equal to it in the centre column held Jupiter Lighthouse's
+        // clouds (TLA map 263, F12 tla_rewind_0142 f24..f31, BG3) and
+        // streaked their top rows upward.
         int hold_floor = 0;
         bool hold_top = false;
         // The sky's filler clamp hides the moon until it reaches the native
@@ -3671,10 +3827,17 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
             };
             std::uint16_t fill = 0, here = 0;
             const int margin_top = std::max(0, (output_h_ - 160) / 2);
+            auto filler_row = [&](int y) {
+                for (int x = sx - 120; x < sx + 120; x += 8) {
+                    std::uint16_t e = 0;
+                    if (!entry_at(x, y, &e) || e != fill) return false;
+                }
+                return true;
+            };
             if (entry_at(wrap.region_x, wrap.region_y, &fill)) {
                 for (int y = sy & ~7; y >= sy - margin_top - 8; y -= 8) {
                     if (!entry_at(sx, y, &here)) break;
-                    if (here == fill) {
+                    if (here == fill && filler_row(y)) {
                         hold_floor = y + 8;
                         hold_top = hold_floor > sy - margin_top;
                         break;
@@ -3797,7 +3960,7 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         quad.v1 = static_cast<float>(output_h_);
         quad.depth = static_cast<float>(key) / 1024.0f;
         surface_->draw_quads(background_, &quad, 1,
-                             second_pass ? bg_textures3 : bg_textures2, 11);
+                             second_pass ? bg_textures3 : bg_textures2, 13);
     };
 
     // `lifter` >= 0 draws the object's lifted copy: the console gives an
@@ -3895,19 +4058,25 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         // the fragment guard leaves every native pixel to the original draw.
         if (!L && !O.parked && !menu_sprite && margins_) {
             const auto& period = margins_->object_repeat[slot];
-            if (period[0] > 0 && period[1] > 0 &&
+            if ((period[0] > 0 || period[1] > 0) &&
                 (output_w_ != 240 || output_h_ != 160)) {
                 const float x0 = quad.x, y0 = quad.y;
                 surface_->set_uniform_int(object_, "u_margin_only", 1);
-                const int left = static_cast<int>(std::floor((-x0 - box_w) / period[0])) + 1;
-                const int right = static_cast<int>(std::ceil((output_w_ - x0) / period[0]));
-                const int top = static_cast<int>(std::floor((-y0 - box_h) / period[1])) + 1;
-                const int bottom = static_cast<int>(std::ceil((output_h_ - y0) / period[1]));
+                const int left = period[0] > 0 ? static_cast<int>(std::floor((-x0 - box_w) / period[0])) + 1 : 0;
+                const int right = period[0] > 0 ? static_cast<int>(std::ceil((output_w_ - x0) / period[0])) : 1;
+                const int top = period[1] > 0 ? static_cast<int>(std::floor((-y0 - box_h) / period[1])) + 1 : 0;
+                const int bottom = period[1] > 0 ? static_cast<int>(std::ceil((output_h_ - y0) / period[1])) : 1;
+                // The console's window in output pixels (as camera_x/y).
+                const float win_x = -camera_x, win_y = -camera_y;
                 for (int y = top; y < bottom; ++y)
                     for (int x = left; x < right; ++x) {
                         if (x == 0 && y == 0) continue;
                         quad.x = x0 + x * period[0];
                         quad.y = y0 + y * period[1];
+                        if (margins_->object_repeat_whole &&
+                            quad.x < win_x + 240.0f && quad.x + box_w > win_x &&
+                            quad.y < win_y + 160.0f && quad.y + box_h > win_y)
+                            continue;
                         surface_->draw_quads(object_, &quad, 1,
                             second_pass ? textures3 : textures2, second_pass ? 5 : 4);
                     }

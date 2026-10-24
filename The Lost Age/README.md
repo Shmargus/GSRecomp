@@ -4,10 +4,11 @@ Golden Sun: The Lost Age Recompiled: a native Windows and Linux port of
 **Golden Sun: The Lost Age** for the Game Boy Advance, made by static
 recompilation. The game's ARM/Thumb code is translated ahead of time into C++
 through the collection's shared engine in `../engine/`, and compiled into a PC
-program that runs without a GBA BIOS. Started from Golden Sun Recompiled 0.2.3.
+program that runs without a GBA BIOS.
 
-Part of the Golden Sun Recompiled collection; see the collection
-[README](../README.md) and [BUILDING.md](../BUILDING.md).
+Part of the Golden Sun Recompiled collection: playing, settings shared with
+The Broken Seal, music mods and known issues are in the collection
+[README](../README.md); builds and releases in [BUILDING.md](../BUILDING.md).
 
 No game data is in this repository. You supply your own Golden Sun: The Lost
 Age (USA/Europe) ROM, SHA-1 `b500663220cb9bf56b9f8e8c0c544f1d6fa3a824`.
@@ -62,7 +63,7 @@ This builds the game's Linux engine/library only. Build the unified Linux
 launcher through the collection's root `scripts/make_release_linux.sh --dev`
 flow, then launch `GoldenSunLauncher` from the resulting collection.
 
-The first build fetches the engine's pinned ImGui and toml++ dependencies,
+The first build fetches the engine's pinned ImGui, toml++ and dr_flac dependencies,
 builds the native recompiler, checks the ROM SHA-1 and generates game code.
 Later builds reuse it. Add `--recompile` after changing `config/tla/` or
 the recompiler, and `--jobs N` to choose concurrent compiler jobs (default
@@ -88,14 +89,6 @@ For a headless check:
 
 ROMs, BIOS files, saves and anything generated from them must never be
 committed; `.gitignore` excludes them.
-
-## Shared controls and Soft Reset
-
-F1 keyboard, controller and hotkey bindings carry between both games. In
-Controls, bind the D-pad under Controller and the stick under Alternate to
-use either. Soft Reset under Hotkeys is unassigned by default; bind it to
-restart TLA at its title screen, including after a Seamless handover, without
-repeating the import. Unsaved progress is lost.
 
 ## Import a Golden Sun team
 

@@ -36,48 +36,53 @@ Control bindings live in `Controls/` and are shared; other F1 settings remain
 per game. On first launch, existing bindings from that game seed the shared
 settings.
 
-Each game's README describes its features, known issues and game-specific
-build steps: [The Broken Seal](The%20Broken%20Seal/README.md) and
-[The Lost Age](The%20Lost%20Age/README.md).
+Each game's README describes its features and game-specific build steps:
+[The Broken Seal](The%20Broken%20Seal/README.md) and
+[The Lost Age](The%20Lost%20Age/README.md). The
+[release notes](https://github.com/Shmargus/GSRecomp/releases) list what each
+version changed; updating can make the launcher prepare your game code again.
 
-## 0.5.2
+## Features
 
-0.5.2 includes the TLA map-opening crash fix, TBS world-map
-cave flicker fix, further TLA sprite/scenery fixes and sailing Walk Speed.
-Seamless mode lets you choose the Clear Data slot, and TLA's F1 → Game offers
-**Update from The Broken Seal** for an existing saved adventure before the
-reunion. The update keeps a backup; load the updated slot to use it.
-
-F1 keyboard, controller and hotkey bindings carry between games. Under
-**Controls**, use the **Controller** and **Alternate** columns to bind the
-D-pad and control stick at the same time. Bind **Soft Reset** under
-**Hotkeys** to restart the current game at its title screen; after Seamless
-handover it restarts TLA without repeating the transfer. Unsaved progress
-is lost. Soft Reset is unassigned by default.
-
-Both games restore asynchronous GPU readback. The launcher shows its version
-and accepts any ROM filename with the required `.gba` extension. Linux
-releases build and bundle with GCC 15 or newer.
-See the [release notes](https://github.com/Shmargus/GSRecomp/releases) for
-the contents of each download. Updating can require the launcher to prepare
-your game code again from your ROM.
+- **Wider views.** Wide and Extra Wide show more of each room and the world
+  map around the original screen, with effects, weather and scenery carried
+  into the extra space.
+- **Shared settings.** Keyboard, controller and hotkey bindings carry between
+  both games. Under F1 → Controls, the **Controller** and **Alternate**
+  columns bind the D-pad and stick together; **Soft Reset** (F1 → Hotkeys,
+  unassigned by default) restarts the current game at its title screen.
+- **Seamless mode.** Finish The Broken Seal and carry straight on into The
+  Lost Age with your Clear Data (launcher cog). The Lost Age's F1 → Game also
+  offers **Update from The Broken Seal** for an existing save, keeping a
+  backup.
+- **Music mods.** Recordings in the `Music` folder can replace the
+  soundtrack (FLAC or WAV), looping where the game loops each song. The
+  remastered Golden Sun soundtracks by Vincent Dortel aka
+  [Juste-D](https://www.youtube.com/@JusteDni) are available as a
+  [ready-made music mod](https://drive.google.com/file/d/1oMiW5pYbjg3Dl9LHHVEYZLpP3jZoryLo/view?usp=drive_link),
+  shared with his permission. See [Music mods](MUSIC_MODS.md) to use or make
+  one.
 
 ## Known issues
 
-- Loading a savestate in a larger view than it was made in can still cause
-  garbled graphics across the screen.
-- TLA: some Gondowan Cliffs scenery outside the original view is garbled;
-  snow scenery can appear late, and sailing scenery remains around the map
-  screen.
-- TLA: Raging Flood has shape, edge-cutoff and slowdown issues. Great
-  Gabomba has a text-shaped effect and ritual slowdown.
-- TLA: startup/loading pauses remain under investigation. One Djinn-joining
-  animation stutter was reported in playtesting and has not been reproduced.
-- TBS: intro rain does not fill the wider view, and Kolima's pond-drain
-  scenery does not follow the water properly.
-- Performance improvements are still being investigated for both games,
-  including Turbo speed in TLA. A speedup from the readback changes on slower
-  graphics cards has not been measured.
+- Loading a savestate made at a different screen size (for example Extra
+  Wide, loaded in Original) can still garble graphics, such as Felix turning
+  into a mess of lines. Switching the screen size in F1 and back redraws the
+  screen and fixes it.
+- TLA, music mods: the opening scene before Venus Lighthouse keeps the
+  original music.
+- TLA: Raging Flood has the wrong shape, gets cut off at the edges and causes
+  slowdown.
+- TLA: Great Gabomba has an effect that can show bits of text, and slowdown
+  during its ritual.
+- TLA: Supernova doesn't fill the wider view yet, and some other summon
+  graphics have smaller issues at the edges.
+- TLA: world-map quakes can still glitch at the edges; Jupiter Lighthouse's
+  beacon stops short of the top of the wider view.
+- TLA: walking can occasionally stutter; we haven't reproduced it yet.
+- TBS: Kolima's pond scenery doesn't follow the water as it drains.
+- Performance is still being worked on for both games, including Turbo speed
+  in TLA.
 
 ## Layout
 
@@ -90,11 +95,14 @@ scripts/                shared build, readiness and release scripts
 build_dev.bat           developer build of both games and the launcher
 build_launcher.bat      developer build of the launcher only
 make_release.bat        player release window
+MUSIC_MODS.md           how music mods work and how to make one
+ATTRIBUTION.md          who owns what, licences and credits
 The Broken Seal/        GS1: runner, ROM configuration, hooks, tools, build tree
 The Lost Age/           TLA: runner, ROM configuration, hooks, tools, build tree
 assets/                 launcher artwork
 ROMs/  Saves/           your ROMs and progress (never committed)
 Controls/               shared keyboard, controller and hotkey bindings
+Music/                  optional music mods (never committed)
 ```
 
 Generic ARMv4T/GBA engine fixes go in `engine/` and rebuild both games. Code
@@ -108,12 +116,22 @@ See [BUILDING.md](BUILDING.md). In short: the launcher builds a game from its
 cartridge or the gold cog, and `build_dev.bat` builds both developer games
 and the launcher.
 
+## Credits
+
+- **Vincent Dortel aka [Juste-D](https://www.youtube.com/@JusteDni)**, for his remastered Golden
+  Sun and Golden Sun: The Lost Age soundtracks, his permission to share them
+  as a music mod, and his help with the loop points.
+- **Matthew Stan**, for [gbarecomp](https://github.com/mstan/gbarecomp), the
+  recompiler this project's engine is built on (see License).
+- **David Reid**, for [dr_flac](https://github.com/mackron/dr_libs), which
+  plays the music mods' FLAC files.
+
 ## License
 
 `engine/` is an edited copy of [gbarecomp](https://github.com/mstan/gbarecomp)
 by Matthew Stan, licensed under the PolyForm Noncommercial License 1.0.0
 (`engine/LICENSE`), so this project is noncommercial. See `LICENSE` for the
-rest of the repository.
+rest of the repository and [ATTRIBUTION.md](ATTRIBUTION.md) for who owns what.
 
 ---
 

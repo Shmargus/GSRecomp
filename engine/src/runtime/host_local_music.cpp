@@ -1,8 +1,9 @@
-// host_local_music.cpp — host-side "local music" player: WAV openings streamed
-// beside the game audio. Split out of host_window.cpp; behaviour unchanged.
+// host_local_music.cpp — host-side "local music" player: WAV or FLAC
+// recordings streamed beside the game audio, looping at loops.txt's jump.
 // Compiles to nothing without SDL2, like host_window.cpp's real backend.
 
 #include "host_local_music.h"
+#include "host_window.h"
 
 #if defined(GBARECOMP_HAVE_SDL2)
 
@@ -15,10 +16,18 @@
 #include <filesystem>
 #include <memory>
 #include <new>
+#include <sstream>
 #include <string>
 #include <system_error>
 #include <utility>
 #include <vector>
+
+// Vendored single-file FLAC decoder (third_party/dr_libs, public domain or
+// MIT-0). Files are read through SDL_RWops, so its stdio layer is unused.
+#define DR_FLAC_IMPLEMENTATION
+#define DR_FLAC_NO_STDIO
+#define DR_FLAC_NO_OGG
+#include "dr_flac.h"
 
 namespace gbarecomp {
 
@@ -88,46 +97,157 @@ bool parse_music_wav(SDL_RWops* rw, WavInfo& info) {
            info.data_bytes % block_align == 0;
 }
 
-SDL_AudioStream* music_stream(const WavInfo& source, const SDL_AudioSpec& device) {
-    return SDL_NewAudioStream(AUDIO_S16LSB, static_cast<Uint8>(source.channels),
-        static_cast<int>(source.rate), AUDIO_S16SYS, device.channels, device.freq);
+size_t flac_read(void* user, void* out, size_t bytes) {
+    return SDL_RWread(static_cast<SDL_RWops*>(user), out, 1, bytes);
 }
 
-bool read_music_source_chunk(SDL_RWops* rw, const WavInfo& info,
-                             std::uint64_t& offset, std::vector<Uint8>& input,
-                             std::size_t max_frames) {
-    const std::size_t frame_bytes = std::size_t(info.channels) * 2;
-    const std::uint64_t remaining = info.data_bytes - offset;
-    const std::size_t frames = std::min<std::uint64_t>(max_frames,
-        remaining / frame_bytes);
-    if (frames == 0) return false;
-    const std::size_t bytes = frames * frame_bytes;
-    input.resize(bytes);
-    if (SDL_RWseek(rw, static_cast<Sint64>(info.data_offset + offset), RW_SEEK_SET) < 0 ||
-        !rw_read_exact(rw, input.data(), bytes)) return false;
-    offset += bytes;
-    return true;
+drflac_bool32 flac_seek(void* user, int offset, drflac_seek_origin origin) {
+    auto* rw = static_cast<SDL_RWops*>(user);
+    const Sint64 size = SDL_RWsize(rw);
+    const Sint64 base = origin == DRFLAC_SEEK_SET ? 0
+                      : origin == DRFLAC_SEEK_CUR ? SDL_RWtell(rw) : size;
+    // dr_flac probes past the end while seeking; that must fail, not clamp.
+    if (size < 0 || base < 0 || base + offset < 0 || base + offset > size)
+        return DRFLAC_FALSE;
+    return SDL_RWseek(rw, base + offset, RW_SEEK_SET) >= 0;
 }
 
-bool make_music_prefix(const std::string& path, const SDL_AudioSpec& device,
-                       std::size_t wanted_frames, std::vector<int16_t>& prefix,
-                       bool& complete, std::uint64_t& data_bytes) {
-    SDL_RWops* rw = SDL_RWFromFile(path.c_str(), "rb");
-    if (!rw) return false;
-    std::unique_ptr<SDL_RWops, decltype(&SDL_RWclose)> rw_owner(rw, &SDL_RWclose);
-    WavInfo info;
-    if (!parse_music_wav(rw, info)) return false;
-    data_bytes = info.data_bytes;
-    SDL_AudioStream* stream = music_stream(info, device);
+drflac_bool32 flac_tell(void* user, drflac_int64* cursor) {
+    const Sint64 position = SDL_RWtell(static_cast<SDL_RWops*>(user));
+    if (position < 0) return DRFLAC_FALSE;
+    *cursor = position;
+    return DRFLAC_TRUE;
+}
+
+// One recording in play order: 16-bit PCM from a WAV or FLAC file with its
+// loop jump applied, so the resampler sees one continuous stream. read()
+// returns fewer frames than asked only when a play-once recording ends.
+class MusicSource {
+public:
+    MusicSource() = default;
+    MusicSource(const MusicSource&) = delete;
+    MusicSource& operator=(const MusicSource&) = delete;
+    ~MusicSource() { close(); }
+
+    bool open(const std::string& path, const LocalMusicLoop& loop) {
+        close();
+        rw_ = SDL_RWFromFile(path.c_str(), "rb");
+        if (!rw_) return false;
+        Uint8 magic[4];
+        const bool flac = rw_read_exact(rw_, magic, sizeof(magic)) &&
+                          std::memcmp(magic, "fLaC", 4) == 0;
+        if (SDL_RWseek(rw_, 0, RW_SEEK_SET) < 0) { close(); return false; }
+        if (flac) {
+            flac_ = drflac_open(flac_read, flac_seek, flac_tell, rw_, nullptr);
+            if (!flac_) { close(); return false; }
+            channels_ = flac_->channels;
+            rate_ = flac_->sampleRate;
+            frames_ = flac_->totalPCMFrameCount;
+        } else {
+            if (!parse_music_wav(rw_, wav_)) { close(); return false; }
+            channels_ = wav_.channels;
+            rate_ = wav_.rate;
+            frames_ = wav_.data_bytes / (wav_.channels * 2u);
+        }
+        if (channels_ < 1 || channels_ > 2 || rate_ == 0 ||
+            rate_ > static_cast<std::uint32_t>(INT_MAX) || frames_ == 0 ||
+            !seek(0)) {
+            close();
+            return false;
+        }
+        loops_ = !loop.once;
+        loop_from_ = loop.from != 0 ? loop.from : frames_;
+        loop_to_ = loop.from != 0 ? loop.to : 0;
+        if (loops_ && (loop_from_ > frames_ || loop_to_ >= loop_from_)) {
+            std::fprintf(stderr,
+                "host_window: local music loop %llu -> %llu does not fit %s (%llu frames)\n",
+                static_cast<unsigned long long>(loop_from_),
+                static_cast<unsigned long long>(loop_to_), path.c_str(),
+                static_cast<unsigned long long>(frames_));
+            close();
+            return false;
+        }
+        return true;
+    }
+
+    void close() {
+        if (flac_) drflac_close(flac_);
+        if (rw_) SDL_RWclose(rw_);
+        flac_ = nullptr;
+        rw_ = nullptr;
+    }
+
+    std::size_t read(int16_t* out, std::size_t frames) {
+        std::size_t done = 0;
+        while (done < frames) {
+            const std::uint64_t limit = loops_ ? loop_from_ : frames_;
+            if (position_ >= limit) {
+                if (!loops_ || !seek(loop_to_)) break;
+                continue;
+            }
+            const std::size_t want = static_cast<std::size_t>(
+                std::min<std::uint64_t>(frames - done, limit - position_));
+            const std::size_t got = read_file(out + done * channels_, want);
+            if (got == 0) break;
+            position_ += got;
+            done += got;
+        }
+        return done;
+    }
+
+    std::uint16_t channels() const { return channels_; }
+    std::uint32_t rate() const { return rate_; }
+
+private:
+    bool seek(std::uint64_t frame) {
+        const bool ok = flac_
+            ? drflac_seek_to_pcm_frame(flac_, frame) == DRFLAC_TRUE
+            : SDL_RWseek(rw_, static_cast<Sint64>(wav_.data_offset +
+                  frame * channels_ * 2u), RW_SEEK_SET) >= 0;
+        if (ok) position_ = frame;
+        return ok;
+    }
+
+    std::size_t read_file(int16_t* out, std::size_t frames) {
+        if (flac_)
+            return static_cast<std::size_t>(
+                drflac_read_pcm_frames_s16(flac_, frames, out));
+        const std::size_t frame_bytes = std::size_t(channels_) * 2;
+        return SDL_RWread(rw_, out, frame_bytes, frames);
+    }
+
+    SDL_RWops* rw_ = nullptr;
+    drflac* flac_ = nullptr;
+    WavInfo wav_{};
+    std::uint16_t channels_ = 0;
+    std::uint32_t rate_ = 0;
+    std::uint64_t frames_ = 0;
+    std::uint64_t position_ = 0;
+    std::uint64_t loop_from_ = 0;
+    std::uint64_t loop_to_ = 0;
+    bool loops_ = false;
+};
+
+SDL_AudioStream* music_stream(const MusicSource& source, const SDL_AudioSpec& device) {
+    return SDL_NewAudioStream(AUDIO_S16SYS, static_cast<Uint8>(source.channels()),
+        static_cast<int>(source.rate()), AUDIO_S16SYS, device.channels, device.freq);
+}
+
+bool make_music_prefix(const std::string& path, const LocalMusicLoop& loop,
+                       const SDL_AudioSpec& device, std::size_t wanted_frames,
+                       std::vector<int16_t>& prefix, bool& complete) {
+    MusicSource source;
+    if (!source.open(path, loop)) return false;
+    SDL_AudioStream* stream = music_stream(source, device);
     if (!stream) return false;
     std::unique_ptr<SDL_AudioStream, decltype(&SDL_FreeAudioStream)> stream_owner(
         stream, &SDL_FreeAudioStream);
     const std::size_t out_frame_bytes = sizeof(int16_t) * device.channels;
     const std::size_t in_chunk_frames = std::max<std::size_t>(1,
-        (std::size_t(device.samples) * info.rate + device.freq - 1) / device.freq);
-    std::vector<Uint8> input, output(std::max<std::size_t>(out_frame_bytes,
+        (std::size_t(device.samples) * source.rate() + device.freq - 1) / device.freq);
+    std::vector<int16_t> input(in_chunk_frames * source.channels());
+    std::vector<Uint8> output(std::max<std::size_t>(out_frame_bytes,
         std::size_t(device.samples) * out_frame_bytes));
-    std::uint64_t source_offset = 0;
     bool eof = false;
     prefix.clear();
     complete = false;
@@ -150,9 +270,10 @@ bool make_music_prefix(const std::string& path, const SDL_AudioSpec& device,
             continue;
         }
         if (!eof) {
-            if (source_offset < info.data_bytes) {
-                if (!read_music_source_chunk(rw, info, source_offset, input, in_chunk_frames) ||
-                    SDL_AudioStreamPut(stream, input.data(), static_cast<int>(input.size())) < 0) {
+            const std::size_t got = source.read(input.data(), in_chunk_frames);
+            if (got != 0) {
+                if (SDL_AudioStreamPut(stream, input.data(), static_cast<int>(
+                        got * source.channels() * sizeof(int16_t))) < 0) {
                     return false;
                 }
             } else {
@@ -161,8 +282,7 @@ bool make_music_prefix(const std::string& path, const SDL_AudioSpec& device,
             }
         } else break;
     }
-    const bool reached_eof = source_offset == info.data_bytes && eof;
-    if (reached_eof) {
+    if (eof) {
         for (;;) {
             const int available = SDL_AudioStreamAvailable(stream);
             if (available <= 0) break;
@@ -182,27 +302,86 @@ bool make_music_prefix(const std::string& path, const SDL_AudioSpec& device,
     return !prefix.empty() && prefix.size() % device.channels == 0;
 }
 
+// An album file "<disc>-<NN> <title>.flac" or ".wav" (e.g.
+// "1-09 - An Adept_s Home.flac"); the track is NN.
 bool parse_local_music_filename(const std::string& filename, unsigned& track) {
-    constexpr char prefix[] = "track-";
-    constexpr char suffix[] = ".wav";
-    if (filename.size() <= sizeof(prefix) - 1 + sizeof(suffix) - 1 ||
-        filename.compare(0, sizeof(prefix) - 1, prefix) != 0 ||
-        filename.compare(filename.size() - (sizeof(suffix) - 1),
-                         sizeof(suffix) - 1, suffix) != 0)
-        return false;
-    const std::size_t digits_begin = sizeof(prefix) - 1;
-    const std::size_t digits_end = filename.size() - (sizeof(suffix) - 1);
+    const auto ends_with = [&](const char* suffix) {
+        const std::size_t length = std::strlen(suffix);
+        if (filename.size() <= length) return false;
+        for (std::size_t i = 0; i < length; ++i) {
+            const char ch = filename[filename.size() - length + i];
+            if ((ch >= 'A' && ch <= 'Z' ? ch - 'A' + 'a' : ch) != suffix[i]) return false;
+        }
+        return true;
+    };
+    if (!ends_with(".wav") && !ends_with(".flac")) return false;
+    // Reads digits from `at`; returns how many there were.
+    const auto number = [&](std::size_t at, unsigned& value) -> std::size_t {
+        value = 0;
+        std::size_t i = at;
+        for (; i < filename.size() && filename[i] >= '0' && filename[i] <= '9'; ++i) {
+            const unsigned digit = static_cast<unsigned>(filename[i] - '0');
+            if (value > (UINT_MAX - digit) / 10u) return 0;
+            value = value * 10u + digit;
+        }
+        return i - at;
+    };
     unsigned value = 0;
-    for (std::size_t i = digits_begin; i < digits_end; ++i) {
-        const char ch = filename[i];
-        if (ch < '0' || ch > '9') return false;
-        const unsigned digit = static_cast<unsigned>(ch - '0');
-        if (value > (UINT_MAX - digit) / 10u) return false;
-        value = value * 10u + digit;
-    }
+    unsigned disc = 0;
+    const std::size_t disc_digits = number(0, disc);
+    if (disc_digits == 0 || filename[disc_digits] != '-') return false;
+    const std::size_t digits = number(disc_digits + 1, value);
+    const std::size_t after = disc_digits + 1 + digits;
+    if (digits == 0 || (filename[after] != ' ' && filename[after] != '.'))
+        return false;
     if (value == 0) return false;
     track = value;
     return true;
+}
+
+// loops.txt beside the recordings (tools/music_loops.py writes it):
+// "<track> <from> <to>" or "<track> once"; '#' starts a comment.
+std::map<unsigned, LocalMusicLoop> read_local_music_loops(
+        const std::filesystem::path& root) {
+    std::map<unsigned, LocalMusicLoop> loops;
+    const std::u8string path8 = (root / "loops.txt").u8string();
+    const std::string path(reinterpret_cast<const char*>(path8.data()), path8.size());
+    SDL_RWops* rw = SDL_RWFromFile(path.c_str(), "rb");
+    if (!rw) return loops;
+    std::string text;
+    char buffer[4096];
+    for (std::size_t got; (got = SDL_RWread(rw, buffer, 1, sizeof(buffer))) != 0;)
+        text.append(buffer, got);
+    SDL_RWclose(rw);
+    std::istringstream lines(text);
+    std::string line;
+    for (unsigned number = 1; std::getline(lines, line); ++number) {
+        const std::size_t hash = line.find('#');
+        if (hash != std::string::npos) line.resize(hash);
+        std::istringstream fields(line);
+        unsigned track = 0;
+        std::string first;
+        if (!(fields >> track)) {
+            if (line.find_first_not_of(" \t\r") != std::string::npos)
+                std::fprintf(stderr, "host_window: loops.txt line %u ignored\n", number);
+            continue;
+        }
+        LocalMusicLoop loop;
+        unsigned long long from = 0, to = 0;
+        if (fields >> first && first == "once") {
+            loop.once = true;
+        } else {
+            std::istringstream values(first);
+            if (!(values >> from) || !(fields >> to) || from == 0 || to >= from) {
+                std::fprintf(stderr, "host_window: loops.txt line %u ignored\n", number);
+                continue;
+            }
+            loop.from = from;
+            loop.to = to;
+        }
+        loops[track] = loop;
+    }
+    return loops;
 }
 
 }  // namespace
@@ -221,16 +400,14 @@ void LocalMusicPlayer::mix(int16_t* output, int frames) {
         if (music.prefix_cursor < prefix_frames) {
             source = music.prefix->data() + music.prefix_cursor * channels;
             ++music.prefix_cursor;
-        } else if (music.complete && prefix_frames != 0) {
-            music.prefix_cursor = 1;
-            source = music.prefix->data();
         } else if (ring_count != 0) {
             source = music_bank_.ring.data() + ring_read * channels;
             ring_read = (ring_read + 1) % music_bank_.ring_capacity_frames;
             --ring_count;
         }
         if (!source) {
-            ++music.underrun_frames;
+            // A recording that plays once has simply finished.
+            if (!music.complete && !music.ended) ++music.underrun_frames;
             continue;
         }
         if (!music.turbo_muted && gain != 0.0f) {
@@ -252,41 +429,27 @@ void LocalMusicPlayer::mix(int16_t* output, int frames) {
 }
 
 bool LocalMusicPlayer::prepare_music_track(const std::string& path,
+                                          const LocalMusicLoop& loop,
                                           MusicTrack& track) {
-    SDL_RWops* rw = SDL_RWFromFile(path.c_str(), "rb");
-    if (!rw) return false;
-    WavInfo info;
-    const bool valid = parse_music_wav(rw, info);
-    SDL_RWclose(rw);
-    if (!valid) return false;
     track.path = path;
-    track.channels = info.channels;
-    track.rate = info.rate;
-    track.data_offset = info.data_offset;
-    track.data_bytes = info.data_bytes;
-    track.source_frames = info.data_bytes / (info.channels * 2u);
-    return make_music_prefix(track.path, music_bank_.device,
-        music_bank_.ring_capacity_frames, track.prefix, track.complete,
-        track.data_bytes);
+    track.loop = loop;
+    return make_music_prefix(track.path, track.loop, music_bank_.device,
+        music_bank_.ring_capacity_frames, track.prefix, track.complete);
 }
 
 void LocalMusicPlayer::music_worker() {
     auto& bank = music_bank_;
     std::uint64_t generation = UINT64_MAX;
     unsigned track_id = 0;
-    SDL_RWops* rw = nullptr;
+    MusicSource source;
     SDL_AudioStream* stream = nullptr;
-    WavInfo info{};
-    std::uint64_t source_offset = 0;
     std::size_t discard_frames = 0;
     bool flushed = false;
-    std::vector<Uint8> input, output;
+    std::vector<int16_t> input;
+    std::vector<Uint8> output;
     try {
-        const std::size_t frame_bytes = sizeof(int16_t) * audio_channels_;
         const std::size_t quantum = std::max<std::size_t>(1, bank.device.samples);
-        input.resize(std::max<std::size_t>(frame_bytes,
-            quantum * 2 * sizeof(int16_t)));
-        output.resize(quantum * frame_bytes);
+        output.resize(quantum * sizeof(int16_t) * audio_channels_);
     } catch (...) {
         SDL_LockMutex(audio_mtx_);
         local_music_.worker_failed = true;
@@ -297,20 +460,23 @@ void LocalMusicPlayer::music_worker() {
     const std::size_t output_frame_bytes = sizeof(int16_t) * audio_channels_;
     auto reset_decoder = [&] {
         if (stream) SDL_FreeAudioStream(stream);
-        if (rw) SDL_RWclose(rw);
         stream = nullptr;
-        rw = nullptr;
-        source_offset = 0;
+        source.close();
         flushed = false;
     };
     auto open_decoder = [&](const MusicTrack& track) -> bool {
         reset_decoder();
-        rw = SDL_RWFromFile(track.path.c_str(), "rb");
-        if (!rw || !parse_music_wav(rw, info)) { reset_decoder(); return false; }
-        stream = music_stream(info, bank.device);
+        if (!source.open(track.path, track.loop)) return false;
+        stream = music_stream(source, bank.device);
         if (!stream) { reset_decoder(); return false; }
+        const std::size_t chunk_frames = std::max<std::size_t>(1,
+            (std::size_t(bank.device.samples) * source.rate() +
+             bank.device.freq - 1) / bank.device.freq);
+        try { input.resize(chunk_frames * source.channels()); }
+        catch (...) { reset_decoder(); return false; }
         return true;
     };
+    // Fewer frames than requested only once a play-once recording has ended.
     auto produce = [&](std::size_t requested_frames, std::size_t& produced) -> bool {
         produced = 0;
         while (produced < requested_frames) {
@@ -327,32 +493,16 @@ void LocalMusicPlayer::music_worker() {
                 produced += take;
                 continue;
             }
-            if (source_offset < info.data_bytes) {
-                const std::size_t frame_bytes = info.channels * 2u;
-                const std::size_t source_chunk_frames = std::max<std::size_t>(1,
-                    (std::size_t(bank.device.samples) * info.rate +
-                     bank.device.freq - 1) / bank.device.freq);
-                const std::size_t max_frames = std::max<std::size_t>(1,
-                    std::min(source_chunk_frames, input.size() / frame_bytes));
-                const std::uint64_t remain = info.data_bytes - source_offset;
-                const std::size_t count = std::min<std::uint64_t>(max_frames,
-                    remain / frame_bytes);
-                const std::size_t bytes = count * frame_bytes;
-                if (SDL_RWseek(rw, static_cast<Sint64>(info.data_offset + source_offset),
-                               RW_SEEK_SET) < 0 ||
-                    !rw_read_exact(rw, input.data(), bytes) ||
-                    SDL_AudioStreamPut(stream, input.data(), static_cast<int>(bytes)) < 0)
+            if (flushed) break;
+            const std::size_t got = source.read(input.data(),
+                                                input.size() / source.channels());
+            if (got != 0) {
+                if (SDL_AudioStreamPut(stream, input.data(), static_cast<int>(
+                        got * source.channels() * sizeof(int16_t))) < 0)
                     return false;
-                source_offset += bytes;
-            } else if (!flushed) {
+            } else {
                 if (SDL_AudioStreamFlush(stream) < 0) return false;
                 flushed = true;
-            } else {
-                const MusicTrack* track = nullptr;
-                auto found = bank.tracks.find(track_id);
-                if (found == bank.tracks.end()) return false;
-                track = &found->second;
-                if (!open_decoder(*track)) return false;
             }
         }
         return true;
@@ -370,7 +520,8 @@ void LocalMusicPlayer::music_worker() {
         selected = bank.current_track;
         selected_generation = local_music_.generation;
         if (!stop && local_music_.ready && local_music_.active &&
-            !local_music_.complete && !local_music_.host_paused &&
+            !local_music_.complete && !local_music_.ended &&
+            !local_music_.host_paused &&
             !local_music_.guest_paused &&
             local_music_.ring_frames < bank.ring_capacity_frames) {
             auto found = bank.tracks.find(selected);
@@ -404,10 +555,11 @@ void LocalMusicPlayer::music_worker() {
             const std::size_t wanted = std::min<std::size_t>(
                 bank.device.samples, free_frames);
             std::size_t produced = 0;
-            if (!produce(wanted, produced) || produced == 0) failed = true;
+            if (!produce(wanted, produced)) failed = true;
             else {
                 SDL_LockMutex(audio_mtx_);
                 if (local_music_.generation == generation && !bank.stop) {
+                    if (produced < wanted) local_music_.ended = true;
                     const std::size_t put = produced;
                     const std::size_t write = (local_music_.ring_read +
                         local_music_.ring_frames) % bank.ring_capacity_frames;
@@ -441,7 +593,6 @@ void LocalMusicPlayer::preload_directory(const char* directory, bool can_stream,
                                          const SDL_AudioSpec& device,
                                          double preroll_ms) {
     if (!directory || !directory[0]) return;
-    music_bank_.directory_mode = true;
     if (!audio_mtx_ || !can_stream ||
         device.freq <= 0 || device.samples == 0 || preroll_ms <= 0.0) return;
     auto& bank = music_bank_;
@@ -460,25 +611,43 @@ void LocalMusicPlayer::preload_directory(const char* directory, bool can_stream,
         return;
     }
 
+    // The directory may be a list (host_window.h): folder i's track NN is
+    // selected as i * kLocalMusicFolderTracks + NN.
     using Candidate = std::pair<unsigned, std::filesystem::path>;
     std::vector<Candidate> candidates;
-    std::error_code ec;
+    std::map<unsigned, LocalMusicLoop> loops;
     try {
-        const auto* dir_begin = reinterpret_cast<const char8_t*>(directory);
-        const auto* dir_end = dir_begin + std::strlen(directory);
-        const std::filesystem::path root(std::u8string(dir_begin, dir_end));
-        std::filesystem::directory_iterator it(root, ec), end;
-        while (!ec && it != end) {
-            std::error_code entry_error;
-            if (it->is_regular_file(entry_error) && !entry_error) {
-                const std::u8string name8 = it->path().filename().u8string();
-                const std::string name(reinterpret_cast<const char*>(name8.data()),
-                                       name8.size());
-                unsigned track = 0;
-                if (parse_local_music_filename(name, track))
-                    candidates.emplace_back(track, it->path());
+        const std::string list(directory);
+        std::size_t begin = 0;
+        for (unsigned folder = 0; begin <= list.size(); ++folder) {
+            std::size_t end_at = list.find(kLocalMusicFolderSeparator, begin);
+            if (end_at == std::string::npos) end_at = list.size();
+            const std::string entry = list.substr(begin, end_at - begin);
+            begin = end_at + 1;
+            if (entry.empty()) continue;
+            const unsigned base = folder * kLocalMusicFolderTracks;
+            const auto* entry8 = reinterpret_cast<const char8_t*>(entry.data());
+            const std::filesystem::path root(std::u8string(entry8, entry8 + entry.size()));
+            for (const auto& [track, loop] : read_local_music_loops(root))
+                if (track < kLocalMusicFolderTracks) loops[base + track] = loop;
+            std::error_code ec;
+            std::filesystem::directory_iterator it(root, ec), end;
+            while (!ec && it != end) {
+                std::error_code entry_error;
+                if (it->is_regular_file(entry_error) && !entry_error) {
+                    const std::u8string name8 = it->path().filename().u8string();
+                    const std::string name(reinterpret_cast<const char*>(name8.data()),
+                                           name8.size());
+                    unsigned track = 0;
+                    if (parse_local_music_filename(name, track) &&
+                        track < kLocalMusicFolderTracks)
+                        candidates.emplace_back(base + track, it->path());
+                }
+                it.increment(ec);
             }
-            it.increment(ec);
+            if (ec)
+                std::fprintf(stderr, "host_window: local music directory %s: %s\n",
+                             entry.c_str(), ec.message().c_str());
         }
     } catch (const std::bad_alloc&) {
         std::fprintf(stderr, "host_window: not enough memory to enumerate local music\n");
@@ -486,11 +655,6 @@ void LocalMusicPlayer::preload_directory(const char* directory, bool can_stream,
     } catch (const std::filesystem::filesystem_error& error) {
         std::fprintf(stderr, "host_window: local music directory could not be read: %s\n",
                      error.what());
-        return;
-    }
-    if (ec) {
-        std::fprintf(stderr, "host_window: local music directory scan failed: %s\n",
-                     ec.message().c_str());
         return;
     }
     std::sort(candidates.begin(), candidates.end(), [](const Candidate& a,
@@ -516,8 +680,11 @@ void LocalMusicPlayer::preload_directory(const char* directory, bool can_stream,
             const std::u8string path8 = candidates[i].second.u8string();
             const std::string path(reinterpret_cast<const char*>(path8.data()),
                                    path8.size());
+            const auto loop = loops.find(track);
             MusicTrack prepared;
-            if (prepare_music_track(path, prepared))
+            if (prepare_music_track(path, loop != loops.end() ? loop->second
+                                                              : LocalMusicLoop{},
+                                    prepared))
                 bank.tracks.emplace(track, std::move(prepared));
         } catch (const std::bad_alloc&) {
             std::fprintf(stderr,
@@ -542,55 +709,8 @@ void LocalMusicPlayer::preload_directory(const char* directory, bool can_stream,
     const auto startup_ms = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - startup_begin).count();
     std::fprintf(stderr,
-        "[local-music] openings=%zu cached=%zu bytes startup=%.3fms\n",
-        bank.tracks.size(), cached_bytes, startup_ms);
-}
-
-void LocalMusicPlayer::load_file(const char* path, bool can_stream,
-                                 const SDL_AudioSpec& device, double preroll_ms,
-                                 float host_gain) {
-    if (!path || !path[0] || !audio_mtx_ || !can_stream ||
-        device.freq <= 0 || device.samples == 0 || preroll_ms <= 0.0) return;
-    auto& bank = music_bank_;
-    bank.device = device;
-    bank.preroll_ms = preroll_ms;
-    const long double frames = std::ceil(
-        static_cast<long double>(device.freq) * preroll_ms / 1000.0L);
-    if (frames <= 0 || frames > static_cast<long double>(SIZE_MAX /
-            (sizeof(int16_t) * audio_channels_))) return;
-    bank.ring_capacity_frames = static_cast<std::size_t>(frames);
-    try {
-        bank.ring.resize(bank.ring_capacity_frames * audio_channels_);
-        MusicTrack prepared;
-        if (!prepare_music_track(path, prepared)) return;
-        auto inserted = bank.tracks.emplace(1u, std::move(prepared));
-        auto& music = local_music_;
-        SDL_LockMutex(audio_mtx_);
-        music.prefix = &inserted.first->second.prefix;
-        music.prefix_cursor = music.ring_read = music.ring_frames = 0;
-        music.complete = inserted.first->second.complete;
-        music.host_gain = host_gain;
-        music.ready = !music.prefix->empty();
-        bank.current_track = music.ready ? 1u : 0u;
-        SDL_UnlockMutex(audio_mtx_);
-        if (music.ready) {
-            bank.worker = std::thread(&LocalMusicPlayer::music_worker, this);
-            bank.worker_available = true;
-        }
-    } catch (const std::bad_alloc&) {
-        SDL_LockMutex(audio_mtx_);
-        local_music_.ready = false;
-        bank.current_track = 0;
-        SDL_UnlockMutex(audio_mtx_);
-        std::fprintf(stderr, "host_window: not enough memory to cache local music opening\n");
-    } catch (const std::system_error& error) {
-        SDL_LockMutex(audio_mtx_);
-        local_music_.ready = false;
-        bank.current_track = 0;
-        SDL_UnlockMutex(audio_mtx_);
-        std::fprintf(stderr, "host_window: local music streaming worker could not start: %s\n",
-                     error.what());
-    }
+        "[local-music] openings=%zu loops=%zu cached=%zu bytes startup=%.3fms\n",
+        bank.tracks.size(), loops.size(), cached_bytes, startup_ms);
 }
 
 // Control surface. The locking methods take audio_mtx_ themselves; callers
@@ -616,11 +736,6 @@ bool LocalMusicPlayer::ready() {
 bool LocalMusicPlayer::select(unsigned track) {
     if (!audio_mtx_) return false;
     auto& bank = music_bank_;
-    if (!bank.directory_mode) {
-        if (track == 1 && ready()) return true;
-        playback(false, false, 0.0f, false);
-        return false;
-    }
     auto selected = bank.tracks.find(track);
     SDL_LockMutex(audio_mtx_);
     auto& music = local_music_;
@@ -635,6 +750,7 @@ bool LocalMusicPlayer::select(unsigned track) {
         music.ring_read = 0;
         music.ring_frames = 0;
         music.complete = selected->second.complete;
+        music.ended = false;
         music.worker_failed = false;
         ++music.generation;
         music.active = false;
@@ -647,6 +763,7 @@ bool LocalMusicPlayer::select(unsigned track) {
         music.ring_read = 0;
         music.ring_frames = 0;
         music.complete = false;
+        music.ended = false;
         music.worker_failed = false;
         ++music.generation;
         music.active = false;
@@ -679,6 +796,7 @@ void LocalMusicPlayer::playback(bool active, bool paused, float gain, bool resta
             music.prefix_cursor = 0;
             music.ring_read = 0;
             music.ring_frames = 0;
+            music.ended = false;
             ++music.generation;
         }
     } else {
@@ -686,6 +804,7 @@ void LocalMusicPlayer::playback(bool active, bool paused, float gain, bool resta
             music.prefix_cursor = 0;
             music.ring_read = 0;
             music.ring_frames = 0;
+            music.ended = false;
             ++music.generation;
         }
         music.active = true;

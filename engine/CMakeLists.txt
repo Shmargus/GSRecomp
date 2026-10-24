@@ -316,6 +316,27 @@ if(GBARECOMP_SDL2_OK)
         target_compile_definitions(gbarecomp_runtime PUBLIC GBARECOMP_HAVE_IMGUI)
         target_link_libraries(gbarecomp_runtime PUBLIC gbarecomp_imgui)
     endif()
+    # dr_flac (single header, public domain or MIT-0) decodes the optional
+    # local music FLACs in host_local_music.cpp. Local checkout first, else
+    # the pinned upstream commit; SOURCE_SUBDIR keeps upstream's own CMake
+    # out of our build. SYSTEM: upstream code, not our warning budget.
+    find_path(GBARECOMP_DR_LIBS_DIR
+        NAMES dr_flac.h
+        HINTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/dr_libs"
+        NO_DEFAULT_PATH)
+    if(NOT GBARECOMP_DR_LIBS_DIR)
+        include(FetchContent)
+        FetchContent_Declare(dr_libs
+            GIT_REPOSITORY https://github.com/mackron/dr_libs.git
+            GIT_TAG d422edf14ec2b81ac40a7f22b5a7f64276b5fc34  # dr_flac v0.13.4
+            SOURCE_SUBDIR no-cmake)
+        FetchContent_MakeAvailable(dr_libs)
+        set(GBARECOMP_DR_LIBS_DIR "${dr_libs_SOURCE_DIR}")
+        message(STATUS "gbarecomp: fetched pinned dr_flac v0.13.4")
+    else()
+        message(STATUS "gbarecomp: using local dr_flac at ${GBARECOMP_DR_LIBS_DIR}")
+    endif()
+    target_include_directories(gbarecomp_runtime SYSTEM PRIVATE ${GBARECOMP_DR_LIBS_DIR})
 endif()
 if(WIN32 OR MSYS)
     # asset_picker uses GetOpenFileNameA (comdlg32) and MessageBoxA (user32).

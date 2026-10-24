@@ -25,9 +25,8 @@ preferences never trigger a rebuild. ROM-configuration changes need the
 regeneration step first (GS1 `scripts/gs.ps1 -To recompile`, TLA
 `scripts/tla_recompile.ps1`); the records track compiled sources and generated
 code, not unregenerated manifests. Translator/code-generation changes also
-require regeneration of the affected game code before rebuilding. In
-particular, the 0.5.2 tail-transfer fix needs freshly generated code; compiling
-an older generated corpus with a newer compiler does not add those transfers.
+require regeneration of the affected game code before rebuilding; compiling
+older generated code with a newer translator does not pick them up.
 
 ## Developer builds (Windows)
 
@@ -35,17 +34,10 @@ Developer launcher sessions always capture host profiling, cost probe and
 present cadence, including when Test variables is off. These three boxes
 are fixed on in developer settings; other tests remain optional.
 
-TBS Test variables > Local music uses the43 prepared recordings in
-`Music/GS1/track-01.wav` through `track-43.wav`, converted from the supplied
-FLACs without quality loss. Keep music files local; `Music/` is ignored.
-The test repeats each full recording and restarts it on savestate load.
-Sound effects retain original playback; missing/invalid files use original
-music. The full pack loads before gameplay starts so track changes use
-cached audio immediately. This adds startup time and audio memory. The earlier
-single-title WAV is still supported when no music directory is configured.
-The supplied43-track pack measured about22 seconds to preload and1.63GiB
-of decoded audio at the normal output rate on this PC. Track changes then
-perform no loading or conversion; turning Local music off avoids that cost.
+Music mods (`Music/TBS`, `Music/TLA`, see [MUSIC_MODS.md](MUSIC_MODS.md))
+work the same in developer and player builds; `Music/` is never committed.
+The engine decodes FLAC with dr_flac: a copy in `engine/third_party/dr_libs`
+if present, otherwise CMake fetches the pinned commit.
 
 `build_dev.bat` builds The Broken Seal, then The Lost Age, then the root
 launcher; a failure stops it. Close the launcher and games first.
@@ -56,6 +48,12 @@ build_dev.bat -Game BrokenSeal   one game (also updates the launcher)
 build_dev.bat -Game LostAge
 build_dev.bat -CheckOnly         check dependencies; builds and writes nothing
 ```
+
+The Lost Age's harvested RAM code (code the game ran from RAM in play
+sessions) is most of its compile, so developer builds leave it out by
+default, as player releases do; that code then compiles while playing.
+Launcher Settings > The Lost Age > **Pre-built RAM code** turns it back on.
+Changing it needs a rebuild.
 
 The script uses 90% of CPU/RAM by default (`-CpuPercent`, `-RamPercent`),
 keeps each game's existing build settings, points both at the root `engine/`
@@ -76,8 +74,8 @@ built from the ROM. On Linux the engine is still the program itself.
 
 ## Linux developer builds
 
-Use GCC 15 or newer for the 0.5.2 guaranteed tail-transfer fix. Select it in
-both the translator and game CMake configurations; installing it alone does
+Use GCC 15 or newer: the generated code relies on its guaranteed tail
+transfers. Select it in both the translator and game CMake configurations; installing it alone does
 not change an existing configuration's cached compiler. The player-release
 script selects the compiler explicitly for its own build trees.
 
@@ -101,7 +99,7 @@ without building. Player packages put the game folders under `games/` beside
 the launcher; **Launcher only** packages update the launcher, artwork and
 runtime files.
 
-For 0.5.2, set **Version** to `0.5.2`, select Windows and Linux, and enable
+Set **Version** to the release number, select Windows and Linux, and enable
 the packaged-builder tests. Use a full release for engine/compiler updates;
 **Launcher only** does not update either game's engine or bundled builder.
 Keep builds sequential. Packaging creates local archives; it does not commit,
@@ -112,19 +110,18 @@ The release flow also scans the output for protected game data. ROMs, BIOS
 files, saves, generated game code and compiled game libraries must not ship.
 Successful packaging does not replace a gameplay check of the release.
 
-The final 0.5.2 source also includes shared F1 controls, alternate controller
-bindings and the Linux Soft Reset correction. These change the shared engine
-and launcher: build a full Windows/Linux release. The earlier 18 October
-ZIPs were repaired for notices only and do not contain these final code changes.
-Windows/Linux syntax checks and focused controller/reset checks pass; the
-new release's full build, packaged-builder tests and gameplay checks remain
-separate from those results.
+Both packages include the player notes from `scripts/release/` (one copy
+for both platforms): `README.txt` at the top and `Music/README.txt` about
+music mods. They also include `licenses/ENGINE_LICENSE.txt` (PolyForm
+Noncommercial), `licenses/THIRD_PARTY_ATTRIBUTION.md` and the platform's
+`THIRD_PARTY_NOTICES.txt`. Keep these files in the download.
 
-Both packages include `licenses/ENGINE_LICENSE.txt` (PolyForm Noncommercial)
-and `licenses/THIRD_PARTY_ATTRIBUTION.md`, with platform notices in
-`THIRD_PARTY_NOTICES.txt`. Keep these files in the download. The previous
-Linux `THIRD-PARTY.txt` already contained its toolchain notices; the filename
-is now consistent across platforms.
+Linux by hand: `bash scripts/make_release_linux.sh` on a 64-bit Linux
+machine or WSL (built and tested on Ubuntu 24.04) with GCC 15, CMake, Ninja
+and the SDL2/zlib development packages makes
+`Releases/linux/GoldenSunRecompiled-linux-<date>.zip`; `--launcher-only`
+makes a launcher-only update. Players need a glibc at least as new as the
+build machine's (2.38 on Ubuntu 24.04).
 
 TLA player-release mode excludes the private harvested play cache from both
 the runtime table and compilation. Developer builds retain it. This skips

@@ -1,0 +1,2142 @@
+{
+  "schema_version": 1,
+  "game": "gs1",
+  "title": "TBS Guide route and loot research",
+  "primary_source": {
+    "title": "Golden Sun Syndicate walkthrough",
+    "author": "ikillkenny (Golden Sun Anonymous), hosted by Golden Sun Syndicate",
+    "url": "https://www.goldensun-syndicate.net/gs/walkthrough/"
+  },
+  "content_notice": "Original concise factual instructions; no source prose or artwork copied. Canonical names and existing draft facts resolve noted inconsistencies.",
+  "integration_status": "Loaded as an automatically selected F1 location reference through generated adventure_walkthrough_data.h. Verified detection overrides are authored in adventure_state.json; full automatic step progression remains incomplete.",
+  "coverage_notice": "All 44 numbered route sections are represented, including optional backtracking and Crossbone Isle. This does not prove every chest or every detailed puzzle solution is covered.",
+  "supplemental_source": "User-supplied GSRecomp_Adventure_Guide_Draft/walkthrough-data.json",
+  "coverage": {
+    "sections": 44,
+    "steps": 242,
+    "kinds": {
+      "story": 39,
+      "travel": 44,
+      "loot": 53,
+      "puzzle": 67,
+      "djinn": 27,
+      "warning": 12
+    },
+    "gameplay_verified": false
+  },
+  "sections": [
+    {
+      "section": 1,
+      "title": "Introduction",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/1/",
+      "steps": [
+        {
+          "kind": "story",
+          "text": "Follow the evacuation route north to meet Garet, then go west, climb the ladder and cross the bridge.",
+          "id": "gs1-syndicate-01-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "At the far west end, turn back southeast; warn the injured man, then return east toward the river scene.",
+          "id": "gs1-syndicate-01-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "After the rescue plan begins, go south beneath the bridge, climb back up and cross it to the Town Plaza.",
+          "id": "gs1-syndicate-01-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Find help among the men south in the plaza, then return to Felix's riverbank.",
+          "id": "gs1-syndicate-01-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "After the boulder disaster and the forced battle, resume three years later; meet Kraden west of town.",
+          "id": "gs1-syndicate-01-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Accept the Sol Sanctum mission, return east past your home, then approach the guarded Sanctum entrance again to proceed.",
+          "id": "gs1-syndicate-01-06",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-01",
+      "chapter_id": "gs1-01",
+      "verification": "reference_only",
+      "reference_word_count": 108
+    },
+    {
+      "section": 2,
+      "title": "Sol Sanctuum",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/2/",
+      "steps": [
+        {
+          "kind": "travel",
+          "text": "Take the right stepping stones; loop left, cross the tunnel and use the middle route in the next room.",
+          "id": "gs1-syndicate-02-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Open the chest, use its gem on the statue, cross the far-left stones and push the marked statue.",
+          "item": "Small Jewel",
+          "id": "gs1-syndicate-02-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Maze route: left, north, east, north, west, then second narrow left passage for a small gem; backtrack to skipped left hall.",
+          "item": "Small Jewel",
+          "id": "gs1-syndicate-02-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Move the far-left ledge statue; place a gem in its figure and enter the right-hand door.",
+          "id": "gs1-syndicate-02-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Skip the four-statue trap. In Sun room set corner statues on white squares, Move the center statue into light, then place right-room statues on gray squares.",
+          "id": "gs1-syndicate-02-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Optionally take the bottom Psynergy Stone; return to Kraden and open the wall crack.",
+          "item": "Psynergy Stone",
+          "id": "gs1-syndicate-02-06",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Collect two Elemental Stars, return center and save; retrieve the next. After the scene, save and follow the northwest ledge north then west for the final Star.",
+          "id": "gs1-syndicate-02-07",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "After the guardian returns you to Luna, use Retreat.",
+          "id": "gs1-syndicate-02-08",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-02",
+      "chapter_id": "gs1-01",
+      "verification": "reference_only",
+      "reference_word_count": 158
+    },
+    {
+      "section": 3,
+      "title": "Going Away... To Vault",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/3/",
+      "steps": [
+        {
+          "kind": "story",
+          "text": "Return to Vale and hear the Great Healer's warning; attend the departure at the town gate to receive Catch Beads.",
+          "item": "Catch Beads",
+          "id": "gs1-syndicate-03-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "On the world map, approach Flint to learn about Djinn and begin the tutorial battle.",
+          "item": "Flint",
+          "id": "gs1-syndicate-03-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Follow the dirt path southeast to Vault.",
+          "id": "gs1-syndicate-03-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Outside Vault, meet Hammet's caravan; learn that Ivan's rod was stolen and the group is heading north toward Lunpa.",
+          "id": "gs1-syndicate-03-04",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-03",
+      "chapter_id": "gs1-02",
+      "verification": "reference_only",
+      "reference_word_count": 68
+    },
+    {
+      "section": 4,
+      "title": "Vault",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/4/",
+      "steps": [
+        {
+          "kind": "travel",
+          "text": "Go to the northwest hilltop house, speak to Ivan and agree to help recover the stolen rod; Ivan joins you.",
+          "id": "gs1-syndicate-04-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "At the inn, question the downstairs patrons, then confront the two men upstairs; leave when they evade you and follow Ivan's plan to corner one.",
+          "id": "gs1-syndicate-04-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "After Ivan identifies the thieves, climb the inn's outside ladder, cross the roof opening and enter the hidden cellar.",
+          "id": "gs1-syndicate-04-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Move the box blocking the cellar door, jump the gap and speak to the bound worker to trigger the bandit fight.",
+          "id": "gs1-syndicate-04-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "After the fight, recover the mayor's Precious Urn and find Hammet's rod in a chest.",
+          "item": "Precious Urn; Hammet's Rod",
+          "id": "gs1-syndicate-04-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Return to Ivan's house; the mayor rewards you with Water of Life. Heal at the inn before leaving.",
+          "item": "Water of Life",
+          "id": "gs1-syndicate-04-06",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "The page recommends a Mercury Summon in this early fight; omitted because that advice is inconsistent with the party available at this point.",
+        "Original Vault scripts identify the bound person as the roof worker; Ivan must join before accompanying the inn investigation."
+      ],
+      "id": "gs1-syndicate-04",
+      "chapter_id": "gs1-02",
+      "verification": "reference_only",
+      "reference_word_count": 118
+    },
+    {
+      "section": 5,
+      "title": "On The Road To Bilibin",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/5/",
+      "steps": [
+        {
+          "kind": "warning",
+          "text": "Finish Vault first; the cave route requires Ivan to join.",
+          "id": "gs1-syndicate-05-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "From Vault, go east across the bridge, then north to the cave. Climb to the leaf-covered stump; after Ivan clears it, Move the stump and use Whirlwind at the cave entrance.",
+          "id": "gs1-syndicate-05-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Inside, follow the upper route, cross a stepping stone, descend and take the stairs and doors toward the traveler and ledge Djinn.",
+          "id": "gs1-syndicate-05-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Push the stump between the ledges, backtrack to the water crossing, then take the southern route through doorways and stepping stones to the next stump.",
+          "id": "gs1-syndicate-05-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Move the large stump right, cross to the southern ledge and move it left to reach the chest.",
+          "item": "Treasure chest (contents unspecified)",
+          "id": "gs1-syndicate-05-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Return to the water ledge, use the stump bridge and fight Forge on the ledge.",
+          "item": "Forge",
+          "id": "gs1-syndicate-05-06",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Push the blocking stump into the water, cross it, and follow the stairs and bridge out of the cave.",
+          "id": "gs1-syndicate-05-07",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "Original room27 has Lucky Medal and room28 has Power Bread; their exact placement and the sliding-stump chest association still need verification."
+      ],
+      "id": "gs1-syndicate-05",
+      "chapter_id": "gs1-03",
+      "verification": "reference_only",
+      "reference_word_count": 140
+    },
+    {
+      "section": 6,
+      "title": "Bilibin",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/6/",
+      "steps": [
+        {
+          "kind": "travel",
+          "text": "Rest at the inn and check the weapon shop.",
+          "id": "gs1-syndicate-06-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Walk the town's northeast fence logs to the western leaf-covered entrance; use Whirlwind, descend, Move the statue back and cross to Gust. No battle is needed.",
+          "item": "Gust",
+          "id": "gs1-syndicate-06-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Return to town and visit Lord McCoy's chambers in the northern castle. Learn where the barricade is weak, then leave toward Kolima Forest.",
+          "id": "gs1-syndicate-06-03",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-06",
+      "chapter_id": "gs1-03",
+      "verification": "reference_only",
+      "reference_word_count": 60
+    },
+    {
+      "section": 7,
+      "title": "To Kolima/Forest",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/7/",
+      "steps": [
+        {
+          "kind": "puzzle",
+          "text": "At the barricade, Move the far-left box to clear the route northeast.",
+          "id": "gs1-syndicate-07-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Visit Kolima before the forest if you want its Djinn. Explore the east tree-house, use the hidden rear door and follow the basement path to Granite; no battle is needed.",
+          "item": "Granite",
+          "id": "gs1-syndicate-07-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Leave Kolima; its residents are transformed, and the forest remains the next story route.",
+          "id": "gs1-syndicate-07-03",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-07",
+      "chapter_id": "gs1-04",
+      "verification": "reference_only",
+      "reference_word_count": 59
+    },
+    {
+      "section": 8,
+      "title": "Kolima Forest",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/8/",
+      "steps": [
+        {
+          "kind": "puzzle",
+          "text": "In the forest, cross the first log path; push the blocking log west and continue north around it. On the next screen push the second blocker left and follow the northern path.",
+          "id": "gs1-syndicate-08-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Push the next vertical log west, horizontal down, vertical east, bottom log down, horizontal up, then vertical west into water; cross and head east.",
+          "id": "gs1-syndicate-08-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "At the switch, lower the water, push the upper vertical log left, refill and cross.",
+          "id": "gs1-syndicate-08-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Climb Tret's front vine. Work upward using outside branches; avoid jumping back onto used leaves.",
+          "id": "gs1-syndicate-08-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Optionally touch the northern Psynergy Stone and open the Healing Ring chest.",
+          "item": "Psynergy Stone; Healing Ring",
+          "id": "gs1-syndicate-08-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Take the first north branch, defeat Breeze, then return for the Nut chest.",
+          "item": "Breeze; Nut",
+          "id": "gs1-syndicate-08-06",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Drop one floor; reach the southern room and jump middle, right, middle to fall into the basement.",
+          "id": "gs1-syndicate-08-07",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Defeat Tret, then use Retreat; seek another remedy for Kolima.",
+          "id": "gs1-syndicate-08-08",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "The page states the Healing Ring restores 70 HP and wears out quickly; both mechanics are omitted pending review.",
+        "Native room45 provider102 payload300000/flag350 is a Psynergy Stone; source Psy Crystal corrected. HealingRing100F5B and Nut101F5C are ordinary item chests."
+      ],
+      "id": "gs1-syndicate-08",
+      "chapter_id": "gs1-04",
+      "verification": "reference_only",
+      "reference_word_count": 163
+    },
+    {
+      "section": 9,
+      "title": "Heading North",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/9/",
+      "steps": [
+        {
+          "kind": "loot",
+          "text": "At Bilibin Barricade, use Move to rescue the stranded tree-person before curing Tret; return afterward for the Hard Nut.",
+          "item": "Hard Nut",
+          "id": "gs1-syndicate-09-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Return west to Bilibin to heal, then leave northwest. Cross two bridges, follow the white dirt path to Bilibin Cave and enter over the waterfall.",
+          "id": "gs1-syndicate-09-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "At the first fork go right, descend the stairs, cross the ice-cylinder room and exit near Imil; continue north and west to town.",
+          "id": "gs1-syndicate-09-03",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "Hard Nut timing follows the supplied draft: rescue before the cure, reward afterward."
+      ],
+      "id": "gs1-syndicate-09",
+      "chapter_id": "gs1-05",
+      "verification": "reference_only",
+      "reference_word_count": 84
+    },
+    {
+      "section": 10,
+      "title": "Imil",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/10/",
+      "steps": [
+        {
+          "kind": "loot",
+          "text": "In the first house, take the chest's Empty Bottle, then speak with the ill old man.",
+          "item": "Empty Bottle",
+          "id": "gs1-syndicate-10-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Rest at the inn, visit the church and return to the old people's home to meet Mia; follow her toward the lighthouse after the flash.",
+          "id": "gs1-syndicate-10-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Before leaving, move the snowman left from the bridge's right-hand stairs; cross the bridge and enter the first ice opening.",
+          "id": "gs1-syndicate-10-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Slide in this order: right, up, left, up, left, up, right, up, left, up, right, up.",
+          "id": "gs1-syndicate-10-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Reach Fever in the ice cave; it joins without a battle. Leave town to the east for Mercury Lighthouse.",
+          "item": "Fever",
+          "id": "gs1-syndicate-10-05",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-10",
+      "chapter_id": "gs1-05",
+      "verification": "reference_only",
+      "reference_word_count": 100
+    },
+    {
+      "section": 11,
+      "title": "Mercury Lighthouse",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/11/",
+      "steps": [
+        {
+          "kind": "puzzle",
+          "text": "Meet Mia; Move the statue, Ply the door, defeat Lizard Man, then Move the next statue to free Mia.",
+          "id": "gs1-syndicate-11-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Mia brings Fizz when she joins.",
+          "item": "Fizz",
+          "id": "gs1-syndicate-11-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Roll the first pipe right; push the discolored pipe left. Move the long-path statue to the west square.",
+          "id": "gs1-syndicate-11-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Use Ply on the goddess; follow the water-hop route.",
+          "id": "gs1-syndicate-11-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Defeat the chest Mimic for Water of Life; pass the third waterfall for Psynergy Armor.",
+          "item": "Water of Life; Psynergy Armor",
+          "id": "gs1-syndicate-11-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "In the north pipe room push both horizontal pipes up, the vertical left; cross the refilled room.",
+          "id": "gs1-syndicate-11-06",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Use the pipes to shift the water statue until it drops; return and set it on the switch.",
+          "id": "gs1-syndicate-11-07",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Move the statue, connect the pipe, pass the fourth waterfall and defeat Sleet.",
+          "item": "Sleet",
+          "id": "gs1-syndicate-11-08",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Use Ply on the waterfall statue; after the story scene fill the Empty Bottle at the fountain for Hermes' Water.",
+          "item": "Hermes' Water",
+          "id": "gs1-syndicate-11-09",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "The page mislabels Sleet as Wind; Sleet is Mercury.",
+        "If the Empty Bottle was missed or dropped, the page points to a chest in the old people's home."
+      ],
+      "id": "gs1-syndicate-11",
+      "chapter_id": "gs1-06",
+      "verification": "reference_only",
+      "reference_word_count": 174
+    },
+    {
+      "section": 12,
+      "title": "Back to Kolima Forest",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/12/",
+      "steps": [
+        {
+          "kind": "travel",
+          "text": "Leave the lighthouse, return through Imil and Bilibin Cave, cross the barricade and go back to Tret in Kolima Forest.",
+          "id": "gs1-syndicate-12-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Give Tret Hermes' Water; after the forest scene, use Retreat and return to Kolima.",
+          "id": "gs1-syndicate-12-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Visit Lord McCoy in Bilibin. Choose one reward chest, then leave town and travel east past Kolima to the bridge; the guard now lets you cross.",
+          "id": "gs1-syndicate-12-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "McCoy's four chests are listed left to right as Vial, Potion, Psy Crystal and Water of Life.",
+          "item": "Vial; Potion; Psy Crystal; Water of Life",
+          "id": "gs1-syndicate-12-04",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "Source misspells Vial; canonical item name used."
+      ],
+      "id": "gs1-syndicate-12",
+      "chapter_id": "gs1-07",
+      "verification": "reference_only",
+      "reference_word_count": 95
+    },
+    {
+      "section": 13,
+      "title": "Fuchin Temple",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/13/",
+      "steps": [
+        {
+          "kind": "story",
+          "text": "Mind Read the temple monk, speak with him, then visit the waterfall monk.",
+          "id": "gs1-syndicate-13-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Check barrels behind the monk for a Unicorn Ring; cross stones and enter the cave waterfall.",
+          "item": "Unicorn Ring",
+          "id": "gs1-syndicate-13-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "warning",
+          "text": "The entrance chest is a Mimic; take the left log route west.",
+          "id": "gs1-syndicate-13-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Dark room: from one square below the ledge top, go right, up, right, up to the right-hand door.",
+          "id": "gs1-syndicate-13-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Slide down; take the middle door and jump the water for Force.",
+          "item": "Orb of Force",
+          "id": "gs1-syndicate-13-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Backtrack to the stone room, take the west door and lower-left stairs; ride the south vertical log to the Arctic Blade chest.",
+          "item": "Arctic Blade",
+          "id": "gs1-syndicate-13-06",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Follow logs around the west wall and spikes to the northern door; continue to the Dragon's Eye and use it on the dragon statue.",
+          "item": "Dragon's Eye",
+          "id": "gs1-syndicate-13-07",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Defeat Zephyr, return to the temple and speak with the monk.",
+          "item": "Zephyr",
+          "id": "gs1-syndicate-13-08",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "The page is unsure whether the Dragon's Eye is required; it mislabels Zephyr as Mercury (Zephyr is Jupiter)."
+      ],
+      "id": "gs1-syndicate-13",
+      "chapter_id": "gs1-08",
+      "verification": "reference_only",
+      "reference_word_count": 158
+    },
+    {
+      "section": 14,
+      "title": "Mogall Forest",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/14/",
+      "steps": [
+        {
+          "kind": "warning",
+          "text": "Use Force to follow the stump creature; the route can also be memorized without Force.",
+          "id": "gs1-syndicate-14-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Use Force on the first stump. At the next, do not; push logs right, down, left, up and cross.",
+          "id": "gs1-syndicate-14-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Follow the creature east, south, west; use Force on stumps. Move the rock into the hole, lower logs and continue.",
+          "id": "gs1-syndicate-14-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Take the southwest grass route and defeat the Djinn before crossing onward.",
+          "item": "Quartz",
+          "id": "gs1-syndicate-14-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "At three stumps, use Force on the middle one; move the blocked log's rock into its hole, shift the log east and cross. Continue around the mini-stumps and save before the next encounter.",
+          "id": "gs1-syndicate-14-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Follow the creature south; defeat Killer Ape and collect 1500 coins and Douse Drop. Exit south, then cross east to Xian.",
+          "item": "1500 coins; Douse Drop",
+          "id": "gs1-syndicate-14-06",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "Unnamed forest Djinni identified as Quartz using the supplied draft."
+      ],
+      "id": "gs1-syndicate-14",
+      "chapter_id": "gs1-08",
+      "verification": "reference_only",
+      "reference_word_count": 137
+    },
+    {
+      "section": 15,
+      "title": "Xian",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/15/",
+      "steps": [
+        {
+          "kind": "warning",
+          "text": "Without Force, skip the optional log at Master Feizhi's temple; the page says it does not block progress.",
+          "id": "gs1-syndicate-15-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Heal at the inn. To reach the eastern cliff Djinn, bring Frost; guide the wandering girl to one tile below and one tile left of the top-right corner, freeze the pillar, then cross to the cliff.",
+          "id": "gs1-syndicate-15-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Collect Mist without a battle, then enter the nearby building on the cliff.",
+          "item": "Mist",
+          "id": "gs1-syndicate-15-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Stand beside the outlined stump without touching its line and use Force to open the door; speak with Feizhi and her father.",
+          "id": "gs1-syndicate-15-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "After the conversation, visit the northwest weapon shop and leave town.",
+          "id": "gs1-syndicate-15-05",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "The source's NPC-position instruction for reaching Mist is unusually specific; preserve its stated tile offset, but verify in-game if it fails."
+      ],
+      "id": "gs1-syndicate-15",
+      "chapter_id": "gs1-08",
+      "verification": "reference_only",
+      "reference_word_count": 123
+    },
+    {
+      "section": 16,
+      "title": "On The Road Again",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/16/",
+      "steps": [
+        {
+          "kind": "travel",
+          "text": "From Xian, go north across the forest and bridges to the small island.",
+          "id": "gs1-syndicate-16-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Win the random encounter to recruit Corona, the Mars Djinni.",
+          "item": "Corona",
+          "id": "gs1-syndicate-16-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Return south past the forest, then cross northwest to Alpine Crossing and continue north to Altin.",
+          "id": "gs1-syndicate-16-03",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-16",
+      "chapter_id": "gs1-09",
+      "verification": "reference_only",
+      "reference_word_count": 44
+    },
+    {
+      "section": 17,
+      "title": "Altin",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/17/",
+      "steps": [
+        {
+          "kind": "puzzle",
+          "text": "Move the statue west of town with Move and enter the cave.",
+          "id": "gs1-syndicate-17-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Open the cave chest.",
+          "item": "Psy Crystal",
+          "id": "gs1-syndicate-17-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Rest at the inn, descend the ladder outside, and follow the Water Monster into the cave.",
+          "id": "gs1-syndicate-17-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Follow it through the cave and challenge the Living Statue after sliding down the cliff.",
+          "id": "gs1-syndicate-17-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Take the reward, then use Frost on the puddle below and cross the new ice pillar to leave.",
+          "item": "Frost Jewel",
+          "id": "gs1-syndicate-17-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "In eastern Altin, descend the two ladders into the mine.",
+          "id": "gs1-syndicate-17-06",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-17",
+      "chapter_id": "gs1-09",
+      "verification": "reference_only",
+      "reference_word_count": 80
+    },
+    {
+      "section": 18,
+      "title": "Altin Peak",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/18/",
+      "steps": [
+        {
+          "kind": "puzzle",
+          "text": "Follow the mine tracks, switch the route east of the first cart, and ride to the Living Statue.",
+          "id": "gs1-syndicate-18-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Defeat it and collect its reward.",
+          "item": "Vial",
+          "id": "gs1-syndicate-18-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Freeze cave puddles to make pillars; use switches and carts to reach the statue by the lake and the Djinni ledge.",
+          "id": "gs1-syndicate-18-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Move the stump left, use Frost on the puddle, switch the cart route and ride to Spritz; defeat it.",
+          "item": "Spritz",
+          "id": "gs1-syndicate-18-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "At the falling-rock sign, face the stump and use Force; descend through the opened track and hole.",
+          "id": "gs1-syndicate-18-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Defeat Hydros Statue, collect the Lifting Gem from its chest and use Lift to clear the exit boulder.",
+          "item": "Lifting Gem",
+          "id": "gs1-syndicate-18-06",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Revisit the earlier Lift-blocked mine chest after obtaining Lift, then leave for Lama Temple.",
+          "id": "gs1-syndicate-18-07",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "The source misspells Spritz; cart-junction instructions remain condensed."
+      ],
+      "id": "gs1-syndicate-18",
+      "chapter_id": "gs1-09",
+      "verification": "reference_only",
+      "reference_word_count": 127
+    },
+    {
+      "section": 19,
+      "title": "Lama Temple",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/19/",
+      "steps": [
+        {
+          "kind": "story",
+          "text": "Visit the northwestern temple and speak with Master Hama to learn Reveal.",
+          "id": "gs1-syndicate-19-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Jump the stream east of town and cast Reveal to uncover a chest.",
+          "id": "gs1-syndicate-19-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Open the revealed chest.",
+          "item": "Water of Life",
+          "id": "gs1-syndicate-19-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Go east to Alpine Crossing; use Reveal on the apparent dead end to find a hidden door, then Lift the rock trapping Hsu.",
+          "id": "gs1-syndicate-19-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "After freeing Hsu, return to Lama Temple and leave southwest toward the desert.",
+          "id": "gs1-syndicate-19-05",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-19",
+      "chapter_id": "gs1-10",
+      "verification": "reference_only",
+      "reference_word_count": 70
+    },
+    {
+      "section": 20,
+      "title": "Lamakan Desert",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/20/",
+      "steps": [
+        {
+          "kind": "puzzle",
+          "text": "Use Reveal on safe stone circles to find water pools; avoid suspicious circles until revealed because some trigger traps.",
+          "id": "gs1-syndicate-20-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Search the southern stones on the open screen.",
+          "item": "Potion",
+          "id": "gs1-syndicate-20-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "At the eastern wall, go one stone group south and return west to the half-circle formation for Smog.",
+          "item": "Smog",
+          "id": "gs1-syndicate-20-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Cross the sandfalls, then Reveal the dead-end waterfall to find the cave passage.",
+          "id": "gs1-syndicate-20-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Reveal the waterfall beyond the cave to expose Manticore; after the battle, pass through the hidden route.",
+          "id": "gs1-syndicate-20-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Collect the boss reward.",
+          "item": "Psy Crystal",
+          "id": "gs1-syndicate-20-06",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "On the island north of the desert, win the random encounter for Vine.",
+          "item": "Vine",
+          "id": "gs1-syndicate-20-07",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "The page describes the first desert water point as a pool and later calls another a water hole; it does not clearly distinguish them."
+      ],
+      "id": "gs1-syndicate-20",
+      "chapter_id": "gs1-10",
+      "verification": "reference_only",
+      "reference_word_count": 123
+    },
+    {
+      "section": 21,
+      "title": "Kalay",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/21/",
+      "steps": [
+        {
+          "kind": "travel",
+          "text": "Upgrade equipment, then climb to Hammet's castle; Ivan can persuade the guards to admit you.",
+          "id": "gs1-syndicate-21-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Speak with Lady Lana, then talk to everyone across every floor of the inn before leaving town.",
+          "id": "gs1-syndicate-21-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "After the tourist scene, cross the repaired bridge north of Kalay and continue back to Vault.",
+          "id": "gs1-syndicate-21-03",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-21",
+      "chapter_id": "gs1-11",
+      "verification": "reference_only",
+      "reference_word_count": 49
+    },
+    {
+      "section": 22,
+      "title": "Vault... Again",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/22/",
+      "steps": [
+        {
+          "kind": "puzzle",
+          "text": "Ring the tower bell to move the Djinni east, then Reveal the ladder among the graves near the dog.",
+          "id": "gs1-syndicate-22-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "warning",
+          "text": "The entrance chest is a Mimic; prepare for combat if opening it.",
+          "id": "gs1-syndicate-22-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Move the torch onto the flame tile; Whirlwind the leaves, then use Frost on every water drop except the easternmost and cross the ice pillars.",
+          "id": "gs1-syndicate-22-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Flip the water switch, then light the second flame tile to open the gate; continue down the newly drained ladder.",
+          "id": "gs1-syndicate-22-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Climb from the lower room to reach Sap without a battle.",
+          "item": "Sap",
+          "id": "gs1-syndicate-22-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Use Retreat to return to the cave entrance and leave Vault.",
+          "id": "gs1-syndicate-22-06",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "The chest beyond the Whirlwind door is described only as an attack-boosting item; the page does not name it."
+      ],
+      "id": "gs1-syndicate-22",
+      "chapter_id": "gs1-11",
+      "verification": "reference_only",
+      "reference_word_count": 120
+    },
+    {
+      "section": 23,
+      "title": "Bilibin Cave... Again",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/23/",
+      "steps": [
+        {
+          "kind": "puzzle",
+          "text": "From the normal entrance, Douse the fire off the ice pillars; leave and enter again through the alternate entrance beyond the vine.",
+          "id": "gs1-syndicate-23-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Near the open chest, Reveal the suspicious stones to expose a door; Douse the fire in the next room.",
+          "id": "gs1-syndicate-23-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Return to the ice pillars, jump onto the western ledge and collect the items in the room beyond.",
+          "item": "Water of Life and Psy Crystal",
+          "id": "gs1-syndicate-23-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "If you revisit the lighthouse, collect the extra Hermes' Water mentioned by the guide.",
+          "item": "Hermes' Water",
+          "id": "gs1-syndicate-23-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Return west to Vale.",
+          "id": "gs1-syndicate-23-05",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "The page says Herme's Water can be obtained again but gives no route or trigger details."
+      ],
+      "id": "gs1-syndicate-23",
+      "chapter_id": "gs1-11",
+      "verification": "reference_only",
+      "reference_word_count": 104
+    },
+    {
+      "section": 24,
+      "title": "Vale... Again",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/24/",
+      "steps": [
+        {
+          "kind": "loot",
+          "text": "Use Whirlwind on the bush behind Vale's shop and enter the cave for the chest.",
+          "item": "Power Bread",
+          "id": "gs1-syndicate-24-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "From Vault, return west to Vale; Lift the rock by the western fence and Reveal the hidden stepping stone in the cave.",
+          "id": "gs1-syndicate-24-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Push the box into the water, roll the log east, then lower the side logs and slide down the western notch to move the cross-log north.",
+          "id": "gs1-syndicate-24-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "After the ladder north of the door, open the chest before approaching the Djinni.",
+          "item": "Halt Gem",
+          "id": "gs1-syndicate-24-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Chase the fleeing Djinni down the cliff, use Halt, and approach it.",
+          "item": "Kite",
+          "id": "gs1-syndicate-24-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Return to Kalay Docks by the southern route around the caves.",
+          "id": "gs1-syndicate-24-06",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-24",
+      "chapter_id": "gs1-11",
+      "verification": "reference_only",
+      "reference_word_count": 107
+    },
+    {
+      "section": 25,
+      "title": "Kalay Docks",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/25/",
+      "steps": [
+        {
+          "kind": "story",
+          "text": "Buy the Tolbi ticket at the north building's counter for 600 coins, then board at the western docks.",
+          "id": "gs1-syndicate-25-01",
+          "completion_condition": null,
+          "evidence_note": "Original ticket callback rom_7c6bac851C compares/deducts600;15 original choice/funds cases, verify_kalay_ship.py. Source walkthrough800 corrected."
+        },
+        {
+          "kind": "puzzle",
+          "text": "Find the Captain's Anchor Charm on the ship's observation deck and return it to the captain below.",
+          "id": "gs1-syndicate-25-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Reach the crew quarters behind the tour guide and descend the hidden stairs to start the voyage.",
+          "id": "gs1-syndicate-25-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "After each of the first three attacks, replace the fallen rower upstairs before sailing again.",
+          "id": "gs1-syndicate-25-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "For the optional early Crossbone Island route, choose passengers in this order: green-skirted woman, blonde woman, older man, then the merchant away from the stairs; put weaker rowers on the right.",
+          "id": "gs1-syndicate-25-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "After the fourth sea attack, return to the deck and defeat Kraken; the ship then reaches Tolbi.",
+          "id": "gs1-syndicate-25-06",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Collect the victory reward.",
+          "item": "Water of Life and 5200 coins",
+          "id": "gs1-syndicate-25-07",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "The source misspells Kraken as 'Krarken' in an inserted note and later mistakenly says 'Kraden'; the encounter is Kraken."
+      ],
+      "id": "gs1-syndicate-25",
+      "chapter_id": "gs1-12",
+      "verification": "reference_only",
+      "reference_word_count": 146
+    },
+    {
+      "section": 26,
+      "title": "Tolbi Docks",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/26/",
+      "steps": [
+        {
+          "kind": "puzzle",
+          "text": "Move the northwestern boxes into a jump path from the ledge by the house to the lower ledge.",
+          "id": "gs1-syndicate-26-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Jump across the boxes and climb to the chest.",
+          "item": "Potion",
+          "id": "gs1-syndicate-26-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Leave the docks and enter Tolbi.",
+          "id": "gs1-syndicate-26-03",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "The page gives no box-by-box order for the dock puzzle."
+      ],
+      "id": "gs1-syndicate-26",
+      "chapter_id": "gs1-13",
+      "verification": "reference_only",
+      "reference_word_count": 46
+    },
+    {
+      "section": 27,
+      "title": "Tolbi",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/27/",
+      "steps": [
+        {
+          "kind": "travel",
+          "text": "Buy equipment in the southwest shop; sleep in Babi's palace by speaking to the desk attendant and facing a bed.",
+          "id": "gs1-syndicate-27-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Optional: spend Lucky Medals at the fountain for variable equipment prizes.",
+          "item": "Fountain equipment prizes (variable)",
+          "id": "gs1-syndicate-27-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Use tickets at the northeast inn slot machine; rewards depend on the rings and stops.",
+          "id": "gs1-syndicate-27-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Leave through the south gate but stay by the cliff; circle around to the vine, Use Growth on it, Use Frost on the pool, then return inside and cross the ice pillar.",
+          "id": "gs1-syndicate-27-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Take Ember beyond the ice pillar without a battle.",
+          "item": "Ember",
+          "id": "gs1-syndicate-27-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Leave Tolbi and head toward Altmiller Cave.",
+          "id": "gs1-syndicate-27-06",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "The fountain and slot-machine rewards are variable; the page lists odds, not a guaranteed prize."
+      ],
+      "id": "gs1-syndicate-27",
+      "chapter_id": "gs1-13",
+      "verification": "reference_only",
+      "reference_word_count": 115
+    },
+    {
+      "section": 28,
+      "title": "To Altmiller Cave",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/28/",
+      "steps": [
+        {
+          "kind": "travel",
+          "text": "From Tolbi, follow the northwest dirt road and cross the western bridge.",
+          "id": "gs1-syndicate-28-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Search the forested area for a random encounter and recruit Hail.",
+          "item": "Hail",
+          "id": "gs1-syndicate-28-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Return northeast across the bridge, follow the coast east to northern Kalay Docks, then walk down to Ground.",
+          "id": "gs1-syndicate-28-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Take Ground without a battle, then return north and cross the bridge into the cave area.",
+          "item": "Ground",
+          "id": "gs1-syndicate-28-04",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-28",
+      "chapter_id": "gs1-13",
+      "verification": "reference_only",
+      "reference_word_count": 62
+    },
+    {
+      "section": 29,
+      "title": "Altmiller Cave",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/29/",
+      "steps": [
+        {
+          "kind": "puzzle",
+          "text": "Use Reveal for light in dark passages; at the first rock blockage, go left, up one tile, right, then up the stairs.",
+          "id": "gs1-syndicate-29-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Find the invisible man Babi and learn that he needs Draught; continue past him into the lower caves.",
+          "id": "gs1-syndicate-29-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "For Squall, roll the vertical log right, lower horizontal log up; Frost the puddle, return vertical left, then lower both horizontal logs.",
+          "id": "gs1-syndicate-29-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Take Squall after the log puzzle; expect a battle.",
+          "item": "Squall",
+          "id": "gs1-syndicate-29-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "At the five colored rocks, Reveal the colors; press the leftmost then rightmost rock to show the wheel, then press the rock matching its top color three times.",
+          "id": "gs1-syndicate-29-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Enter the revealed room for Babi's supply.",
+          "item": "Draught",
+          "id": "gs1-syndicate-29-06",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Use Reveal on the return route, give Babi the Draught, then Retreat and travel southwest to Tolbi.",
+          "id": "gs1-syndicate-29-07",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "The color-wheel instruction is described informally; it does not state a color sequence beyond matching the top color."
+      ],
+      "id": "gs1-syndicate-29",
+      "chapter_id": "gs1-14",
+      "verification": "reference_only",
+      "reference_word_count": 145
+    },
+    {
+      "section": 30,
+      "title": "Colosso",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/30/",
+      "steps": [
+        {
+          "kind": "story",
+          "text": "Rest at the palace and enter the stadium. For course one, position Garet, Mia and Ivan at successive stages; give Ivan Growth.",
+          "id": "gs1-syndicate-30-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Before round one, have Garet move the stump left and Ivan grow the vine; with Isaac, cross the gap, move the blocking stump, push the pipe west, and climb the vine.",
+          "id": "gs1-syndicate-30-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Search the north path and log section; the guide names a Nut and an Iron Shield among the prizes.",
+          "item": "Nut; Iron Shield",
+          "id": "gs1-syndicate-30-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "For round two, have Mia freeze the western puddle; collect the Nut chest, cross the ice pillar, climb the wall, and shift each log left then right.",
+          "id": "gs1-syndicate-30-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "For the final round, use Garet's Move, Mia's Frost, and Ivan's Halt if available; avoid the optional chest, cross the moving pillars, then push the three logs up and the vertical log into the water.",
+          "id": "gs1-syndicate-30-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Win all three duels. Speak with Babi for the Lure Cap, then collect Cloak Ball from his desk.",
+          "id": "gs1-syndicate-30-06",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Take Babi's requested gear.",
+          "item": "Lure Cap; Cloak Ball (loan)",
+          "id": "gs1-syndicate-30-07",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "Some course chests are unnamed; verify prize labels and unclear log directions."
+      ],
+      "id": "gs1-syndicate-30",
+      "chapter_id": "gs1-14",
+      "verification": "reference_only",
+      "reference_word_count": 177
+    },
+    {
+      "section": 31,
+      "title": "To Lunpa",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/31/",
+      "steps": [
+        {
+          "kind": "travel",
+          "text": "Reach Gondowan Cave, lift the rock, and take the cave route toward Lunpa.",
+          "id": "gs1-syndicate-31-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Check the cave chests.",
+          "item": "Lucky Medal; Apple",
+          "id": "gs1-syndicate-31-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Move the log and tree to clear the path; Use Frost on the puddle beneath Lunpa's gate.",
+          "id": "gs1-syndicate-31-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Pass Kalay and Vault, then enter Lunpa through the cave.",
+          "id": "gs1-syndicate-31-04",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-31",
+      "chapter_id": "gs1-15",
+      "verification": "reference_only",
+      "reference_word_count": 49
+    },
+    {
+      "section": 32,
+      "title": "Lunpa",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/32/",
+      "steps": [
+        {
+          "kind": "warning",
+          "text": "Bring Cloak Ball from Babi's desk and Catch Beads before entering the fortress.",
+          "id": "gs1-syndicate-32-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "At the north gate, Reveal the rock, Use Frost on the puddle, and hop across before Reveal fades; search the sparkle for the entrance.",
+          "id": "gs1-syndicate-32-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Search the hidden area.",
+          "item": "Water of Life; Smoke Bomb; Lucky Medal; Antidote; 44 Coins; Elixir; Psynergy Stone",
+          "id": "gs1-syndicate-32-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Use Cloak to slip into the fortress. Evade guards, Catch the cell key through the bars, then use Whirlwind and Reveal to find the hidden door.",
+          "id": "gs1-syndicate-32-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Open the long-box room chest.",
+          "item": "Power Bread",
+          "id": "gs1-syndicate-32-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Defeat Toadonpa, take the Psy Crystal and finish Hammet's rescue. Decline Bunza's wagon; re-enter the fortress and visit Donpa.",
+          "id": "gs1-syndicate-32-06",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Speak with Donpa to open the room behind his wife; collect Tonic without a battle.",
+          "item": "Tonic (Mercury Djinni)",
+          "id": "gs1-syndicate-32-07",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-32",
+      "chapter_id": "gs1-15",
+      "verification": "reference_only",
+      "reference_word_count": 125
+    },
+    {
+      "section": 33,
+      "title": "Kalay... Again",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/33/",
+      "steps": [
+        {
+          "kind": "story",
+          "text": "Rest in Kalay and speak with Bunza.",
+          "id": "gs1-syndicate-33-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Optional: search the castle's west hall.",
+          "item": "Water Jacket",
+          "id": "gs1-syndicate-33-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Take the eastern secret route. Move a statue to block the waterfall, Use Frost on the drop, and collect the Spirit Gloves; block the next waterfall to reach Scorch.",
+          "id": "gs1-syndicate-33-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "After draining the waterfall, climb down and across to collect Scorch without fighting.",
+          "item": "Scorch (Mars Djinni)",
+          "id": "gs1-syndicate-33-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Backtrack through Gondowan Cave, then rest in Tolbi.",
+          "id": "gs1-syndicate-33-05",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "Four tunnel chests are mentioned but their contents are unnamed."
+      ],
+      "id": "gs1-syndicate-33",
+      "chapter_id": "gs1-15",
+      "verification": "reference_only",
+      "reference_word_count": 80
+    },
+    {
+      "section": 34,
+      "title": "To the Suhalla/Desert",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/34/",
+      "steps": [
+        {
+          "kind": "travel",
+          "text": "Cross the southern bridge from Tolbi and head southeast to Suhalla.",
+          "id": "gs1-syndicate-34-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Visit the red-roofed house southwest of town and speak with Iodem about water and sandstorms.",
+          "id": "gs1-syndicate-34-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Enter Suhalla Desert; Sheba is missing, and the lighthouse route is blocked by enemies and Saturos.",
+          "id": "gs1-syndicate-34-03",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-34",
+      "chapter_id": "gs1-16",
+      "verification": "reference_only",
+      "reference_word_count": 45
+    },
+    {
+      "section": 35,
+      "title": "Suhalla Desert",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/35/",
+      "steps": [
+        {
+          "kind": "warning",
+          "text": "Bring Douse Drop and equip Douse; Reveal footprints for route clues.",
+          "id": "gs1-syndicate-35-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Follow the first storm west, then south. Douse it and defeat the Tornado Lizard; choose the far-east path at the first fork, then the middle path at the next.",
+          "id": "gs1-syndicate-35-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Follow the long north passage. On the western ledge, Reveal the stump beyond the ladder to reach Flash.",
+          "id": "gs1-syndicate-35-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Fight the Djinni on the ledge.",
+          "item": "Flash (Mars Djinni)",
+          "id": "gs1-syndicate-35-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Continue east and save. Douse the giant southern storm and defeat Storm Lizard; take the southern Psynergy Stone, then exit east to Suhalla Gate.",
+          "id": "gs1-syndicate-35-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Take the stone south of the storm route.",
+          "item": "Psynergy Stone",
+          "id": "gs1-syndicate-35-06",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-35",
+      "chapter_id": "gs1-16",
+      "verification": "reference_only",
+      "reference_word_count": 103
+    },
+    {
+      "section": 36,
+      "title": "Suhalla Gate",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/36/",
+      "steps": [
+        {
+          "kind": "travel",
+          "text": "Heal with the minister beyond the north gate.",
+          "id": "gs1-syndicate-36-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Slide down the first slope, then climb back up.",
+          "item": "Mint",
+          "id": "gs1-syndicate-36-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "At the slide cluster, take the third slope from the left to meet Dew; then climb east and leave northeast toward Venus Lighthouse.",
+          "id": "gs1-syndicate-36-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Fight the Djinni on the slide route.",
+          "item": "Dew (Mercury Djinni)",
+          "id": "gs1-syndicate-36-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "warning",
+          "text": "The eastern cave leads to the ship; the walkthrough says it can wait.",
+          "id": "gs1-syndicate-36-05",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-36",
+      "chapter_id": "gs1-16",
+      "verification": "reference_only",
+      "reference_word_count": 66
+    },
+    {
+      "section": 37,
+      "title": "Venus Lighthouse, Part 1",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/37/",
+      "steps": [
+        {
+          "kind": "puzzle",
+          "text": "Reveal the tree-floor door, descend and open the Carry Stone chest; equip it for Carry.",
+          "id": "gs1-syndicate-37-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Return north, take the east branch and cross the stepping stones to the Lucky Cap chest.",
+          "item": "Lucky Cap",
+          "id": "gs1-syndicate-37-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Take Carry Stone from the hidden entrance room.",
+          "item": "Carry Stone",
+          "id": "gs1-syndicate-37-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "On the west branch, Carry the block, Reveal the hidden stairs beyond the electricity, and inspect the statue's tile pattern. Retreat when ready.",
+          "id": "gs1-syndicate-37-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Return to the world map and go north, then west, toward Lalivero.",
+          "id": "gs1-syndicate-37-05",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-37",
+      "chapter_id": "gs1-17",
+      "verification": "reference_only",
+      "reference_word_count": 82
+    },
+    {
+      "section": 38,
+      "title": "Lalivero",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/38/",
+      "steps": [
+        {
+          "kind": "travel",
+          "text": "Rest at the northwest inn and shop southeast.",
+          "id": "gs1-syndicate-38-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Search the northeast rooftop jar.",
+          "item": "Water of Life",
+          "id": "gs1-syndicate-38-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Hop across the rooftops and climb the vine to reach Torch.",
+          "item": "Torch (Mars Djinni)",
+          "id": "gs1-syndicate-38-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Reach the southwest rooftop gate, then climb its vine.",
+          "item": "Warrior's Helm",
+          "id": "gs1-syndicate-38-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Leave town north for Babi's Lighthouse.",
+          "id": "gs1-syndicate-38-05",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-38",
+      "chapter_id": "gs1-17",
+      "verification": "reference_only",
+      "reference_word_count": 48
+    },
+    {
+      "section": 39,
+      "title": "Babi Lighthouse",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/39/",
+      "steps": [
+        {
+          "kind": "warning",
+          "text": "First inspect the Venus statue route in Venus Lighthouse, Part 1.",
+          "id": "gs1-syndicate-39-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Follow the orange logs north. Descend ladders and move pillars to open the way; Use Growth on a vine and descend the crevice.",
+          "id": "gs1-syndicate-39-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "djinn",
+          "text": "Fight the Djinni in the crevice route.",
+          "item": "Luff (Jupiter Djinni)",
+          "id": "gs1-syndicate-39-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "South of the three-crevice room, take the first crevice to Reveal a hidden door. After Iodem leaves, continue to Temple Ruins; ignore the statue.",
+          "id": "gs1-syndicate-39-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Solve the pillar pattern, then follow the statue's Venus Lighthouse pattern to step across.",
+          "id": "gs1-syndicate-39-05",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-39",
+      "chapter_id": "gs1-17",
+      "verification": "reference_only",
+      "reference_word_count": 84
+    },
+    {
+      "section": 40,
+      "title": "Venus Lighthouse, Part 2",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/40/",
+      "steps": [
+        {
+          "kind": "puzzle",
+          "text": "Explore the west branch: move pillars, Whirlwind plants, and Carry blocks. Reveal the hidden room for Oracle's Robe.",
+          "id": "gs1-syndicate-40-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Search the hidden room.",
+          "item": "Oracle's Robe",
+          "id": "gs1-syndicate-40-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Take the south branch. Use Douse and Frost on pillars; set statues Red/Blue at top, Gold in the center, Green/Violet below. Take the Psynergy Stone.",
+          "id": "gs1-syndicate-40-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Take the stone beyond the statue puzzle.",
+          "item": "Psynergy Stone",
+          "id": "gs1-syndicate-40-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Carry blocks and solve the sandfall and current routes; reveal the waterfall switch. Search the hidden room for Asura's Armor and take Dragon Scales.",
+          "id": "gs1-syndicate-40-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Collect the named gear along the south route.",
+          "item": "Asura's Armor; Dragon Scales",
+          "id": "gs1-syndicate-40-06",
+          "completion_condition": null
+        },
+        {
+          "kind": "warning",
+          "text": "The source's later current-puzzle solution depends on a missing diagram. Reach the floating elevator and do not descend until ready; make a separate save before the final battle.",
+          "id": "gs1-syndicate-40-07",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "A later current-puzzle diagram is linked from an unavailable external image; those exact steps are omitted."
+      ],
+      "id": "gs1-syndicate-40",
+      "chapter_id": "gs1-19",
+      "verification": "reference_only",
+      "reference_word_count": 142
+    },
+    {
+      "section": 41,
+      "title": "What!? We're Backtracking!?",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/41/",
+      "steps": [
+        {
+          "kind": "story",
+          "text": "Retreat from Venus Lighthouse to Suhalla Desert; Carry is needed for Crossbone Island.",
+          "id": "gs1-syndicate-41-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "warning",
+          "text": "Save separately in the desert if you want a return point.",
+          "id": "gs1-syndicate-41-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Reveal the stump, cross to the cave, and take its northeast route. Enter the pink tornado without Dousing it to reach Crossbone Island.",
+          "id": "gs1-syndicate-41-03",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-41",
+      "chapter_id": "gs1-18",
+      "verification": "reference_only",
+      "reference_word_count": 50
+    },
+    {
+      "section": 42,
+      "title": "Crossbone Island",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/42/",
+      "steps": [
+        {
+          "kind": "puzzle",
+          "text": "Growth twice; Whirlwind the left-slide shrub. Check middle/right slide chests.",
+          "item": "1 Coin; Mint",
+          "id": "gs1-syndicate-42-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Floor 1.",
+          "item": "111 Coins; Nut; Hard Nut; Antidote; Lucky Medal",
+          "id": "gs1-syndicate-42-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Floor 2.",
+          "item": "Elixir; 222 Coins; Lucky Pepper; Mystery Blade",
+          "id": "gs1-syndicate-42-03",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Floor 3: Catch Smoke Bomb; Reveal gem; red exit.",
+          "item": "333 Coins; Fairy Ring; Cookie; Smoke Bomb; Psy Crystal",
+          "id": "gs1-syndicate-42-04",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Floor 4.",
+          "item": "444 Coins; Sleep Bomb; Storm Gear; Psy Crystal",
+          "id": "gs1-syndicate-42-05",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Floor 5.",
+          "item": "555 Coins; Lucky Medal; Ninja Garb; Potion",
+          "id": "gs1-syndicate-42-06",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Floor 6: freeze puddle and Halt Bane.",
+          "id": "gs1-syndicate-42-07",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Floor 6.",
+          "item": "Elixir; 666 Coins; Demon Axe; Water of Life; Bane (Venus Djinni)",
+          "id": "gs1-syndicate-42-08",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Floor 7; Carry blocks.",
+          "item": "Lucky Medal; Psy Crystal; Wicked Mace; 777 Coins; Water of Life",
+          "id": "gs1-syndicate-42-09",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Floor 8: use Frost; let dragon melt ice pillar before freezing platform puddle.",
+          "id": "gs1-syndicate-42-10",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Floor 8.",
+          "item": "Smoke Bomb; 888 Coins; Cleric's Ring; Potion",
+          "id": "gs1-syndicate-42-11",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Floor 9; follow moving logs.",
+          "item": "999 Coins; Sleep Bomb; Water of Life; Muramasa; Psy Crystal",
+          "id": "gs1-syndicate-42-12",
+          "completion_condition": null
+        },
+        {
+          "kind": "warning",
+          "text": "Floor 10 west dock has a mimic. Defeat Deadbeard; Demon Mail is cursed.",
+          "id": "gs1-syndicate-42-13",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Boss rewards.",
+          "item": "8,000 XP; 9,000 Coins; Water of Life; Demon Mail",
+          "id": "gs1-syndicate-42-14",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [
+        "Numbering follows source puzzle floors. Chest routes are condensed; not exhaustive."
+      ],
+      "id": "gs1-syndicate-42",
+      "chapter_id": "gs1-18",
+      "verification": "reference_only",
+      "reference_word_count": 178
+    },
+    {
+      "section": 43,
+      "title": "Venus Lighthouse, Part 3",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/43/",
+      "steps": [
+        {
+          "kind": "travel",
+          "text": "Retrace the Part 2 lighthouse puzzles. At the top, heal, save separately, take the Psy Crystal, and descend the crevice when ready.",
+          "id": "gs1-syndicate-43-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "loot",
+          "text": "Take the top-floor crystal.",
+          "item": "Psy Crystal",
+          "id": "gs1-syndicate-43-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "story",
+          "text": "Defeat Saturos and Menardi, then the Fusion Dragon. Watch the beacon and Sheba's ending scenes.",
+          "id": "gs1-syndicate-43-03",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-43",
+      "chapter_id": "gs1-19",
+      "verification": "reference_only",
+      "reference_word_count": 47
+    },
+    {
+      "section": 44,
+      "title": "Ending",
+      "source_url": "https://www.goldensun-syndicate.net/gs/walkthrough/44/",
+      "steps": [
+        {
+          "kind": "story",
+          "text": "In Lalivero, speak with Iodem to receive the Black Orb.",
+          "id": "gs1-syndicate-44-01",
+          "completion_condition": null
+        },
+        {
+          "kind": "travel",
+          "text": "Go to the guarded northwest building and continue to the northern dock.",
+          "id": "gs1-syndicate-44-02",
+          "completion_condition": null
+        },
+        {
+          "kind": "puzzle",
+          "text": "Use the Black Orb to raise the ship; the ending leads into The Lost Age.",
+          "id": "gs1-syndicate-44-03",
+          "completion_condition": null
+        }
+      ],
+      "source_issues": [],
+      "id": "gs1-syndicate-44",
+      "chapter_id": "gs1-19",
+      "verification": "reference_only",
+      "reference_word_count": 38
+    }
+  ]
+}

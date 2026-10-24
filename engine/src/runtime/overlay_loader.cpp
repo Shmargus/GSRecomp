@@ -2196,10 +2196,18 @@ extern "C" void (*overlay_resolve(uint32_t pc, int thumb))(void) {
         // crc is the incumbent's resident value — the one that just failed
         // to match live bytes. Compare against the crc on the [ram-compile]
         // line this triggers to see whether the recompile rediscovers the
-        // exact same body.
-        std::fprintf(stderr,
-            "[dispatch-miss] reason=content-mismatch pc=0x%08X crc=0x%08X\n",
-            pc, slot.incumbent.crc);
+        // exact same body. Logged once per PC/mode/crc, like not-healed: TLA
+        // Psynergy and battle effects missed up to 30 times a frame while
+        // their compile was queued, and each write-through line stalled the
+        // game (session 20261023_130018: ~30 ms frames, 52% in ntdll).
+        // Counts stay in the frame events and miss report.
+        static std::unordered_set<uint64_t> logged;
+        const uint64_t log_key = (uint64_t{slot.incumbent.crc} << 32) |
+                                 (pc | (thumb != 0 ? 1u : 0u));
+        if (logged.insert(log_key).second)
+            std::fprintf(stderr,
+                "[dispatch-miss] reason=content-mismatch pc=0x%08X crc=0x%08X\n",
+                pc, slot.incumbent.crc);
         gbarecomp::overlay_request_compile(pc, thumb != 0);
         return nullptr;
     }

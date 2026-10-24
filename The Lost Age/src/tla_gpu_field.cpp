@@ -33,18 +33,12 @@
 #include <vector>
 
 #include "field_scene.h"
-#include "scene_repeat.h"
 #include "tla_frame_capture.h"
-#include "tla_water_ripple.h"
-#include "tla_tornado_margins.h"
-#include "tla_screen_effect_margins.h"
-#include "tla_ship_water_margins.h"
-#include "tla_background_margins.h"
+#include "tla_field_draw.h"
+#include "tla_flat_map.h"
 #include "tla_room_palette.h"
-#include "tla_room_sprite_clip.h"
 #include "effect_capture.h"
 #include "field_scene_renderer.h"
-#include "world_map_source.h"
 #include "gba_bus.h"
 #include "gba_io.h"
 #include "gba_ppu.h"
@@ -95,6 +89,9 @@ struct Capture {
     gsr::IrisWindow iris;
     // tla_camera_hold_y at capture time, for screen-fixed layers.
     int camera_hold_y = 0;
+    // tla_camera_kept_bounds at capture time (x, y).
+    bool kept[2] = {false, false};
+    int kept_lo[2] = {0, 0}, kept_edge[2] = {0, 0};
     const std::uint8_t* rom = nullptr;
     std::size_t rom_bytes = 0;
 };
@@ -185,6 +182,27 @@ gsr::IrisWindow iris_window(gba::GbaBus* bus, int* last_k) {
 // For a map's first 30 field frames every closed frame refreshes the copy,
 // without the settle: a room's name box can open before 30 frames pass, and
 // the copy would still hold the last room's graphics.
+//
+// The room's own tile animation keeps running behind a window: Alhafra's
+// port water (map 98, F12 tla_rewind_0131) rewrites its 32 tiles at
+// 0x0600F800 every second frame through the whole "Ahoy, Briggs!" dialogue,
+// and the copy froze it in the margins. A tile slot that changes between two
+// trusted closed frames (those that may refresh the copy) is animation; the
+// images it showed then are kept, and while a window is open the slot takes
+// the live image whenever it is one of them. A menu's own tile is never one,
+// so a slot a menu borrows keeps the copy. Over every TLA F12 capture's
+// closed frames, animated slots cycle 2 to 32 images (32: the port water,
+// a complete cycle in 120 frames); a slot showing more is not a looping
+// animation (a field spell's canvas) and stays frozen for the map.
+struct RoomTileImages {
+    std::vector<std::uint64_t> seen;
+    bool not_animation = false;
+};
+std::vector<RoomTileImages> g_room_tile_images;
+std::vector<std::uint8_t> g_room_previous_trusted;
+constexpr std::size_t kTileBytes = 32u;
+constexpr std::size_t kMaxAnimationImages = 32u;
+
 std::vector<std::uint8_t> g_room_char_copy;
 std::vector<std::uint16_t> g_room_palette_copy;
 int g_room_copy_closed_frames = 0;
@@ -200,6 +218,61 @@ void reset_room_copy() {
     g_room_copy_closed_frames = 0;
     g_room_copy_map = 0;
     g_room_copy_map_frames = 0;
+    g_room_tile_images.clear();
+    g_room_previous_trusted.clear();
+}
+
+std::uint64_t tile_image_hash(const std::uint8_t* tile) {
+    std::uint64_t h = 0xCBF29CE484222325ull;
+    for (std::size_t i = 0; i < kTileBytes; ++i)
+        h = (h ^ tile[i]) * 0x100000001B3ull;
+    return h;
+}
+
+void learn_room_animation(const std::vector<std::uint8_t>& vram) {
+    if (g_room_tile_images.empty())
+        g_room_tile_images.resize(kBgAreaBytes / kTileBytes);
+    if (g_room_previous_trusted.size() == kBgAreaBytes) {
+        for (std::size_t slot = 0; slot < g_room_tile_images.size(); ++slot) {
+            const std::size_t at = slot * kTileBytes;
+            RoomTileImages& images = g_room_tile_images[slot];
+            if (images.not_animation ||
+                std::memcmp(&g_room_previous_trusted[at], &vram[at], kTileBytes) == 0)
+                continue;
+            const std::uint8_t* both[] = {&g_room_previous_trusted[at], &vram[at]};
+            for (const std::uint8_t* tile : both) {
+                const std::uint64_t h = tile_image_hash(tile);
+                if (std::find(images.seen.begin(), images.seen.end(), h) !=
+                    images.seen.end())
+                    continue;
+                if (images.seen.size() == kMaxAnimationImages) {
+                    images.not_animation = true;
+                    images.seen.clear();
+                    break;
+                }
+                images.seen.push_back(h);
+            }
+        }
+    }
+    g_room_previous_trusted.assign(vram.begin(), vram.begin() + kBgAreaBytes);
+}
+
+// The open-window side: animated slots showing a learned image go live, in
+// the copy too, so a menu that later borrows the slot keeps the latest frame.
+void apply_room_animation(const std::vector<std::uint8_t>& vram,
+                          std::vector<std::uint8_t>* out) {
+    for (std::size_t slot = 0; slot < g_room_tile_images.size(); ++slot) {
+        const RoomTileImages& images = g_room_tile_images[slot];
+        if (images.seen.empty()) continue;
+        const std::size_t at = slot * kTileBytes;
+        if (std::memcmp(&(*out)[at], &vram[at], kTileBytes) == 0) continue;
+        const std::uint64_t h = tile_image_hash(&vram[at]);
+        if (std::find(images.seen.begin(), images.seen.end(), h) ==
+            images.seen.end())
+            continue;
+        std::memcpy(&(*out)[at], &vram[at], kTileBytes);
+        std::memcpy(&g_room_char_copy[at], &vram[at], kTileBytes);
+    }
 }
 
 bool game_window_open(gba::GbaBus* bus, const std::vector<std::uint8_t>& io) {
@@ -237,16 +310,21 @@ void build_room_vram(const std::vector<std::uint8_t>& vram, bool field,
             g_room_char_copy.assign(vram.begin(), vram.begin() + kBgAreaBytes);
             g_room_palette_copy.assign(palette.begin(),
                                        palette.begin() + kBgPaletteEntries);
+            learn_room_animation(vram);
+        } else {
+            g_room_previous_trusted.clear();
         }
         if (g_room_copy_closed_frames > 1) return;
     } else {
         g_room_copy_closed_frames = 0;
+        g_room_previous_trusted.clear();
     }
     if (g_room_char_copy.size() != kBgAreaBytes ||
         g_room_palette_copy.size() != kBgPaletteEntries)
         return;
     *out = vram;
     std::copy(g_room_char_copy.begin(), g_room_char_copy.end(), out->begin());
+    apply_room_animation(vram, out);
     out_palette->assign(palette.begin(), palette.end());
     bool any_used = false, all_used_changed = true;
     for (int bank = 0; bank < 14; ++bank) {
@@ -311,7 +389,8 @@ void capture() {
                              bus->pal_ptr(), ppu->latched_native_line_io(),
                              ppu->latched_native_line_io_valid(),
                              ppu->latched_native_affine_line_refs(),
-                             ppu->latched_native_affine_line_ref_valid());
+                             ppu->latched_native_affine_line_ref_valid(),
+                             int(ppu->view_extra_top()), int(ppu->view_extra_bottom()));
     ++g_captured;
     if (!scene.valid || !scene.supported) {
         g_capture.valid = false;
@@ -333,6 +412,7 @@ void capture() {
     static int iris_k = -1;
     g_capture.iris = iris_window(bus, &iris_k);
     g_capture.camera_hold_y = tla_camera_hold_y();
+    tla_camera_kept_bounds(g_capture.kept, g_capture.kept_lo, g_capture.kept_edge);
     g_capture.rom = bus->rom_ptr();
     g_capture.rom_bytes = bus->rom_size();
     // The console's 96 KB, and the second sprite page while it is in use
@@ -445,6 +525,7 @@ bool draw_capture(const Capture& capture, std::uint8_t* rgb,
     struct Context {
         gbarecomp::GpuSurface surface;
         gsr::FieldSceneRenderer renderer;
+        TlaFieldDrawState draw;  // what the renderer has been handed
     };
     static std::unique_ptr<Context> context;
     static bool init_attempted = false;
@@ -477,113 +558,37 @@ bool draw_capture(const Capture& capture, std::uint8_t* rgb,
         return false;
     }
 
-    // The room source only where there is a margin to fill: the native view
-    // stays exactly the picture checked against the console compositor.
-    const bool expanded = width > 240u || height > 160u;
-    if (expanded)
-        tla_hide_outside_room(scene,
-            capture.ewram.data(), capture.ewram.size(),
-            capture.iwram.data(), capture.iwram.size());
-    const unsigned map_id = expanded && capture.ewram.size() >= 0x42A
-        ? unsigned(capture.ewram[0x428]) |
-            (unsigned(capture.ewram[0x429]) << 8) : 0;
-    tla_weather_sprite_margins(scene, margins, capture.vram);
-    tla_tornado_margins(scene, margins, map_id,
-        -(static_cast<int>(height) - 160) / 2, capture.camera_hold_y);
-    bool port = false;
-    if (expanded && capture.rom && capture.rom_bytes >= 0x20A8u + 1024u * 2u) {
-        const auto sine = [&](unsigned index) {
-            const auto* p = capture.rom + 0x20A8u + index * 2u;
-            return static_cast<std::int16_t>(unsigned(p[0]) | (unsigned(p[1]) << 8));
-        };
-        const int first_y = -(static_cast<int>(height) - 160) / 2;
-        tla_water_ripple(scene, margins, capture.ripple_phase, sine, first_y,
-                         static_cast<int>(height));
-        port = tla_port_wave(scene, margins, capture.ripple_phase, sine,
-                             first_y, static_cast<int>(height));
-    } else {
-        margins.layers[1].scroll.clear();
-        margins.layers[2].scroll.clear();
+    TlaFieldFrame in;
+    in.vram = &capture.vram;
+    in.ewram = capture.ewram.data();
+    in.ewram_bytes = capture.ewram.size();
+    in.iwram = capture.iwram.data();
+    in.iwram_bytes = capture.iwram.size();
+    in.rom = capture.rom;
+    in.rom_bytes = capture.rom_bytes;
+    if (!capture.room_vram.empty()) {
+        in.room_vram = capture.room_vram.data();
+        in.room_vram_bytes = capture.room_vram.size();
     }
-    static std::vector<std::uint8_t> haze_vram;
-    const bool haze_filled =
-        port && tla_haze_fill_rows(capture.vram, scene, &haze_vram, 2);
-    if (expanded) {
-        tla_ship_water_margins(scene, margins, capture.vram);
-        tla_background_margins(scene, margins,
-            capture.ewram.data(), capture.ewram.size());
+    if (!capture.room_palette.empty()) {
+        in.room_palette = capture.room_palette.data();
+        in.room_palette_entries = capture.room_palette.size();
     }
-    const std::vector<std::uint8_t>& vram = haze_filled ? haze_vram : capture.vram;
-    renderer.upload_vram(vram.data(), vram.size());
-    if (!capture.room_vram.empty())
-        renderer.upload_room_vram(capture.room_vram.data(),
-                                  capture.room_vram.size());
-    renderer.upload_palette(scene.palette.data(),
-                            scene.palette.size());
-    if (!capture.room_palette.empty())
-        renderer.upload_room_palette(capture.room_palette.data(),
-                                     capture.room_palette.size());
-    renderer.set_room_source_enabled(expanded);
-    renderer.set_menu_open(capture.window_open);
-    // Better Field Psy: Reveal covers the whole view, as in The Broken Seal.
-    renderer.set_reveal_full(tla_field_psy_fast());
-    if (expanded) {
-        renderer.upload_room(capture.ewram.data(), capture.ewram.size());
-        // Haze, mist, sunlight and any other repeating layer: the shared
-        // rule, once the room source can say which layers it fills.
-        gsr::continue_repeating_layers(scene, margins, vram.data(), vram.size(),
-            [&](int bg) {
-                bool from_record = false;
-                return bg != 0 && renderer.room_known() &&
-                       renderer.room_reference_for(scene, bg, &from_record);
-            },
-            -(static_cast<int>(height) - 160) / 2, static_cast<int>(height));
+    in.menu_open = capture.window_open;
+    in.reveal_full = tla_field_psy_fast();
+    in.ripple_phase = capture.ripple_phase;
+    in.camera_hold_y = capture.camera_hold_y;
+    for (int n = 0; n < 2; ++n) {
+        in.kept[n] = capture.kept[n];
+        in.kept_lo[n] = capture.kept_lo[n];
+        in.kept_edge[n] = capture.kept_edge[n];
     }
-    // Complete map tiles are shared code; this game's wrapper supplies its layout.
-    static gsr::WorldMapSource world_map;
-    if (expanded && scene.video_mode == 2 &&
-        world_map.update(capture.ewram.data(), capture.ewram.size(),
-            capture.iwram.data(), capture.iwram.size(), capture.rom, capture.rom_bytes)) {
-        renderer.upload_world_map(world_map.tiles().data(), world_map.generation());
-        const int agreement = renderer.world_map_agreement(scene);
-        if (agreement >= 0 && agreement < gsr::FieldSceneRenderer::kRoomCheckMinAgreement && world_map.restore_previous())
-            renderer.upload_world_map(world_map.tiles().data(), world_map.generation());
-    } else {
-        renderer.upload_world_map(nullptr, 0);
-    }
-    // Spell effects in the margins, Golden Sun 1's way (its
-    // gpu_field_present_override): the game paints each effect into a
-    // canvas as wide as the console's screen, and nothing exists past it.
-    // The margins get the canvas's own fill and the sparks the game stamped
-    // outside it, never the layer's wrapped or cut map. Expanded view only.
-    renderer.set_effect_renderer_enabled(expanded);
-    {
-        const gsr::FieldScene& sc = scene;
-        int effect_layer = -1;
-        if (expanded && sc.video_mode == 1) {
-            // A battle's non-wrapping affine BG2 (the stretched canvas), else
-            // a layer showing the canvas as a tile block.
-            const gsr::SceneLayer& bg2 = sc.layers[2];
-            effect_layer = (bg2.enabled && bg2.affine && !bg2.wraps)
-                ? 2
-                : gsr::FieldSceneRenderer::find_effect_canvas_layer(
-                      capture.vram.data(), capture.vram.size(), sc);
-        }
-        renderer.set_effect_layer(effect_layer);
-        if (effect_layer >= 0) {
-            const auto& asked = capture.effects.stamps;
-            if (!asked.empty())
-                renderer.upload_effect_sparks(asked.data(), int(asked.size()),
-                                              capture.effects.artwork.data(),
-                                              capture.effects.artwork.size(),
-                                              effect_layer);
-            renderer.analyse_effect_canvas(capture.vram.data(),
-                                           capture.vram.size(),
-                                           sc.layers[effect_layer]);
-        }
-    }
-    renderer.set_scene_margins(&margins);
-    if (!renderer.draw(scene)) {
+    in.sparks = capture.effects.stamps.data();
+    in.spark_count = int(capture.effects.stamps.size());
+    in.spark_art = capture.effects.artwork.data();
+    in.spark_art_bytes = capture.effects.artwork.size();
+    if (!tla_field_draw(renderer, scene, margins, in, int(width), int(height),
+                        context->draw)) {
         if (refusal) *refusal = renderer.declined_reason();
         return false;
     }
@@ -668,6 +673,14 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
         return;
     }
     if (mode != 0u) return;
+    // The flat map (Select map) is no menu over the sailing view: its margins
+    // show more of the map (tla_flat_map.h). The held view stays for the
+    // menus shown after the map closes; the camera has not moved.
+    if (tla_flat_map::is_map_screen(io, capture.ewram)) {
+        tla_flat_map::paint_margins(rgb, width, height, capture.scene, io, capture.ewram,
+                                    capture.pal, capture.rom, capture.rom_bytes);
+        return;
+    }
     // A flat picture (a fade to one colour) is no menu: the margins take
     // its colour.
     const std::uint8_t* first = rgb + (std::size_t{y0} * width + x0) * 3u;
@@ -694,16 +707,32 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     }
     const bool held = !flat && g_world_margin_w == width &&
                       g_world_margin_h == height && !g_world_margin.empty();
+    // A quake shakes the map picture by scrolling BG1, the 256-colour layer
+    // that holds it on these screens (F12 tla_rewind_0151, 2026-10-24:
+    // BG1CNT 0x0682, offsets -1..2 every frame; the edges meet the picture
+    // only at 0,0). The held edges move with it.
+    int shake_x = 0, shake_y = 0;
+    const unsigned dispcnt = io[0] | (static_cast<unsigned>(io[1]) << 8);
+    if ((dispcnt & 0x0200u) && (io[0x0A] & 0x80u)) {
+        const auto offset = [&](unsigned at) {
+            const int v = int((io[at] | (unsigned(io[at + 1]) << 8)) & 0x1FFu);
+            return v >= 0x100 ? v - 0x200 : v;
+        };
+        shake_x = offset(0x14);
+        shake_y = offset(0x16);
+    }
     for (std::uint32_t y = 0; y < height; ++y) {
         const bool native_row = y >= y0 && y < y0 + 160u;
         std::uint8_t* dst = rgb + std::size_t{y} * width * 3u;
+        const int sy = std::clamp(int(y) + shake_y, 0, int(height) - 1);
         const std::uint8_t* src =
-            held ? g_world_margin.data() + std::size_t{y} * width * 3u : nullptr;
+            held ? g_world_margin.data() + std::size_t(sy) * width * 3u : nullptr;
         for (std::uint32_t x = 0; x < width; ++x) {
             if (native_row && x >= x0 && x < x0 + 240u) continue;
+            const int sx = std::clamp(int(x) + shake_x, 0, int(width) - 1);
             // No settled frame to hold: black rather than the world map's
             // rotation-layer data read as text layers.
-            std::memcpy(dst + x * 3u, held ? src + x * 3u : colour, 3);
+            std::memcpy(dst + x * 3u, held ? src + std::size_t(sx) * 3u : colour, 3);
         }
     }
 }
@@ -781,6 +810,13 @@ std::string tla_gpu_field_snapshot(std::uint32_t width, std::uint32_t height,
     std::string objects, stamps = tla_frame::pack_stamps(g_capture.effects.stamps), state,
         camera;
     tla_frame::u32(camera, static_cast<std::uint32_t>(g_capture.camera_hold_y));
+    // tla_camera_kept_bounds, x then y: kept, lo, edge (whole pixels).
+    std::string kept;
+    for (int n = 0; n < 2; ++n) {
+        tla_frame::u32(kept, g_capture.kept[n] ? 1u : 0u);
+        tla_frame::u32(kept, static_cast<std::uint32_t>(g_capture.kept_lo[n]));
+        tla_frame::u32(kept, static_cast<std::uint32_t>(g_capture.kept_edge[n]));
+    }
     for (const auto& object : g_capture.scene.objects) {
         tla_frame::u32(objects, std::uint32_t(object.x));
         tla_frame::u32(objects, std::uint32_t(object.y));
@@ -809,7 +845,7 @@ std::string tla_gpu_field_snapshot(std::uint32_t width, std::uint32_t height,
         part("IWRAM", g_capture.iwram), part("ROOMVRAM", g_capture.room_vram),
         part("ROOMPAL", g_capture.room_palette), part("OBJECTS", objects),
         part("FXSTAMP", stamps), part("FXART", g_capture.effects.artwork), part("STATE", state),
-        part("CAMHOLD", camera), part("IRIS", iris)});
+        part("CAMHOLD", camera), part("KEPT", kept), part("IRIS", iris)});
 }
 
 // Compatibility name for the current single-frame report, now TLAGPUF2.
@@ -852,6 +888,7 @@ void tla_install_gpu_field() {
         g_world_settled = {};
         g_world_margin.clear();
         g_world_margin_w = g_world_margin_h = 0;
+        tla_local_music_on_savestate_load();
     });
     if (g_enabled)
         std::fprintf(stderr, "[gpu-field] on%s%s\n", g_only ? ", only" : "",

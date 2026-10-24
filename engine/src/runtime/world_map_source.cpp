@@ -12,13 +12,15 @@ namespace {
 constexpr std::size_t kPieceBytes = 1024;            // 16x16 cells x 4 bytes
 constexpr std::size_t kMaxDecoded = 4096;
 
+}  // namespace
+
 // The game's own decompressor, the ARM routine at ROM 0x08001B70 that
 // Func_53e8 copies to RAM: a flag byte, then eight items, most significant
 // flag first. 0 is a literal byte; 1 is a copy of (low nibble + 1) bytes from
 // ((high nibble << 8) | next byte) back, where a zero nibble takes its length
 // from one more byte (+ 0x11) and a zero distance ends the data.
-bool decompress(const std::uint8_t* src, std::size_t avail,
-                std::vector<std::uint8_t>* out) {
+bool lz_decompress(const std::uint8_t* src, std::size_t avail,
+                   std::vector<std::uint8_t>* out, std::size_t max_bytes) {
     out->clear();
     std::size_t pos = 0;
     for (;;) {
@@ -44,10 +46,12 @@ bool decompress(const std::uint8_t* src, std::size_t avail,
                 for (unsigned i = 0; i <= count; ++i)
                     out->push_back((*out)[from + i]);
             }
-            if (out->size() > kMaxDecoded) return false;
+            if (out->size() > max_bytes) return false;
         }
     }
 }
+
+namespace {
 
 struct Guest {
     const std::uint8_t* ewram;
@@ -113,7 +117,7 @@ const std::vector<std::uint8_t>* WorldMapSource::piece(
     const std::size_t src = dir + offset;
     std::vector<std::uint8_t> decoded;
     if (src >= rom_bytes ||
-        !decompress(rom + src, rom_bytes - src, &decoded) ||
+        !lz_decompress(rom + src, rom_bytes - src, &decoded, kMaxDecoded) ||
         decoded.size() < kPieceBytes) {
         return nullptr;  // `out` stays empty: remembered as a failure
     }
@@ -176,6 +180,9 @@ bool WorldMapSource::update(const std::uint8_t* ewram, std::size_t ewram_bytes,
 
     std::vector<std::uint8_t> tiles(
         static_cast<std::size_t>(side_tiles) * side_tiles * 2u, 0);
+    const int side_cells = side_tiles / 2;
+    std::vector<std::uint8_t> attributes(
+        static_cast<std::size_t>(side_cells) * side_cells, 0);
     for (int layer = 0; layer < 2; ++layer) {
         for (int gi = 0; gi < grid_cells; ++gi) {
             const unsigned id = (grid[gi * 2] | (grid[gi * 2 + 1] << 8)) +
@@ -197,13 +204,18 @@ bool WorldMapSource::update(const std::uint8_t* ewram, std::size_t ewram_bytes,
                     std::uint8_t* row1 = row0 + side_tiles;
                     row0[tx] = e[0]; row0[tx + 1] = e[1];
                     row1[tx] = e[2]; row1[tx + 1] = e[3];
+                    if (layer == 0)
+                        attributes[static_cast<std::size_t>(ty / 2) * side_cells + tx / 2] =
+                            cell[3];
                 }
             }
         }
     }
     previous_tiles_.swap(tiles_);
+    previous_attributes_.swap(attributes_);
     previous_key_ = built_key_;
     tiles_.swap(tiles);
+    attributes_.swap(attributes);
     built_key_ = key;
     ++generation_;
     valid_ = true;
@@ -213,7 +225,9 @@ bool WorldMapSource::update(const std::uint8_t* ewram, std::size_t ewram_bytes,
 bool WorldMapSource::restore_previous() {
     if (previous_tiles_.empty()) return false;
     tiles_.swap(previous_tiles_);
+    attributes_.swap(previous_attributes_);
     previous_tiles_.clear();
+    previous_attributes_.clear();
     rejected_key_ = built_key_;
     built_key_ = previous_key_;
     ++generation_;

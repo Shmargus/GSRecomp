@@ -34,7 +34,10 @@
 #include "field_scene_renderer.h"
 #include "intro_music.h"
 #include "world_map_source.h"
+#include "rain_margins.h"
+#include "tile_ring_redraw.h"
 #include "cheat_menu.h"
+#include "adventure_guide.h"
 #include "hard_mode.h"
 #include "host_config_ui.h"
 #include "seamless_mode.h"
@@ -47,6 +50,8 @@
 #include "relocatable_identity.h"
 #include "relocatable_writer_policy.h"
 #include "player_speed_cheat.h"
+#include "walk_through_walls.h"
+#include "developer_session.h"
 #include "text_speed_cheat.h"
 #include "settings_page.h"
 #include "battle_speed.h"
@@ -7993,14 +7998,55 @@ void golden_sun_sync_obj_placements(gba::GbaBus& bus) {
 // preserved registers: B54A..B56C subtract the half-box and add the scaled
 // offsets. Capture that position in the same table as the field builder.
 // F12 0051: the cave's true Y reaches 256; its byte alone becomes row 0.
+// Func_94820's rain queues the same way (`bl Func_3dec` at 0x08094942).
+constexpr std::uint32_t kGoldenSunRainQueueReturn = 0x08094946u;
 void golden_sun_note_projected_obj_placement(std::uint32_t entry_pc) {
     if (entry_pc != 0x08003DECu ||
         !golden_sun_expanded_obj_view_active()) return;
     const std::uint32_t caller = g_cpu.R[14] & ~1u;
-    if (caller != 0x0800B5C2u && caller != 0x0800B5CCu) return;
+    const bool projected_shadow = caller == 0x0800B64Eu || caller == 0x0800B656u;
+    if (caller != 0x0800B5C2u && caller != 0x0800B5CCu && !projected_shadow &&
+        caller != kGoldenSunRainQueueReturn) return;
     gba::GbaBus* bus = gbarecomp::active_bus();
     if (!bus) return;
     golden_sun_sync_obj_placements(*bus);
+    if (projected_shadow) {
+        // Func_b388 projects the ground position separately from the body.
+        // B5FC/B612/B614 write scratch.x - half_width and
+        // scratch.y - (half_width >> 1) + 2; B64A/B652 queue record+0x0C.
+        // F12 0057: without this route Flint's shadow at row 177 fell back
+        // to the eight-bit reading -79, detached in the top margin.
+        const std::uint32_t half_width = bus->read32(g_cpu.R[13] + 4u);
+        const int x = static_cast<std::int32_t>(
+            bus->read32(g_cpu.R[10]) - half_width);
+        const int y = static_cast<std::int32_t>(
+            bus->read32(g_cpu.R[10] + 4u) - (half_width >> 1) + 2u);
+        g_obj_placements.note(*bus, runtime_current_frame(), g_cpu.R[0], x, y);
+        return;
+    }
+    if (caller == kGoldenSunRainQueueReturn) {
+        // Func_94820's rain drop (record r7 = r0). Its screen position is
+        // gone from the registers by the queue call (0x080948DC masks x,
+        // 0x080948EA reuses r0), so redo the game's own sums: world x and
+        // z - height at +0x0C/+0x14/+0x10, camera x/y at [sp+8]/[sp+4],
+        // each difference truncated toward zero (`bge; add 0xFFFF; asr
+        // 16`), plus the life frame's offsets at r4 - 6 / r4 - 4 (r4 ends at
+        // table entry + 6, 0x08094900). Checked against F12 0052: every
+        // drop this predicts at row <= 159 is in the next frame's OAM there.
+        const auto px = [](std::uint32_t v) {
+            const std::int32_t s = static_cast<std::int32_t>(v);
+            return (s < 0 ? s + 0xFFFF : s) >> 16;
+        };
+        const std::uint32_t r7 = g_cpu.R[7], sp = g_cpu.R[13];
+        const std::uint32_t entry = g_cpu.R[4] - 6u;
+        const int x = px(bus->read32(r7 + 0x0Cu) - bus->read32(sp + 8u)) +
+            static_cast<std::int16_t>(bus->read16(entry));
+        const int y = px(bus->read32(r7 + 0x14u) - bus->read32(r7 + 0x10u) -
+                         bus->read32(sp + 4u)) +
+            static_cast<std::int16_t>(bus->read16(entry + 2u));
+        g_obj_placements.note(*bus, runtime_current_frame(), r7, x, y);
+        return;
+    }
     const int x = static_cast<std::int32_t>(
         bus->read32(g_cpu.R[10]) - g_cpu.R[11] + g_cpu.R[8]);
     const int y = static_cast<std::int32_t>(
@@ -9646,7 +9692,12 @@ void apply_obj_y_continuity_if_enabled(gsr::FieldScene* scene,
         }, g_golden_sun_wide_extra_top, g_golden_sun_wide_extra_bottom);
 }
 
+void adventure_font_frame();
+
 void gpu_field_capture_hook() {
+    adventure_font_frame();
+    if (const auto* bus = gbarecomp::active_bus())
+        gsr::adventure::sample(bus->ewram_ptr(), runtime_current_frame(), bus->iwram_ptr());
     // Page two of Settings, before anything copies this frame (see there).
     native_page_frame_end(true);
     if (!gpu_field_enabled()) return;
@@ -9719,7 +9770,8 @@ void gpu_field_capture_hook() {
         bus->pal_ptr(), ppu->latched_native_line_io(),
         ppu->latched_native_line_io_valid(),
         ppu->latched_native_affine_line_refs(),
-        ppu->latched_native_affine_line_ref_valid());
+        ppu->latched_native_affine_line_ref_valid(),
+        static_cast<int>(ppu->view_extra_top()), static_cast<int>(ppu->view_extra_bottom()));
     if (!scene.valid || !scene.supported) {
         // Invalidate, so gpu_field_present_override() declines this frame
         // instead of drawing the previous capture.
@@ -10129,7 +10181,15 @@ bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
     }
     renderer.set_menu_open(capture.window_open);
     renderer.set_reveal_full(g_field_psynergy_fast.load() != 0);
-    return renderer.draw(capture.scene);
+    // The storm's rain continues into every margin (rain_margins.h); any other
+    // scene draws with no margin data, as before.
+    gsr::SceneMargins margins;
+    const bool rain = golden_sun_rain_margins(capture.scene, margins,
+                                              capture.vram);
+    renderer.set_scene_margins(rain ? &margins : nullptr);
+    const bool drawn = renderer.draw(capture.scene);
+    renderer.set_scene_margins(nullptr);
+    return drawn;
 }
 
 // Submit the current scene, then receive the preceding queued picture with
@@ -10356,6 +10416,13 @@ void load_menu_font() {
     for (std::uint32_t i = 0; i < sizeof g_settings_font.widths; ++i)
         g_settings_font.widths[i] = bus_read_u8(kGlyphWidthTable + i);
     g_settings_font_loaded.store(true, std::memory_order_release);
+}
+
+void adventure_font_frame() {
+    if ((!gsr::adventure::enabled.load() && !gsr::adventure::collectibles_enabled.load()) ||
+        gsr::adventure_ui::font_ready.load(std::memory_order_acquire)) return;
+    load_menu_font();
+    gsr::adventure_ui::publish_font(g_settings_font.tiles, g_settings_font.widths);
 }
 
 void note_settings_loop_frame() {
@@ -11363,9 +11430,14 @@ void seamless_frame_end() {
     gbarecomp::request_exit(gbarecomp::seamless::kExitCodeBase + g_seamless_slot);
 }
 
+// Developer sessions also list the developer-only cheats after these.
 const gbarecomp::GameOptionSwitch kGameSwitches[] = {
     {gsr::seamless::kSwitchLabel, gsr::seamless::kSwitchCaption,
-     gbarecomp::seamless::kOptionKey}};
+     gbarecomp::seamless::kOptionKey},
+    {gbarecomp::walk_through_walls::kSwitchLabel,
+     gbarecomp::walk_through_walls::kSwitchCaption,
+     gbarecomp::walk_through_walls::kOptionKey}};
+constexpr int kPlayerGameSwitchCount = 1;
 
 void cheat_menu_toggle() {
     if (g_hard_prompt_open) return;
@@ -11829,6 +11901,16 @@ struct CameraInset {
 constexpr std::uint32_t kCameraMapNumberAddr = 0x02000408u;
 static std::uint16_t g_camera_room_map = 0;
 
+// Func_10000 keeps each of the three field layers' scroll at [S+0x104 +
+// 0x30 * n] (x, y; 16.16) and redraws only the strip it scrolls onto:
+// column writer 0x0800FF54 when x's 8-pixel tile changes, row writer
+// 0x0800FEC8 (16 cells, the ring's width) when y's 16-pixel row does
+// (0x08010182 / 0x080101B2; tiles rounded with bias 0x7FFFF, literal
+// 0x08010228). The field state is [0x03001E70] in EWRAM (0x02030CCC); the
+// world map's is 0x03002000. Repaint after a jump: tile_ring_redraw.h.
+gsr::TileRingRedraw g_tile_ring_redraw({kCameraStructPointer, 0x104u, 0x30u, 0x0800FEC8u,
+                                        kCameraMapNumberAddr, true});
+
 CameraInset golden_sun_camera_inset() {
     CameraInset inset;
     if (!golden_sun_expanded_obj_view_active()) return inset;
@@ -12079,7 +12161,7 @@ int golden_sun_iris_row_value(std::uint32_t pc, std::uint32_t original,
 
 int golden_sun_thumb_alu_immediate(std::uint32_t pc, std::uint32_t original,
                                    std::uint32_t* out_value) {
-    if (gsr::intro_music::immediate(pc, g_cpu.R[5], out_value)) return 1;
+    if (gsr::intro_music::music.immediate(pc, g_cpu.R[5], out_value)) return 1;
     using namespace gsr::text_speed_cheat;
     if (const int r = golden_sun_worldmap_range_box(pc, original, out_value);
         r >= 0) {
@@ -12146,9 +12228,37 @@ int golden_sun_thumb_alu_immediate(std::uint32_t pc, std::uint32_t original,
     return 1;
 }
 
+// Func_94820's rain respawns each drop at x/z = object [r6] + rand - 128
+// (the -128 << 16 is this literal, 0x080949A4, added to both) and lands it
+// at ground height Func_897c(0, x, z). In the Vale storm that height is 0
+// while the party stands on raised ground, so the drops land 256 rows below
+// the camera top (F12 0053: every drop's z - height - camera y in 128..383,
+// x 69..323, the object at (196, 256) in all 120 frames): the wider view's
+// top had no rain. In the expanded view the offset instead centres the
+// rain on the view: a streak covers its landing spot - 160 .. + 4 (life
+// table 0x0809EF84, frames 15..0), mid -78, so the landings centre 78 rows
+// below the view's middle. x moves by the same amount (one literal); the
+// side repeat in rain_margins.h fills x either way. Returns -1 for any
+// other PC.
+int golden_sun_rain_spawn_offset(std::uint32_t pc, std::uint32_t original,
+                                 std::uint32_t* out_value) {
+    if (pc != 0x08094958u) return -1;
+    if (!golden_sun_expanded_obj_view_active()) return 0;
+    const std::uint32_t camera = bus_read_u32(kCameraStructPointer);
+    const std::int32_t camera_y = static_cast<std::int32_t>(bus_read_u32(camera + 0xE8u));
+    const std::int32_t centre_z = static_cast<std::int32_t>(bus_read_u32(g_cpu.R[6] + 8u));
+    const std::int32_t view_middle = (160 + static_cast<std::int32_t>(g_golden_sun_wide_extra_bottom) -
+                                      static_cast<std::int32_t>(g_golden_sun_wide_extra_top)) / 2;
+    *out_value = original + static_cast<std::uint32_t>(
+        camera_y + ((view_middle + 78) << 16) - centre_z);
+    return 1;
+}
+
 int golden_sun_thumb_literal(std::uint32_t pc, std::uint32_t original,
                              std::uint32_t* out_value) {
     using namespace gsr::text_speed_cheat;
+    if (const int r = golden_sun_rain_spawn_offset(pc, original, out_value); r >= 0)
+        return r;
     if (const int r = golden_sun_worldmap_range_box(pc, original, out_value);
         r >= 0) {
         return r;
@@ -12290,11 +12400,17 @@ int golden_sun_thumb_literal(std::uint32_t pc, std::uint32_t original,
 // vanish at the old right edge on a route none of the Func_b168/b388/c62c
 // hooks see (FACTS.md, 2026-09-24). In the expanded view the x test and the
 // lower y test admit the margins; the upper y test is kept, because an 8-bit
-// OAM y below the screen cannot be told from one above it. Returns -1 for any
-// other PC.
+// OAM y below the screen cannot be told from one above it. Func_94820's (the
+// Vale storm's rain, F12 0050/0052) is the exception: its drops are placed
+// by their full position (golden_sun_note_projected_obj_placement), so its
+// upper test admits the bottom margin for a box that cannot wrap onto the
+// console's top rows. Without it the storm had no rain below the screen:
+// the drops spawn in a 256-pixel square centred 256..288 rows below the
+// camera, and about two thirds of them were held back there. Returns -1 for
+// any other PC.
 int golden_sun_worldmap_sprite_branch(std::uint32_t pc, std::uint32_t original,
                                       std::uint32_t* out_decision) {
-    enum Kind { kX, kYLower };
+    enum Kind { kX, kYLower, kYUpper };
     std::int32_t operand = 0;
     Kind kind = kX;
     switch (pc) {
@@ -12307,6 +12423,8 @@ int golden_sun_worldmap_sprite_branch(std::uint32_t pc, std::uint32_t original,
                           kind = kYLower; break;
         case 0x08094F2Eu: operand = static_cast<std::int32_t>(g_cpu.R[8]);
                           kind = kYLower; break;
+        case 0x080948C8u: operand = static_cast<std::int32_t>(g_cpu.R[0]);
+                          kind = kYUpper; break;
         default: return -1;
     }
     if (original != 1u || !golden_sun_expanded_obj_view_active()) return 0;
@@ -12319,6 +12437,16 @@ int golden_sun_worldmap_sprite_branch(std::uint32_t pc, std::uint32_t original,
             g_golden_sun_wide_extra_left) - slack;
         admit = (operand > 255 && operand <= right) ||
                 (operand < 0 && operand >= left);
+    } else if (kind == kYUpper) {
+        // r4 is the life frame's table entry + 4 here (0x080948A2/B8); its
+        // shape and size bytes are at +2 and +4 (stored at 0x08094902/32).
+        const std::uint16_t shape = bus_read_u8(g_cpu.R[4] + 2u);
+        const std::uint16_t size = bus_read_u8(g_cpu.R[4] + 4u);
+        admit = operand < 160 + static_cast<std::int32_t>(
+                                    g_golden_sun_wide_extra_bottom) &&
+                gsr::widescreen::golden_sun_obj_bottom_margin_cannot_wrap(
+                    operand, static_cast<std::uint16_t>(shape << 14),
+                    static_cast<std::uint16_t>(size << 14));
     } else {
         admit = operand < -32 &&
                 operand >= -32 - static_cast<std::int32_t>(
@@ -12367,7 +12495,7 @@ int golden_sun_overlay_sprite_branch(std::uint32_t pc, std::uint32_t original,
 // every view.
 int golden_sun_conditional_branch(std::uint32_t pc, std::uint32_t original,
                                   std::uint32_t* out_decision) {
-    if (gsr::intro_music::branch(pc, g_cpu.R[5], out_decision)) return 1;
+    if (gsr::intro_music::music.branch(pc, g_cpu.R[5], out_decision)) return 1;
     using namespace gsr::text_speed_cheat;
     if (const int r = golden_sun_worldmap_sprite_branch(pc, original,
                                                         out_decision);
@@ -12381,6 +12509,8 @@ int golden_sun_conditional_branch(std::uint32_t pc, std::uint32_t original,
     }
     if (const int r = cheat_drop_branch(pc, original, out_decision); r >= 0)
         return r;
+    if (gsr::walk_through_walls::is_branch(pc))
+        return gbarecomp::walk_through_walls::decide_branch(original, out_decision);
     skipped_spark_capture(pc, original);
     if (const int r = golden_sun_camera_clamp_branch(pc, original,
                                                      out_decision);
@@ -12410,7 +12540,7 @@ int golden_sun_conditional_branch(std::uint32_t pc, std::uint32_t original,
 int golden_sun_write_override(std::uint32_t pc, std::uint32_t addr,
                               std::uint32_t requested, std::uint32_t width,
                               std::uint32_t* out_value) {
-    gsr::intro_music::header_write(pc, addr, requested, width);
+    gsr::intro_music::music.header_write(pc, addr, requested, width);
     if (const int r = cheat_reward_write(pc, addr, requested, width, out_value);
         r >= 0) {
         return r;
@@ -14086,33 +14216,8 @@ void hard_mode_settings_teardown() {
     bus_write_u8(kAutoSleepFlag, value);
 }
 
-void update_local_music(bool restart = false) {
-    if (!gsr::intro_music::enabled()) return;
-    const bool was_active = gsr::intro_music::active;
-    const auto player = gsr::intro_music::kPlayer;
-    gsr::intro_music::player_state(bus_read_u32(player),
-        bus_read_u32(player + 4), bus_read_u16(player + 0x24),
-        bus_read_u16(player + 0x28), restart);
-    if (was_active != gsr::intro_music::active ||
-        (restart && gsr::intro_music::active)) {
-        // MPlayMain 080F9E34/3E checks active bit80 and dirty bits0F;
-        // 080F9E6A/70 recalculates existing voice gains for dirty bits03.
-        // Refresh existing voices when local selection takes ownership or
-        // relinquishes it after a failed load.
-        for (unsigned i = 0; i < gsr::intro_music::kTrackCount; ++i) {
-            const auto track = gsr::intro_music::kTracks +
-                i * gsr::intro_music::kTrackBytes;
-            const auto flags = bus_read_u8(track);
-            if (flags & 0x80u) bus_write_u8(track, flags | 3u);
-        }
-    }
-}
-
 void golden_sun_function_entry_observer(std::uint32_t entry_pc) {
-    if (entry_pc == gsr::intro_music::kPlayerMain &&
-        g_cpu.R[0] == gsr::intro_music::kPlayer && gsr::intro_music::enabled()) {
-        update_local_music();
-    }
+    gsr::intro_music::music.on_entry(entry_pc);
     if (entry_pc == gsr::hard_mode::kSettingsSetupEntryPc) {
         g_settings_screen_text = true;
         hard_mode_settings_setup();
@@ -14124,6 +14229,7 @@ void golden_sun_function_entry_observer(std::uint32_t entry_pc) {
         hard_mode_scale_enemy();
     }
     seamless_on_entry(entry_pc);
+    if (entry_pc == 0x08010000u) g_tile_ring_redraw.on_follow_entry();  // Func_10000
     golden_sun_note_projected_obj_placement(entry_pc);
     golden_sun_obj_f0_entry_capture(entry_pc);
     golden_sun_obj_staging_handoff(entry_pc);
@@ -15437,9 +15543,12 @@ int main(int argc, char** argv) {
     // After the recorder, for the same extra-draw chaining reason: each of
     // these captures whatever the previous one installed.
     gsr::room_buffer_init();
+    gsr::adventure::init();
     // gbarecomp keeps one savestate-load hook.
     gbarecomp::set_savestate_load_hook([] {
-        update_local_music(true);
+        gsr::adventure::restored.store(true);
+        gsr::adventure::progress_ready.store(false);
+        gsr::intro_music::music.update(true);
         g_gpu_readback.invalidate();
         g_history.clear();
         g_world_settled_capture = {};
@@ -15484,7 +15593,9 @@ int main(int argc, char** argv) {
     options.keyinput_filter = cheat_menu_keyinput_filter;
     options.paused_overlay = cheat_menu_paint;
     gbarecomp::config_ui_set_game_switches(
-        kGameSwitches, static_cast<int>(std::size(kGameSwitches)));
+        kGameSwitches, gbarecomp::developer_session()
+                           ? static_cast<int>(std::size(kGameSwitches))
+                           : kPlayerGameSwitchCount);
     options.pause_request_poll = cheat_menu_pause_poll;
     options.launcher_region = "USA/Europe";
     options.launcher_game_config = "game.toml";

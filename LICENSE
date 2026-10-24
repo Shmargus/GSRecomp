@@ -20,13 +20,13 @@ this whole project:
   JRickey/gba-recomp (MIT OR Apache-2.0); see
   engine/THIRD_PARTY_ATTRIBUTION.md and engine/MODIFICATIONS.md.
 
-  Dear ImGui (MIT), toml++ (MIT) and SDL2 (zlib) are fetched or installed at
-  build time and are not stored in this repository.
+  Dear ImGui (MIT), toml++ (MIT), dr_flac (public domain or MIT-0) and SDL2
+  (zlib) are fetched or installed at build time and are not stored in this
+  repository.
 
 No Golden Sun ROM, BIOS, save or extracted asset is in this repository, and
 none may be added; that material belongs to Nintendo and Camelot Software
 Planning.
 
-See each game's ATTRIBUTION.md for who owns what, and
-The Broken Seal/docs/LEGAL.md before publishing,
-distributing, or relicensing this project.
+See ATTRIBUTION.md for who owns what before publishing, distributing, or
+relicensing this project.

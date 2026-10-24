@@ -28,6 +28,9 @@ bool tla_text_speed_text(std::uint32_t text_id, std::string& out);
 
 // src/tla_walk_speed.cpp: Walk Speed (the engine's walking-speed setting).
 void tla_install_walk_speed(gbarecomp::RunOptions& options);
+// Walk through walls (developer F1 cheat). Chains in front of the branch
+// hook, so it is installed after the hooks that do not chain.
+void tla_install_walk_through_walls(gbarecomp::RunOptions& options);
 
 // Allocation slot table 0x03000000 + id (allocator 0x08014CC0): slot 0x24
 // is non-zero exactly during battles, entry fade included (session
@@ -72,6 +75,11 @@ bool tla_settings_page_text(std::uint32_t text_id, std::string& out);
 void tla_install_hard_mode(gbarecomp::RunOptions& options);
 void tla_hard_mode_on_entry(std::uint32_t pc);
 bool tla_hard_mode_text(std::uint32_t text_id, std::string& out);
+
+// src/tla_local_music.cpp: Local music (album recordings in place of songs).
+void tla_install_local_music(gbarecomp::RunOptions& options);
+void tla_local_music_on_entry(std::uint32_t pc);
+void tla_local_music_on_savestate_load();
 
 // src/tla_cheat_menu.cpp: the cheat menu (F11): Infinite HP/PP and the
 // Experience, Coins and Drop Chance multipliers.
@@ -125,9 +133,14 @@ struct TlaValueCaption {
 void tla_install_widescreen(gbarecomp::RunOptions& options);
 // window_open: a game window (menu) is showing this frame.
 void tla_widescreen_frame(bool window_open);
+// Function entries the expanded view watches (the camera follow).
+void tla_widescreen_on_entry(std::uint32_t pc);
 // Rows the expanded view's camera rule holds the camera from where the game
 // put it (+ below), 0 when the game's own camera is in effect.
 int tla_camera_hold_y();
+// Room bounds (pixels; x then y) the camera rule keeps after the game
+// narrowed them mid-map; the margins show that wider area too.
+bool tla_camera_kept_bounds(bool kept[2], int lo[2], int edge[2]);
 
 // src/tla_sprite_memory.cpp: a second sprite page for field people in the
 // expanded view. The branch hook answers -1 for any other pc. The frame hook

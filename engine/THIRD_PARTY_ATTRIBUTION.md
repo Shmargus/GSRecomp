@@ -38,3 +38,13 @@ Portions of `src/runtime/bios_hle.cpp` are derived from mGBA and remain
 subject to the MPL-2.0; the upstream source is vendored under
 `third_party/mgba/src/gba/bios.c`, satisfying the license's source-availability
 requirement.
+
+
+## dr_flac
+
+- **Upstream:** https://github.com/mackron/dr_libs (`dr_flac.h` v0.13.4, commit `d422edf14ec2b81ac40a7f22b5a7f64276b5fc34`; local copy at `third_party/dr_libs`, otherwise fetched by CMake)
+- **Author:** David Reid
+- **License:** public domain (Unlicense) or MIT No Attribution, at our choice
+
+Used unmodified as a library, not ported: `src/runtime/host_local_music.cpp`
+compiles it to decode the optional local music FLAC files.

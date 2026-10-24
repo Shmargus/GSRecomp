@@ -69,6 +69,20 @@ SPARKLE_BOUNDS = (
     (0x0200B5B4, 0xD821, "sparkle y + 47 above 238; taken skips sprite"),
 )
 
+# F12 tla_rewind_0144/0145, 0147, 0148: the pillar-top routine, loaded at
+# 0x0200925C (map 255), 0x0200B77C (map 263) and 0x02009A78 (map 264).
+PILLAR_TOP_SITES = (
+    (0xB6, 0xD85E, "pillar top x + 7 above 334; taken skips piece"),
+    (0xBE, 0xDD5A, "pillar top row -16 or less; taken skips piece"),
+    (0xC2, 0xDC58, "pillar top row above 239; taken skips piece"),
+    (0xF4, 0xD83F, "tall pillar top x + 0x17 above 350; taken skips piece"),
+    (0xFC, 0xDD3B, "tall pillar top row -64 or less; taken skips piece"),
+    (0x100, 0xDC39, "tall pillar top row above 175; taken skips piece"),
+)
+PILLAR_TOP_BOUNDS = tuple((start + offset, opcode, bound)
+                          for start in (0x0200925C, 0x0200B77C, 0x02009A78)
+                          for offset, opcode, bound in PILLAR_TOP_SITES)
+
 
 def read_pieces(cache_root, rom_sha1):
     pieces = set()
@@ -204,13 +218,16 @@ name = "%s_v%d_e%d"
 note = "seen at 0x%08X"
 ''' % (addr, "thumb" if thumb else "arm", name, v, k, at - (group[v][0]) + rel))
         for v, (pad, code, _, at) in enumerate(group):
-            for site, opcode, bound in WORLD_DESCRIPTOR_BOUNDS + JUMP_PAD_BOUNDS + SPARKLE_BOUNDS:
+            for site, opcode, bound in (WORLD_DESCRIPTOR_BOUNDS + JUMP_PAD_BOUNDS +
+                                        SPARKLE_BOUNDS + PILLAR_TOP_BOUNDS):
                 offset = site - at
                 if (offset < 0 or offset + 2 > len(code) or
                         struct.unpack_from("<H", code, offset)[0] != opcode):
                     continue
                 addr = ORIGIN + v * stride + pad + offset
-                evidence = ("F12 tla_rewind_0108/0109: Thumb function 0x0200B4FC"
+                evidence = ("F12 tla_rewind_0144/0145, 0147, 0148: pillar-top Thumb function"
+                            if (site, opcode, bound) in PILLAR_TOP_BOUNDS else
+                            "F12 tla_rewind_0108/0109: Thumb function 0x0200B4FC"
                             if (site, opcode, bound) in SPARKLE_BOUNDS else
                             "F12 tla_rewind_0103/0104: Thumb function 0x0200B0F4"
                             if (site, opcode, bound) in JUMP_PAD_BOUNDS else

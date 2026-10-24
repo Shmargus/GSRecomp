@@ -407,6 +407,9 @@ GameResult run_game(const std::string& rom) {
     };
     const bool gpu_field_check = g_collection_tests_override && test_enabled("TLA_GPU_FIELD_CHECK");
     common.gpu_field_only = !gpu_field_check;
+#ifdef GSR_LINUX_DEV_LAUNCHER
+    common.developer = true;
+#endif
     gsr::add_common_environment(plan, common);
     // Mutable-RAM native healing is enabled for both player and dev launchers;
     // a launcher test setting can still switch it off below.
@@ -428,6 +431,7 @@ GameResult run_game(const std::string& rom) {
 #else
     const bool developer_launcher = false;
 #endif
+    gsr::add_music_environment(plan, g_collection_root, session_game_index);
     if (g_collection_tests_override || developer_launcher) {
         gsr::add_test_environment(
             plan, [&](const char* name) -> std::optional<bool> {
@@ -435,8 +439,7 @@ GameResult run_game(const std::string& rom) {
                 return test_enabled(name);
             },
             fs::path(result.log_path).replace_extension(".hostprof.txt").string(),
-            developer_launcher,
-            (g_collection_root / "Music" / "TBS-intro.wav").string());
+            developer_launcher);
         enabled_tests = plan.enabled_tests;
         if (gpu_field_check) enabled_tests += ",GSR_GPU_FIELD,GSR_GPU_FIELD_ONLY";
         const char* record = std::getenv("GBARECOMP_INPUT_RECORD");

@@ -16,6 +16,9 @@ inline constexpr const char* kOptionFieldPsynergy = "FieldPsynergy";
 inline constexpr const char* kOptionExpMultiplier = "ExpMultiplier";
 inline constexpr const char* kOptionCoinMultiplier = "CoinMultiplier";
 inline constexpr const char* kOptionDropMultiplier = "DropMultiplier";
+// Music mod (local recordings in place of the game's songs): launcher cog,
+// its first-run question and F1 > Audio. Absent until the player decides.
+inline constexpr const char* kOptionMusicMod = "MusicMod";
 
 void game_options_load(const std::string& path);
 int game_option_get(const char* key, int fallback);

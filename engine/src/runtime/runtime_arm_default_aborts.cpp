@@ -50,6 +50,7 @@
 #include <cstdlib>
 #include <map>
 #include <tuple>
+#include <unordered_map>
 #include <vector>
 
 extern "C" bool g_cost_probe_enabled(void);
@@ -87,7 +88,16 @@ struct RamCodeGuardEntry {
 };
 
 using RamCodeGuardKey = std::tuple<uint32_t, uint32_t, uint32_t>;
-std::map<RamCodeGuardKey, RamCodeGuardEntry> g_ram_code_guards;
+struct RamCodeGuardKeyHash {
+    std::size_t operator()(const RamCodeGuardKey& k) const noexcept {
+        const std::uint64_t a = (std::uint64_t{std::get<0>(k)} << 32) | std::get<1>(k);
+        return static_cast<std::size_t>((a ^ std::get<2>(k)) * 0x9E3779B97F4A7C15ull);
+    }
+};
+// Looked up on every entry of a guarded RAM routine: a hash table, not a
+// tree (std::map was ~6.7% of TLA Turbo guest time, session 20261021_184612).
+std::unordered_map<RamCodeGuardKey, RamCodeGuardEntry, RamCodeGuardKeyHash>
+    g_ram_code_guards;
 std::uint64_t g_ram_smc_fallbacks = 0;
 
 // Program identity, set once at startup, stamped into the persisted miss/

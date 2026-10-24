@@ -17,6 +17,7 @@
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
@@ -28,17 +29,11 @@
 
 #include "field_scene.h"
 #include "field_scene_renderer.h"
-#include "world_map_source.h"
 #include "gba_ppu.h"
 #include "gpu_surface.h"
-#include "tla_water_ripple.h"
-#include "tla_tornado_margins.h"
-#include "scene_repeat.h"
-#include "tla_screen_effect_margins.h"
-#include "tla_ship_water_margins.h"
-#include "tla_background_margins.h"
+#include "tla_flat_map.h"
 #include "tla_room_palette.h"
-#include "tla_room_sprite_clip.h"
+#include "tla_field_draw.h"
 #include "tla_frame_capture.h"
 
 namespace {
@@ -123,7 +118,6 @@ int main(int argc, char** argv) {
     } else {
         if (!read_file((dir / "memory.bin").string(), &memory)) memory.clear();
     }
-    const bool have_memory = memory.size() >= 0x40000;
     const std::uint32_t state_flags = saved.legacy ? 0 : tla_frame::read32(state.data);
     const unsigned ripple_phase = saved.legacy
         ? (memory.size() >= 0x4122D ? memory[0x4122C] : 0)
@@ -208,25 +202,70 @@ int main(int argc, char** argv) {
                          !surface.ready() ? surface.failure() : renderer.failure());
             status = 1;
         } else {
-            gsr::WorldMapSource world_map;
+            TlaFieldDrawState draw_state;
             const auto camhold = saved.find("CAMHOLD");
             const int camera_hold_y = camhold.size == 4
                 ? static_cast<std::int32_t>(tla_frame::read32(camhold.data)) : 0;
+            // tla_camera_kept_bounds when the frame saved it (frames before
+            // it have none: not kept).
+            const auto kept = saved.find("KEPT");
             // Each size starts from the saved frame: the tornado rule rewrites
             // rows (tla_tornado_margins).
             const gsr::FieldScene saved_scene = scene;
+            const std::vector<std::uint8_t> io_bytes(fr.io, fr.io + 0x400),
+                pal_bytes(fr.pal, fr.pal + 0x400),
+                ewram_bytes(memory.begin(), memory.begin() +
+                            std::min<std::size_t>(memory.size(), 0x40000u));
+            // The second sprite page follows when the file has one.
+            std::vector<std::uint8_t> vram(fr.vram, fr.vram + 0x18000);
+            const auto objx = saved.find("OBJX");
+            if (objx.size == 0x8000) vram.insert(vram.end(), objx.data, objx.data + objx.size);
+            std::vector<std::uint16_t> room_colours = room_palette;
+            if (!room_colours.empty() && memory.size() >= 0x48000)
+                tla_restore_room_palette((state_flags & 1u) != 0u,
+                    memory.data(), 0x40000, memory.data() + 0x40000, 0x8000, &room_colours);
+            // The same inputs the game hands tla_field_draw (tla_gpu_field.cpp).
+            TlaFieldFrame in;
+            in.vram = &vram;
+            if (memory.size() >= 0x40000) {
+                in.ewram = memory.data();
+                in.ewram_bytes = 0x40000;
+            }
+            if (memory.size() >= 0x48000) {
+                in.iwram = memory.data() + 0x40000;
+                in.iwram_bytes = 0x8000;
+            }
+            if (!rom.empty()) {
+                in.rom = rom.data();
+                in.rom_bytes = rom.size();
+            }
+            if (!saved.legacy && room_vram.size) {
+                in.room_vram = room_vram.data;
+                in.room_vram_bytes = room_vram.size;
+            }
+            if (!saved.legacy && !room_colours.empty()) {
+                in.room_palette = room_colours.data();
+                in.room_palette_entries = room_colours.size();
+            }
+            in.menu_open = !saved.legacy && (state_flags & 1u) != 0u;
+            in.ripple_phase = ripple_phase;
+            in.camera_hold_y = camera_hold_y;
+            if (kept.size == 24)
+                for (int n = 0; n < 2; ++n) {
+                    in.kept[n] = tla_frame::read32(kept.data + n * 12) != 0;
+                    in.kept_lo[n] = static_cast<std::int32_t>(tla_frame::read32(kept.data + n * 12 + 4));
+                    in.kept_edge[n] = static_cast<std::int32_t>(tla_frame::read32(kept.data + n * 12 + 8));
+                }
+            in.effects = !saved.legacy;
+            in.sparks = stamps.data();
+            in.spark_count = int(stamps.size());
+            in.spark_art = fx_art.data;
+            in.spark_art_bytes = fx_art.size;
             auto draw = [&](int w, int h, bool room, const std::string& name,
                             std::vector<std::uint8_t>* out) {
                 if (!renderer.set_output_size(w, h)) return false;
                 scene = saved_scene;
                 margins.layers = {};
-                if (room && memory.size() >= 0x48000u)
-                    tla_hide_outside_room(scene,
-                        memory.data(), 0x40000u, memory.data() + 0x40000u, 0x8000u);
-                tla_tornado_margins(scene, margins,
-                    room && memory.size() >= 0x42A
-                        ? unsigned(memory[0x428]) | (unsigned(memory[0x429]) << 8) : 0,
-                    -(h - 160) / 2, room ? camera_hold_y : 0);
                 // The game's iris, when the frame saved one (16 bytes).
                 if (const auto iris = saved.find("IRIS"); iris.size == 16) {
                     float v[4];
@@ -234,116 +273,59 @@ int main(int argc, char** argv) {
                     margins.iris = {true, v[0], v[1], v[2], v[3]};
                     std::printf("iris: game's own\n");
                 }
-                // The second sprite page follows when the file has one.
-                std::vector<std::uint8_t> vram(fr.vram, fr.vram + 0x18000);
-                const auto objx = saved.find("OBJX");
-                if (objx.size == 0x8000) vram.insert(vram.end(), objx.data, objx.data + objx.size);
-                tla_weather_sprite_margins(scene, margins, vram);
-                bool port = false;
-                if (room && !rom.empty() && (!saved.legacy || memory.size() >= 0x4122D)) {
-                    const auto sine = [&](unsigned index) {
-                        const auto at = 0x20A8u + index * 2u;
-                        return static_cast<std::int16_t>(rom[at] | (rom[at + 1] << 8));
-                    };
-                    const bool ripple = tla_water_ripple(scene, margins, ripple_phase,
-                                                         sine, -(h - 160) / 2, h);
-                    std::printf("water ripple: %s\n", ripple ? "matched" : "not matched");
-                    port = tla_port_wave(scene, margins, ripple_phase,
-                                         sine, -(h - 160) / 2, h);
-                    std::printf("port wave: %s\n", port ? "matched" : "not matched");
-                }
-                std::vector<std::uint8_t> haze_vram;
-                if (port && tla_haze_fill_rows(vram, scene, &haze_vram, 2)) {
-                    std::printf("haze rows: refilled\n");
-                    vram.swap(haze_vram);
-                }
-                if (room && tla_ship_water_margins(scene, margins, vram)) {
-                    std::printf("ship water: repeated\n");
-                }
-                tla_background_margins(scene, margins,
-                    room ? memory.data() : nullptr, room ? memory.size() : 0);
-                renderer.upload_vram(vram.data(), vram.size());
-                renderer.upload_palette(scene.palette.data(), scene.palette.size());
-                if (!saved.legacy) {
-                    if (room_vram.size)
-                        renderer.upload_room_vram(room_vram.data, room_vram.size);
-                    if (!room_palette.empty()) {
-                        auto colours = room_palette;
-                        if (memory.size() >= 0x48000)
-                            tla_restore_room_palette((state_flags & 1u) != 0u,
-                                memory.data(), 0x40000, memory.data() + 0x40000,
-                                0x8000, &colours);
-                        renderer.upload_room_palette(colours.data(), colours.size());
-                    }
-                    renderer.set_menu_open((state_flags & 1u) != 0u);
-                }
-                renderer.set_room_source_enabled(room);
-                if (room && have_memory) {
-                    const bool known = renderer.upload_room(memory.data(), memory.size());
-                    std::printf("room: %s, world loaded %s, rect x %d..%d y %d..%d, "
-                                "camera %d,%d\n",
-                                known ? "known" : "not known",
-                                renderer.world_loaded() ? "yes" : "no",
-                                renderer.room_min_x(), renderer.room_max_x(),
-                                renderer.room_min_y(), renderer.room_max_y(),
-                                renderer.room_camera_x(), renderer.room_camera_y());
-                    for (int bg = 1; bg <= 3; ++bg) {
-                        int compared = 0;
-                        const int agree = renderer.room_layer_agreement(scene, bg, &compared);
-                        std::printf("  BG%d room agreement %d%% of %d tiles\n", bg,
-                                    agree, compared);
-                    }
-                }
-                // The shared repeating-layer rule, as tla_gpu_field.cpp runs it.
+                TlaFieldDrawReport report;
+                const bool accepted = tla_field_draw(renderer, scene, margins, in, w, h,
+                                                  draw_state, &report);
                 if (room) {
-                    gsr::continue_repeating_layers(scene, margins, vram.data(), vram.size(),
-                        [&](int bg) {
-                            bool from_record = false;
-                            return bg != 0 && renderer.room_known() &&
-                                   renderer.room_reference_for(scene, bg, &from_record);
-                        },
-                        -(h - 160) / 2, h);
+                    if (in.rom) {
+                        std::printf("water ripple: %s\n", report.ripple ? "matched" : "not matched");
+                        std::printf("port wave: %s\n", report.port ? "matched" : "not matched");
+                    }
+                    if (report.haze) std::printf("haze rows: refilled\n");
+                    if (report.ship_water) std::printf("ship water: repeated\n");
+                    if (report.background) std::printf("background: repeated\n");
+                    if (report.ship_view) std::printf("alhafra ship view: land hidden\n");
+                    if (report.kept) std::printf("camera: wider kept bounds\n");
+                    if (in.ewram) {
+                        std::printf("room: %s, world loaded %s, rect x %d..%d y %d..%d, "
+                                    "camera %d,%d\n",
+                                    report.room_known ? "known" : "not known",
+                                    renderer.world_loaded() ? "yes" : "no",
+                                    renderer.room_min_x(), renderer.room_max_x(),
+                                    renderer.room_min_y(), renderer.room_max_y(),
+                                    renderer.room_camera_x(), renderer.room_camera_y());
+                        for (int bg = 1; bg <= 3; ++bg) {
+                            int compared = 0;
+                            const int agree = renderer.room_layer_agreement(scene, bg, &compared);
+                            std::printf("  BG%d room agreement %d%% of %d tiles\n", bg,
+                                        agree, compared);
+                        }
+                    }
                     for (int bg = 0; bg < 4; ++bg)
                         if (margins.layers[bg].vram_height < 0 &&
                             !margins.layers[bg].scroll.empty())
                             std::printf("BG%d: repeating layer continued\n", bg);
+                    if (report.world_map)
+                        std::printf("world map agreement %d%% of %d tiles\n",
+                                    report.world_map_agreement, report.world_map_compared);
                 }
-                if (room && memory.size() >= 0x48000 &&
-                    world_map.update(memory.data(), 0x40000, memory.data() + 0x40000,
-                        0x8000, rom.data(), rom.size())) {
-                    renderer.upload_world_map(world_map.tiles().data(), world_map.generation());
-                    int compared = 0;
-                    const int agreement = renderer.world_map_agreement(scene, &compared);
-                    std::printf("world map agreement %d%% of %d tiles\n", agreement, compared);
-                } else {
-                    renderer.upload_world_map(nullptr, 0);
-                }
-                if (!saved.legacy) {
-                    renderer.set_effect_renderer_enabled(room);
-                    int effect_layer = -1;
-                    if (room && scene.video_mode == 1) {
-                        const auto& bg2 = scene.layers[2];
-                        effect_layer = bg2.enabled && bg2.affine && !bg2.wraps
-                            ? 2 : gsr::FieldSceneRenderer::find_effect_canvas_layer(
-                                fr.vram, 0x18000, scene);
-                    }
-                    renderer.set_effect_layer(effect_layer);
-                    if (effect_layer >= 0) {
-                        if (!stamps.empty())
-                            renderer.upload_effect_sparks(stamps.data(), int(stamps.size()),
-                                fx_art.data, fx_art.size, effect_layer);
-                        renderer.analyse_effect_canvas(fr.vram, 0x18000,
-                            scene.layers[effect_layer]);
-                    }
-                }
-                renderer.set_scene_margins(&margins);
-                if (!renderer.draw(scene)) {
+                if (!accepted) {
                     std::printf("%s: declined, %s\n", name.c_str(),
                                 renderer.declined_reason());
                     return false;
                 }
                 out->resize(static_cast<std::size_t>(w) * h * 3);
                 surface.read_texture_rgb(renderer.output_texture(), w, h, out->data());
+                // The flat map's margins, as tla_gpu_field.cpp's world-map
+                // hold paints them (needs the ROM argument).
+                if (room && !saved.legacy && !rom.empty() &&
+                    tla_flat_map::is_map_screen(io_bytes, ewram_bytes)) {
+                    const bool drawn = tla_flat_map::paint_margins(out->data(),
+                        std::uint32_t(w), std::uint32_t(h), saved_scene, io_bytes,
+                        ewram_bytes, pal_bytes, rom.data(), rom.size());
+                    std::printf("%s: flat map margins %s\n", name.c_str(),
+                                drawn ? "drawn" : "black");
+                }
                 write_ppm(prefix + "_" + name + ".ppm", out->data(), w, h);
                 return true;
             };

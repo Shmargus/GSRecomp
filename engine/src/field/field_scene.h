@@ -81,8 +81,18 @@ struct SceneMarginLayer {
     // A measured repeating patch within that map, for margin pixels only.
     // Zero keeps the full hardware map. Dimensions are powers of two.
     // For room-backed scenery (vram_height == 0, repeat_height == 0),
-    // width repeats this patch horizontally throughout the margins.
+    // width (any size there) repeats this patch horizontally throughout
+    // the margins.
     int repeat_width = 0, repeat_height = 0;
+    // A room layer's repeat measured on the console's rows (scene_repeat.h):
+    // pixels down and the pixels each copy moves right, and pixels across.
+    // Only above or left of the layer's art (source y or x < 0), where the
+    // room has nothing to give.
+    int art_repeat_y = 0, art_repeat_shift = 0, art_repeat_x = 0;
+    // A distant backdrop (sky, far scenery) that also fills the margins past
+    // the room's edge, where the room's own layers stay black. Margin pixels
+    // only; the game's keep-out rectangles still apply.
+    bool past_room_edge = false;
     // Clip a moving room layer against its stationary silhouette, sampled
     // this many rows below its current source. Margin pixels only.
     int rest_clip_y = 0;
@@ -99,7 +109,11 @@ struct SceneMargins {
     std::array<SceneMarginLayer, 4> layers;
     // Game-identified screen effects repeat their sprite layout into margins.
     // Kept outside FieldScene so stored raw SCENE captures retain their ABI.
+    // Period {x, y} per slot; 0 on one axis repeats along the other only.
     std::array<std::array<int, 2>, 128> object_repeat{};
+    // Leave out a copy that would reach into the console's 240x160 window
+    // whole, instead of clipping it at the window's edge.
+    bool object_repeat_whole = false;
     // The game's own iris, when it knows it; otherwise the renderer fits one
     // to the console's rows.
     IrisWindow iris;
@@ -220,6 +234,8 @@ struct FieldScene {
 // are the emulated register file, object table and palette memory; the per-row
 // tables come from the PPU's own latched copies.
 //
+// `view_extra_top` / `_bottom` are the rows the shown view adds above and
+// below the console's 160 (0 at the original size); -1 when not known.
 // Returns false, with `out->supported` false and a reason set, when the frame
 // is not one the scene model describes.
 bool field_scene_capture(FieldScene* out,
@@ -230,7 +246,9 @@ bool field_scene_capture(FieldScene* out,
                          const std::uint8_t* row_io_table,
                          const bool* row_io_valid,
                          const std::int32_t* row_affine_table,
-                         const bool* row_affine_valid);
+                         const bool* row_affine_valid,
+                         int view_extra_top = -1,
+                         int view_extra_bottom = -1);
 
 // True when the scene model can draw this frame. Kept separate so the runner
 // can ask before paying for a capture.

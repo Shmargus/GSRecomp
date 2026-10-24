@@ -19,55 +19,10 @@ it on your machine, and the launcher checks the ROM's SHA-1 first.
 > not a finished release. Bugs and visual/audio inaccuracies are still
 > present, and compatibility is not yet guaranteed.
 
-## Status
-
-- **Latest release: [0.4.2](https://github.com/Shmargus/GSRecomp/releases)**
-  (pre-release), for Windows and Linux. 0.4.2 catches the rare crash after
-  a battle with Psynergy (the game's data unpacker jumping into the picture
-  it was unpacking): the game redoes the unpacking safely, carries on, and
-  asks for a bug report when you close it. Please send those reports; they
-  are how we find the real cause. 0.4.1 added a crash catcher for the same
-  crash. 0.4 added colour profiles with Custom sliders, a 4:3 picture,
-  experimental screen filters, a memory snapshot in bug reports after a
-  crash, and a fix for the black bars on the world map with AMD graphics on
-  Linux.
-- The game is playable from start to the ending credits.
-- Known issues:
-  - A few spell effects (Spark Plasma, Destruct Ray, Supernova, Thor's
-    thunder wave) still stop at the original screen edge in the widescreen
-    view.
-  - Very rarely a single frame flashes pink (a frame the new widescreen
-    drawing cannot handle yet); the game carries on.
-  - The Walk Speed setting does not apply in the Colosso trials (kept on
-    purpose).
-  - A crash in the Vale storm opening or during a battle has been reported
-    a few times; the cause is not found yet. Press **Send report** if it
-    happens.
-  - The data unpacker crash after a Psynergy battle is caught, not fixed
-    yet. Press **Send report** when the launcher asks.
-  - The Mars Star looks garbled when you take it out in Sol Sanctum.
-
-## Playing
-
-1. Download the Windows or Linux zip from
-   [Releases](https://github.com/Shmargus/GSRecomp/releases) and unzip it.
-2. Start root `GoldenSunLauncher` (`GoldenSunLauncher.exe` on Windows), select
-   The Broken Seal or The Lost Age and choose that game's ROM. It remembers each.
-3. On first start, and again after an update, the launcher builds the game
-   code from your ROM, with a progress bar. A compiler is included in the
-   download, so nothing else needs to be installed (Linux needs SDL2 and
-   OpenGL from the system; SteamOS and most desktops have both).
-4. Activate the selected cartridge to play. The root launcher replaces both
-   standalone game launchers; game settings are in its gold cog.
-
-If something goes wrong, press **F12** in the game right after it: the game
-keeps the last two seconds, and when it closes the launcher packs a bug
-report you can send with **Send report**. The launcher also tells you when a
-newer release is out and shows its notes in a "What's new" box.
-
-Managed ROMs live in root `ROMs`; battery saves and savestates live in root
-`Saves`. A save from an emulator that the game cannot read gets an
-explanation from the launcher instead of a silent exit.
+Playing, settings shared with The Lost Age, music mods and known issues are
+in the collection [README](../README.md); what each version changed is in the
+[release notes](https://github.com/Shmargus/GSRecomp/releases). The game is
+playable from the start to the ending credits.
 
 ## Features
 
@@ -75,24 +30,23 @@ explanation from the launcher instead of a silent exit.
   RAM and its overlays. Code that was not prepared ahead of time is compiled
   on the spot the first time it is reached, then remembered.
 - Runs without a GBA BIOS.
-- Expanded widescreen view drawn by a native GPU renderer (field, world map and
-  battles), with spell effects extended into the extra margins.
+- Wider views drawn by a native GPU renderer (field, world map and battles),
+  with spell effects, weather and scenery extended into the extra margins.
 - In-window settings menu (F1): fullscreen, window size, sharp pixels,
-  flicker reduction, colour profiles (Raw, Handheld, Handheld lighter,
-  Soft, Natural, Warm, Deep, and Custom with Saturation, Hue, Brightness,
-  Warmth and Darkening sliders), a 4:3 aspect ratio (the middle of the
-  wide view), experimental screen filters (LCD3x, CRT Lottes, xBR, ScaleFX;
-  need OpenGL), volume, fast forward, an FPS/speed counter, and
-  rebindable controls and hotkeys, including auto fire for A and B and a
-  Quit Game hotkey and configurable Soft Reset. Bindings carry to The Lost
-  Age; the Alternate controller column lets the D-pad and stick work together.
-- Seamless mode asks which slot to use for Clear Data after the ending.
-  Choose another slot to keep your playable save; TLA imports the chosen slot.
-- Optional in-game settings for walking speed, encounter rate, screen size and slowdown
-  removal, plus 2x battle speed (Select in battle).
+  flicker reduction, colour profiles (Raw, Handheld, Handheld lighter, Soft,
+  Natural, Warm, Deep, and Custom with Saturation, Hue, Brightness, Warmth and
+  Darkening sliders), a 4:3 aspect ratio, experimental screen filters
+  (LCD3x, CRT Lottes, xBR, ScaleFX; need OpenGL), volume and the music mod
+  switch, fast forward, an FPS/speed counter, and rebindable controls and
+  hotkeys, including auto fire for A and B, Quit Game and Soft Reset.
+- Seamless mode: after the ending, choose the slot for the Clear Data and go
+  straight on to The Lost Age, which imports that slot.
+- In-game settings for walking speed, encounter rate, screen size and
+  slowdown removal, plus 2x battle speed (Select in battle). Walk Speed does
+  not apply in the Colosso trials, on purpose.
 - **Hard Mode:** enemies have 1.5x HP and 1.25x Attack and Defence. Asked
   once when starting a new game, changeable in the settings screen, and
-  remembered per save (it replaces Auto-Sleep, which is gone).
+  remembered per save (it replaces Auto-Sleep).
 - In-game cheat menu (F11 by default): infinite HP/PP and experience, coin
   and drop-chance multipliers.
 - Block timing: the translated code keeps its cycle count per block instead
@@ -102,15 +56,16 @@ explanation from the launcher instead of a silent exit.
 
 ## Build requirements
 
-- **Windows 10/11 x64** for the development build below. Linux builds are
-  made with the collection's `scripts/make_release_linux.sh` (see "Linux" further down).
+- **Windows 10/11 x64** for the development build below. Linux builds: see
+  [BUILDING.md](../BUILDING.md).
 - **MSYS2** installed at `C:\msys64` with the MinGW-w64 toolchain
   (`mingw-w64-x86_64-gcc`, `mingw-w64-x86_64-make`) and
   `mingw-w64-x86_64-SDL2`. `scripts/build_game.ps1` expects
   `C:/msys64/mingw64/bin/mingw32-make.exe`.
 - **CMake 3.20+** and **Ninja**.
-- **Git**. During configuration CMake downloads Dear ImGui and toml++ at
-  pinned commits, so internet access is needed the first time.
+- **Git**. During configuration CMake downloads Dear ImGui, toml++ and
+  dr_flac at pinned commits (unless `../engine/third_party/` holds them), so
+  internet access is needed the first time.
 - **Python 3.10+**, with the `unicorn` package (`pip install unicorn`) for
   `tools/build_stamp_variants.py`.
 - **Golden Sun disassembly**, [gsret/goldensun](https://github.com/gsret/goldensun)
@@ -187,34 +142,10 @@ folder:
 - `build\gs011_opt\GoldenSunRecomp.exe`: the game.
 - `GoldenSunLauncher.exe`: in the collection root.
 
-### Releases
+Player releases and Linux builds: see [BUILDING.md](../BUILDING.md).
 
-The collection-root `make_release.bat` opens a release window that builds the
-player downloads for Windows, Linux (through WSL Ubuntu 24.04) or both, into
-the root `Releases/`; build the game first. Each download has the
-launcher, engine, builder, translator and a trimmed compiler, and no game
-code. By default it then builds the game from your ROM using only the
-release's own tools, to prove the download is complete. The release scripts
-read the bug-report service address from `local/report_host.txt` (not in
-git); without it the launcher has no Send report button.
-
-- **Linux by hand:** `bash ../scripts/make_release_linux.sh` on a 64-bit Linux
-  machine or WSL (built and tested on Ubuntu 24.04) with GCC, CMake, Ninja and the
-  SDL2/zlib development packages. It makes
-  `Releases/linux/GoldenSunRecompiled-linux-<date>.zip` with the
-  launcher, the engine, the builder and a trimmed copy of that machine's GCC.
-  `--launcher-only` makes a launcher-only update zip. Players need a glibc at
-  least as new as the build machine's (2.38 on Ubuntu 24.04).
-
-## Running
-
-Start `GoldenSunLauncher.exe`. On first launch it asks you to select your
-Golden Sun ROM, checks its SHA-1, remembers the path in
-`local\launcher-rom.txt`, and starts the game. No BIOS is needed to play.
-The launcher's activity is logged to `logs\launcher.log`.
-
-ROMs, BIOS files, saves and anything generated from them must never be committed;
-`.gitignore` excludes them.
+ROMs, BIOS files, saves and anything generated from them must never be
+committed; `.gitignore` excludes them.
 
 ## License
 

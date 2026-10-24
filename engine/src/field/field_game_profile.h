@@ -36,6 +36,11 @@ struct FieldGameProfile {
     std::uint32_t id_grid_addr = 0;        // 128x128 u32 metatile ids
     std::uint32_t atlas_addr = 0;          // 8 bytes per metatile id
     std::uint32_t map_id_addr = 0;         // current map number (u16)
+    // Word holding a pointer to the camera's keep-out rectangles (s16 x0, y0,
+    // x1, y1 each, half-open; x0 = -1 ends the list; pointer 0 = none). The
+    // camera never shows them, and their grid cells may hold another layer's
+    // tiles, so the margins treat them as outside the room. 0: no list.
+    std::uint32_t keep_out_list_addr = 0;
 
     // Widescreen object rules (the game's widescreen_policy.h): how many
     // columns the expanded view adds on each side, and the raw OAM X and Y of
@@ -50,6 +55,9 @@ struct FieldGameProfile {
     // this many bits (The Lost Age stores the mask times the grid's 128
     // columns, so 7); 0 reads it raw.
     int layer_wrap_y_shift = 0;
+    // Pixels per unit of that wrap mask: 8-px tiles unless the game says
+    // otherwise (The Lost Age counts 16-px grid cells).
+    int layer_wrap_unit = 8;
 
     // Room gate for the scene model: when set and it returns false, the frame
     // is not drawable ("the room buffer has no reconstruction for this

@@ -1380,6 +1380,7 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
     // falling back, because the refusals are exactly what still needs finding.
     common.gpu_field_only = !collection_gpu_check && g_audio_settings.gpu_field &&
                             g_audio_settings.gpu_field_only;
+    common.developer = !kReleaseLauncher;
     gsr::add_common_environment(plan, common);
 
     // Replay and recording are mutually exclusive in the runner; reject an
@@ -1460,8 +1461,8 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
         if (dot != std::wstring::npos) prof_path.resize(dot);
         host_prof_file = wide_to_utf8(prof_path + L".hostprof.txt");
     }
-    gsr::add_test_environment(plan, test_option_state, host_prof_file, !kReleaseLauncher,
-        wide_to_utf8((g_collection_root / L"Music" / L"TBS-intro.wav").wstring()));
+    gsr::add_test_environment(plan, test_option_state, host_prof_file, !kReleaseLauncher);
+    gsr::add_music_environment(plan, g_collection_root, session_game_index);
     if (collection_gpu_check) plan.enabled_tests += ",GSR_GPU_FIELD=1,GSR_GPU_FIELD_ONLY=0";
     gsr::remove_variables(plan, gsr::bios_log_variables);
     gsr::remove_variables(plan, gsr::retired_test_variables);

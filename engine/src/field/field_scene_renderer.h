@@ -200,6 +200,20 @@ public:
     // leftovers. Null turns it off. Re-uploads only when `generation` moves.
     void upload_world_map(const std::uint8_t* tiles, std::uint32_t generation);
 
+    // Other artwork for cells of that world map, outside the 240x160 only:
+    // a game that loads one terrain set for the whole screen (The Lost Age's
+    // climates) can draw each margin cell with its own. `art` is `sets`
+    // copies of character blocks 2-3 (VRAM 0x8000-0xFFFF, 32 KB each),
+    // re-uploaded only when `art_generation` moves; `palettes`, 256
+    // background colours per set, every call. `cells` is one byte per
+    // 16-pixel cell (WorldMapSource::cell_attributes()' layout): a set
+    // number, or 255 to keep video memory; it re-uploads only when
+    // `cells_generation` moves. Null `cells` turns it off for this frame.
+    static constexpr int kWorldArtSets = 4;
+    void upload_world_cell_art(const std::uint8_t* cells, std::uint32_t cells_generation,
+                               const std::uint8_t* art, const std::uint16_t* palettes,
+                               int sets, std::uint32_t art_generation);
+
     // Loads this frame's room tables -- rect, camera, id grid, atlas -- from
     // an EWRAM byte buffer. `ewram[0]` must be GBA address 0x02000000,
     // whether that is the live guest's EWRAM or a recorded snapshot's
@@ -303,6 +317,11 @@ private:
     bool world_map_used_ = false;
     std::vector<std::uint8_t> world_tiles_;  // CPU copy of world_map_
     std::uint32_t world_map_generation_ = 0;
+    gbarecomp::GpuTexture world_cell_art_ = 0;
+    gbarecomp::GpuTexture world_art_ = 0;
+    int world_art_sets_ = 0;  // this frame's; 0 is off
+    std::uint32_t world_cells_generation_ = 0;
+    std::uint32_t world_art_generation_ = 0;
     bool room_source_enabled_ = false;
     bool room_valid_ = false;
     // Our spell-effect canvas: the host-side buffer, its texture, and which
@@ -357,6 +376,14 @@ private:
     bool world_loaded_ = true;
     int room_min_x_ = 0, room_max_x_ = 0, room_min_y_ = 0, room_max_y_ = 0;
     int room_camera_x_ = 0, room_camera_y_ = 0;
+    // The game's camera keep-out rectangles (FieldGameProfile::
+    // keep_out_list_addr), room pixels, half-open: x0, y0, x1, y1 each. The
+    // most any map lists is 2 (every map overlay in the TLA ROM scanned,
+    // 2026-10-21); a longer list is not read (count 0).
+    static constexpr int kKeepOutMax = 2;
+    int keep_out_[kKeepOutMax][4] = {};
+    int keep_out_count_ = 0;
+    bool in_keep_out(int room_x, int room_y) const;
     // From the game's per-layer scroll records (upload_room). wrap_x/y 0 =
     // no wrap inside the region.
     struct LayerWrap {

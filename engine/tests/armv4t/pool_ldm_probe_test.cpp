@@ -27,6 +27,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 
 #include "gba_bus.h"
@@ -77,7 +78,14 @@ uint32_t ref_crc32(const uint8_t* data, size_t len) {
     return ~crc;
 }
 
-std::string capture_path() { return "pool_ldm_probe_stderr.tmp"; }
+// In the system temp folder, not wherever the test runs (the collection root
+// under build_dev).
+std::string capture_path() {
+    std::error_code ec;
+    const auto dir = std::filesystem::temp_directory_path(ec);
+    return ec ? "pool_ldm_probe_stderr.tmp"
+              : (dir / "pool_ldm_probe_stderr.tmp").string();
+}
 
 struct FastIwramWriteEvent {
     uint32_t address = 0;

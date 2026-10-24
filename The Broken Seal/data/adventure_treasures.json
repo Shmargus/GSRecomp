@@ -1,0 +1,4795 @@
+{
+  "schema_version": 1,
+  "notice": "Authored factual pickup predicates from original game execution; labels are item names, not copied dialogue or assets. Flags below0800 are current context only; no persisted host checklist. No gameplay completion claim. World-map provider recordFCF (Turtle Boots) is excluded pending evidence that field interaction is active there.",
+  "treasures": [
+    {
+      "id": "gs1-treasure-f41-1-188",
+      "label": "Elixir",
+      "kind": "item",
+      "done": {
+        "flag": 3905
+      },
+      "when": {
+        "all": [
+          {
+            "room": 6
+          },
+          {
+            "not": {
+              "flag": 2100
+            }
+          },
+          {
+            "not": {
+              "flag": 2170
+            }
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f42-1-187",
+      "label": "Antidote",
+      "kind": "item",
+      "done": {
+        "flag": 3906
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 7
+              },
+              {
+                "not": {
+                  "flag": 2069
+                }
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "not": {
+                  "flag": 2170
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 7
+              },
+              {
+                "flag": 2069
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "not": {
+                  "flag": 2170
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 7
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "flag": 2170
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f43-2-6",
+      "label": "6 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3907
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 7
+              },
+              {
+                "not": {
+                  "flag": 2069
+                }
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "not": {
+                  "flag": 2170
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 7
+              },
+              {
+                "flag": 2069
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "not": {
+                  "flag": 2170
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 7
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "flag": 2170
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f44-2-2",
+      "label": "2 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3908
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 7
+              },
+              {
+                "not": {
+                  "flag": 2069
+                }
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "not": {
+                  "flag": 2170
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 7
+              },
+              {
+                "flag": 2069
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "not": {
+                  "flag": 2170
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 7
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "flag": 2170
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f45-1-226",
+      "label": "Smoke Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 3909
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 7
+              },
+              {
+                "not": {
+                  "flag": 2069
+                }
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "not": {
+                  "flag": 2170
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 7
+              },
+              {
+                "flag": 2069
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "not": {
+                  "flag": 2170
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 7
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "flag": 2170
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f46-2-3",
+      "label": "3 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3910
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 7
+              },
+              {
+                "not": {
+                  "flag": 2069
+                }
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "not": {
+                  "flag": 2170
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 7
+              },
+              {
+                "flag": 2069
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "not": {
+                  "flag": 2170
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 7
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "flag": 2170
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f47-1-180",
+      "label": "Herb",
+      "kind": "item",
+      "done": {
+        "flag": 3911
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 8
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 18
+                  },
+                  {
+                    "entrance_min": 20
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "flag": 2069
+                }
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "not": {
+                  "flag": 2170
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 8
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 18
+                  },
+                  {
+                    "entrance_min": 20
+                  }
+                ]
+              },
+              {
+                "flag": 2069
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "not": {
+                  "flag": 2170
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 8
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 18
+                  },
+                  {
+                    "entrance_min": 20
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "flag": 2170
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f48-2-5",
+      "label": "5 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3912
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 8
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 18
+                  },
+                  {
+                    "entrance_min": 20
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "flag": 2069
+                }
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "not": {
+                  "flag": 2170
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 8
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 18
+                  },
+                  {
+                    "entrance_min": 20
+                  }
+                ]
+              },
+              {
+                "flag": 2069
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "not": {
+                  "flag": 2170
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 8
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 18
+                  },
+                  {
+                    "entrance_min": 20
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "flag": 2170
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f49-2-1",
+      "label": "1 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3913
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 8
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 18
+                  },
+                  {
+                    "entrance_min": 20
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "flag": 2069
+                }
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "not": {
+                  "flag": 2170
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 8
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 18
+                  },
+                  {
+                    "entrance_min": 20
+                  }
+                ]
+              },
+              {
+                "flag": 2069
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "not": {
+                  "flag": 2170
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 8
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 18
+                  },
+                  {
+                    "entrance_min": 20
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "flag": 2100
+                }
+              },
+              {
+                "flag": 2170
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f9e-1-194",
+      "label": "Hard Nut",
+      "kind": "item",
+      "done": {
+        "flag": 3998
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 8
+              },
+              {
+                "all": [
+                  {
+                    "entrance_min": 19
+                  },
+                  {
+                    "entrance_max": 19
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "flag": 2384
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 8
+              },
+              {
+                "all": [
+                  {
+                    "entrance_min": 19
+                  },
+                  {
+                    "entrance_max": 19
+                  }
+                ]
+              },
+              {
+                "flag": 2384
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-8ad-1-182",
+      "label": "Vial",
+      "kind": "item",
+      "done": {
+        "flag": 2221
+      },
+      "when": {
+        "all": [
+          {
+            "room": 8
+          },
+          {
+            "any": [
+              {
+                "entrance_max": 18
+              },
+              {
+                "entrance_min": 20
+              }
+            ]
+          },
+          {
+            "not": {
+              "flag": 2100
+            }
+          },
+          {
+            "flag": 2170
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-8ae-2-123",
+      "label": "123 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 2222
+      },
+      "when": {
+        "all": [
+          {
+            "room": 8
+          },
+          {
+            "any": [
+              {
+                "entrance_max": 18
+              },
+              {
+                "entrance_min": 20
+              }
+            ]
+          },
+          {
+            "not": {
+              "flag": 2100
+            }
+          },
+          {
+            "flag": 2170
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-8af-3-0",
+      "label": "Psynergy Stone",
+      "kind": "psynergy",
+      "done": {
+        "flag": 2223
+      },
+      "when": {
+        "all": [
+          {
+            "room": 8
+          },
+          {
+            "any": [
+              {
+                "entrance_max": 18
+              },
+              {
+                "entrance_min": 20
+              }
+            ]
+          },
+          {
+            "not": {
+              "flag": 2100
+            }
+          },
+          {
+            "flag": 2170
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f40-1-180",
+      "label": "Herb",
+      "kind": "item",
+      "done": {
+        "flag": 3904
+      },
+      "when": {
+        "room": 11
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-350-3-0",
+      "label": "Psynergy Stone",
+      "kind": "psynergy",
+      "done": {
+        "flag": 848
+      },
+      "when": {
+        "any": [
+          {
+            "room": 13
+          },
+          {
+            "room": 45
+          },
+          {
+            "room": 58
+          },
+          {
+            "room": 59
+          },
+          {
+            "room": 60
+          },
+          {
+            "room": 71
+          },
+          {
+            "room": 88
+          },
+          {
+            "room": 89
+          },
+          {
+            "room": 90
+          },
+          {
+            "room": 91
+          },
+          {
+            "room": 92
+          },
+          {
+            "room": 171
+          },
+          {
+            "room": 183
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f02-1-225",
+      "label": "Small Jewel",
+      "kind": "item",
+      "done": {
+        "flag": 3842
+      },
+      "when": {
+        "room": 14
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f01-1-225",
+      "label": "Small Jewel",
+      "kind": "item",
+      "done": {
+        "flag": 3841
+      },
+      "when": {
+        "all": [
+          {
+            "room": 16
+          },
+          {
+            "any": [
+              {
+                "entrance_max": 10
+              },
+              {
+                "entrance_min": 17
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f4a-1-181",
+      "label": "Nut",
+      "kind": "item",
+      "done": {
+        "flag": 3914
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 20
+              },
+              {
+                "not": {
+                  "flag": 2133
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 20
+              },
+              {
+                "flag": 2133
+              }
+            ]
+          },
+          {
+            "room": 23
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f4b-2-7",
+      "label": "7 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3915
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 21
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 14
+                  },
+                  {
+                    "entrance_min": 18
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "flag": 2133
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 21
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 14
+                  },
+                  {
+                    "entrance_min": 18
+                  }
+                ]
+              },
+              {
+                "flag": 2133
+              }
+            ]
+          },
+          {
+            "room": 24
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f4c-2-4",
+      "label": "4 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3916
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 21
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 14
+                  },
+                  {
+                    "entrance_min": 18
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "flag": 2133
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 21
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 14
+                  },
+                  {
+                    "entrance_min": 18
+                  }
+                ]
+              },
+              {
+                "flag": 2133
+              }
+            ]
+          },
+          {
+            "room": 24
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f4d-1-227",
+      "label": "Sleep Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 3917
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 21
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 14
+                  },
+                  {
+                    "entrance_min": 18
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "flag": 2133
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 21
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 14
+                  },
+                  {
+                    "entrance_min": 18
+                  }
+                ]
+              },
+              {
+                "flag": 2133
+              }
+            ]
+          },
+          {
+            "room": 24
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f4e-1-195",
+      "label": "Mint",
+      "kind": "item",
+      "done": {
+        "flag": 3918
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 21
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 14
+                  },
+                  {
+                    "entrance_min": 18
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "flag": 2133
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 21
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 14
+                  },
+                  {
+                    "entrance_min": 18
+                  }
+                ]
+              },
+              {
+                "flag": 2133
+              }
+            ]
+          },
+          {
+            "room": 24
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f8c-1-189",
+      "label": "Water of Life",
+      "kind": "item",
+      "done": {
+        "flag": 3980
+      },
+      "when": {
+        "all": [
+          {
+            "room": 22
+          },
+          {
+            "any": [
+              {
+                "entrance_max": 9
+              },
+              {
+                "entrance_min": 11
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f8d-1-226",
+      "label": "Smoke Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 3981
+      },
+      "when": {
+        "all": [
+          {
+            "room": 22
+          },
+          {
+            "any": [
+              {
+                "entrance_max": 9
+              },
+              {
+                "entrance_min": 11
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f8e-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 3982
+      },
+      "when": {
+        "all": [
+          {
+            "room": 22
+          },
+          {
+            "any": [
+              {
+                "entrance_max": 9
+              },
+              {
+                "entrance_min": 11
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f8f-1-187",
+      "label": "Antidote",
+      "kind": "item",
+      "done": {
+        "flag": 3983
+      },
+      "when": {
+        "all": [
+          {
+            "room": 22
+          },
+          {
+            "any": [
+              {
+                "entrance_max": 9
+              },
+              {
+                "entrance_min": 11
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f90-2-44",
+      "label": "44 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3984
+      },
+      "when": {
+        "all": [
+          {
+            "room": 22
+          },
+          {
+            "any": [
+              {
+                "entrance_max": 9
+              },
+              {
+                "entrance_min": 11
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f91-1-188",
+      "label": "Elixir",
+      "kind": "item",
+      "done": {
+        "flag": 3985
+      },
+      "when": {
+        "all": [
+          {
+            "room": 22
+          },
+          {
+            "any": [
+              {
+                "entrance_max": 9
+              },
+              {
+                "entrance_min": 11
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f4f-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 3919
+      },
+      "when": {
+        "room": 27
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f28-1-191",
+      "label": "Power Bread",
+      "kind": "item",
+      "done": {
+        "flag": 3880
+      },
+      "when": {
+        "room": 28
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f50-1-180",
+      "label": "Herb",
+      "kind": "item",
+      "done": {
+        "flag": 3920
+      },
+      "when": {
+        "room": 30
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f51-2-5",
+      "label": "5 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3921
+      },
+      "when": {
+        "room": 30
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f52-1-187",
+      "label": "Antidote",
+      "kind": "item",
+      "done": {
+        "flag": 3922
+      },
+      "when": {
+        "room": 31
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f53-1-227",
+      "label": "Sleep Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 3923
+      },
+      "when": {
+        "room": 31
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f54-1-194",
+      "label": "Hard Nut",
+      "kind": "item",
+      "done": {
+        "flag": 3924
+      },
+      "when": {
+        "room": 31
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f55-1-188",
+      "label": "Elixir",
+      "kind": "item",
+      "done": {
+        "flag": 3925
+      },
+      "when": {
+        "room": 33
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f56-1-226",
+      "label": "Smoke Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 3926
+      },
+      "when": {
+        "room": 33
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f57-1-193",
+      "label": "Apple",
+      "kind": "item",
+      "done": {
+        "flag": 3927
+      },
+      "when": {
+        "any": [
+          {
+            "room": 36
+          },
+          {
+            "room": 38
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f58-1-180",
+      "label": "Herb",
+      "kind": "item",
+      "done": {
+        "flag": 3928
+      },
+      "when": {
+        "any": [
+          {
+            "room": 36
+          },
+          {
+            "room": 38
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f59-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 3929
+      },
+      "when": {
+        "room": 37
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f5a-2-7",
+      "label": "7 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3930
+      },
+      "when": {
+        "room": 37
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f00-1-91",
+      "label": "Fur Coat",
+      "kind": "item",
+      "done": {
+        "flag": 3840
+      },
+      "when": {
+        "room": 43
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f5b-1-265",
+      "label": "Healing Ring",
+      "kind": "item",
+      "done": {
+        "flag": 3931
+      },
+      "when": {
+        "room": 45
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f5c-1-181",
+      "label": "Nut",
+      "kind": "item",
+      "done": {
+        "flag": 3932
+      },
+      "when": {
+        "room": 45
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f5e-1-182",
+      "label": "Vial",
+      "kind": "item",
+      "done": {
+        "flag": 3934
+      },
+      "when": {
+        "room": 47
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fc6-1-186",
+      "label": "Psy Crystal",
+      "kind": "item",
+      "done": {
+        "flag": 4038
+      },
+      "when": {
+        "room": 47
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fc7-1-189",
+      "label": "Water of Life",
+      "kind": "item",
+      "done": {
+        "flag": 4039
+      },
+      "when": {
+        "room": 47
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f5d-1-22",
+      "label": "Elven Rapier",
+      "kind": "item",
+      "done": {
+        "flag": 3933
+      },
+      "when": {
+        "room": 48
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f5f-2-9",
+      "label": "9 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3935
+      },
+      "when": {
+        "room": 50
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f60-1-182",
+      "label": "Vial",
+      "kind": "item",
+      "done": {
+        "flag": 3936
+      },
+      "when": {
+        "room": 50
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f61-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 3937
+      },
+      "when": {
+        "room": 50
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f26-1-185",
+      "label": "Empty Bottle",
+      "kind": "item",
+      "done": {
+        "flag": 3878
+      },
+      "when": {
+        "room": 51
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f62-1-227",
+      "label": "Sleep Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 3938
+      },
+      "when": {
+        "room": 51
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f63-1-196",
+      "label": "Lucky Pepper",
+      "kind": "item",
+      "done": {
+        "flag": 3939
+      },
+      "when": {
+        "room": 51
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f65-1-76",
+      "label": "Psynergy Armor",
+      "kind": "item",
+      "done": {
+        "flag": 3941
+      },
+      "when": {
+        "room": 53
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f64-1-227",
+      "label": "Sleep Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 3940
+      },
+      "when": {
+        "room": 54
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f66-1-186",
+      "label": "Psy Crystal",
+      "kind": "item",
+      "done": {
+        "flag": 3942
+      },
+      "when": {
+        "room": 55
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f67-1-181",
+      "label": "Nut",
+      "kind": "item",
+      "done": {
+        "flag": 3943
+      },
+      "when": {
+        "room": 55
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f69-1-187",
+      "label": "Antidote",
+      "kind": "item",
+      "done": {
+        "flag": 3945
+      },
+      "when": {
+        "all": [
+          {
+            "room": 61
+          },
+          {
+            "any": [
+              {
+                "entrance_max": 2
+              },
+              {
+                "entrance_min": 4
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f68-1-266",
+      "label": "Unicorn Ring",
+      "kind": "item",
+      "done": {
+        "flag": 3944
+      },
+      "when": {
+        "all": [
+          {
+            "room": 61
+          },
+          {
+            "any": [
+              {
+                "entrance_max": 2
+              },
+              {
+                "entrance_min": 4
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f6a-2-6",
+      "label": "6 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3946
+      },
+      "when": {
+        "all": [
+          {
+            "room": 61
+          },
+          {
+            "all": [
+              {
+                "entrance_min": 3
+              },
+              {
+                "entrance_max": 3
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f6b-1-8",
+      "label": "Arctic Blade",
+      "kind": "item",
+      "done": {
+        "flag": 3947
+      },
+      "when": {
+        "room": 65
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f14-1-200",
+      "label": "Orb of Force",
+      "kind": "item",
+      "done": {
+        "flag": 3860
+      },
+      "when": {
+        "room": 66
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f1b-1-193",
+      "label": "Apple",
+      "kind": "item",
+      "done": {
+        "flag": 3867
+      },
+      "when": {
+        "room": 69
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f1a-1-93",
+      "label": "Elven Shirt",
+      "kind": "item",
+      "done": {
+        "flag": 3866
+      },
+      "when": {
+        "room": 70
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f6e-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 3950
+      },
+      "when": {
+        "room": 72
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f6f-1-188",
+      "label": "Elixir",
+      "kind": "item",
+      "done": {
+        "flag": 3951
+      },
+      "when": {
+        "all": [
+          {
+            "room": 73
+          },
+          {
+            "any": [
+              {
+                "entrance_max": 7
+              },
+              {
+                "entrance_min": 9
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f70-1-227",
+      "label": "Sleep Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 3952
+      },
+      "when": {
+        "all": [
+          {
+            "room": 73
+          },
+          {
+            "any": [
+              {
+                "entrance_max": 7
+              },
+              {
+                "entrance_min": 9
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f71-1-191",
+      "label": "Power Bread",
+      "kind": "item",
+      "done": {
+        "flag": 3953
+      },
+      "when": {
+        "room": 74
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f73-1-181",
+      "label": "Nut",
+      "kind": "item",
+      "done": {
+        "flag": 3955
+      },
+      "when": {
+        "room": 76
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f74-2-9",
+      "label": "9 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3956
+      },
+      "when": {
+        "room": 76
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f75-1-227",
+      "label": "Sleep Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 3957
+      },
+      "when": {
+        "room": 76
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f76-1-192",
+      "label": "Cookie",
+      "kind": "item",
+      "done": {
+        "flag": 3958
+      },
+      "when": {
+        "room": 79
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f77-1-123",
+      "label": "Dragon Shield",
+      "kind": "item",
+      "done": {
+        "flag": 3959
+      },
+      "when": {
+        "room": 81
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f07-1-186",
+      "label": "Psy Crystal",
+      "kind": "item",
+      "done": {
+        "flag": 3847
+      },
+      "when": {
+        "room": 83
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f78-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 3960
+      },
+      "when": {
+        "room": 84
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f08-1-203",
+      "label": "Lifting Gem",
+      "kind": "item",
+      "done": {
+        "flag": 3848
+      },
+      "when": {
+        "room": 86
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f79-1-182",
+      "label": "Vial",
+      "kind": "item",
+      "done": {
+        "flag": 3961
+      },
+      "when": {
+        "room": 87
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f7a-1-189",
+      "label": "Water of Life",
+      "kind": "item",
+      "done": {
+        "flag": 3962
+      },
+      "when": {
+        "room": 88
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f7b-1-36",
+      "label": "Vulcan Axe",
+      "kind": "item",
+      "done": {
+        "flag": 3963
+      },
+      "when": {
+        "any": [
+          {
+            "room": 89
+          },
+          {
+            "room": 90
+          },
+          {
+            "room": 91
+          },
+          {
+            "room": 92
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f7c-1-196",
+      "label": "Lucky Pepper",
+      "kind": "item",
+      "done": {
+        "flag": 3964
+      },
+      "when": {
+        "any": [
+          {
+            "room": 89
+          },
+          {
+            "room": 90
+          },
+          {
+            "room": 91
+          },
+          {
+            "room": 92
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-351-3-0",
+      "label": "Psynergy Stone",
+      "kind": "psynergy",
+      "done": {
+        "flag": 849
+      },
+      "when": {
+        "any": [
+          {
+            "room": 89
+          },
+          {
+            "room": 90
+          },
+          {
+            "room": 91
+          },
+          {
+            "room": 92
+          },
+          {
+            "room": 164
+          },
+          {
+            "room": 165
+          },
+          {
+            "room": 186
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f7d-2-777",
+      "label": "777 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3965
+      },
+      "when": {
+        "any": [
+          {
+            "room": 89
+          },
+          {
+            "room": 90
+          },
+          {
+            "room": 91
+          },
+          {
+            "room": 92
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f7e-1-183",
+      "label": "Potion",
+      "kind": "item",
+      "done": {
+        "flag": 3966
+      },
+      "when": {
+        "any": [
+          {
+            "room": 89
+          },
+          {
+            "room": 90
+          },
+          {
+            "room": 91
+          },
+          {
+            "room": 92
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f7f-1-195",
+      "label": "Mint",
+      "kind": "item",
+      "done": {
+        "flag": 3967
+      },
+      "when": {
+        "any": [
+          {
+            "room": 89
+          },
+          {
+            "room": 90
+          },
+          {
+            "room": 91
+          },
+          {
+            "room": 92
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fc2-1-204",
+      "label": "Halt Gem",
+      "kind": "item",
+      "done": {
+        "flag": 4034
+      },
+      "when": {
+        "room": 94
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fc3-1-181",
+      "label": "Nut",
+      "kind": "item",
+      "done": {
+        "flag": 4035
+      },
+      "when": {
+        "room": 94
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fc4-1-130",
+      "label": "Vambrace",
+      "kind": "item",
+      "done": {
+        "flag": 4036
+      },
+      "when": {
+        "room": 97
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f81-1-227",
+      "label": "Sleep Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 3969
+      },
+      "when": {
+        "room": 99
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f82-1-182",
+      "label": "Vial",
+      "kind": "item",
+      "done": {
+        "flag": 3970
+      },
+      "when": {
+        "room": 99
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f83-2-11",
+      "label": "11 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3971
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 100
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 8
+                  },
+                  {
+                    "all": [
+                      {
+                        "entrance_min": 16
+                      },
+                      {
+                        "entrance_max": 16
+                      }
+                    ]
+                  },
+                  {
+                    "entrance_min": 18
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 100
+              },
+              {
+                "any": [
+                  {
+                    "all": [
+                      {
+                        "entrance_min": 9
+                      },
+                      {
+                        "entrance_max": 15
+                      }
+                    ]
+                  },
+                  {
+                    "all": [
+                      {
+                        "entrance_min": 17
+                      },
+                      {
+                        "entrance_max": 17
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f84-1-226",
+      "label": "Smoke Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 3972
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 100
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 8
+                  },
+                  {
+                    "all": [
+                      {
+                        "entrance_min": 16
+                      },
+                      {
+                        "entrance_max": 16
+                      }
+                    ]
+                  },
+                  {
+                    "entrance_min": 18
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 100
+              },
+              {
+                "any": [
+                  {
+                    "all": [
+                      {
+                        "entrance_min": 9
+                      },
+                      {
+                        "entrance_max": 15
+                      }
+                    ]
+                  },
+                  {
+                    "all": [
+                      {
+                        "entrance_min": 17
+                      },
+                      {
+                        "entrance_max": 17
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f85-1-188",
+      "label": "Elixir",
+      "kind": "item",
+      "done": {
+        "flag": 3973
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 100
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 8
+                  },
+                  {
+                    "all": [
+                      {
+                        "entrance_min": 16
+                      },
+                      {
+                        "entrance_max": 16
+                      }
+                    ]
+                  },
+                  {
+                    "entrance_min": 18
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 100
+              },
+              {
+                "any": [
+                  {
+                    "all": [
+                      {
+                        "entrance_min": 9
+                      },
+                      {
+                        "entrance_max": 15
+                      }
+                    ]
+                  },
+                  {
+                    "all": [
+                      {
+                        "entrance_min": 17
+                      },
+                      {
+                        "entrance_max": 17
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f86-1-95",
+      "label": "Water Jacket",
+      "kind": "item",
+      "done": {
+        "flag": 3974
+      },
+      "when": {
+        "room": 103
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f87-1-181",
+      "label": "Nut",
+      "kind": "item",
+      "done": {
+        "flag": 3975
+      },
+      "when": {
+        "room": 103
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f27-3-0",
+      "label": "Psynergy Stone",
+      "kind": "psynergy",
+      "done": {
+        "flag": 3879
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 104
+              },
+              {
+                "not": {
+                  "flag": 2369
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 104
+              },
+              {
+                "flag": 2369
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f88-1-227",
+      "label": "Sleep Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 3976
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 104
+              },
+              {
+                "not": {
+                  "flag": 2369
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 104
+              },
+              {
+                "flag": 2369
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f89-1-181",
+      "label": "Nut",
+      "kind": "item",
+      "done": {
+        "flag": 3977
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 104
+              },
+              {
+                "not": {
+                  "flag": 2369
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 104
+              },
+              {
+                "flag": 2369
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f8a-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 3978
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 105
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 9
+                  },
+                  {
+                    "entrance_min": 11
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "flag": 2369
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 105
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 9
+                  },
+                  {
+                    "entrance_min": 11
+                  }
+                ]
+              },
+              {
+                "flag": 2369
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f8b-1-182",
+      "label": "Vial",
+      "kind": "item",
+      "done": {
+        "flag": 3979
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 105
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 9
+                  },
+                  {
+                    "entrance_min": 11
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "flag": 2369
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 105
+              },
+              {
+                "any": [
+                  {
+                    "entrance_max": 9
+                  },
+                  {
+                    "entrance_min": 11
+                  }
+                ]
+              },
+              {
+                "flag": 2369
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f92-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 3986
+      },
+      "when": {
+        "all": [
+          {
+            "room": 111
+          },
+          {
+            "any": [
+              {
+                "entrance_max": 0
+              },
+              {
+                "all": [
+                  {
+                    "entrance_min": 3
+                  },
+                  {
+                    "entrance_max": 3
+                  }
+                ]
+              },
+              {
+                "all": [
+                  {
+                    "entrance_min": 6
+                  },
+                  {
+                    "entrance_max": 14
+                  }
+                ]
+              },
+              {
+                "all": [
+                  {
+                    "entrance_min": 16
+                  },
+                  {
+                    "entrance_max": 16
+                  }
+                ]
+              },
+              {
+                "all": [
+                  {
+                    "entrance_min": 18
+                  },
+                  {
+                    "entrance_max": 18
+                  }
+                ]
+              },
+              {
+                "all": [
+                  {
+                    "entrance_min": 20
+                  },
+                  {
+                    "entrance_max": 20
+                  }
+                ]
+              },
+              {
+                "all": [
+                  {
+                    "entrance_min": 22
+                  },
+                  {
+                    "entrance_max": 22
+                  }
+                ]
+              },
+              {
+                "entrance_min": 24
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f93-2-23",
+      "label": "23 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3987
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 111
+              },
+              {
+                "all": [
+                  {
+                    "entrance_min": 1
+                  },
+                  {
+                    "entrance_max": 2
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "flag": 2208
+                }
+              },
+              {
+                "not": {
+                  "flag": 2344
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 111
+              },
+              {
+                "all": [
+                  {
+                    "entrance_min": 1
+                  },
+                  {
+                    "entrance_max": 2
+                  }
+                ]
+              },
+              {
+                "flag": 2208
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 111
+              },
+              {
+                "all": [
+                  {
+                    "entrance_min": 1
+                  },
+                  {
+                    "entrance_max": 2
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "flag": 2208
+                }
+              },
+              {
+                "flag": 2344
+              },
+              {
+                "not": {
+                  "flag": 2366
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 111
+              },
+              {
+                "all": [
+                  {
+                    "entrance_min": 1
+                  },
+                  {
+                    "entrance_max": 2
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "flag": 2208
+                }
+              },
+              {
+                "flag": 2344
+              },
+              {
+                "flag": 2366
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f94-1-181",
+      "label": "Nut",
+      "kind": "item",
+      "done": {
+        "flag": 3988
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 111
+              },
+              {
+                "all": [
+                  {
+                    "entrance_min": 5
+                  },
+                  {
+                    "entrance_max": 5
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "flag": 2208
+                }
+              },
+              {
+                "not": {
+                  "flag": 2366
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 111
+              },
+              {
+                "all": [
+                  {
+                    "entrance_min": 5
+                  },
+                  {
+                    "entrance_max": 5
+                  }
+                ]
+              },
+              {
+                "flag": 2208
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 111
+              },
+              {
+                "all": [
+                  {
+                    "entrance_min": 5
+                  },
+                  {
+                    "entrance_max": 5
+                  }
+                ]
+              },
+              {
+                "not": {
+                  "flag": 2208
+                }
+              },
+              {
+                "flag": 2366
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f96-1-183",
+      "label": "Potion",
+      "kind": "item",
+      "done": {
+        "flag": 3990
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 112
+              },
+              {
+                "not": {
+                  "flag": 2384
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 112
+              },
+              {
+                "flag": 2384
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f95-2-35",
+      "label": "35 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3989
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 112
+              },
+              {
+                "not": {
+                  "flag": 2384
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 112
+              },
+              {
+                "flag": 2384
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ec0-2-1",
+      "label": "1 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3776
+      },
+      "when": {
+        "room": 113
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ec1-1-195",
+      "label": "Mint",
+      "kind": "item",
+      "done": {
+        "flag": 3777
+      },
+      "when": {
+        "room": 113
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ec2-1-187",
+      "label": "Antidote",
+      "kind": "item",
+      "done": {
+        "flag": 3778
+      },
+      "when": {
+        "room": 115
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ec3-1-181",
+      "label": "Nut",
+      "kind": "item",
+      "done": {
+        "flag": 3779
+      },
+      "when": {
+        "room": 115
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ec4-2-111",
+      "label": "111 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3780
+      },
+      "when": {
+        "room": 115
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ec5-1-194",
+      "label": "Hard Nut",
+      "kind": "item",
+      "done": {
+        "flag": 3781
+      },
+      "when": {
+        "room": 115
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ec6-1-196",
+      "label": "Lucky Pepper",
+      "kind": "item",
+      "done": {
+        "flag": 3782
+      },
+      "when": {
+        "room": 116
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ec7-1-24",
+      "label": "Mystery Blade",
+      "kind": "item",
+      "done": {
+        "flag": 3783
+      },
+      "when": {
+        "room": 116
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ec8-2-222",
+      "label": "222 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3784
+      },
+      "when": {
+        "room": 116
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ec9-1-188",
+      "label": "Elixir",
+      "kind": "item",
+      "done": {
+        "flag": 3785
+      },
+      "when": {
+        "room": 116
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-eca-2-333",
+      "label": "333 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3786
+      },
+      "when": {
+        "room": 117
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ecb-1-267",
+      "label": "Fairy Ring",
+      "kind": "item",
+      "done": {
+        "flag": 3787
+      },
+      "when": {
+        "room": 117
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ecc-1-192",
+      "label": "Cookie",
+      "kind": "item",
+      "done": {
+        "flag": 3788
+      },
+      "when": {
+        "room": 117
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ecd-1-226",
+      "label": "Smoke Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 3789
+      },
+      "when": {
+        "room": 117
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ece-2-444",
+      "label": "444 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3790
+      },
+      "when": {
+        "room": 118
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ecf-1-227",
+      "label": "Sleep Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 3791
+      },
+      "when": {
+        "room": 118
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ed0-1-96",
+      "label": "Storm Gear",
+      "kind": "item",
+      "done": {
+        "flag": 3792
+      },
+      "when": {
+        "room": 118
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ed1-1-186",
+      "label": "Psy Crystal",
+      "kind": "item",
+      "done": {
+        "flag": 3793
+      },
+      "when": {
+        "room": 118
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ed2-2-555",
+      "label": "555 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3794
+      },
+      "when": {
+        "room": 119
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ed3-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 3795
+      },
+      "when": {
+        "room": 119
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ed4-1-183",
+      "label": "Potion",
+      "kind": "item",
+      "done": {
+        "flag": 3796
+      },
+      "when": {
+        "room": 119
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ed5-1-98",
+      "label": "Ninja Garb",
+      "kind": "item",
+      "done": {
+        "flag": 3797
+      },
+      "when": {
+        "room": 119
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ed6-2-666",
+      "label": "666 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3798
+      },
+      "when": {
+        "room": 120
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ed7-1-189",
+      "label": "Water of Life",
+      "kind": "item",
+      "done": {
+        "flag": 3799
+      },
+      "when": {
+        "room": 120
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ed8-1-188",
+      "label": "Elixir",
+      "kind": "item",
+      "done": {
+        "flag": 3800
+      },
+      "when": {
+        "room": 120
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ed9-1-38",
+      "label": "Demon Axe",
+      "kind": "item",
+      "done": {
+        "flag": 3801
+      },
+      "when": {
+        "room": 120
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-eda-2-777",
+      "label": "777 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3802
+      },
+      "when": {
+        "room": 121
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-edb-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 3803
+      },
+      "when": {
+        "room": 121
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-edc-1-186",
+      "label": "Psy Crystal",
+      "kind": "item",
+      "done": {
+        "flag": 3804
+      },
+      "when": {
+        "room": 121
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-edd-1-50",
+      "label": "Wicked Mace",
+      "kind": "item",
+      "done": {
+        "flag": 3805
+      },
+      "when": {
+        "room": 121
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ede-2-888",
+      "label": "888 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3806
+      },
+      "when": {
+        "room": 122
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-edf-1-183",
+      "label": "Potion",
+      "kind": "item",
+      "done": {
+        "flag": 3807
+      },
+      "when": {
+        "room": 122
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ee0-1-268",
+      "label": "Cleric's Ring",
+      "kind": "item",
+      "done": {
+        "flag": 3808
+      },
+      "when": {
+        "room": 122
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ee1-1-226",
+      "label": "Smoke Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 3809
+      },
+      "when": {
+        "room": 122
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ee2-2-999",
+      "label": "999 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3810
+      },
+      "when": {
+        "room": 123
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ee3-1-189",
+      "label": "Water of Life",
+      "kind": "item",
+      "done": {
+        "flag": 3811
+      },
+      "when": {
+        "room": 123
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ee4-1-11",
+      "label": "Muramasa",
+      "kind": "item",
+      "done": {
+        "flag": 3812
+      },
+      "when": {
+        "room": 123
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ee5-1-227",
+      "label": "Sleep Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 3813
+      },
+      "when": {
+        "room": 123
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-ee6-1-83",
+      "label": "Demon Mail",
+      "kind": "item",
+      "done": {
+        "flag": 3814
+      },
+      "when": {
+        "room": 125
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f97-2-9",
+      "label": "9 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3991
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 135
+              },
+              {
+                "not": {
+                  "flag": 2384
+                }
+              },
+              {
+                "not": {
+                  "flag": 2402
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 135
+              },
+              {
+                "flag": 2384
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 135
+              },
+              {
+                "not": {
+                  "flag": 2384
+                }
+              },
+              {
+                "flag": 2402
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f98-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 3992
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 135
+              },
+              {
+                "not": {
+                  "flag": 2384
+                }
+              },
+              {
+                "not": {
+                  "flag": 2402
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 135
+              },
+              {
+                "flag": 2384
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 135
+              },
+              {
+                "not": {
+                  "flag": 2384
+                }
+              },
+              {
+                "flag": 2402
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f99-1-191",
+      "label": "Power Bread",
+      "kind": "item",
+      "done": {
+        "flag": 3993
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 135
+              },
+              {
+                "not": {
+                  "flag": 2384
+                }
+              },
+              {
+                "not": {
+                  "flag": 2402
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 135
+              },
+              {
+                "flag": 2384
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 135
+              },
+              {
+                "not": {
+                  "flag": 2384
+                }
+              },
+              {
+                "flag": 2402
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f9a-1-182",
+      "label": "Vial",
+      "kind": "item",
+      "done": {
+        "flag": 3994
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 136
+              },
+              {
+                "not": {
+                  "flag": 2384
+                }
+              },
+              {
+                "not": {
+                  "flag": 2402
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 136
+              },
+              {
+                "flag": 2384
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 136
+              },
+              {
+                "not": {
+                  "flag": 2384
+                }
+              },
+              {
+                "flag": 2402
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f9b-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 3995
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 136
+              },
+              {
+                "not": {
+                  "flag": 2384
+                }
+              },
+              {
+                "not": {
+                  "flag": 2402
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 136
+              },
+              {
+                "flag": 2384
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 136
+              },
+              {
+                "not": {
+                  "flag": 2384
+                }
+              },
+              {
+                "flag": 2402
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-8bd-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 2237
+      },
+      "when": {
+        "all": [
+          {
+            "room": 136
+          },
+          {
+            "flag": 2384
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f9f-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 3999
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 138
+              },
+              {
+                "not": {
+                  "flag": 2384
+                }
+              },
+              {
+                "not": {
+                  "flag": 2402
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 138
+              },
+              {
+                "flag": 2384
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 138
+              },
+              {
+                "not": {
+                  "flag": 2384
+                }
+              },
+              {
+                "flag": 2402
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-308-1-181",
+      "label": "Nut",
+      "kind": "item",
+      "done": {
+        "flag": 776
+      },
+      "when": {
+        "room": 143
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-309-1-238",
+      "label": "Oil Drop",
+      "kind": "item",
+      "done": {
+        "flag": 777
+      },
+      "when": {
+        "room": 143
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-30a-1-181",
+      "label": "Nut",
+      "kind": "item",
+      "done": {
+        "flag": 778
+      },
+      "when": {
+        "room": 143
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-338-1-181",
+      "label": "Nut",
+      "kind": "item",
+      "done": {
+        "flag": 824
+      },
+      "when": {
+        "room": 144
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-339-1-226",
+      "label": "Smoke Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 825
+      },
+      "when": {
+        "room": 144
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-33b-1-181",
+      "label": "Nut",
+      "kind": "item",
+      "done": {
+        "flag": 827
+      },
+      "when": {
+        "room": 144
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-36a-1-226",
+      "label": "Smoke Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 874
+      },
+      "when": {
+        "room": 145
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-36b-1-181",
+      "label": "Nut",
+      "kind": "item",
+      "done": {
+        "flag": 875
+      },
+      "when": {
+        "room": 145
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-36c-1-227",
+      "label": "Sleep Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 876
+      },
+      "when": {
+        "room": 145
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f9c-1-182",
+      "label": "Vial",
+      "kind": "item",
+      "done": {
+        "flag": 3996
+      },
+      "when": {
+        "room": 148
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f9d-1-192",
+      "label": "Cookie",
+      "kind": "item",
+      "done": {
+        "flag": 3997
+      },
+      "when": {
+        "room": 150
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f30-1-237",
+      "label": "Mystic Draught",
+      "kind": "item",
+      "done": {
+        "flag": 3888
+      },
+      "when": {
+        "room": 151
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fa0-1-193",
+      "label": "Apple",
+      "kind": "item",
+      "done": {
+        "flag": 4000
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 152
+              },
+              {
+                "not": {
+                  "flag": 2415
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 152
+              },
+              {
+                "flag": 2415
+              }
+            ]
+          },
+          {
+            "room": 157
+          },
+          {
+            "room": 158
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fa1-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 4001
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 152
+              },
+              {
+                "not": {
+                  "flag": 2415
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 152
+              },
+              {
+                "flag": 2415
+              }
+            ]
+          },
+          {
+            "room": 157
+          },
+          {
+            "room": 158
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f22-1-193",
+      "label": "Apple",
+      "kind": "item",
+      "done": {
+        "flag": 3874
+      },
+      "when": {
+        "room": 154
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f1c-1-132",
+      "label": "Spirit Gloves",
+      "kind": "item",
+      "done": {
+        "flag": 3868
+      },
+      "when": {
+        "room": 156
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f1e-1-227",
+      "label": "Sleep Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 3870
+      },
+      "when": {
+        "room": 156
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f1f-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 3871
+      },
+      "when": {
+        "room": 156
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f20-2-200",
+      "label": "200 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 3872
+      },
+      "when": {
+        "room": 156
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f21-1-183",
+      "label": "Potion",
+      "kind": "item",
+      "done": {
+        "flag": 3873
+      },
+      "when": {
+        "room": 156
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fa2-1-188",
+      "label": "Elixir",
+      "kind": "item",
+      "done": {
+        "flag": 4002
+      },
+      "when": {
+        "room": 160
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fa3-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 4003
+      },
+      "when": {
+        "room": 160
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fa4-1-170",
+      "label": "Mythril Circlet",
+      "kind": "item",
+      "done": {
+        "flag": 4004
+      },
+      "when": {
+        "room": 160
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fa5-2-100",
+      "label": "100 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 4005
+      },
+      "when": {
+        "room": 160
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fa6-1-182",
+      "label": "Vial",
+      "kind": "item",
+      "done": {
+        "flag": 4006
+      },
+      "when": {
+        "room": 160
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fa7-1-191",
+      "label": "Power Bread",
+      "kind": "item",
+      "done": {
+        "flag": 4007
+      },
+      "when": {
+        "room": 163
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fb1-1-141",
+      "label": "Virtuous Armlet",
+      "kind": "item",
+      "done": {
+        "flag": 4017
+      },
+      "when": {
+        "any": [
+          {
+            "room": 164
+          },
+          {
+            "room": 165
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fb2-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 4018
+      },
+      "when": {
+        "any": [
+          {
+            "room": 164
+          },
+          {
+            "room": 165
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fb3-1-192",
+      "label": "Cookie",
+      "kind": "item",
+      "done": {
+        "flag": 4019
+      },
+      "when": {
+        "any": [
+          {
+            "room": 164
+          },
+          {
+            "room": 165
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fad-1-194",
+      "label": "Hard Nut",
+      "kind": "item",
+      "done": {
+        "flag": 4013
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 167
+              },
+              {
+                "not": {
+                  "flag": 2415
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 167
+              },
+              {
+                "flag": 2415
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fae-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 4014
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 167
+              },
+              {
+                "not": {
+                  "flag": 2415
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 167
+              },
+              {
+                "flag": 2415
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-faf-2-5",
+      "label": "5 coins",
+      "kind": "coins",
+      "done": {
+        "flag": 4015
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 167
+              },
+              {
+                "not": {
+                  "flag": 2415
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 167
+              },
+              {
+                "flag": 2415
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fb0-1-226",
+      "label": "Smoke Bomb",
+      "kind": "item",
+      "done": {
+        "flag": 4016
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 168
+              },
+              {
+                "not": {
+                  "flag": 2415
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 168
+              },
+              {
+                "flag": 2415
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fb4-1-195",
+      "label": "Mint",
+      "kind": "item",
+      "done": {
+        "flag": 4020
+      },
+      "when": {
+        "room": 170
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f32-1-113",
+      "label": "Oracle's Robe",
+      "kind": "item",
+      "done": {
+        "flag": 3890
+      },
+      "when": {
+        "room": 173
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f33-1-84",
+      "label": "Asura's Armor",
+      "kind": "item",
+      "done": {
+        "flag": 3891
+      },
+      "when": {
+        "room": 173
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fbc-1-196",
+      "label": "Lucky Pepper",
+      "kind": "item",
+      "done": {
+        "flag": 4028
+      },
+      "when": {
+        "room": 177
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fb6-1-189",
+      "label": "Water of Life",
+      "kind": "item",
+      "done": {
+        "flag": 4022
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 178
+              },
+              {
+                "not": {
+                  "flag": 2471
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 178
+              },
+              {
+                "flag": 2471
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fb7-1-186",
+      "label": "Psy Crystal",
+      "kind": "item",
+      "done": {
+        "flag": 4023
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 178
+              },
+              {
+                "not": {
+                  "flag": 2471
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 178
+              },
+              {
+                "flag": 2471
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fb8-1-151",
+      "label": "Warrior's Helm",
+      "kind": "item",
+      "done": {
+        "flag": 4024
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 178
+              },
+              {
+                "not": {
+                  "flag": 2471
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 178
+              },
+              {
+                "flag": 2471
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fb9-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 4025
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 179
+              },
+              {
+                "not": {
+                  "flag": 2471
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 179
+              },
+              {
+                "flag": 2471
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fba-1-187",
+      "label": "Antidote",
+      "kind": "item",
+      "done": {
+        "flag": 4026
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 179
+              },
+              {
+                "not": {
+                  "flag": 2471
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 179
+              },
+              {
+                "flag": 2471
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-fbb-1-229",
+      "label": "Lucky Medal",
+      "kind": "item",
+      "done": {
+        "flag": 4027
+      },
+      "when": {
+        "any": [
+          {
+            "all": [
+              {
+                "room": 180
+              },
+              {
+                "not": {
+                  "flag": 2471
+                }
+              }
+            ]
+          },
+          {
+            "all": [
+              {
+                "room": 180
+              },
+              {
+                "flag": 2471
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f37-1-161",
+      "label": "Lucky Cap",
+      "kind": "item",
+      "done": {
+        "flag": 3895
+      },
+      "when": {
+        "room": 182
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f38-1-206",
+      "label": "Carry Stone",
+      "kind": "item",
+      "done": {
+        "flag": 3896
+      },
+      "when": {
+        "room": 182
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f34-1-162",
+      "label": "Thunder Crown",
+      "kind": "item",
+      "done": {
+        "flag": 3892
+      },
+      "when": {
+        "room": 183
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f35-1-82",
+      "label": "Dragon Scales",
+      "kind": "item",
+      "done": {
+        "flag": 3893
+      },
+      "when": {
+        "room": 185
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    },
+    {
+      "id": "gs1-treasure-f36-1-9",
+      "label": "Gaia Blade",
+      "kind": "item",
+      "done": {
+        "flag": 3894
+      },
+      "when": {
+        "room": 186
+      },
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+    }
+  ]
+}

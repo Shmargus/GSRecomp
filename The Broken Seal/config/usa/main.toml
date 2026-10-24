@@ -9,7 +9,7 @@
 # reviewed section seeds: 2539
 # reviewed interworking resumes: 216
 # derived veneer resumes: 705
-# reviewed conditional branch overrides: 48
+# reviewed conditional branch overrides: 51
 # reviewed resume ranges: 555 from 234 function(s)
 
 [program]
@@ -89,6 +89,10 @@ addr = 0x080948c4
 note = "Func_94820 lower-Y BLT: admit the top margin"
 
 [[conditional_branch_override]]
+addr = 0x080948c8
+note = "Func_94820 upper-Y BGT: admit the bottom margin"
+
+[[conditional_branch_override]]
 addr = 0x08094c56
 note = "Func_94bbc screen-X BHI: admit the expanded margins"
 
@@ -107,6 +111,14 @@ note = "Func_94e7c lower-Y BLT: admit the top margin"
 [[conditional_branch_override]]
 addr = 0x080c26be
 note = "Func_c24f0 drop roll BLE: cheat menu drop multiplier"
+
+[[conditional_branch_override]]
+addr = 0x0800ed22
+note = "Func_ebec debug-byte BEQ: Walk through walls (developer cheat)"
+
+[[conditional_branch_override]]
+addr = 0x0800ed34
+note = "Func_ebec debug L-key BEQ: Walk through walls (developer cheat)"
 
 [[conditional_branch_override]]
 addr = 0x08010262
@@ -351,6 +363,10 @@ note = "Func_10000 camera max-X offset -240: expanded view width"
 [[thumb_literal_override]]
 addr = 0x08010062
 note = "Func_10000 camera max-Y offset -160: expanded view height"
+
+[[thumb_literal_override]]
+addr = 0x08094958
+note = "Func_94820 rain spawn offset -128: centre the rain on the expanded view"
 
 [[code_copy]]
 runtime_start = 0x03000000

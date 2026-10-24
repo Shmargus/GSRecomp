@@ -121,7 +121,8 @@ unsigned sprite_identity(unsigned a0, unsigned a1, unsigned a2) {
     return (a2 & 0xF3FFu) | ((a0 & 0xE000u) << 3) | ((a1 & 0xC000u) << 5);
 }
 
-void capture_objects(FieldScene* s, const std::uint8_t* oam) {
+void capture_objects(FieldScene* s, const std::uint8_t* oam, int extra_top,
+                     int extra_bottom) {
     if (g_seen.frame != s->frame) {
         g_seen.previous_frame = g_seen.frame;
         g_seen.previous = g_seen.current;
@@ -197,9 +198,17 @@ void capture_objects(FieldScene* s, const std::uint8_t* oam) {
             y_trusted = true;
         } else {
             y = (raw_y >= 160) ? raw_y - 256 : raw_y;
-            // The two readings are 256 apart: the nearer one is meant.
+            // The two readings are 256 apart: the nearer one is meant, but
+            // only a reading the shown view can show. At the original size
+            // that is the console's own; menu icons that once dropped in
+            // from above stayed at y -158 instead of 98 (TLA F12
+            // tla_rewind_0118, Psynergy list).
             const int other = (raw_y >= 160) ? raw_y : raw_y - 256;
-            if (before && std::abs(before->y - other) < std::abs(before->y - y))
+            const int box_h = O.double_size ? 2 * O.height : O.height;
+            const bool other_shown = extra_top < 0 ||
+                (other + box_h > -extra_top && other < 160 + extra_bottom);
+            if (before && other_shown &&
+                std::abs(before->y - other) < std::abs(before->y - y))
                 y = other;
         }
         int provided_x = 0;
@@ -331,7 +340,9 @@ bool field_scene_capture(FieldScene* out,
                          const std::uint8_t* row_io_table,
                          const bool* row_io_valid,
                          const std::int32_t* row_affine_table,
-                         const bool* row_affine_valid) {
+                         const bool* row_affine_valid,
+                         int view_extra_top,
+                         int view_extra_bottom) {
     *out = FieldScene{};
     out->frame = frame;
     if (!io || !oam || !pal) {
@@ -350,7 +361,7 @@ bool field_scene_capture(FieldScene* out,
     std::memcpy(out->io_bytes.data(), io, FieldScene::kLineIoBytes);
 
     capture_layers(out, io);
-    capture_objects(out, oam);
+    capture_objects(out, oam, view_extra_top, view_extra_bottom);
     capture_transforms(out, oam);
     capture_effects(out, io);
 

@@ -8254,6 +8254,14 @@ note = "Settings redraw: Message-speed icon table 0x0805EA7C, loaded once per ic
 addr = 0x080134B8
 note = "Frame wait: beq to the full path (sound engine) when [0x0300113A] == 0"
 
+[[conditional_branch_override]]
+addr = 0x08027274
+note = "SHA-1 verified ROM: field walking 0x08027064, ldr r3,=0x03001238 at 0x0802726E, ldrb/cmp r3,#0; beq 0x08027290 (debug byte clear: normal wall/people tests). Walk through walls (developer cheat) decides not taken."
+
+[[conditional_branch_override]]
+addr = 0x08027282
+note = "SHA-1 verified ROM: field walking 0x08027064, keys [0x03001150] & 0x200 (L) at 0x0802727E; beq 0x08027290, else b 0x08027664 skips 0x0802D87C terrain and object tests. Walk through walls (developer cheat) decides not taken."
+
 [[thumb_alu_immediate_override]]
 addr = 0x080134C2
 note = "Frame wait short path: adds r2,#0xfe builds the VBlank-bit clear mask 0xFFFE"
@@ -8616,6 +8624,25 @@ note = "rope segments: max y 0x00DFFFFF"
 addr = 0x080D9C80
 note = "rope segments: y > max skips; not taken = placed (record the placement)"
 
+# Field effect sprites (0x080EB01C, 27 BL callers 0x080D1E0E..0x080EBB3A;
+# the summon tablet's letters, F12 tla_rewind_0155): the console's screen
+# test on the box left r5 / top r6 (src/tla_widescreen.cpp).
+[[conditional_branch_override]]
+addr = 0x080EB22A
+note = "effect sprites: blt after r3 = r5 + width; cmp r3,#0 (ROM verified). Taken drops the sprite."
+
+[[conditional_branch_override]]
+addr = 0x080EB22E
+note = "effect sprites: bgt after cmp r5,#0xEF. F12 0155: left 239 drawn, 240 dropped."
+
+[[conditional_branch_override]]
+addr = 0x080EB236
+note = "effect sprites: ble after r3 = r6 + height; cmp r3,#0. F12 0155: top -7 drawn, -8 dropped."
+
+[[conditional_branch_override]]
+addr = 0x080EB23A
+note = "effect sprites: bgt after cmp r6,#0x9F; not taken = placed (attrs at r7+4, record the placement)."
+
 # The Lash rope's coil (F2 state 1 of 2026-10-09, write watch on a piece's
 # attrs caught 0x080D8B2C): the same four literals and placement test in its
 # own loop (src/tla_widescreen.cpp).
@@ -8739,3 +8766,24 @@ note = "AGFE ROM depth-list insert 0x080140D8: cmp r1,#0xEF; bls 0x080140EA skip
 [[conditional_branch_override]]
 addr = 0x0801412E
 note = "AGFE ROM depth-list insert 0x08014128: cmp r1,#0xFF; ble 0x08014132 skips the clamp of key r1 to 0..255 (same lists, literals 0x0801416C/0x08014170). FACTS 2026-10-15."
+
+# Local music (src/tla_local_music.cpp, launcher "Local music"): the gain
+# helper 0x081C077A (callers 0x081C0962, 0x081C0B9A; channel R4, track R5)
+# saturates each side with `cmp r0,#0xff; bgt` -> `movs r0,#0xff; b` back to
+# the store. While a local recording plays, music player 1's voices take the
+# branch and the MOVS gives 0; every other voice is unchanged.
+[[conditional_branch_override]]
+addr = 0x081C078E
+note = "SHA-1 verified ROM: gain helper 0x081C077A left side, cmp r0,#0xff at 0x081C078C; bgt 0x081C0772 (movs r0,#0xff; b 0x081C0790 strb r0,[r4,#2]). Local music decides taken for player 1's tracks (R5 in 0x02006CE0 + n*0x50)"
+
+[[conditional_branch_override]]
+addr = 0x081C079C
+note = "SHA-1 verified ROM: gain helper right side, cmp r0,#0xff at 0x081C079A; bgt 0x081C0776 (movs r0,#0xff; b 0x081C079E strb r0,[r4,#3]). Local music decides taken for player 1's tracks"
+
+[[thumb_alu_immediate_override]]
+addr = 0x081C0772
+note = "SHA-1 verified ROM: movs r0,#0xff (left gain cap, reached only from bgt 0x081C078E). Local music gives 0 for player 1's tracks while a recording plays"
+
+[[thumb_alu_immediate_override]]
+addr = 0x081C0776
+note = "SHA-1 verified ROM: movs r0,#0xff (right gain cap, reached only from bgt 0x081C079C). Local music gives 0 for player 1's tracks while a recording plays"

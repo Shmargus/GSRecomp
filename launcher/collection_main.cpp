@@ -11,6 +11,8 @@
 #include "collection_session.h"
 #include "collection_preferences.h"
 #include "collection_view_settings.h"
+#include "adventure_settings.h"
+#include "music_mod_settings.h"
 #include "launcher_common.h"
 #include "launcher_test_policy.h"
 #include "collection_build.h"
@@ -640,6 +642,26 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
     std::array<gsr_collection::ViewSettings, 2> view_settings{};
     if (preview.empty()) for (int game = 0; game < 2; ++game)
         preferences[game] = gsr_session::load_launcher_audio_settings(gsr_session::game_root(root, game));
+    // Music mod (music_mod_settings.h): found recordings and the saved choice,
+    // read at start and whenever Settings opens. A game whose folder holds
+    // recordings and that has no saved choice yet asks once.
+    const auto options_file = [&](int game) {
+        return gsr_session::engine(gsr_session::game_root(root, game), game).parent_path() / "game_options.ini";
+    };
+    std::array<bool, 2> music_found{}, music_on{}, music_ask{};
+    const auto refresh_music = [&] {
+        for (int game = 0; game < 2; ++game) {
+            music_found[game] = gsr_collection::music_mod_available(root, game);
+            const auto choice = gsr_collection::music_mod_choice(options_file(game));
+            music_on[game] = music_found[game] && choice.value_or(false);
+            music_ask[game] = music_found[game] && !choice;
+        }
+    };
+    if (preview.empty()) refresh_music();
+    bool request_music_prompt = music_ask[0] || music_ask[1];
+    // Open (or about to open): the launcher behind it takes no input, so the
+    // answering click or button never also starts or builds a game.
+    bool music_prompt_open = request_music_prompt;
     bool settings_open = preview_settings >= 0;
     int settings_game = preview_settings >= 0 ? preview_settings : 0;
     bool request_settings = settings_open;
@@ -756,6 +778,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                     { builder.cancel(); play_after_build = false; then_build = -1; }
                 continue;
             }
+            if (music_prompt_open) continue;
             if (notes_open) {
                 if ((event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) ||
                     (event.type == SDL_CONTROLLERBUTTONDOWN && event.cbutton.button == SDL_CONTROLLER_BUTTON_B)) {
@@ -1077,6 +1100,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                     gsr_session::engine(gsr_session::game_root(root, game), game).parent_path());
             if (preview.empty()) gbarecomp::game_options_load((gsr_session::engine(gsr_session::game_root(root, 0), 0).parent_path() /
                                                                "game_options.ini").string());
+            if (preview.empty()) refresh_music();
             ImGui::OpenPopup("Settings"); request_settings = false;
         }
         ImGui::SetNextWindowPos({center, height / 2}, ImGuiCond_Always, {0.5f, 0.5f});
@@ -1144,6 +1168,22 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             ImGui::TextWrapped("Accept a ROM other than the supported USA/Europe one, such as a translation or a hack. "
                                "The game is made for the supported ROM; another one may not work.");
             ImGui::Separator();
+            ImGui::BeginDisabled(!music_found[settings_game]);
+            if (ImGui::Checkbox("Enable Music Mod", &music_on[settings_game]) && preview.empty() &&
+                !gsr_collection::set_music_mod(options_file(settings_game), music_on[settings_game]))
+                error = "Could not save the Music mod setting.";
+            ImGui::EndDisabled();
+            if (music_found[settings_game])
+                ImGui::TextWrapped(settings_game == 1
+                    ? "Play the recordings in Music/TLA instead of the game's music, and those in Music/TBS for the songs "
+                      "carried over from The Broken Seal. Sound effects stay the same. Also in game under F1 > Audio."
+                    : "Play the recordings in Music/TBS instead of the game's music. Sound effects stay the same. "
+                      "Also in game under F1 > Audio.");
+            else
+                ImGui::TextWrapped(settings_game == 1
+                    ? "No music found. Put recordings in Music/TLA (or Music/TBS) next to the launcher to use a music mod."
+                    : "No music found. Put recordings in Music/TBS next to the launcher to use a music mod.");
+            ImGui::Separator();
 #ifdef _WIN32
             ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "Graphics");
             if (ImGui::Checkbox("Use Direct3D", &game.direct3d) && preview.empty() && !gsr_collection::save_settings(root, settings))
@@ -1171,6 +1211,13 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                     gsr_session::engine(gsr_session::game_root(root, settings_game), settings_game).parent_path(), view))
                 error = "Could not save view settings.";
 #ifdef GSR_COLLECTION_DEV
+            // Quest Tracker, Guide and Area collectibles: developer builds only.
+            if (settings_game == 0)
+                gsr_collection::adventure_settings(
+                    gsr_session::engine(gsr_session::game_root(root, settings_game), settings_game).parent_path(),
+                    preview.empty(), error);
+#endif
+#ifdef GSR_COLLECTION_DEV
             ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
 #ifdef _WIN32
             ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "Game options");
@@ -1183,9 +1230,17 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             ImGui::EndDisabled(); ImGui::EndDisabled();
             if (!preference.gpu_field) preference.gpu_field_only = false;
             preferences_changed |= ImGui::Checkbox("Copy session ID to clipboard", &preference.copy_session_id_to_clipboard);
-            if (preferences_changed && preview.empty() &&
+            bool build_changed = false;
+            if (settings_game == 1) {
+                build_changed = ImGui::Checkbox("Pre-built RAM code", &preference.prebuilt_ram_code);
+                ImGui::TextWrapped("Off skips about 90%% of the game-code compile: RAM code the game ran in "
+                                   "play sessions then compiles while playing, as in player releases. "
+                                   "Changing it needs a rebuild.");
+            }
+            if ((preferences_changed || build_changed) && preview.empty() &&
                 !gsr_session::save_launcher_audio_settings(gsr_session::game_root(root, settings_game), preference))
                 error = "Could not save game options.";
+            else if (build_changed && preview.empty() && building_choice < 0) refresh_builds();
             ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
 #endif
             ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "Developer diagnostics");
@@ -1206,9 +1261,6 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 if (i == gsr_collection::test_index("TLA_GPU_FIELD_CHECK") &&
                     ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                     ImGui::SetTooltip("Enables the GPU field renderer for this check. Unavailable with Direct3D.");
-                if (i == gsr_collection::test_index("GSR_INTRO_MUSIC") &&
-                    ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                    ImGui::SetTooltip("Uses Music/GS1/track-01.wav through track-43.wav. Repeats full recordings; keeps original sound effects and falls back if a file cannot load.");
                 ImGui::EndDisabled();
             }
 #endif
@@ -1257,6 +1309,37 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             ImGui::EndPopup();
         }
         notes_open = ImGui::IsPopupOpen("What's New");
+        // First launch with a music mod in place: ask once, remember the answer.
+        if (request_music_prompt && !settings_open && !notes_open) {
+            ImGui::OpenPopup("Music mod"); request_music_prompt = false;
+        }
+        ImGui::SetNextWindowPos({center, height / 2}, ImGuiCond_Always, {0.5f, 0.5f});
+        ImGui::SetNextWindowSize({std::min(width - 32, 470 * scale), 0}, ImGuiCond_Always);
+        if (ImGui::BeginPopupModal("Music mod", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings)) {
+            ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "Music mod found");
+            ImGui::Separator();
+            const std::string games = music_ask[0] && music_ask[1] ? "The Broken Seal and The Lost Age"
+                                    : music_ask[0] ? "The Broken Seal" : "The Lost Age";
+            ImGui::TextWrapped("The Music folder holds recordings for %s. Play them instead of the game's own music? "
+                               "Sound effects stay the same. You can change this at any time in the cogwheel settings, "
+                               "or in game under F1 > Audio.", games.c_str());
+            ImGui::Separator();
+            const auto answer = [&](bool on) {
+                for (int game = 0; game < 2; ++game) {
+                    if (!music_ask[game]) continue;
+                    if (!gsr_collection::set_music_mod(options_file(game), on))
+                        error = "Could not save the Music mod setting.";
+                    music_on[game] = on;
+                    music_ask[game] = false;
+                }
+                ImGui::CloseCurrentPopup();
+            };
+            if (ImGui::Button("Enable Music Mod")) answer(true);
+            ImGui::SameLine();
+            if (ImGui::Button("Keep the original music")) answer(false);
+            ImGui::EndPopup();
+        }
+        music_prompt_open = request_music_prompt || ImGui::IsPopupOpen("Music mod");
         ImGui::PopFont(); ImGui::PopStyleColor(10);
         ImGui::Render();
         SDL_SetRenderDrawColor(renderer, 10, 22, 32, 255); SDL_RenderClear(renderer);

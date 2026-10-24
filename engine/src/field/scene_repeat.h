@@ -28,6 +28,7 @@ struct LayerRepeat {
     bool found = false;
     int period = 0;   // pixels down
     int shift = 0;    // pixels the next copy moves right
+    int period_x = 0; // pixels across, 0 if the shown columns do not repeat
 };
 
 namespace scene_repeat_detail {
@@ -37,6 +38,20 @@ inline unsigned row_reg(const FieldScene& scene, int y, int at) {
 }
 
 }  // namespace scene_repeat_detail
+
+// True when a text layer's map entry shows a tile with no pixels: every
+// byte of its character data is colour 0. `bgcnt` is the layer's BGxCNT
+// (character base, 16 or 256 colours). False past `vram_bytes`.
+inline bool background_tile_blank(const std::uint8_t* vram, std::size_t vram_bytes,
+                                  unsigned bgcnt, unsigned entry) {
+    const std::size_t chars = std::size_t((bgcnt >> 2) & 3u) * 0x4000u;
+    const std::size_t tile_bytes = (bgcnt & 0x80u) ? 64u : 32u;
+    const std::size_t at = chars + std::size_t(entry & 0x3FFu) * tile_bytes;
+    if (at + tile_bytes > vram_bytes) return false;
+    for (std::size_t i = 0; i < tile_bytes; ++i)
+        if (vram[at + i]) return false;
+    return true;
+}
 
 // Layer `bg`'s repeat, from its tile map in `vram`. Only a regular layer
 // shown on every row with one map, one vertical scroll and its own
@@ -78,17 +93,40 @@ inline LayerRepeat find_layer_repeat(const FieldScene& scene,
         for (int c = 0; c < width && !varied; ++c)
             varied = entry(first + r, c) != entry(first, 0);
     if (!varied) return out;   // one tile everywhere: nothing to continue
+    // Different but see-through tiles are empty space too. The Lost Age
+    // streams an empty layer as a checkerboard of two blank tiles, which
+    // "repeats"; continuing it erased the room's own light shaft (map 179,
+    // F12 0127/0128) and river water (map 159, 0119) in the margins.
+    bool drawn = false;
+    for (int r = 0; r < shown && !drawn; ++r)
+        for (int c = 0; c < width && !drawn; ++c)
+            drawn = !background_tile_blank(vram, vram_bytes, cnt, entry(first + r, c));
+    if (!drawn) return out;
     // Smallest period first, then the smallest sideways move; a move of more
     // than one period (flatter than 45 degrees) is not looked for.
-    for (int period = 1; period * 2 <= shown; ++period) {
+    for (int period = 1; period * 2 <= shown && !out.found; ++period) {
         for (int s = 0; s <= period * 2; ++s) {
             const int shift = (s & 1) ? -((s + 1) / 2) : s / 2;
             bool same = true;
             for (int r = 0; r + period < shown && same; ++r)
                 for (int c = 0; c < width && same; ++c)
                     same = entry(first + r + period, c + shift) == entry(first + r, c);
-            if (same) return {true, period * 8, shift * 8};
+            if (same) { out = {true, period * 8, shift * 8}; break; }
         }
+    }
+    // The same across the columns the screen shows (row 0's scroll), at
+    // least twice: Jupiter Lighthouse's clouds repeat every 64 both ways
+    // (TLA F12 tla_rewind_0142/0146/0147/0149).
+    const int hofs = int(row_reg(scene, 0, 0x10 + bg * 4) & 511u);
+    const int first_col = hofs >> 3;
+    const int cols = ((hofs & 7) + 240 - 1) / 8 + 1;
+    for (int period = 1; period * 2 <= cols && !out.period_x; ++period) {
+        bool same = true;
+        for (int r = 0; r < shown && same; ++r)
+            for (int c = 0; c + period < cols && same; ++c)
+                same = entry(first + r, first_col + c + period) ==
+                       entry(first + r, first_col + c);
+        if (same) out.period_x = period * 8;
     }
     return out;
 }
@@ -153,8 +191,21 @@ inline void continue_repeating_layers(const FieldScene& scene, SceneMargins& mar
         auto& margin = margins.layers[bg];
         if (margin.vram_height != 0 || !margin.scroll.empty()) continue;
         const LayerRepeat repeat = find_layer_repeat(scene, vram, vram_bytes, bg);
+        if (!repeat.found && !repeat.period_x) continue;
+        if (room_fills(bg) && !layer_blended_overlay(scene, bg)) {
+            // Above or left of its art a parallax room layer has nothing:
+            // Jupiter Lighthouse's clouds went black there (TLA map 263,
+            // F12 tla_rewind_0146 f119: BG3 VOFS 60, layer rows -20..-1;
+            // map 264, 0149: HOFS 90, columns -30..-1). Their console rows
+            // and columns repeat every 64.
+            if (repeat.found) {
+                margin.art_repeat_y = repeat.period;
+                margin.art_repeat_shift = repeat.shift;
+            }
+            margin.art_repeat_x = repeat.period_x;
+            continue;
+        }
         if (!repeat.found) continue;
-        if (room_fills(bg) && !layer_blended_overlay(scene, bg)) continue;
         continue_layer_repeat(scene, margin, bg, repeat, first_y, rows);
     }
 }

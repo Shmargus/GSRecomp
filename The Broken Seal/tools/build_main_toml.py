@@ -63,9 +63,12 @@ REVIEWED_CONDITIONAL_BRANCH_OVERRIDES = (
     (0x080031BC, "Frame wait auto-sleep BEQ: idle timer off (Hard Mode replaces Auto-Sleep)"),
     # Three sprite routines that queue with Func_3dec after an x+16 <= 255,
     # y >= -32 test; world-map towns vanish at the old right edge on one of
-    # them (FACTS.md, 2026-09-24). X and lower-Y only.
+    # them (FACTS.md, 2026-09-24). X and lower-Y, plus Func_94820's upper-Y:
+    # its rain drops are placed by full position, so the bottom margin can
+    # take them (runner_main.cpp, golden_sun_worldmap_sprite_branch).
     (0x080948BC, "Func_94820 screen-X BHI: admit the expanded margins"),
     (0x080948C4, "Func_94820 lower-Y BLT: admit the top margin"),
+    (0x080948C8, "Func_94820 upper-Y BGT: admit the bottom margin"),
     (0x08094C56, "Func_94bbc screen-X BHI: admit the expanded margins"),
     (0x08094C5E, "Func_94bbc lower-Y BLT: admit the top margin"),
     (0x08094F26, "Func_94e7c screen-X BHI: admit the expanded margins"),
@@ -73,6 +76,11 @@ REVIEWED_CONDITIONAL_BRANCH_OVERRIDES = (
     # The battle reward tally's drop roll (Func_c24f0, FACTS.md 2026-09-25):
     # the cheat menu's Item Drops multiplier decides it on a scaled threshold.
     (0x080C26BE, "Func_c24f0 drop roll BLE: cheat menu drop multiplier"),
+    # The player's field walking routine (Func_ebec, FACTS.md 2026-10-23):
+    # the developers' debug byte + L path skips every wall and people test;
+    # the developer-only Walk through walls cheat takes it.
+    (0x0800ED22, "Func_ebec debug-byte BEQ: Walk through walls (developer cheat)"),
+    (0x0800ED34, "Func_ebec debug L-key BEQ: Walk through walls (developer cheat)"),
     # Field camera clamp (Func_10230, FACTS.md 2026-10-01): in the expanded
     # view the camera keeps the whole view inside the room.
     (0x08010262, "Func_10230 camera min-X BGE: clamp the expanded view"),
@@ -152,6 +160,7 @@ REVIEWED_THUMB_LITERAL_OVERRIDES = (
     (0x08010288, "Func_10230 camera max-Y offset -160: expanded view height"),
     (0x0801004A, "Func_10000 camera max-X offset -240: expanded view width"),
     (0x08010062, "Func_10000 camera max-Y offset -160: expanded view height"),
+    (0x08094958, "Func_94820 rain spawn offset -128: centre the rain on the expanded view"),
 )
 
 # ROM functions that strict-static execution has shown to take an asynchronous
