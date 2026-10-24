@@ -3,435 +3,367 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Golden Sun Recompiled: Golden Sun and Golden Sun: The Lost Age for the Game Boy Advance, rebuilt as native PC programs for Windows and Linux, with widescreen, extra settings and more. A free fan project.">
+<meta name="description" content="Golden Sun Recompiled: Golden Sun and Golden Sun: The Lost Age for the Game Boy Advance, rebuilt as native PC games for Windows and Linux, with wider views, music mods, extra settings and more. A free fan project.">
 <meta property="og:title" content="Golden Sun Recompiled">
-<meta property="og:description" content="Golden Sun and The Lost Age rebuilt as native PC programs for Windows and Linux. A free fan project.">
+<meta property="og:description" content="Golden Sun and The Lost Age rebuilt as native PC games for Windows and Linux. A free fan project.">
 <meta property="og:image" content="logo.webp">
 <title>Golden Sun Recompiled</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lobster&family=Bebas+Neue&family=Open+Sans:ital,wght@0,400;0,600;0,700;1,400&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,400;0,600;0,700;0,800;0,900;1,400&family=Cinzel:wght@700&display=swap">
 <style>
-/* Layout: a 2011-style fan site. Dark linen backdrop, the logo on it, a white content panel with a right-hand sidebar of boxes. One look in
-   every theme, so every colour is set here explicitly. */
+/* A Golden Sun menu screen, a little newer than the old fan site: a sunrise
+   sky, the games' blue bevelled windows as boxes, their yellow-green title
+   plates as headings, and the four Djinn colours as accents. One look in
+   every theme, so every colour is set here. */
 :root {
-  --linen: #2b2f36;
-  --linen-line: #33383f;
-  --panel: #ffffff;
-  --panel-alt: #f4f6f8;
-  --text: #333a42;
-  --muted: #6a737d;
-  --rule: #dde2e7;
-  --link: #1f63a8;
-  --gold: #f2b632;
-  --gold-deep: #c9861a;
-  --nav-top: #3f6f9f;
-  --nav-bottom: #274d74;
-  --window-top: #3272b0;
-  --window-bottom: #1d4775;
-  --note-bg: #fff8d6;
-  --note-line: #e8d27a;
-  --script: "Lobster", "Brush Script MT", cursive;
-  --head: "Bebas Neue", Impact, "Arial Narrow", sans-serif;
-  --body: "Open Sans", "Segoe UI", Arial, sans-serif;
-  color-scheme: light;
+  --night: #0b1730;
+  --night-2: #13254a;
+  --win-top: #2f7fbf;
+  --win-bottom: #12466f;
+  --win-edge: #e9f3fb;
+  --win-line: #071526;
+  --text-soft: #dcebf7;
+  --text-dim: #a9c4da;
+  --gold: #ffcc4d;
+  --venus: #e6ad2e;
+  --mars: #e5603f;
+  --jupiter: #b07ae0;
+  --mercury: #4bb0f0;
+  --body: "Nunito", "Segoe UI", Arial, sans-serif;
+  --display: "Cinzel", Georgia, serif;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
 body {
-  margin: 0; padding-inline: 16px; padding-block: 10px 40px;
-  font: 14px/1.6 var(--body); color: var(--text);
-  background-color: var(--linen);
+  margin: 0; padding: 0 16px 36px; font: 14px/1.55 var(--body); color: #fff;
+  background-color: var(--night);
   background-image:
-    repeating-linear-gradient(45deg, var(--linen-line) 0 1px, transparent 1px 4px),
-    repeating-linear-gradient(-45deg, rgba(0,0,0,.18) 0 1px, transparent 1px 4px);
+    radial-gradient(ellipse 60% 300px at 50% 0, rgba(255,214,110,.5), transparent 70%),
+    linear-gradient(180deg, #f6c35b 0, #e6823a 180px, #8a3f6b 380px, var(--night-2) 620px, var(--night) 900px);
+  background-repeat: no-repeat;
 }
-a { color: var(--link); }
-.site { max-width: 980px; margin: 0 auto; box-shadow: 0 0 0 1px rgba(0,0,0,.4), 0 8px 30px rgba(0,0,0,.5); border-radius: 6px; overflow: clip; }
-
-/* Header */
-.masthead {
-  max-width: 980px; margin: 0 auto 12px; padding: 0 16px;
-  display: grid; justify-items: center; gap: 2px; position: relative; text-align: center;
-}
-.ai-note {
-  max-width: 980px; margin: 0 auto 6px; padding: 6px 14px; text-align: center;
-  font: 600 12.5px var(--body); color: #e8edf2; background: rgba(0,0,0,.35);
-  border: 1px solid rgba(255,255,255,.12); border-radius: 4px;
-}
-.masthead h1 { margin: 0; line-height: 0; }
-.masthead img { display: block; width: 520px; max-width: 100%; height: auto; filter: drop-shadow(0 4px 10px rgba(0,0,0,.45)); }
-.tagline { font: 600 13px var(--body); color: #cfe0f0; text-shadow: 0 1px 0 rgba(0,0,0,.5); letter-spacing: .02em; margin: 0; }
-.logo { font-family: var(--script); font-size: clamp(34px, 6vw, 52px); line-height: 1; color: var(--gold); text-shadow: 0 2px 0 #7a4a06, 0 3px 8px rgba(0,0,0,.5); margin: 0; font-weight: 400; }
-.logo small { display: block; font: 600 13px var(--body); color: #cfe0f0; text-shadow: 0 1px 0 rgba(0,0,0,.5); margin-top: 8px; letter-spacing: .02em; }
-.wip-stamp {
-  font: 700 11px var(--body); letter-spacing: .12em; text-transform: uppercase; color: #5a3a00;
-  background: linear-gradient(#ffd66b, #f2b632); border: 1px solid #b07a14; border-radius: 3px;
-  padding: 5px 10px; box-shadow: inset 0 1px 0 rgba(255,255,255,.6), 0 1px 2px rgba(0,0,0,.4); transform: rotate(-2deg);
-}
-
-
-/* Body columns */
-.cols { background: var(--panel); display: grid; grid-template-columns: minmax(0, 1fr) 270px; }
-main { padding: 26px 30px 34px; min-width: 0; display: grid; gap: 34px; align-content: start; }
-aside { background: var(--panel-alt); border-left: 1px solid var(--rule); padding: 22px 18px; display: grid; gap: 20px; align-content: start; }
-
-h2.section {
-  font: 400 30px/1 var(--head); letter-spacing: .04em; color: #1d4775; margin: 0 0 12px;
-  padding-bottom: 8px; border-bottom: 2px solid var(--rule); position: relative;
-}
-h2.section::after { content: ""; position: absolute; left: 0; bottom: -2px; width: 60px; height: 2px; background: var(--gold-deep); }
-h3 { font: 700 15px var(--body); margin: 0 0 4px; color: #22303d; }
-p { margin: 0 0 10px; }
-.intro { font-size: 15.5px; }
-.note { background: var(--note-bg); border: 1px solid var(--note-line); border-radius: 4px; padding: 10px 14px; font-size: 13.5px; }
-.note b { color: #7a5500; }
-
-/* Picture: two-up list */
-.pairs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 26px; margin: 0; }
-.pairs div { min-width: 0; }
-.pairs p { color: var(--muted); margin: 0; }
-.where { font-size: 12px; color: var(--muted); }
-.where b { color: var(--text); font-weight: 600; }
-
-/* The settings window, in the game's style */
-.sim-wrap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
-.gswin {
-  background: linear-gradient(180deg, var(--window-top), var(--window-bottom));
-  border: 2px solid #e8f0f8; outline: 2px solid #0d1f33; border-radius: 5px;
-  color: #fff; text-shadow: 1px 1px 0 #0b1a2b; font: 700 13px/1.2 var(--body);
-}
-.gswin.help { padding: 7px 12px; font-style: italic; font-weight: 600; margin-bottom: 8px; min-height: 32px; }
-.gswin.rows { padding: 6px 0; }
-.srow {
-  display: grid; grid-template-columns: 22px 1fr 118px; align-items: center;
-  width: 100%; background: none; border: 0; color: inherit; font: inherit; text-shadow: inherit;
-  padding: 7px 10px 7px 6px; cursor: pointer; text-align: left;
-}
-.srow + .srow { border-top: 1px solid rgba(255,255,255,.12); }
-.srow .hand { visibility: hidden; color: var(--gold); font-size: 14px; }
-.srow.cur .hand { visibility: visible; }
-.srow .val { text-align: center; white-space: nowrap; }
-.srow:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
-.sim-under { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 12px; color: var(--muted); gap: 8px; flex-wrap: wrap; }
-.btns { display: flex; gap: 6px; }
-.btn {
-  font: 700 12px var(--body); color: #2d3640; cursor: pointer;
-  background: linear-gradient(#ffffff, #e3e8ed); border: 1px solid #aeb7c0; border-radius: 4px;
-  padding: 4px 10px; box-shadow: inset 0 1px 0 #fff, 0 1px 1px rgba(0,0,0,.12);
-}
-.btn:active { background: linear-gradient(#e3e8ed, #ffffff); }
-.btn:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
-.gswin.cheatwin { background: #00398c; padding: 8px 0 8px; }
-.cheat-title { text-align: center; padding: 2px 0 8px; font-size: 14px; }
-.crow {
-  display: grid; grid-template-columns: 1fr 124px; align-items: center;
-  width: 100%; background: none; border: 0; color: inherit; font: inherit; text-shadow: inherit;
-  padding: 7px 12px 7px 14px; cursor: pointer; text-align: left;
-}
-.crow .val { text-align: center; white-space: nowrap; }
-
-.crow:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
-.screen-col { display: grid; gap: 10px; justify-items: start; min-width: 0; }
-.bezel { background: #3a3f4a; padding: 10px; border-radius: 10px; box-shadow: inset 0 2px 4px rgba(0,0,0,.5), 0 1px 0 #fff; max-width: 100%; }
-canvas.gba { display: block; width: 480px; max-width: 100%; aspect-ratio: 3 / 2; image-rendering: pixelated; image-rendering: crisp-edges; background: #16222e; cursor: pointer; }
-canvas.gba:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
-.pad { display: flex; gap: 6px; flex-wrap: wrap; }
+a { color: var(--gold); }
+a:hover { color: #fff1b3; }
+:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+.wrap { max-width: 940px; margin: 0 auto; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.explain { background: var(--panel-alt); border: 1px solid var(--rule); border-radius: 4px; padding: 12px 14px; min-height: 100%; }
-.explain h3 { color: #1d4775; }
-.explain .opts { font-size: 12.5px; color: var(--muted); margin: 0; }
 
-/* Tables */
-table.plain { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-table.plain th, table.plain td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
-table.plain th { font-weight: 700; background: linear-gradient(#fafbfc, #eef1f4); color: #3b4550; border-top: 1px solid var(--rule); }
-table.plain tr:nth-child(even) td { background: #fafbfc; }
-.tblwrap { overflow-x: auto; }
-
-/* Bullet lists */
-ul.ticks { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-ul.ticks li { padding-left: 22px; position: relative; }
-ul.ticks li::before { content: ""; position: absolute; left: 2px; top: 7px; width: 9px; height: 9px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #ffe08a, var(--gold-deep)); box-shadow: 0 0 0 1px #a86d10; }
-ul.ticks.later li::before { background: radial-gradient(circle at 35% 35%, #fff, #b8c2cc); box-shadow: 0 0 0 1px #8f9aa5; }
-.tag { font: 700 10px var(--body); text-transform: uppercase; letter-spacing: .08em; color: #8a5a00; background: #fff1c2; border: 1px solid #e8cf7a; border-radius: 3px; padding: 1px 5px; margin-left: 6px; vertical-align: 1px; }
-
-/* Sidebar boxes */
-/* FAQ */
-.faq { display: grid; gap: 8px; }
-.faq details { border: 1px solid var(--rule); border-radius: 4px; background: linear-gradient(#fdfdfe, #f3f5f8); }
-.faq details[open] { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
-.faq summary {
-  list-style: none; cursor: pointer; padding: 10px 14px 10px 38px; position: relative;
-  font-weight: 700; color: #22303d;
+/* ---- Top ---- */
+.ai-note { margin: 0; padding: 6px 0 0; text-align: center; font: 600 11px var(--body); color: #4a2a08; opacity: .8; }
+.hero { text-align: center; padding: 8px 0 0; }
+.hero h1 { margin: 0; line-height: 0; }
+.hero img { width: 380px; max-width: 100%; height: auto; filter: drop-shadow(0 4px 10px rgba(80,30,0,.45)); }
+.tagline { margin: 2px auto 0; font: 800 15px/1.4 var(--body); text-shadow: 0 2px 0 rgba(90,30,0,.5); }
+.cta { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 12px 0 4px; }
+.stone {
+  display: inline-block; text-decoration: none; font: 900 14px var(--body); color: #4a2a00;
+  padding: 8px 18px; border-radius: 999px; background: linear-gradient(180deg, #fff2a8, var(--gold) 45%, #f0a91e);
+  border: 2px solid #fff6c9; box-shadow: 0 0 0 2px #8a5600, 0 4px 0 #8a5600; transition: transform .1s ease;
 }
-.faq summary::-webkit-details-marker { display: none; }
-.faq summary::before {
-  content: "+"; position: absolute; left: 12px; top: 9px; width: 16px; height: 16px;
-  border-radius: 3px; background: linear-gradient(var(--nav-top), var(--nav-bottom));
-  color: #fff; font: 700 13px/16px var(--body); text-align: center;
+.stone:hover { color: #4a2a00; transform: translateY(-1px); }
+.stone:active { transform: translateY(2px); }
+.release-line { margin: 8px 0 0; font: 700 12px var(--body); text-shadow: 0 1px 2px rgba(60,20,0,.6); }
+.release-line a { color: #fff; }
+
+nav.tabs { position: sticky; top: 0; z-index: 5; margin: 14px 0 22px; display: flex; justify-content: center; }
+nav.tabs ul {
+  list-style: none; margin: 0; padding: 4px; display: flex; flex-wrap: wrap; gap: 2px; justify-content: center;
+  background: rgba(7,21,38,.85); border: 2px solid rgba(233,243,251,.5); border-radius: 10px;
 }
-.faq details[open] summary::before { content: "\2212"; }
-.faq summary:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
-.faq .a { padding: 0 16px 12px 38px; }
-.faq .a p:last-child { margin-bottom: 0; }
-.faq ol { margin: 0 0 10px; padding-left: 20px; }
-.faq ol li { margin-bottom: 4px; }
-.box { background: #fff; border: 1px solid #cfd6dd; border-radius: 5px; box-shadow: 0 1px 2px rgba(0,0,0,.06); overflow: hidden; }
-.box h4 { margin: 0; padding: 8px 12px; font: 400 18px/1 var(--head); letter-spacing: .05em; color: #fff; background: linear-gradient(var(--nav-top), var(--nav-bottom)); text-shadow: 0 -1px 0 rgba(0,0,0,.4); }
-.box .in { padding: 10px 12px; font-size: 13px; }
-.keys { list-style: none; margin: 0; padding: 0; }
-.keys li { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px dotted #d3d9df; align-items: center; }
-.keys li:last-child { border-bottom: 0; }
+nav.tabs a { display: block; padding: 4px 11px; border-radius: 7px; text-decoration: none; font: 800 13px var(--body); color: var(--text-soft); }
+nav.tabs a:hover { background: rgba(255,204,77,.16); color: #fff; }
+
+/* ---- Game windows and title plates ---- */
+.win {
+  border-radius: 8px; padding: 14px 16px;
+  background: linear-gradient(180deg, var(--win-top), var(--win-bottom));
+  border: 2px solid var(--win-edge); outline: 2px solid var(--win-line);
+  box-shadow: inset 0 2px 0 rgba(255,255,255,.16), 0 6px 16px rgba(0,0,0,.35);
+  text-shadow: 1px 1px 0 rgba(4,16,30,.75);
+}
+.win p { margin: 0 0 8px; color: var(--text-soft); }
+.win p:last-child { margin-bottom: 0; }
+.win b { color: #fff; }
+section { margin: 0 0 30px; scroll-margin-top: 60px; }
+.plate {
+  display: inline-block; margin: 0 0 10px; padding: 3px 12px 4px;
+  font: 900 16px/1.15 var(--body); color: #fff;
+  background: linear-gradient(180deg, #ffff58, #2fd82f);
+  border: 2px solid #fff; outline: 2px solid #1b1b1b; border-radius: 3px;
+  text-shadow: 2px 2px 0 #3a3a3a, -1px -1px 0 #3a3a3a, 1px -1px 0 #3a3a3a, -1px 1px 0 #3a3a3a;
+}
+.games { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 10px; }
+.games div { flex: 1 1 260px; }
+.games h3 { margin: 0 0 2px; font: 700 16px var(--display); color: var(--gold); }
+.note { margin-top: 10px; padding: 7px 11px; border-radius: 6px; color: #fff; background: rgba(255,204,77,.12); border: 1px dashed rgba(255,204,77,.6); }
+.note b { color: var(--gold); }
+
+/* Features: small windows, a Djinn-coloured stripe each */
+.cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.card { padding: 11px 13px 10px 16px; box-shadow: inset 4px 0 0 var(--c), inset 0 2px 0 rgba(255,255,255,.16), 0 6px 16px rgba(0,0,0,.35); display: flex; flex-direction: column; }
+.card h3 { margin: 0 0 3px; font: 900 14.5px/1.25 var(--body); color: #fff; }
+.card p { font-size: 13px; }
+.card .where { margin-top: auto; padding-top: 4px; font-size: 12px; color: var(--text-dim); }
+.venus { --c: var(--venus); } .mars { --c: var(--mars); } .jupiter { --c: var(--jupiter); } .mercury { --c: var(--mercury); }
+.new { font: 900 10px var(--body); text-transform: uppercase; letter-spacing: .06em; color: #3a2400; text-shadow: none; background: var(--gold); border-radius: 999px; padding: 1px 6px; margin-left: 3px; vertical-align: 1px; }
 kbd {
-  font: 700 11px var(--body); color: #333; white-space: nowrap;
-  background: linear-gradient(#fff, #e6e9ec); border: 1px solid #aab3bc; border-radius: 3px;
-  padding: 1px 5px; box-shadow: 0 1px 0 #9aa3ac;
+  font: 800 11px var(--body); color: #12324f; white-space: nowrap; text-shadow: none;
+  background: linear-gradient(#ffffff, #d8e4ee); border: 1px solid #7c97ad; border-radius: 4px; padding: 0 5px; box-shadow: 0 1px 0 #6c8499;
 }
-.box ul.small { margin: 0; padding-left: 18px; }
-.keynote { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid #d3d9df; font-size: 12px; color: var(--muted); }
-.box ul.small li { margin-bottom: 4px; }
-a.report {
-  display: block; text-align: center; text-decoration: none;
-  font: 700 13px var(--body); color: #5a3a00; padding: 7px 10px; border-radius: 4px;
-  background: linear-gradient(#ffd66b, #f2b632); border: 1px solid #b07a14;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.6), 0 1px 2px rgba(0,0,0,.25);
-}
-a.report:hover { background: linear-gradient(#ffe08a, #f5c04a); }
-a.report:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 
-footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14px 28px; border-top: 1px solid #0e1114; display: grid; gap: 4px; }
+/* Music */
+.music { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.steps { margin: 4px 0 8px; padding-left: 20px; color: var(--text-soft); }
+.steps li { margin-bottom: 3px; }
+.links { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.links a { display: block; text-decoration: none; padding: 6px 11px; border-radius: 7px; color: #fff; font-weight: 800; background: rgba(4,16,30,.35); border: 1px solid rgba(233,243,251,.35); }
+.links a:hover { border-color: var(--gold); }
+.links a.main { color: #3a2400; text-shadow: none; background: linear-gradient(180deg, #fff2a8, var(--gold) 50%, #f0a91e); border-color: #fff6c9; }
+.links small { display: block; font-weight: 600; font-size: 11.5px; opacity: .8; }
+.thanks { font-size: 12.5px; }
 
-@media (max-width: 800px) {
-  .cols { grid-template-columns: minmax(0, 1fr); }
-  aside { border-left: 0; border-top: 1px solid var(--rule); }
-  .sim-wrap, .pairs { grid-template-columns: minmax(0, 1fr); }
-  main { padding: 20px 18px 26px; }
-  .masthead { padding: 20px 18px; }
+/* Try the menus */
+.try { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.try h3 { margin: 0 0 2px; font: 900 14.5px var(--body); }
+.try .hint { font-size: 12.5px; }
+.bezel { margin: 6px 0; padding: 7px; border-radius: 9px; background: linear-gradient(#3f4656, #262b36); box-shadow: inset 0 2px 4px rgba(0,0,0,.6); }
+canvas.gba { display: block; width: 100%; aspect-ratio: 3 / 2; image-rendering: pixelated; image-rendering: crisp-edges; background: #16222e; border-radius: 3px; cursor: pointer; }
+.pad { display: flex; gap: 4px; }
+.btn { font: 900 12px var(--body); color: #12324f; cursor: pointer; min-width: 32px; padding: 3px 8px; background: linear-gradient(#ffffff, #d8e4ee); border: 1px solid #7c97ad; border-radius: 6px; box-shadow: 0 2px 0 #6c8499; }
+.btn:active { transform: translateY(1px); box-shadow: 0 1px 0 #6c8499; }
+.explain { margin-top: 6px; padding: 7px 10px; border-radius: 7px; background: rgba(4,16,30,.35); min-height: 74px; font-size: 13px; }
+.explain h3 { color: var(--gold); margin: 0 0 1px; font: 900 13px var(--body); }
+.explain p { margin: 0 0 3px; }
+.explain .opts { font-size: 12px; color: var(--text-dim); margin: 0; }
+
+/* Keys and needs */
+.duo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.duo h3 { margin: 0 0 6px; font: 900 14.5px var(--body); }
+.keys { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 18px; }
+.keys li { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; break-inside: avoid; color: var(--text-soft); font-size: 13px; }
+.fine { font-size: 12px; color: var(--text-dim); margin-top: 6px !important; }
+.ticks { margin: 0; padding-left: 18px; color: var(--text-soft); }
+.ticks li { margin-bottom: 4px; }
+
+/* FAQ */
+.faq { padding: 8px 10px; }
+.faq details + details { border-top: 1px solid rgba(233,243,251,.18); }
+.faq summary { list-style: none; cursor: pointer; padding: 7px 8px 7px 26px; position: relative; font-weight: 800; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::before { content: ""; position: absolute; left: 9px; top: 12px; border: 5px solid transparent; border-left: 7px solid var(--gold); transition: transform .15s ease; transform-origin: 2px 5px; }
+.faq details[open] summary::before { transform: rotate(90deg); }
+.faq .a { padding: 0 8px 9px 26px; }
+.faq ol { margin: 0 0 6px; padding-left: 18px; color: var(--text-soft); }
+
+footer { text-align: center; font-size: 12px; color: var(--text-dim); display: grid; gap: 3px; }
+footer b { color: var(--text-soft); }
+
+@media (max-width: 860px) {
+  .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .music, .try, .duo { grid-template-columns: minmax(0, 1fr); }
 }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media (max-width: 520px) {
+  .cards { grid-template-columns: minmax(0, 1fr); }
+  .keys { columns: 1; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
 </style>
 </head>
 <body>
 <p class="ai-note">Portions of this project were developed with the assistance of AI-based development tools.</p>
-<header class="masthead">
+
+<div class="wrap">
+  <header class="hero">
     <h1><img src="logo.webp" width="1774" height="887" alt="Golden Sun Recompiled"></h1>
-</header>
-<div class="site">
+    <p class="tagline">Golden Sun and The Lost Age, rebuilt as real PC games for Windows and Linux.</p>
+    <div class="cta">
+      <!-- Filled from GitHub's newest release when the page loads (script at
+           the end); these values are the fallback. -->
+      <a class="stone" id="download-windows" href="https://github.com/Shmargus/GSRecomp/releases/download/0.6/GoldenSunRecompiled-0.6-windows.zip">Download for Windows</a>
+      <a class="stone" id="download-linux" href="https://github.com/Shmargus/GSRecomp/releases/download/0.6/GoldenSunRecompiled-0.6-linux.zip">Download for Linux</a>
+    </div>
+    <p class="release-line"><span id="release-line">Test release 0.6</span> &middot; free &middot; bring your own game files &middot; <a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">what's new</a></p>
+  </header>
 
+  <nav class="tabs" aria-label="Sections">
+    <ul>
+      <li><a href="#about">What is it?</a></li>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#music">Music mods</a></li>
+      <li><a href="#try">Try the menus</a></li>
+      <li><a href="#keys">Keys</a></li>
+      <li><a href="#faq">FAQ</a></li>
+    </ul>
+  </nav>
 
-  <div class="cols">
-    <main>
-      <section id="about">
-        <h2 class="section">What is this?</h2>
-        <p class="intro">Golden Sun Recompiled turns both Game Boy Advance games, <b>The Broken Seal</b> (2001) and <b>The Lost Age</b> (2002), into programs that run straight on Windows and Linux, including the Steam Deck. It isn't an emulator. The games' own code is translated into PC code, so you get the same adventure with a wider screen, a proper settings menu and a handful of optional extras.</p>
-        <p>You bring your own copy of each game. Nothing from the games comes with this project, and your game files are never changed.</p>
-        <div class="note"><b>Heads up:</b> this is still being worked on. It's tested by playing through the games, and a few things may still look or sound slightly off.</div>
-      </section>
+  <section id="about">
+    <h2 class="plate">What is it?</h2>
+    <div class="win">
+      <p>Golden Sun Recompiled turns both Game Boy Advance games into programs that run straight on your PC. It isn't an emulator: the games' own code is translated into PC code, so you get the same adventure with a wider view, a proper settings menu and a few optional extras. You bring your own copy of each game; nothing from the games comes with this project.</p>
+      <div class="games">
+        <div><h3>The Broken Seal</h3><p>Isaac's journey, from the storm over Vale to Venus Lighthouse.</p></div>
+        <div><h3>The Lost Age</h3><p>Felix's side of the story, across the Great Eastern Sea to Mars Lighthouse.</p></div>
+      </div>
+      <p>One launcher runs both. With <b>Seamless mode</b> the end of The Broken Seal carries straight on into The Lost Age, and The Lost Age can import your Broken Seal team from a save.</p>
+      <div class="note"><b>Still in testing.</b> Both games are playable from start to finish, but a few things may still look or sound slightly off.</div>
+    </div>
+  </section>
 
-      <section id="games">
-        <h2 class="section">Two games, one launcher</h2>
-        <div class="pairs">
-          <div><h3>The Broken Seal</h3><p>The first Golden Sun. Isaac's journey, from Vale to the lighthouses.</p></div>
-          <div><h3>The Lost Age <span class="tag">New</span></h3><p>The second game. Felix's side of the story, now in the collection too.</p></div>
+  <section id="features">
+    <h2 class="plate">Features</h2>
+    <div class="cards">
+      <div class="win card jupiter"><h3>Wider views</h3><p>Original, Wide or Extra Wide. Psynergy, weather and scenery fill the extra space.</p><p class="where">Settings page two &rarr; Screen</p></div>
+      <div class="win card mars"><h3>Your picture</h3><p>Colour profiles or your own sliders, colour-blind help, flicker reduction, sharp pixels and filters.</p><p class="where"><kbd>F1</kbd> &rarr; Video</p></div>
+      <div class="win card mercury"><h3>Music mods <span class="new">New</span></h3><p>Play a remastered soundtrack (FLAC), looping where the game loops each song.</p><p class="where">Launcher cogwheel, or <kbd>F1</kbd> &rarr; Audio</p></div>
+      <div class="win card venus"><h3>Faster adventuring</h3><p>Faster walking, fewer battles, 2x battles, instant text, no slowdown and fast forward.</p><p class="where">Settings page two, <kbd>Select</kbd>, <kbd>Tab</kbd></p></div>
+      <div class="win card mars"><h3>Hard Mode</h3><p>Enemies with 1.5x HP and 1.25x Attack and Defence. Asked when you start a new game.</p><p class="where">New game, or Settings</p></div>
+      <div class="win card jupiter"><h3>Cheat menu</h3><p>Infinite HP and PP, and up to 100x experience, coins and item drops.</p><p class="where"><kbd>F11</kbd> in game</p></div>
+      <div class="win card mercury"><h3>Save states</h3><p>Nine slots to save the exact moment, on top of the game's own saves.</p><p class="where"><kbd>Shift+F2</kbd>&ndash;<kbd>F10</kbd>, load <kbd>F2</kbd>&ndash;<kbd>F10</kbd></p></div>
+      <div class="win card venus"><h3>Your controls</h3><p>Keyboard or controller, D-pad and stick together, auto fire and Soft Reset, shared by both games.</p><p class="where"><kbd>F1</kbd> &rarr; Controls</p></div>
+    </div>
+  </section>
+
+  <section id="music">
+    <h2 class="plate">Music mods</h2>
+    <div class="win music">
+      <div>
+        <p>Both games can play recordings in place of the original soundtrack. Each song loops exactly where the game loops it; sound effects stay as they are.</p>
+        <ol class="steps">
+          <li>Unzip a music mod next to <b>GoldenSunLauncher</b>, into its <b>Music</b> folder.</li>
+          <li>Start the launcher: it finds the music and asks once whether to use it.</li>
+          <li>Switch it any time with <b>Enable Music Mod</b> under the cogwheel, or <kbd>F1</kbd> &rarr; Audio in game.</li>
+        </ol>
+        <p class="thanks">The first music mod is the remastered soundtrack of both games by Vincent Dortel aka Juste-D, shared with his permission; many thanks to him, also for his help with the loop points. Not every track has been heard in game yet: if one loops wrongly, please tell us.</p>
+      </div>
+      <ul class="links">
+        <li><a class="main" href="https://drive.google.com/file/d/1oMiW5pYbjg3Dl9LHHVEYZLpP3jZoryLo/view?usp=drive_link" target="_blank" rel="noopener">Download the music mod<small>Both albums by Juste-D, loop points included</small></a></li>
+        <li><a href="https://drive.google.com/drive/folders/1Q2MWzb_uSvXp0Z3vWthvErnzM3xyL6Em" target="_blank" rel="noopener">Juste-D's original albums<small>Google Drive</small></a></li>
+        <li><a href="https://www.youtube.com/@JusteDni" target="_blank" rel="noopener">Juste-D on YouTube<small>@JusteDni</small></a></li>
+        <li><a href="https://github.com/Shmargus/GSRecomp/blob/main/MUSIC_MODS.md" target="_blank" rel="noopener">Make your own music mod<small>File names and loop points</small></a></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="try">
+    <h2 class="plate">Try the menus</h2>
+    <div class="try">
+      <div class="win">
+        <h3>Settings, page two</h3>
+        <p class="hint">Press Down past the last row of the game's Settings screen. Here: click the screen, then use the arrow keys or the buttons.</p>
+        <div class="bezel"><canvas id="settings-screen" class="gba" width="240" height="160" tabindex="0" role="application" aria-label="Settings page two. Use the arrow keys."></canvas></div>
+        <span class="sr" id="settings-live" aria-live="polite"></span>
+        <div class="pad" aria-label="Buttons">
+          <button class="btn" type="button" data-for="settings-screen" data-act="up" aria-label="Up">&#9650;</button>
+          <button class="btn" type="button" data-for="settings-screen" data-act="down" aria-label="Down">&#9660;</button>
+          <button class="btn" type="button" data-for="settings-screen" data-act="left" aria-label="Left">&#9664;</button>
+          <button class="btn" type="button" data-for="settings-screen" data-act="right" aria-label="Right">&#9654;</button>
         </div>
-        <p style="margin-top:14px">Start <b>GoldenSunLauncher</b>, pick a game and choose your game file for it. Play either one on its own, or both in a row.</p>
-        <div class="note"><b>Seamless:</b> turn it on and the end of The Broken Seal runs straight into The Lost Age in the same window. Your clear data is saved, and The Lost Age loads it for you after you name Felix. Switch it on when you start a new game, in <b>F1</b> &rarr; Game, or in the launcher.</div>
-      </section>
-
-      <section id="picture">
-        <h2 class="section">Picture</h2>
-        <div class="pairs">
-          <div><h3>Widescreen</h3><p>See more around you in towns, dungeons, on the world map and in battle.</p><span class="where">Settings page two → <b>Screen: Wide</b></span></div>
-          <div><h3>Spells fill the screen</h3><p>Psynergy and summons carry on into the extra space instead of stopping at the old edge.</p><span class="where">Automatic in <b>Wide</b></span></div>
-          <div><h3>Sharp pixels</h3><p>Keeps the pixel art crisp at any window size.</p><span class="where"><b>F1</b> → Video</span></div>
-          <div><h3>Colour profiles</h3><p>The game's colours were made bright for the original GBA screen. Pick Raw, Handheld, Soft, Natural, Warm or Deep.</p><span class="where"><b>F1</b> → Video</span></div>
-          <div><h3>Your own colours</h3><p>Custom gives you sliders for saturation, hue, brightness, warmth and darkening. The picture changes as you drag.</p><span class="where"><b>F1</b> → Video → Custom</span></div>
-          <div><h3>4:3 picture</h3><p>Shows the middle of the wide view for 4:3 screens, with nothing stretched.</p><span class="where"><b>F1</b> → Video, with <b>Screen: Wide</b></span></div>
-          <div><h3>Screen filters (test)</h3><p>An LCD grid, an old-TV CRT look, or smoothed pixel art (xBR, ScaleFX). Still a test.</p><span class="where"><b>F1</b> → Video</span></div>
-          <div><h3>Flicker reduction</h3><p>Smooths out effects the original drew by flashing them on and off.</p><span class="where"><b>F1</b> menu</span></div>
-          <div><h3>Any window size</h3><p>Resize the window freely or play fullscreen.</p><span class="where"><b>Alt+Enter</b> or <b>F1</b> → Video</span></div>
-          <div><h3>FPS counter</h3><p>Shows the frame rate and game speed in a corner.</p><span class="where">Press <b>F</b></span></div>
+        <div class="explain" id="sim-explain"></div>
+        <p class="hint" style="margin-top:8px">Page one gains <b>Message Speed: Instant</b> too.</p>
+      </div>
+      <div class="win">
+        <h3>Cheat menu</h3>
+        <p class="hint">Press <kbd>F11</kbd> anywhere in either game. Here: click the screen, then use the arrow keys; A or Enter switches On and Off.</p>
+        <div class="bezel"><canvas id="cheat-screen" class="gba" width="240" height="160" tabindex="0" role="application" aria-label="Cheat menu. Use the arrow keys; A switches On and Off."></canvas></div>
+        <span class="sr" id="cheat-live" aria-live="polite"></span>
+        <div class="pad" aria-label="Buttons">
+          <button class="btn" type="button" data-for="cheat-screen" data-act="up" aria-label="Up">&#9650;</button>
+          <button class="btn" type="button" data-for="cheat-screen" data-act="down" aria-label="Down">&#9660;</button>
+          <button class="btn" type="button" data-for="cheat-screen" data-act="left" aria-label="Left">&#9664;</button>
+          <button class="btn" type="button" data-for="cheat-screen" data-act="right" aria-label="Right">&#9654;</button>
         </div>
-      </section>
+        <div class="explain" id="cheat-explain"></div>
+      </div>
+    </div>
+  </section>
 
-      <section id="settings">
-        <h2 class="section">Game settings</h2>
-        <p>Both games' own Settings screen has a second page. Press Down past Auto-Sleep to reach it. Try it here: click the screen, then use the arrow keys or the buttons. The map that shows behind the menu in the game is left out.</p>
-        <div class="sim-wrap">
-          <div class="screen-col">
-            <div class="bezel"><canvas id="settings-screen" class="gba" width="240" height="160" tabindex="0" role="application" aria-label="Settings page two. Use the arrow keys."></canvas></div>
-            <span class="sr" id="settings-live" aria-live="polite"></span>
-            <div class="pad" aria-label="Buttons">
-              <button class="btn" type="button" data-for="settings-screen" data-act="up" aria-label="Up">&#9650;</button>
-              <button class="btn" type="button" data-for="settings-screen" data-act="down" aria-label="Down">&#9660;</button>
-              <button class="btn" type="button" data-for="settings-screen" data-act="left" aria-label="Left">&#9664;</button>
-              <button class="btn" type="button" data-for="settings-screen" data-act="right" aria-label="Right">&#9654;</button>
-              
-            </div>
-          </div>
-          <div class="explain" id="sim-explain"></div>
-        </div>
-        <p style="margin-top:16px">Page one gains one choice too: <b>Message Speed: Instant</b>, which shows each line of dialogue at once.</p>
-      </section>
-
-      <section id="speed">
-        <h2 class="section">Battles &amp; speed</h2>
-        <div class="tblwrap">
-          <table class="plain">
-            <thead><tr><th>Feature</th><th>What it does</th><th>How</th></tr></thead>
-            <tbody>
-              <tr><td><b>2x battle speed</b></td><td>Runs battles at double speed. A small &raquo; shows while it's on.</td><td><kbd>Select</kbd> in battle</td></tr>
-              <tr><td><b>Fast forward</b></td><td>Speeds up everything while you hold the key, or switch it on and off with a key of your choice.</td><td><kbd>Tab</kbd> (hold), changeable in <kbd>F1</kbd></td></tr>
-              <tr><td><b>No slowdown</b></td><td>Keeps busy scenes at full speed where the original slowed down.</td><td>Settings page two</td></tr>
-              <tr><td><b>Save states</b></td><td>Save the exact moment anywhere and jump back later, on top of the game's own saves.</td><td><kbd>Shift</kbd>+<kbd>F2</kbd>&ndash;<kbd>F10</kbd> save, <kbd>F2</kbd>&ndash;<kbd>F10</kbd> load</td></tr>
-              <tr><td><b>Controls</b></td><td>Change every key and controller button. Add auto fire to A and B.</td><td><kbd>F1</kbd> → Controls, Hotkeys</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section id="cheats">
-        <h2 class="section">Cheat menu</h2>
-        <p>Press <kbd>F11</kbd> anywhere in either game (or the key you picked in the F1 menu). The game pauses and this window opens over the picture. Everything starts at normal. Try it: click the screen, then use the arrow keys (A or Enter switches On and Off).</p>
-        <div class="sim-wrap">
-          <div class="screen-col">
-            <div class="bezel"><canvas id="cheat-screen" class="gba" width="240" height="160" tabindex="0" role="application" aria-label="Cheat menu. Use the arrow keys; A switches On and Off."></canvas></div>
-            <span class="sr" id="cheat-live" aria-live="polite"></span>
-            <div class="pad" aria-label="Buttons">
-              <button class="btn" type="button" data-for="cheat-screen" data-act="up" aria-label="Up">&#9650;</button>
-              <button class="btn" type="button" data-for="cheat-screen" data-act="down" aria-label="Down">&#9660;</button>
-              <button class="btn" type="button" data-for="cheat-screen" data-act="left" aria-label="Left">&#9664;</button>
-              <button class="btn" type="button" data-for="cheat-screen" data-act="right" aria-label="Right">&#9654;</button>
-              
-            </div>
-          </div>
-          <div class="explain" id="cheat-explain"></div>
-        </div>
-      </section>
-
-      <section id="inside">
-        <h2 class="section">Under the hood</h2>
-        <ul class="ticks">
-          <li><b>Real PC code.</b> Each game's code is translated ahead of time, including the parts it loads while you play.</li>
-          <li><b>One shared engine.</b> Both games run on the same engine, so a fix for one often helps the other.</li>
-          <li><b>No BIOS file.</b> You only need your game files, not the handheld's start-up chip.</li>
-          <li><b>Checks your game files.</b> The launcher makes sure each is the exact version this was built for.</li>
+  <section id="keys">
+    <h2 class="plate">Good to know</h2>
+    <div class="duo">
+      <div class="win">
+        <h3>Quick keys</h3>
+        <ul class="keys">
+          <li><span>Settings</span><kbd>F1</kbd></li>
+          <li><span>Cheats</span><kbd>F11</kbd></li>
+          <li><span>Save state</span><kbd>Shift+F2&ndash;F10</kbd></li>
+          <li><span>Load state</span><kbd>F2&ndash;F10</kbd></li>
+          <li><span>Fast forward</span><kbd>Tab</kbd></li>
+          <li><span>Fullscreen</span><kbd>Alt+Enter</kbd></li>
+          <li><span>Pause</span><kbd>Shift+P</kbd></li>
+          <li><span>FPS counter</span><kbd>F</kbd></li>
+          <li><span>Bug report</span><kbd>F12</kbd></li>
+          <li><span>2x battles</span><kbd>Select</kbd></li>
         </ul>
-      </section>
+        <p class="fine">Change them under <b>F1</b> &rarr; Hotkeys, which also has Soft Reset, auto fire and Quit Game.</p>
+      </div>
+      <div class="win">
+        <h3>What you need</h3>
+        <ul class="ticks">
+          <li>Windows 10 or 11, or a recent 64-bit Linux with SDL2.</li>
+          <li>Your own Golden Sun and/or The Lost Age game file (USA/Europe).</li>
+          <li>That's it: no BIOS and no emulator. Unzip the download anywhere and start <b>GoldenSunLauncher</b>.</li>
+        </ul>
+        <p class="fine"><a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">All releases</a> &middot; <a href="https://github.com/Shmargus/GSRecomp" target="_blank" rel="noopener">Source code</a></p>
+      </div>
+    </div>
+  </section>
 
-      <section id="faq">
-        <h2 class="section">FAQ</h2>
-        <div class="faq">
-          <details open>
-            <summary>How do I report a bug?</summary>
-            <div class="a">
-              <ol>
-                <li>Press <kbd>F12</kbd> right after the problem shows up. The game keeps the last two seconds, so a flicker that's already gone is still caught. "BUG REPORT SAVED" appears in the top-right corner.</li>
-                <li>Keep playing if you like, and press <kbd>F12</kbd> again for any other problem.</li>
-                <li>Close the game. A bug report window opens: write a few words about what happened and where, and press <b>Send report</b>. No account or form needed.</li>
-              </ol>
-              <p>If the game crashes, the same window opens without you pressing F12. Nothing is ever sent unless you press <b>Send report</b>; otherwise the report stays on your computer in <b>logs\bug_reports</b>. A report holds the game's log and screen captures, your settings files and your Windows or Linux version, with your user name taken out. After a crash it also holds a snapshot of the game's memory. Only the developer sees it.</p>
-              <p>If sending doesn't work, the window offers the <a href="https://docs.google.com/forms/d/e/1FAIpQLScTmnmH6_BXYsYVfIKtjDsN-gLx59mv4pVjYx4ITbH2YGktBw/viewform" target="_blank" rel="noopener">bug report form</a> instead, where you can add the report by hand.</p>
-            </div>
-          </details>
-          <details>
-            <summary>Is this an emulator?</summary>
-            <div class="a"><p>No. The games' own code is translated into PC code ahead of time, so they run directly on your PC instead of through a program that imitates the Game Boy Advance.</p></div>
-          </details>
-          <details>
-            <summary>Do I need my own copy of the games?</summary>
-            <div class="a"><p>Yes. Nothing from Golden Sun comes with this project. In the launcher you pick The Broken Seal or The Lost Age and choose your own USA/Europe game file for it; it remembers each one and checks it's the exact version this was built for. No BIOS file is needed.</p></div>
-          </details>
-          <details>
-            <summary>Can I play a translation or a hack?</summary>
-            <div class="a"><p>The launcher has a <b>Skip the ROM check</b> option for each game, which lets a different game file through. Only the original games are supported, so expect problems.</p></div>
-          </details>
-          <details>
-            <summary>Why does the first start take a few minutes?</summary>
-            <div class="a"><p>The first time you pick a game file, the game is prepared from it on your PC. A progress bar shows how far along it is. After that it starts straight away, until an update needs it to prepare again.</p></div>
-          </details>
-          <details>
-            <summary>Where are my saves, and do they survive updates?</summary>
-            <div class="a"><p>Your game files go in the <b>ROMs</b> folder and your saves and save states in the <b>Saves</b> folder, both next to the launcher. Saves from 0.4, which sat next to your game file, are brought over when you pick the same game file in the new version.</p></div>
-          </details>
-          <details>
-            <summary>How do I update?</summary>
-            <div class="a"><p>The launcher tells you when a new version is out and opens its download page. Unzip the new version into a new folder, start its launcher and pick the same game file. Your saves come along, and the game is prepared once more on the first start.</p></div>
-          </details>
-          <details>
-            <summary>Can I play with a controller?</summary>
-            <div class="a"><p>Yes. Every button can be changed in the <b>F1</b> menu, for both keyboard and controller.</p></div>
-          </details>
-          <details>
-            <summary>Is it finished?</summary>
-            <div class="a"><p>Not yet. Test release <span id="release-version">0.4</span> is out: <a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">download it from GitHub</a>. Expect some rough edges, and please report what you find.</p></div>
-          </details>
-          <details>
-            <summary>What does it run on, and what does it cost?</summary>
-            <div class="a"><p>Windows 10 and 11, and a recent 64-bit Linux, for example Ubuntu 24.04, Debian 13, Fedora 40 or Arch, with SDL2 installed. It runs on the Steam Deck too. It's a free, noncommercial fan project.</p></div>
-          </details>
+  <section id="faq">
+    <h2 class="plate">FAQ</h2>
+    <div class="win faq">
+      <details>
+        <summary>How do I report a bug?</summary>
+        <div class="a">
+          <ol>
+            <li>Press <kbd>F12</kbd> right after the problem. The game keeps the last two seconds, so a flicker that's already gone is still caught.</li>
+            <li>Close the game. A window asks what happened; write a few words and press <b>Send report</b>.</li>
+          </ol>
+          <p>After a crash the same window opens by itself. Nothing is sent unless you press <b>Send report</b>, and your user name is taken out of the report.</p>
         </div>
-      </section>
-    </main>
+      </details>
+      <details>
+        <summary>Is this an emulator?</summary>
+        <div class="a"><p>No. The games' own code is translated into PC code ahead of time, so they run directly on your PC instead of through a program that imitates the Game Boy Advance.</p></div>
+      </details>
+      <details>
+        <summary>Do I need my own copy of the games?</summary>
+        <div class="a"><p>Yes, as USA/Europe game files. The launcher checks each is the exact version this was built for. No BIOS file is needed.</p></div>
+      </details>
+      <details>
+        <summary>Why does the first start take a few minutes?</summary>
+        <div class="a"><p>The first time, each game is prepared from your game file on your PC, with a progress bar. After that it starts straight away, until an update needs it to prepare again.</p></div>
+      </details>
+      <details>
+        <summary>How do I update, and do my saves come along?</summary>
+        <div class="a"><p>The launcher tells you when a new version is out and offers its download page. Unzip the new version into a new folder, start its launcher and choose your game file from the old folder's <b>ROMs</b>: your saves and save states come along.</p></div>
+      </details>
+      <details>
+        <summary>Can I take my Broken Seal team to The Lost Age?</summary>
+        <div class="a"><p>Yes, three ways: <b>Seamless mode</b> (launcher cogwheel) goes straight on after the ending; a new Lost Age game asks for your Broken Seal save file; and <b>F1</b> &rarr; Game &rarr; <b>Update from The Broken Seal</b> brings it into an existing Lost Age save, keeping a backup.</p></div>
+      </details>
+      <details>
+        <summary>How do music mods work?</summary>
+        <div class="a"><p>The recordings go in the <b>Music</b> folder next to the launcher, in <b>TBS</b> and <b>TLA</b>; a ready-made mod already has that layout. The Lost Age also plays the Broken Seal recordings for the songs it borrows from the first game, so keep both. Making your own is explained in <a href="https://github.com/Shmargus/GSRecomp/blob/main/MUSIC_MODS.md" target="_blank" rel="noopener">MUSIC_MODS.md</a>.</p></div>
+      </details>
+      <details>
+        <summary>Can I play a translation or a hack?</summary>
+        <div class="a"><p>The launcher's cogwheel has <b>Skip the ROM check</b> for each game. Only the original games are supported, so expect problems.</p></div>
+      </details>
+      <details>
+        <summary>Is it finished, and does it cost anything?</summary>
+        <div class="a"><p>Not finished yet: test release <span id="release-version">0.6</span> is out, and each <a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">release</a> lists what changed and its known issues. It's free, a noncommercial fan project.</p></div>
+      </details>
+    </div>
+  </section>
 
-    <aside>
-      <div class="box">
-        <h4>Get it</h4>
-        <div class="in">
-          <!-- Filled from GitHub's newest release when the page loads (script
-               at the end); these values are the fallback. -->
-          <a class="report" id="download-windows" href="https://github.com/Shmargus/GSRecomp/releases/download/0.4/GoldenSunRecompiled-0.4-windows.zip">Download for Windows</a>
-          <a class="report" id="download-linux" style="margin-top: 8px" href="https://github.com/Shmargus/GSRecomp/releases/download/0.4/GoldenSunRecompiled-0.4-linux.zip">Download for Linux</a>
-          <p class="keynote"><span id="release-line">Test release 0.4, 7 October 2026. Windows 10 and 11: 37 MB zip. Linux: 27 MB zip.</span> Unzip it and start <b>GoldenSunLauncher</b>; the first start of each game takes several minutes.</p>
-          <ul class="keys">
-            <li><span>All releases</span><a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">GitHub</a></li>
-            <li><span>Source code</span><a href="https://github.com/Shmargus/GSRecomp" target="_blank" rel="noopener">GitHub</a></li>
-          </ul>
-        </div>
-      </div>
-      <div class="box">
-        <h4>Quick keys</h4>
-        <div class="in">
-          <ul class="keys">
-            <li><span>Settings menu</span><kbd>F1</kbd></li>
-            <li><span>Cheat menu</span><kbd>F11</kbd></li>
-            <li><span>Load state</span><kbd>F2&ndash;F10</kbd></li>
-            <li><span>Save state</span><kbd>Shift+F2&ndash;F10</kbd></li>
-            <li><span>Fast forward</span><kbd>Tab</kbd></li>
-            <li><span>Fullscreen</span><kbd>Alt+Enter</kbd></li>
-            <li><span>Pause</span><kbd>Shift+P</kbd></li>
-            <li><span>FPS counter</span><kbd>F</kbd></li>
-            <li><span>2x battles</span><kbd>Select</kbd></li>
-          </ul>
-          <p class="keynote">Every hotkey here except the save states can be changed in the <b>F1</b> menu.</p>
-        </div>
-      </div>
-      <div class="box">
-        <h4>What you need</h4>
-        <div class="in">
-          <ul class="small">
-            <li>A Windows 10 or 11 PC, or a recent 64-bit Linux</li>
-            <li>Your own Golden Sun and/or The Lost Age game file (USA/Europe)</li>
-            <li>That's it. No BIOS, no emulator.</li>
-          </ul>
-        </div>
-      </div>
-      <div class="box">
-        <h4>Found a bug?</h4>
-        <div class="in">
-          <p>Press <kbd>F12</kbd> when it happens and close the game. The launcher asks what happened; press <b>Send report</b>.</p>
-          <p class="keynote"><a href="#faq">How it works</a> &middot; <a href="https://docs.google.com/forms/d/e/1FAIpQLScTmnmH6_BXYsYVfIKtjDsN-gLx59mv4pVjYx4ITbH2YGktBw/viewform" target="_blank" rel="noopener">Report by hand</a></p>
-        </div>
-      </div>
-    </aside>
-  </div>
-
-  <footer class="foot">
-    <span>A noncommercial fan project. Golden Sun and Golden Sun: The Lost Age belong to their owners; you need your own legally obtained copies to play.</span>
-    <span>Updated October 2026.</span>
+  <footer>
+    <span>Thanks to <b>Vincent Dortel aka Juste-D</b> for the remastered soundtracks, and to <b>Matthew Stan</b> for <a href="https://github.com/mstan/gbarecomp" target="_blank" rel="noopener">gbarecomp</a>, the recompiler our engine is built on.</span>
+    <span>A free, noncommercial fan project. Golden Sun and Golden Sun: The Lost Age belong to their owners; you need your own legally obtained copies to play.</span>
+    <span><a href="https://github.com/Shmargus/GSRecomp" target="_blank" rel="noopener">GitHub</a> &middot; Updated October 2026</span>
   </footer>
 </div>
-
 <script>
 (function () {
   // ---- A small pixel font, drawn for this page (not the game's). Same
@@ -684,8 +616,8 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
       say: v => ({ "Normal": "The normal walking and running speed.", "1.5x": "Walk, run, push and climb ladders one and a half times as fast.", "2x": "Walk, run, push and climb ladders twice as fast.", "3x": "Walk, run, push and climb ladders three times as fast." })[v] },
     { label: "Encounters", help: "Set how often monsters appear.", vals: ["Normal", "Half", "Off", "Double"],
       say: v => ({ "Normal": "Monsters appear as often as in the original.", "Half": "Half as many random battles.", "Off": "No random battles at all.", "Double": "Twice as many random battles, for levelling up." })[v] },
-    { label: "Screen", help: "Set the screen size.", vals: ["Normal", "Wide"], flip: true,
-      say: v => v === "Wide" ? "The widescreen view: more of the world on screen." : "The original screen size." },
+    { label: "Screen", help: "Set the screen size.", vals: ["Original", "Wide", "Extra Wide"],
+      say: v => ({ "Original": "The original screen size.", "Wide": "A wider view: more of the world on screen.", "Extra Wide": "The widest view, for big screens." })[v] },
     { label: "No Slowdown", help: "Remove slowdown.", vals: ["Off", "On"], flip: true,
       say: v => v === "On" ? "Busy scenes stay at full speed." : "Busy scenes slow down like on the handheld." },
     { label: "Better Field Psy", help: "Faster Psynergy, bigger Reveal.", vals: ["Off", "On"], flip: true,
@@ -749,7 +681,7 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
 })();
 </script>
 <script>
-// The download box follows GitHub's newest release (pre-releases included,
+// The download buttons follow GitHub's newest release (pre-releases included,
 // which /releases/latest would skip), so a new release needs no page edit.
 // Offline or rate-limited, the values written in the page stay.
 (function () {
@@ -766,15 +698,13 @@ footer.foot { background: #1f2329; color: #9aa4ae; font-size: 12px; padding: 14p
       };
       var win = zip(false), lin = zip(true);
       if (!win || !lin) return;
-      var mb = function (a) { return Math.round(a.size / 1048576) + " MB"; };
       var date = new Date(rel.published_at || rel.created_at).toLocaleDateString(
         "en-GB", { day: "numeric", month: "long", year: "numeric" });
       document.getElementById("download-windows").href = win.browser_download_url;
       document.getElementById("download-linux").href = lin.browser_download_url;
       document.getElementById("release-version").textContent = rel.tag_name;
       document.getElementById("release-line").textContent =
-        "Test release " + rel.tag_name + ", " + date + ". Windows 10 and 11: " +
-        mb(win) + " zip. Linux: " + mb(lin) + " zip.";
+        "Test release " + rel.tag_name + ", " + date;
     })
     .catch(function () {});
 })();
