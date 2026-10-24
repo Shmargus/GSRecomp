@@ -67,8 +67,8 @@ version changed; updating can make the launcher prepare your game code again.
 
 - Loading a savestate made at a different screen size (for example Extra
   Wide, loaded in Original) can still garble graphics, such as Felix turning
-  into a mess of lines. Switching the screen size in F1 and back redraws the
-  screen and fixes it.
+  into a mess of lines. Changing the screen size between Original, Wide or
+  Extra Wide and back redraws the screen and fixes it.
 - TLA, music mods: the opening scene before Venus Lighthouse keeps the
   original music.
 - TLA: Raging Flood has the wrong shape, gets cut off at the edges and causes
