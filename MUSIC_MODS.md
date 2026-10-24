@@ -50,8 +50,8 @@ folders gives The Lost Age a complete soundtrack.
 
 ### 1. Files
 
-* **Formats:** FLAC (16 or 24-bit) or WAV (16-bit PCM), mono or stereo, any
-  sample rate. They are converted on the fly.
+* **Format:** FLAC (16 or 24-bit), mono or stereo, any sample rate. It is
+  converted on the fly.
 * **Names:** `<disc>-<NN> <anything>.flac`, for example
   `1-09 - An Adept's Home.flac`. Only `NN`, the track number, matters: the
   disc digit and the title are for you. One file per number.

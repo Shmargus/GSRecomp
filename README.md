@@ -56,7 +56,7 @@ version changed; updating can make the launcher prepare your game code again.
   offers **Update from The Broken Seal** for an existing save, keeping a
   backup.
 - **Music mods.** Recordings in the `Music` folder can replace the
-  soundtrack (FLAC or WAV), looping where the game loops each song. The
+  soundtrack (FLAC), looping where the game loops each song. The
   remastered Golden Sun soundtracks by Vincent Dortel aka
   [Juste-D](https://www.youtube.com/@JusteDni) are available as a
   [ready-made music mod](https://drive.google.com/file/d/1oMiW5pYbjg3Dl9LHHVEYZLpP3jZoryLo/view?usp=drive_link),

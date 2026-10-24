@@ -6,8 +6,8 @@ recording instead, looping where the game loops it. Sound effects stay as
 they are.
 
   Music/
-    TBS/   The Broken Seal: 1-01 ... 1-43 (FLAC or WAV) and loops.txt
-    TLA/   The Lost Age:    2-01 ... 2-54 (FLAC or WAV) and loops.txt
+    TBS/   The Broken Seal: 1-01 ... 1-43 (FLAC) and loops.txt
+    TLA/   The Lost Age:    2-01 ... 2-54 (FLAC) and loops.txt
 
 The Lost Age plays its own folder, and TBS for the songs it borrows from The
 Broken Seal (such as the victory fanfare), so keep both.

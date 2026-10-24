@@ -200,6 +200,7 @@ BLOG_POST*.html
 !/tools/build_synthesized_dc8_slot3_variant.py
 !/tools/build_stamp_variants.py
 !/tools/emulate_stamp_builder.py
+!/tools/music_loops.py
 /config/usa-main-scan.toml
 /config/usa.toml.example
 /config/usa/overlay-observed-entries.json
