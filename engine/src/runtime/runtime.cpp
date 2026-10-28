@@ -37,7 +37,9 @@ extern "C" unsigned long long g_cost_irq_handler_ns;
 extern "C" unsigned long long g_cost_irq_handler_calls;
 
 #include "asset_picker.h"
+#include "crc32.h"
 #include "env_flag.h"
+#include "file_replace.h"
 #include "any_rom.h"
 #include "bios_hle.h"
 #include "gba_bios.h"
@@ -349,23 +351,14 @@ bool write_bmp(const std::string& path, const uint8_t* rgb,
 }  // namespace
 
 // Minimal, dependency-free PNG writer (8-bit RGB). Uses stored/uncompressed
-// DEFLATE blocks so we need no zlib — just a local CRC-32 (PNG/zlib IEEE
-// poly) and Adler-32. Mirrors the spirit of write_bmp; preferred output for
+// DEFLATE blocks so we need no zlib — just the shared CRC-32 (gba::crc32, the
+// PNG/zlib IEEE poly) and Adler-32. Mirrors the spirit of write_bmp; preferred output for
 // visual inspection since the Read tool renders PNG but not BMP. Given
 // external linkage (declared in runtime_bus_bridge.h) so game-owned tooling
 // outside this translation unit can save a screenshot with the same writer
 // run_game() uses for --dump-png.
 bool write_png(const std::string& path, const uint8_t* rgb,
                uint32_t w, uint32_t h) {
-    auto crc32 = [](const uint8_t* p, std::size_t n, uint32_t crc) -> uint32_t {
-        crc = ~crc;
-        for (std::size_t i = 0; i < n; ++i) {
-            crc ^= p[i];
-            for (int k = 0; k < 8; ++k)
-                crc = (crc >> 1) ^ (0xEDB88320u & (~(crc & 1u) + 1u));
-        }
-        return ~crc;
-    };
     std::vector<uint8_t> out;
     auto put_be32 = [&](uint32_t v) {
         out.push_back(static_cast<uint8_t>(v >> 24));
@@ -379,7 +372,7 @@ bool write_png(const std::string& path, const uint8_t* rgb,
         out.insert(out.end(), tag, tag + 4);
         out.insert(out.end(), data.begin(), data.end());
         out.push_back(0); out.push_back(0); out.push_back(0); out.push_back(0);
-        uint32_t c = crc32(out.data() + type_at, 4 + data.size(), 0);
+        uint32_t c = gba::crc32(out.data() + type_at, 4 + data.size());
         out[out.size() - 4] = static_cast<uint8_t>(c >> 24);
         out[out.size() - 3] = static_cast<uint8_t>(c >> 16);
         out[out.size() - 2] = static_cast<uint8_t>(c >> 8);
@@ -446,35 +439,6 @@ bool write_png(const std::string& path, const uint8_t* rgb,
 }
 
 namespace {
-
-bool write_file(const std::string& path, const std::vector<uint8_t>& bytes,
-                std::string* err) {
-    std::filesystem::path p(path);
-    std::error_code ec;
-    if (p.has_parent_path()) {
-        std::filesystem::create_directories(p.parent_path(), ec);
-        if (ec) {
-            if (err) *err = "could not create save directory " +
-                            p.parent_path().string() + ": " + ec.message();
-            return false;
-        }
-    }
-
-    std::ofstream f(path, std::ios::binary | std::ios::trunc);
-    if (!f) {
-        if (err) *err = "could not open save file for write " + path;
-        return false;
-    }
-    if (!bytes.empty()) {
-        f.write(reinterpret_cast<const char*>(bytes.data()),
-                static_cast<std::streamsize>(bytes.size()));
-    }
-    if (!f) {
-        if (err) *err = "could not write save file " + path;
-        return false;
-    }
-    return true;
-}
 
 bool apply_toml_file(const std::filesystem::path& path, Args* args,
                      std::string* default_region, std::string* err) {
@@ -1461,33 +1425,14 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
             ? bus.save().sram_bytes()
             : (bus.save().flash_enabled() ? bus.save().flash_bytes()
                                           : bus.save().eeprom_bytes());
-        // Atomic write: write a sibling temp file, then rename it over the
-        // target. A crash / kill mid-write can then only ever lose the temp
-        // file — the real save file is either the previous complete state or
-        // the new complete state, never a torn/half-written mix. This matters
-        // because we now flush periodically during play (see the loop), not
-        // just once on exit.
-        const std::string tmp = args.save_path + ".tmp";
-        if (!write_file(tmp, save_bytes, &err)) {
-            std::fprintf(stderr, "[gbarecomp:runtime] %s\n", err.c_str());
+        // The save file is only ever replaced whole (file_replace.h): a crash
+        // or failed write keeps the previous save. We flush periodically
+        // during play (see the loop), not just once on exit. On failure the
+        // save stays dirty, so the next flush tries again.
+        if (!gba::replace_file(args.save_path, save_bytes.data(),
+                               save_bytes.size(), &err)) {
+            std::fprintf(stderr, "[gbarecomp:runtime] save: %s\n", err.c_str());
             return false;
-        }
-        std::error_code ec;
-        std::filesystem::rename(tmp, args.save_path, ec);  // REPLACE_EXISTING on NTFS/POSIX
-        if (ec) {
-            // Rare filesystems refuse atomic rename-over; fall back to
-            // remove-then-rename (a narrower non-atomic window, still far
-            // better than writing the target in place).
-            std::error_code ec2;
-            std::filesystem::remove(args.save_path, ec2);
-            std::filesystem::rename(tmp, args.save_path, ec2);
-            if (ec2) {
-                std::fprintf(stderr,
-                             "[gbarecomp:runtime] save rename failed: %s\n",
-                             ec2.message().c_str());
-                std::filesystem::remove(tmp, ec2);
-                return false;
-            }
         }
         bus.save().clear_dirty();
         if (!args.quiet) {
@@ -1509,7 +1454,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         std::error_code backup_ec;
         for (unsigned n = 1; std::filesystem::exists(backup, backup_ec) && !backup_ec; ++n)
             backup = args.save_path + ".before-update-" + std::to_string(n) + ".bak";
-        if (backup_ec || !write_file(backup, expected, &error)) {
+        if (backup_ec || !gba::replace_file(backup, expected.data(), expected.size(), &error)) {
             bus.save().replace_flash_bytes(replacement, expected);
             error = "The backup could not be written. Nothing was updated.";
             return false;
@@ -2301,8 +2246,13 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                                  : "frame capture or game policy");
         }
     }
+    // Native supersampling presents its own buffer and returns before the
+    // game's present-override hook, which owns the game's composition,
+    // painted menus and rewind recording; a game with a hook must see every
+    // frame, so the two never run together.
     const bool native_renderer_allowed =
         opts.native_renderer_available && !strict_requested &&
+        !gbarecomp::has_frame_present_override_hook() &&
         !(framedump_dir && framedump_dir[0]);
     if (std::getenv("GBARECOMP_NATIVE_RENDERER")) {
         const bool requested = gbarecomp::env_flag("GBARECOMP_NATIVE_RENDERER");
@@ -3139,6 +3089,28 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                                           turbo_uncapped_active);
     };
 
+    // Pace the visible boundary, not the work after it. A caller that owes
+    // this frame's 1x waits stores them here; present_first() pays them
+    // immediately before its single present, after the latched copy, the
+    // game's composition hook and any fresh render, so none of that variable
+    // cost moves the frame on screen. The interpolation branch leaves them
+    // unpaid for the caller to drop: its two-present scheduler replaces them.
+    // present_pace_waited_us is the last payment, for the frame-phase record.
+    unsigned present_pace_owed = 0;
+    uint32_t present_pace_waited_us = 0;
+    auto pay_present_pace = [&]() {
+        const unsigned frames = present_pace_owed;
+        present_pace_owed = 0;
+        present_pace_waited_us = 0;
+        if (frames == 0 || !pacer) return;
+        const uint64_t t0 = FramePhaseRing::now_ns();
+        // Sleeping on purpose: keep it out of the host profile.
+        gbarecomp::host_prof_begin_idle();
+        for (unsigned i = 0; i < frames; ++i) pacer->wait_for_next_frame();
+        gbarecomp::host_prof_end_idle();
+        present_pace_waited_us = FramePhaseRing::us(t0, FramePhaseRing::now_ns());
+    };
+
     auto present_first = [&](uint64_t frame, bool view_changed) -> bool {
         view_changed = view_changed || view_redraw_pending;
         view_redraw_pending = false;
@@ -3214,6 +3186,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                                bus.io().raw(), bus.vram_ptr(), bus.oam_ptr(),
                                bus.pal_ptr());
                 }
+                pay_present_pace();
                 {
                     gbarecomp::HostProfPhaseScope _hp_present(gbarecomp::kHpPresent);
                     win.present(live_fb.data());
@@ -3221,6 +3194,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                 return false;
             }
             ++native_scene_verified_frames;
+            pay_present_pace();
             {
                 gbarecomp::HostProfPhaseScope _hp_present(gbarecomp::kHpPresent);
                 win.present_native(native_scene_fb.data(),
@@ -3250,6 +3224,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                             ppu.native_raster_enabled();
         if (!active) {
             if (view_changed || fast_forward_active) frame_interpolation.reset();
+            pay_present_pace();
             {
                 gbarecomp::HostProfPhaseScope _hp_present(gbarecomp::kHpPresent);
                 win.present(live_fb.data());
@@ -3336,6 +3311,20 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         return n < 1u ? 1u : n > 4u ? 4u : static_cast<unsigned>(n);
     };
     unsigned deferred_pace_frames = 1;
+    // One guest frame's present with its 1x pacing obligation paid exactly
+    // once: inside present_first() just before the visible present, or here
+    // when Turbo skips the frame. Interpolation's two-present scheduler
+    // (finish_presentation_pacing) replaces those waits, so they are dropped
+    // only when two presents actually happened. Returns that two_x result.
+    auto present_paced = [&](uint64_t frame, bool view_changed, bool show,
+                             unsigned pace_frames) -> bool {
+        present_pace_waited_us = 0;
+        present_pace_owed = pace_frames;
+        const bool two_x = show ? present_first(frame, view_changed) : false;
+        if (two_x) present_pace_owed = 0;
+        else pay_present_pace();
+        return two_x;
+    };
     auto finish_presentation_pacing = [&](bool two_x, bool pace = true,
                                           unsigned frames = 1) {
         if (two_x) {
@@ -3461,8 +3450,15 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                 // SDL/event/config work can mutate host and savestate state;
                 // defer it until the IRQ has returned to the mainline.
                 const bool view_changed = !in_irq && sync_resize_driven_view();
-                const bool two_x = turbo_do_present
-                    ? present_first(frame, view_changed) : false;
+                // A mainline frame's 1x waits are paid inside present_first(),
+                // just before the visible present (see pay_present_pace). An
+                // IRQ must not sleep, so it still presents first and paces
+                // after iret.
+                const unsigned pace_frames = frames_to_pace(frame);
+                const bool two_x = present_paced(frame, view_changed,
+                                                 turbo_do_present,
+                                                 in_irq ? 0u : pace_frames);
+                const uint32_t pre_pacer_us = present_pace_waited_us;
                 if (fast_forward_active) {
                     if (turbo_do_present) ++turbo_presented_frames;
                     else ++turbo_skipped_frames;
@@ -3479,7 +3475,6 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                 const uint64_t fp_t3 = FramePhaseRing::now_ns();
                 if (!in_irq) pump_host_input();
                 const uint64_t fp_t4 = FramePhaseRing::now_ns();
-                const unsigned pace_frames = frames_to_pace(frame);
                 last_presented_frame = frame;
                 ++frames_presented;
                 if (!in_irq && args.frames >= 0 && frames_presented >= args.frames)
@@ -3493,12 +3488,14 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                     deferred_pace_frames = pace_frames;
                     g_runtime_frame_pace_pending = 1;
                 } else {
-                    finish_presentation_pacing(two_x, true, pace_frames);
+                    // 1x was paced before the visible present above; the 2x
+                    // path still owes its midpoint/endpoint waits here.
+                    finish_presentation_pacing(two_x, two_x);
                 }
                 frame_phase.record(frame, fp_t0, fp_t1, fp_t2, fp_t3, fp_t4,
                                    FramePhaseRing::now_ns(),
                                    dispatch_frame_attribution, cost_probe_on,
-                                   0,
+                                   pre_pacer_us,
                                    host_pump_valid ? &last_host_events : nullptr);
                 host_pump_valid = false;
             } else if (!in_irq && frame_pacing_deferred) {
@@ -3769,21 +3766,14 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                 // after SDL_RenderPresent kept the callback exits regular but
                 // allowed variable guest/render cost to move each actual
                 // present by 1-3 ms, producing alternating long/short gaps.
-                // Interpolation retains its dedicated two-present scheduler.
-                const uint64_t pre_pace_t0 = FramePhaseRing::now_ns();
-                if (!frame_interpolation_requested && pacer) {
-                    // Sleeping on purpose: keep it out of the host profile.
-                    gbarecomp::host_prof_begin_idle();
-                    const unsigned pace_frames = frames_to_pace(frame);
-                    for (unsigned i = 0; i < pace_frames; ++i)
-                        pacer->wait_for_next_frame();
-                    gbarecomp::host_prof_end_idle();
-                }
-                const uint32_t pre_pacer_us = !frame_interpolation_requested
-                    ? FramePhaseRing::us(pre_pace_t0, FramePhaseRing::now_ns())
-                    : 0;
-                const bool two_x = turbo_do_present
-                    ? present_first(frame, view_changed) : false;
+                // present_first() pays the 1x waits just before its present
+                // (see pay_present_pace). Owed whether or not interpolation
+                // is requested: a frame that cannot interpolate presents once
+                // and must still be paced.
+                const bool two_x = present_paced(frame, view_changed,
+                                                 turbo_do_present,
+                                                 frames_to_pace(frame));
+                const uint32_t pre_pacer_us = present_pace_waited_us;
                 if (fast_forward_active) {
                     if (turbo_do_present) ++turbo_presented_frames;
                     else ++turbo_skipped_frames;

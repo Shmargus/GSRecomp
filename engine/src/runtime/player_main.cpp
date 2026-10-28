@@ -85,7 +85,8 @@ void set_environment(const std::wstring& block) {
     }
 }
 
-// The launch's command line as a C main() gets it (the system code page).
+// The launch's command line as a C main() gets it: the process code page,
+// UTF-8 through scripts/windows_utf8.manifest.
 std::vector<std::string> arguments_of(const std::wstring& command_line) {
     std::vector<std::string> result;
     int count = 0;

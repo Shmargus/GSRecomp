@@ -7,7 +7,10 @@ Both	scripts/developer_build_stamp.py
 Both	scripts/build_dev.ps1
 Both	scripts/build_game.ps1
 Both	scripts/engine_exports.cmake
+Both	scripts/windows_utf8.cmake
+Both	scripts/windows_utf8.manifest
 Both	scripts/block_timing.py
+Both	player_builder/block_timing_prelude.inc
 Both	player_builder/guest_call.cpp
 Both	player_builder/guest_call.h
 BrokenSeal	The Broken Seal/src

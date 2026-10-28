@@ -166,6 +166,7 @@ void GbaAudio::deserialize(gbarecomp::debug::SnapshotReader& r,
     cycles_per_sample_ = r.u32();
     cycle_accumulator_ = r.u32();
     uint32_t ring_len = r.u32();
+    if (!r.has(ring_len, sizeof(int16_t))) return;
     ring_.assign(ring_len, 0);
     if (ring_len) r.bytes(ring_.data(), ring_len * sizeof(int16_t));
     ring_head_         = static_cast<std::size_t>(r.u64());

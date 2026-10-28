@@ -105,12 +105,21 @@ struct IrisWindow {
     float a2 = 0.0f, b2 = 0.0f;   // squared half-width and half-height
 };
 
+struct SceneObject;
+
 struct SceneMargins {
     std::array<SceneMarginLayer, 4> layers;
     // Game-identified screen effects repeat their sprite layout into margins.
     // Kept outside FieldScene so stored raw SCENE captures retain their ABI.
     // Period {x, y} per slot; 0 on one axis repeats along the other only.
     std::array<std::array<int, 2>, 128> object_repeat{};
+    // Sprites drawn in the margins only, never in the console's 240x160
+    // window, repeated at `margin_object_period` as object_repeat does: a
+    // game's stand-in for a screen effect the game itself holds still (The
+    // Lost Age's weather behind a menu). They sort behind the scene's own
+    // sprites of the same priority.
+    std::vector<SceneObject> margin_objects;
+    std::array<int, 2> margin_object_period{};
     // Leave out a copy that would reach into the console's 240x160 window
     // whole, instead of clipping it at the window's edge.
     bool object_repeat_whole = false;

@@ -1146,7 +1146,8 @@ if(GSR_BUILD_LOCAL_RUNNER)
             "${GSR_LAUNCHER_DIR}/collection_session.cpp"
             "${GBARECOMP_ROOT}/src/gba/sha1.cpp"
             "${GBARECOMP_ROOT}/src/runtime/crash_handler.cpp"
-            "${GBARECOMP_ROOT}/src/runtime/game_options.cpp")
+            "${GBARECOMP_ROOT}/src/runtime/game_options.cpp"
+            "${GBARECOMP_ROOT}/src/gba/file_replace.cpp")
         if(WIN32)
             add_executable(GoldenSunCollection WIN32 ${GSR_COLLECTION_SOURCES})
             target_compile_definitions(GoldenSunCollection PRIVATE
@@ -1217,3 +1218,8 @@ if(GSR_BUILD_LOCAL_RUNNER)
     endif()
 
 endif()
+
+# Every shipped Windows program runs in UTF-8 (../scripts/windows_utf8.cmake).
+include("${CMAKE_SOURCE_DIR}/../scripts/windows_utf8.cmake")
+gsr_windows_utf8(GoldenSunPlayer GoldenSunRecomp GoldenSunCollection gsr_builder
+    gba_recompile)

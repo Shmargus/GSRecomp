@@ -15,6 +15,7 @@
 #include "arm_decode.h"
 #include "thumb_decode.h"
 #include "arm_ir.h"
+#include "crc32.h"
 
 namespace gbarecomp {
 
@@ -38,18 +39,6 @@ void appendf(std::string& out, const char* fmt, ...) {
     std::vsnprintf(&big[0], big.size(), fmt, ap);
     va_end(ap);
     out.append(big.data(), static_cast<std::size_t>(n));
-}
-
-uint32_t crc32_ieee(const uint8_t* data, std::size_t len) {
-    uint32_t crc = 0xFFFFFFFFu;
-    for (std::size_t i = 0; i < len; ++i) {
-        crc ^= data[i];
-        for (unsigned bit = 0; bit < 8; ++bit) {
-            const uint32_t mask = 0u - (crc & 1u);
-            crc = (crc >> 1) ^ (0xEDB88320u & mask);
-        }
-    }
-    return ~crc;
 }
 
 }  // namespace
@@ -374,7 +363,7 @@ std::string emit_function_body_str(
         }
         if (fn.end_addr > span_start) spans.emplace_back(span_start, fn.end_addr);
         for (const auto& span : spans) {
-            const uint32_t expected_crc = crc32_ieee(
+            const uint32_t expected_crc = gba::crc32(
                 rom + fn_source_off + (span.first - fn.addr),
                 span.second - span.first);
             appendf(out,

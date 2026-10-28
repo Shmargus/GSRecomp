@@ -82,6 +82,16 @@ PILLAR_TOP_SITES = (
 PILLAR_TOP_BOUNDS = tuple((start + offset, opcode, bound)
                           for start in (0x0200925C, 0x0200B77C, 0x02009A78)
                           for offset, opcode, bound in PILLAR_TOP_SITES)
+# F12 tla_rewind_0173 (map 292): the emitter timer, loaded at 0x0200A42C
+# there and at 0x0200A0EC (self-heal cache, identical test section).
+EMITTER_SITES = (
+    (0xD8, 0xD840, "emitter x + 7 above 334; taken skips its timer"),
+    (0xE0, 0xDD3C, "emitter row -48 or less; taken skips its timer"),
+    (0xE4, 0xDC3A, "emitter row above 239; taken skips its timer"),
+)
+EMITTER_BOUNDS = tuple((start + offset, opcode, bound)
+                       for start in (0x0200A42C, 0x0200A0EC)
+                       for offset, opcode, bound in EMITTER_SITES)
 
 
 def read_pieces(cache_root, rom_sha1):
@@ -219,7 +229,8 @@ note = "seen at 0x%08X"
 ''' % (addr, "thumb" if thumb else "arm", name, v, k, at - (group[v][0]) + rel))
         for v, (pad, code, _, at) in enumerate(group):
             for site, opcode, bound in (WORLD_DESCRIPTOR_BOUNDS + JUMP_PAD_BOUNDS +
-                                        SPARKLE_BOUNDS + PILLAR_TOP_BOUNDS):
+                                        SPARKLE_BOUNDS + PILLAR_TOP_BOUNDS +
+                                        EMITTER_BOUNDS):
                 offset = site - at
                 if (offset < 0 or offset + 2 > len(code) or
                         struct.unpack_from("<H", code, offset)[0] != opcode):
@@ -227,6 +238,8 @@ note = "seen at 0x%08X"
                 addr = ORIGIN + v * stride + pad + offset
                 evidence = ("F12 tla_rewind_0144/0145, 0147, 0148: pillar-top Thumb function"
                             if (site, opcode, bound) in PILLAR_TOP_BOUNDS else
+                            "F12 tla_rewind_0173: emitter-timer Thumb function"
+                            if (site, opcode, bound) in EMITTER_BOUNDS else
                             "F12 tla_rewind_0108/0109: Thumb function 0x0200B4FC"
                             if (site, opcode, bound) in SPARKLE_BOUNDS else
                             "F12 tla_rewind_0103/0104: Thumb function 0x0200B0F4"

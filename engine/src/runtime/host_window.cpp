@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <charconv>
 #include <cctype>
 #include <climits>
 #include <cmath>
@@ -107,6 +108,8 @@ bool write_picture_ini(const std::string& dir, int screen_kind,
                        const CustomColors& custom, int aspect, int vision);
 struct Backend;
 bool write_video_ini(const Backend* b);
+void read_menu_layout_ini(const std::string& path, ConfigUiState& state);
+void save_menu_layout(Backend* b);
 
 // System hotkey ids (config.ini [KeyMap] rows this host implements).
 // Soft Reset asks the launcher for a fresh game process.
@@ -121,8 +124,7 @@ enum HostHotkey {
     HK_VOLUME_UP, HK_VOLUME_DOWN, HK_DISPLAY_PERF,
     HK_MENU,
     HK_TURBO_TOGGLE,
-    // A game-owned menu drawn inside the game (GoldenSunRecomp's cheat
-    // menu); the run loop hands the press to RunOptions::game_menu_toggle.
+    // Opens the shared menu directly on its Cheats tab.
     // Appended so existing [KeyMap] rows keep their meaning.
     HK_GAME_MENU,
     // Auto Fire A / B: level-triggered like Fast Forward (hold). While the binding is
@@ -464,6 +466,7 @@ struct Backend {
     // is consumed by the UI, so a rebind cannot leak an input into the game.
     ConfigUiState  cfg{};
     bool           cfg_ready = false;
+    uint16_t       menu_held_keys = 0; // menu presses wait for release before gameplay
     SDL_GameController* pad = nullptr;    // first attached controller
     int            pad_bind[10];          // SDL_GameControllerButton per bit
     int            pad_bind_alt[10] = {-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
@@ -903,7 +906,7 @@ void fire_hotkey(int h, Backend* b, HostWindow::Events& ev) {
         case HK_MENU:           config_ui_toggle();                      break;
         // Runs only on the down-edge, so holding the key does not re-toggle.
         case HK_TURBO_TOGGLE:   b->turbo_toggle_on = !b->turbo_toggle_on; break;
-        case HK_GAME_MENU:      ev.game_menu = true;                     break;
+        case HK_GAME_MENU:      config_ui_open_cheats();                     break;
         case HK_QUIT:           ev.quit = true;                          break;
         case HK_SOFT_RESET:     ev.soft_reset = true;                    break;
         default: break;  // HK_TURBO, HK_AUTOFIRE_*: level-triggered, read in pump()
@@ -1130,6 +1133,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     for (int h = 0; h < hotkey_count(); ++h)
         b->hotkeys[h] = parse_hotkey(h < HK_COUNT ? kHotkeyDefaults[h] :
             game_hotkeys()[h - HK_COUNT].default_key.c_str());
+    b->hotkeys[HK_MENU].pad_button = SDL_CONTROLLER_BUTTON_LEFTSTICK;
     // Linear vs nearest scaling is a texture-creation-time hint.
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, linear_filter ? "linear" : "nearest");
     const int win_w = shown_width(b, base_w, base_h) * scale;
@@ -1542,6 +1546,7 @@ void HostWindow::close() {
     // this must run before the texture/renderer/window teardown. cfg_ready
     // guards a double close().
     if (b->cfg_ready) {
+        save_menu_layout(b);
         config_ui_shutdown();
         b->cfg_ready = false;
     }
@@ -2171,6 +2176,7 @@ void HostWindow::load_input_config(const char* dir) {
     // Remembered so the rebind menu writes keybinds.ini back where it was
     // read from, rather than into whatever the process CWD happens to be.
     b->config_dir = dir;
+    read_menu_layout_ini(base + "config.ini", b->cfg);
     const char* shared_controls = std::getenv("GBARECOMP_CONTROLS_DIR");
     b->controls_dir = shared_controls && *shared_controls ? shared_controls : dir;
 
@@ -2260,7 +2266,9 @@ void HostWindow::load_input_config(const char* dir) {
                          [b](const char* key, const char* val) {
             for (int h = 0; h < hotkey_count(); ++h) {
                 if (SDL_strcasecmp(key, all_hotkey_names()[h]) != 0) continue;
+                const int pad = b->hotkeys[h].pad_button;
                 b->hotkeys[h] = parse_hotkey(val);
+                b->hotkeys[h].pad_button = pad;
                 return;
             }
         });
@@ -3086,6 +3094,54 @@ bool write_hotkeys_ini(const std::string& dir, const HotkeyBind* hotkeys) {
     return true;
 }
 
+void read_menu_layout_ini(const std::string& path, ConfigUiState& state) {
+    ini_scan_section(path.c_str(), "SettingsWindow",
+        [&state](const char* key, const char* val) {
+            int value = 0;
+            const char* end = val + std::strlen(val);
+            const auto parsed = std::from_chars(val, end, value);
+            if (parsed.ec != std::errc{} || parsed.ptr != end) return;
+            if (SDL_strcasecmp(key, "Width") == 0) state.menu_width = value;
+            else if (SDL_strcasecmp(key, "Height") == 0) state.menu_height = value;
+            else if (SDL_strcasecmp(key, "X") == 0) state.menu_x = value;
+            else if (SDL_strcasecmp(key, "Y") == 0) state.menu_y = value;
+        });
+}
+
+bool write_menu_layout_ini(const std::string& dir, const ConfigUiState& state) {
+    const std::string path = dir + "/config.ini";
+    std::vector<std::string> lines;
+    if (std::FILE* in = std::fopen(path.c_str(), "rb")) {
+        std::string cur;
+        int c;
+        while ((c = std::fgetc(in)) != EOF) {
+            if (c == '\n') { lines.push_back(cur); cur.clear(); }
+            else if (c != '\r') cur.push_back(static_cast<char>(c));
+        }
+        if (!cur.empty()) lines.push_back(cur);
+        std::fclose(in);
+    }
+    static const char* const names[] = {"Width", "Height", "X", "Y"};
+    const std::string values[] = {
+        std::to_string(state.menu_width), std::to_string(state.menu_height),
+        std::to_string(state.menu_x), std::to_string(state.menu_y)
+    };
+    rewrite_ini_section(lines, "SettingsWindow", names, values, int(std::size(names)));
+    std::FILE* out = std::fopen(path.c_str(), "wb");
+    if (!out) return false;
+    bool ok = true;
+    for (const std::string& line : lines)
+        if (std::fprintf(out, "%s\n", line.c_str()) < 0) ok = false;
+    return std::fclose(out) == 0 && ok;
+}
+
+void save_menu_layout(Backend* b) {
+    if (!b->cfg.menu_layout_changed) return;
+    if (!write_menu_layout_ini(b->config_dir, b->cfg))
+        std::fprintf(stderr, "host_window: could not write %s/config.ini\n", b->config_dir.c_str());
+    b->cfg.menu_layout_changed = false;
+}
+
 // Update only [Video], preserving launcher settings and unknown sections.
 bool write_video_ini(const Backend* b) {
     const std::string path = b->config_dir + "/config.ini";
@@ -3721,6 +3777,7 @@ HostWindow::Events HostWindow::pump() {
         if (save_once && !done) { done = true; b->cfg.binds_changed = true; }
     }
 
+    const bool menu_was_visible = config_ui_visible();
     const uint64_t pump_events_start = pump_timing ? host_pump_now_ns() : 0;
     uint64_t pump_poll_ns = 0;
     uint64_t pump_sdl_pump_ns = 0;
@@ -3859,6 +3916,11 @@ HostWindow::Events HostWindow::pump() {
                     e.key.keysym.sym == b->hotkeys[HK_MENU].key &&
                     hotkey_mods_ok(b->hotkeys[HK_MENU], e.key.keysym.mod)) {
                     config_ui_toggle();
+                } else if (e.type == SDL_KEYDOWN && e.key.repeat == 0 &&
+                    b->hotkeys[HK_GAME_MENU].key != SDLK_UNKNOWN &&
+                    e.key.keysym.sym == b->hotkeys[HK_GAME_MENU].key &&
+                    hotkey_mods_ok(b->hotkeys[HK_GAME_MENU], e.key.keysym.mod)) {
+                    config_ui_open_cheats();
                 }
                 finish_event();
                 continue;
@@ -3905,6 +3967,11 @@ HostWindow::Events HostWindow::pump() {
                     fire_hotkey(h, b, ev);
                 }
             }
+        } else if (e.type == SDL_CONTROLLERBUTTONDOWN && config_ui_visible()) {
+            if (b->hotkeys[HK_MENU].pad_button == e.cbutton.button)
+                config_ui_toggle();
+            else if (b->hotkeys[HK_GAME_MENU].pad_button == e.cbutton.button)
+                config_ui_open_cheats();
         } else if (e.type == SDL_CONTROLLERBUTTONDOWN && !config_ui_visible()) {
             // Controller half of the same edge-triggered hotkeys. Gated by
             // !config_ui_visible() like the gameplay pad read below.
@@ -3940,7 +4007,7 @@ HostWindow::Events HostWindow::pump() {
     const bool extra_wants_keyboard =
         gbarecomp::g_config_ui_extra_wants_keyboard &&
         gbarecomp::g_config_ui_extra_wants_keyboard();
-    if (!config_ui_visible() && !extra_wants_keyboard) {
+    if (!extra_wants_keyboard) {
         for (int bit = 0; bit < 10; ++bit) {
             SDL_Scancode sc = b->bind_sc[bit];
             if (sc != SDL_SCANCODE_UNKNOWN && ks[sc])
@@ -3972,11 +4039,21 @@ HostWindow::Events HostWindow::pump() {
         // Auto Fire: two frames pressed, two released, so the game sees a
         // fresh press every fourth frame. Keyed to the guest frame so the
         // rhythm does not change with the paused/idle pump rate.
-        const bool fire_phase = ((b->cfg.guest_frame >> 1) & 1u) == 0;
+        const bool fire_phase = !config_ui_visible() &&
+            ((b->cfg.guest_frame >> 1) & 1u) == 0;
         if (fire_phase && hotkey_held(b, b->hotkeys[HK_AUTOFIRE_A], ks))
             keys &= static_cast<uint16_t>(~(1u << 0));
         if (fire_phase && hotkey_held(b, b->hotkeys[HK_AUTOFIRE_B], ks))
             keys &= static_cast<uint16_t>(~(1u << 1));
+    }
+    // In particular, closing with controller B must not also cancel in-game.
+    const uint16_t held = static_cast<uint16_t>(~keys & 0x03FFu);
+    b->menu_held_keys &= held;
+    if (menu_was_visible || config_ui_visible()) {
+        b->menu_held_keys |= held;
+        keys = 0x03FFu;
+    } else {
+        keys |= b->menu_held_keys;
     }
     ev.keyinput = keys;
 
@@ -3986,6 +4063,7 @@ HostWindow::Events HostWindow::pump() {
     // view and every state change goes through the one path that also writes
     // the config files.
     if (b->cfg_ready) {
+        save_menu_layout(b);
         if (b->cfg.binds_changed) {
             for (int i = 0; i < 10; ++i) {
                 b->bind_sc[i] = static_cast<SDL_Scancode>(b->cfg.key_bind[i]);

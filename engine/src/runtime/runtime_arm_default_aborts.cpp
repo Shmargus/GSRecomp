@@ -40,7 +40,7 @@
 #include "arm_ir.h"
 
 #include "../gba/gba_bus.h"
-#include "../gba/crc32.h"
+#include "crc32.h"
 #include "../gba/gba_ppu.h"
 
 #include <array>

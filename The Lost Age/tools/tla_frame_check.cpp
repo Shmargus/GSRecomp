@@ -227,6 +227,7 @@ int main(int argc, char** argv) {
             // The same inputs the game hands tla_field_draw (tla_gpu_field.cpp).
             TlaFieldFrame in;
             in.vram = &vram;
+            in.io = io_bytes.data();
             if (memory.size() >= 0x40000) {
                 in.ewram = memory.data();
                 in.ewram_bytes = 0x40000;
@@ -281,6 +282,7 @@ int main(int argc, char** argv) {
                         std::printf("water ripple: %s\n", report.ripple ? "matched" : "not matched");
                         std::printf("port wave: %s\n", report.port ? "matched" : "not matched");
                     }
+                    if (report.cloud_wave) std::printf("cloud wave: matched\n");
                     if (report.haze) std::printf("haze rows: refilled\n");
                     if (report.ship_water) std::printf("ship water: repeated\n");
                     if (report.background) std::printf("background: repeated\n");
@@ -399,7 +401,7 @@ int main(int argc, char** argv) {
                 renderer.set_effect_layer(effect_layer);
                 if (effect_layer >= 0)
                     renderer.analyse_effect_canvas(fr.vram, 0x18000,
-                                                   scene.layers[effect_layer]);
+                                                   scene, effect_layer);
                 std::vector<std::uint8_t> fx;
                 draw(360, 240, true, "wide_fx", &fx);
             }

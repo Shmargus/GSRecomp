@@ -54,9 +54,9 @@ void set_scene_capture_hook(std::function<void()> hook);
 // already the game's current Expanded View size). Returning true after
 // overwriting `rgb` in place presents that picture instead; returning false
 // (including when no hook is installed) leaves the canonical picture
-// untouched. Never called for frame-interpolated or native-supersampled
-// frames. Empty hook (default) never overrides anything, so leaving this
-// unset costs nothing on the present path.
+// untouched. Installing one turns native supersampling off for the session,
+// since that output would bypass the hook. Empty hook (default) never
+// overrides anything, so leaving this unset costs nothing on the present path.
 void set_frame_present_override_hook(
     std::function<bool(std::uint8_t* rgb, std::uint32_t width,
                        std::uint32_t height)> hook);
@@ -66,6 +66,7 @@ void set_frame_present_override_hook(
 // outside the present path in runtime.cpp.
 bool invoke_frame_present_override_hook(std::uint8_t* rgb, std::uint32_t width,
                                         std::uint32_t height);
+bool has_frame_present_override_hook();
 
 // Release game-owned presentation resources while the window's GL context
 // still exists. The window consumes this callback once, before teardown.

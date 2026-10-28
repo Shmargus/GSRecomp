@@ -9,7 +9,7 @@
 #include <fstream>
 #include <sstream>
 
-#include "../gba/crc32.h"
+#include "crc32.h"
 #include "../gba/sha1.h"
 #include "host_platform.h"
 

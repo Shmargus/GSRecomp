@@ -416,3 +416,7 @@ if(EXISTS "${GSR_PLAYER_BUILDER_DIR}/builder_main.cpp")
         target_link_options(tla_builder PRIVATE -static-libstdc++ -static-libgcc)
     endif()
 endif()
+
+# Every shipped Windows program runs in UTF-8 (../scripts/windows_utf8.cmake).
+include("${CMAKE_SOURCE_DIR}/../scripts/windows_utf8.cmake")
+gsr_windows_utf8(TLAPlayer TLARecomp tla_builder gba_recompile)

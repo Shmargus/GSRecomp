@@ -564,6 +564,7 @@ bool draw_capture(const Capture& capture, std::uint8_t* rgb,
     in.ewram_bytes = capture.ewram.size();
     in.iwram = capture.iwram.data();
     in.iwram_bytes = capture.iwram.size();
+    if (capture.io.size() >= 0x400u) in.io = capture.io.data();
     in.rom = capture.rom;
     in.rom_bytes = capture.rom_bytes;
     if (!capture.room_vram.empty()) {
@@ -636,6 +637,45 @@ bool world_map_blocks(const std::vector<std::uint8_t>& io) {
     return ((bg3 >> 8) & 0x1Fu) == 8u && ((bg2 >> 8) & 0x1Fu) == 10u;
 }
 
+// Entering a town, black bars close in from the top and bottom of the world
+// map: the game switches those rows to mode 0 while the rest stay mode 2
+// (F12 tla_rewind_0164, 2026-10-28, frames 84-96: rows 0..k and 159-k..159
+// at DISPCNT 0x1F40, the rest 0x1F42). A bar row's margins, and the rows
+// above the first row and below the last, take the bar's colour so the bars
+// cross the whole screen. True for any frame mixing mode 2 with other rows.
+bool paint_shutter_rows(std::uint8_t* rgb, std::uint32_t width,
+                        std::uint32_t height, const gsr::FieldScene& sc) {
+    constexpr int kRows = gsr::FieldScene::kRows;
+    bool has_world = false, has_other = false;
+    for (int y = 0; y < kRows; ++y) {
+        if (!sc.row_io_valid[y]) continue;
+        ((sc.row_io[y][0] & 7u) == 2u ? has_world : has_other) = true;
+    }
+    if (!has_world || !has_other) return false;
+    const std::uint32_t x0 = (width - 240u) / 2u, y0 = (height - 160u) / 2u;
+    bool bar[kRows] = {};
+    for (int r = 0; r < kRows; ++r) {
+        if (!sc.row_io_valid[r] || (sc.row_io[r][0] & 7u) == 2u) continue;
+        const std::uint8_t* p = rgb + (std::size_t{y0 + r} * width + x0) * 3u;
+        bar[r] = true;
+        for (std::uint32_t x = 1; x < 240u && bar[r]; ++x)
+            bar[r] = std::memcmp(p, p + x * 3u, 3) == 0;
+    }
+    for (std::uint32_t y = 0; y < height; ++y) {
+        const bool native_row = y >= y0 && y < y0 + 160u;
+        const int r = y < y0 ? 0 : native_row ? int(y - y0) : kRows - 1;
+        if (!bar[r]) continue;
+        std::uint8_t colour[3];
+        std::memcpy(colour, rgb + (std::size_t{y0 + r} * width + x0) * 3u, 3);
+        std::uint8_t* dst = rgb + std::size_t{y} * width * 3u;
+        for (std::uint32_t x = 0; x < width; ++x) {
+            if (native_row && x >= x0 && x < x0 + 240u) continue;
+            std::memcpy(dst + x * 3u, colour, 3);
+        }
+    }
+    return true;
+}
+
 void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
                            std::uint32_t height, const Capture& capture) {
     const std::vector<std::uint8_t>& io = capture.io;
@@ -651,10 +691,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     const std::uint32_t x0 = (width - 240u) / 2u, y0 = (height - 160u) / 2u;
     if (mode == 2u) {
         // Only a settled frame: every row in mode 2, no brightness fade.
-        for (int y = 0; y < gsr::FieldScene::kRows; ++y)
-            if (capture.scene.row_io_valid[y] &&
-                (capture.scene.row_io[y][0] & 7u) != 2u)
-                return;
+        if (paint_shutter_rows(rgb, width, height, capture.scene)) return;
         const unsigned bldcnt = io[0x50] | (static_cast<unsigned>(io[0x51]) << 8);
         const bool fading = ((bldcnt >> 6) & 3u) >= 2u && (io[0x54] & 0x1Fu) != 0u;
         if (!fading) {
@@ -735,6 +772,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
             std::memcpy(dst + x * 3u, held ? src + std::size_t(sx) * 3u : colour, 3);
         }
     }
+    paint_shutter_rows(rgb, width, height, capture.scene);
 }
 
 }  // namespace

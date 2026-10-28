@@ -15,8 +15,13 @@
 #  define WIN32_LEAN_AND_MEAN
 #  include <windows.h>
 #else
+#  include <cerrno>
 #  include <dlfcn.h>
+#  include <fcntl.h>
+#  include <spawn.h>
+#  include <sys/wait.h>
 #  include <unistd.h>
+extern char** environ;
 #endif
 
 // Baked at configure time (target_compile_definitions): the gbarecomp source
@@ -24,7 +29,7 @@
 // (overlay_runtime_arm.h / overlay_abi.h in src/runtime, runtime_arm_types.h in
 // src/armv4t) without any source-tree discovery at runtime. A shipped box
 // without the source falls back to the bundled headers
-// (see overlay_include_flags).
+// (see overlay_include_args).
 #ifndef GBARECOMP_SRC_DIR
 #  define GBARECOMP_SRC_DIR "."
 #endif
@@ -76,7 +81,7 @@ bool write_pic_metadata(const fs::path& path, uint32_t pc, bool thumb,
         ok = ok && std::fwrite(&v, sizeof(v), 1, f) == 1;
     }
     ok = ok && std::fwrite(bytes, 1, len, f) == len;
-    ok = ok && std::fclose(f) == 0;
+    ok = (std::fclose(f) == 0) && ok;  // always close, or the temp stays locked
     std::error_code ec;
     if (ok) {
 #ifdef _WIN32
@@ -158,34 +163,57 @@ std::string tcc_path() {
     return "tcc";
 }
 
-// Include flags for compiling an overlay's emitted C. On a dev box the baked
-// GBARECOMP_SRC_DIR points at the engine source (shim headers in src/runtime +
-// src/armv4t). On a SHIPPED, source-less box those don't exist, so fall back to
-// the headers the release packager flattened into <exe>/overlay_toolchain/
-// include (beside the bundled tcc). Used by both gcc and tcc. Returns a
-// leading-space-prefixed flag string.
-std::string overlay_include_flags() {
+// Include arguments for compiling an overlay's emitted C. On a dev box the
+// baked GBARECOMP_SRC_DIR points at the engine source (shim headers in
+// src/runtime + src/armv4t). On a SHIPPED, source-less box those don't exist,
+// so fall back to the headers the release packager flattened into
+// <exe>/overlay_toolchain/include (beside the bundled tcc). Used by both gcc
+// and tcc.
+std::vector<std::string> overlay_include_args() {
     const std::string ed = exe_dir();
-    const std::string bundled =
-        ed.empty() ? std::string()
-                   : " -I\"" + (fs::path(ed) / "overlay_toolchain" / "include")
-                                   .generic_string() + "\"";
+    std::vector<std::string> bundled;
+    if (!ed.empty())
+        bundled.push_back("-I" + (fs::path(ed) / "overlay_toolchain" / "include")
+                                     .generic_string());
     // Shipped simulation: ignore the dev source, use the bundled headers.
     if (heal_simulate_shipped() && !bundled.empty()) return bundled;
 
     const std::string src = GBARECOMP_SRC_DIR;
+    const std::vector<std::string> source = {"-I" + src + "/src/runtime",
+                                             "-I" + src + "/src/armv4t"};
     std::error_code ec;
     if (fs::exists(fs::path(src) / "src" / "runtime" / "overlay_runtime_arm.h", ec))
-        return " -I\"" + src + "/src/runtime\" -I\"" + src + "/src/armv4t\"";
+        return source;
     if (!bundled.empty()) return bundled;
-    return " -I\"" + src + "/src/runtime\" -I\"" + src + "/src/armv4t\"";  // last resort
+    return source;  // last resort
 }
 
 #ifdef _WIN32
+// One argument quoted the way CreateProcess / CommandLineToArgvW split it.
+std::string quote_argument(const std::string& arg) {
+    if (!arg.empty() && arg.find_first_of(" \t\"") == std::string::npos) return arg;
+    std::string out = "\"";
+    std::size_t backslashes = 0;
+    for (const char c : arg) {
+        if (c == '\\') { ++backslashes; continue; }
+        // Backslashes before a quote are doubled, and the quote escaped.
+        out.append(c == '"' ? backslashes * 2 + 1 : backslashes, '\\');
+        backslashes = 0;
+        out += c;
+    }
+    out.append(backslashes * 2, '\\');  // before the closing quote
+    return out + "\"";
+}
+
 // Spawn a child process (NOT system()), redirect stdout+stderr to logpath,
 // block until exit, return the exit code (-1 on spawn failure).
-int run_process(const std::string& cmdline, const std::string& logpath,
+int run_process(const std::vector<std::string>& args, const std::string& logpath,
                 std::string* err) {
+    std::string cmdline;
+    for (const std::string& arg : args) {
+        if (!cmdline.empty()) cmdline += ' ';
+        cmdline += quote_argument(arg);
+    }
     // The bundled mingw cc1plus needs its own bin\ on PATH for its DLLs.
     static bool path_ready = false;
     if (!path_ready) {
@@ -286,20 +314,53 @@ bool load_and_resolve(const std::string& dll, uint32_t pc,
     return true;
 }
 #else
-int run_process(const std::string& cmdline, const std::string& logpath,
-                std::string*) {
-    // Bundled toolchain env as shell assignments, so it reaches only the
-    // compiler (hostlib's libz/libzstd must never shadow the game's).
-    std::string envp;
+// Spawn the compiler directly (no shell, so no path is ever read as shell
+// text), stdout+stderr to logpath, block until exit; return the exit code
+// (-1 on spawn failure or a signal).
+int run_process(const std::vector<std::string>& args, const std::string& logpath,
+                std::string* err) {
+    // The bundled toolchain's PATH and libraries go to the compiler only
+    // (hostlib's libz/libzstd must never shadow the game's).
+    std::vector<std::string> env;
     const std::string root = heal_toolchain_root();
-    if (!root.empty()) {
-        envp = "PATH=\"" + root + "/bin:$PATH\" ";
-        std::error_code ec;
-        if (fs::is_directory(fs::path(root) / "hostlib", ec))
-            envp += "LD_LIBRARY_PATH=\"" + root + "/hostlib\" ";
+    std::error_code ec;
+    const bool hostlib = !root.empty() &&
+                         fs::is_directory(fs::path(root) / "hostlib", ec);
+    for (char** e = environ; *e; ++e) {
+        const std::string entry = *e;
+        if (!root.empty() && entry.rfind("PATH=", 0) == 0) continue;
+        if (hostlib && entry.rfind("LD_LIBRARY_PATH=", 0) == 0) continue;
+        env.push_back(entry);
     }
-    std::string c = envp + cmdline + " > \"" + logpath + "\" 2>&1";
-    return std::system(c.c_str());
+    if (!root.empty()) {
+        const char* path = std::getenv("PATH");
+        env.push_back("PATH=" + root + "/bin" + (path ? std::string(":") + path : ""));
+        if (hostlib) env.push_back("LD_LIBRARY_PATH=" + root + "/hostlib");
+    }
+    std::vector<char*> argv, envp;
+    for (const std::string& a : args) argv.push_back(const_cast<char*>(a.c_str()));
+    for (const std::string& e : env) envp.push_back(const_cast<char*>(e.c_str()));
+    argv.push_back(nullptr);
+    envp.push_back(nullptr);
+
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, logpath.c_str(),
+                                     O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    posix_spawn_file_actions_adddup2(&actions, STDOUT_FILENO, STDERR_FILENO);
+    pid_t pid = 0;
+    const int spawned = posix_spawnp(&pid, argv[0], &actions, nullptr,
+                                     argv.data(), envp.data());
+    posix_spawn_file_actions_destroy(&actions);
+    if (spawned != 0) {
+        if (err) *err = "cannot start " + args[0] + ": " + std::strerror(spawned);
+        return -1;
+    }
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) return -1;
+    }
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 bool load_and_resolve(const std::string& dll, uint32_t pc,
                       const GbaOverlayCallbacks* cb,
@@ -414,8 +475,8 @@ bool overlay_compile_one(const OverlayWorkItem& w,
             std::fclose(f);
         }
 
-        const std::string inc = overlay_include_flags();
-        std::string cmd;
+        const std::vector<std::string> inc = overlay_include_args();
+        std::vector<std::string> cmd;
         if (backend == HealBackend::Tcc) {
             // tcc: a self-contained C compiler (own linker + headers), so it
             // needs no host toolchain. The overlay is emitted C-clean (the
@@ -423,33 +484,29 @@ bool overlay_compile_one(const OverlayWorkItem& w,
             // as C; `tcc -shared` exports the global overlay_abi / overlay_init
             // / func_<pc> symbols the loader resolves. No -O (tcc has no real
             // optimizer) and no -x c++ (it is a C compiler).
-            cmd =
-                "\"" + tcc_path() + "\" -shared"
+            cmd = {tcc_path(), "-shared"};
 #ifndef _WIN32
-                " -fPIC"
+            cmd.push_back("-fPIC");
 #endif
-                + inc +
-                " -o \"" + dlltmp.generic_string() + "\""
-                " \"" + cpath.generic_string() + "\"";
+            cmd.insert(cmd.end(), inc.begin(), inc.end());
+            cmd.insert(cmd.end(), {"-o", dlltmp.generic_string(), cpath.generic_string()});
         } else {
-            cmd =
-                "\"" + gxx_path() + "\""
-                " -O2 -std=gnu++17 -fno-exceptions -fno-rtti -shared" + inc +
-                " -o \"" + dlltmp.generic_string() + "\""
-                // -x c++: under gcc the emitted body compiles as C++ to match
-                // the static corpus's C++ semantics exactly. Explicit so it
-                // never depends on the driver's .c-suffix handling.
-                " -x c++ \"" + cpath.generic_string() + "\""
+            cmd = {gxx_path(), "-O2", "-std=gnu++17", "-fno-exceptions", "-fno-rtti",
+                   "-shared"};
+            cmd.insert(cmd.end(), inc.begin(), inc.end());
+            // -x c++: under gcc the emitted body compiles as C++ to match
+            // the static corpus's C++ semantics exactly. Explicit so it
+            // never depends on the driver's .c-suffix handling.
+            cmd.insert(cmd.end(), {"-o", dlltmp.generic_string(), "-x", "c++",
+                                   cpath.generic_string()});
 #ifdef _WIN32
-                " -Wl,--export-all-symbols";
+            cmd.push_back("-Wl,--export-all-symbols");
 #else
-                " -fPIC";
-#endif
-#ifndef _WIN32
+            cmd.push_back("-fPIC");
             const std::string root = heal_toolchain_root();
             std::error_code sec;
             if (!root.empty() && fs::is_directory(fs::path(root) / "sysroot", sec))
-                cmd += " --sysroot=\"" + root + "/sysroot\"";
+                cmd.push_back("--sysroot=" + root + "/sysroot");
 #endif
         }
 

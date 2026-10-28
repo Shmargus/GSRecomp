@@ -8,6 +8,7 @@
 // interpreter's case in src/armv4t/interpreter.cpp.
 
 #include "runtime_arm.h"
+#include "crc32.h"
 #include "symbol_lookup.h"
 #include "env_flag.h"
 #include "game_ram_layout.h"
@@ -411,22 +412,19 @@ void pool_ldm_snapshot_before_body() {
     snapshot.fixed_ring[1] = g_pool_ldm_slot_writes[1];
     g_pool_ldm_source = snapshot;
 }
-// IEEE 802.3 reflected CRC-32 over the tracked stack window, matching
-// src/gba/crc32.h's crc32() without linking gba-layer code into armv4t.
+// IEEE 802.3 reflected CRC-32 (the shared gba::crc32_update) over the
+// tracked stack window, each word fed low byte first.
 // Payload-free: the window is hashed, never retained.
 uint32_t pool_ldm_window_crc(void) {
-    uint32_t crc = 0xFFFFFFFFu;
+    uint32_t crc = 0;
     for (uint32_t a = g_game_ram_layout.pool_ldm_window_base; a < g_game_ram_layout.pool_ldm_window_end; a += 4u) {
-        uint32_t v = bus_read_u32(a);
-        for (int b = 0; b < 4; ++b) {
-            crc ^= v & 0xFFu;
-            for (int bit = 0; bit < 8; ++bit)
-                crc = (crc >> 1) ^
-                      (0xEDB88320u & (0u - (crc & 1u)));
-            v >>= 8;
-        }
+        const uint32_t v = bus_read_u32(a);
+        const uint8_t bytes[4] = {
+            static_cast<uint8_t>(v), static_cast<uint8_t>(v >> 8),
+            static_cast<uint8_t>(v >> 16), static_cast<uint8_t>(v >> 24)};
+        crc = gba::crc32_update(crc, bytes, 4);
     }
-    return ~crc;
+    return crc;
 }
 
 void pool_ldm_reset_host_state() {

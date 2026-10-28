@@ -425,6 +425,46 @@ try {
                 }
             }
         }
+        # g++ and cc1plus already run in UTF-8; give the programs that do not
+        # (collect2, lto-wrapper, as, ld) the collection's UTF-8 manifest, or
+        # they cannot open paths outside the player's Windows code page (a
+        # Cyrillic install folder failed to link; measured 2026-10-27).
+        Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+public static class GsrManifest {
+    [DllImport("kernel32", SetLastError=true, CharSet=CharSet.Unicode)] static extern IntPtr LoadLibraryExW(string f, IntPtr h, uint flags);
+    [DllImport("kernel32", SetLastError=true)] static extern bool FreeLibrary(IntPtr h);
+    delegate bool LangProc(IntPtr h, IntPtr type, IntPtr name, ushort lang, IntPtr p);
+    [DllImport("kernel32", SetLastError=true)] static extern bool EnumResourceLanguagesW(IntPtr h, IntPtr type, IntPtr name, LangProc f, IntPtr p);
+    [DllImport("kernel32", SetLastError=true, CharSet=CharSet.Unicode)] static extern IntPtr BeginUpdateResourceW(string f, bool del);
+    [DllImport("kernel32", SetLastError=true)] static extern bool UpdateResourceW(IntPtr h, IntPtr type, IntPtr name, ushort lang, byte[] data, uint len);
+    [DllImport("kernel32", SetLastError=true)] static extern bool EndUpdateResourceW(IntPtr h, bool discard);
+    // Replaces the program's manifest (type 24, id 1) in every language.
+    public static void Set(string exe, byte[] manifest) {
+        var langs = new List<ushort>();
+        IntPtr m = LoadLibraryExW(exe, IntPtr.Zero, 0x2 /* LOAD_LIBRARY_AS_DATAFILE */);
+        if (m == IntPtr.Zero) throw new Exception(exe + ": cannot read (" + Marshal.GetLastWin32Error() + ")");
+        EnumResourceLanguagesW(m, (IntPtr)24, (IntPtr)1, (h, t, n, l, p) => { langs.Add(l); return true; }, IntPtr.Zero);
+        FreeLibrary(m);
+        IntPtr u = BeginUpdateResourceW(exe, false);
+        if (u == IntPtr.Zero) throw new Exception(exe + ": cannot open (" + Marshal.GetLastWin32Error() + ")");
+        foreach (var l in langs) UpdateResourceW(u, (IntPtr)24, (IntPtr)1, l, null, 0);
+        if (!UpdateResourceW(u, (IntPtr)24, (IntPtr)1, 0, manifest, (uint)manifest.Length) || !EndUpdateResourceW(u, false))
+            throw new Exception(exe + ": cannot write the manifest (" + Marshal.GetLastWin32Error() + ")");
+    }
+}
+'@
+        $utf8Manifest = [IO.File]::ReadAllBytes((Join-Path $PSScriptRoot 'windows_utf8.manifest'))
+        foreach ($p in $programs | Where-Object { $_ -like '*.exe' }) {
+            $exe = Join-Path $tcDir $p
+            if ([Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exe)).Contains('activeCodePage')) { continue }
+            [GsrManifest]::Set($exe, $utf8Manifest)
+            if (-not [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exe)).Contains('activeCodePage')) {
+                throw "$exe did not take the UTF-8 manifest."
+            }
+        }
         # Headers: exactly the system headers a compile of each kind of generated
         # file opens, with the flags the builder uses.
         $sample = @('main/recompiled_000.cpp', 'main/dispatch_table.cpp', 'main/symbol_map.cpp',
@@ -487,7 +527,10 @@ dr_flac (music mod FLAC files, built into the engine): public domain or
 MIT No Attribution. https://github.com/mackron/dr_libs
 
 The builder\mingw64 folder and the lib*.dll files beside the game are
-unmodified binaries from the MSYS2 MinGW-w64 packages listed below. GCC and
+binaries from the MSYS2 MinGW-w64 packages listed below, unmodified except
+that collect2.exe, lto-wrapper.exe, as.exe and ld.exe carry a Windows
+manifest selecting the UTF-8 code page, so they accept folder names in any
+language. GCC and
 binutils are under the GNU GPL version 3 (the GCC runtime libraries under the
 GCC Runtime Library Exception); GMP, MPFR and MPC under the GNU LGPL; ISL
 under the MIT license; zlib under the zlib license; zstd under the BSD

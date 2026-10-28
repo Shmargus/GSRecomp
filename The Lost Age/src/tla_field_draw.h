@@ -19,6 +19,7 @@
 #include "scene_repeat.h"
 #include "tla_alhafra_ship_view.h"
 #include "tla_background_margins.h"
+#include "tla_line_table_margins.h"
 #include "tla_room_sprite_clip.h"
 #include "tla_screen_effect_margins.h"
 #include "tla_ship_water_margins.h"
@@ -37,6 +38,7 @@ struct TlaFieldFrame {
     std::size_t ewram_bytes = 0;
     const std::uint8_t* iwram = nullptr;  // 32 KB
     std::size_t iwram_bytes = 0;
+    const std::uint8_t* io = nullptr;     // the register file, 0x400 bytes
     const std::uint8_t* rom = nullptr;
     std::size_t rom_bytes = 0;
     // The background area and colours from before a game window opened
@@ -67,11 +69,12 @@ struct TlaFieldDrawState {
     TlaWorldClimates climates;
     std::vector<std::uint8_t> haze_vram;
     std::vector<std::uint8_t> room_ewram;  // the margins' edited copy
+    TlaWeatherReplay weather;
 };
 
 // Which rules took part, for the bench's report.
 struct TlaFieldDrawReport {
-    bool ripple = false, port = false, haze = false;
+    bool ripple = false, port = false, haze = false, cloud_wave = false;
     bool ship_water = false, background = false;
     bool ship_view = false, kept = false, room_known = false;
     bool world_map = false;
@@ -95,7 +98,7 @@ inline bool tla_field_draw(gsr::FieldSceneRenderer& renderer, gsr::FieldScene& s
     const int first_y = -(height - 160) / 2;
     if (expanded)
         tla_hide_outside_room(scene, in.ewram, in.ewram_bytes, in.iwram, in.iwram_bytes);
-    tla_weather_sprite_margins(scene, margins, frame_vram);
+    tla_weather_sprite_margins(scene, margins, frame_vram, in.menu_open, &state.weather);
     tla_tornado_margins(scene, margins,
         expanded && frame_vram.size() >= 0x2800u ? frame_vram.data() : nullptr,
         first_y, in.camera_hold_y);
@@ -164,6 +167,9 @@ inline bool tla_field_draw(gsr::FieldSceneRenderer& renderer, gsr::FieldScene& s
                        renderer.room_reference_for(scene, bg, &from_record);
             },
             first_y, height);
+        r.cloud_wave = tla_cloud_wave(scene, margins, in.io, in.ewram, in.ewram_bytes,
+            in.iwram, in.iwram_bytes, in.rom, in.rom_bytes, first_y, height);
+        tla_line_table_margins(scene, margins, in.io, first_y);
     }
 
     // Complete map tiles are shared code; this game's wrapper supplies its layout.
@@ -208,7 +214,7 @@ inline bool tla_field_draw(gsr::FieldSceneRenderer& renderer, gsr::FieldScene& s
                 renderer.upload_effect_sparks(in.sparks, in.spark_count, in.spark_art,
                                               in.spark_art_bytes, effect_layer);
             renderer.analyse_effect_canvas(frame_vram.data(), frame_vram.size(),
-                                           scene.layers[effect_layer]);
+                                           scene, effect_layer);
         }
     }
     renderer.set_scene_margins(&margins);

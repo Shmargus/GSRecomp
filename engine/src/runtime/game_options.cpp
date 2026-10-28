@@ -1,5 +1,7 @@
 #include "game_options.h"
 
+#include "file_replace.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include <map>
@@ -12,15 +14,16 @@ std::mutex g_mutex;
 std::string g_path;
 std::map<std::string, int> g_values;
 
+// The file is replaced whole (file_replace.h), so a failed write keeps the
+// previous settings. Values stay in memory and go out with the next change.
 void save_locked() {
-    std::FILE* f = std::fopen(g_path.c_str(), "w");
-    if (!f) {
-        std::fprintf(stderr, "[options] could not write %s\n", g_path.c_str());
-        return;
-    }
+    if (g_path.empty()) return;
+    std::string text;
     for (const auto& [key, value] : g_values)
-        std::fprintf(f, "%s=%d\n", key.c_str(), value);
-    std::fclose(f);
+        text += key + "=" + std::to_string(value) + "\n";
+    std::string err;
+    if (!gba::replace_file(g_path, text.data(), text.size(), &err))
+        std::fprintf(stderr, "[options] %s\n", err.c_str());
 }
 
 }  // namespace
@@ -49,6 +52,8 @@ int game_option_get(const char* key, int fallback) {
 
 void game_option_set(const char* key, int value) {
     std::lock_guard<std::mutex> lock(g_mutex);
+    const auto it = g_values.find(key);
+    if (it != g_values.end() && it->second == value) return;
     g_values[key] = value;
     save_locked();
 }

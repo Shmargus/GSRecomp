@@ -16,11 +16,15 @@
 
 #include "snapshot.h"
 
+#include <cstdio>
+#include <cstdlib>
+#include <new>
 #include <cstring>
 #include <fstream>
 #include <unordered_map>
 #include <vector>
 
+#include "file_replace.h"
 #include "gba_bus.h"
 #include "gba_ppu.h"
 #include "runtime_arm.h"
@@ -82,6 +86,7 @@ void serialize_cpu(SnapshotWriter& w) {
 void deserialize_cpu(SnapshotReader& r) {
     r.bytes(&g_cpu, sizeof(g_cpu));
     uint32_t depth = r.u32();
+    if (!r.has(depth, sizeof(uint32_t))) return;
     std::vector<uint32_t> entries(depth, 0);
     for (uint32_t i = 0; i < depth; ++i) entries[i] = r.u32();
     runtime_call_stack_restore(entries.data(), depth);
@@ -102,18 +107,11 @@ void deserialize_meta(SnapshotReader& r, const SnapshotContext& ctx) {
     if (ctx.vblank_count)   *ctx.vblank_count   = vblank;
 }
 
-}  // namespace
-
-bool save_state(const char* path, const SnapshotContext& ctx, std::string* err) {
-    if (!ctx.bus || !ctx.ppu) {
-        if (err) *err = "snapshot: bus/ppu not wired";
-        return false;
-    }
-
+// The whole machine as a savestate blob.
+void build_state(const SnapshotContext& ctx, SnapshotWriter& w) {
     char sha1[kRomSha1Len];
     fill_rom_sha1(sha1, ctx.rom_sha1);
 
-    SnapshotWriter w;
     w.bytes(kMagic, 4);
     w.u32(kSnapshotVersion);
     w.bytes(sha1, kRomSha1Len);
@@ -134,46 +132,15 @@ bool save_state(const char* path, const SnapshotContext& ctx, std::string* err) 
         s.bytes(ctx.bus->vram_ptr() + gba::GbaBus::kNativeVram,
                 gba::GbaBus::kObjExtraVram);
     });
-
-    std::ofstream f(path, std::ios::binary | std::ios::trunc);
-    if (!f) {
-        if (err) *err = std::string("snapshot: cannot open for write: ") + path;
-        return false;
-    }
-    f.write(reinterpret_cast<const char*>(w.buffer().data()),
-            static_cast<std::streamsize>(w.size()));
-    if (!f) {
-        if (err) *err = std::string("snapshot: write failed: ") + path;
-        return false;
-    }
-    return true;
 }
 
-bool load_state(const char* path, const SnapshotContext& ctx, std::string* err) {
-    if (!ctx.bus || !ctx.ppu) {
-        if (err) *err = "snapshot: bus/ppu not wired";
-        return false;
-    }
+struct Span { std::size_t off; std::size_t len; };
+using SectionMap = std::unordered_map<uint32_t, Span>;
 
-    std::ifstream f(path, std::ios::binary | std::ios::ate);
-    if (!f) {
-        if (err) *err = std::string("snapshot: cannot open for read: ") + path;
-        return false;
-    }
-    std::streamoff size = f.tellg();
-    if (size <= 0) {
-        if (err) *err = std::string("snapshot: empty/unreadable: ") + path;
-        return false;
-    }
-    std::vector<uint8_t> blob(static_cast<std::size_t>(size));
-    f.seekg(0, std::ios::beg);
-    f.read(reinterpret_cast<char*>(blob.data()),
-           static_cast<std::streamsize>(blob.size()));
-    if (!f) {
-        if (err) *err = std::string("snapshot: read failed: ") + path;
-        return false;
-    }
-
+// Check a blob's header and framing and index its sections by tag. Touches
+// no live state.
+bool parse_state(const std::vector<uint8_t>& blob, const SnapshotContext& ctx,
+                 SectionMap* sections, std::string* err) {
     SnapshotReader head(blob.data(), blob.size());
     char magic[4];
     head.bytes(magic, 4);
@@ -207,9 +174,6 @@ bool load_state(const char* path, const SnapshotContext& ctx, std::string* err) 
         return false;
     }
 
-    // Index sections by tag → (offset, len) within blob.
-    struct Span { std::size_t off; std::size_t len; };
-    std::unordered_map<uint32_t, Span> sections;
     std::size_t cursor = blob.size() - head.remaining();
     for (uint32_t i = 0; i < section_count; ++i) {
         SnapshotReader sr(blob.data() + cursor, blob.size() - cursor);
@@ -224,7 +188,7 @@ bool load_state(const char* path, const SnapshotContext& ctx, std::string* err) 
             if (err) *err = "snapshot: section overruns file";
             return false;
         }
-        sections[tag] = Span{payload_off, len};
+        (*sections)[tag] = Span{payload_off, len};
         cursor = payload_off + len;
     }
 
@@ -232,49 +196,120 @@ bool load_state(const char* path, const SnapshotContext& ctx, std::string* err) 
     const uint32_t required[] = {TAG_CPU, TAG_BUS, TAG_IO,
                                  TAG_AUDIO, TAG_SAVE, TAG_PPU};
     for (uint32_t tag : required) {
-        if (sections.find(tag) == sections.end()) {
+        if (sections->find(tag) == sections->end()) {
             if (err) *err = "snapshot: missing required section";
             return false;
         }
     }
+    return true;
+}
 
-    auto reader_for = [&](uint32_t tag) -> SnapshotReader {
-        auto it = sections.find(tag);
-        const uint8_t* base = (it == sections.end())
-            ? nullptr : blob.data() + it->second.off;
-        std::size_t len = (it == sections.end()) ? 0 : it->second.len;
-        return SnapshotReader(base, len);
+// Write every section into the live machine. False if any section ran
+// short; the machine is then partly overwritten and the caller restores it.
+bool apply_state(const std::vector<uint8_t>& blob, const SectionMap& sections,
+                 const SnapshotContext& ctx) {
+    bool ok = true;
+    auto apply = [&](uint32_t tag, auto&& read) {
+        const auto it = sections.find(tag);
+        if (it == sections.end()) return;
+        SnapshotReader r(blob.data() + it->second.off, it->second.len);
+        read(r);
+        ok = ok && r.ok();
     };
 
-    { SnapshotReader r = reader_for(TAG_CPU);   deserialize_cpu(r); }
-    { SnapshotReader r = reader_for(TAG_BUS);   ctx.bus->deserialize(r); }
-    { SnapshotReader r = reader_for(TAG_IO);    ctx.bus->io().deserialize(r); }
-    { SnapshotReader r = reader_for(TAG_AUDIO);
-      ctx.bus->audio().deserialize(r, ctx.bus->io().raw(), gba::GbaIo::kIoSize); }
-    { SnapshotReader r = reader_for(TAG_SAVE);  ctx.bus->save().deserialize(r); }
-    { SnapshotReader r = reader_for(TAG_PPU);   ctx.ppu->deserialize(r); }
+    apply(TAG_CPU,   [&](SnapshotReader& r) { deserialize_cpu(r); });
+    apply(TAG_BUS,   [&](SnapshotReader& r) { ctx.bus->deserialize(r); });
+    apply(TAG_IO,    [&](SnapshotReader& r) { ctx.bus->io().deserialize(r); });
+    apply(TAG_AUDIO, [&](SnapshotReader& r) {
+        ctx.bus->audio().deserialize(r, ctx.bus->io().raw(), gba::GbaIo::kIoSize);
+    });
+    apply(TAG_SAVE,  [&](SnapshotReader& r) { ctx.bus->save().deserialize(r); });
+    apply(TAG_PPU,   [&](SnapshotReader& r) { ctx.ppu->deserialize(r); });
     // Optional trailing subsystem section: v1 states written before affine
     // hidden-state tracking remain loadable and reconstruct from BGxX/Y on the
     // first rendered line. New states restore the exact mid-frame accumulators.
-    if (sections.find(TAG_AFFINE) != sections.end()) {
-        SnapshotReader r = reader_for(TAG_AFFINE);
-        ctx.ppu->deserialize_affine_state(r);
-    }
-    if (sections.find(TAG_META) != sections.end()) {
-        SnapshotReader r = reader_for(TAG_META);
-        deserialize_meta(r, ctx);
-    }
+    apply(TAG_AFFINE, [&](SnapshotReader& r) { ctx.ppu->deserialize_affine_state(r); });
+    apply(TAG_META,  [&](SnapshotReader& r) { deserialize_meta(r, ctx); });
     // Optional: states from before the second sprite page leave it clear.
-    {
-        std::uint8_t* extra = ctx.bus->vram_ptr() + gba::GbaBus::kNativeVram;
-        std::memset(extra, 0, gba::GbaBus::kObjExtraVram);
-        if (sections.find(TAG_OBJX) != sections.end()) {
-            SnapshotReader r = reader_for(TAG_OBJX);
-            r.bytes(extra, gba::GbaBus::kObjExtraVram);
-        }
+    std::uint8_t* extra = ctx.bus->vram_ptr() + gba::GbaBus::kNativeVram;
+    std::memset(extra, 0, gba::GbaBus::kObjExtraVram);
+    apply(TAG_OBJX,  [&](SnapshotReader& r) { r.bytes(extra, gba::GbaBus::kObjExtraVram); });
+    return ok;
+}
+
+}  // namespace
+
+bool save_state(const char* path, const SnapshotContext& ctx, std::string* err) {
+    if (!ctx.bus || !ctx.ppu) {
+        if (err) *err = "snapshot: bus/ppu not wired";
+        return false;
     }
 
+    SnapshotWriter w;
+    build_state(ctx, w);
+
+    // Replace the slot whole (file_replace.h): a failed save keeps the
+    // previous state in the slot.
+    std::string why;
+    if (!gba::replace_file(path, w.buffer().data(), w.size(), &why)) {
+        if (err) *err = "snapshot: " + why;
+        return false;
+    }
     return true;
+}
+
+bool load_state(const char* path, const SnapshotContext& ctx, std::string* err) {
+    if (!ctx.bus || !ctx.ppu) {
+        if (err) *err = "snapshot: bus/ppu not wired";
+        return false;
+    }
+
+    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    if (!f) {
+        if (err) *err = std::string("snapshot: cannot open for read: ") + path;
+        return false;
+    }
+    std::streamoff size = f.tellg();
+    if (size <= 0) {
+        if (err) *err = std::string("snapshot: empty/unreadable: ") + path;
+        return false;
+    }
+    std::vector<uint8_t> blob;
+    try {
+        blob.resize(static_cast<std::size_t>(size));
+    } catch (const std::bad_alloc&) {
+        if (err) *err = std::string("snapshot: file too large to load: ") + path;
+        return false;
+    }
+    f.seekg(0, std::ios::beg);
+    f.read(reinterpret_cast<char*>(blob.data()),
+           static_cast<std::streamsize>(blob.size()));
+    if (!f) {
+        if (err) *err = std::string("snapshot: read failed: ") + path;
+        return false;
+    }
+
+    SectionMap sections;
+    if (!parse_state(blob, ctx, &sections, err)) return false;
+
+    // Keep the running game, so a file that turns out damaged partway
+    // through (a section shorter than its contents) puts it back untouched.
+    SnapshotWriter running;
+    build_state(ctx, running);
+    if (apply_state(blob, sections, ctx)) return true;
+
+    SectionMap running_sections;
+    if (!parse_state(running.buffer(), ctx, &running_sections, nullptr) ||
+        !apply_state(running.buffer(), running_sections, ctx)) {
+        // A blob of the live machine always parses and applies; if it does
+        // not, the game is in an unknown state and must not keep running.
+        std::fprintf(stderr, "[snapshot] could not restore the running game "
+                             "after a damaged state\n");
+        std::abort();
+    }
+    if (err) *err = std::string("snapshot: damaged state (a section is "
+                                "shorter than its contents): ") + path;
+    return false;
 }
 
 }  // namespace gbarecomp::debug

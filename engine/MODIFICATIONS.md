@@ -77,6 +77,12 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
   load-only path is used once per backend instead of enumerating the cache
   folder on the game thread, and `overlay_drain_ready` logs per-routine details
   only for requested work, not cached loads.
+- **Runtime compiler launch.** `overlay_compile.cpp` builds the compiler
+  command as an argument list (`overlay_include_args`). Windows quotes each
+  argument for `CreateProcessA`; Linux starts the compiler with `posix_spawnp`
+  and an explicit environment (bundled toolchain `PATH`/`LD_LIBRARY_PATH`),
+  with output redirected to the compile log, instead of a `std::system` shell
+  line.
 - **RAM handoff after a direct guard miss.** When a direct call's fixed-code
   guard fails, `runtime_mutable_ram_code_miss` checks runtime-healed code, then
   consults the game-owned verified RAM-image resolver before bridging into the
@@ -149,6 +155,9 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
 
 ### PPU, wider views and the field renderer
 
+- **Field renderer refuses per-row blank and mode changes.** `draw()` declines
+  a frame whose rows set forced blank or change video mode part-way down,
+  as it already did for a frame-level blank; the shaders draw neither.
 - **Expanded view in the PPU** (`gba/gba_ppu.{cpp,h}`). Per-layer background
   sample remapping for regular and affine layers, with the window registers
   asked about the source pixel and an opt-out for layers whose placement the
@@ -279,6 +288,17 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
 
 ### Host window, input, hotkeys and menus
 
+- **Pace before the visible present.** `runtime.cpp` waits for a 1x frame's
+  pacing deadline immediately before the frame is shown (`pay_present_pace`
+  inside `present_first()`), not after, so variable composition/render cost
+  does not move frame delivery. Both present paths share `present_paced()`,
+  which pays each frame's waits exactly once and drops them only when
+  interpolation really presented twice. Present-in-place frames reached
+  inside a guest IRQ still present there and pace after iret.
+- **Native supersampling yields to the game's picture.** It is refused for a
+  session in which a game has installed a present-override hook, because its
+  output bypasses that hook.
+
 - **F1 preferences.** `host_window.cpp` reads and writes `[Video]` window
   scale, fullscreen, V-Sync, linear/integer scaling, screen filter and FPS
   display in `config.ini`, preserving other sections. Filter preferences
@@ -289,15 +309,49 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
   capture, keyboard/modifier/controller dispatch and INI persistence;
   `host_config_ui.h` sizes its binding vectors to the registered count. Games
   without registrations keep the 15.
-- **Cheat/game menu hooks.** Rebindable hotkey `HK_GAME_MENU` (`[KeyMap]
-  CheatMenu=`, "Cheat Menu" in F1 Hotkeys, default F11) sets
-  `HostWindow::Events::game_menu`. Three `RunOptions` hooks, all null by
-  default: `game_menu_toggle` (on that press), `keyinput_filter` (sees every
-  pump's keys before the guest and input recording, returns what they get) and
-  `paused_overlay` (paints over a copy of the frozen frame on each pump of the
-  paused loop). The game requests the pause through `pause_request_poll`.
-  Infinite HP/PP set by game code (`runtime_set_infinite_hp/pp`) are saved to
-  `[Cheats]`.
+- **F1 artwork upload.** The menu atlas explicitly uses tightly packed GL
+  upload rows and restores the previous unpack state. SDL can leave the game
+  texture's row stride active; inheriting it corrupted the frame/background
+  and could read past the atlas buffer (`host_config_ui.cpp`).
+- **Tabbed F1 menu.** The shared menu uses original game-supplied font,
+  character advances, window tiles and palette in memory. A compact centered
+  frame is movable by its header and resizable from edges/corners. Its size
+  and position persist per game in config.ini [SettingsWindow], with recovery
+  inside a smaller viewport. The first unsaved height fits measured content.
+  Category strips scroll horizontally; selected tabs use gold text in a full
+  native frame, with plain inactive labels. Rejected bracket-like trim is gone.
+  Display uses two opaque original-tile panels (Window/Picture); Show FPS
+  belongs to Window. Panels sit side by side when measured labels/values fit,
+  otherwise stack. Settings retain the native font size. Narrow Controls/Hotkeys pages stack
+  binding sources and use the page scroll. A short contextual-help footer
+  yields to tooltips on short windows; Back/Quit stay accessible. Show FPS
+  aligns with the first Display group. Brief footer hints link to fuller
+  navigation guidance in Help and delayed hover tips. Video has
+  Display/Colours/Effects sub-tabs; Help also contains crash logging. Cheats includes HP/PP, battle reward multipliers and any
+  registered walk-through-walls switch. F11 (`CheatMenu`) opens that tab;
+  Menu defaults to left-stick click for controllers, preserving saved choices.
+  Shoulder buttons or PgUp/PgDn change tabs; B closes outside binding
+  capture/popups. Escape dismisses a dropdown before closing the menu.
+  Gameplay buttons held in the menu wait for release before reaching the game.
+  `config_ui_set_menu_art` copies game-owned artwork under a mutex; textures
+  and the bitmap glyph atlas are created on the UI thread, using nearest
+  filtering on both SDL and OpenGL. No artwork is distributed.
+  Shared buttons, dropdowns, checkboxes and selected rows use native window-tile
+  frames and bitmap cursor arrows. Checkboxes draw smaller squares while
+  keeping the regular input hit area. Sliders use slim native-framed tracks,
+  a silver thumb and a separate numeric readout, retaining standard input and
+  Ctrl-click numeric editing. The active thumb color is captured before
+  suppressing built-in text, so dragging keeps the handle visible; the yellow
+  header/slider symbols were removed at Jimmy's request. Boolean settings use
+  real checkboxes, with clickable labels and keyboard/controller navigation.
+  Focused Left/Right, Space/Enter and A remain supported. Native surfaces sit behind
+  ImGui input and text via nested draw-list splitters. Controls share the
+  blue/silver palette and consistent hover/active selection colors. F1 now has
+  an opaque deep-blue backing and blue inset panels so the running game cannot
+  compete with the lettering. It stays in the main game viewport. Popups and
+  controls remain solid for readability.
+  The old game-owned pause/key-filter/overlay hooks remain available for
+  new-game prompts. HP/PP changes continue to persist in `[Cheats]`.
 - **Two bindings per gameplay button.** F1 Controls offers primary and
   alternate bindings per GBA button (`keybinds.ini` `[player1_pad]` plus
   `[player1_pad_alt]`). Input ORs both sources before KEYINPUT, with the same
@@ -360,6 +414,20 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
   snapshot, rejecting stale data and unfinished commands, backing up all slots
   before writing, using the normal save persistence path and restoring the
   in-memory image on failure. No game addresses or import rules in the engine.
+- **Whole-file save replacement.** `gba::replace_file` (`src/gba/file_replace.h`)
+  writes a sibling `.tmp`, checks every write and the close, then renames it
+  over the target (`MoveFileExW` with `MOVEFILE_REPLACE_EXISTING` on Windows,
+  `rename` elsewhere). It never deletes or writes the target in place; a failed
+  rename keeps both the old file and the complete `.tmp`. The battery-save
+  flush, the pre-update save backup, `debug::save_state` and the game options
+  file use it. Replaces upstream's remove-then-rename fallback, which could
+  lose both copies. `game_option_set` skips unchanged values.
+- **All-or-nothing savestate loads.** `debug::load_state` checks framing
+  first, then serializes the running machine to memory before applying the
+  file; if any section reader runs short it re-applies that copy and fails.
+  Stored counts (call-stack depth, audio ring, save buffers) are checked
+  against the bytes left (`SnapshotReader::has`) before anything is sized from
+  them. Field values inside a complete section are not range-checked.
 - **Game-owned ROM patch hook.** `RunOptions::rom_patch`,
   `void (*)(std::vector<std::uint8_t>*)`, is called once in `runtime.cpp`
   immediately before `bus.set_rom(...)`, after the SHA-1 check, so patched
@@ -428,6 +496,19 @@ All null or off by default and installed by the game's runner. `RunOptions`:
   build. Suites under `tests/` cover the areas above; `ram_heal_test.cpp`,
   `ram_overlay/registry_test.cpp`, `ppu_smoke/test_main.cpp` and
   `armv4t/pool_ldm_probe_test.cpp` were updated to current contracts.
+- Windows programs (player, translator, builders, launcher) embed
+  `scripts/windows_utf8.manifest` (`activeCodePage` UTF-8, through
+  `scripts/windows_utf8.cmake`), so argv, `getenv` and the narrow Win32/CRT
+  file, process and library calls use the same UTF-8 paths as
+  `std::filesystem`. The release gives the bundled `collect2`, `lto-wrapper`,
+  `as` and `ld` the same manifest (`g++` and `cc1plus` already have one).
+  Together they let the collection run and compile from a folder with any
+  name (Windows 10 1903 and later).
+- One CRC-32: the header-only `armv4t/crc32.h` (`gba::crc32`,
+  `gba::crc32_update`) replaces `gba/crc32.{h,cpp}` and the private copies in
+  `emit_function.cpp`, `runtime_arm.cpp` (pool-LDM window CRC) and
+  `runtime.cpp` (PNG writer). `pool_ldm_probe_test.cpp` keeps its own
+  reference implementation on purpose.
 
 ### Removed from upstream
 
@@ -449,11 +530,11 @@ All null or off by default and installed by the game's runner. `RunOptions`:
 
 Present upstream, not carried here because none of it is needed to build:
 
-- `.github/` and `.claude/` — upstream's CI config and editor skills.
-- `oracle/` — the mGBA-backed co-simulation oracle. It is off by default
+- `.github/` and `.claude/` â€” upstream's CI config and editor skills.
+- `oracle/` â€” the mGBA-backed co-simulation oracle. It is off by default
   (`GBARECOMP_BUILD_ORACLE=OFF`) and needs a `libmgba` this repository does not
   carry.
-- `third_party/mgba` — mGBA's own source. `THIRD_PARTY_ATTRIBUTION.md` (kept
+- `third_party/mgba` â€” mGBA's own source. `THIRD_PARTY_ATTRIBUTION.md` (kept
   intact, as upstream wrote it) says mGBA is vendored at that path; in this copy
   it is not. The files here that are derived from mGBA are
   `src/runtime/bios_hle.{h,cpp}`; they remain under MPL-2.0

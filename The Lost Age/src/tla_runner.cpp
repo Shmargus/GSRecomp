@@ -31,6 +31,7 @@ namespace {
 constexpr char kRomSha1[] = "b500663220cb9bf56b9f8e8c0c544f1d6fa3a824";
 
 void on_function_entry(std::uint32_t pc) {
+    tla_publish_menu_art();
     tla_gpu_field_on_entry(pc);
     tla_widescreen_on_entry(pc);
     tla_hard_mode_on_entry(pc);

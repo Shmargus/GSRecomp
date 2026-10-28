@@ -10161,7 +10161,7 @@ bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
                         effect_layer);
                 renderer.analyse_effect_canvas(capture.vram.data(),
                                                capture.vram.size(),
-                                               sc.layers[effect_layer]);
+                                               sc, effect_layer);
             }
             // Report once, on the first frame that actually captured
             // something -- reporting on the first battle frame printed all
@@ -10358,11 +10358,6 @@ std::atomic<bool> g_battle_speed_on{false};
 // Better Field Psy: Off / On (src/battle_speed.h), saved with the other
 // options.
 std::atomic<int> g_field_psynergy_fast{0};
-// Cheat menu multipliers (src/cheat_menu.h), step indices, saved with the
-// other options.
-std::atomic<int> g_cheat_exp_step{gsr::cheat_menu::kNormalStep};
-std::atomic<int> g_cheat_coin_step{gsr::cheat_menu::kNormalStep};
-std::atomic<int> g_cheat_drop_step{gsr::cheat_menu::kNormalStep};
 std::string g_options_path = gsr::settings_page::kOptionsFile;
 
 void load_game_options(const char* argv0) {
@@ -10380,16 +10375,6 @@ void load_game_options(const char* argv0) {
         gbarecomp::game_option_get(gsr::battle_speed::kOptionsKey, 0) != 0);
     g_field_psynergy_fast.store(
         gbarecomp::game_option_get(kFieldPsynergyKey, 0) != 0 ? 1 : 0);
-    using namespace gsr::cheat_menu;
-    const std::pair<const char*, std::atomic<int>*> steps[] = {
-        {kExpKey, &g_cheat_exp_step},
-        {kCoinKey, &g_cheat_coin_step},
-        {kDropKey, &g_cheat_drop_step}};
-    for (const auto& [key, step] : steps) {
-        const int value = gbarecomp::game_option_get(key, -1);
-        const int count = step == &g_cheat_drop_step ? kDropStepCount : kStepCount;
-        if (value >= 0 && value < count) step->store(value);
-    }
 }
 
 void save_game_options() {
@@ -10399,9 +10384,6 @@ void save_game_options() {
                                g_battle_speed_on.load() ? 1 : 0);
     gbarecomp::game_option_set(gsr::settings_page::kFieldPsynergyKey,
                                g_field_psynergy_fast.load() ? 1 : 0);
-    gbarecomp::game_option_set(gsr::cheat_menu::kExpKey, g_cheat_exp_step.load());
-    gbarecomp::game_option_set(gsr::cheat_menu::kCoinKey, g_cheat_coin_step.load());
-    gbarecomp::game_option_set(gsr::cheat_menu::kDropKey, g_cheat_drop_step.load());
 }
 // The game's cursor row (r9), which is also the page-two row.
 std::atomic<int> g_settings_row{0};
@@ -10415,13 +10397,15 @@ void load_menu_font() {
         g_settings_font.tiles[i] = bus_read_u8(font + i);
     for (std::uint32_t i = 0; i < sizeof g_settings_font.widths; ++i)
         g_settings_font.widths[i] = bus_read_u8(kGlyphWidthTable + i);
+    gbarecomp::config_ui_set_menu_art(g_settings_font.tiles, g_settings_font.widths,
+        gsr::cheat_menu::kDefaultWindowPalette);
     g_settings_font_loaded.store(true, std::memory_order_release);
 }
 
 void adventure_font_frame() {
+    load_menu_font();
     if ((!gsr::adventure::enabled.load() && !gsr::adventure::collectibles_enabled.load()) ||
         gsr::adventure_ui::font_ready.load(std::memory_order_acquire)) return;
-    load_menu_font();
     gsr::adventure_ui::publish_font(g_settings_font.tiles, g_settings_font.widths);
 }
 
@@ -11340,15 +11324,8 @@ void paint_battle_speed_indicator(std::uint8_t* rgb, std::uint32_t width,
 }
 
 // ---- Cheat menu (src/cheat_menu.h) ------------------------------------------
-// Emulation thread only: the hotkey, the key filter, the pause poll and the
-// paused overlay all run from the run loop's input pump and present. The
-// steps are atomics because the reward hooks read them from generated code
-// on the same thread; nothing else touches them. The steps themselves are
-// defined with the other saved options (g_cheat_exp_step and friends).
-bool g_cheat_menu_open = false;
+// The original window remains for the new-game prompts; cheats live in F1.
 bool g_cheat_menu_requested_pause = false;
-int g_cheat_menu_row = 0;
-std::uint16_t g_cheat_menu_held = 0;
 bool g_cheat_menu_swallow = false;
 std::uint16_t g_cheat_window_palette[16] = {};
 bool g_cheat_window_palette_known = false;
@@ -11439,48 +11416,12 @@ const gbarecomp::GameOptionSwitch kGameSwitches[] = {
      gbarecomp::walk_through_walls::kOptionKey}};
 constexpr int kPlayerGameSwitchCount = 1;
 
-void cheat_menu_toggle() {
-    if (g_hard_prompt_open) return;
-    load_menu_font();
-    g_cheat_menu_open = !g_cheat_menu_open;
-    // Keys already held stay with whoever had them: nothing reaches the
-    // menu until it is pressed again, and nothing reaches the game until
-    // every key is let go after closing.
-    g_cheat_menu_held = 0x3FFu;
-    if (g_cheat_menu_open) {
-        g_cheat_menu_row = 0;
-    } else {
-        g_cheat_menu_swallow = true;
-        save_game_options();
-    }
-}
-
 bool cheat_menu_pause_poll(bool* out_paused) {
-    const bool want = g_cheat_menu_open || g_hard_prompt_open;
+    const bool want = g_hard_prompt_open;
     if (want == g_cheat_menu_requested_pause) return false;
     g_cheat_menu_requested_pause = want;
     *out_paused = want;
     return true;
-}
-
-std::atomic<int>* cheat_menu_step(int row) {
-    using namespace gsr::cheat_menu;
-    if (row == kExpRow) return &g_cheat_exp_step;
-    if (row == kCoinRow) return &g_cheat_coin_step;
-    if (row == kDropRow) return &g_cheat_drop_step;
-    return nullptr;
-}
-
-void cheat_menu_change(int row, int direction) {
-    using namespace gsr::cheat_menu;
-    if (row == kInfiniteHpRow) {
-        runtime_set_infinite_hp(runtime_get_infinite_hp() ? 0 : 1);
-    } else if (row == kInfinitePpRow) {
-        runtime_set_infinite_pp(runtime_get_infinite_pp() ? 0 : 1);
-    } else if (std::atomic<int>* step = cheat_menu_step(row)) {
-        const int last = (row == kDropRow ? kDropStepCount : kStepCount) - 1;
-        step->store(std::clamp(step->load() + direction, 0, last));
-    }
 }
 
 std::uint16_t cheat_menu_keyinput_filter(std::uint16_t keyinput) {
@@ -11502,25 +11443,11 @@ std::uint16_t cheat_menu_keyinput_filter(std::uint16_t keyinput) {
         else if (down & kKeyB) hard_mode_prompt_close(false);
         return 0x3FFu;
     }
-    if (!g_cheat_menu_open) {
-        if (g_cheat_menu_swallow) {
-            if (pressed != 0) return 0x3FFu;
-            g_cheat_menu_swallow = false;
-        }
-        return keyinput;
+    if (g_cheat_menu_swallow) {
+        if (pressed != 0) return 0x3FFu;
+        g_cheat_menu_swallow = false;
     }
-    const std::uint16_t down =
-        static_cast<std::uint16_t>(pressed & ~g_cheat_menu_held);
-    g_cheat_menu_held = pressed;
-    constexpr int rows = gsr::cheat_menu::kRowCount;
-    if (down & kKeyUp) g_cheat_menu_row = (g_cheat_menu_row + rows - 1) % rows;
-    if (down & kKeyDown) g_cheat_menu_row = (g_cheat_menu_row + 1) % rows;
-    if (down & kKeyLeft) cheat_menu_change(g_cheat_menu_row, -1);
-    if (down & kKeyRight) cheat_menu_change(g_cheat_menu_row, +1);
-    if ((down & kKeyA) && g_cheat_menu_row <= gsr::cheat_menu::kInfinitePpRow)
-        cheat_menu_change(g_cheat_menu_row, +1);
-    if (down & (kKeyB | kKeyStart)) cheat_menu_toggle();
-    return 0x3FFu;
+    return keyinput;
 }
 
 // The window, drawn over the paused picture in the game's own pieces and
@@ -11635,26 +11562,7 @@ void cheat_menu_paint(std::uint8_t* rgb, std::uint32_t width,
         });
         return;
     }
-    if (!g_cheat_menu_open) return;
-    menu_window_paint(rgb, width, height,
-                      [](auto& draw_text, auto& text_width, int inner_x,
-                         int inner_y) {
-        draw_text(kTitle, inner_x + (kWindowTiles - 2) * 4 -
-                              text_width(kTitle) / 2, inner_y);
-        for (int row = 0; row < kRowCount; ++row) {
-            const int y = inner_y + kRowLineY0 + row * kRowPitch;
-            draw_text(kRowLabels[row], inner_x + kLabelX, y);
-            std::string value;
-            if (row == kInfiniteHpRow)
-                value = runtime_get_infinite_hp() ? "On" : "Off";
-            else if (row == kInfinitePpRow)
-                value = runtime_get_infinite_pp() ? "On" : "Off";
-            else
-                value = kStepWords[cheat_menu_step(row)->load()];
-            if (row == g_cheat_menu_row) value = "< " + value + " >";
-            draw_text(value, inner_x + kValueCentreX - text_width(value) / 2, y);
-        }
-    });
+
 }
 
 // What one tally store adds, scaled by its multiplier. Returns -1 when `pc`
@@ -11665,8 +11573,9 @@ int cheat_reward_write(std::uint32_t pc, std::uint32_t addr,
     using namespace gsr::cheat_menu;
     if (pc != kCoinBonusStorePc && pc != kCoinStorePc && pc != kExpStorePc)
         return -1;
-    const int step = (pc == kExpStorePc ? g_cheat_exp_step
-                                        : g_cheat_coin_step).load();
+    int step = gbarecomp::game_option_get(
+        pc == kExpStorePc ? kExpKey : kCoinKey, kNormalStep);
+    if (step < 0 || step >= kStepCount) step = kNormalStep;
     if (!out_value || width != 4u || step == kNormalStep) return 0;
     const std::uint32_t before = bus_read_u32(addr);
     const std::uint64_t added = static_cast<std::uint32_t>(requested - before);
@@ -11682,7 +11591,8 @@ int cheat_drop_branch(std::uint32_t pc, std::uint32_t original,
                       std::uint32_t* out_decision) {
     using namespace gsr::cheat_menu;
     if (pc != kDropBranchPc) return -1;
-    const int step = g_cheat_drop_step.load();
+    int step = gbarecomp::game_option_get(kDropKey, kNormalStep);
+    if (step < 0 || step >= kDropStepCount) step = kNormalStep;
     if (step == kNormalStep) return 0;
     const std::int64_t threshold =
         static_cast<std::int64_t>(static_cast<std::int32_t>(g_cpu.R[5])) *
@@ -11690,6 +11600,37 @@ int cheat_drop_branch(std::uint32_t pc, std::uint32_t original,
     const std::int64_t roll = static_cast<std::int32_t>(g_cpu.R[0]);
     *out_decision = threshold <= roll ? 1u : 0u;
     return *out_decision != original ? 1 : 0;
+}
+
+// F12 0058 frame 91: the casting canvas is already visible at (0, 0), but
+// its first position (-102, -13) is still queued for VBlank. The arena's
+// line table has stopped, so spell_setup_torn_frame no longer catches this
+// incomplete setup picture. Keep the preceding picture until placement lands.
+bool battle_spell_position_pending(const gba::GbaPpu& ppu) {
+    using namespace gsr::battle_speed;
+    if (!ppu.latched_native_line_io_valid()[0]) return false;
+    const auto* row = ppu.latched_native_line_io();
+    const auto half = [&](unsigned offset) {
+        return unsigned(row[offset]) | (unsigned(row[offset + 1u]) << 8);
+    };
+    if ((half(0) & 7u) != 1u || (half(0) & 0x0400u) == 0u ||
+        (half(0x0Cu) & 0x2000u) != 0u) return false;
+    const auto* refs = ppu.latched_native_affine_line_refs();
+    if (refs[0] != 0 || refs[1] != 0) return false;
+    const auto count = std::min(bus_read_u16(kVBlankQueueCount),
+                                static_cast<std::uint16_t>(kVBlankQueueMax));
+    for (unsigned i = 0; i < count; ++i) {
+        const auto entry = kVBlankQueueEntries + i * kVBlankQueueEntrySize;
+        // The game's queued DMA copy of the two BG2 reference words.
+        if (bus_read_u32(entry + 4u) != 0x04000028u ||
+            bus_read_u32(entry + 8u) != 0x84000002u) continue;
+        const auto source = bus_read_u32(entry);
+        if (!((source >= 0x02000000u && source <= 0x0203FFF8u) ||
+              (source >= 0x03000000u && source <= 0x03007FF8u))) continue;
+        if (bus_read_u32(source) != 0u || bus_read_u32(source + 4u) != 0u)
+            return true;
+    }
+    return false;
 }
 
 // The settings page marker and the battle ">>" go over whatever picture was
@@ -11704,7 +11645,8 @@ bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
         runtime_current_frame() >= g_history.back(0).guest_frame &&
         g_history.back(0).width == width && g_history.back(0).height == height &&
         bus_read_u32(gsr::battle_speed::kBattleHeapSlot) != 0u &&
-        gbarecomp::spell_setup_torn_frame(*ppu);
+        (gbarecomp::spell_setup_torn_frame(*ppu) ||
+         battle_spell_position_pending(*ppu));
     // Settings paint reads live window/font state. A torn spell picture and
     // settings therefore form explicit synchronous boundaries.
     bool drawn = gpu_field_present_override(rgb, width, height, frame, settings || held);
@@ -15589,7 +15531,6 @@ int main(int argc, char** argv) {
     options.thumb_literal_override = golden_sun_thumb_literal;
     options.swi_override = golden_sun_swi_override;
     options.conditional_branch_override = golden_sun_conditional_branch;
-    options.game_menu_toggle = cheat_menu_toggle;
     options.keyinput_filter = cheat_menu_keyinput_filter;
     options.paused_overlay = cheat_menu_paint;
     gbarecomp::config_ui_set_game_switches(

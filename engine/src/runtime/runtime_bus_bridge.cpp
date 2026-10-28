@@ -832,6 +832,10 @@ bool invoke_frame_present_override_hook(std::uint8_t* rgb, std::uint32_t width,
     return g_frame_present_override_hook(rgb, width, height);
 }
 
+bool has_frame_present_override_hook() {
+    return static_cast<bool>(g_frame_present_override_hook);
+}
+
 void set_savestate_load_hook(std::function<void()> hook) {
     g_savestate_load_hook = std::move(hook);
 }

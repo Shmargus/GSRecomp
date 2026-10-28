@@ -22,6 +22,13 @@
 // and state are untouched. Bench (Thunder Card, 360x240): every square of
 // all 386 calls equals the interpreter's run of the game's code; 0.06 ms a
 // call; the interpreter took 0.22-0.29 s over the cast.
+//
+// Summons also draw flat-colour triangles (Haures's black shards, F12 0170
+// frames 0-31: canvas values 0 and 1 only, the shards cut at the canvas's
+// edge). Four more routines in the same copy table do it, with the same
+// descriptor minus the texture: a 4-byte list entry, +0x14 one colour byte
+// per listed triangle. rasterize_flat() is that code line for line; the
+// 64x64 one (0x0813B7A0) is left alone too.
 
 #include <algorithm>
 #include <array>
@@ -76,9 +83,27 @@ constexpr Variant kVariants[] = {
 // Words the setup patches (shift amounts), never compared.
 constexpr u32 kPatched[] = {0x168u, 0x170u, 0x22Cu, 0x324u, 0x328u};
 
+// The flat-colour routines: a Thumb `bx pc` stub, then `push {r5-r12, lr}`
+// (where the entry hook sees them, the image's +4). Each clears bit 0 of
+// its one literal, the reciprocal table, on every call (FACTS.md
+// 2026-10-28; ROM 0x081390B8 etc. load it).
+constexpr u32 kFlatEntryPush = 0xE92D5FE0u;
+struct FlatVariant {
+    u32 rom;
+    u32 bytes;    // its copy's size (the table at 0x08196D74)
+    u32 literal;  // the reciprocal table's word
+    Op op;
+};
+constexpr FlatVariant kFlatVariants[] = {
+    {0x08138FC8u, 0x200u, 0x1F4u, Op::Replace},
+    {0x081391C8u, 0x210u, 0x204u, Op::Max},
+    {0x081393D8u, 0x220u, 0x214u, Op::AddSat},
+};
+
 struct Triangle {
     std::array<u32, 3> words;
     int x0, y0, x1, y1;  // the corners' box, inclusive
+    std::uint8_t colour;  // flat routines only
 };
 struct Box {
     int x0, y0, x1, y1;  // half-open
@@ -117,6 +142,18 @@ const Variant* live_variant(gba::GbaBus* bus, u32 pc) {
     return nullptr;
 }
 
+// The flat routine whose `push` is live at `pc`, or null.
+const FlatVariant* live_flat_variant(gba::GbaBus* bus, u32 pc) {
+    const u32 base = pc - 4u;
+    for (const FlatVariant& v : kFlatVariants) {
+        bool same = true;
+        for (u32 at = 0; at < v.bytes && same; at += 4u)
+            same = at == v.literal || rom_word(bus, v.rom + at) == bus->read32(base + at);
+        if (same) return &v;
+    }
+    return nullptr;
+}
+
 struct Raster {
     gba::GbaBus* bus;
     Op op;
@@ -136,6 +173,30 @@ u32 mulhi(u32 a, u32 b) { return u32((std::uint64_t(a) * b) >> 32); }
 u32 ror16(u32 v) { return (v >> 16) | (v << 16); }
 bool neg(u32 v) { return s32(v) < 0; }
 
+// One pixel step: `t` (a texel or the flat colour) into the canvas byte.
+void blend(Op op, u32 sub, std::uint8_t& d, u32 t) {
+    switch (op) {
+        case Op::Replace: d = std::uint8_t(t); break;
+        case Op::Max: if (d < t) d = std::uint8_t(t); break;
+        case Op::AddSat: d = std::uint8_t(std::min<u32>(d + t, 0x3Fu)); break;
+        case Op::SubMax: {
+            const s32 v = s32(t) - s32(sub);
+            if (v > 0 && s32(d) < v) d = std::uint8_t(v);
+            break;
+        }
+        case Op::SubAdd: {
+            const s32 v = s32(t) - s32(sub);
+            if (v > 0) d = std::uint8_t(std::min<s32>(s32(d) + v, 0x3F));
+            break;
+        }
+        case Op::SubReplace: {
+            const s32 v = s32(t) - s32(sub);
+            if (v > 0) d = std::uint8_t(v);
+            break;
+        }
+    }
+}
+
 // The game's rasterizer from its triangle loop (+0x18) on, register for
 // register, into `canvas` (side x side, row-major). `corners` holds the
 // corner words by index.
@@ -146,27 +207,7 @@ void rasterize(const Raster& p, const std::vector<const Triangle*>& triangles,
     auto put = [&](int x, int y, u32 t) {
         // Outside the row the game's address leaves the canvas; not ours.
         if (x < 0 || x >= side) return;
-        std::uint8_t& d = canvas[std::size_t(y) * side + x];
-        switch (p.op) {
-            case Op::Replace: d = std::uint8_t(t); break;
-            case Op::Max: if (d < t) d = std::uint8_t(t); break;
-            case Op::AddSat: d = std::uint8_t(std::min<u32>(d + t, 0x3Fu)); break;
-            case Op::SubMax: {
-                const s32 v = s32(t) - s32(p.sub);
-                if (v > 0 && s32(d) < v) d = std::uint8_t(v);
-                break;
-            }
-            case Op::SubAdd: {
-                const s32 v = s32(t) - s32(p.sub);
-                if (v > 0) d = std::uint8_t(std::min<s32>(s32(d) + v, 0x3F));
-                break;
-            }
-            case Op::SubReplace: {
-                const s32 v = s32(t) - s32(p.sub);
-                if (v > 0) d = std::uint8_t(v);
-                break;
-            }
-        }
+        blend(p.op, p.sub, canvas[std::size_t(y) * side + x], t);
     };
     for (const Triangle* tri : triangles) {
         const u32 r3w = tri->words[0];
@@ -337,6 +378,83 @@ void rasterize(const Raster& p, const std::vector<const Triangle*>& triangles,
     }
 }
 
+// The game's flat-colour routine (0x08138FC8; +0x2C on), register for
+// register, into a 128x128 row-major `canvas`. `recip` reads its
+// reciprocal table (2^32 / i, 0 for 1).
+template <typename Recip>
+void rasterize_flat(Op op, u32 facing, const Recip& recip,
+                    const std::vector<const Triangle*>& triangles,
+                    const std::array<u32, 256>& corners, std::uint8_t* canvas) {
+    for (const Triangle* tri : triangles) {
+        const u32 r3w = tri->words[0];
+        u32 r6 = corners[r3w & 0xFFu], r7 = corners[(r3w >> 8) & 0xFFu],
+            r8 = corners[(r3w >> 16) & 0xFFu];
+        if (facing & 3u) {  // +0x54
+            u32 r5 = asr(r8, 16) - asr(r6, 16);
+            u32 r4 = asr((r7 - r6) << 16, 16);
+            u32 r3 = r4 * r5;
+            r5 = asr(r6, 16) - asr(r7, 16);
+            r4 = asr((r8 - r6) << 16, 16);
+            r3 = r4 * r5 + r3;
+            if (r3 == 0u) continue;
+            if (!neg(r3 ^ (facing << 31))) continue;
+        }
+        // +0x98: sort the corners by their words.
+        if (s32(r6) > s32(r7)) std::swap(r6, r7);
+        if (s32(r7) > s32(r8)) {
+            std::swap(r7, r8);
+            if (s32(r6) > s32(r7)) std::swap(r6, r7);
+        }
+        // +0xCC
+        if (s32(asr(r6, 23)) > 0) continue;
+        u32 r3 = asr(r6, 16);
+        u32 r4 = asr(r8, 16) - r3;
+        if (r4 == 0u) continue;
+        r6 <<= 16;
+        u32 d = (r8 << 16) - r6;
+        const bool long_left = neg(d);
+        if (long_left) d = 0u - d;
+        u32 rc = recip(r4);
+        u32 ip = rc ? mulhi(rc, d) : d;
+        if (long_left) ip = 0u - ip;
+        u32 r5 = r6;
+        for (;;) {
+            // +0x110: down to the corner in r7 (the middle, then the bottom)
+            u32 r0 = asr(r7, 16) - r3;
+            if (r0 != 0u) {
+                d = (r7 << 16) - r6;
+                const bool short_left = neg(d);
+                if (short_left) d = 0u - d;
+                rc = recip(r0);
+                r0 = rc ? mulhi(rc, d) : d;
+                if (short_left) r0 = 0u - r0;
+                if (s32(r7) > 0x800000) r7 = 0x800000u;  // stop at row 128
+                for (; r3 != asr(r7, 16); r5 += ip, r6 += r0, ++r3) {
+                    // +0x144
+                    if (neg(r3)) continue;
+                    s32 x = s32(r5) >> 16;
+                    const s32 other = s32(r6) >> 16;
+                    s32 count = x - other;
+                    if (count < 0) count = -count;
+                    if (x > other) x = other;
+                    if ((x >> 7) > 0) continue;
+                    if (x < 0) { count += x; x = 0; }
+                    if (x + count <= 0) continue;
+                    if (x + count - 0x80 > 0) count -= x + count - 0x80;
+                    if (count <= 0) continue;
+                    std::uint8_t* row = canvas + std::size_t(r3) * kSide;
+                    for (; count > 0; --count, ++x) blend(op, 0, row[x], tri->colour);
+                }
+            }
+            // +0x1DC
+            r6 = r7 << 16;
+            r7 = r8;
+            r8 = 0;
+            if (r7 == 0u) break;
+        }
+    }
+}
+
 std::vector<std::uint8_t> read_guest(gba::GbaBus* bus, u32 a, std::size_t len) {
     std::vector<std::uint8_t> out(len);
     const std::uint8_t* src = nullptr;
@@ -381,6 +499,92 @@ Box visible_canvas(gba::GbaBus* bus) {
     return box;
 }
 
+// The listed triangles (`stride` bytes each; the list ends where the corner
+// indices are 0) with their corners' boxes; `corner` gets the corner words by
+// index. `colours`: the flat routines' byte per listed triangle, 0 for the
+// textured ones.
+std::vector<Triangle> read_triangles(gba::GbaBus* bus, u32 list, u32 stride,
+                                     u32 corners, u32 colours,
+                                     std::array<u32, 256>& corner) {
+    std::vector<Triangle> triangles;
+    std::array<bool, 256> have{};
+    for (int n_tri = 0; n_tri < kMaxTriangles; ++n_tri) {
+        Triangle t{};
+        for (u32 k = 0; k * 4u < stride; ++k)
+            t.words[k] = bus->read32(list + u32(n_tri) * stride + k * 4u);
+        if ((t.words[0] << 8) == 0u) break;
+        if (colours) t.colour = bus->read8(colours + u32(n_tri));
+        t.x0 = t.y0 = 0x7FFF;
+        t.x1 = t.y1 = -0x8000;
+        for (int k = 0; k < 3; ++k) {
+            const u32 i = (t.words[0] >> (k * 8)) & 0xFFu;
+            if (!have[i]) {
+                corner[i] = bus->read32(corners + i * 8u);
+                have[i] = true;
+            }
+            const int x = static_cast<std::int16_t>(corner[i]);
+            const int y = static_cast<std::int16_t>(corner[i] >> 16);
+            t.x0 = std::min(t.x0, x); t.x1 = std::max(t.x1, x);
+            t.y0 = std::min(t.y0, y); t.y1 = std::max(t.y1, y);
+        }
+        triangles.push_back(t);
+    }
+    return triangles;
+}
+
+// For each neighbouring 128x128 square the margins show, `draw` runs the
+// triangles that reach it, every corner moved by it, over a copy of the
+// history there; what it changed goes into the history.
+template <typename Draw>
+void paint_squares(const Box& seen, u32 canvas, const std::vector<Triangle>& triangles,
+                   const std::array<u32, 256>& corner, const Draw& draw) {
+    for (int sy = -1; sy <= 1; ++sy)
+        for (int sx = -1; sx <= 1; ++sx) {
+            if (sx == 0 && sy == 0) continue;
+            // The part of this square the margins show, a pixel wider for
+            // the rasterizer's rounding.
+            const Box need{std::max(sx * kSide, seen.x0 - 1),
+                           std::max(sy * kSide, seen.y0 - 1),
+                           std::min((sx + 1) * kSide, seen.x1 + 1),
+                           std::min((sy + 1) * kSide, seen.y1 + 1)};
+            if (need.empty()) continue;
+            std::vector<const Triangle*> chosen;
+            for (const Triangle& t : triangles)
+                if (t.x1 >= need.x0 && t.x0 < need.x1 && t.y1 >= need.y0 &&
+                    t.y0 < need.y1)
+                    chosen.push_back(&t);
+            if (chosen.empty()) continue;
+            const int left = sx * kSide, top = sy * kSide;
+            std::array<std::uint8_t, kCanvasBytes> before{};
+            if (!gsr::effect_capture_history_read(canvas, left, top, before.data()))
+                return;
+            std::array<u32, 256> moved{};
+            for (int i = 0; i < 256; ++i) {
+                const int x = static_cast<std::int16_t>(corner[i]) - left;
+                const int y = static_cast<std::int16_t>(corner[i] >> 16) - top;
+                moved[i] = (u32(y) << 16) | (u32(x) & 0xFFFFu);
+            }
+            std::array<std::uint8_t, kCanvasBytes> after = before;
+            draw(chosen, moved, after.data());
+            int x0 = kSide, y0 = kSide, x1 = -1, y1 = -1;
+            for (int y = 0; y < kSide; ++y)
+                for (int x = 0; x < kSide; ++x) {
+                    const std::size_t i = std::size_t(y) * kSide + x;
+                    if (after[i] == before[i]) continue;
+                    x0 = std::min(x0, x); y0 = std::min(y0, y);
+                    x1 = std::max(x1, x); y1 = std::max(y1, y);
+                }
+            if (x1 < 0) continue;
+            const int w = x1 - x0 + 1, h = y1 - y0 + 1;
+            std::vector<std::uint8_t> changed(std::size_t(w) * h);
+            for (int y = 0; y < h; ++y)
+                std::copy_n(after.data() + std::size_t(y0 + y) * kSide + x0, w,
+                            changed.data() + std::size_t(y) * w);
+            gsr::effect_capture_history_paint(canvas, left + x0, top + y0, w, h,
+                                              changed.data());
+        }
+}
+
 // The mesh routine was entered: paint its triangles into the margin squares.
 // Kept out of tla_spell_mesh_on_entry, which runs on every guest function
 // entry: this body's ~35 KB of locals made the entry hook probe ~9 stack
@@ -409,76 +613,39 @@ __attribute__((noinline)) void paint_mesh_margins(gba::GbaBus* bus, u32 pc) {
                   (0u - bus->read32(descriptor + 0x14u)) & 0xFFu,
                   bus->read32(base + 0x108u + (load & 0xFFFu)) & ~1u,
                   texels.data()};
-    std::vector<Triangle> triangles;
     std::array<u32, 256> corner{};
-    for (int i = 0; i < 256; ++i) corner[i] = 0;
-    std::array<bool, 256> have{};
-    for (int n_tri = 0; n_tri < kMaxTriangles; ++n_tri) {
-        Triangle t{};
-        for (int k = 0; k < 3; ++k)
-            t.words[k] = bus->read32(list + u32(n_tri * 12 + k * 4));
-        if ((t.words[0] << 8) == 0u) break;
-        t.x0 = t.y0 = 0x7FFF;
-        t.x1 = t.y1 = -0x8000;
-        for (int k = 0; k < 3; ++k) {
-            const u32 i = (t.words[0] >> (k * 8)) & 0xFFu;
-            if (!have[i]) {
-                corner[i] = bus->read32(corners + i * 8u);
-                have[i] = true;
-            }
-            const int x = static_cast<std::int16_t>(corner[i]);
-            const int y = static_cast<std::int16_t>(corner[i] >> 16);
-            t.x0 = std::min(t.x0, x); t.x1 = std::max(t.x1, x);
-            t.y0 = std::min(t.y0, y); t.y1 = std::max(t.y1, y);
-        }
-        triangles.push_back(t);
-    }
+    const std::vector<Triangle> triangles =
+        read_triangles(bus, list, 12u, corners, 0u, corner);
     if (triangles.empty()) return;
-    for (int sy = -1; sy <= 1; ++sy)
-        for (int sx = -1; sx <= 1; ++sx) {
-            if (sx == 0 && sy == 0) continue;
-            // The part of this square the margins show, a pixel wider for
-            // the rasterizer's rounding.
-            const Box need{std::max(sx * kSide, seen.x0 - 1),
-                           std::max(sy * kSide, seen.y0 - 1),
-                           std::min((sx + 1) * kSide, seen.x1 + 1),
-                           std::min((sy + 1) * kSide, seen.y1 + 1)};
-            if (need.empty()) continue;
-            std::vector<const Triangle*> chosen;
-            for (const Triangle& t : triangles)
-                if (t.x1 >= need.x0 && t.x0 < need.x1 && t.y1 >= need.y0 &&
-                    t.y0 < need.y1)
-                    chosen.push_back(&t);
-            if (chosen.empty()) continue;
-            const int left = sx * kSide, top = sy * kSide;
-            std::array<std::uint8_t, kCanvasBytes> before{};
-            if (!gsr::effect_capture_history_read(canvas, left, top, before.data()))
-                return;
-            std::array<u32, 256> moved{};
-            for (int i = 0; i < 256; ++i) {
-                const int x = static_cast<std::int16_t>(corner[i]) - left;
-                const int y = static_cast<std::int16_t>(corner[i] >> 16) - top;
-                moved[i] = (u32(y) << 16) | (u32(x) & 0xFFFFu);
-            }
-            std::array<std::uint8_t, kCanvasBytes> after = before;
-            rasterize(raster, chosen, moved, after.data());
-            int x0 = kSide, y0 = kSide, x1 = -1, y1 = -1;
-            for (int y = 0; y < kSide; ++y)
-                for (int x = 0; x < kSide; ++x) {
-                    const std::size_t i = std::size_t(y) * kSide + x;
-                    if (after[i] == before[i]) continue;
-                    x0 = std::min(x0, x); y0 = std::min(y0, y);
-                    x1 = std::max(x1, x); y1 = std::max(y1, y);
-                }
-            if (x1 < 0) continue;
-            const int w = x1 - x0 + 1, h = y1 - y0 + 1;
-            std::vector<std::uint8_t> changed(std::size_t(w) * h);
-            for (int y = 0; y < h; ++y)
-                std::copy_n(after.data() + std::size_t(y0 + y) * kSide + x0, w,
-                            changed.data() + std::size_t(y) * w);
-            gsr::effect_capture_history_paint(canvas, left + x0, top + y0, w, h,
-                                              changed.data());
-        }
+    paint_squares(seen, canvas, triangles, corner,
+                  [&](const std::vector<const Triangle*>& chosen,
+                      const std::array<u32, 256>& moved, std::uint8_t* out) {
+                      rasterize(raster, chosen, moved, out);
+                  });
+}
+
+// A flat-colour routine was entered (its `push`): the same for its triangles.
+__attribute__((noinline)) void paint_flat_margins(gba::GbaBus* bus, u32 pc) {
+    const Box seen = visible_canvas(bus);
+    if (seen.empty()) return;
+    const FlatVariant* variant = live_flat_variant(bus, pc);
+    if (!variant) return;
+    const u32 descriptor = g_cpu.R[0];
+    const u32 recip = bus->read32(pc - 4u + variant->literal) & ~1u;
+    const u32 facing = bus->read32(descriptor + 4u);
+    std::array<u32, 256> corner{};
+    const std::vector<Triangle> triangles =
+        read_triangles(bus, bus->read32(descriptor + 8u), 4u,
+                       bus->read32(descriptor + 0xCu),
+                       bus->read32(descriptor + 0x14u), corner);
+    if (triangles.empty()) return;
+    paint_squares(seen, bus->read32(kCanvasSlot), triangles, corner,
+                  [&](const std::vector<const Triangle*>& chosen,
+                      const std::array<u32, 256>& moved, std::uint8_t* out) {
+                      rasterize_flat(variant->op, facing,
+                                     [&](u32 i) { return bus->read32(recip + i * 4u); },
+                                     chosen, moved, out);
+                  });
 }
 
 }  // namespace
@@ -487,7 +654,13 @@ void tla_spell_mesh_on_entry(std::uint32_t pc) {
     if (!gsr::effect_capture_enabled() || pc < 0x03000000u || pc >= 0x03008000u)
         return;
     gba::GbaBus* bus = gbarecomp::active_bus();
-    if (!bus || bus->read32(pc) != kEntryPush) return;
+    if (!bus) return;
+    const u32 first = bus->read32(pc);
+    if (first == kFlatEntryPush) {
+        paint_flat_margins(bus, pc);
+        return;
+    }
+    if (first != kEntryPush) return;
     for (std::size_t i = 0; i < kEntryAt16.size(); ++i)
         if (bus->read32(pc + 0x10u + u32(i) * 4u) != kEntryAt16[i]) return;
     paint_mesh_margins(bus, pc);

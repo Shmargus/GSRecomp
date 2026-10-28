@@ -17,6 +17,7 @@
 #include "gba_bus.h"
 #include "gba_ppu.h"
 #include "runtime.h"
+#include "host_config_ui.h"
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
 #include "tla.h"
@@ -54,6 +55,9 @@ constexpr uint16_t kDefaultWindowPalette[16] = {
     0x4DC1, 0x55E1, 0x5E21, 0x294A, 0x5294, 0x001F, 0x03FF, 0x7C00};
 uint16_t g_palette[16] = {};
 bool g_palette_known = false;
+std::array<uint8_t, 256 * 32> g_menu_tiles{};
+std::array<uint8_t, 256 - 0x20> g_menu_widths{};
+bool g_menu_art_loaded = false;
 
 std::function<void(int, int, uint8_t)> menu_pixel_writer(
     uint8_t* rgb, uint32_t width, uint32_t height) {
@@ -116,26 +120,30 @@ int text_alu_immediate(uint32_t pc, uint32_t original, uint32_t* out_value) {
 // tile = character code; advance per character 0x0805F484, indexed by code -
 // 0x20 (read by the glyph routine 0x080416CC). Copied out of the ROM on first
 // use.
+void tla_publish_menu_art() {
+    if (g_menu_art_loaded) return;
+    gba::GbaBus* b = gbarecomp::active_bus();
+    if (!b) return;
+    const uint32_t font = b->read32(0x08680000u + 0x13u * 4u);
+    for (uint32_t i = 0; i < g_menu_tiles.size(); ++i) g_menu_tiles[i] = b->read8(font + i);
+    for (uint32_t i = 0; i < g_menu_widths.size(); ++i) g_menu_widths[i] = b->read8(0x0805F484u + i);
+    gbarecomp::config_ui_set_menu_art(g_menu_tiles.data(), g_menu_widths.data(), kDefaultWindowPalette);
+    g_menu_art_loaded = true;
+}
+
 uint8_t tla_menu_glyph(unsigned char code, int gx, int gy) {
-    static std::array<uint8_t, 256 * 32> tiles{};
-    static bool loaded = false;
-    if (!loaded) {
-        gba::GbaBus* b = gbarecomp::active_bus();
-        if (!b) return 0u;
-        const uint32_t font = b->read32(0x08680000u + 0x13u * 4u);
-        for (uint32_t i = 0; i < tiles.size(); ++i) tiles[i] = b->read8(font + i);
-        loaded = true;
-    }
-    const uint8_t byte = tiles[code * 32u + gy * 4 + gx / 2];
+    tla_publish_menu_art();
+    if (!g_menu_art_loaded) return 0u;
+    const uint8_t byte = g_menu_tiles[code * 32u + gy * 4 + gx / 2];
     return static_cast<uint8_t>((byte >> (4 * (gx & 1))) & 0xFu);
 }
 
 uint32_t tla_menu_text_width(const std::string& text) {
-    gba::GbaBus* b = gbarecomp::active_bus();
+    tla_publish_menu_art();
     uint32_t width = 0;
     for (const char c : text) {
         const auto code = static_cast<unsigned char>(c);
-        if (b && code >= 0x20u) width += b->read8(0x0805F484u + code - 0x20u);
+        if (g_menu_art_loaded && code >= 0x20u) width += g_menu_widths[code - 0x20u];
     }
     return width;
 }

@@ -1,9 +1,8 @@
 // host_config_ui.h — Dear ImGui configuration UI for the host window.
 //
-// One Settings window with a sidebar of pages (Video, Audio, Controls,
-// Hotkeys, Fast Forward, Enhancements, and Game when the game adds switches),
-// usable by mouse, keyboard or controller. To bind, click a box then press a
-// key or pad button.
+// One Settings window with horizontal tabs (Video, Audio, Controls, Hotkeys,
+// Speed, optional Game, Cheats and Troubleshooting), usable by mouse,
+// keyboard or controller. To bind, click a box then press a key or pad button.
 //
 // Strictly host-side. It runs at present time, after the guest frame has been
 // uploaded, and touches nothing the emulation reads. The one exception is
@@ -128,6 +127,12 @@ struct ConfigUiColourChoice {
 // passes a pointer in; the UI never reaches into the backend directly, which
 // keeps this file free of SDL backend details and testable in isolation.
 struct ConfigUiState {
+    // F1 geometry, relative to the game viewport. Zero size selects the
+    // content-fitted default; host_window persists this in [SettingsWindow].
+    int menu_width = 0;
+    int menu_height = 0;
+    int menu_x = 0;
+    int menu_y = 0;
     // --- input bindings -----------------------------------------------------
     // GBA KEYINPUT bit order: 0=A 1=B 2=Sel 3=Start 4=Right 5=Left 6=Up 7=Down 8=R 9=L.
     int   key_bind[10] = {};        // SDL_Scancode, 0 = unbound
@@ -244,6 +249,7 @@ struct ConfigUiState {
     bool  cheats_changed = false;
     bool  logging_changed = false;
     bool  debug_overlay_changed = false;
+    bool  menu_layout_changed = false;
     bool  request_quit = false;
 };
 
@@ -264,6 +270,14 @@ void config_ui_shutdown();
 // shown unless the game supplies both the bitmap and its caption.
 void config_ui_set_edition_badge(const char* bitmap_path, const char* caption,
                                  const char* flourish);
+
+// Publish 256 4bpp tiles (8192 bytes), 224 character advances for codes
+// 32..255, and 16 BGR555 colors copied from the verified ROM. Inputs are
+// copied immediately; artwork is retained only in memory.
+void config_ui_set_menu_art(const uint8_t* tiles, const uint8_t* widths,
+                            const uint16_t* palette);
+// Select Cheats and open F1. Safe in builds without ImGui.
+void config_ui_open_cheats();
 
 // Feed every SDL event here BEFORE the host window interprets it. Returns true
 // when the UI consumed the event and the host/guest must ignore it — true

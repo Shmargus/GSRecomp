@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <mutex>
 #include <string>
+#include <vector>
 #ifdef GBARECOMP_HAVE_IMGUI
 #include "imgui.h"
 #include <SDL_keyboard.h>
@@ -51,6 +52,9 @@ inline const char* tracker_objective() {
 inline bool visible = true, hold = false;
 inline std::atomic<bool> guide_hotkey_held{false};
 inline bool layout_edit = false, layout_initialized = false, layout_window_focused = false;
+inline bool layout_overflow = false;
+inline std::vector<const void*> displayed_advice;
+inline bool displayed_completionist = true;
 inline int layout_x = 16, layout_y = 16, layout_width = 400, font_scale = 2;
 inline int chapter = 0, selected = 0;
 inline int saved_layout_x = 16, saved_layout_y = 16, saved_layout_width = 400;
@@ -182,6 +186,89 @@ inline void sample(const unsigned char* ram, unsigned long long frame, const uns
 }
 
 #ifdef GBARECOMP_HAVE_IMGUI
+inline constexpr float overlay_background_alpha = 0.24f;
+
+inline bool desktop_panels() {
+    return (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0;
+}
+
+inline std::size_t instruction_sentence_length(std::string_view text) {
+    auto end = text.find(". ");
+    // Keep abbreviations and decimal values within their sentence.
+    while (end != std::string_view::npos && end + 2 < text.size() &&
+           !(text[end + 2] >= 'A' && text[end + 2] <= 'Z'))
+        end = text.find(". ", end + 2);
+    return end == std::string_view::npos ? text.size() : end + 1;
+}
+
+inline void draw_numbered_instructions(const char* text, float width, unsigned number = 1,
+                                       bool emphasize_first = false) {
+    std::string_view remaining(text);
+    while (!remaining.empty()) {
+        const auto count = instruction_sentence_length(remaining);
+        const bool highlighted = emphasize_first && number == 1;
+        const std::string line = std::to_string(number++) + ". " + std::string(remaining.substr(0, count));
+        adventure_ui::draw_text(line.c_str(), width, font_scale,
+            highlighted ? IM_COL32(255, 216, 110, 255) : IM_COL32_WHITE);
+        remaining.remove_prefix(count);
+        while (!remaining.empty() && remaining.front() == ' ') remaining.remove_prefix(1);
+    }
+}
+
+inline void draw_live_instructions(const GuideStep* hint, const walkthrough::Snapshot* route, float width) {
+    const auto heading = [&](const char* text) {
+        adventure_ui::draw_text(text, width, font_scale, IM_COL32(255, 216, 110, 255));
+    };
+    const auto instruction = [&](const char* objective, const char* text) {
+        const auto body = std::string_view(text);
+        auto first = body.substr(0, instruction_sentence_length(body));
+        if (first.ends_with('.')) first.remove_suffix(1);
+        const bool goal_is_first = std::string_view(objective) == first;
+        // A single page: the goal once, followed by every direction in order.
+        if (!goal_is_first) {
+            heading(objective);
+            ImGui::Spacing();
+        }
+        draw_numbered_instructions(text, width, 1, goal_is_first);
+    };
+    if (!progress_ready.load()) {
+        adventure_ui::draw_text("Waiting for game progress", width, font_scale);
+        return;
+    }
+    if (hint) {
+        if (hint->area && *hint->area) adventure_ui::draw_text(hint->area, width, font_scale);
+        adventure_ui::draw_text("To continue", width, font_scale);
+        instruction(hint->objective, hint->text);
+    } else if (route && route->main_action) {
+        if (const auto* section = walkthrough::section_by_id(route->main_action->section))
+            adventure_ui::draw_text(section->title, width, font_scale);
+        adventure_ui::draw_text(route->main_action == route->return_action ? "Return to the main route" : "To continue", width, font_scale);
+        instruction(route->main_action->objective, route->main_action->text);
+    } else if (route && route->journey) {
+        if (route->area) adventure_ui::draw_text(route->area->title, width, font_scale);
+        heading("After this detour");
+        adventure_ui::draw_text(route->journey->journey_objective, width, font_scale);
+    } else {
+        heading("To continue");
+        adventure_ui::draw_text("No main-route step is mapped for this location yet.", width, font_scale);
+    }
+    if (!hint && route && route->return_action && route->return_action != route->main_action) {
+        ImGui::Spacing();
+        ImGui::Separator();
+        adventure_ui::draw_text("Return to the main route", width, font_scale);
+        instruction(route->return_action->objective, route->return_action->text);
+    }
+    if (route && !route->optional_actions.empty()) {
+        ImGui::Spacing();
+        ImGui::Separator();
+        heading("For 100% completion");
+        for (const auto* action : route->optional_actions) {
+            ImGui::Spacing();
+            instruction(action->objective, action->text);
+        }
+    }
+}
+
 inline bool draw_remaining_treasure(const walkthrough::Snapshot* route, float width) {
     if (!route) return false;
     bool shown = false;
@@ -210,6 +297,8 @@ inline void page() {
     if (checklist && ImGui::Button(collectibles_edit ? "Finish collectible window layout" : "Edit collectible window layout"))
         collectibles_edit = !collectibles_edit;
     ImGui::TextWrapped("F1 > Hotkeys configures keyboard and controller shortcuts for the guide and collectibles.");
+    ImGui::TextWrapped("Drag a window's title bar to move it. Use Edit layout to resize it.");
+    if (desktop_panels()) ImGui::TextWrapped("You can drag these windows outside the game window.");
     if (!on) return;
     bool location_mode = guide_mode.load();
     int overlay_mode = location_mode ? 1 : 0;
@@ -226,14 +315,11 @@ inline void page() {
             walkthrough::completionist.store(completionist);
             gbarecomp::game_option_set("AdventureCompletionist", completionist);
         }
-        ImGui::TextWrapped("Regular follows the story; 100% also guides optional Djinn, treasure and areas.");
+        ImGui::TextWrapped("Regular follows the story; 100%% also guides optional Djinn, treasure and areas.");
     }
-    if (location_mode && progress_ready.load()) {
-        if (const auto* hint = current_hint.load()) {
-            adventure_ui::draw_text(hint->area, ImGui::GetContentRegionAvail().x, font_scale,
-                IM_COL32(255, 216, 110, 255));
-            adventure_ui::draw_text(hint->text, ImGui::GetContentRegionAvail().x, font_scale);
-        }
+    if (location_mode) {
+        const auto route = walkthrough::current.load();
+        draw_live_instructions(current_hint.load(), route.get(), ImGui::GetContentRegionAvail().x);
     }
     ImGui::TextWrapped("The prologue, all Djinn and major boss fights update automatically. A defeated boss does not confirm later rewards or scenes. Unmapped steps stay untracked.");
     if (progress_ready.load()) ImGui::Text("Djinn: %u / 28", collected_djinn.load());
@@ -280,7 +366,9 @@ inline void page() {
                     row.milestone == walkthrough::Truth::Yes ? "[In progress; other actions remain] " :
                     row.done == walkthrough::Truth::No ? "[Open] " : "[Not tracked] ";
                 std::string text = std::string(marker) + entry.text;
-                if (*entry.item) text += std::string(" - ") + entry.item;
+                // Do not reveal unopened chest contents in the instructions.
+                if (*entry.item && row.done == walkthrough::Truth::Yes)
+                    text += std::string(" - ") + entry.item;
                 adventure_ui::draw_text(text.c_str(), ImGui::GetContentRegionAvail().x, font_scale);
             }
             ImGui::TextWrapped("Source: %s", route->section->source);
@@ -341,14 +429,15 @@ inline bool wants_keyboard() {
 inline void draw_collectibles() {
     if (!collectibles_enabled.load() || (gbarecomp::config_ui_visible() && !collectibles_edit)) return;
     const auto* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowViewport(vp->ID);
+    if (!desktop_panels()) ImGui::SetNextWindowViewport(vp->ID);
     ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + std::max(0.0f, vp->WorkSize.x - float(layout_width)),
         vp->WorkPos.y), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(float(layout_width), 0), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSizeConstraints(ImVec2(std::min(160.0f, vp->WorkSize.x), 0), vp->WorkSize);
-    ImGui::SetNextWindowBgAlpha(collectibles_edit ? 0.92f : 0.0f);
-    ImGuiWindowFlags flags = ImGuiWindowFlags_NoFocusOnAppearing;
-    if (!collectibles_edit) flags |= ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize;
+    ImGui::SetNextWindowBgAlpha(collectibles_edit ? 0.92f : overlay_background_alpha);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 1));
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoCollapse;
+    if (!collectibles_edit) flags |= ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoNav;
     bool open = true;
     if (ImGui::Begin("Area collectibles##AdventureCollectibles", &open, flags)) {
         const float width = std::max(1.0f, ImGui::GetContentRegionAvail().x);
@@ -372,6 +461,7 @@ inline void draw_collectibles() {
         if (collectibles_edit && ImGui::Button("Finish layout")) collectibles_edit = false;
     }
     ImGui::End();
+    ImGui::PopStyleColor();
     if (!open) {
         collectibles_enabled.store(false); collectibles_edit = false;
         gbarecomp::game_option_set("AdventureCollectibles", 0);
@@ -386,13 +476,15 @@ inline void draw() {
     if ((!layout_edit && gbarecomp::config_ui_visible()) ||
         (!layout_edit && (!visible || (hold && !down)))) return;
     const auto* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowViewport(vp->ID);
+    if (!desktop_panels()) ImGui::SetNextWindowViewport(vp->ID);
     const float min_x = vp->WorkPos.x;
     const float min_y = vp->WorkPos.y;
     const float max_width = vp->WorkSize.x;
     if (!layout_initialized) {
-        layout_x = std::clamp(layout_x, 0, std::max(0, int(vp->WorkSize.x) - 40));
-        layout_y = std::clamp(layout_y, 0, std::max(0, int(vp->WorkSize.y) - 40));
+        if (!desktop_panels()) {
+            layout_x = std::clamp(layout_x, 0, std::max(0, int(vp->WorkSize.x) - 40));
+            layout_y = std::clamp(layout_y, 0, std::max(0, int(vp->WorkSize.y) - 40));
+        }
         ImGui::SetNextWindowPos(ImVec2(min_x + layout_x, min_y + layout_y), ImGuiCond_Always);
         const float min_width = std::min(160.0f, max_width);
         ImGui::SetNextWindowSize(ImVec2(std::clamp(float(layout_width), min_width, max_width), 0), ImGuiCond_Always);
@@ -405,39 +497,47 @@ inline void draw() {
     const float max_window_width = layout_edit ? max_width : float(layout_width);
     ImGui::SetNextWindowSizeConstraints(ImVec2(min_window_width, 0),
         ImVec2(max_window_width, vp->WorkSize.y));
-    ImGui::SetNextWindowBgAlpha(layout_edit ? 0.92f : 0.0f);
+    ImGui::SetNextWindowBgAlpha(layout_edit ? 0.92f : overlay_background_alpha);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 1));
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing;
-    if (!layout_edit) flags |= ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs;
+    if (!layout_edit) {
+        flags |= ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
+                 ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoBringToFrontOnFocus;
+        // The title bar remains a mouse drag handle during normal play.
+    }
     else flags |= ImGuiWindowFlags_NoCollapse;
     if (ImGui::Begin("Adventure Guide##AdventureObjective", nullptr, flags)) {
         layout_window_focused = layout_edit && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
         const float wrap_width = std::max(1.0f, ImGui::GetContentRegionAvail().x);
         if (guide_mode.load()) {
-            adventure_ui::draw_text(walkthrough::completionist.load() ? "100% walkthrough" : "Regular walkthrough", wrap_width, font_scale,
-                IM_COL32(255, 216, 110, 255));
             const GuideStep* hint = current_hint.load();
             const auto route = walkthrough::current.load();
-            if (!progress_ready.load()) {
-                adventure_ui::draw_text("Waiting for game progress", wrap_width, font_scale);
-            } else if (!hint && !(route && route->action)) {
-                adventure_ui::draw_text(
-                    "Guide steps for this location are not mapped yet. Open F1 > Game for the quest log.",
-                    wrap_width, font_scale);
-            } else if (hint) {
-                if (hint->area && *hint->area)
-                    adventure_ui::draw_text(hint->area, wrap_width, font_scale,
-                        IM_COL32(255, 255, 255, 255));
-                adventure_ui::draw_text("Next action", wrap_width, font_scale,
-                    IM_COL32(255, 216, 110, 255));
-                adventure_ui::draw_text(hint->objective, wrap_width, font_scale);
-            } else {
-                adventure_ui::draw_text(route->section->title, wrap_width, font_scale);
-                adventure_ui::draw_text("Next action", wrap_width, font_scale,
-                    IM_COL32(255, 216, 110, 255));
-                adventure_ui::draw_text(route->action->objective, wrap_width, font_scale);
+            std::vector<const void*> advice;
+            if (progress_ready.load()) {
+                advice = {hint, route ? route->main_action : nullptr,
+                          route ? route->journey : nullptr, route ? route->area : nullptr};
+                // Secondary advice changing must not pull the reader back up.
+                // When there is no main instruction, follow the local detour.
+                if (!hint && route && !route->main_action) {
+                    advice.push_back(route->return_action);
+                    if (!route->optional_actions.empty()) advice.push_back(route->optional_actions.front());
+                }
             }
+            const bool completionist = walkthrough::completionist.load();
+            if (advice != displayed_advice || completionist != displayed_completionist) {
+                // A new step starts at its beginning. New snapshots of the same
+                // advice must not interrupt the player's manual scrolling.
+                ImGui::SetScrollY(0);
+                displayed_advice = std::move(advice);
+                displayed_completionist = completionist;
+            }
+            draw_live_instructions(hint, route.get(), wrap_width);
 
         } else {
+            if (!displayed_advice.empty()) {
+                ImGui::SetScrollY(0);
+                displayed_advice.clear();
+            }
             adventure_ui::draw_text(tracker_objective(), wrap_width, font_scale);
             if (progress_ready.load()) {
                 char djinn_line[40];
@@ -451,23 +551,29 @@ inline void draw() {
                 IM_COL32(255, 216, 110, 255));
             if (ImGui::Button("Finish layout")) layout_edit = false;
         }
-        const float target_height = ImGui::GetCursorPosY() + ImGui::GetStyle().WindowPadding.y;
+        const float content_height = ImGui::GetCursorPosY() + ImGui::GetScrollY() + ImGui::GetStyle().WindowPadding.y;
+        layout_overflow = content_height > vp->WorkSize.y;
+        const float target_height = std::min(content_height, vp->WorkSize.y);
         const float target_width = layout_edit ? ImGui::GetWindowWidth() : float(layout_width);
         const ImVec2 current_pos = ImGui::GetWindowPos();
-        const int clamped_x = std::clamp(int(current_pos.x - min_x), 0,
-            std::max(0, int(vp->WorkSize.x - target_width)));
-        const int clamped_y = std::clamp(int(current_pos.y - min_y), 0,
-            std::max(0, int(vp->WorkSize.y - target_height)));
+        const int clamped_x = desktop_panels() ? int(current_pos.x - min_x) :
+            std::clamp(int(current_pos.x - min_x), 0,
+                std::max(0, int(vp->WorkSize.x - target_width)));
+        const int clamped_y = desktop_panels() ? int(current_pos.y - min_y) :
+            std::clamp(int(current_pos.y - min_y), 0,
+                std::max(0, int(vp->WorkSize.y - target_height)));
         if (clamped_x != int(current_pos.x - min_x) || clamped_y != int(current_pos.y - min_y))
             ImGui::SetWindowPos(ImVec2(min_x + clamped_x, min_y + clamped_y));
         layout_x = clamped_x; layout_y = clamped_y;
         if (layout_edit) {
             layout_width = int(target_width);
         }
-        persist_layout();
+        // Save once the drag or resize ends, not on every frame of it.
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) persist_layout();
         ImGui::SetWindowSize(ImVec2(target_width, target_height));
     }
     ImGui::End();
+    ImGui::PopStyleColor();
 }
 #endif
 // Quest Tracker, Guide and Area collectibles are unfinished: developer

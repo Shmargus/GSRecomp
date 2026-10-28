@@ -140,15 +140,15 @@ public:
     // After upload_effect_sparks: find where the effect layer's map shows
     // the game's 128x128 canvas (a wrapping 256x256 affine layer with it at
     // the map origin, or a 256x256 8-bit regular layer with it anywhere) and
-    // read the canvas's fill (its value wherever no spark landed). Then the
-    // margins draw fill plus our sparks instead of the wrapped map, so the
-    // spell neither repeats nor stops at its canvas edge. `vram` is the
-    // frame's video memory.
+    // read the canvas's fill (the tint under everything the console shows of
+    // it). Then the margins draw fill plus our sparks instead of the wrapped
+    // map, so the spell neither repeats nor stops at its canvas edge. `vram`
+    // is the frame's video memory; `bg` is the layer set_effect_layer named.
     //
     // find_effect_canvas_layer picks the layer for set_effect_layer: BG2 or
     // BG1, whichever shows the canvas that way, else -1.
     void analyse_effect_canvas(const std::uint8_t* vram, std::size_t vram_bytes,
-                               const SceneLayer& layer);
+                               const FieldScene& scene, int bg);
     static int find_effect_canvas_layer(const std::uint8_t* vram,
                                         std::size_t vram_bytes,
                                         const FieldScene& scene);

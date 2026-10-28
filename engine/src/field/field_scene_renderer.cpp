@@ -156,6 +156,7 @@ const char* kBackgroundFragment =
     "uniform usampler2D u_row_affine;\n"
     "uniform sampler2D u_top_record;\n" // pass 1's result; read only in pass 2
     "uniform int u_affine;\n"           // 1: this layer is an affine background
+    "uniform int u_row_mode_filter;\n"  // 1: keep only rows whose mode agrees
     "uniform int u_palette_half;\n"     // 0 for backgrounds, 256 for objects
     "uniform vec2 u_camera;\n"          // world offset of the output's origin
     "uniform int u_world_loaded;\n"
@@ -370,6 +371,17 @@ const char* kBackgroundFragment =
     "  return y1 < 160 && y1 < y2 && y2 >= 80 && y2 <= 160 && y >= y1 && y < y2;\n"
     "}\n"
     "\n"
+    // A signed scroll with no place in the shared 2048-pixel map: the whole
+    // 240x160 screen at that scroll lands outside it. Tret's sky is a running
+    // total the console masks to 9 bits, so it eventually passes near zero;
+    // at -298 (gpu_rewind_0059) a ">= 2048 from zero" test took it for a room
+    // position and blacked the side margins of the sky band. Over the 7,080
+    // saved frames only that capture's sky rows newly qualify.
+    "bool scroll_has_no_place(int hofs_s, int vofs_s) {\n"
+    "  return hofs_s + 240 <= 0 || hofs_s >= 2048 ||\n"
+    "         vofs_s + 160 <= 0 || vofs_s >= 2048;\n"
+    "}\n"
+    "\n"
     "void main() {\n"
     "  ivec2 console_px = ivec2(floor(v_screen + u_camera));\n"
     // Rows outside the console's own 0..159 have no real per-row register
@@ -430,6 +442,19 @@ const char* kBackgroundFragment =
     "    enable_row = ((console_px.y % 160) + 160) % 160;\n"
     "  if (((row_u16(enable_row, 0x00) >> uint(8 + u_layer)) & 1u) == 0u)\n"
     "    discard;\n"
+    // A frame that changes video mode part-way down (TLA's world-map wipe,
+    // tla_rewind_0157: a mode 2 band between mode 0 rows) draws such a layer
+    // once per reading, regular and affine (draw_background); each row keeps
+    // the draw that matches its own mode, and none where the mode has no
+    // such layer, as render_scanline_internal decides per row.
+    "  if (u_row_mode_filter != 0) {\n"
+    "    uint row_mode = row_dispcnt & 7u;\n"
+    "    bool row_has_layer = row_mode == 0u ||\n"
+    "        (row_mode == 1u && u_layer <= 2) || (row_mode == 2u && u_layer >= 2);\n"
+    "    bool row_affine = (row_mode == 1u && u_layer == 2) ||\n"
+    "        (row_mode == 2u && u_layer >= 2);\n"
+    "    if (!row_has_layer || row_affine != (u_affine != 0)) discard;\n"
+    "  }\n"
     // BG3's field sky can start its scrolling band on row 1: row 0 still has
     // the room-position scroll, while rows 1 onward carry the sky accumulator.
     // Continue that measured pattern through the expanded top and border row
@@ -443,8 +468,7 @@ const char* kBackgroundFragment =
     "    int first_vofs = int(row_u16(1, 0x1E));\n"
     "    if (first_hofs >= 32768) first_hofs -= 65536;\n"
     "    if (first_vofs >= 32768) first_vofs -= 65536;\n"
-    "    if (first_hofs <= -2048 || first_hofs >= 2048 ||\n"
-    "        first_vofs <= -2048 || first_vofs >= 2048) {\n"
+    "    if (scroll_has_no_place(first_hofs, first_vofs)) {\n"
     "      scroll_row = 1;\n"
     "      continue_bg3_sky = true;\n"
     "    }\n"
@@ -652,7 +676,7 @@ const char* kBackgroundFragment =
     "    if (source.x < 0 || source.x >= map_width || source.y < 0 ||\n"
     "        source.y >= u_margin_vram_height) discard;\n"
     "  }\n"
-    "  bool scroll_beyond_map = abs(hofs_s) >= 2048 || abs(vofs_s) >= 2048;\n"
+    "  bool scroll_beyond_map = scroll_has_no_place(hofs_s, vofs_s);\n"
     // A margin pixel this layer leaves empty is dropped by the one discard
     // at the end, not by an early discard inside a branch: radeonsi's LLVM
     // compiler (Mesa 25, Radeon 740M) also killed neighbouring world-map
@@ -2629,6 +2653,86 @@ IrisWindow fit_iris_window(const FieldScene& scene) {
     return out;
 }
 
+// The smallest canvas value the console's own screen shows: each row's
+// pixels where its windows let the layer through, sampled through that row's
+// registers as the background shader samples them. 0 when a shown pixel is
+// clear or nothing is shown. The game joins everything it paints by the
+// larger value, so a tint under the whole effect is this floor.
+int effect_canvas_floor(const std::uint8_t* vram, const EffectCanvasLayout& at,
+                        const FieldScene& scene, int bg) {
+    const SceneLayer& layer = scene.layers[bg];
+    auto win_h = [](unsigned reg, int x) {
+        int x1 = int(reg >> 8), x2 = int(reg & 0xFFu);
+        if (x1 > 240 && x1 > x2) x1 = 0;
+        if (x2 > 240) { x2 = 240; if (x1 > 240) x1 = 240; }
+        if (x1 > x2) return x >= x1 || x < x2;
+        return x >= x1 && x < x2;
+    };
+    auto win_v = [](unsigned reg, int y) {
+        const int y1 = int(reg >> 8);
+        int y2 = int(reg & 0xFFu);
+        if (y2 > 160 || y1 > y2) y2 = 160;
+        return y >= y1 && y < y2;
+    };
+    int floor_value = 256;
+    for (int y = 0; y < FieldScene::kRows; ++y) {
+        const std::uint8_t* io = scene.row_io_valid[y]
+            ? scene.row_io[y].data() : scene.io_bytes.data();
+        auto reg = [&](int a) { return unsigned(io[a] | (io[a + 1] << 8)); };
+        const unsigned dispcnt = reg(0x00);
+        if ((dispcnt & (0x100u << bg)) == 0) continue;
+        const bool win0 = (dispcnt & 0x2000u) && win_v(reg(0x44), y);
+        const bool win1 = (dispcnt & 0x4000u) && win_v(reg(0x46), y);
+        // The object window's shape is not known here: a pixel either half
+        // of WINOUT shows counts, which can only lower the floor.
+        const unsigned outside = (dispcnt & 0x8000u)
+            ? (reg(0x4A) | (reg(0x4A) >> 8)) : reg(0x4A);
+        const unsigned bit = 1u << bg;
+        std::int32_t rx = 0, ry = 0;
+        int pa = 0, pc = 0, hofs = 0, vofs = 0;
+        if (layer.affine) {
+            const int param = 0x20 + (bg - 2) * 0x10;
+            pa = static_cast<std::int16_t>(reg(param));
+            pc = static_cast<std::int16_t>(reg(param + 4));
+            const int k = (bg - 2) * 2;
+            rx = scene.row_affine_valid[y] ? scene.row_affine[y][k]
+                                           : layer.affine_ref_x + y * layer.affine_pb;
+            ry = scene.row_affine_valid[y] ? scene.row_affine[y][k + 1]
+                                           : layer.affine_ref_y + y * layer.affine_pd;
+        } else {
+            hofs = int(reg(0x10 + bg * 4) & 0x1FFu);
+            vofs = int(reg(0x12 + bg * 4) & 0x1FFu);
+        }
+        for (int x = 0; x < 240; ++x) {
+            if (dispcnt & 0xE000u) {
+                const unsigned control =
+                    (win0 && win_h(reg(0x40), x)) ? reg(0x48)
+                    : (win1 && win_h(reg(0x42), x)) ? reg(0x48) >> 8
+                    : outside;
+                if ((control & bit) == 0) continue;
+            }
+            int cx, cy;
+            if (layer.affine) {
+                cx = (rx + x * pa) >> 8;
+                cy = (ry + x * pc) >> 8;
+                if (layer.wraps) {
+                    cx &= (128 << layer.size_code) - 1;
+                    cy &= (128 << layer.size_code) - 1;
+                }
+            } else {
+                cx = (x + hofs - at.map_x) & 255;
+                cy = (y + vofs - at.map_y) & 255;
+            }
+            if (cx < 0 || cy < 0 || cx >= 128 || cy >= 128) continue;
+            const int value = vram[at.chr + ((cy >> 3) * 16 + (cx >> 3)) * 64 +
+                                   (cy & 7) * 8 + (cx & 7)];
+            if (value == 0) return 0;
+            floor_value = std::min(floor_value, value);
+        }
+    }
+    return floor_value < 256 ? floor_value : 0;
+}
+
 }  // namespace
 
 int FieldSceneRenderer::find_effect_canvas_layer(const std::uint8_t* vram,
@@ -2644,7 +2748,9 @@ int FieldSceneRenderer::find_effect_canvas_layer(const std::uint8_t* vram,
 
 void FieldSceneRenderer::analyse_effect_canvas(const std::uint8_t* vram,
                                                std::size_t vram_bytes,
-                                               const SceneLayer& layer) {
+                                               const FieldScene& scene,
+                                               int bg) {
+    const SceneLayer& layer = scene.layers[bg];
     effect_wrap_canvas_ = false;
     effect_text_canvas_ = false;
     effect_fill_ = 0;
@@ -2696,25 +2802,17 @@ void FieldSceneRenderer::analyse_effect_canvas(const std::uint8_t* vram,
         effect_have_sparks_ = false;
         have_sparks = false;
     }
-    // The fill: the game's flashing tint, the value the canvas holds wherever
-    // no spark landed. Read from the canvas's edge, leaving out our sparks:
-    // a tint covers it, and on every other frame the edge is mostly 0. On
-    // tint frames one value covers 79-97% of the edge (Thor: 16, 8, 4, 2 in
-    // turn, gpu_rewind_0088 frames 6013-6037; Ray: 12, 16, 9, 3,
-    // gpu_rewind_0046), the rest being sparks we did not capture. The old
-    // rule wanted EVERY non-spark pixel equal and found no fill for Thor.
-    std::array<int, 256> edge{};
-    int counted = 0;
-    auto tally = [&](int x, int y) {
-        if (ours(x, y)) return;
-        ++edge[static_cast<std::size_t>(canvas(x, y))];
-        ++counted;
-    };
-    for (int x = 0; x < 128; ++x) { tally(x, 0); tally(x, 127); }
-    for (int y = 1; y < 127; ++y) { tally(0, y); tally(127, y); }
-    const auto top = std::max_element(edge.begin(), edge.end());
-    const int fill = static_cast<int>(top - edge.begin());
-    effect_fill_ = (fill > 0 && counted > 0 && *top * 4 >= counted * 3) ? fill : 0;
+    // The fill: the game's flashing tint, the value under everything the
+    // console shows of the canvas (effect_canvas_floor). Thor's tint (16, 8,
+    // 4, 2 in turn, gpu_rewind_0088 frames 6013-6037) and Ray's (12, 16, 9,
+    // 3, gpu_rewind_0046) lie under sparks we did not capture. Odyssey and
+    // Eclipse tint only the rows the battle window shows (canvas rows 0..119
+    // of 128, tla_rewind_0166 frames 55-57 and 101-106, 0160 frames 58-92),
+    // and Odyssey's sword crosses the canvas's edge: the earlier rule, one
+    // value over three quarters of the whole 128x128 edge, found no tint
+    // there, so it stopped at the console's edge. Over the 684 TLA canvas
+    // frames saved, every tint that rule found is this floor too.
+    effect_fill_ = effect_canvas_floor(vram, at, scene, bg);
     effect_wrap_canvas_ = !at.text;
     effect_text_canvas_ = at.text;
     effect_canvas_map_x_ = at.map_x;
@@ -3147,6 +3245,17 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
     // Each is refused rather than approximated, because a frame drawn almost
     // right is worse than a frame drawn by the old renderer.
     if (scene.forced_blank) { declined_ = "the display is blanked"; return false; }
+    // Per row too: a row with forced blank (DISPCNT bit 7) is solid white in
+    // render_scanline_internal, which no shader draws. (A row in another
+    // video mode is drawn: see row_modes below.)
+    for (int y = 0; y < FieldScene::kRows; ++y) {
+        const std::uint8_t* io = scene.row_io_valid[y]
+            ? scene.row_io[y].data() : scene.io_bytes.data();
+        if ((io[0] & 0x80u) != 0u) {
+            declined_ = "the display is blanked";
+            return false;
+        }
+    }
     // Mosaic is refused only when it would actually change a pixel. MOSAIC
     // (0x4C) holds four sizes, each stored as size-1: backgrounds in bits
     // 0-3 and 4-7, objects in bits 8-11 and 12-15. A stored 0 means a block
@@ -3631,23 +3740,30 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
             }
         }
     }
+    // Which layers exist, and which are affine, follows each row's own video
+    // mode: mode 0 is four regular layers, mode 1 drops BG3 and makes BG2
+    // affine, mode 2 keeps only BG2 and BG3, both affine (field_scene.cpp,
+    // layer_exists_in_mode). `enabled` and `affine` have the frame's mode
+    // folded in, but only for the last row, so they cannot be reused here.
+    // A layer one row reads as regular and another as affine is drawn once
+    // per reading, and the shader keeps each row's own (u_row_mode_filter).
     bool layer_wanted[4] = {false, false, false, false};
-    for (int bg = 0; bg < 4; ++bg) {
-        // Which layers exist at all still follows the video mode: mode 0 is
-        // four regular layers, mode 1 drops BG3, mode 2 keeps only BG2 and
-        // BG3 (field_scene.cpp, layer_exists_in_mode). `enabled` already has
-        // that test folded in, but only for the last row, so it cannot be
-        // reused on its own.
-        const bool exists = (scene.video_mode == 0) ||
-                            (scene.video_mode == 1 && bg <= 2) ||
-                            (scene.video_mode == 2 && bg >= 2);
-        if (!exists) continue;
-        for (int y = 0; y < FieldScene::kRows && !layer_wanted[bg]; ++y) {
-            const std::uint8_t* io = scene.row_io_valid[y]
-                ? scene.row_io[y].data() : scene.io_bytes.data();
-            const unsigned dispcnt =
-                io[0] | (static_cast<unsigned>(io[1]) << 8);
-            if (((dispcnt >> (8 + bg)) & 1u) != 0u) layer_wanted[bg] = true;
+    bool wanted_regular[4] = {false, false, false, false};
+    bool wanted_affine[4] = {false, false, false, false};
+    bool row_modes_mixed = false;
+    for (int y = 0; y < FieldScene::kRows; ++y) {
+        const std::uint8_t* io = scene.row_io_valid[y]
+            ? scene.row_io[y].data() : scene.io_bytes.data();
+        const unsigned dispcnt = io[0] | (static_cast<unsigned>(io[1]) << 8);
+        const int mode = static_cast<int>(dispcnt & 7u);
+        if (mode != scene.video_mode) row_modes_mixed = true;
+        for (int bg = 0; bg < 4; ++bg) {
+            const bool exists = mode == 0 || (mode == 1 && bg <= 2) ||
+                                (mode == 2 && bg >= 2);
+            if (!exists || ((dispcnt >> (8 + bg)) & 1u) == 0u) continue;
+            layer_wanted[bg] = true;
+            const bool affine = (mode == 1 && bg == 2) || (mode == 2 && bg >= 2);
+            (affine ? wanted_affine : wanted_regular)[bg] = true;
         }
     }
     // A layer switched on and off line by line: Altin's water drains as
@@ -3683,9 +3799,10 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         }
     }
 
-    auto draw_background = [&](int bg, bool second_pass) {
+    // `affine` is this draw's reading of the layer: the frame's own unless
+    // the rows mix video modes (see layer_wanted above).
+    auto draw_background_as = [&](int bg, bool second_pass, bool affine) {
         const SceneLayer& L = scene.layers[bg];
-        if (!layer_wanted[bg]) return;
         static const SceneMarginLayer kNoMargin;
         const SceneMarginLayer& margin = margins_ ? margins_->layers[bg] : kNoMargin;
         // Only the quad's own depth, which gl_FragDepth overrides per
@@ -3707,14 +3824,15 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
                     std::abs(rest_dy) >= 4 ? rest_dy : 0));
         surface_->set_uniform_int(background_, "u_compare_top",
                                   second_pass ? 1 : 0);
-        surface_->set_uniform_int(background_, "u_affine", L.affine ? 1 : 0);
+        surface_->set_uniform_int(background_, "u_affine", affine ? 1 : 0);
+        surface_->set_uniform_int(background_, "u_row_mode_filter",
+                                  row_modes_mixed ? 1 : 0);
         // The sort key, the tile and map blocks, the size, the colour depth,
         // the affine wrap flag and the layer's own enable bit are NOT set
         // here either: all seven live in BGxCNT and DISPCNT, which Golden Sun
         // rewrites mid-frame, so the shader reads this row's copy of both out
-        // of u_row_io (see kBackgroundFragment). Only u_affine stays a
-        // frame-level value, because which layer is affine follows the video
-        // mode and the scene model carries one mode per frame.
+        // of u_row_io (see kBackgroundFragment). u_affine is one value per
+        // draw; a frame whose rows mix video modes gets one draw per reading.
         // PA/PB/PC/PD and the reference point are NOT set here: the shader
         // reads this row's own copy of all six from u_row_io and
         // u_row_affine. A frame-level value is only ever the last row's.
@@ -3739,7 +3857,7 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         // overworld mode 2.
         bool use_room =
             room_source_enabled_ && room_valid_ && scene.video_mode == 0 &&
-            bg != 0 && !L.affine && margin.vram_height == 0;
+            bg != 0 && !affine && margin.vram_height == 0;
         // A layer whose room rule does not reproduce the console's own
         // tiles inside the window would fill the margins with the wrong
         // tiles (the patterned strips of logs/gpu_frame_0099/0100/0103):
@@ -3852,7 +3970,7 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
             if (bg == static_cast<int>(gsr::battle::kBackdropLayer) ||
                 bg == static_cast<int>(gsr::battle::kArenaAffineLayer))
                 margin_mode = 2;
-        } else if (L.affine) {
+        } else if (affine) {
             margin_mode = 1;
         }
         surface_->set_uniform_int(background_, "u_margin_mode", margin_mode);
@@ -3893,7 +4011,7 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         // Decided from the stretch alone, not the offset, so a shaking
         // 2:1 canvas (Meteor, PA 128: 120 columns) is never caught by it.
         bool repeats_on_screen = false;
-        if (effect_layer_ == bg && L.affine && L.wraps && L.size_code == 0) {
+        if (effect_layer_ == bg && affine && L.wraps && L.size_code == 0) {
             const int param = 0x20 + (bg - 2) * 0x10;
             for (int y = 0; y < FieldScene::kRows && !repeats_on_screen; ++y) {
                 const std::uint8_t* io = scene.row_io_valid[y]
@@ -3918,7 +4036,7 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         // console shows nothing past it either.
         bool fill_beyond = false;
         if (effect_layer_ == bg && !hide_here && effect_fill_ > 0 &&
-            effect_wrap_canvas_ && !repeats_on_screen && L.affine &&
+            effect_wrap_canvas_ && !repeats_on_screen && affine &&
             (!L.wraps || L.size_code == 0)) {
             fill_beyond = true;
             const int slot = bg == 2 ? 0 : 2;
@@ -3962,14 +4080,26 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         surface_->draw_quads(background_, &quad, 1,
                              second_pass ? bg_textures3 : bg_textures2, 13);
     };
+    auto draw_background = [&](int bg, bool second_pass) {
+        if (!layer_wanted[bg]) return;
+        if (!row_modes_mixed) {
+            draw_background_as(bg, second_pass, scene.layers[bg].affine);
+            return;
+        }
+        if (wanted_regular[bg]) draw_background_as(bg, second_pass, false);
+        if (wanted_affine[bg]) draw_background_as(bg, second_pass, true);
+    };
 
     // `lifter` >= 0 draws the object's lifted copy: the console gives an
     // object's pixel the priority of any later, higher-priority object whose
     // box covers it, even where that object is transparent (gba_ppu.cpp's
     // emit_obj). Golden Sun lays an empty 64x64 priority-1 sprite over the
     // ship cabin's rug so whoever stands on it is drawn over the rug.
-    auto draw_object = [&](int slot, bool second_pass, int lifter) {
-        const SceneObject& O = scene.objects[slot];
+    // `extra`: one of the margins' own sprites (SceneMargins::margin_objects)
+    // instead of the scene's slot.
+    auto draw_object = [&](int slot, bool second_pass, int lifter,
+                           const SceneObject* extra) {
+        const SceneObject& O = extra ? *extra : scene.objects[slot];
         // A mode-2 object never draws a visible pixel; it only shapes the
         // object window, which the mask pass below already used it for.
         if (!O.present || O.window) return;
@@ -3977,7 +4107,8 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         // The lifted copy sorts behind every object of the lifter's priority
         // (rank 127), so where the lifter itself is opaque it still wins.
         const int key = L ? L->priority * 256 + 127
-                          : O.priority * 256 + object_rank[slot];
+                      : extra ? O.priority * 256 + 126
+                              : O.priority * 256 + object_rank[slot];
         surface_->set_uniform_int(object_, "u_key", key);
         surface_->set_uniform_int(object_, "u_semi_transparent",
                                   (L ? L->blended : O.blended) ? 1 : 0);
@@ -4007,9 +4138,10 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         // sprites hang below the screen) are left alone.
         const bool menu_sprite =
             menu_open_ && scene.video_mode == 0 && O.priority == 0;
+        if (extra && menu_sprite) return;
         surface_->set_uniform_int(object_, "u_clip_native",
                                   (O.parked || menu_sprite) ? 1 : 0);
-        surface_->set_uniform_int(object_, "u_margin_only", 0);
+        surface_->set_uniform_int(object_, "u_margin_only", extra ? 1 : 0);
         surface_->set_uniform_vec2(object_, "u_size",
                                    static_cast<float>(O.width),
                                    static_cast<float>(O.height));
@@ -4057,7 +4189,8 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         // sprite kind. Copies keep the same artwork, phase, blend and order;
         // the fragment guard leaves every native pixel to the original draw.
         if (!L && !O.parked && !menu_sprite && margins_) {
-            const auto& period = margins_->object_repeat[slot];
+            const auto& period = extra ? margins_->margin_object_period
+                                       : margins_->object_repeat[slot];
             if ((period[0] > 0 || period[1] > 0) &&
                 (output_w_ != 240 || output_h_ != 160)) {
                 const float x0 = quad.x, y0 = quad.y;
@@ -4085,7 +4218,7 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
                 surface_->set_uniform_int(object_, "u_margin_only", 0);
             }
         }
-        if (L) return;
+        if (L || extra) return;
         // A full-width strip carries on to the view's edges (see `strip`).
         const StripReach& reach = strip[static_cast<std::size_t>(slot)];
         if (!(reach.left || reach.right || reach.up || reach.down)) return;
@@ -4164,7 +4297,7 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         for (int bg = 0; bg < 4; ++bg) draw_background(bg, second_pass);
         if (!objects_on) return;
         for (int slot = 0; slot < FieldScene::kObjects; ++slot) {
-            draw_object(slot, second_pass, -1);
+            draw_object(slot, second_pass, -1, nullptr);
             const SceneObject& O = scene.objects[slot];
             if (!O.present || O.window) continue;
             // Unrotated lifters only: a rotated one lifts only where its
@@ -4177,9 +4310,12 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
                 const int oh = O.affine && O.double_size ? O.height * 2 : O.height;
                 if (L.x >= O.x + ow || O.x >= L.x + L.width ||
                     L.y >= O.y + oh || O.y >= L.y + L.height) continue;
-                draw_object(slot, second_pass, j);
+                draw_object(slot, second_pass, j, nullptr);
             }
         }
+        if (margins_ && (output_w_ != 240 || output_h_ != 160))
+            for (const SceneObject& O : margins_->margin_objects)
+                draw_object(-1, second_pass, -1, &O);
         surface_->set_uniform_int(object_, "u_lift", 0);
     };
 

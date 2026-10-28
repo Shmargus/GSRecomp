@@ -162,7 +162,7 @@ add_library(gbarecomp_gba STATIC
     src/gba/gba_bios.cpp
     src/gba/gba_rom_header.cpp
     src/gba/sha1.cpp
-    src/gba/crc32.cpp
+    src/gba/file_replace.cpp
 )
 target_include_directories(gbarecomp_gba PUBLIC src/gba)
 # src/debug for snapshot.h — the save-state SnapshotWriter/Reader are

@@ -1383,9 +1383,17 @@
         "flag": 3880
       },
       "when": {
-        "room": 28
+        "all": [
+          {
+            "room": 28
+          },
+          {
+            "entrance": 5
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. Original27/28 parser/getters in verify_goma_initial_chests.py personally reviewed/rerun: 27 virtual101 LuckyMedalF4F at27.5,8.5;28 virtual100 PowerBreadF28 at38.5,41.5. Original28 initializer414 explicitly separates entrance5, clears12F and skips main stump setup; native door5/11->28/5 and28 alias5->5/11. Original bounded12038 door cells in route-door-26-27-28-64-65-66-67.json; native8A5F8 destinations already verified. 27 first traveler-side pillar is actor10 initially36.5,17.5, target38,14 ->301; upper pillar8 initially20.5,6.5, B6C atX20 clears302/otherX sets302; lower wide stump9 X25 ->300. Six native upper callback/terrain cases,14 native Vale corridor floor cells in goma-upper-puzzle-verification.json; original actor lookup/flags/10704, render/scene helpers supplied. Initializers do not relocate virtual chests. Walkthrough5 upper-pillar/right, lower-stump/drop, upper-pillar/left and chest route cross-checked with native object identities and original door geometry. No full Move/fall/jump/gameplay claim.",
+      "area_section": 24
     },
     {
       "id": "gs1-treasure-f50-1-180",
@@ -1589,7 +1597,18 @@
         "flag": 4038
       },
       "when": {
-        "room": 47
+        "all": [
+          {
+            "room": 47
+          },
+          {
+            "any": [
+              {
+                "entrance": 5
+              }
+            ]
+          }
+        ]
       },
       "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
     },
@@ -1601,7 +1620,18 @@
         "flag": 4039
       },
       "when": {
-        "room": 47
+        "all": [
+          {
+            "room": 47
+          },
+          {
+            "any": [
+              {
+                "entrance": 5
+              }
+            ]
+          }
+        ]
       },
       "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
     },
@@ -1776,18 +1806,12 @@
             "room": 61
           },
           {
-            "any": [
-              {
-                "entrance_max": 2
-              },
-              {
-                "entrance_min": 4
-              }
-            ]
+            "entrance": 1
           }
         ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. Original61/1 bounds3..18X24..36Y contain barrel101 at12,27;61/2,4 bounds3..23X5..18Y are Xian,61/3 is Lama. temple61-entrances-events.json; original initializer dispatch already verified. Root original Fuchin providers/bounds and native12038 door cells62..67; prior8A5F8 destinations. verify_fuchin_log_sequences.py original wrappers180 coordinate math/layout1004/10704, supplied instant D14C and animation; selected motion endpoint equals rebuilt actor position. Root personally reviewed82 worker wrapper runs with original flag APIs and modeled180/layout. Room62 actors8X8->22 flag301,9Y33->29 flag302,10Y33->29 flag303; room63 306down,305leftdock,306clear/up,304east,307lastlognorth; room65 314west/Eclear,313horizontalSouth,315lowerEast. Room64 upper10north30B/Y22.5, uppervertical8west308/X14.5, lower11north311/Y27.5 then western stairs9,26->64/1. Native64/1 Eye constructor15.5,9.5,height0.5; C150 null model; request/sceneF13 is not delivery proof. verify_fuchin_dark_crossing.py original2094/8BA1C/447C/12038/11F54: 12.5,17.5->16.5,17.5->16.5,7.5->19.5,7.5 atheight2; suppliedinstantD14C. North blocked at19.5,7.5; four ordinary landing/door centers collision0 via17.5,7.5->17.5,6.5. No full walking/jumping, activation-contact or gameplay claim. Original source13 directions cross-checked with those original measurements; ambiguous redundant log wording clarified against native three-move endpoints and Fuchin Falls Cave route. 100% preference is user state, not a game completion flag. EF1 only current Mimic absence, not proof of reward delivery. Ordinary pickups/canonical Djinn flags reused.",
+      "area_section": 13
     },
     {
       "id": "gs1-treasure-f6a-2-6",
@@ -1983,9 +2007,21 @@
         "flag": 3958
       },
       "when": {
-        "room": 79
+        "all": [
+          {
+            "room": 79
+          },
+          {
+            "any": [
+              {
+                "entrance": 3
+              }
+            ]
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. Original SHA-checked rom_7b9cb4 providers/entrance bounds77..87; native initial parser/getters identify Cookie79/3 F76 at56.5,8.5, DragonShield81 F77 at29.5,25.5, PsyCrystal83/3 F07 at16.5,49.5, LuckyMedal84/1,2 F78 at6.5,27.5, LiftingGem86 F08 at20.5,4.5, Vial87/3 F79 at35.5,5.5. Native initializer and10704 terrain traces; original switch callbacks9EC/A94/B3C/BD8 toggle 323/325/326/327; original Frost callbacks55C/5AC/50C/5FC/650 set200/200/200/201/204. Room83 stump10 initial25.5,26.5, callback40C distinguishes floorX25 from24; no persistent Move flag. Native12038 door centers80..87 linked to independently executed8A5F8 destinations. Source17/18 supplies qualitative cart travel; cart movement/contact and full walking not measured. Provider positions and synthetic constructor records are not proof of final chest placement. Canonical victory/Djinn/pickup flags reused; no reward-delivery or Lift-cast completion inferred.",
+      "area_section": 18
     },
     {
       "id": "gs1-treasure-f77-1-123",
@@ -2007,9 +2043,21 @@
         "flag": 3847
       },
       "when": {
-        "room": 83
+        "all": [
+          {
+            "room": 83
+          },
+          {
+            "any": [
+              {
+                "entrance": 3
+              }
+            ]
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. Original SHA-checked rom_7b9cb4 providers/entrance bounds77..87; native initial parser/getters identify Cookie79/3 F76 at56.5,8.5, DragonShield81 F77 at29.5,25.5, PsyCrystal83/3 F07 at16.5,49.5, LuckyMedal84/1,2 F78 at6.5,27.5, LiftingGem86 F08 at20.5,4.5, Vial87/3 F79 at35.5,5.5. Native initializer and10704 terrain traces; original switch callbacks9EC/A94/B3C/BD8 toggle 323/325/326/327; original Frost callbacks55C/5AC/50C/5FC/650 set200/200/200/201/204. Room83 stump10 initial25.5,26.5, callback40C distinguishes floorX25 from24; no persistent Move flag. Native12038 door centers80..87 linked to independently executed8A5F8 destinations. Source17/18 supplies qualitative cart travel; cart movement/contact and full walking not measured. Provider positions and synthetic constructor records are not proof of final chest placement. Canonical victory/Djinn/pickup flags reused; no reward-delivery or Lift-cast completion inferred.",
+      "area_section": 17
     },
     {
       "id": "gs1-treasure-f78-1-229",
@@ -2019,9 +2067,24 @@
         "flag": 3960
       },
       "when": {
-        "room": 84
+        "all": [
+          {
+            "room": 84
+          },
+          {
+            "any": [
+              {
+                "entrance": 1
+              },
+              {
+                "entrance": 2
+              }
+            ]
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. Original SHA-checked rom_7b9cb4 providers/entrance bounds77..87; native initial parser/getters identify Cookie79/3 F76 at56.5,8.5, DragonShield81 F77 at29.5,25.5, PsyCrystal83/3 F07 at16.5,49.5, LuckyMedal84/1,2 F78 at6.5,27.5, LiftingGem86 F08 at20.5,4.5, Vial87/3 F79 at35.5,5.5. Native initializer and10704 terrain traces; original switch callbacks9EC/A94/B3C/BD8 toggle 323/325/326/327; original Frost callbacks55C/5AC/50C/5FC/650 set200/200/200/201/204. Room83 stump10 initial25.5,26.5, callback40C distinguishes floorX25 from24; no persistent Move flag. Native12038 door centers80..87 linked to independently executed8A5F8 destinations. Source17/18 supplies qualitative cart travel; cart movement/contact and full walking not measured. Provider positions and synthetic constructor records are not proof of final chest placement. Canonical victory/Djinn/pickup flags reused; no reward-delivery or Lift-cast completion inferred.",
+      "area_section": 18
     },
     {
       "id": "gs1-treasure-f08-1-203",
@@ -2043,9 +2106,21 @@
         "flag": 3961
       },
       "when": {
-        "room": 87
+        "all": [
+          {
+            "room": 87
+          },
+          {
+            "any": [
+              {
+                "entrance": 3
+              }
+            ]
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. Original SHA-checked rom_7b9cb4 providers/entrance bounds77..87; native initial parser/getters identify Cookie79/3 F76 at56.5,8.5, DragonShield81 F77 at29.5,25.5, PsyCrystal83/3 F07 at16.5,49.5, LuckyMedal84/1,2 F78 at6.5,27.5, LiftingGem86 F08 at20.5,4.5, Vial87/3 F79 at35.5,5.5. Native initializer and10704 terrain traces; original switch callbacks9EC/A94/B3C/BD8 toggle 323/325/326/327; original Frost callbacks55C/5AC/50C/5FC/650 set200/200/200/201/204. Room83 stump10 initial25.5,26.5, callback40C distinguishes floorX25 from24; no persistent Move flag. Native12038 door centers80..87 linked to independently executed8A5F8 destinations. Source17/18 supplies qualitative cart travel; cart movement/contact and full walking not measured. Provider positions and synthetic constructor records are not proof of final chest placement. Canonical victory/Djinn/pickup flags reused; no reward-delivery or Lift-cast completion inferred.",
+      "area_section": 18
     },
     {
       "id": "gs1-treasure-f7a-1-189",
@@ -2067,22 +2142,10 @@
         "flag": 3963
       },
       "when": {
-        "any": [
-          {
-            "room": 89
-          },
-          {
-            "room": 90
-          },
-          {
-            "room": 91
-          },
-          {
-            "room": 92
-          }
-        ]
+        "room": 89
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. Original rom_7bc690 providers/bounds89..92, native parser/getters4 room runs; original decoded12038 door tiles matched native8A5F8 destinations. Actual4E4 conceal/88C Reveal with decoded terrain and native923E4/8EDAC/10704/10788: Axe89/100 at10.5,10.5; Pepper90/102 at15.5,12.5; coins90/105 at18.5,36.5; Potion90/106 at45.5,56.5; Mint91/107 at10.5,15.5,height-2. Normal Smog actor13 restored40.5,25.5 in90; Manticore8 restored10.5,5.75 in91. Virtual actors/table synthetic from original parser tile metadata; visual/task helpers supplied. 92/1,2 lower tunnel joins91/2 east waterfall45,5 with91/3 west waterfall37,17; 92/3,4 upper tunnel exitswest4,19 toworld2/53. No full walking/Reveal activation/gameplay claim. Source20 qualitative stone-circle directions reused; flag659 and6F are canonical victory/grant flags. Heat/reward delivery not inferred from entering a room; no thresholds invented.",
+      "area_section": 20
     },
     {
       "id": "gs1-treasure-f7c-1-196",
@@ -2092,22 +2155,10 @@
         "flag": 3964
       },
       "when": {
-        "any": [
-          {
-            "room": 89
-          },
-          {
-            "room": 90
-          },
-          {
-            "room": 91
-          },
-          {
-            "room": 92
-          }
-        ]
+        "room": 90
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. Original rom_7bc690 providers/bounds89..92, native parser/getters4 room runs; original decoded12038 door tiles matched native8A5F8 destinations. Actual4E4 conceal/88C Reveal with decoded terrain and native923E4/8EDAC/10704/10788: Axe89/100 at10.5,10.5; Pepper90/102 at15.5,12.5; coins90/105 at18.5,36.5; Potion90/106 at45.5,56.5; Mint91/107 at10.5,15.5,height-2. Normal Smog actor13 restored40.5,25.5 in90; Manticore8 restored10.5,5.75 in91. Virtual actors/table synthetic from original parser tile metadata; visual/task helpers supplied. 92/1,2 lower tunnel joins91/2 east waterfall45,5 with91/3 west waterfall37,17; 92/3,4 upper tunnel exitswest4,19 toworld2/53. No full walking/Reveal activation/gameplay claim. Source20 qualitative stone-circle directions reused; flag659 and6F are canonical victory/grant flags. Heat/reward delivery not inferred from entering a room; no thresholds invented.",
+      "area_section": 20
     },
     {
       "id": "gs1-treasure-351-3-0",
@@ -2151,22 +2202,10 @@
         "flag": 3965
       },
       "when": {
-        "any": [
-          {
-            "room": 89
-          },
-          {
-            "room": 90
-          },
-          {
-            "room": 91
-          },
-          {
-            "room": 92
-          }
-        ]
+        "room": 90
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. Original rom_7bc690 providers/bounds89..92, native parser/getters4 room runs; original decoded12038 door tiles matched native8A5F8 destinations. Actual4E4 conceal/88C Reveal with decoded terrain and native923E4/8EDAC/10704/10788: Axe89/100 at10.5,10.5; Pepper90/102 at15.5,12.5; coins90/105 at18.5,36.5; Potion90/106 at45.5,56.5; Mint91/107 at10.5,15.5,height-2. Normal Smog actor13 restored40.5,25.5 in90; Manticore8 restored10.5,5.75 in91. Virtual actors/table synthetic from original parser tile metadata; visual/task helpers supplied. 92/1,2 lower tunnel joins91/2 east waterfall45,5 with91/3 west waterfall37,17; 92/3,4 upper tunnel exitswest4,19 toworld2/53. No full walking/Reveal activation/gameplay claim. Source20 qualitative stone-circle directions reused; flag659 and6F are canonical victory/grant flags. Heat/reward delivery not inferred from entering a room; no thresholds invented.",
+      "area_section": 20
     },
     {
       "id": "gs1-treasure-f7e-1-183",
@@ -2176,22 +2215,10 @@
         "flag": 3966
       },
       "when": {
-        "any": [
-          {
-            "room": 89
-          },
-          {
-            "room": 90
-          },
-          {
-            "room": 91
-          },
-          {
-            "room": 92
-          }
-        ]
+        "room": 90
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. Original rom_7bc690 providers/bounds89..92, native parser/getters4 room runs; original decoded12038 door tiles matched native8A5F8 destinations. Actual4E4 conceal/88C Reveal with decoded terrain and native923E4/8EDAC/10704/10788: Axe89/100 at10.5,10.5; Pepper90/102 at15.5,12.5; coins90/105 at18.5,36.5; Potion90/106 at45.5,56.5; Mint91/107 at10.5,15.5,height-2. Normal Smog actor13 restored40.5,25.5 in90; Manticore8 restored10.5,5.75 in91. Virtual actors/table synthetic from original parser tile metadata; visual/task helpers supplied. 92/1,2 lower tunnel joins91/2 east waterfall45,5 with91/3 west waterfall37,17; 92/3,4 upper tunnel exitswest4,19 toworld2/53. No full walking/Reveal activation/gameplay claim. Source20 qualitative stone-circle directions reused; flag659 and6F are canonical victory/grant flags. Heat/reward delivery not inferred from entering a room; no thresholds invented.",
+      "area_section": 20
     },
     {
       "id": "gs1-treasure-f7f-1-195",
@@ -2201,22 +2228,10 @@
         "flag": 3967
       },
       "when": {
-        "any": [
-          {
-            "room": 89
-          },
-          {
-            "room": 90
-          },
-          {
-            "room": 91
-          },
-          {
-            "room": 92
-          }
-        ]
+        "room": 91
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. Original rom_7bc690 providers/bounds89..92, native parser/getters4 room runs; original decoded12038 door tiles matched native8A5F8 destinations. Actual4E4 conceal/88C Reveal with decoded terrain and native923E4/8EDAC/10704/10788: Axe89/100 at10.5,10.5; Pepper90/102 at15.5,12.5; coins90/105 at18.5,36.5; Potion90/106 at45.5,56.5; Mint91/107 at10.5,15.5,height-2. Normal Smog actor13 restored40.5,25.5 in90; Manticore8 restored10.5,5.75 in91. Virtual actors/table synthetic from original parser tile metadata; visual/task helpers supplied. 92/1,2 lower tunnel joins91/2 east waterfall45,5 with91/3 west waterfall37,17; 92/3,4 upper tunnel exitswest4,19 toworld2/53. No full walking/Reveal activation/gameplay claim. Source20 qualitative stone-circle directions reused; flag659 and6F are canonical victory/grant flags. Heat/reward delivery not inferred from entering a room; no thresholds invented.",
+      "area_section": 20
     },
     {
       "id": "gs1-treasure-fc2-1-204",
@@ -2286,68 +2301,21 @@
         "flag": 3971
       },
       "when": {
-        "any": [
+        "all": [
           {
-            "all": [
-              {
-                "room": 100
-              },
-              {
-                "any": [
-                  {
-                    "entrance_max": 8
-                  },
-                  {
-                    "all": [
-                      {
-                        "entrance_min": 16
-                      },
-                      {
-                        "entrance_max": 16
-                      }
-                    ]
-                  },
-                  {
-                    "entrance_min": 18
-                  }
-                ]
-              }
-            ]
+            "room": 100
           },
           {
-            "all": [
+            "any": [
               {
-                "room": 100
-              },
-              {
-                "any": [
-                  {
-                    "all": [
-                      {
-                        "entrance_min": 9
-                      },
-                      {
-                        "entrance_max": 15
-                      }
-                    ]
-                  },
-                  {
-                    "all": [
-                      {
-                        "entrance_min": 17
-                      },
-                      {
-                        "entrance_max": 17
-                      }
-                    ]
-                  }
-                ]
+                "entrance": 4
               }
             ]
           }
         ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. Original Kalay providers/entrance bounds99..103;100/103 native8B868 with current map bounds supplied from original entrance records; native flags164/165 distinguish actor presence by bounds. SHA-checked map-stream search triples:99 ID1006,8/F81,1015,25/F82;100 ID10012..13,27/F83 inside entrance4, ID10134..35,6/F84 inside3, ID10224,40/F85 inside11..15. 103 ID10142,16/F87 inside7,8; native parser/getters five rooms finds only virtual chest 103 ID1004,15/F86 inside6. Initializer308/33C100 alters NPC visibility/graphics only; 103 initializer264 special9/10/11/20 has no chest relocation for6. Original8A5F8 room99 aliases3->100/3,4->100/4,7->100/10,11->102/1; 103 aliases2->103/6,3->103/7; doorway tiles and bounds measured separately. Original100 actor16 callback144 unconditionally sets910 after dialogue; native earlier tail check only, not all-tourists proof. Room100/9,10 bounds include actor16 at15.4375,46; 101 is a separate innkeeper room. No full walking/search activation/gameplay claim.",
+      "area_section": 21
     },
     {
       "id": "gs1-treasure-f84-1-226",
@@ -2357,68 +2325,21 @@
         "flag": 3972
       },
       "when": {
-        "any": [
+        "all": [
           {
-            "all": [
-              {
-                "room": 100
-              },
-              {
-                "any": [
-                  {
-                    "entrance_max": 8
-                  },
-                  {
-                    "all": [
-                      {
-                        "entrance_min": 16
-                      },
-                      {
-                        "entrance_max": 16
-                      }
-                    ]
-                  },
-                  {
-                    "entrance_min": 18
-                  }
-                ]
-              }
-            ]
+            "room": 100
           },
           {
-            "all": [
+            "any": [
               {
-                "room": 100
-              },
-              {
-                "any": [
-                  {
-                    "all": [
-                      {
-                        "entrance_min": 9
-                      },
-                      {
-                        "entrance_max": 15
-                      }
-                    ]
-                  },
-                  {
-                    "all": [
-                      {
-                        "entrance_min": 17
-                      },
-                      {
-                        "entrance_max": 17
-                      }
-                    ]
-                  }
-                ]
+                "entrance": 3
               }
             ]
           }
         ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. Original Kalay providers/entrance bounds99..103;100/103 native8B868 with current map bounds supplied from original entrance records; native flags164/165 distinguish actor presence by bounds. SHA-checked map-stream search triples:99 ID1006,8/F81,1015,25/F82;100 ID10012..13,27/F83 inside entrance4, ID10134..35,6/F84 inside3, ID10224,40/F85 inside11..15. 103 ID10142,16/F87 inside7,8; native parser/getters five rooms finds only virtual chest 103 ID1004,15/F86 inside6. Initializer308/33C100 alters NPC visibility/graphics only; 103 initializer264 special9/10/11/20 has no chest relocation for6. Original8A5F8 room99 aliases3->100/3,4->100/4,7->100/10,11->102/1; 103 aliases2->103/6,3->103/7; doorway tiles and bounds measured separately. Original100 actor16 callback144 unconditionally sets910 after dialogue; native earlier tail check only, not all-tourists proof. Room100/9,10 bounds include actor16 at15.4375,46; 101 is a separate innkeeper room. No full walking/search activation/gameplay claim.",
+      "area_section": 21
     },
     {
       "id": "gs1-treasure-f85-1-188",
@@ -2428,68 +2349,33 @@
         "flag": 3973
       },
       "when": {
-        "any": [
+        "all": [
           {
-            "all": [
-              {
-                "room": 100
-              },
-              {
-                "any": [
-                  {
-                    "entrance_max": 8
-                  },
-                  {
-                    "all": [
-                      {
-                        "entrance_min": 16
-                      },
-                      {
-                        "entrance_max": 16
-                      }
-                    ]
-                  },
-                  {
-                    "entrance_min": 18
-                  }
-                ]
-              }
-            ]
+            "room": 100
           },
           {
-            "all": [
+            "any": [
               {
-                "room": 100
+                "entrance": 11
               },
               {
-                "any": [
-                  {
-                    "all": [
-                      {
-                        "entrance_min": 9
-                      },
-                      {
-                        "entrance_max": 15
-                      }
-                    ]
-                  },
-                  {
-                    "all": [
-                      {
-                        "entrance_min": 17
-                      },
-                      {
-                        "entrance_max": 17
-                      }
-                    ]
-                  }
-                ]
+                "entrance": 12
+              },
+              {
+                "entrance": 13
+              },
+              {
+                "entrance": 14
+              },
+              {
+                "entrance": 15
               }
             ]
           }
         ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. Original Kalay providers/entrance bounds99..103;100/103 native8B868 with current map bounds supplied from original entrance records; native flags164/165 distinguish actor presence by bounds. SHA-checked map-stream search triples:99 ID1006,8/F81,1015,25/F82;100 ID10012..13,27/F83 inside entrance4, ID10134..35,6/F84 inside3, ID10224,40/F85 inside11..15. 103 ID10142,16/F87 inside7,8; native parser/getters five rooms finds only virtual chest 103 ID1004,15/F86 inside6. Initializer308/33C100 alters NPC visibility/graphics only; 103 initializer264 special9/10/11/20 has no chest relocation for6. Original8A5F8 room99 aliases3->100/3,4->100/4,7->100/10,11->102/1; 103 aliases2->103/6,3->103/7; doorway tiles and bounds measured separately. Original100 actor16 callback144 unconditionally sets910 after dialogue; native earlier tail check only, not all-tourists proof. Room100/9,10 bounds include actor16 at15.4375,46; 101 is a separate innkeeper room. No full walking/search activation/gameplay claim.",
+      "area_section": 21
     },
     {
       "id": "gs1-treasure-f86-1-95",
@@ -2499,9 +2385,21 @@
         "flag": 3974
       },
       "when": {
-        "room": 103
+        "all": [
+          {
+            "room": 103
+          },
+          {
+            "any": [
+              {
+                "entrance": 6
+              }
+            ]
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. Original Kalay providers/entrance bounds99..103;100/103 native8B868 with current map bounds supplied from original entrance records; native flags164/165 distinguish actor presence by bounds. SHA-checked map-stream search triples:99 ID1006,8/F81,1015,25/F82;100 ID10012..13,27/F83 inside entrance4, ID10134..35,6/F84 inside3, ID10224,40/F85 inside11..15. 103 ID10142,16/F87 inside7,8; native parser/getters five rooms finds only virtual chest 103 ID1004,15/F86 inside6. Initializer308/33C100 alters NPC visibility/graphics only; 103 initializer264 special9/10/11/20 has no chest relocation for6. Original8A5F8 room99 aliases3->100/3,4->100/4,7->100/10,11->102/1; 103 aliases2->103/6,3->103/7; doorway tiles and bounds measured separately. Original100 actor16 callback144 unconditionally sets910 after dialogue; native earlier tail check only, not all-tourists proof. Room100/9,10 bounds include actor16 at15.4375,46; 101 is a separate innkeeper room. No full walking/search activation/gameplay claim.",
+      "area_section": 21
     },
     {
       "id": "gs1-treasure-f87-1-181",
@@ -2511,9 +2409,24 @@
         "flag": 3975
       },
       "when": {
-        "room": 103
+        "all": [
+          {
+            "room": 103
+          },
+          {
+            "any": [
+              {
+                "entrance": 7
+              },
+              {
+                "entrance": 8
+              }
+            ]
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. Original Kalay providers/entrance bounds99..103;100/103 native8B868 with current map bounds supplied from original entrance records; native flags164/165 distinguish actor presence by bounds. SHA-checked map-stream search triples:99 ID1006,8/F81,1015,25/F82;100 ID10012..13,27/F83 inside entrance4, ID10134..35,6/F84 inside3, ID10224,40/F85 inside11..15. 103 ID10142,16/F87 inside7,8; native parser/getters five rooms finds only virtual chest 103 ID1004,15/F86 inside6. Initializer308/33C100 alters NPC visibility/graphics only; 103 initializer264 special9/10/11/20 has no chest relocation for6. Original8A5F8 room99 aliases3->100/3,4->100/4,7->100/10,11->102/1; 103 aliases2->103/6,3->103/7; doorway tiles and bounds measured separately. Original100 actor16 callback144 unconditionally sets910 after dialogue; native earlier tail check only, not all-tourists proof. Room100/9,10 bounds include actor16 at15.4375,46; 101 is a separate innkeeper room. No full walking/search activation/gameplay claim.",
+      "area_section": 21
     },
     {
       "id": "gs1-treasure-f27-3-0",
@@ -4046,9 +3959,21 @@
         "flag": 3888
       },
       "when": {
-        "room": 151
+        "all": [
+          {
+            "room": 151
+          },
+          {
+            "any": [
+              {
+                "entrance": 54
+              }
+            ]
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. 26Oct2026 to-suhalla-20261026: original SHA1-verified entrance/object/event providers, initial virtual parser/getters, native door cells/destinations, room initialization and selected callback guards; detailed reports and helper/failed-run limits in TBS FACTS. No ordinary walking/full scenes/gameplay claim.",
+      "area_section": 29
     },
     {
       "id": "gs1-treasure-fa0-1-193",
@@ -4152,9 +4077,24 @@
         "flag": 3868
       },
       "when": {
-        "room": 156
+        "all": [
+          {
+            "room": 156
+          },
+          {
+            "any": [
+              {
+                "entrance": 1
+              },
+              {
+                "entrance": 2
+              }
+            ]
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. 26Oct2026 to-suhalla-20261026: original SHA1-verified entrance/object/event providers, initial virtual parser/getters, native door cells/destinations, room initialization and selected callback guards; detailed reports and helper/failed-run limits in TBS FACTS. No ordinary walking/full scenes/gameplay claim.",
+      "area_section": 33
     },
     {
       "id": "gs1-treasure-f1e-1-227",
@@ -4164,9 +4104,24 @@
         "flag": 3870
       },
       "when": {
-        "room": 156
+        "all": [
+          {
+            "room": 156
+          },
+          {
+            "any": [
+              {
+                "entrance": 1
+              },
+              {
+                "entrance": 2
+              }
+            ]
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. 26Oct2026 to-suhalla-20261026: original SHA1-verified entrance/object/event providers, initial virtual parser/getters, native door cells/destinations, room initialization and selected callback guards; detailed reports and helper/failed-run limits in TBS FACTS. No ordinary walking/full scenes/gameplay claim.",
+      "area_section": 33
     },
     {
       "id": "gs1-treasure-f1f-1-229",
@@ -4176,9 +4131,24 @@
         "flag": 3871
       },
       "when": {
-        "room": 156
+        "all": [
+          {
+            "room": 156
+          },
+          {
+            "any": [
+              {
+                "entrance": 1
+              },
+              {
+                "entrance": 2
+              }
+            ]
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. 26Oct2026 to-suhalla-20261026: original SHA1-verified entrance/object/event providers, initial virtual parser/getters, native door cells/destinations, room initialization and selected callback guards; detailed reports and helper/failed-run limits in TBS FACTS. No ordinary walking/full scenes/gameplay claim.",
+      "area_section": 33
     },
     {
       "id": "gs1-treasure-f20-2-200",
@@ -4188,9 +4158,24 @@
         "flag": 3872
       },
       "when": {
-        "room": 156
+        "all": [
+          {
+            "room": 156
+          },
+          {
+            "any": [
+              {
+                "entrance": 1
+              },
+              {
+                "entrance": 2
+              }
+            ]
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. 26Oct2026 to-suhalla-20261026: original SHA1-verified entrance/object/event providers, initial virtual parser/getters, native door cells/destinations, room initialization and selected callback guards; detailed reports and helper/failed-run limits in TBS FACTS. No ordinary walking/full scenes/gameplay claim.",
+      "area_section": 33
     },
     {
       "id": "gs1-treasure-f21-1-183",
@@ -4200,9 +4185,24 @@
         "flag": 3873
       },
       "when": {
-        "room": 156
+        "all": [
+          {
+            "room": 156
+          },
+          {
+            "any": [
+              {
+                "entrance": 1
+              },
+              {
+                "entrance": 2
+              }
+            ]
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. 26Oct2026 to-suhalla-20261026: original SHA1-verified entrance/object/event providers, initial virtual parser/getters, native door cells/destinations, room initialization and selected callback guards; detailed reports and helper/failed-run limits in TBS FACTS. No ordinary walking/full scenes/gameplay claim.",
+      "area_section": 33
     },
     {
       "id": "gs1-treasure-fa2-1-188",
@@ -4272,9 +4272,24 @@
         "flag": 4007
       },
       "when": {
-        "room": 163
+        "all": [
+          {
+            "room": 163
+          },
+          {
+            "any": [
+              {
+                "entrance": 1
+              },
+              {
+                "entrance": 2
+              }
+            ]
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. 26Oct2026 to-suhalla-20261026: original SHA1-verified entrance/object/event providers, initial virtual parser/getters, native door cells/destinations, room initialization and selected callback guards; detailed reports and helper/failed-run limits in TBS FACTS. No ordinary walking/full scenes/gameplay claim.",
+      "area_section": 32
     },
     {
       "id": "gs1-treasure-fb1-1-141",
@@ -4493,9 +4508,21 @@
         "flag": 3890
       },
       "when": {
-        "room": 173
+        "all": [
+          {
+            "room": 173
+          },
+          {
+            "any": [
+              {
+                "entrance": 12
+              }
+            ]
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence.25October2026 original173 entrance/object/event providers and native12038/8A5F8 doors in route-door-172-173-183-184-185-186.json. Native8E9C0/8EC14/8ED4C initial virtual records: F32/100 at8.5,49.5 belongs173/12; F33/101 at49.5,43.5 belongs173/17. Constructor/provider evidence only, no full Reveal/physical path/gameplay proof. Original20A4 predicate targets19=(25,49),20=(23,49),21=(25,47),22=(23,47),23=(24,48), flag984. Seven native set/retain/wrong-clear cases in venus-colored-statues-verification.json. Actor colors inferred from original Mind Read relations and source row colors; no guessed palettes. Named presentation/motion helpers supplied, no physical pushing claim. ",
+      "area_section": 40
     },
     {
       "id": "gs1-treasure-f33-1-84",
@@ -4505,9 +4532,21 @@
         "flag": 3891
       },
       "when": {
-        "room": 173
+        "all": [
+          {
+            "room": 173
+          },
+          {
+            "any": [
+              {
+                "entrance": 17
+              }
+            ]
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence.25October2026 original173 entrance/object/event providers and native12038/8A5F8 doors in route-door-172-173-183-184-185-186.json. Native8E9C0/8EC14/8ED4C initial virtual records: F32/100 at8.5,49.5 belongs173/12; F33/101 at49.5,43.5 belongs173/17. Constructor/provider evidence only, no full Reveal/physical path/gameplay proof. Original20A4 predicate targets19=(25,49),20=(23,49),21=(25,47),22=(23,47),23=(24,48), flag984. Seven native set/retain/wrong-clear cases in venus-colored-statues-verification.json. Actor colors inferred from original Mind Read relations and source row colors; no guessed palettes. Named presentation/motion helpers supplied, no physical pushing claim. ",
+      "area_section": 40
     },
     {
       "id": "gs1-treasure-fbc-1-196",
@@ -4739,9 +4778,30 @@
         "flag": 3895
       },
       "when": {
-        "room": 182
+        "all": [
+          {
+            "room": 182
+          },
+          {
+            "any": [
+              {
+                "entrance": 3
+              },
+              {
+                "entrance": 4
+              },
+              {
+                "entrance": 5
+              },
+              {
+                "entrance": 6
+              }
+            ]
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence.25October2026 original181/182 providers and native12038/8A5F8 doors. Original Reveal90CC and conceal9048 with native terrain and door queries: hidden stair event5 absent before, appears23,10 with Reveal, absent after conceal; native alias5->182/30. Independent original parser F38 at5.5,55.5 in left vault 182/30; F37 at29.5,12.5 in hub182/3..6. Native northern doors Carry room50,4 (left)->182/12 vs53,4 (right)->182/22. Hidden southwest stair6,28->182/24; corridor24,52->182/21. Route statue model276 actor14 at30.5,33.5 in182/20,21; original1218 selection982/983 already verified by verify_venus_milestones.py. Original Carry actor12 FF0 sets987 for X54 ORY6; no complete Carry animation or placement-acceptance/walking proof. Initial/provider/door evidence and source37 directions, not a full physical playthrough. ",
+      "area_section": 37
     },
     {
       "id": "gs1-treasure-f38-1-206",
@@ -4751,9 +4811,21 @@
         "flag": 3896
       },
       "when": {
-        "room": 182
+        "all": [
+          {
+            "room": 182
+          },
+          {
+            "any": [
+              {
+                "entrance": 30
+              }
+            ]
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence.25October2026 original181/182 providers and native12038/8A5F8 doors. Original Reveal90CC and conceal9048 with native terrain and door queries: hidden stair event5 absent before, appears23,10 with Reveal, absent after conceal; native alias5->182/30. Independent original parser F38 at5.5,55.5 in left vault 182/30; F37 at29.5,12.5 in hub182/3..6. Native northern doors Carry room50,4 (left)->182/12 vs53,4 (right)->182/22. Hidden southwest stair6,28->182/24; corridor24,52->182/21. Route statue model276 actor14 at30.5,33.5 in182/20,21; original1218 selection982/983 already verified by verify_venus_milestones.py. Original Carry actor12 FF0 sets987 for X54 ORY6; no complete Carry animation or placement-acceptance/walking proof. Initial/provider/door evidence and source37 directions, not a full physical playthrough. ",
+      "area_section": 37
     },
     {
       "id": "gs1-treasure-f34-1-162",
@@ -4763,9 +4835,24 @@
         "flag": 3892
       },
       "when": {
-        "room": 183
+        "all": [
+          {
+            "room": 183
+          },
+          {
+            "any": [
+              {
+                "entrance": 5
+              },
+              {
+                "entrance": 6
+              }
+            ]
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. 25October2026 original183 parser F34 type20 chest actor100 at26.5,9.5; entrances5/6 share bounds21.5,3..37,13.5. Native door32,12->183/13 returns to northern hall;26,7->183/4 is separate northwestern exit. late-guide-chest-layout-review and route-door-172-173-183-184-185-186. Initial placement and destinations only,not full walking/interaction proof.",
+      "area_section": 40
     },
     {
       "id": "gs1-treasure-f35-1-82",
@@ -4775,9 +4862,17 @@
         "flag": 3893
       },
       "when": {
-        "room": 185
+        "all": [
+          {
+            "room": 185
+          },
+          {
+            "entrance": 3
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence. 25October2026 original185 F35 constructor8.5,22.5 belongs only entrance3 bounds0.5,16.5..16,27,spawn8.5,24.5. Native door8,25->185/5. late-guide-chest-layout-review and route-door-172-173-183-184-185-186. Initial metadata/door destination only; no physical walking/interaction proof.",
+      "area_section": 40
     },
     {
       "id": "gs1-treasure-f36-1-9",
@@ -4787,9 +4882,24 @@
         "flag": 3894
       },
       "when": {
-        "room": 186
+        "all": [
+          {
+            "room": 186
+          },
+          {
+            "any": [
+              {
+                "entrance": 13
+              },
+              {
+                "entrance": 14
+              }
+            ]
+          }
+        ]
       },
-      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence."
+      "evidence": "Original field event provider header+0x24; descriptor kind/payload/flag interpreted by0808D9A4; original flag consequence verified at0808DC94..0808DD34. Root provider sweep2621672 calls,191 rooms,31 capture matches; FACTS.md Guide treasure evidence.25October2026 original186 provider/virtual parser: F36 GaiaBlade at57.5,49.5 belongs186/13,14 bounds44.5,36.5..61,54. Native186 door topology and source40 moving-sand room southern chest route. No exact current timing, movement acceptance or gameplay proof.",
+      "area_section": 40
     }
   ]
 }

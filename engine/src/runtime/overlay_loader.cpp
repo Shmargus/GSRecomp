@@ -30,7 +30,7 @@
 #include "host_prof_phase.h"      // host profiler phase marker
 #include "../gba/gba_bus.h"       // rom_ptr / rom_size / iwram_ptr / ewram_ptr
 #include "../gba/gba_bios.h"      // GbaBios snapshot
-#include "../gba/crc32.h"         // gba::crc32
+#include "crc32.h"         // gba::crc32
 
 namespace fs = std::filesystem;
 

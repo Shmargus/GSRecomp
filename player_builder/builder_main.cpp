@@ -160,6 +160,7 @@ void log_tail(const fs::path& log, std::size_t max_lines = 30) {
 bool write_bytes(const fs::path& p, const void* data, std::size_t n) {
     std::ofstream f(p, std::ios::binary | std::ios::trunc);
     f.write(static_cast<const char*>(data), static_cast<std::streamsize>(n));
+    f.close();  // close() flushes; a late write error shows up here
     return static_cast<bool>(f);
 }
 
@@ -1017,13 +1018,15 @@ bool compile_and_link(const Setup& s, std::string* error) {
     emit("@stage Linking %s", kGameLibrary);
     const fs::path def = s.work / kDefFile;
     const fs::path rsp = s.work / "objects.rsp";
-    write_text(def, make_def(sources));
     std::string list;
     for (const fs::path& o : objects) {
         std::string p = o.generic_string();
         list += "\"" + p + "\"\n";
     }
-    write_text(rsp, list);
+    if (!write_text(def, make_def(sources)) || !write_text(rsp, list)) {
+        *error = "cannot write the link lists in " + s.work.string();
+        return false;
+    }
     const fs::path dll_tmp = s.work / kGameLibrary;
     const fs::path log = logs_dir(s) / "link.log";
     std::error_code ec;
@@ -1048,10 +1051,16 @@ bool compile_and_link(const Setup& s, std::string* error) {
         *error = "linking failed (" + std::to_string(rc) + "); see " + log.string();
         return false;
     }
+    // Copy beside the installed library, then rename over it in one step, so
+    // a failed or interrupted copy leaves the previous library working.
     const fs::path dll = s.out_dir / kGameLibrary;
-    fs::remove(dll, ec);
-    fs::copy_file(dll_tmp, dll, ec);
+    fs::path staged = dll;
+    staged += ".new";
+    fs::copy_file(dll_tmp, staged, fs::copy_options::overwrite_existing, ec);
+    if (!ec) fs::rename(staged, dll, ec);
     if (ec) {
+        std::error_code ignored;
+        fs::remove(staged, ignored);
         *error = "cannot place " + dll.string() + ": " + ec.message();
         return false;
     }
@@ -1207,7 +1216,8 @@ int main(int argc, char** cargv) {
                                   (engine.empty() ? std::string("none")
                                                   : sha1_hex(engine.data(), engine.size())) +
                                   "\n";
-        write_text(s.out_dir / kBuildStamp, stamp);
+        if (!write_text(s.out_dir / kBuildStamp, stamp))
+            return fail("Could not save the build record in " + s.out_dir.string() + ".");
         if (!s.keep_work) {
             g_log.close();
             fs::remove_all(gen_dir(s), ec);

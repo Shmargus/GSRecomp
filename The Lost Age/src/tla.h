@@ -99,6 +99,7 @@ void tla_spell_mesh_on_entry(std::uint32_t pc);
 void tla_install_text(gbarecomp::RunOptions& options);
 constexpr std::uint8_t kTlaGlyphLetter = 1u, kTlaGlyphShadow = 3u,
                        kTlaGlyphBackground = 4u;
+void tla_publish_menu_art();
 std::uint8_t tla_menu_glyph(unsigned char code, int gx, int gy);
 std::uint32_t tla_menu_text_width(const std::string& text);
 void tla_menu_draw_text(const std::string& text, int x, int y,

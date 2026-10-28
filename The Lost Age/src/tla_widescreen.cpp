@@ -315,14 +315,22 @@ int32_t held_camera(gba::GbaBus* b, bool x, int32_t requested, int32_t ruled,
         const bool returned = h.kept && lo == h.kept_lo && edge == h.kept_edge;
         if (h.kept && (h.kept_ends(lo, edge) || jumped))
             h.kept = false;
-        if (h.holding && h.hold_ends(lo, edge))
+        // The held bounds again: the room is back as it was before the hold,
+        // so the rule for it applies, not the wider bounds kept (F12
+        // tla_rewind_0165, map 287: casting Grind set 32..416 to 0..1024 and
+        // back, and the kept 0..1024 left the camera on Felix, off the room).
+        bool restored = false;
+        if (h.holding && h.hold_ends(lo, edge)) {
+            restored = lo == h.held_lo && edge == h.held_edge;
             h.holding = false;
+        }
         const bool changed = lo != h.lo || edge != h.edge;
         // Only in plain view: 0014 f89 sets a new room's bounds inside the
         // old 0..512 with the field layers off (DISPCNT 0x0140, faded out);
         // 0136 f24 has them on (0x1F40).
         const bool field_shown = (b->read16(0x04000000u) & 0x0C00u) == 0x0C00u;
-        if (!h.kept && !h.holding && !returned && !jumped && changed && field_shown &&
+        if (!h.kept && !h.holding && !returned && !restored && !jumped && changed &&
+            field_shown &&
             lo >= h.lo && edge <= h.edge) {
             h.kept = true;
             h.kept_lo = h.lo;
@@ -807,6 +815,62 @@ int pillar_top_branch(uint32_t pc, uint32_t original, uint32_t* out) {
     return *out != original;
 }
 
+// F12 tla_rewind_0173 (map 292, Mars Lighthouse): the room's own Thumb
+// routine (0x0200A42C there) times up to four emitters, such as the dragon
+// head sliding along the top bar, and fires one's action every 8 frames, but
+// only while it is near the console's screen: x + 7 not above 334 unsigned,
+// row above -48 and not above 239. Extra Wide holds the camera 80 rows lower
+// in that room, so the head sat beyond -48 and never spat fire. Extend those
+// tests by the view's margins. The same code also loads at 0x0200A0EC; its
+// test section (+0xB0..+0xE6) is byte-identical there (self-heal cache), so
+// it is found from the branch by those words, not by room or address.
+struct EmitterSite {
+    uint32_t offset;    // from the routine's start
+    uint16_t opcode;
+};
+constexpr EmitterSite kEmitterSites[] = {
+    {0xD8u, 0xD840u},   // x + 7 against 334
+    {0xE0u, 0xDD3Cu},   // row <= -48
+    {0xE4u, 0xDC3Au},   // row > 239
+};
+
+bool emitter_image(gba::GbaBus* b, uint32_t start) {
+    return b->read32(start + 0xB0u) == 0x464968AAu &&
+        b->read32(start + 0xCCu) == 0xD10A2C00u &&
+        b->read32(start + 0xD0u) == 0x22A71DD3u &&
+        b->read32(start + 0xD4u) == 0x42930052u &&
+        b->read32(start + 0xD8u) == 0x2330D840u &&
+        b->read32(start + 0xDCu) == 0x4299425Bu &&
+        b->read32(start + 0xE0u) == 0x29EFDD3Cu &&
+        b->read16(start + 0xE4u) == 0xDC3Au;
+}
+
+int emitter_range_branch(uint32_t pc, uint32_t original, uint32_t* out) {
+    if (pc < 0x02000000u || pc >= 0x02040000u) return -1;
+    const uint32_t live_pc = g_runtime_image_base + (pc - 0x02000000u);
+    gba::GbaBus* b = bus();
+    if (!b || live_pc < 0x02000100u || live_pc >= 0x0203FE00u) return -1;
+    const EmitterSite* site = nullptr;
+    const uint16_t opcode = b->read16(live_pc);
+    for (const EmitterSite& s : kEmitterSites)
+        if (s.opcode == opcode && emitter_image(b, live_pc - s.offset)) {
+            site = &s;
+            break;
+        }
+    if (!site) return -1;
+    const View v = view();
+    if (!expanded(v) || !field_running(b)) return 0;
+    const int row = static_cast<int32_t>(g_cpu.R[1]);
+    if (site->offset == 0xD8u)
+        *out = g_cpu.R[3] + static_cast<uint32_t>(v.left) >
+               334u + static_cast<uint32_t>(v.left + v.right);
+    else if (site->offset == 0xE0u)
+        *out = row <= -48 - v.top;
+    else
+        *out = row > 239 + v.bottom;
+    return *out != original;
+}
+
 // Field effect sprites (kEffectLeft..kEffectBottom): taken drops the sprite.
 // The view's margins widen each test; a sprite kept past the last one is
 // placed, so its real position is recorded.
@@ -850,6 +914,8 @@ int builder_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
     if (const int result = world_range_branch(pc, original, out_decision);
         result >= 0) return result;
     if (const int result = pillar_top_branch(pc, original, out_decision);
+        result >= 0) return result;
+    if (const int result = emitter_range_branch(pc, original, out_decision);
         result >= 0) return result;
     if (const int result = tla_sprite_memory_branch(pc, original, out_decision);
         result >= 0) return result;
