@@ -19,6 +19,7 @@
 #include "scene_repeat.h"
 #include "tla_alhafra_ship_view.h"
 #include "tla_background_margins.h"
+#include "tla_kept_cells.h"
 #include "tla_line_table_margins.h"
 #include "tla_room_sprite_clip.h"
 #include "tla_screen_effect_margins.h"
@@ -70,6 +71,7 @@ struct TlaFieldDrawState {
     std::vector<std::uint8_t> haze_vram;
     std::vector<std::uint8_t> room_ewram;  // the margins' edited copy
     TlaWeatherReplay weather;
+    TlaKeptCells kept_cells;
 };
 
 // Which rules took part, for the bench's report.
@@ -119,7 +121,12 @@ inline bool tla_field_draw(gsr::FieldSceneRenderer& renderer, gsr::FieldScene& s
             in.ewram, in.ewram_bytes, width, height);
         r.background = tla_background_margins(scene, margins, in.ewram, in.ewram_bytes);
     }
-    const std::vector<std::uint8_t>& vram = r.haze ? state.haze_vram : frame_vram;
+    // A battle (slot 0x03000024 set, tla.h kTlaBattleSlot): sprites the game
+    // reused past the screen keep their picture (tla_kept_cells.h).
+    const bool battle = in.iwram && in.iwram_bytes >= 0x28u &&
+        (in.iwram[0x24] | in.iwram[0x25] | in.iwram[0x26] | in.iwram[0x27]) != 0;
+    const std::vector<std::uint8_t>& vram = tla_kept_cells(scene, margins,
+        r.haze ? state.haze_vram : frame_vram, expanded, battle, state.kept_cells);
     renderer.upload_vram(vram.data(), vram.size());
     if (in.room_vram) renderer.upload_room_vram(in.room_vram, in.room_vram_bytes);
     renderer.upload_palette(scene.palette.data(), scene.palette.size());

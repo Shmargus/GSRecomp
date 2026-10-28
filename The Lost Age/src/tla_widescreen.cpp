@@ -247,6 +247,7 @@ struct CameraHold {
     uint16_t map = 0;
     int32_t lo = 0, edge = 0;            // bounds at the last store
     int32_t held_lo = 0, held_edge = 0;  // bounds when the hold began
+    bool widened = false;                // held_* valid, hold over or not
     int32_t travel_lo = 0, travel_hi = 0;  // requests seen since then
     int32_t offset = 0;                  // written - requested
     bool kept = false;
@@ -319,9 +320,13 @@ int32_t held_camera(gba::GbaBus* b, bool x, int32_t requested, int32_t ruled,
         // so the rule for it applies, not the wider bounds kept (F12
         // tla_rewind_0165, map 287: casting Grind set 32..416 to 0..1024 and
         // back, and the kept 0..1024 left the camera on Felix, off the room).
+        // Also once the hold has let go: a hold with no offset ends on its
+        // first store (0178, map 292: Tremor on nothing, y 48..496 -> 0..1024
+        // -> 48..496 kept 0..1024 and the view left the room).
         bool restored = false;
-        if (h.holding && h.hold_ends(lo, edge)) {
+        if (h.widened && h.hold_ends(lo, edge)) {
             restored = lo == h.held_lo && edge == h.held_edge;
+            h.widened = false;
             h.holding = false;
         }
         const bool changed = lo != h.lo || edge != h.edge;
@@ -339,8 +344,11 @@ int32_t held_camera(gba::GbaBus* b, bool x, int32_t requested, int32_t ruled,
         if (!h.holding && !h.kept && !returned && changed &&
             lo <= h.lo && edge >= h.edge) {
             h.holding = true;
-            h.held_lo = h.lo;
-            h.held_edge = h.edge;
+            if (!h.widened) {
+                h.widened = true;
+                h.held_lo = h.lo;
+                h.held_edge = h.edge;
+            }
             h.travel_lo = h.travel_hi = requested;
         }
         h.lo = lo;

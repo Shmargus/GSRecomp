@@ -1210,13 +1210,14 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 !gsr_collection::save_view_settings(
                     gsr_session::engine(gsr_session::game_root(root, settings_game), settings_game).parent_path(), view))
                 error = "Could not save view settings.";
-#ifdef GSR_COLLECTION_DEV
-            // Quest Tracker, Guide and Area collectibles: developer builds only.
-            if (settings_game == 0)
-                gsr_collection::adventure_settings(
-                    gsr_session::engine(gsr_session::game_root(root, settings_game), settings_game).parent_path(),
-                    preview.empty(), error);
-#endif
+// Commented out: TBS guide options hidden for now.
+// #ifdef GSR_COLLECTION_DEV
+//             // Quest Tracker, Guide and Area collectibles: developer builds only.
+//             if (settings_game == 0)
+//                 gsr_collection::adventure_settings(
+//                     gsr_session::engine(gsr_session::game_root(root, settings_game), settings_game).parent_path(),
+//                     preview.empty(), error);
+// #endif
 #ifdef GSR_COLLECTION_DEV
             ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
 #ifdef _WIN32

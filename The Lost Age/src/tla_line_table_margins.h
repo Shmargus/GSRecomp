@@ -15,12 +15,24 @@
 // (counter + u16 [0x03001126]) + r * step; offset = (sine * strength) >> 16
 // (the IWRAM smull 0x03000220), +255 when negative, bits 8..23; sine the s16
 // ROM table at 0x080F08B0 (256 entries) at (acc >> 16) & 0xFF. Step 0 writes
-// the base. Shown tables used the counter 2 before the saved one (0167, 0171
-// all frames), or 1 or 0 (0168: 38 and 1 of 120 frames); every row 1..159
-// matched on all frames of 0167, 0168, 0171. Rows above and below the
+// the base. Standing still, shown tables used counter + camera 2 before the
+// saved sum (0167, 0171, 0175 all frames), or 1 or 0 (0168: 38 and 1 of 120);
+// walking the stairs moves the camera after the build, -5..+1 (0179: the
+// old -2..0 guess missed 37 of 120 frames, which drew the plain, unrippled
+// fallback: the flicker). The sum is searched nearest first over one sine
+// period (256), which holds every table the builder can make with a
+// multiplier of 0x10000. Every row 1..159 matched on all frames of 0167,
+// 0168, 0171, 0175, 0179. Rows above and below the
 // console continue the same rows; a table that does not reproduce every row
 // is left to the row-1 rule below.
-inline bool tla_cloud_wave(const gsr::FieldScene& scene, gsr::SceneMargins& margins,
+// Row 0 is the game's own fault: 0x080D5FF8 stores entry 0's three words
+// all at 0x04000014, so BG1 ends with BG3's scroll and BG2/BG3 keep what the
+// last line's transfer left. One stray line at the console's top edge,
+// mid-picture in a taller view: the stripe of F12 tla_rewind_0175 (BG1
+// 0xF5,0x3D, BG3 0x114,0x40 against row 1's 0x180,0x465 and 0xF5,0x3D).
+// Expanded views only (the caller): row 0 gets the entry the game meant,
+// the formula at row 0 for waved layers and row 1's constant otherwise.
+inline bool tla_cloud_wave(gsr::FieldScene& scene, gsr::SceneMargins& margins,
                            const std::uint8_t* io, const std::uint8_t* ewram,
                            std::size_t ewram_bytes, const std::uint8_t* iwram,
                            std::size_t iwram_bytes, const std::uint8_t* rom,
@@ -54,8 +66,9 @@ inline bool tla_cloud_wave(const gsr::FieldScene& scene, gsr::SceneMargins& marg
     for (int row = 1; row < gsr::FieldScene::kRows; ++row)
         if (!scene.row_io_valid[row]) return false;
     const int first_bg = s[0xF01] ? 3 : 1;
-    for (std::uint32_t back : {2u, 1u, 0u}) {
-        const std::uint32_t phase = (counter - back) & 0xFFFFu;
+    for (int tried = 0; tried < 256; ++tried) {
+        const int near = (tried & 1) ? -((tried + 1) / 2) : tried / 2;
+        const std::uint32_t phase = counter + std::uint32_t(near);
         // Per axis: acc at row 0, step, strength.
         std::uint32_t acc0[2], step[2], strength[2];
         for (int axis = 0; axis < 2; ++axis) {
@@ -78,6 +91,14 @@ inline bool tla_cloud_wave(const gsr::FieldScene& scene, gsr::SceneMargins& marg
                     match = value(row, axis, base[bg][axis]) == reg(row, ofs);
             }
         if (!match) continue;
+        for (int bg = 1; bg < 4; ++bg)
+            for (int axis = 0; axis < 2; ++axis) {
+                const unsigned ofs = 0x10u + unsigned(bg) * 4u + unsigned(axis) * 2u;
+                const std::uint16_t v = bg >= first_bg
+                    ? value(0, axis, base[bg][axis]) : reg(1, ofs);
+                scene.row_io[0][ofs] = std::uint8_t(v);
+                scene.row_io[0][ofs + 1] = std::uint8_t(v >> 8);
+            }
         bool any = false;
         for (int bg = first_bg; bg < 4; ++bg) {
             const auto& layer = scene.layers[bg];
@@ -86,6 +107,7 @@ inline bool tla_cloud_wave(const gsr::FieldScene& scene, gsr::SceneMargins& marg
                 !margin.scroll.empty())
                 continue;
             margin.scroll_sides = true;  // native pixels keep their own rows
+            margin.past_room_edge = true;
             margin.scroll_first_y = first_y;
             margin.scroll.resize(std::size_t(rows));
             for (int row = 0; row < rows; ++row)

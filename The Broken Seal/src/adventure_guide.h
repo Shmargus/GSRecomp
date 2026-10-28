@@ -619,7 +619,8 @@ inline void init() {
     previous_wants_keyboard = gbarecomp::g_config_ui_extra_wants_keyboard;
     gbarecomp::g_config_ui_extra_draw = draw;
     gbarecomp::g_config_ui_extra_wants_keyboard = wants_keyboard;
-    gbarecomp::config_ui_set_game_page(page);
+    // Commented out: TBS guide options hidden from F1 for now.
+    // gbarecomp::config_ui_set_game_page(page);
 #endif
 }
 } // namespace gsr::adventure
