@@ -204,6 +204,49 @@ void test_sram_controller_and_snapshot() {
     check_bool("sram_persist", "load_clean", restored.dirty(), false);
 }
 
+// A complete SAVE section whose SRAM size disagrees with its buffer must
+// fail the reader, so the loader restores the running game.
+void test_sram_snapshot_rejects_size_mismatch() {
+    gba::GbaSave save;
+    save.configure_sram(32 * 1024);
+    gbarecomp::debug::SnapshotWriter writer;
+    save.serialize(writer);
+    std::vector<uint8_t> blob = writer.buffer();
+    // Trailing block: ... u64 sram_size_, u32 length, data.
+    const std::size_t size_at = blob.size() - 32 * 1024 - 4 - 8;
+    blob[size_at + 1] = 0x90;  // 0x9000 bytes, not 0x8000
+    gba::GbaSave restored;
+    gbarecomp::debug::SnapshotReader reader(blob.data(), blob.size());
+    restored.deserialize(reader);
+    check_bool("sram_snapshot_mismatch", "rejected", reader.ok(), false);
+}
+
+// A complete AUDIO section whose ring head is past the fixed ring must fail
+// the reader instead of letting the next sample write out of bounds.
+void test_audio_snapshot_rejects_ring_index() {
+    gba::GbaBus bus;
+    gbarecomp::debug::SnapshotWriter writer;
+    bus.audio().serialize(writer);
+    std::vector<uint8_t> blob = writer.buffer();
+    {
+        gbarecomp::debug::SnapshotReader reader(blob.data(), blob.size());
+        bus.audio().deserialize(reader, bus.io().raw(), gba::GbaIo::kIoSize);
+        check_bool("audio_snapshot", "round_trip_ok", reader.ok(), true);
+    }
+    // u32 ring length (16384), the ring, then u64 head.
+    const uint8_t ring_len[4] = {0x00, 0x40, 0x00, 0x00};
+    std::size_t at = 0;
+    while (at + 4 <= blob.size() && std::memcmp(&blob[at], ring_len, 4) != 0) ++at;
+    const std::size_t head_at = at + 4 + 16384 * sizeof(int16_t);
+    check_bool("audio_snapshot", "layout_found", head_at + 8 <= blob.size(), true);
+    if (head_at + 8 > blob.size()) return;
+    std::memset(&blob[head_at], 0, 8);
+    blob[head_at + 1] = 0x40;  // head = 16384, one past the ring
+    gbarecomp::debug::SnapshotReader reader(blob.data(), blob.size());
+    bus.audio().deserialize(reader, bus.io().raw(), gba::GbaIo::kIoSize);
+    check_bool("audio_snapshot", "bad_head_rejected", reader.ok(), false);
+}
+
 void test_sram_bus_width_and_region_mirroring() {
     gba::GbaBus bus;
     bus.save().configure_sram(32 * 1024);
@@ -469,6 +512,8 @@ int main() {
     test_no_save_signature();
     test_sram_signature();
     test_sram_controller_and_snapshot();
+    test_sram_snapshot_rejects_size_mismatch();
+    test_audio_snapshot_rejects_ring_index();
     test_sram_bus_width_and_region_mirroring();
     test_bios_undocumented_io_write();
     test_bios_window_writes_are_ignored();

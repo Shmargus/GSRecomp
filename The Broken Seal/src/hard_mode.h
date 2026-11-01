@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include "rom_version.h"
 
 // Hard Mode: enemies get 1.5x HP and 1.25x Attack and Defence. The switch is
 // the settings screen's fourth row, the game's own Auto-Sleep row, kept with
@@ -28,18 +29,18 @@
 namespace gsr::hard_mode {
 
 // Live flag, kHardModeValue = Hard Mode on.
-constexpr std::uint32_t kAutoSleepFlag = 0x03001D08u;
+const std::uint32_t kAutoSleepFlag = gs::ram(0x03001D08u);
 // Save block +0x22A, the flag's saved copy.
 constexpr std::uint32_t kSavedFlag = 0x0200046Au;
 constexpr std::uint8_t kHardModeValue = 2;
 // New game: Func_77f40 follows the naming loop; the prompt opens on entry.
-constexpr std::uint32_t kNewGameEntryPc = 0x08077F40u;
+const std::uint32_t kNewGameEntryPc = gs::rom(0x08077F40u);
 // Frame wait Func_30f8: `beq 0x080031E4` skips the idle counter.
-constexpr std::uint32_t kIdleBranchPc = 0x080031BCu;
+const std::uint32_t kIdleBranchPc = gs::rom(0x080031BCu);
 
-constexpr std::uint32_t kStatRecalcPc = 0x08077428u;
+const std::uint32_t kStatRecalcPc = gs::rom(0x08077428u);
 // LR after the `bl` at 0x080795BC in Func_79460 (compare with R[14] & ~1).
-constexpr std::uint32_t kEnemySetupReturn = 0x080795C0u;
+const std::uint32_t kEnemySetupReturn = gs::rom(0x080795C0u);
 
 // Unit fields, all 16-bit. Max and current HP are set from the same table
 // value as the base HP; Attack and Defence are base values.
@@ -57,36 +58,36 @@ constexpr std::uint32_t kStatDenominator = 4u;
 
 // The settings screen's function entry (setup 0x0801D014); the label is drawn
 // during setup, before the screen's loop runs.
-constexpr std::uint32_t kSettingsSetupEntryPc = 0x0801D014u;
+const std::uint32_t kSettingsSetupEntryPc = gs::rom(0x0801D014u);
 // Teardown: r5 = 0 after A/Start's stores, -1 after B (no stores).
-constexpr std::uint32_t kSettingsTeardownEntryPc = 0x0801D0F0u;
+const std::uint32_t kSettingsTeardownEntryPc = gs::rom(0x0801D0F0u);
 
 // Text: label 0xC12 ("Auto-Sleep"), help 0xC19 ("Turn auto-sleep on or off.")
 // and the caption 0xC13 + value are replaced character by character. The
 // caption is written whole, to add the arrows around the cursor's row.
-constexpr std::uint32_t kLabelTextId = 0x00000C12u;
-constexpr std::uint32_t kHelpTextId = 0x00000C19u;
-constexpr std::uint32_t kCaptionBase = 0x00000C13u;
+const std::uint32_t kLabelTextId = gs::text(0x00000C12u);
+const std::uint32_t kHelpTextId = gs::text(0x00000C19u);
+const std::uint32_t kCaptionBase = gs::text(0x00000C13u);
 constexpr const char* kLabelText = "Hard Mode";
 constexpr const char* kHelpText = "Make enemies tougher.";
 constexpr const char* kPromptTitle = "Hard Mode?";
 constexpr const char* kPromptLines[3] = {
-    "Enemies get more HP,", "Attack and Defence.", "Change it in Settings."};
+    "Enemies get more HP,", "Attack and Defence.", "Change it in Options."};
 constexpr const char* kPromptRows[2] = {"No", "Yes"};
 constexpr const char* kWords[2] = {"Off", "On"};
 
 // The row is text only, like Message speed. Icon table 0x080367CE = {0x27,
 // 0x28}: loaded at setup (two icons) and once per icon in the redraw loop.
-constexpr std::uint32_t kSetupIconTableLiteralPc = 0x0801D412u;
-constexpr std::uint32_t kRedrawIconTableLiteralPc = 0x0801D624u;
-constexpr std::uint32_t kIconTable = 0x080367CEu;
+const std::uint32_t kSetupIconTableLiteralPc = gs::rom(0x0801D412u);
+const std::uint32_t kRedrawIconTableLiteralPc = gs::rom(0x0801D624u);
+const std::uint32_t kIconTable = gs::rom(0x080367CEu);
 constexpr std::uint32_t kSetupIconCount = 2u;
 constexpr std::uint32_t kFirstIcon = 0x27u;
 constexpr std::uint32_t kLastIcon = 0x28u;
 
 // Caption: base literal (value in r2, cursor row in r9), clear x and draw x.
-constexpr std::uint32_t kCaptionBaseLiteralPc = 0x0801D6FCu;
-constexpr std::uint32_t kCaptionClearXPc = 0x0801D706u;
-constexpr std::uint32_t kCaptionDrawXPc = 0x0801D716u;
+const std::uint32_t kCaptionBaseLiteralPc = gs::rom(0x0801D6FCu);
+const std::uint32_t kCaptionClearXPc = gs::rom(0x0801D706u);
+const std::uint32_t kCaptionDrawXPc = gs::rom(0x0801D716u);
 
 }  // namespace gsr::hard_mode

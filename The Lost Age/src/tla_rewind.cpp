@@ -78,6 +78,8 @@ bool present(uint8_t* rgb, uint32_t width, uint32_t height) {
     }
     drawn = tla_settings_page_paint(rgb, width, height) || drawn;
     drawn = tla_gs_save_import_paint(rgb, width, height) || drawn;
+    drawn = tla_enemy_hp_bar_paint(rgb, width, height) || drawn;
+    drawn = tla_custom_battle_paint(rgb, width, height) || drawn;
     g_history.record(rgb, width, height, std::move(frame));
 
     // The unpacker safety net saves these frames 30 frames after a catch.

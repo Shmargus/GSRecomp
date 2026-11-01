@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include "rom_version.h"
 
 // Golden Sun USA/Europe metadata belongs to the project runner, not the
 // reusable ARMv4T runtime. These identities were measured from the generated
@@ -10,12 +11,12 @@ namespace gsr::player_speed_cheat {
 // The overworld and field-map locomotion paths write the player's speed limit
 // before collision and integration. Exact addresses select only the measured
 // GS011 player objects; scripted gap-jump writers are deliberately excluded.
-constexpr std::uint32_t kWriterXPc = 0x0800F32Au;
+const std::uint32_t kWriterXPc = gs::rom(0x0800F32Au);
 constexpr std::uint32_t kAccumulatorX = 0x02030DD4u;
-constexpr std::uint32_t kWriterYPc = 0x0800F33Cu;
+const std::uint32_t kWriterYPc = gs::rom(0x0800F33Cu);
 constexpr std::uint32_t kAccumulatorY = 0x02030DD4u;
-constexpr std::uint32_t kFieldRunWriterPc = 0x0800EC8Eu;
-constexpr std::uint32_t kFieldWalkWriterPc = 0x0800ECA0u;
+const std::uint32_t kFieldRunWriterPc = gs::rom(0x0800EC8Eu);
+const std::uint32_t kFieldWalkWriterPc = gs::rom(0x0800ECA0u);
 constexpr std::uint32_t kFieldAccumulator = 0x02030EECu;
 // Ladders and pushing keep the game's own speed (Jimmy, 2026-10-01: "too
 // risky"). The climbing handler (0x0800F7F4) stores 0.5 px/frame at
@@ -26,10 +27,10 @@ constexpr std::uint32_t kFieldAccumulator = 0x02030EECu;
 // could not be reached. Pushes (set-object-speed 0x08092064, speed 0x3333)
 // were scaled the same way and are left alone with them.
 // Retain the original names for diagnostic counters.
-constexpr std::uint32_t kWriterPc = kWriterYPc;
+const std::uint32_t kWriterPc = kWriterYPc;
 constexpr std::uint32_t kAccumulator = kAccumulatorY;
 
-constexpr bool matches(std::uint32_t pc, std::uint32_t addr,
+inline bool matches(std::uint32_t pc, std::uint32_t addr,
                        std::uint32_t width) {
     return width == 4u &&
         ((pc == kWriterXPc && addr == kAccumulatorX) ||

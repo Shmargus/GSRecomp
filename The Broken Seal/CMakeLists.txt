@@ -128,6 +128,10 @@ set(GSR_PLAYER_BUILDER_DIR "${CMAKE_SOURCE_DIR}/../player_builder")
 # default since 2026-09-30; -PerInstruction points it back at local/gs011.
 set(GSR_GAME_CODE_ROOT "${CMAKE_SOURCE_DIR}/local/gs011"
     CACHE PATH "Root of the generated game code folders")
+# The ROM revision the game code was generated from; ../scripts/build_game.ps1
+# sets it from the collection's ROM (local/game_code_revision.txt).
+set(GSR_GAME_ROM_SHA1 "5c4695205413df7db52b9a184815a07783999971"
+    CACHE STRING "SHA-1 of the ROM the game code was generated from")
 set(GSR_GENERATED_DIR "${CMAKE_SOURCE_DIR}/local/gs009/main"
     CACHE PATH "Private gba_recompile output directory")
 set(GSR_TRANSIENT_FUNC2D5C_DIR
@@ -749,13 +753,25 @@ if(GSR_BUILD_LOCAL_RUNNER)
         src/effect_sources.cpp
         "${GBARECOMP_ROOT}/src/field/effect_capture.cpp"
         src/gs_text_encode.cpp
+        src/custom_battle.cpp
+        src/custom_battle_tbs.cpp
+        src/enemy_hp_bar.cpp
         src/unpacker_catch.cpp
         src/unpacker_guard.cpp
+        # Which ROM revision runs; USA addresses -> that revision (src/rom_version.h).
+        src/rom_version.cpp
         # The Unpacker audit test option's sandbox (src/unpacker_guard.h).
         "${GSR_PLAYER_BUILDER_DIR}/guest_call.cpp"
         "${GBARECOMP_ROOT}/src/field/effect_burst.cpp"
         "${GBARECOMP_ROOT}/src/runtime/gpu_surface.cpp")
+    # The game library names the ROM it was generated from (src/rom_version.cpp);
+    # the player builder writes the same file for each player's ROM.
+    set(GSR_ROM_IDENTITY_SOURCE "${CMAKE_BINARY_DIR}/rom_identity/rom_identity.cpp")
+    file(WRITE "${GSR_ROM_IDENTITY_SOURCE}.tmp"
+        "extern \"C\" const char gsr_game_rom_sha1[] = \"${GSR_GAME_ROM_SHA1}\";\n")
+    file(COPY_FILE "${GSR_ROM_IDENTITY_SOURCE}.tmp" "${GSR_ROM_IDENTITY_SOURCE}" ONLY_IF_DIFFERENT)
     set(GSR_GAME_SOURCES
+        "${GSR_ROM_IDENTITY_SOURCE}"
         ${GSR_GENERATED_SOURCES}
         ${GSR_TRANSIENT_FUNC2D5C_SOURCES}
         ${GSR_TRANSIENT_FUNCA37C_SOURCES}
@@ -971,7 +987,7 @@ if(GSR_BUILD_LOCAL_RUNNER)
         set(GSR_GAME_DEF "${CMAKE_BINARY_DIR}/GoldenSunGame.def")
         set(GSR_GAME_DEF_TEXT "LIBRARY GoldenSunGame.dll\nEXPORTS\n")
         set(GSR_GAME_TABLE_FILES ${GSR_GAME_SOURCES})
-        list(FILTER GSR_GAME_TABLE_FILES INCLUDE REGEX "/(dispatch_table|stamp_registry)[^/]*\\.cpp$")
+        list(FILTER GSR_GAME_TABLE_FILES INCLUDE REGEX "/(dispatch_table|stamp_registry|rom_identity)[^/]*\\.cpp$")
         foreach(GSR_TABLE_FILE IN LISTS GSR_GAME_TABLE_FILES)
             file(STRINGS "${GSR_TABLE_FILE}" GSR_TABLE_LINES
                 REGEX "^extern \"C\" const ")

@@ -178,6 +178,9 @@ const char* kBackgroundFragment =
     "uniform int u_margin_scroll_first_y;\n"
     "uniform int u_margin_scroll_rows;\n"
     "uniform int u_margin_scroll_sides;\n"
+    "uniform int u_affine_step_valid;\n"
+    "uniform vec4 u_affine_step_top;\n"
+    "uniform vec4 u_affine_step_bottom;\n"
     "uniform vec2 u_room_ref;\n"
     // Rows that jump vertically off the recorded position read it instead
     // (row_split_vertical).
@@ -248,6 +251,7 @@ const char* kBackgroundFragment =
     // Regular effects exposing their live tilemap in the margins
     // (SceneMarginLayer::vram_height); zero disables it.
     "uniform int u_margin_vram_height;\n"
+    "uniform int u_margin_vram_clamp;\n"
     "uniform vec2 u_effect_canvas_map;\n"
     "out vec4 o_colour;\n"
     "\n"
@@ -670,7 +674,7 @@ const char* kBackgroundFragment =
     // tornado at the opposite edge (the first continuation preview).
     "  bool vram_margin = outside_native && u_affine == 0 &&\n"
     "                     u_margin_vram_height != 0;\n"
-    "  if (vram_margin && u_margin_vram_height > 0) {\n"
+    "  if (vram_margin && u_margin_vram_height > 0 && u_margin_vram_clamp == 0) {\n"
     "    ivec2 source = console_px + ivec2(hofs_s, vofs_s);\n"
     "    int map_width = ((bg_size_code & 1) != 0) ? 512 : 256;\n"
     "    if (source.x < 0 || source.x >= map_width || source.y < 0 ||\n"
@@ -762,6 +766,14 @@ const char* kBackgroundFragment =
     "          float(pa - row_s16(far_row, param_off));\n"
     "      float epc = float(pc) + run *\n"
     "          float(pc - row_s16(far_row, param_off + 4));\n"
+    "      if (u_affine_step_valid != 0) {\n"
+    "        vec4 step = aff_px.y < 0 ? u_affine_step_top : u_affine_step_bottom;\n"
+    "        float past = float(rows_past);\n"
+    "        ex = float(ref_x) + past * step.x;\n"
+    "        ey = float(ref_y) + past * step.y;\n"
+    "        epa = float(pa) + past * step.z;\n"
+    "        epc = float(pc) + past * step.w;\n"
+    "      }\n"
     "      if (epa * float(pa) < 0.0) epa = 0.0;\n"
     "      tex_x = int(floor((ex + float(aff_px.x) * epa) / 256.0));\n"
     "      tex_y = int(floor((ey + float(aff_px.x) * epc) / 256.0));\n"
@@ -973,6 +985,11 @@ const char* kBackgroundFragment =
     "      }\n"
     "    }\n"
     "    ivec2 pixel = src_px + ivec2(int(hofs_raw) & 0x1FF, int(vofs_raw) & 0x1FF);\n"
+    "    if (vram_margin && u_margin_vram_height > 0 && u_margin_vram_clamp != 0) {\n"
+    "      int map_width = ((bg_size_code & 1) != 0) ? 512 : 256;\n"
+    "      pixel = clamp(console_px + ivec2(hofs_s, vofs_s), ivec2(0),\n"
+    "                    ivec2(map_width - 1, u_margin_vram_height - 1));\n"
+    "    }\n"
     "    if (vram_margin && u_margin_repeat.x > 0.0 && u_margin_repeat.y > 0.0)\n"
     "      pixel &= ivec2(u_margin_repeat) - ivec2(1);\n"
     // Text backgrounds always wrap, over 256 or 512 pixels per axis.
@@ -3879,8 +3896,16 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
                                   static_cast<int>(margin.scroll.size()));
         surface_->set_uniform_int(background_, "u_margin_scroll_sides",
                                   margin.scroll_sides ? 1 : 0);
+        surface_->set_uniform_int(background_, "u_affine_step_valid", margin.affine_step_valid ? 1 : 0);
+        for (int edge = 0; edge < 2; ++edge) {
+            const auto& step = margin.affine_step[edge];
+            surface_->set_uniform_vec4(background_, edge ? "u_affine_step_bottom" : "u_affine_step_top",
+                                       step[0], step[1], step[2], step[3]);
+        }
         surface_->set_uniform_int(background_, "u_margin_vram_height",
                                   margin.vram_height);
+        surface_->set_uniform_int(background_, "u_margin_vram_clamp",
+                                  margin.vram_clamp ? 1 : 0);
         surface_->set_uniform_vec2(background_, "u_margin_repeat",
                                    static_cast<float>(margin.repeat_width),
                                    static_cast<float>(margin.repeat_height));

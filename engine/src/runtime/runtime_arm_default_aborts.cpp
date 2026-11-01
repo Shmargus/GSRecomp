@@ -25,6 +25,7 @@
 // and supply their own versions that record state for the diff runner.
 
 #include "runtime_arm.h"
+#include "ram_code_words.h"
 #include "symbol_lookup.h"
 #include "env_flag.h"
 #include "game_ram_layout.h"
@@ -556,25 +557,23 @@ extern "C" int runtime_ram_code_guard(uint32_t start, uint32_t end,
 
     RamCodeGuardEntry& guard =
         g_ram_code_guards[{start, end, expected_crc32}];
+    // Word epochs: only stores into the guarded bytes count, not data
+    // sharing their page (ram_code_words.h).
+    const unsigned int* word_epochs = region == 0x03u
+        ? g_ram_code_word_epoch_iwram : g_ram_code_word_epoch_ewram;
     bool current = guard.valid;
-    for (uint32_t page = first_page; current && page <= last_page; ++page) {
-        const unsigned int live_epoch = region == 0x03u
-            ? g_ram_code_page_epoch_iwram[page]
-            : g_ram_code_page_epoch_ewram[page];
-        current = guard.page_epochs[page] == live_epoch;
-    }
+    for (uint32_t page = first_page; current && page <= last_page; ++page)
+        current = guard.page_epochs[page] == word_epochs[page];
     if (current) return guard.matched ? 1 : 0;
+    if (!guard.valid) runtime_register_ram_code_words(start, end);
 
     const uint8_t* live = region == 0x03u
         ? bus->iwram_ptr() + off
         : bus->ewram_ptr() + off;
     guard.matched = gba::crc32(live, len) == expected_crc32;
     guard.valid = true;
-    for (uint32_t page = first_page; page <= last_page; ++page) {
-        guard.page_epochs[page] = region == 0x03u
-            ? g_ram_code_page_epoch_iwram[page]
-            : g_ram_code_page_epoch_ewram[page];
-    }
+    for (uint32_t page = first_page; page <= last_page; ++page)
+        guard.page_epochs[page] = word_epochs[page];
     return guard.matched ? 1 : 0;
 }
 
@@ -955,9 +954,20 @@ extern "C" int runtime_bridge_interpret(uint32_t entry_pc, bool entry_thumb,
                 if (call_nest.size() > g_bridge_max_call_depth)
                     g_bridge_max_call_depth =
                         static_cast<std::uint32_t>(call_nest.size());
+            }
+
+            // An unknown import veneer can reach known code with a tail
+            // branch (e.g. Thumb LDR/BX), rather than another BL. Keep the
+            // pending call's return contract and hand off there too. Otherwise
+            // its native entry observers and instruction overrides are skipped.
+            // Actual returns were popped above; an unrelated jump without a
+            // matching live LR is not an outstanding call to hand off.
+            const bool tail_call = branched && !is_call && !call_nest.empty() &&
+                (cpu.R[14] & ~1u) == (call_nest.back() & ~1u);
+            if (is_call || tail_call) {
 
                 // Native call-boundary handoff. The bridge exists to interpret
-                // GENUINELY unknown code; a callee this BL just reached may
+                // GENUINELY unknown code; a callee this call or veneer reached may
                 // already have a verified native body (an AOT-static function
                 // or a healed overlay). Without this check the loop would
                 // single-step through that callee's whole body, and every call

@@ -17,7 +17,7 @@ enum ViewAspect {
 inline constexpr int kViewAspectCount = 6;
 inline constexpr const char* kViewAspectLabels[kViewAspectCount] = {
     "3:2 (original)", "4:3", "16:10", "16:9", "Window",
-    "Minimal Sharp Pixels",
+    "Pixel-perfect fit",
 };
 inline constexpr const char* kViewAspectKeys[kViewAspectCount] = {
     "3:2", "4:3", "16:10", "16:9", "window", "sharp-fill",

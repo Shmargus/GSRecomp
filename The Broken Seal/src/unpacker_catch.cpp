@@ -32,6 +32,7 @@ extern "C" std::uint32_t runtime_recent_dispatch_copy(std::uint32_t* pcs,
                                                       std::uint32_t max);
 extern "C" void runtime_unpacker_slot_dump(const char* why);
 #include "memory_snapshot.h"
+#include "rom_version.h"
 extern "C" std::uint32_t g_irq_nest_depth;
 extern "C" std::uint32_t g_yield_resume_pc;
 extern "C" bool g_yield_resume_pending;
@@ -43,7 +44,7 @@ namespace {
 // bytes are its entry-only format check, which its own output may overwrite.
 constexpr std::uint32_t kUnpackerStart = 0x03006000u;
 constexpr std::uint32_t kUnpackerEnd = 0x030064ECu;
-constexpr std::uint32_t kUnpackerRom = 0x08002808u;
+const std::uint32_t kUnpackerRom = gs::rom(0x08002808u);
 constexpr std::uint32_t kVolatilePrefix = 16u;
 
 bool unpacker_resident() {

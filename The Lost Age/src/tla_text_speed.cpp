@@ -16,6 +16,7 @@
 // "< Instant >", in place of its three icons; Left/Right step through the
 // four values (the game's own wrap).
 
+#include "tla_rom_version.h"
 #include <cstdint>
 #include <string>
 
@@ -30,25 +31,25 @@ namespace {
 constexpr uint32_t kMessageSpeedAddress = 0x0200046Cu;
 constexpr uint32_t kInstant = 3u;
 
-constexpr uint32_t kAllowanceSeedPc = 0x08039890u;
-constexpr uint32_t kWordStopPc = 0x08039E8Au;
+const uint32_t kAllowanceSeedPc = TLA_ROM(0x08039890u);
+const uint32_t kWordStopPc = TLA_ROM(0x08039E8Au);
 constexpr uint32_t kInstantAllowance = 255u;
 
-constexpr uint32_t kChoiceCountPc = 0x0803FCBEu;
+const uint32_t kChoiceCountPc = TLA_ROM(0x0803FCBEu);
 constexpr uint32_t kChoiceCountWithInstant = 4u;
 
 // Settings screen struct: row values at +0x594 (Message speed +0x596).
 constexpr uint32_t kScreenMessageSpeedOffset = 0x596u;
 constexpr uint32_t kMessageSpeedRow = 2u;
-constexpr uint32_t kBounceRowComparePc = 0x0803FC00u;
+const uint32_t kBounceRowComparePc = TLA_ROM(0x0803FC00u);
 
 // Caption: text ID = value + 0x113B, drawn at x 0xA0 on line 0x28. The
 // runner draws the whole caption in its place (src/tla_text.cpp): the speed
 // word, with "< " / " >" while the cursor is on this row. The row's three
 // icons are uploaded blank, so the caption is the selector, centred under
 // where the icons were (Golden Sun 1's layout, re-measured).
-constexpr uint32_t kCaptionBaseLiteralPc = 0x080402F4u;
-constexpr uint32_t kCaptionBase = 0x113Bu;
+const uint32_t kCaptionBaseLiteralPc = TLA_ROM(0x080402F4u);
+const uint32_t kCaptionBase = TLA_TEXT(0x113Bu);
 constexpr const char* kSpeedWords[4] = {"Slow", "Normal", "Fast", "Instant"};
 TlaValueCaption g_caption;
 
@@ -56,8 +57,8 @@ TlaValueCaption g_caption;
 // Message-speed icons sit at x 0x54 / 0x6C / 0x84, the Auto-Sleep and
 // Speech icons at 0x64 / 0x7C: the clear starts at the first icon, the
 // caption is centred on 0x7C (kTlaValueClearX / kTlaValueCentreX).
-constexpr uint32_t kCaptionClearXPc = 0x080402FEu;
-constexpr uint32_t kCaptionDrawXPc = 0x0804030Cu;
+const uint32_t kCaptionClearXPc = TLA_ROM(0x080402FEu);
+const uint32_t kCaptionDrawXPc = TLA_ROM(0x0804030Cu);
 // While settings page two shows, the game still redraws this caption on
 // every cursor move, on the line page two's Screen row uses; it showed
 // through as "Instant" for a frame or two (F12 0025, 2026-10-05). Then the
@@ -75,11 +76,11 @@ constexpr uint32_t kCaptionNoneX = 0xC8u;
 struct WordRow {
     uint32_t setup_pc, setup_count, redraw_pc, first_icon, last_icon;
 };
-constexpr WordRow kWordRows[] = {
-    {0x0803FFEAu, 3u, 0x080401D8u, 0x22u, 0x24u},
-    {0x08040068u, 2u, 0x0804024Eu, 0x27u, 0x28u},
+const WordRow kWordRows[] = {
+    {TLA_ROM(0x0803FFEAu), 3u, TLA_ROM(0x080401D8u), 0x22u, 0x24u},
+    {TLA_ROM(0x08040068u), 2u, TLA_ROM(0x0804024Eu), 0x27u, 0x28u},
 };
-constexpr uint32_t kIconSourcePc = 0x08045092u;
+const uint32_t kIconSourcePc = TLA_ROM(0x08045092u);
 constexpr uint32_t kBlankIconSource = 0xFFFFFFFFu;
 const WordRow* g_blank_row = nullptr;
 uint32_t g_blank_icons_pending = 0;
@@ -151,7 +152,7 @@ int text_speed_alu_immediate(uint32_t pc, uint32_t original,
     // 0x080D2898 `movs r3,#2` (2 - speed) and 0x080D2912 / 0x080D293C
     // `cmp r3,#2` (speed == Fast): with Instant they compare against 3, so
     // Instant takes Fast's path there.
-    if ((pc == 0x080D2898u || pc == 0x080D2912u || pc == 0x080D293Cu) &&
+    if ((pc == TLA_ROM(0x080D2898u) || pc == TLA_ROM(0x080D2912u) || pc == TLA_ROM(0x080D293Cu)) &&
         original == 2u && message_speed_is_instant()) {
         *out_value = kInstant;
         return 1;
@@ -182,13 +183,9 @@ int text_speed_literal(uint32_t pc, uint32_t original, uint32_t* out_value) {
     }
     // The three-entry tables indexed by Message speed (config/tla/main.toml):
     // with the byte at 3, one byte lower so index 3 reads Fast's entry.
-    switch (pc) {
-        case 0x0803988Au: case 0x080399E6u: case 0x08039BCAu:
-        case 0x08039D2Cu: case 0x08039E0Eu: case 0x080D4366u:
-            break;
-        default:
-            return 0;
-    }
+    if (pc != TLA_ROM(0x0803988Au) && pc != TLA_ROM(0x080399E6u) &&
+        pc != TLA_ROM(0x08039BCAu) && pc != TLA_ROM(0x08039D2Cu) &&
+        pc != TLA_ROM(0x08039E0Eu) && pc != TLA_ROM(0x080D4366u)) return 0;
     if (!message_speed_is_instant()) return 0;
     *out_value = original - 1u;
     return 1;

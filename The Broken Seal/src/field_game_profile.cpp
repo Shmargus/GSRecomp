@@ -5,6 +5,7 @@
 #include "effect_capture.h"
 #include "room_buffer.h"
 #include "widescreen_policy.h"
+#include "rom_version.h"
 
 namespace gsr {
 
@@ -62,13 +63,13 @@ const EffectCaptureProfile& effect_capture_profile() {
         // Allocator slots and generator template addresses: verified from
         // Func_ed408 and live gpu_frame_0041/0043, FACTS.md 2026-09-19.
         // Template BYTES stay in the user-supplied ROM.
-        p.canvas_slot = 0x03001EF0u;
-        p.stamp_slot = 0x03001F08u;
+        p.canvas_slot = gs::ram(0x03001EF0u);
+        p.stamp_slot = gs::ram(0x03001F08u);
         // c1438 publishes the 128x128 canvas through this copy-and-fade
         // wrapper. c1470 clears it with the relocated ROM 0x080008D4 routine
         // (116 bytes).
-        p.copy_fade[0] = 0x080054E4u;
-        p.copy_halve[0] = 0x08005534u;
+        p.copy_fade[0] = GS_ROM(0x080054E4u);
+        p.copy_halve[0] = GS_ROM(0x08005534u);
         // Func_cd260's other canvas modes (block [0x03001EEC], FACTS.md
         // 2026-10-02): mode 3 copies then subtracts the param from every
         // byte, floor 0 (Func_5490); mode 4 copies then adds it, capped at 63
@@ -76,31 +77,31 @@ const EffectCaptureProfile& effect_capture_profile() {
         // r3 the size. Mode 1 is the plain copy followed by a fill of the
         // canvas with the param (0x03000168, entered mid-routine). Meteor runs
         // mode 3 then mode 1 (gpu_rewind_0106/0109).
-        p.copy_subtract[0] = 0x08005490u;
-        p.copy_add[0] = 0x0800543Cu;
-        p.canvas_block_slot = 0x03001EECu;
+        p.copy_subtract[0] = GS_ROM(0x08005490u);
+        p.copy_add[0] = GS_ROM(0x0800543Cu);
+        p.canvas_block_slot = gs::ram(0x03001EECu);
         p.plain_copy = 0x03001388u;
-        p.plain_copy_source = 0x08001AF8u;
+        p.plain_copy_source = GS_ROM(0x08001AF8u);
         p.clear_canvas = 0x03000164u;
-        p.clear_source = 0x080008D4u;
+        p.clear_source = GS_ROM(0x080008D4u);
         p.clear_bytes = 116;
         p.fill_canvas = 0x03000168u;
-        p.fill_source = 0x080008D8u;
+        p.fill_source = GS_ROM(0x080008D8u);
         p.fill_bytes = 112;
-        p.header_template = 0x080EDCC4u;
-        p.saturation_template = 0x080EDCB8u;
-        p.flip_x_template = 0x080EDCD0u;
-        p.flip_y_template = 0x080EDCDCu;
-        p.flip_xy_template = 0x080EDCECu;
-        p.no_flip_template = 0x080EDCF8u;
-        p.max_template = 0x080EDBE8u;
-        p.max_reverse_template = 0x080EDBF8u;
-        p.add_template = 0x080EDC88u;
-        p.add_reverse_template = 0x080EDCA0u;
+        p.header_template = GS_ROM(0x080EDCC4u);
+        p.saturation_template = GS_ROM(0x080EDCB8u);
+        p.flip_x_template = GS_ROM(0x080EDCD0u);
+        p.flip_y_template = GS_ROM(0x080EDCDCu);
+        p.flip_xy_template = GS_ROM(0x080EDCECu);
+        p.no_flip_template = GS_ROM(0x080EDCF8u);
+        p.max_template = GS_ROM(0x080EDBE8u);
+        p.max_reverse_template = GS_ROM(0x080EDBF8u);
+        p.add_template = GS_ROM(0x080EDC88u);
+        p.add_reverse_template = GS_ROM(0x080EDCA0u);
         // Func_ed408 mode 1: copy each non-zero source byte (stamp variant
         // 13, flags 3 mode 1, measured 2026-09-23; session_20260923_124739).
-        p.replace_template = 0x080EDB00u;
-        p.replace_reverse_template = 0x080EDB10u;
+        p.replace_template = GS_ROM(0x080EDB00u);
+        p.replace_reverse_template = GS_ROM(0x080EDB10u);
         return p;
     }();
     return profile;

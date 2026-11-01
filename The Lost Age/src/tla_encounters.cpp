@@ -14,6 +14,7 @@
 // on every other step. Double adds the step's amount to the counter first,
 // so the game's own add makes it twice.
 
+#include "tla_rom_version.h"
 #include <cstdint>
 #include <cstdio>
 
@@ -25,10 +26,10 @@
 
 namespace {
 
-constexpr uint32_t kBaseLiteralPc = 0x080CA0CEu;
+const uint32_t kBaseLiteralPc = TLA_ROM(0x080CA0CEu);
 constexpr uint32_t kBase = 0x02000240u;
 constexpr uint32_t kCounterOffset = 0x258u;
-constexpr uint32_t kZeroWord = 0x080000B8u;
+const uint32_t kZeroWord = TLA_ROM(0x080000B8u);
 constexpr const char* kOptionsKey = gbarecomp::kOptionEncounterRate;
 
 constexpr int kNormal = 0, kHalf = 1, kOff = 2, kDouble = 3, kCount = 4;

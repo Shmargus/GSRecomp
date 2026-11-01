@@ -27,6 +27,7 @@ import argparse
 import hashlib
 import os
 import struct
+from tla_rom_revisions import identify
 
 from unicorn import Uc, UC_ARCH_ARM, UC_MODE_THUMB, UC_HOOK_CODE, UC_HOOK_MEM_WRITE
 from unicorn.arm_const import (UC_ARM_REG_R0, UC_ARM_REG_R1, UC_ARM_REG_R2,
@@ -98,13 +99,14 @@ def build(rom, r1, r2, flags, mode):
 
 
 def main():
+    global BUILDER,ALLOC
     ap = argparse.ArgumentParser()
     ap.add_argument("--rom", required=True)
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     rom = open(args.rom, "rb").read()
-    if hashlib.sha1(rom).hexdigest() != ROM_SHA1:
-        raise SystemExit("unexpected ROM")
+    _,revision=identify(rom)
+    BUILDER,ALLOC=revision["builder"],revision["allocator"]
 
     routines = {}
     for r1 in (6, 7, 8):

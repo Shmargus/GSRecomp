@@ -16,6 +16,19 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
 
 ### Recompiler and generated code
 
+- **Interpreter handoffs through import veneers.** An interpreted call can
+  reach known native code through a tail branch in an unknown veneer, including
+  Thumb LDR/BX imports. The bridge now hands off that pending call when its
+  live LR matches the tracked return, using the existing static/verified-overlay
+  lookup and return handling. Previously only BL/BLX triggered the handoff;
+  the known callee could be interpreted without its native entry observers or
+  instruction overrides. TLA's snowy-tree apple exposed this: its first icon
+  upload skipped sprite-memory protection. ARM/Thumb regressions reproduce
+  missing observers before and one invocation after, with unchanged register
+  results and no leaked frames; captured setup/owned-ROM checks confirm the
+  upload stays on its page. Runtime implementation/test only; both games
+  rebuild their runtime, no generated-code or runtime_arm.h change. Gameplay
+  confirmation pending (1 November 2026; local/apple-0197).
 - **Guaranteed tail jumps.** Every guest transfer that never returns (B,
   computed jumps, non-return BX/POP/LDR PC, fall-through, and the mid-function
   alias entry stubs in `gba_recompile`) is emitted as
@@ -155,6 +168,12 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
 
 ### PPU, wider views and the field renderer
 
+- **Optional full-precision affine margin gradients.** `SceneMarginLayer`
+  accepts reference-X/Y and PA/PC gradients above/below the native rows. TLA
+  validates its original world-map geometry against all captured rows before
+  supplying them, avoiding amplified hardware rounding at the flying-ship
+  corners. Other layers keep their existing trend; native pixels and the
+  stored `FieldScene` layout are unchanged (F12 0158, 1 November 2026).
 - **Field renderer refuses per-row blank and mode changes.** `draw()` declines
   a frame whose rows set forced blank or change video mode part-way down,
   as it already did for a frame-level blank; the shaders draw neither.
@@ -208,6 +227,10 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
   clip). The margin repeat width continues horizontal-only room patches at both
   ends of the room, outside the native window, when the game gives a nonzero
   measured repeat.
+  Optional `vram_clamp` extends a positive `vram_height` rectangle using its
+  boundary pixels instead of wrapping or discarding them. This lets a single
+  game effect retain its full-view colour fade without repeating its artwork;
+  native pixels and the default margin behaviour remain unchanged.
 - **Repeating-layer margins.** `field/scene_repeat.h` (header only):
   `find_layer_repeat` finds a regular layer's whole-screen repeat from its tile
   map (each shown row equals the row `period` further down, shifted at most one
@@ -259,6 +282,16 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
   the glow colour), `draw_screen_veil` draws it centred over the black cover.
 
 ### Audio and music mods
+
+- The primary music folder may override a borrowed recording's qualified
+  loop ID in its loops.txt. Its entry wins over the fallback folder's own
+  entry. This lets a game repeat a shared recording which the other game
+  plays once, without duplicating the audio file or changing the other game.
+
+- **Recording volume follows the m4a tracks' public volume**, including
+  background ducking/recovery during jingles and fades. The first live,
+  initialised track supplies the mixed recording's gain (+0x13, unity 64);
+  pending new tracks are skipped so stale volume cannot mute a new song.
 
 - **Music mods** (`runtime/host_local_music.{h,cpp}`, `runtime/local_music_m4a.h`):
   WAV (16-bit PCM) or FLAC recordings, decoded with dr_flac
@@ -317,7 +350,10 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
   character advances, window tiles and palette in memory. A compact centered
   frame is movable by its header and resizable from edges/corners. Its size
   and position persist per game in config.ini [SettingsWindow], with recovery
-  inside a smaller viewport. The first unsaved height fits measured content.
+  inside a smaller viewport. Temporary fitting preserves preferred dimensions
+  and position; reopening or growing the viewport restores what fits, while
+  explicit header drags and edge/corner resizes update the saved preference.
+  The first unsaved height fits measured content without saving the viewport cap.
   Category strips scroll horizontally; selected tabs use gold text in a full
   native frame, with plain inactive labels. Rejected bracket-like trim is gone.
   Display uses two opaque original-tile panels (Window/Picture); Show FPS
@@ -509,6 +545,10 @@ All null or off by default and installed by the game's runner. `RunOptions`:
   `emit_function.cpp`, `runtime_arm.cpp` (pool-LDM window CRC) and
   `runtime.cpp` (PNG writer). `pool_ldm_probe_test.cpp` keeps its own
   reference implementation on purpose.
+- `runtime/rom_revision.h` (new, header-only): which ROM revision a game
+  library was generated from and the first-revision-to-loaded-revision
+  address, overlay and text-ID lookups, with `GBARECOMP_ONCE_U32`. Generic;
+  both games' `rom_version` files supply their own revision lists and tables.
 
 ### Removed from upstream
 

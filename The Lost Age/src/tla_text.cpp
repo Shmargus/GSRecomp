@@ -1,13 +1,16 @@
 // Golden Sun: The Lost Age -- text the runner draws in place of the game's
 // own lines.
 //
-// The text decoder 0x0803B094 takes each decoded character at 0x0803B13C
-// (`adds r7,r0,#0`), with the line's text ID at [sp+0x30] (FACTS.md,
-// 2026-10-03). When a feature has a replacement for that ID, every character
+// English takes each decoded character at 0x0803B13C (`adds r7,r0,#0`).
+// Spain uses the matching ALU hook; Italy, France and Germany use the
+// measured R4/R8 range-check hook below. The ID is captured in R1 at the
+// line-start routine, without assuming a revision's stack layout.
+// When a feature has a replacement for that ID, every character
 // comes from the replacement instead, then the 0 that ends the line.
 // Features answer through tla_*_text (src/tla.h), asked in order on the first
 // character of each line.
 
+#include "tla_rom_version.h"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -21,17 +24,26 @@
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
 #include "tla.h"
+#include "../../The Broken Seal/src/menu_text.h"
 
 namespace {
 
-constexpr uint32_t kDecodedCharPc = 0x0803B13Cu;
-constexpr uint32_t kDecoderTextIdStackOffset = 0x30u;
+const uint32_t kDecodedCharPc = TLA_ROM(0x0803B13Cu);
+// Every pass starts the line with 0x0803D178(state, text ID) (bl at
+// 0x0803B12A; The Broken Seal's 0x08019BAC). A pass can stop before the
+// line's end -- dialogue measures up to a {1E} prompt and stops there --
+// so a replacement restarts at its first character on each start, or the
+// printing pass would carry on past the end and show nothing (Custom
+// Battle's questions, 30 Oct).
+const uint32_t kLineStartPc = TLA_ROM(0x0803D178u);
+uint32_t g_line_id = 0;
 
 bool replacement(uint32_t text_id, std::string& out) {
     return tla_settings_page_text(text_id, out) ||
            tla_text_speed_text(text_id, out) ||
            tla_hard_mode_text(text_id, out) ||
-           tla_gs_save_import_text(text_id, out);
+           tla_gs_save_import_text(text_id, out) ||
+           tla_custom_battle_text(text_id, out);
 }
 
 bool g_active = false;
@@ -40,6 +52,7 @@ std::string g_text;
 size_t g_pos = 0;
 
 int (*g_next_alu_immediate)(uint32_t, uint32_t, uint32_t*) = nullptr;
+int (*g_next_conditional_branch)(uint32_t, uint32_t, uint32_t*) = nullptr;
 
 // The window, in the game's own pieces: menu font tiles 16..23 are its
 // corners and edges and 32 its inside, drawn with background palette bank
@@ -59,8 +72,9 @@ std::array<uint8_t, 256 * 32> g_menu_tiles{};
 std::array<uint8_t, 256 - 0x20> g_menu_widths{};
 bool g_menu_art_loaded = false;
 
-std::function<void(int, int, uint8_t)> menu_pixel_writer(
-    uint8_t* rgb, uint32_t width, uint32_t height) {
+// The live window palette when bank 15 holds it, else the last one seen,
+// else F12 0047's.
+const uint16_t* window_palette() {
     if (gba::GbaBus* b = gbarecomp::active_bus()) {
         uint16_t bank[16];
         for (uint32_t i = 0; i < 16u; ++i) bank[i] = b->read16(kWindowBank + i * 2u);
@@ -69,7 +83,12 @@ std::function<void(int, int, uint8_t)> menu_pixel_writer(
             g_palette_known = true;
         }
     }
-    const uint16_t* palette = g_palette_known ? g_palette : kDefaultWindowPalette;
+    return g_palette_known ? g_palette : kDefaultWindowPalette;
+}
+
+std::function<void(int, int, uint8_t)> menu_pixel_writer(
+    uint8_t* rgb, uint32_t width, uint32_t height) {
+    const uint16_t* palette = window_palette();
     // In the expanded view the console's picture sits inside the margins.
     int ox = 0, oy = 0;
     if (const gba::GbaPpu* ppu = gbarecomp::active_ppu()) {
@@ -91,26 +110,54 @@ std::function<void(int, int, uint8_t)> menu_pixel_writer(
     };
 }
 
-int text_alu_immediate(uint32_t pc, uint32_t original, uint32_t* out_value) {
-    if (pc != kDecodedCharPc)
-        return g_next_alu_immediate ? g_next_alu_immediate(pc, original, out_value) : 0;
+bool replacement_character(uint32_t& wanted) {
     gba::GbaBus* b = gbarecomp::active_bus();
-    if (!b) return 0;
-    const uint32_t id = b->read32(g_cpu.R[13] + kDecoderTextIdStackOffset);
+    if (!b) return false;
+    const uint32_t id = g_line_id;
     if (!g_active || id != g_id) {
         g_id = id;
         g_pos = 0;
         g_text.clear();
         g_active = replacement(id, g_text);
-        if (!g_active) return 0;
+        if (!g_active) return false;
+        g_text = tla_menu_label(g_text.c_str());
     }
-    uint32_t wanted = 0u;
+    wanted = 0u;
     if (g_pos < g_text.size())
         wanted = static_cast<unsigned char>(g_text[g_pos++]);
     else
         g_active = false;
-    // r7 = r0 + imm, so this imm makes r7 the wanted character.
+    return true;
+}
+
+int text_alu_immediate(uint32_t pc, uint32_t original, uint32_t* out_value) {
+    if (pc != kDecodedCharPc)
+        return g_next_alu_immediate ? g_next_alu_immediate(pc, original, out_value) : 0;
+    uint32_t wanted;
+    if (!replacement_character(wanted)) return 0;
+    // English/Spanish: r7 = r0 + imm.
     *out_value = original + (wanted - g_cpu.R[0]);
+    return 1;
+}
+
+bool uses_glyph_range_hook() {
+    switch (tla_rom::version()) {
+    case tla_rom::Version::Italian:
+    case tla_rom::Version::French:
+    case tla_rom::Version::German: return true;
+    default: return false;
+    }
+}
+
+int text_conditional_branch(uint32_t pc, uint32_t original, uint32_t* out_value) {
+    if (!uses_glyph_range_hook() || pc != kDecodedCharPc)
+        return g_next_conditional_branch ? g_next_conditional_branch(pc, original, out_value) : 0;
+    uint32_t wanted;
+    if (!replacement_character(wanted)) return 0;
+    // Italy/France/Germany: MOV R4,R8; CMP R4,#255; BLS. Both the
+    // decoded character and its range check must see our Latin-1 glyph.
+    g_cpu.R[4] = g_cpu.R[8] = wanted;
+    *out_value = 1u;
     return 1;
 }
 
@@ -124,9 +171,9 @@ void tla_publish_menu_art() {
     if (g_menu_art_loaded) return;
     gba::GbaBus* b = gbarecomp::active_bus();
     if (!b) return;
-    const uint32_t font = b->read32(0x08680000u + 0x13u * 4u);
+    const uint32_t font = b->read32(TLA_ROM(0x08680000u) + 0x13u * 4u);
     for (uint32_t i = 0; i < g_menu_tiles.size(); ++i) g_menu_tiles[i] = b->read8(font + i);
-    for (uint32_t i = 0; i < g_menu_widths.size(); ++i) g_menu_widths[i] = b->read8(0x0805F484u + i);
+    for (uint32_t i = 0; i < g_menu_widths.size(); ++i) g_menu_widths[i] = b->read8(TLA_ROM(0x0805F484u) + i);
     gbarecomp::config_ui_set_menu_art(g_menu_tiles.data(), g_menu_widths.data(), kDefaultWindowPalette);
     g_menu_art_loaded = true;
 }
@@ -141,7 +188,7 @@ uint8_t tla_menu_glyph(unsigned char code, int gx, int gy) {
 uint32_t tla_menu_text_width(const std::string& text) {
     tla_publish_menu_art();
     uint32_t width = 0;
-    for (const char c : text) {
+    for (const char c : tla_menu_label(text.c_str())) {
         const auto code = static_cast<unsigned char>(c);
         if (g_menu_art_loaded && code >= 0x20u) width += g_menu_widths[code - 0x20u];
     }
@@ -152,7 +199,7 @@ uint32_t tla_menu_text_width(const std::string& text) {
 // does behind the game's own text.
 void tla_menu_draw_text(const std::string& text, int x, int y,
                         const std::function<void(int, int, uint8_t)>& put) {
-    for (const char c : text) {
+    for (const char c : tla_menu_label(text.c_str())) {
         const auto code = static_cast<unsigned char>(c);
         if (code < 0x20u) continue;
         for (int gy = 0; gy < 8; ++gy) {
@@ -184,13 +231,16 @@ void tla_menu_paint_window(uint8_t* rgb, uint32_t width, uint32_t height,
     }
 }
 
+const uint16_t* tla_menu_window_palette() { return window_palette(); }
+
 void tla_menu_paint_text(uint8_t* rgb, uint32_t width, uint32_t height,
                          const std::string& text, int x, int y) {
     tla_menu_draw_text(text, x, y, menu_pixel_writer(rgb, width, height));
 }
 
 void TlaValueCaption::arm(uint32_t text_id, const char* word, bool selected) {
-    text = selected ? std::string("< ") + word + " >" : std::string(word);
+    const std::string label = tla_menu_label(word);
+    text = selected ? std::string("< ") + label + " >" : label;
     id = text_id;
     armed = true;
 }
@@ -206,8 +256,21 @@ uint32_t TlaValueCaption::draw_x() const {
     return kTlaValueCentreX - tla_menu_text_width(text) / 2u;
 }
 
-// Chains in front of the immediate hook already in RunOptions.
+void tla_text_on_entry(uint32_t pc) {
+    if (pc == kLineStartPc) {
+        g_active = false;
+        g_line_id = g_cpu.R[1];
+    }
+}
+
+std::string tla_menu_label(const char* english) { return gsr::menu_text(english); }
+
+// Chain in front of the relevant value hook already in RunOptions.
 void tla_install_text(gbarecomp::RunOptions& options) {
     g_next_alu_immediate = options.thumb_alu_immediate_override;
     options.thumb_alu_immediate_override = text_alu_immediate;
+    if (uses_glyph_range_hook()) {
+        g_next_conditional_branch = options.conditional_branch_override;
+        options.conditional_branch_override = text_conditional_branch;
+    }
 }

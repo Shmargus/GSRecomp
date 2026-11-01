@@ -8486,6 +8486,14 @@ addr = 0x08149AC0
 note = "Plasma spark y < 0 BLT: observe the skipped spark"
 
 [[conditional_branch_override]]
+addr = 0x0814A10A
+note = "Supernova spark x BHI: observe the skipped spark (GS1 loop 0x080D4B2A match, ROM, 2026-10-30)"
+
+[[conditional_branch_override]]
+addr = 0x0814A10E
+note = "Supernova spark y < 0 BLT: observe the skipped spark (GS1 loop 0x080D4B2A match, ROM, 2026-10-30)"
+
+[[conditional_branch_override]]
 addr = 0x0814A6E8
 note = "Spell spark loop (stamp 0x0814A732) x < 0 BLT: observe the skipped spark"
 

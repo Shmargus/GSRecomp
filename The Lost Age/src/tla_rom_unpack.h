@@ -10,6 +10,7 @@
 //    48 rows, the four climate sets' blocks 3..6); this is the shorter one.
 #pragma once
 
+#include "tla_rom_version.h"
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -32,7 +33,7 @@ inline bool word(const std::uint8_t* rom, std::size_t rom_bytes, std::uint32_t a
 inline bool asset_offset(const std::uint8_t* rom, std::size_t rom_bytes, std::uint32_t n,
                          std::size_t* off) {
     std::uint32_t p = 0;
-    if (!rom || !word(rom, rom_bytes, 0x08680000u + 4u * n, &p) ||
+    if (!rom || !word(rom, rom_bytes, TLA_ROM(0x08680000u) + 4u * n, &p) ||
         (p >> 24) < 0x08u || p - 0x08000000u >= rom_bytes)
         return false;
     *off = p - 0x08000000u;

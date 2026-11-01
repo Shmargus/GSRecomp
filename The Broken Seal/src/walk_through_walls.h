@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include "rom_version.h"
 
 // Walk through walls (developer F1 cheat, engine/src/runtime/
 // developer_session.h). Measured in the SHA-1-verified ROM (FACTS.md,
@@ -14,8 +15,8 @@
 // `beq`s as not taken; the debug byte itself is never written.
 namespace gsr::walk_through_walls {
 
-constexpr std::uint32_t kDebugByteBranchPc = 0x0800ED22u;  // beq: byte 0
-constexpr std::uint32_t kDebugKeyBranchPc = 0x0800ED34u;   // beq: L up
+const std::uint32_t kDebugByteBranchPc = gs::rom(0x0800ED22u);  // beq: byte 0
+const std::uint32_t kDebugKeyBranchPc = gs::rom(0x0800ED34u);   // beq: L up
 
 constexpr bool is_branch(std::uint32_t pc) {
     return pc == kDebugByteBranchPc || pc == kDebugKeyBranchPc;

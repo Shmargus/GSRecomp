@@ -1,5 +1,6 @@
 // field_game_profile.cpp -- The Lost Age's values for the shared field scene
 // and GPU field renderer (engine/src/field/field_game_profile.h).
+#include "tla_rom_version.h"
 #include "field_game_profile.h"
 
 #include "effect_capture.h"
@@ -85,42 +86,42 @@ const EffectCaptureProfile& effect_capture_profile() {
         // It is the 16 KB buffer the game copies to video memory instead.
         p.thumb_stub = 4;
         // The game copies ROM 0x080005B8.. (4 KB) to IWRAM.
-        p.iwram_image_rom = 0x080005B8u;
-        p.iwram_image_rom_end = 0x080016B8u;
+        p.iwram_image_rom = TLA_ROM(0x080005B8u);
+        p.iwram_image_rom_end = TLA_ROM(0x080016B8u);
         // Fade: routines 0x08001D10 / unrolled 0x08001A14; halve: 0x08001D70
         // / 0x08001AD4; subtract: 0x08001DD0 / 0x08001B54; add: 0x08001EA4 /
         // 0x08001C08.
-        p.copy_fade[0] = 0x08001F7Cu;
-        p.copy_fade[1] = 0x08001C90u;
-        p.copy_halve[0] = 0x08001F9Cu;
-        p.copy_halve[1] = 0x08001CB0u;
-        p.copy_subtract[0] = 0x08001FDCu;
-        p.copy_subtract[1] = 0x08001CF0u;
-        p.copy_add[0] = 0x08001FBCu;
-        p.copy_add[1] = 0x08001CD0u;
+        p.copy_fade[0] = TLA_ROM(0x08001F7Cu);
+        p.copy_fade[1] = TLA_ROM(0x08001C90u);
+        p.copy_halve[0] = TLA_ROM(0x08001F9Cu);
+        p.copy_halve[1] = TLA_ROM(0x08001CB0u);
+        p.copy_subtract[0] = TLA_ROM(0x08001FDCu);
+        p.copy_subtract[1] = TLA_ROM(0x08001CF0u);
+        p.copy_add[0] = TLA_ROM(0x08001FBCu);
+        p.copy_add[1] = TLA_ROM(0x08001CD0u);
         p.canvas_block_slot = 0x0300009Cu;
         // GS1's block offsets, not re-measured here (mode 1 detection only).
         p.plain_copy = 0x03000734u;           // ROM 0x08000CEC, 120 bytes
-        p.plain_copy_source = 0x08000CECu;
+        p.plain_copy_source = TLA_ROM(0x08000CECu);
         p.clear_canvas = 0x0300025Cu;         // ROM 0x08000814: mov r2,#0,
-        p.clear_source = 0x08000814u;         // a stub, then the fill
+        p.clear_source = TLA_ROM(0x08000814u);         // a stub, then the fill
         p.clear_bytes = 120;
         p.fill_canvas = 0x03000264u;          // ROM 0x0800081C, 112 bytes
-        p.fill_source = 0x0800081Cu;
+        p.fill_source = TLA_ROM(0x0800081Cu);
         p.fill_bytes = 112;
         // The generator's templates are GS1's bytes at 0x0819706C..0x081972D8.
-        p.header_template = 0x081972A4u;
-        p.saturation_template = 0x08197224u;
-        p.flip_x_template = 0x081972B0u;
-        p.flip_y_template = 0x081972BCu;
-        p.flip_xy_template = 0x081972CCu;
-        p.no_flip_template = 0x081972D8u;
-        p.max_template = 0x08197154u;
-        p.max_reverse_template = 0x08197164u;
-        p.add_template = 0x081971F4u;
-        p.add_reverse_template = 0x0819720Cu;
-        p.replace_template = 0x0819706Cu;
-        p.replace_reverse_template = 0x0819707Cu;
+        p.header_template = TLA_ROM(0x081972A4u);
+        p.saturation_template = TLA_ROM(0x08197224u);
+        p.flip_x_template = TLA_ROM(0x081972B0u);
+        p.flip_y_template = TLA_ROM(0x081972BCu);
+        p.flip_xy_template = TLA_ROM(0x081972CCu);
+        p.no_flip_template = TLA_ROM(0x081972D8u);
+        p.max_template = TLA_ROM(0x08197154u);
+        p.max_reverse_template = TLA_ROM(0x08197164u);
+        p.add_template = TLA_ROM(0x081971F4u);
+        p.add_reverse_template = TLA_ROM(0x0819720Cu);
+        p.replace_template = TLA_ROM(0x0819706Cu);
+        p.replace_reverse_template = TLA_ROM(0x0819707Cu);
         return p;
     }();
     return profile;

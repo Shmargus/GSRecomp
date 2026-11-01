@@ -222,7 +222,7 @@ try {
         Write-Host 'Checking the engine build is current (build_game.ps1).'
         $powershell = Join-Path $PSHOME 'powershell.exe'
         if (-not (Test-Path -LiteralPath $powershell)) { $powershell = Join-Path $PSHOME 'pwsh.exe' }
-        & $powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'build_game.ps1') -Game BrokenSeal -BuildDir $engineBuildRel -CpuPercent $CpuPercent -RamPercent $RamPercent
+        & $powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'build_game.ps1') -Game BrokenSeal -PythonExecutable $python -BuildDir $engineBuildRel -CpuPercent $CpuPercent -RamPercent $RamPercent
         if ($LASTEXITCODE -ne 0) { throw 'The engine build failed. See the build output above.' }
         }
 
@@ -320,7 +320,7 @@ try {
         $powershell = Join-Path $PSHOME 'powershell.exe'
         if (-not (Test-Path -LiteralPath $powershell)) { $powershell = Join-Path $PSHOME 'pwsh.exe' }
         $tlaBuildRelative = 'build/release'
-        & $powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'build_game.ps1') -Game LostAge -BuildDir $tlaBuildRelative -CpuPercent $CpuPercent -RamPercent $RamPercent
+        & $powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'build_game.ps1') -Game LostAge -PythonExecutable $python -BuildDir $tlaBuildRelative -CpuPercent $CpuPercent -RamPercent $RamPercent
         if ($LASTEXITCODE -ne 0) { throw 'The Lost Age engine build failed.' }
         Set-Location -LiteralPath $repo
         & $cmake --build $tlaBuild --target tla_builder gba_recompile
@@ -339,9 +339,10 @@ try {
         $builderDir = Join-Path $gameOut 'builder'
         $dataDir    = Join-Path $builderDir 'data'
         $engineDir  = Join-Path $builderDir 'engine'
+        # One compiler for both games (player_builder/bundled_toolchain.h).
         # GCC finds its Windows headers at bin/../../mingw64/include: the folder
         # must be called mingw64.
-        $tcDir      = Join-Path $builderDir 'mingw64'
+        $tcDir      = Join-Path $outDir 'games/mingw64'
         foreach ($d in @($gameOut, $builderDir, $dataDir, (Join-Path $dataDir 'overlays'),
                          (Join-Path $engineDir 'include'), $tcDir)) {
             New-Item -ItemType Directory -Force -Path $d | Out-Null
@@ -369,6 +370,24 @@ try {
         }
         Get-ChildItem -LiteralPath (Join-Path $usa 'overlays') -Filter '*.toml' |
             Copy-Item -Destination (Join-Path $dataDir 'overlays')
+
+        # Each localized revision carries its own code configs and overlay sources.
+        foreach ($language in @('es', 'it', 'fr', 'de')) {
+            $languageConfig = Join-Path $repo "config/$language"
+            $languageData = Join-Path $dataDir $language
+            New-Item -ItemType Directory -Force -Path (Join-Path $languageData 'overlays') | Out-Null
+            $languagePlan = Join-Path $languageConfig 'game_code_plan.txt'
+            foreach ($f in @($languagePlan, (Join-Path $languageConfig 'main.toml'), (Join-Path $languageConfig 'overlay-registry.inc'),
+                             (Join-Path $languageConfig 'overlay-sources.txt'))) {
+                Copy-Item -LiteralPath $f -Destination $languageData
+            }
+            foreach ($line in Get-Content -LiteralPath $languagePlan) {
+                $w = ($line -replace '#.*$', '').Trim() -split '\s+'
+                if ($w[0] -eq 'transient') { Copy-Item -LiteralPath (Join-Path $languageConfig $w[2]) -Destination $languageData }
+            }
+            Get-ChildItem -LiteralPath (Join-Path $languageConfig 'overlays') -Filter '*.toml' |
+                Copy-Item -Destination (Join-Path $languageData 'overlays')
+        }
 
         # Engine: the headers generated code includes, and the import library
         # built with the shipped engine.
@@ -526,7 +545,7 @@ https://github.com/ocornut/imgui
 dr_flac (music mod FLAC files, built into the engine): public domain or
 MIT No Attribution. https://github.com/mackron/dr_libs
 
-The builder\mingw64 folder and the lib*.dll files beside the game are
+The games\mingw64 folder and the lib*.dll files beside the game are
 binaries from the MSYS2 MinGW-w64 packages listed below, unmodified except
 that collect2.exe, lto-wrapper.exe, as.exe and ld.exe carry a Windows
 manifest selecting the UTF-8 code page, so they accept folder names in any
@@ -559,6 +578,13 @@ $($packages -join "`r`n")
         Copy-Item -LiteralPath $tlaTranslator -Destination $tlaBuilderDir
         Copy-Item -LiteralPath (Join-Path $tlaRepo 'config/tla/main.toml') -Destination $tlaData
         Get-ChildItem -LiteralPath (Join-Path $tlaRepo 'config/tla/reloc') -Filter '*.toml' | Copy-Item -Destination (Join-Path $tlaData 'reloc')
+        foreach ($language in @('es', 'it', 'fr', 'de')) {
+            $languageData = Join-Path $tlaData $language
+            New-Item -ItemType Directory -Force -Path (Join-Path $languageData 'reloc') | Out-Null
+            Copy-Item -LiteralPath (Join-Path $tlaRepo "config/$language/main.toml") -Destination $languageData
+            Get-ChildItem -LiteralPath (Join-Path $tlaRepo "config/$language/reloc") -Filter '*.toml' |
+                Copy-Item -Destination (Join-Path $languageData 'reloc')
+        }
         foreach ($h in @('runtime_arm.h', 'runtime_arm_types.h')) {
             Copy-Item -LiteralPath (Join-Path $engineRoot "src/armv4t/$h") -Destination (Join-Path $tlaEngine 'include')
         }
@@ -568,7 +594,6 @@ $($packages -join "`r`n")
         foreach ($h in @('src/runtime/overlay_runtime_arm.h', 'src/runtime/overlay_abi.h', 'src/armv4t/runtime_arm_types.h')) {
             Copy-Item -LiteralPath (Join-Path $engineRoot $h) -Destination $tlaOverlayInc
         }
-        Copy-Item -LiteralPath $tcDir -Destination $tlaBuilderDir -Recurse
         foreach ($dll in @('SDL2.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll')) {
             Copy-Item -LiteralPath (Join-Path $mingw $dll) -Destination $tlaOut
         }

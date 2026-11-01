@@ -26,6 +26,10 @@ extern "C" unsigned long long g_ram_code_page_mask_ewram_hi;
 extern "C" unsigned int g_ram_code_page_mask_iwram;
 extern "C" unsigned int g_ram_code_page_epoch_ewram[64];
 extern "C" unsigned int g_ram_code_page_epoch_iwram[8];
+extern "C" unsigned int g_ram_code_word_epoch_ewram[64];
+extern "C" unsigned int g_ram_code_word_epoch_iwram[8];
+extern "C" unsigned int g_ram_watch_word_epoch_ewram[64];
+extern "C" unsigned int g_ram_watch_word_epoch_iwram[8];
 extern "C" void runtime_note_ram_code_write(uint32_t addr, uint32_t width);
 extern "C" void runtime_unpacker_slot_note_cpu(uint32_t addr, uint32_t width);
 extern "C" void runtime_note_ram_image_bus_write(uint32_t addr,
@@ -189,6 +193,10 @@ void GbaBus::deserialize(gbarecomp::debug::SnapshotReader& r) {
     ++g_ram_write_epoch;
     for (unsigned int& epoch : g_ram_code_page_epoch_ewram) ++epoch;
     for (unsigned int& epoch : g_ram_code_page_epoch_iwram) ++epoch;
+    for (unsigned int& epoch : g_ram_code_word_epoch_ewram) ++epoch;
+    for (unsigned int& epoch : g_ram_code_word_epoch_iwram) ++epoch;
+    for (unsigned int& epoch : g_ram_watch_word_epoch_ewram) ++epoch;
+    for (unsigned int& epoch : g_ram_watch_word_epoch_iwram) ++epoch;
     runtime_ram_code_dirty_reset();
 }
 

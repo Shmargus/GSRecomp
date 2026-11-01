@@ -61,6 +61,14 @@ RATE = 44100
 ONSET_HOP, ONSET_FFT = 256, 2048
 SEAM_WINDOW = 2048
 
+# Artist-reviewed seams for the exact distributed recording (SHA-256 of
+# the file). Other recordings of the same song still use the detector.
+# JusteD, 2026-10-31: Venus Lighthouse's similar A/B openings fooled it.
+REVIEWED_JUMPS = {
+    ('tbs', 38, 'f5f20b712b190d85a6015066c156b2eaf448ee2bd57404e628fd612fb36e5255'):
+        (7281013, 3643628),
+}
+
 # m4a wait lengths for 0x80..0xB0 (and note lengths for 0xD0..0xFF).
 WAITS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
          19, 20, 21, 22, 23, 24, 28, 30, 32, 36, 40, 42, 44, 48, 52, 54, 56,
@@ -150,8 +158,21 @@ def parse_song(rom: bytes, header: int) -> dict:
 
 def recordings(table: str) -> list[tuple[int, int, str]]:
     text = open(table, encoding='utf-8').read()
-    return [(int(h, 16), int(n), name) for h, n, name in re.findall(
-        r'\{0x([0-9A-Fa-f]+)u, (\d+)u\}, // song \d+: (.*)', text)]
+    return [(int(h, 16), int(n) + (folder_tracks() if borrowed else 0), name)
+            for h, borrowed, n, name in re.findall(
+        r'\{(?:(?:gs::rom|TLA_ROM)\()?0x([0-9A-Fa-f]+)u\)?, '
+        r'(kTbs\s*\+\s*)?(\d+)u\}, // song \d+: (.*)', text)]
+
+
+def folder_tracks() -> int:
+    # Read the folder namespace from its public declaration, just as the
+    # recording table above supplies song IDs; keep one copy of the rule.
+    header = os.path.join(COLLECTION, 'engine', 'src', 'runtime', 'host_window.h')
+    match = re.search(r'kLocalMusicFolderTracks\s*=\s*(\d+)',
+                      open(header, encoding='utf-8').read())
+    if not match:
+        raise ValueError('local music folder namespace is missing')
+    return int(match[1])
 
 
 def decode(ffmpeg: str, path: str) -> np.ndarray:
@@ -261,7 +282,23 @@ def main() -> int:
     for name in os.listdir(args.music):
         m = re.match(r'\d+-(\d+) .*\.(flac|wav)$', name, re.IGNORECASE)
         if m:
-            files[int(m.group(1))] = name
+            files[int(m.group(1))] = os.path.join(args.music, name)
+    # TLA may loop a borrowed recording which TBS plays once. Such an
+    # exception belongs in TLA's manifest, using the qualified fallback ID.
+    # Other borrowed songs keep their existing TBS loop settings.
+    shared_once = set()
+    if args.game == 'tla':
+        shared = os.path.join(os.path.dirname(os.path.abspath(args.music)), 'TBS')
+        manifest = os.path.join(shared, 'loops.txt')
+        if os.path.isfile(manifest):
+            for line in open(manifest, encoding='utf-8'):
+                fields = line.split('#', 1)[0].split()
+                if len(fields) == 2 and fields[0].isdigit() and fields[1] == 'once':
+                    shared_once.add(folder_tracks() + int(fields[0]))
+            for name in os.listdir(shared):
+                m = re.match(r'\d+-(\d+) .*\.(flac|wav)$', name, re.IGNORECASE)
+                if m:
+                    files[folder_tracks() + int(m.group(1))] = os.path.join(shared, name)
     lines = ['# Loop jumps for the local music player (tools/music_loops.py).',
              '# <track> <jump_from> <jump_to> in file sample frames, or',
              '# <track> once. Comments: the game loop in file time, and how',
@@ -271,10 +308,24 @@ def main() -> int:
         if track in done:     # another song playing the same recording
             continue
         done.add(track)
+        if track >= folder_tracks():
+            if track not in shared_once or parse_song(rom, header)['loop'] is None:
+                continue
         if track not in files:
             print(f'{track:2}  missing')
             continue
-        path = os.path.join(args.music, files[track])
+        path = files[track]
+        if any(game == args.game and number == track
+               for game, number, _ in REVIEWED_JUMPS):
+            with open(path, 'rb') as handle:
+                digest = hashlib.sha256(handle.read()).hexdigest()
+            reviewed = REVIEWED_JUMPS.get((args.game, track, digest))
+            if reviewed is not None:
+                jump_from, jump_to = reviewed
+                lines.append(f'{track} {jump_from} {jump_to}  # {title}: '
+                             'loop corrected by JusteD (2026-10-31)')
+                print(lines[-1])
+                continue
         song = parse_song(rom, header)
         spt = 60.0 / (song['bpm'] * 24.0)
         x = decode(args.ffmpeg, path)

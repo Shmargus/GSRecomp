@@ -1,5 +1,5 @@
-// Golden Sun: The Lost Age -- settings page two: Walk Speed, Encounters,
-// Screen, No Slowdown and Better Field Psy.
+// Golden Sun: The Lost Age -- settings page two. Shared wording is in
+// The Broken Seal/src/settings_page_labels.h.
 //
 // Golden Sun 1's second settings page, re-found on this ROM (FACTS.md,
 // 2026-10-04). Down on Auto-Sleep (the last row) opens it; the game moves
@@ -15,7 +15,7 @@
 //                once made this game far slower: the overclock stopped the
 //                engine skipping idle waits (fixed in runtime_idle_backedge,
 //                FACTS.md 2026-10-07);
-//   Better Field Psy  field Psynergy casts at battle 2x
+//   Faster Psynergy  field casts at battle 2x, farther/full-view Reveal
 //                (src/tla_battle_speed.cpp, game_options.ini).
 // A/B/Start close the screen as usual. "1/2" or "2/2" and a chevron sit
 // under the window's bottom-right corner on both pages, painted on the
@@ -38,9 +38,12 @@
 // blanked and the tiles carry page two's text where page one had none. All of
 // it is put back on Up. Page one's sprites inside the window (sliders,
 // icons) are hidden in the OAM shadow [0x03000050]. The help line (text ID
-// 0x1146 + row) reads "Set walking speed." etc. on page two
-// (src/tla_text.cpp).
+// 0x1146 + row) is suppressed by src/tla_text.cpp; the presentation painter
+// below supplies its shaded description, clipped and scrolled as needed.
 
+#include "../../The Broken Seal/src/settings_page_labels.h"
+#include "../../The Broken Seal/src/settings_help.h"
+#include "tla_rom_version.h"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -60,7 +63,7 @@
 
 namespace {
 
-constexpr uint32_t kKeyBlockLiteralPc = 0x080403C4u;
+const uint32_t kKeyBlockLiteralPc = TLA_ROM(0x080403C4u);
 constexpr uint32_t kKeyBlock = 0x03001150u;
 constexpr uint32_t kPressedOffset = 0x4u;
 constexpr uint32_t kRepeatOffset = 0xCu;
@@ -72,13 +75,13 @@ constexpr uint32_t kLastRow = 4u;  // Auto-Sleep
 // Stand-in key blocks in the ROM (SHA-1 gated): [X+4] & 0xF and [X+0xC] &
 // 0xF0 are exactly what the loop then sees. 0x080000AC: none.
 // 0x080004AC: Up only. 0x080030A4: Down only.
-constexpr uint32_t kNoKeys = 0x080000ACu;
-constexpr uint32_t kUpOnly = 0x080004ACu;
-constexpr uint32_t kDownOnly = 0x080030A4u;
+const uint32_t kNoKeys = TLA_ROM(0x080000ACu);
+const uint32_t kUpOnly = TLA_ROM(0x080004ACu);
+const uint32_t kDownOnly = TLA_ROM(0x080030A4u);
 
-constexpr uint32_t kHelpIdBase = 0x1146u;
+const uint32_t kHelpIdBase = TLA_TEXT(0x1146u);
 
-constexpr uint32_t kFrameWaitBranchPc = 0x080134B8u;
+const uint32_t kFrameWaitBranchPc = TLA_ROM(0x080134B8u);
 
 // On every cursor move the loop clears and redraws page one's Speech and
 // Auto-Sleep values ("On"/"Off", text 0x1141 + value at x 0xA0 on line
@@ -86,8 +89,8 @@ constexpr uint32_t kFrameWaitBranchPc = 0x080134B8u;
 // showed through for a frame or two, as Message speed's did
 // (src/tla_text_speed.cpp). While page two shows, the clears start at their
 // own end and the values are drawn as empty text.
-constexpr uint32_t kValueTextIds[] = {0x1141u, 0x1142u, 0x1144u, 0x1145u};
-constexpr uint32_t kSpeechClearXPc = 0x0804032Au;     // movs r1,#0xa0
+const uint32_t kValueTextIds[] = {TLA_TEXT(0x1141u), TLA_TEXT(0x1142u), TLA_TEXT(0x1144u), TLA_TEXT(0x1145u)};
+const uint32_t kSpeechClearXPc = TLA_ROM(0x0804032Au);     // movs r1,#0xa0
 constexpr uint32_t kValueClearEndX = 0xB8u;
 
 // Window record: +8 width, +0xA height, +0xC x, +0xE y, in tiles (close
@@ -106,11 +109,9 @@ constexpr int kLabelX = 8;
 constexpr int kRowCount = 5;
 constexpr int kWalkSpeedRow = 0, kEncounterRow = 1, kScreenRow = 2,
               kNoSlowdownRow = 3, kFieldPsyRow = 4;
-constexpr const char* kRowLabels[kRowCount] = {
-    "Walk Speed", "Encounters", "Screen", "No Slowdown", "Better Field Psy"};
-constexpr const char* kRowHelp[kRowCount] = {
-    "Set walking speed.", "Set how often monsters appear.",
-    "Set the screen size.", "Remove slowdown.", "Speed up field Psynergy."};
+constexpr auto& kRowLabels = gsr::settings_labels::kRows;
+constexpr auto& kRowHelp = gsr::settings_labels::kHelp;
+
 // The cursor hand's lines: page one's five rows sit on lines 0, 0x10,
 // 0x28, 0x40 and 0x58.
 constexpr int kRowLineY[kRowCount] = {0x00, 0x10, 0x28, 0x40, 0x58};
@@ -208,6 +209,9 @@ Page g_page;
 std::atomic<int> g_marker_page{0};
 std::atomic<uint32_t> g_marker_window{0};
 std::atomic<unsigned long long> g_marker_seen{0};
+std::atomic<uint32_t> g_help_window{0};
+std::atomic<int> g_help_row{0};
+gsr::settings_help::Line g_help;
 
 Tile read_tile(gba::GbaBus* b, uint16_t tile) {
     Tile t{};
@@ -276,7 +280,9 @@ std::vector<uint8_t> page_two_canvas(int width, int height) {
     };
     for (int row = 0; row < kRowCount; ++row) {
         draw(kRowLabels[row], kLabelX, kRowLineY[row]);
-        std::string value = row_value(row);
+        // Translate the value before adding arrows: the complete decorated
+        // string is not a translation-table key.
+        std::string value = tla_menu_label(row_value(row).c_str());
         if (row == g_page.row) value = "< " + value + " >";
         draw(value, static_cast<int>(kTlaValueCentreX) - text_width(value) / 2, kRowLineY[row]);
     }
@@ -448,6 +454,18 @@ void frame_end() {
 int keys_literal(uint32_t* out_value) {
     gba::GbaBus* b = bus();
     if (!b) return 0;
+    g_help.load([&](uint32_t address) { return b->read8(address); },
+                TLA_ROM(0x0805A4E0u));
+    g_help.colours(b->read16(0x050001E2u), b->read16(0x050001E6u));
+    // Help-window handle at sp+0x10 in all five measured settings loops.
+    const uint32_t help = b->read32(g_cpu.R[13] + 0x10u);
+    auto rect = [&](uint32_t handle) {
+        return (b->read16(handle + kWindowX) & 0xFFu) |
+            ((b->read16(handle + kWindowY) & 0xFFu) << 8) |
+            ((b->read16(handle + kWindowWidth) & 0xFFu) << 16) |
+            ((b->read16(handle + kWindowHeight) & 0xFFu) << 24);
+    };
+    g_help_window.store(rect(help));
     const uint32_t window = g_cpu.R[8];
     g_page.wx = b->read16(window + kWindowX) & 0xFFu;
     g_page.wy = b->read16(window + kWindowY) & 0xFFu;
@@ -456,6 +474,7 @@ int keys_literal(uint32_t* out_value) {
     g_page.seen_frame = runtime_current_frame();
     const uint32_t row = g_cpu.R[9];
     g_page.row = static_cast<int>(row);
+    g_help_row.store(g_page.row);
     g_marker_window.store(g_page.wx | g_page.wy << 8 | g_page.ww << 16 |
                           g_page.wh << 24);
     g_marker_seen.store(g_page.seen_frame);
@@ -603,7 +622,9 @@ bool tla_settings_page_two_showing() { return g_page.page == 2; }
 bool tla_settings_page_text(uint32_t text_id, std::string& out) {
     if (g_page.page != 2) return false;
     if (text_id >= kHelpIdBase && text_id < kHelpIdBase + kRowCount) {
-        out = kRowHelp[text_id - kHelpIdBase];
+        // The presentation painter supplies a clipped, scrolling line in
+        // the original shaded font. No native sprite text behind it.
+        out.clear();
         return true;
     }
     for (const uint32_t id : kValueTextIds) {
@@ -624,7 +645,20 @@ bool tla_settings_page_overlay_visible() {
 
 // Called by the present hook (src/tla_rewind.cpp).
 bool tla_settings_page_paint(uint8_t* rgb, uint32_t width, uint32_t height) {
-    return paint_marker(rgb, width, height);
+    const bool visible = paint_marker(rgb, width, height);
+    const int row = g_help_row.load();
+    if (!visible || g_marker_page.load() != 2 || row < 0 || row >= kRowCount) {
+        g_help.reset();
+        return visible;
+    }
+    int ox = 0, oy = 0;
+    if (const gba::GbaPpu* ppu = gbarecomp::active_ppu()) {
+        ox = static_cast<int>(ppu->view_extra_left());
+        oy = static_cast<int>(ppu->view_extra_top());
+    }
+    g_help.paint(rgb, width, height, ox, oy, tla_menu_label(kRowHelp[row]),
+                 row, g_help_window.load());
+    return true;
 }
 
 // Chains in front of the literal, immediate and branch hooks already in

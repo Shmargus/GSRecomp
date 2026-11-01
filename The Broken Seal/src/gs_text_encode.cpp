@@ -6,7 +6,7 @@
 namespace gsr::mods {
 namespace {
 
-std::uint32_t rd32(const std::vector<std::uint8_t>& r, std::size_t p) {
+std::uint32_t rd32(std::span<const std::uint8_t> r, std::size_t p) {
     return static_cast<std::uint32_t>(r[p]) |
            (static_cast<std::uint32_t>(r[p + 1]) << 8) |
            (static_cast<std::uint32_t>(r[p + 2]) << 16) |
@@ -19,7 +19,7 @@ void wr32(std::vector<std::uint8_t>& r, std::size_t p, std::uint32_t v) {
 
 // Reads a preorder tree bit string LSB first.
 struct TreeBits {
-    const std::vector<std::uint8_t>& rom;
+    std::span<const std::uint8_t> rom;
     std::size_t addr;
     std::size_t pos = 0;
     bool ok = true;
@@ -39,7 +39,7 @@ bool TextEncoder::codes_for(std::uint32_t prev,
     auto found = cache_.find(prev);
     if (found != cache_.end()) { *out = &found->second; return true; }
 
-    const std::size_t entry = kTreeTable + (prev >> 8) * 8;
+    const std::size_t entry = tree_table_ + (prev >> 8) * 8;
     if (entry + 8 > rom_.size()) return false;
     const std::uint32_t base = rd32(rom_, entry);
     const std::uint32_t offsets = rd32(rom_, entry + 4);
@@ -50,17 +50,21 @@ bool TextEncoder::codes_for(std::uint32_t prev,
     const std::size_t tree = base - kRomBase + off;
 
     std::map<std::uint32_t, Path> codes;
+    // Every leaf, for decode: a tree can hold one character at two leaves,
+    // and codes keeps only one path per character.
+    std::map<Path, std::uint32_t> leaf_chars;
     TreeBits bits{rom_, tree};
     std::size_t leaves = 0;
     bool bad = false;
     // Preorder: bit 1 = leaf, 0 = internal node with two children.
     struct Walk {
-        const std::vector<std::uint8_t>& rom;
+        std::span<const std::uint8_t> rom;
         TreeBits& bits;
         std::size_t tree;
         std::size_t& leaves;
         bool& bad;
         std::map<std::uint32_t, Path>& codes;
+        std::map<Path, std::uint32_t>& leaf_chars;
         void go(Path& path, int depth) {
             if (bad || !bits.ok || depth > 512) { bad = true; return; }
             if (bits.bit()) {
@@ -72,6 +76,7 @@ bool TextEncoder::codes_for(std::uint32_t prev,
                                              ? (((hi & 0x0Fu) << 8) | lo)
                                              : ((hi << 4) | (lo >> 4));
                 codes[ch] = path;
+                leaf_chars[path] = ch;
                 return;
             }
             path.push_back(0);
@@ -80,10 +85,11 @@ bool TextEncoder::codes_for(std::uint32_t prev,
             go(path, depth + 1);
             path.pop_back();
         }
-    } walk{rom_, bits, tree, leaves, bad, codes};
+    } walk{rom_, bits, tree, leaves, bad, codes, leaf_chars};
     Path path;
     walk.go(path, 0);
     if (bad || !bits.ok) return false;
+    reverse_.emplace(prev, std::move(leaf_chars));
     auto inserted = cache_.emplace(prev, std::move(codes));
     *out = &inserted.first->second;
     return true;
@@ -127,7 +133,7 @@ bool TextEncoder::encode(const std::string& text,
 
 bool TextEncoder::line_bytes(std::uint32_t number, std::size_t* start,
                              std::size_t* size) const {
-    const std::size_t entry = kTextTable + (number >> 8) * 8;
+    const std::size_t entry = text_table_ + (number >> 8) * 8;
     if (entry + 8 > rom_.size()) return false;
     const std::uint32_t data = rd32(rom_, entry);
     const std::uint32_t lengths = rd32(rom_, entry + 4);
@@ -147,6 +153,39 @@ bool TextEncoder::line_bytes(std::uint32_t number, std::size_t* start,
     *start = s;
     *size = sz;
     return true;
+}
+
+bool TextEncoder::decode(std::uint32_t number, std::string* out,
+                         std::size_t max_chars) {
+    std::size_t start, size;
+    if (!out || !line_bytes(number, &start, &size)) return false;
+    std::string text;
+    std::size_t pos = 0;  // bit position from start, LSB first
+    std::uint32_t prev = 0;
+    while (text.size() <= max_chars) {
+        const std::map<std::uint32_t, Path>* codes = nullptr;
+        if (!codes_for(prev, &codes)) return false;
+        const auto found = reverse_.find(prev);
+        if (found == reverse_.end()) return false;
+        // A one-leaf tree (one possible next character) has an empty code.
+        Path path;
+        auto code = found->second.find(path);
+        while (code == found->second.end()) {
+            const std::size_t at = start + (pos >> 3);
+            if (at >= rom_.size() || path.size() > 512) return false;
+            path.push_back(static_cast<std::uint8_t>((rom_[at] >> (pos & 7)) & 1));
+            ++pos;
+            code = found->second.find(path);
+        }
+        const std::uint32_t c = code->second;
+        if (c == 0) {
+            *out = std::move(text);
+            return true;
+        }
+        text.push_back(c <= 0xFF ? static_cast<char>(c) : '?');
+        prev = c;
+    }
+    return false;
 }
 
 bool rebuild_text_block(std::vector<std::uint8_t>* rom, std::uint32_t block,

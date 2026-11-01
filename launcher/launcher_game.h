@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 // Each game's identity, in one table for the selector and the game sessions.
 // A game session runs in its own process (collection_main.cpp,
 // --session-game) and sets session_game_index once at its start.
@@ -21,8 +23,27 @@ struct GameIdentity {
     const wchar_t* build_stamp_w;
     const char* release_stamp;
     const wchar_t* release_stamp_w;
-    const char* rom_sha1;        // the only ROM this game accepts
+    // The ROMs this game accepts, from the game's revision list (The Broken
+    // Seal src/rom_revisions.inc, The Lost Age src/tla_rom_revisions.inc);
+    // the first is USA/Europe. Each is its own game build (player_builder
+    // picks by SHA-1). The flag under each cartridge picks which one the
+    // launcher expects (collection_storage.h rom_language).
+    const char* rom_sha1s[5];
+    const char* rom_names[5];
+    const char* rom_codes[5];  // config/<code>, local/<code>, language files
 };
+
+inline bool accepts_rom(const GameIdentity& game, const std::string& sha1) {
+    for (const char* accepted : game.rom_sha1s)
+        if (accepted && sha1 == accepted) return true;
+    return false;
+}
+
+inline int rom_language_count(const GameIdentity& game) {
+    int count = 0;
+    while (count < 5 && game.rom_sha1s[count]) ++count;
+    return count;
+}
 
 #ifdef _WIN32
 #define GSR_GAME_BINARIES(exe, lib, engine) exe ".exe", L"" exe ".exe", lib ".dll", engine ".dll"
@@ -31,20 +52,48 @@ struct GameIdentity {
 #endif
 inline constexpr GameIdentity kGames[2] = {
     {"The Broken Seal", "Golden Sun Recompiled", L"Golden Sun Recompiled",
-     "Select the Golden Sun USA/Europe ROM",
-     L"Select the Golden Sun USA/Europe ROM",
+     "Select the Golden Sun ROM (USA/Europe, Spain, Italy, France or Germany)",
+     L"Select the Golden Sun ROM (USA/Europe, Spain, Italy, France or Germany)",
      GSR_GAME_BINARIES("GoldenSunRecomp", "GoldenSunGame", "GoldenSunEngine"),
      "GoldenSunGame.build.txt", L"GoldenSunGame.build.txt",
      "GoldenSunGame.release.txt", L"GoldenSunGame.release.txt",
-     "5c4695205413df7db52b9a184815a07783999971"},
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator) sha1,
+     {
+#include "../The Broken Seal/src/rom_revisions.inc"
+     },
+#undef GSR_ROM_REVISION
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator) name,
+     {
+#include "../The Broken Seal/src/rom_revisions.inc"
+     },
+#undef GSR_ROM_REVISION
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator) code,
+     {
+#include "../The Broken Seal/src/rom_revisions.inc"
+     }},
+#undef GSR_ROM_REVISION
     {"The Lost Age", "Golden Sun: The Lost Age Recompiled",
      L"Golden Sun: The Lost Age Recompiled",
-     "Select the Golden Sun: The Lost Age USA/Europe ROM",
-     L"Select the Golden Sun: The Lost Age USA/Europe ROM",
+     "Select the Golden Sun: The Lost Age ROM (USA/Europe, Spain, Italy, France or Germany)",
+     L"Select the Golden Sun: The Lost Age ROM (USA/Europe, Spain, Italy, France or Germany)",
      GSR_GAME_BINARIES("TLARecomp", "TLAGame", "TLAEngine"),
      "TLAGame.build.txt", L"TLAGame.build.txt",
      "TLAGame.release.txt", L"TLAGame.release.txt",
-     "b500663220cb9bf56b9f8e8c0c544f1d6fa3a824"},
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator) sha1,
+     {
+#include "../The Lost Age/src/tla_rom_revisions.inc"
+     },
+#undef GSR_ROM_REVISION
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator) name,
+     {
+#include "../The Lost Age/src/tla_rom_revisions.inc"
+     },
+#undef GSR_ROM_REVISION
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator) code,
+     {
+#include "../The Lost Age/src/tla_rom_revisions.inc"
+     }},
+#undef GSR_ROM_REVISION
 };
 #undef GSR_GAME_BINARIES
 

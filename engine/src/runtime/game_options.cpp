@@ -12,7 +12,8 @@ namespace {
 
 std::mutex g_mutex;
 std::string g_path;
-std::map<std::string, int> g_values;
+// Transparent comparison: a lookup by const char* builds no std::string.
+std::map<std::string, int, std::less<>> g_values;
 
 // The file is replaced whole (file_replace.h), so a failed write keeps the
 // previous settings. Values stay in memory and go out with the next change.

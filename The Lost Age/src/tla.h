@@ -3,6 +3,7 @@
 // declaration fails to compile.
 #pragma once
 
+#include "tla_rom_version.h"
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -15,6 +16,26 @@ void tla_install_gs_save_import(gbarecomp::RunOptions& options, bool headless);
 bool tla_gs_save_import_text(std::uint32_t text_id, std::string& out);
 bool tla_gs_save_import_visible();
 bool tla_gs_save_import_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
+
+// src/tla_custom_battle.cpp: Battle Mode's chosen opponents (The Broken
+// Seal's Custom Battle rules, this game's addresses). Install sets the ROM
+// patch that prepares complete monster artwork.
+void tla_install_custom_battle(gbarecomp::RunOptions& options);
+void tla_custom_battle_on_entry(std::uint32_t pc);
+bool tla_custom_battle_text(std::uint32_t text_id, std::string& out);
+bool tla_custom_battle_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
+void tla_custom_battle_reset();
+
+// src/tla_enemy_hp_bar.cpp: the enemy's HP over its name while choosing a
+// target (F1 switch; one copy with The Broken Seal, enemy_hp_bar.h).
+void tla_install_enemy_hp_bar();
+void tla_enemy_hp_bar_on_entry(std::uint32_t pc);
+
+// src/tla_trackers.cpp: the Djinn Tracker and Treasure Tracker windows (F1
+// switches; one copy with The Broken Seal, trackers.h). Sample once per frame.
+void tla_install_trackers();
+void tla_trackers_sample();
+bool tla_enemy_hp_bar_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
 void tla_gs_save_import_on_entry(std::uint32_t pc);
 
 // game_options.ini, the runner's own options: engine game_options.h.
@@ -97,6 +118,9 @@ void tla_spell_mesh_on_entry(std::uint32_t pc);
 // tla_*_text answers; the menu font for the runner's own windows (pixel 1
 // letter, 3 shadow, 4 background).
 void tla_install_text(gbarecomp::RunOptions& options);
+std::string tla_menu_label(const char* english);
+// Function entries: a replacement restarts with each pass over its line.
+void tla_text_on_entry(std::uint32_t pc);
 constexpr std::uint8_t kTlaGlyphLetter = 1u, kTlaGlyphShadow = 3u,
                        kTlaGlyphBackground = 4u;
 void tla_publish_menu_art();
@@ -106,6 +130,8 @@ void tla_menu_draw_text(const std::string& text, int x, int y,
                         const std::function<void(int, int, std::uint8_t)>& put);
 void tla_menu_paint_window(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height,
                            int tile_x, int tile_y, int tiles_w, int tiles_h);
+// The menu window's 16 colours (live bank 15, else the last seen).
+const std::uint16_t* tla_menu_window_palette();
 void tla_menu_paint_text(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height,
                          const std::string& text, int x, int y);
 
@@ -115,7 +141,7 @@ void tla_menu_paint_text(std::uint8_t* rgb, std::uint32_t width, std::uint32_t h
 // `movs r1,#0xa0` is at 0x08040350.
 constexpr std::uint32_t kTlaSettingsCursorRowOffset = 0x574u;
 constexpr std::uint32_t kTlaValueClearX = 0x54u, kTlaValueCentreX = 0x7Cu;
-constexpr std::uint32_t kTlaAutoSleepClearXPc = 0x08040350u;
+const std::uint32_t kTlaAutoSleepClearXPc = TLA_ROM(0x08040350u);
 // A word row's value: armed when the game loads the row's value text, then
 // drawn once in its place (src/tla_text.cpp).
 struct TlaValueCaption {
@@ -151,6 +177,11 @@ int tla_sprite_memory_branch(std::uint32_t pc, std::uint32_t original,
                              std::uint32_t* out_decision);
 bool tla_sprite_memory_frame(bool expanded);
 int tla_sprite_memory_tile(std::uint32_t record, std::uint16_t attr2);
+// Custom Battle's crowded fights: function entries (marks battle fighters on
+// the page), a battle sprite's full tile or -1, and a loaded state's page.
+void tla_sprite_memory_on_entry(std::uint32_t pc);
+int tla_sprite_memory_battle_tile(std::uint16_t attr0, std::uint16_t attr2);
+void tla_sprite_memory_restore();
 
 // src/tla_gpu_field.cpp: draw the field with the graphics card.
 void tla_install_gpu_field();

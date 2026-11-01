@@ -127,7 +127,8 @@ struct ConfigUiColourChoice {
 // passes a pointer in; the UI never reaches into the backend directly, which
 // keeps this file free of SDL backend details and testable in isolation.
 struct ConfigUiState {
-    // F1 geometry, relative to the game viewport. Zero size selects the
+    // Preferred F1 geometry, relative to the game viewport. Temporary fitting
+    // to a smaller viewport does not change it. Zero size selects the
     // content-fitted default; host_window persists this in [SettingsWindow].
     int menu_width = 0;
     int menu_height = 0;
@@ -333,5 +334,23 @@ struct GameOptionSwitch {
 void config_ui_set_game_switches(const GameOptionSwitch* switches, int count);
 // Optional game-owned controls below the switches on F1's Game page.
 void config_ui_set_game_page(void (*draw)());
+// The F1 menu's words in another language: a game installs {English, text}
+// pairs, UTF-8. The menu draws the ROM's font, whose codes 0xA0..0xFF are
+// Latin-1 (á = 0xE1, ñ = 0xF1, ¿ = 0xBF), so accented letters show as such.
+// Text with no entry stays English; without a table nothing changes. The
+// table must outlive the menu. Declared unconditionally, same as above.
+struct UiTranslation {
+    const char* english;
+    const char* text;
+};
+void config_ui_set_translations(const UiTranslation* table, int count);
+// `english` in the installed language. "Label##id" keeps its "##id" (and so
+// its ImGui id), "##id" alone is returned as is. The result lives as long as
+// the table.
+const char* ui_text(const char* english);
+// F1's window border in the game's own pieces (menu font tiles 16..23,
+// 16 pixels each), drawn into the current ImGui window, so a game-owned
+// window looks like the F1 menu. Draws nothing before the menu art arrives.
+void config_ui_draw_menu_frame(float x, float y, float width, float height);
 
 }  // namespace gbarecomp

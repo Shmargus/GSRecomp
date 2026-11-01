@@ -78,6 +78,9 @@ struct SceneMarginLayer {
     // gives one unwrapped tilemap height; negative fills the screen by wrapping
     // the effect map. Zero disables it.
     int vram_height = 0;
+    // With a positive height, extend the map's boundary pixels instead of
+    // discarding outside its rectangle. Margin pixels only.
+    bool vram_clamp = false;
     // A measured repeating patch within that map, for margin pixels only.
     // Zero keeps the full hardware map. Dimensions are powers of two.
     // For room-backed scenery (vram_height == 0, repeat_height == 0),
@@ -96,6 +99,11 @@ struct SceneMarginLayer {
     // Clip a moving room layer against its stationary silhouette, sampled
     // this many rows below its current source. Margin pixels only.
     int rest_clip_y = 0;
+    // Optional game-measured full-precision affine gradients above/below
+    // the native rows: reference X/Y and PA/PC per screen row. Never used
+    // inside the console window. Without them the captured-row trend stays.
+    bool affine_step_valid = false;
+    std::array<std::array<float, 4>, 2> affine_step{};
 };
 // The iris wipe's ellipse in console pixels, drawn outside the console's
 // screen (field_scene_renderer.cpp, fit_iris_window).

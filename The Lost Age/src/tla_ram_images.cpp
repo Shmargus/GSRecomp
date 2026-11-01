@@ -32,6 +32,8 @@
 // here: unmatched RAM code still reaches the self-heal overlay tier, and a
 // fixed RAM function on a written page still runs behind its own CRC guard.
 
+#include "tla_rom_version.h"
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -40,6 +42,7 @@
 
 #include "gba_bus.h"
 #include "overlay_loader.h"
+#include "ram_code_words.h"
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
 #include "tla.h"
@@ -186,11 +189,9 @@ const uint8_t* rom_ptr(uint32_t addr, uint32_t len) {
     return bus->rom_ptr() + off;
 }
 
-unsigned page_epoch(uint32_t addr) {
-    const uint32_t page = (addr & 0x0003FFFFu) >> 12;
-    return (addr >> 24) == 0x03u ? g_ram_code_page_epoch_iwram[page & 7u]
-                                 : g_ram_code_page_epoch_ewram[page & 63u];
-}
+// Advances only on stores into registered code words, not on data sharing
+// the page (ram_code_words.h).
+unsigned page_epoch(uint32_t addr) { return ram_code_word_epoch(addr); }
 
 // Make writes to these pages advance their epochs (see ram_code_write_affects).
 void register_pages(uint32_t start, uint32_t end) {
@@ -220,6 +221,14 @@ bool resident_at(unsigned index, uint32_t base) {
         image.expected ? image.expected : rom_ptr(image.rom_src, size);
     if (!live || !want || !bytes_match(index, live, want, size)) return false;
     register_pages(base, base + size);
+    // The compared bytes only: stores to the skipped state words are the
+    // routine's own and never change this check.
+    uint32_t pos = 0;
+    for (const Skip* s : skips_of(index)) {
+        if (s->start > pos) runtime_register_ram_code_words(base + pos, base + s->start);
+        pos = s->end;
+    }
+    if (pos < size) runtime_register_ram_code_words(base + pos, base + size);
     p.valid = true;
     p.base = base;
     p.epoch_first = page_epoch(base);
@@ -404,6 +413,14 @@ unsigned g_members_logged = 0;
 // built routine is entered many times while it lives.
 std::unordered_map<uint64_t, const Member*> g_member_hit;
 
+// A pc no family routine matched (overlay code served by self-heal, other
+// static code): the search is skipped until a store lands in the bytes it
+// read, [lo, hi), watched exactly (ram_code_words.h). Without this every
+// call repeated the whole candidate search (~4-6% of TLA Turbo battle time,
+// session 20261030_121810).
+struct MemberMiss { uint32_t lo, hi; unsigned long long signature; };
+std::unordered_map<uint64_t, MemberMiss> g_member_miss;
+
 uint64_t opcode_key(const uint8_t* p, int thumb) {
     if (thumb) {
         uint16_t hw;
@@ -458,6 +475,7 @@ bool member_resident(const Member& m, uint32_t base) {
                     size - start) != 0)
         return false;
     register_pages(base, base + size);
+    runtime_register_ram_code_words(base + start, base + size);
     p.valid = true;
     p.base = base;
     p.epoch_first = page_epoch(base);
@@ -483,6 +501,14 @@ RuntimeGuestFn family_dispatch(uint32_t pc, int thumb) {
     if (hit != g_member_hit.end() &&
         member_resident(*hit->second, pc - hit->second->offset))
         return enter(*hit->second, pc - hit->second->offset);
+    auto miss = g_member_miss.find(at);
+    if (miss != g_member_miss.end() &&
+        miss->second.signature == ram_watch_word_signature(miss->second.lo, miss->second.hi))
+        return nullptr;
+    // The bytes this search reads: the opening that picks the candidates,
+    // then each candidate's compared range.
+    const uint32_t region_end = (pc >> 24) == 0x03u ? 0x03008000u : 0x02040000u;
+    uint32_t read_lo = pc, read_hi = std::min(pc + kMemberPrefixSize, region_end);
     const std::vector<Member>* prefix_members = nullptr;
     if (const uint8_t* opening = live_ptr(pc, kMemberPrefixSize)) {
         uint64_t prefix;
@@ -504,9 +530,26 @@ RuntimeGuestFn family_dispatch(uint32_t pc, int thumb) {
              (*prefix_members)[i].order < (*short_members)[j].order);
         const Member& m = take_prefix ? (*prefix_members)[i++] : (*short_members)[j++];
         const uint32_t base = pc - m.offset;
-        if ((base & 3u) != 0u || !member_resident(m, base)) continue;
+        if ((base & 3u) != 0u) continue;
+        if (!member_resident(m, base)) {
+            const Family& fam = kFamilies[m.family];
+            const uint32_t from = base + (fam.starts ? fam.starts[m.routine] : 0u);
+            const uint32_t to = base + fam.sizes[m.routine];
+            // A range outside RAM never becomes resident.
+            if (live_ptr(from, to - from)) {
+                read_lo = std::min(read_lo, from);
+                read_hi = std::max(read_hi, to);
+            }
+            continue;
+        }
+        g_member_miss.erase(at);
         g_member_hit[at] = &m;
         return enter(m, base);
+    }
+    if (live_ptr(read_lo, read_hi - read_lo)) {
+        register_pages(read_lo, read_hi);
+        runtime_register_ram_watch_words(read_lo, read_hi);
+        g_member_miss[at] = {read_lo, read_hi, ram_watch_word_signature(read_lo, read_hi)};
     }
     return nullptr;
 }
@@ -536,9 +579,10 @@ RuntimeGuestFn tla_ram_dispatch(uint32_t pc, int thumb) {
     return gbarecomp::overlay_resolve(pc, thumb);
 }
 
-// The data unpacker (The Broken Seal's Func_2808, 0x08012B74 here) is copied
-// behind a `bx pc` stub; its ARM entry is watched like The Broken Seal's
-// (src/unpacker_guard.h). The guard's own first-word test keeps this cheap.
+// The data unpackers (The Broken Seal's Func_2808 and Func_2544, 0x08012B74
+// and 0x080128AC here) are copied behind a `bx pc` stub; their ARM entries
+// are watched like The Broken Seal's (src/unpacker_guard.h). The guard's own
+// first-word test keeps this cheap.
 void unpacker_watch_return(uint32_t return_pc, uint32_t) {
     gsr::unpacker_guard_note_return(return_pc);
 }
@@ -562,6 +606,8 @@ int tla_ram_identity_confirmed(uint32_t, int) { return 1; }
 void tla_install_ram_images() {
     g_runtime_ram_dispatch_hook = tla_ram_dispatch_watched;
     g_runtime_call_return_hook = unpacker_watch_return;
-    gsr::unpacker_guard_install(0x08012B74u);  // Func_2808 (FACTS.md 2026-10-14)
+    gsr::unpacker_guard_install(TLA_ROM(0x08012B74u));  // Func_2808 (FACTS.md 2026-10-14)
+    // Func_2544 (format0, reloc_128a8; FACTS.md 2026-10-29)
+    gsr::unpacker_guard_install_format0(TLA_ROM(0x080128ACu));
     g_runtime_ram_identity_confirmed_hook = tla_ram_identity_confirmed;
 }

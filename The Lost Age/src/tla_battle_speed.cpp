@@ -18,6 +18,7 @@
 // way, outside battle, while a field Psynergy dispatcher is running (see
 // dispatcher_on_stack; FACTS.md, 2026-10-08).
 
+#include "tla_rom_version.h"
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
@@ -35,8 +36,8 @@
 
 namespace {
 
-constexpr uint32_t kWaitPathBranchPc = 0x080134B8u;
-constexpr uint32_t kWaitShortMaskPc = 0x080134C2u;
+const uint32_t kWaitPathBranchPc = TLA_ROM(0x080134B8u);
+const uint32_t kWaitShortMaskPc = TLA_ROM(0x080134C2u);
 constexpr uint32_t kShortMaskLowByte = 0xFEu;   // 0xFF00 + 0xFE = 0xFFFE
 constexpr uint32_t kKeepFlagLowByte = 0xFFu;    // 0xFFFF
 constexpr uint32_t kVBlankFlag = 0x0300121Cu;
@@ -54,7 +55,7 @@ constexpr uint32_t kFieldCastSlot = 0x030000E0u;
 // outlives the cast into that reaction (a measured run: set until
 // frame 8484, Kraden's box from 8439; the box stays on screen at 2x) and is
 // set in the Djinn tutorial (0062/0063, no dispatcher frame).
-constexpr uint32_t kDispatcherReturns[] = {0x080CEA73u, 0x080CEA79u};
+const uint32_t kDispatcherReturns[] = {TLA_ROM(0x080CEA73u), TLA_ROM(0x080CEA79u)};
 constexpr uint32_t kStackTop = 0x03007F00u;
 
 bool dispatcher_on_stack(gba::GbaBus* b) {
@@ -178,7 +179,7 @@ void advance_skipped_field_fade(gba::GbaBus* b) {
     constexpr uint32_t kCanvasSlot = 0x03000060u;
     constexpr uint32_t kEffectSlot = 0x030000F0u;
     constexpr uint32_t kCanvasBytes = 0x1000u;
-    constexpr uint32_t kFadeTable = 0x080F3BDCu;
+    const uint32_t kFadeTable = TLA_ROM(0x080F3BDCu);
     const auto ram_contains = [](uint32_t at, uint32_t bytes) {
         return (at >= 0x02000000u && at <= 0x02040000u - bytes) ||
                (at >= 0x03000000u && at <= 0x03008000u - bytes);
@@ -265,7 +266,7 @@ void decide_pass() {
 // squared, built by movs/lsls); `bge` 0x080DD7F4 then stores 0x2090 to
 // S+0x166, which ends Reveal (as does the countdown reaching 0). Better
 // Field Psy doubles the distance, as in The Broken Seal.
-constexpr uint32_t kRevealRangeBranchPc = 0x080DD7F4u;
+const uint32_t kRevealRangeBranchPc = TLA_ROM(0x080DD7F4u);
 constexpr uint32_t kRevealRangeSquared = 0xE10u;
 
 int battle_speed_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {

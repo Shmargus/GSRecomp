@@ -1,3 +1,4 @@
+#include "tla_rom_version.h"
 #include "tla_save_update.h"
 #include "../../player_builder/guest_call.h"
 #include <algorithm>
@@ -72,7 +73,7 @@ bool prepare(const std::vector<std::uint8_t>& rom,
     machine.set_instant_dma3(true);
     // This call only applies the menu's colours/font, not transferred data.
     // The same UI-only exclusion is used by the measured importer oracle.
-    machine.stub_returning(0x08038348u, 0);
+    machine.stub_returning(TLA_ROM(0x08038348u), 0);
     const auto* payload = flash.data() + it->offset + kHeaderBytes;
     std::copy_n(payload, kPayloadBytes, machine.ewram().begin());
     std::copy(source.transfer.begin(), source.transfer.end(), machine.ewram().begin() + 0x13000);
@@ -81,7 +82,7 @@ bool prepare(const std::vector<std::uint8_t>& rom,
     machine.iwram()[0x1200] = payload[0x48A];
     machine.iwram()[0x1218] = machine.iwram()[0x1219] = 0;
     const std::uint32_t args[4] = {0x02013000u, 0, 1, 0};
-    if (!machine.call(0x080AE411u, args, nullptr, &error)) {
+    if (!machine.call(TLA_ROM(0x080AE411u), args, nullptr, &error)) {
         error = "The save update could not finish: " + error;
         return false;
     }

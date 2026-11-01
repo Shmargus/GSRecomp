@@ -370,6 +370,7 @@ private:
     uint32_t trace_count_ = 0;
 
     void ring_push(int16_t s);
+    bool state_consistent() const;
     void write_io8_impl(uint32_t off, uint8_t v);
     void fifo_push_word(DirectFifo& fifo, int fifo_id, uint32_t word);
     void fifo_clear_queue(DirectFifo& fifo);

@@ -234,6 +234,18 @@ sed 's/#.*//' "$usa/game_code_plan.txt" | while read -r kind _ toml _; do
     if [ "$kind" = transient ]; then cp "$usa/$toml" "$data/"; fi
 done
 cp "$usa"/overlays/*.toml "$data/overlays/"
+# Localized ROMs use their own measured configs and overlay source addresses.
+for language in es it fr de; do
+    localized=$repo/config/$language
+    localized_data=$data/$language
+    mkdir -p "$localized_data/overlays"
+    cp "$localized/game_code_plan.txt" "$localized/main.toml" \
+       "$localized/overlay-registry.inc" "$localized/overlay-sources.txt" "$localized_data/"
+    sed 's/#.*//' "$localized/game_code_plan.txt" | while read -r kind _ toml _; do
+        if [ "$kind" = transient ]; then cp "$localized/$toml" "$localized_data/"; fi
+    done
+    cp "$localized"/overlays/*.toml "$localized_data/overlays/"
+done
 cp "$engine/src/armv4t/runtime_arm.h" "$engine/src/armv4t/runtime_arm_types.h" \
     "$builder/engine/include/"
 
@@ -413,6 +425,11 @@ install -m 755 -s "$tla_build/tla_builder" "$tla_builder/gsr_builder"
 install -m 755 -s "$tla_recompiler" "$tla_builder/"
 cp "$tla_repo/config/tla/main.toml" "$tla_builder/data/"
 cp "$tla_repo"/config/tla/reloc/*.toml "$tla_builder/data/reloc/"
+for language in es it fr de; do
+    mkdir -p "$tla_builder/data/$language/reloc"
+    cp "$tla_repo/config/$language/main.toml" "$tla_builder/data/$language/"
+    cp "$tla_repo"/config/"$language"/reloc/*.toml "$tla_builder/data/$language/reloc/"
+done
 cp "$engine/src/armv4t/runtime_arm.h" "$engine/src/armv4t/runtime_arm_types.h" "$tla_builder/engine/include/"
 mkdir -p "$tla_out/overlay_toolchain/include"
 for h in src/runtime/overlay_runtime_arm.h src/runtime/overlay_abi.h src/armv4t/runtime_arm_types.h; do

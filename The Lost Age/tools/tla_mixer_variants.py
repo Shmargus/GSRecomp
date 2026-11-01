@@ -29,6 +29,7 @@ Usage: python tools/tla_mixer_variants.py --rom <rom> --out local/tla/variants
 import argparse
 import hashlib
 import os
+from tla_rom_revisions import identify
 
 ROM_SHA1 = "b500663220cb9bf56b9f8e8c0c544f1d6fa3a824"
 COPY_RUNTIME = 0x03000100
@@ -78,8 +79,7 @@ def main():
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     rom = open(args.rom, "rb").read()
-    if hashlib.sha1(rom).hexdigest() != ROM_SHA1:
-        raise SystemExit("unexpected ROM")
+    identify(rom)
     for name, start, end, patches, why in variants(rom):
         img = bytearray(rom)
         for dst, data in patches:

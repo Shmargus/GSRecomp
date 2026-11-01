@@ -3,6 +3,8 @@
 #include <cstdint>
 
 #include "seamless.h"  // engine/src/runtime: option key, exit code
+#include "rom_version.h"
+#include "seamless_labels.h"
 
 // Seamless mode, The Broken Seal's half: when the ship sails off, save the
 // Clear Data to the player's chosen slot and exit for the launcher to start
@@ -29,7 +31,7 @@
 // failures/cancellation are negative. See FACTS.md, 2026-10-18.
 namespace gsr::seamless {
 
-constexpr std::uint32_t kRoomCodeLoadPc = 0x0808AB48u;
+const std::uint32_t kRoomCodeLoadPc = gs::rom(0x0808AB48u);
 constexpr std::uint32_t kRoomAddr = 0x02000400u;
 constexpr std::uint32_t kEntranceAddr = 0x02000402u;
 constexpr std::uint32_t kNextRoomAddr = 0x02000404u;
@@ -39,20 +41,13 @@ constexpr std::uint16_t kCreditsEntrance = 9u;
 constexpr std::uint16_t kSaveRoom = 1u;
 constexpr std::uint16_t kSaveEntrance = 2u;
 
-constexpr std::uint32_t kSaveEndPc = 0x08005CF8u;
-constexpr std::uint32_t kSaveReturnPc = 0x080208B2u;
+const std::uint32_t kSaveEndPc = gs::rom(0x08005CF8u);
+const std::uint32_t kSaveReturnPc = gs::rom(0x080208B2u);
 constexpr std::uint32_t kCurrentSlotAddr = 0x02002004u;  // u16
 
 // The new-game question, shown after "Hard Mode?" in the same window.
 constexpr const char* kPromptTitle = "Seamless mode?";
 constexpr const char* kPromptLines[3] = {
     "At the end, save and", "go on to The Lost Age.", "Change it with F1."};
-
-// F1's Game page.
-constexpr const char* kSwitchLabel = "Seamless mode";
-constexpr const char* kSwitchCaption =
-    "When the ending starts, skip the credits, choose a slot for your Clear "
-    "Data and go straight on to The Lost Age with your party. Choose another "
-    "slot to keep your playable save.";
 
 }  // namespace gsr::seamless

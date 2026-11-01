@@ -664,6 +664,75 @@ void test_bridge_handoff_to_already_healed_callee(gba::GbaBus& bus) {
              std::to_string(runtime_call_stack_depth()) + ", want 0)");
 }
 
+std::uint32_t g_veneer_callee = 0;
+unsigned g_veneer_entries = 0;
+void veneer_entry_observer(std::uint32_t pc) {
+    if (pc == g_veneer_callee) ++g_veneer_entries;
+}
+
+// An unknown import veneer tail-jumps to an already-native function. TLA's
+// room scripts use Thumb LDR/BX veneers: interpreting through the known
+// function bypassed its entry observers and game-specific instruction hooks.
+void test_bridge_handoff_through_unknown_veneer(gba::GbaBus& bus) {
+    const uint32_t saved_cpsr = g_cpu.cpsr;
+    for (bool thumb : {false, true}) {
+        const uint32_t callee = 0x03007A00u + (thumb ? 0x100u : 0u);
+        const uint32_t caller = callee + 0x40u, veneer = callee + 0x80u;
+        uint8_t* ram = bus.iwram_ptr();
+        const uint32_t a = callee - 0x03000000u;
+        const uint32_t b = caller - 0x03000000u;
+        const uint32_t v = veneer - 0x03000000u;
+        if (thumb) {
+            put16(ram, a, 0x2077u);       // MOVS r0,#0x77
+            put16(ram, a + 2, 0x4770u);  // BX lr
+            put16(ram, b, 0xB500u);      // PUSH {lr}
+            const uint32_t delta = veneer - (caller + 2u + 4u);
+            put16(ram, b + 2, 0xF000u | ((delta >> 12) & 0x7FFu));
+            put16(ram, b + 4, 0xF800u | ((delta >> 1) & 0x7FFu));
+            put16(ram, b + 6, 0x2199u);  // MOVS r1,#0x99
+            put16(ram, b + 8, 0xBD00u);  // POP {pc}
+            put16(ram, v, 0x4C00u);      // LDR r4,[pc,#0]
+            put16(ram, v + 2, 0x4720u);  // BX r4
+            put32(ram, v + 4, callee | 1u);
+        } else {
+            write_mov_bx_lr(ram, a, 0x77u);
+            put32(ram, b, 0xE1A0200Eu);       // MOV r2,lr
+            put32(ram, b + 4, encode_bl(caller + 4, veneer));
+            put32(ram, b + 8, 0xE3A01099u);   // MOV r1,#0x99
+            put32(ram, b + 12, 0xE1A0E002u);  // MOV lr,r2
+            put32(ram, b + 16, 0xE12FFF1Eu);  // BX lr
+            put32(ram, v, 0xE59F3000u);       // LDR r3,[pc,#0]
+            put32(ram, v + 4, 0xE12FFF13u);   // BX r3
+            put32(ram, v + 8, callee);
+        }
+        gbarecomp::overlay_request_compile(callee, thumb);
+        check(wait_healed(callee, thumb), "veneer callee did not heal");
+        g_veneer_callee = callee;
+        g_veneer_entries = 0;
+        check(runtime_fn_entry_observer_add(veneer_entry_observer) != 0,
+              "veneer observer could not be installed");
+        constexpr uint32_t kReturn = 0x08000200u;
+        g_cpu.R[0] = g_cpu.R[1] = 0;
+        g_cpu.R[13] = 0x03007000u;
+        g_cpu.R[14] = kReturn | (thumb ? 1u : 0u);
+        const auto before = gbarecomp::self_heal_interpreted_insns();
+        check(runtime_bridge_interpret(caller, thumb, kReturn, 1000u) == 1,
+              "veneer bridge did not finish");
+        const auto delta = gbarecomp::self_heal_interpreted_insns() - before;
+        runtime_fn_entry_observer_remove(veneer_entry_observer);
+        check(g_cpu.R[15] == kReturn && g_cpu.R[0] == 0x77u && g_cpu.R[1] == 0x99u,
+              "veneer handoff lost the caller's state or return");
+        check(g_veneer_entries == 1u,
+              "known callee behind unknown veneer bypassed its entry observer");
+        check(delta == 7u,
+              "veneer bridge interpreted the known callee (delta=" +
+                  std::to_string(delta) + ", want 7)");
+        check(runtime_call_stack_depth() == 0u,
+              "veneer handoff leaked a return frame");
+    }
+    g_cpu.cpsr = saved_cpsr;
+}
+
 // A top-level RAM miss has no reliable guest return address.  It must still
 // yield back to the outer dispatch loop periodically: interpreting an
 // unregistered generated image until its first static re-entry made one menu
@@ -1417,6 +1486,7 @@ int main() {
     test_mutable_ram_miss_reuses_healed_variant(bus);
     test_idle_backedge_overlay_compiles(bus);
     test_bridge_handoff_to_already_healed_callee(bus);
+    test_bridge_handoff_through_unknown_veneer(bus);
     test_top_level_ram_bridge_is_resumable(bus);
     test_bridge_handoff_drains_ready_callee(bus);
     test_ram_three_variant_alternation_no_reinterpretation(bus);

@@ -79,6 +79,8 @@ public:
     void deserialize(gbarecomp::debug::SnapshotReader& r);
 
 private:
+    void deserialize_fields(gbarecomp::debug::SnapshotReader& r);
+    bool state_consistent() const;
     static constexpr std::size_t kDefaultSramSize = 32 * 1024;
     static constexpr std::size_t kMaxEepromSize = 8 * 1024;
 

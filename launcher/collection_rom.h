@@ -31,10 +31,13 @@ namespace rom_detail {
 inline void trim_newlines(std::string& value) {
     while (!value.empty() && (value.back() == '\r' || value.back() == '\n')) value.pop_back();
 }
-// The game's ROM check, the same one its session makes (launcher_common.h);
-// `any_rom` is that game's "Skip the ROM check" setting.
-inline bool validate(const fs::path& path, int choice, bool any_rom, std::string& error) {
-    return gsr_launcher::validate_rom(path, &error, gsr_launcher::kGames[choice], any_rom);
+// The game's ROM check, the same one its session makes (launcher_common.h),
+// only the language its game's flag is set to; `any_rom` is that
+// game's "Skip the ROM check" setting.
+inline bool validate(const fs::path& path, int choice, bool any_rom, std::string& error,
+                     int language) {
+    return gsr_launcher::validate_rom(path, &error, gsr_launcher::kGames[choice], any_rom,
+                                      language);
 }
 #ifndef _WIN32
 inline fs::path program(const char* name) {
@@ -92,8 +95,11 @@ inline bool run_picker(const fs::path& executable, std::vector<std::string> argu
     return !output.empty();
 }
 #endif
-inline bool pick(SDL_Window* window, const fs::path& folder, int choice, fs::path& selected, std::string& error) {
-    const std::string title = std::string("Select ") + gsr_launcher::kGames[choice].stem + " ROM";
+inline bool pick(SDL_Window* window, const fs::path& folder, int choice, int language,
+                 fs::path& selected, std::string& error) {
+    const auto& game = gsr_launcher::kGames[choice];
+    const std::string title = std::string("Select ") + game.stem + " ROM (" +
+                              game.rom_names[language] + ")";
 #ifdef _WIN32
     SDL_SysWMinfo info{};
     SDL_VERSION(&info.version);
@@ -151,6 +157,7 @@ inline bool prepare_rom(SDL_Window* window, const fs::path& collection, int choi
         const auto cache = gsr_session::game_root(root, choice) / "local" / "launcher-rom.txt";
         const bool any_rom = gsr_session::load_launcher_audio_settings(
             gsr_session::game_root(root, choice)).any_rom;
+        const int language = rom_language(root,choice);
         fs::path selected;
         std::ifstream remembered(cache, std::ios::binary);
         if (remembered) {
@@ -158,19 +165,19 @@ inline bool prepare_rom(SDL_Window* window, const fs::path& collection, int choi
             rom_detail::trim_newlines(text);
             std::string ignored;
             const fs::path candidate(reinterpret_cast<const char8_t*>(text.c_str()));
-            if (!remembered.bad() && !text.empty() && rom_detail::validate(candidate, choice, any_rom, ignored)) selected = candidate;
+            if (!remembered.bad() && !text.empty() && rom_detail::validate(candidate, choice, any_rom, ignored, language)) selected = candidate;
         }
         if (remembered.is_open()) remembered.close();
         if (selected.empty()) {
             const auto managed = managed_paths(root, choice == 0 ? "The Broken Seal" : "The Lost Age");
             std::string ignored;
-            if (rom_detail::validate(managed.rom, choice, any_rom, ignored)) selected = managed.rom;
+            if (rom_detail::validate(managed.rom, choice, any_rom, ignored, language)) selected = managed.rom;
         }
-        if (selected.empty() && !rom_detail::pick(window, root / "ROMs", choice, selected, error)) return false;
-        if (!rom_detail::validate(selected, choice, any_rom, error)) return false;
+        if (selected.empty() && !rom_detail::pick(window, root / "ROMs", choice, language, selected, error)) return false;
+        if (!rom_detail::validate(selected, choice, any_rom, error, language)) return false;
         ManagedFiles managed;
         if (!import_selected_rom(root, selected, choice == 0 ? "The Broken Seal" : "The Lost Age", managed, error)) return false;
-        if (!rom_detail::validate(managed.rom, choice, any_rom, error)) return false;
+        if (!rom_detail::validate(managed.rom, choice, any_rom, error, language)) return false;
         fs::create_directories(cache.parent_path());
         std::ofstream output(cache, std::ios::binary | std::ios::trunc);
         const auto text = storage_detail::text(managed.rom) + "\n";

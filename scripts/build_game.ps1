@@ -25,6 +25,8 @@ param(
     [int]$CompileJobs = 0,
     # When set, the whole build output is also written here.
     [string]$LogFile = '',
+    # Preserve the parent's interpreter when the compiler changes PATH.
+    [string]$PythonExecutable = '',
     # Optimisation level for the game's translated code (<Prefix>_GAME_CODE_OPT).
     # Og is the normal, quick-to-compile level; O2 measures whether heavy
     # spells run faster. Passed on every build so a comparison level never sticks.
@@ -33,7 +35,11 @@ param(
     # code into its _block copy and the tree builds that. -PerInstruction
     # builds the per-instruction game code instead, for comparison only.
     # Switching either way recompiles all the game code once.
-    [switch]$PerInstruction
+    [switch]$PerInstruction,
+    # Pick (and if needed make) the game code for the
+    # collection's ROM, record it in local\game_code_revision.txt, and stop.
+    # build_dev.ps1 runs this before recording the build's inputs.
+    [switch]$PrepareOnly
 )
 $ErrorActionPreference = 'Stop'
 
@@ -44,17 +50,21 @@ $ErrorActionPreference = 'Stop'
 #  BusyCheck     refuse to start if another build's processes are running
 #  CodeName      per-instruction game-code folder under Root/local
 #  BlockParts    sub-folders block_timing.py rewrites ('' = the folder itself)
+#  Revisions     the game's ROM revision list, relative to Root
+#  LanguageFile  the launcher's language choice for the game, under local/
 #  Targets       CMake targets (BrokenSeal adds GoldenSunGame and its player
 #                program on a split build)
 $games = @{
     BrokenSeal = @{
         Root = 'The Broken Seal'; BuildDir = 'build/gs011_opt'; Prefix = 'GSR'
         BusyCheck = $false; CodeName = 'gs011'; BlockParts = @('')
+        Revisions = 'src/rom_revisions.inc'; LanguageFile = 'broken-seal-language.txt'
         Targets = @('GoldenSunRecomp')
     }
     LostAge = @{
         Root = 'The Lost Age'; BuildDir = 'build/tla'; Prefix = 'TLA'
         BusyCheck = $true; CodeName = 'tla'; BlockParts = @('main', 'reloc')
+        Revisions = 'src/tla_rom_revisions.inc'; LanguageFile = 'lost-age-language.txt'
         Targets = @('TLARecomp', 'TLAGame', 'TLAPlayer')
         # Most memory one game-code file takes to compile: reloc/harv56 at
         # -Og, 1.27 GiB peak commit (measured 2026-10-23, the largest file
@@ -69,6 +79,7 @@ try {
     if ($Game -ne 'BrokenSeal' -and $CompileJobs -gt 0) {
         throw '-CompileJobs is only supported for BrokenSeal.'
     }
+    $python = if ($PythonExecutable) { (Get-Item -LiteralPath $PythonExecutable -ErrorAction Stop).FullName } else { (Get-Command python.exe -ErrorAction Stop).Source }
     $repo = Join-Path (Split-Path -Parent $PSScriptRoot) $cfg.Root
     if (-not $BuildDir) { $BuildDir = $cfg.BuildDir }
     $prefix = $cfg.Prefix
@@ -167,7 +178,7 @@ public static class GoldenSunBuildLimits {
 }
 '@
     $jobHandle = [GoldenSunBuildLimits]::Apply([uint32]$CpuPercent, $memoryLimit)
-    $kind = "LTO build, game code -$GameCodeOpt"
+    $kind = if ($PrepareOnly) { 'Preparing the game code' } else { "LTO build, game code -$GameCodeOpt" }
     if ($Game -eq 'LostAge' -and $PerInstruction) { $kind += ', per-instruction timing' }
     Write-Host "${kind}: CPU cap $CpuPercent%; parallel jobs $jobs."
     if ($Game -eq 'BrokenSeal') {
@@ -177,41 +188,7 @@ public static class GoldenSunBuildLimits {
         Write-Host ('Build memory limit: {0:N1} GiB ({1}% of installed RAM).' -f ($memoryLimit / 1GB), $RamPercent)
     }
 
-    # Which game code the tree builds: the per-instruction copy
-    # (local\<CodeName>) or its block-timing copy (local\<CodeName>_block),
-    # refreshed here (only changed files are rewritten, so only those recompile).
-    $codeName = if ($PerInstruction) { $cfg.CodeName } else { "$($cfg.CodeName)_block" }
-    if (-not $PerInstruction) {
-        Write-Host "Writing the block-timing game code (local\$codeName)..."
-        foreach ($part in $cfg.BlockParts) {
-            $from = "local/$($cfg.CodeName)"; $to = "local/$codeName"
-            if ($part) { $from += "/$part"; $to += "/$part" }
-            & python (Join-Path $PSScriptRoot 'block_timing.py') $from $to
-            $partLabel = if ($part) { " on $part" } else { '' }
-            if ($LASTEXITCODE -ne 0) { throw "block_timing.py failed$partLabel ($LASTEXITCODE)." }
-        }
-    }
-    $codeRoot = ($repo -replace '\\', '/') + "/local/$codeName"
-
-    $configureArgs = @('-S', $repo, '-B', $buildDir, "-D${prefix}_ENABLE_LTO=ON")
-    if ($Game -eq 'BrokenSeal') {
-        # Every game-code folder setting in the tree's cache (GSR_GAME_CODE_ROOT,
-        # GSR_GENERATED_DIR, the overlay, stamp, transient and synth folders) is
-        # pointed at the chosen copy.
-        $codeArgs = @()
-        foreach ($line in Get-Content -LiteralPath (Join-Path $buildDir 'CMakeCache.txt')) {
-            if ($line -match '^(GSR_[A-Z0-9_]+):PATH=.*/local/gs011(_block)?(/.*)?$') {
-                $codeArgs += "-D$($Matches[1]):PATH=$codeRoot$($Matches[3])"
-            }
-        }
-        if ($codeArgs.Count -eq 0) { throw 'No game-code folder settings in the tree cache.' }
-        Write-Host "Game code: local\$codeName ($($codeArgs.Count) folder settings)."
-        $configureArgs += @('-DGSR_DEBUG_SYMBOLS=ON', "-DGSR_LTO_JOBS=$jobs", "-DGSR_GAME_CODE_OPT=-$GameCodeOpt") + $codeArgs
-    } else {
-        # As many game-code files as fit the memory limit, at least one.
-        $gameCodeJobs = [Math]::Max(1, [Math]::Min($jobs,
-            [int][Math]::Floor($memoryLimit / ($cfg.GameCodeCompileGiB * 1GB))))
-        Write-Host "Game-code files compiled at once: $gameCodeJobs."
+    if ($Game -eq 'LostAge') {
         # The launcher's "Pre-built RAM code" setting (launcher
         # collection_preferences.h, PrebuiltRamCode; off when unset).
         $prebuiltRamCode = 'OFF'
@@ -227,9 +204,133 @@ public static class GoldenSunBuildLimits {
             }
         }
         Write-Host ('Pre-built RAM code: {0}.' -f $(if ($prebuiltRamCode -eq 'ON') { 'included' } else { 'skipped (compiled while playing)' }))
+    }
+
+    # Each game plays the collection's ROM for the language the flag under
+    # its cartridge picks (local\<LanguageFile>, launcher collection_storage.h:
+    # separate ROM files per language). Every revision in the game's list
+    # (Revisions; the first is USA/Europe) has its own game code: a localized
+    # one is made here from config\<code>, and made again when the ROM, its
+    # inputs or gba_recompile change. Switching revision recompiles all the
+    # game code once.
+    $revisions = @(foreach ($line in Get-Content -LiteralPath (Join-Path $repo $cfg.Revisions)) {
+        if ($line -match '^GSR_ROM_REVISION\("([a-z]{2})", "([^"]+)", "([0-9a-f]{40})"') {
+            @{ Code = $Matches[1]; Name = $Matches[2]; Sha1 = $Matches[3] }
+        }
+    })
+    if ($revisions.Count -eq 0) { throw "No ROM revisions read from $($cfg.Revisions)." }
+    $collection = Split-Path -Parent $repo
+    $languageFile = Join-Path $collection "local/$($cfg.LanguageFile)"
+    $language = if (Test-Path -LiteralPath $languageFile -PathType Leaf) { "$(Get-Content -LiteralPath $languageFile -TotalCount 1)".Trim() } else { '' }
+    $chosen = @($revisions | Where-Object { $_.Code -ceq $language })
+    $romName = if ($chosen.Count -and $chosen[0] -ne $revisions[0]) { "$($cfg.Root) ($($chosen[0].Name))" } else { $cfg.Root }
+    $rom = Join-Path $collection "ROMs/$romName.gba"
+    if (-not (Test-Path -LiteralPath $rom -PathType Leaf)) { throw "The collection ROM is missing: $rom" }
+    $romSha1 = (Get-FileHash -LiteralPath $rom -Algorithm SHA1).Hash.ToLowerInvariant()
+    $revision = @($revisions | Where-Object { $_.Sha1 -eq $romSha1 })[0]
+    if (-not $revision) { throw "The collection ROM (SHA-1 $romSha1) is not a supported $($cfg.Root) ROM." }
+    $localized = $revision -ne $revisions[0]
+    $corpus = if ($localized) { "$($revision.Code)/$($cfg.CodeName)" } else { $cfg.CodeName }
+    Write-Host "ROM: $($revision.Name) (game code local\$corpus)."
+    if ($localized) {
+        $corpusDir = Join-Path $repo "local/$corpus"
+        $configDir = Join-Path $repo "config/$($revision.Code)"
+        # Each input as "<name> <SHA-1>", names relative to $Root (as each
+        # game's stamps have always written them, so no game code is remade).
+        function Get-InputLines([string]$Root, $Files, [switch]$ForwardSlashes) {
+            foreach ($file in $Files | Sort-Object FullName) {
+                $name = $file.FullName.Substring($Root.Length + 1)
+                if ($ForwardSlashes) { $name = $name.Replace('\', '/') }
+                "$name $((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA1).Hash)"
+            }
+        }
+        if ($Game -eq 'BrokenSeal') {
+            # The player builder and its translator, as a release ships them
+            # (make_release.ps1); quick when already current.
+            & $cmake --build $buildDir --target gsr_builder gba_recompile
+            $built = $LASTEXITCODE
+            $recompiler = Join-Path $buildDir 'gba_recompile.exe'
+            $inputs = @(Get-InputLines $configDir (Get-ChildItem -LiteralPath $configDir -Recurse -File) -ForwardSlashes)
+        } else {
+            & $cmake --build $buildDir --target gba_recompile
+            $built = $LASTEXITCODE
+            $recompiler = Join-Path $buildDir 'gbarecomp_build/gba_recompile.exe'
+            $inputs = @("harvest $prebuiltRamCode") + @(Get-InputLines $repo (
+                Get-ChildItem -LiteralPath $configDir, (Join-Path $repo 'tools') -Recurse -File |
+                    Where-Object { $_.Extension -in @('.toml', '.py') }))
+        }
+        if ($built -ne 0) { throw "Building the game-code translator failed ($built)." }
+        if (-not (Test-Path -LiteralPath $recompiler -PathType Leaf)) { throw "gba_recompile.exe was not built: $recompiler" }
+        $sourceText = ((@("rom $romSha1", "gba_recompile $((Get-FileHash -LiteralPath $recompiler -Algorithm SHA1).Hash)") + $inputs) -join "`n") + "`n"
+        $stampFile = Join-Path $corpusDir 'generated-from.txt'
+        $made = if (Test-Path -LiteralPath $stampFile -PathType Leaf) { [IO.File]::ReadAllText($stampFile) } else { '' }
+        if ($made -cne $sourceText) {
+            Write-Host "Making the $($revision.Name) game code from the ROM (local\$corpus)..."
+            if ($Game -eq 'BrokenSeal') {
+                $work = Join-Path (Split-Path -Parent $corpusDir) 'builder_work'
+                & (Join-Path $buildDir 'gsr_builder.exe') --generate-only --keep-work --rom $rom `
+                    --data (Join-Path $repo 'config') --work $work --recompiler $recompiler `
+                    --engine $buildDir --toolchain (Split-Path -Parent $mingw) --jobs $jobs
+                if ($LASTEXITCODE -ne 0) { throw "Making the $($revision.Name) game code failed ($LASTEXITCODE). Log: $work\build-log.txt" }
+                # Replaced like the USA corpus is by its own regeneration.
+                if (Test-Path -LiteralPath $corpusDir) { Remove-Item -LiteralPath $corpusDir -Recurse -Force }
+                Move-Item -LiteralPath (Join-Path $work 'gen') -Destination $corpusDir
+            } else {
+                $generationArgs = @((Join-Path $repo 'tools/tla_recompile.py'), '--rom', $rom, '--recompile', $recompiler, '--out', $corpusDir)
+                if ($prebuiltRamCode -eq 'OFF') { $generationArgs += '--no-harvest' }
+                & $python @generationArgs
+                if ($LASTEXITCODE -ne 0) { throw "Making the $($revision.Name) game code failed ($LASTEXITCODE)." }
+            }
+            [IO.File]::WriteAllText($stampFile, $sourceText)
+        }
+    }
+    # Read by scripts/developer_build_stamp.py and the launcher
+    # (collection_build_state.h): which game code this tree builds.
+    $record = "rom_sha1=$romSha1`ncorpus=$corpus`n"
+    $recordFile = Join-Path $repo 'local/game_code_revision.txt'
+    $old = if (Test-Path -LiteralPath $recordFile -PathType Leaf) { [IO.File]::ReadAllText($recordFile) } else { '' }
+    if ($old -cne $record) { [IO.File]::WriteAllText($recordFile, $record) }
+    if ($PrepareOnly) { exit 0 }
+
+    # Which game code the tree builds: the per-instruction copy
+    # (local\<corpus>) or its block-timing copy (local\<corpus>_block),
+    # refreshed here (only changed files are rewritten, so only those recompile).
+    $codeName = if ($PerInstruction) { $corpus } else { "${corpus}_block" }
+    if (-not $PerInstruction) {
+        Write-Host "Writing the block-timing game code (local\$codeName)..."
+        foreach ($part in $cfg.BlockParts) {
+            $from = "local/$corpus"; $to = "local/$codeName"
+            if ($part) { $from += "/$part"; $to += "/$part" }
+            & $python (Join-Path $PSScriptRoot 'block_timing.py') $from $to
+            $partLabel = if ($part) { " on $part" } else { '' }
+            if ($LASTEXITCODE -ne 0) { throw "block_timing.py failed$partLabel ($LASTEXITCODE)." }
+        }
+    }
+    $codeRoot = ($repo -replace '\\', '/') + "/local/$codeName"
+
+    $configureArgs = @('-S', $repo, '-B', $buildDir, "-D${prefix}_ENABLE_LTO=ON")
+    if ($Game -eq 'BrokenSeal') {
+        # Every game-code folder setting in the tree's cache (GSR_GAME_CODE_ROOT,
+        # GSR_GENERATED_DIR, the overlay, stamp, transient and synth folders) is
+        # pointed at the chosen copy.
+        $codeArgs = @()
+        foreach ($line in Get-Content -LiteralPath (Join-Path $buildDir 'CMakeCache.txt')) {
+            if ($line -match '^(GSR_[A-Z0-9_]+):PATH=.*/local/(?:[a-z]{2}/)?gs011(_block)?(/.*)?$') {
+                $codeArgs += "-D$($Matches[1]):PATH=$codeRoot$($Matches[3])"
+            }
+        }
+        if ($codeArgs.Count -eq 0) { throw 'No game-code folder settings in the tree cache.' }
+        Write-Host "Game code: local\$codeName ($($codeArgs.Count) folder settings)."
+        $configureArgs += @('-DGSR_DEBUG_SYMBOLS=ON', "-DGSR_LTO_JOBS=$jobs", "-DGSR_GAME_CODE_OPT=-$GameCodeOpt",
+            "-DGSR_GAME_ROM_SHA1=$romSha1") + $codeArgs
+    } else {
+        # As many game-code files as fit the memory limit, at least one.
+        $gameCodeJobs = [Math]::Max(1, [Math]::Min($jobs,
+            [int][Math]::Floor($memoryLimit / ($cfg.GameCodeCompileGiB * 1GB))))
+        Write-Host "Game-code files compiled at once: $gameCodeJobs."
         $configureArgs += @('-DTLA_SPLIT_GAME_CODE=ON', "-DTLA_LTO_JOBS=$jobs", "-DTLA_GAME_CODE_OPT=-$GameCodeOpt",
             "-DTLA_GAME_CODE_COMPILE_JOBS=$gameCodeJobs", "-DTLA_PREBUILT_RAM_CODE=$prebuiltRamCode",
-            "-DTLA_GENERATED_DIR:PATH=$codeRoot/main")
+            "-DTLA_GENERATED_DIR:PATH=$codeRoot/main", "-DTLA_GAME_ROM_SHA1=$romSha1")
     }
     $configureOutput = & $cmake @configureArgs 2>&1
     $configureExit = $LASTEXITCODE

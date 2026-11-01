@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -21,8 +22,12 @@ constexpr std::size_t kMaxRomBytes = 16u * 1024u * 1024u;
 class TextEncoder {
 public:
     // The ROM must outlive the encoder and must not change while it is used
-    // (the tree codes are cached).
-    explicit TextEncoder(const std::vector<std::uint8_t>& rom) : rom_(rom) {}
+    // (the tree codes are cached). The tables default to The Broken Seal's;
+    // The Lost Age passes its own (same format, other addresses).
+    explicit TextEncoder(std::span<const std::uint8_t> rom,
+                         std::size_t text_table = kTextTable,
+                         std::size_t tree_table = kTreeTable)
+        : rom_(rom), text_table_(text_table), tree_table_(tree_table) {}
 
     // Encodes ASCII text (each char is its own 12-bit code) followed by the
     // terminating 0, LSB first. False when a needed (previous, next)
@@ -35,12 +40,21 @@ public:
     bool line_bytes(std::uint32_t number, std::size_t* start,
                     std::size_t* size) const;
 
+    // The reverse of encode: line `number`'s codes up to the terminating 0,
+    // each as one char (control codes keep their value; a code above 0xFF,
+    // which plain text never uses, becomes '?'). False if the bits match no
+    // code or run past max_chars.
+    bool decode(std::uint32_t number, std::string* out,
+                std::size_t max_chars = 400);
+
 private:
     using Path = std::vector<std::uint8_t>;
     bool codes_for(std::uint32_t prev, const std::map<std::uint32_t, Path>** out);
 
-    const std::vector<std::uint8_t>& rom_;
+    std::span<const std::uint8_t> rom_;
+    std::size_t text_table_, tree_table_;
     std::map<std::uint32_t, std::map<std::uint32_t, Path>> cache_;
+    std::map<std::uint32_t, std::map<Path, std::uint32_t>> reverse_;
 };
 
 // Rebuilds the 256-line (or shorter, for the last) block `block`: every

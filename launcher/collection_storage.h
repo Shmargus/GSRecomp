@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include "launcher_game.h"
 
 // Shared collection storage. External imports preserve originals and existing
 // progress. Legacy progress beside managed ROMs is verified and moved to Saves.
@@ -154,12 +155,42 @@ inline std::vector<fs::path> associated_directories(const fs::path& source) {
 }
 } // namespace storage_detail
 
-inline ManagedFiles managed_paths(const fs::path& root, const std::string& game_stem) {
+// Each game's ROM language, chosen with the flag under its cartridge: the
+// row of its revision list (launcher_game.h rom_codes; 0 USA/Europe). Each
+// language has its own ROM, save and savestates, named "<game> (<name>)";
+// scripts/build_game.ps1 reads the same file.
+inline fs::path rom_language_file(const fs::path& root, int game = 0) {
+    return root / "local" / (game ? "lost-age-language.txt" : "broken-seal-language.txt");
+}
+inline int rom_language(const fs::path& root, int game = 0) {
+    std::ifstream file(rom_language_file(root, game));
+    std::string value;
+    file >> value;
+    const auto& identity = gsr_launcher::kGames[game];
+    for (int language = 1; language < gsr_launcher::rom_language_count(identity); ++language)
+        if (value == identity.rom_codes[language]) return language;
+    return 0;
+}
+inline bool set_rom_language(const fs::path& root, int language, int game = 0) {
+    if (language < 0 || language >= gsr_launcher::rom_language_count(gsr_launcher::kGames[game])) return false;
+    std::error_code error;
+    fs::create_directories(rom_language_file(root, game).parent_path(), error);
+    std::ofstream file(rom_language_file(root, game), std::ios::trunc);
+    file << gsr_launcher::kGames[game].rom_codes[language] << '\n';
+    return bool(file);
+}
+
+inline ManagedFiles managed_paths(const fs::path& root, const std::string& game_stem, int language = -1) {
     if (root.empty()) throw std::runtime_error("Cannot locate the collection launcher folder.");
     if (game_stem != "The Broken Seal" && game_stem != "The Lost Age")
         throw std::runtime_error("Unknown collection game: " + game_stem);
     const auto absolute = fs::absolute(root).lexically_normal();
-    return {absolute, absolute / "ROMs" / (game_stem + ".gba"), absolute / "Saves" / (game_stem + ".sav"), absolute / "Saves" / game_stem};
+    const int game = game_stem == "The Lost Age";
+    if (language == -1) language = rom_language(absolute, game);
+    if (language < 0 || language >= gsr_launcher::rom_language_count(gsr_launcher::kGames[game]))
+        throw std::runtime_error("Unknown ROM language.");
+    const auto name = language ? game_stem + " (" + gsr_launcher::kGames[game].rom_names[language] + ")" : game_stem;
+    return {absolute, absolute / "ROMs" / (name + ".gba"), absolute / "Saves" / (name + ".sav"), absolute / "Saves" / name};
 }
 
 inline fs::path infer_collection_root(const fs::path& child_root) {
@@ -186,9 +217,13 @@ inline bool sync_legacy_states(const ManagedFiles& files, std::string& error) {
     using namespace storage_detail;
     error.clear();
     try {
-        const auto expected = managed_paths(files.root, text(files.state_base.filename()));
-        if (files.rom.lexically_normal() != expected.rom || files.state_base.lexically_normal() != expected.state_base)
-            throw std::runtime_error("Invalid managed ROMs or Saves path.");
+        bool managed = false;
+        for (const char* game : {"The Broken Seal", "The Lost Age"}) {
+            const auto expected = managed_paths(files.root, game);
+            managed = managed || (files.rom.lexically_normal() == expected.rom &&
+                                  files.state_base.lexically_normal() == expected.state_base);
+        }
+        if (!managed) throw std::runtime_error("Invalid managed ROMs or Saves path.");
         const auto rom_directory = files.root / "ROMs";
         if (!path_present(rom_directory)) return true;
         if (!fs::is_directory(rom_directory) || fs::is_symlink(fs::symlink_status(rom_directory)))

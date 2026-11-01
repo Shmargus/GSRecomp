@@ -142,6 +142,15 @@ Positions count sample frames at the file's own sample rate (at 44.1 kHz,
 one second is 44100). Anything after `#` is a comment. A track with no line
 repeats the whole file.
 
+The Lost Age can give a borrowed recording its own loop without changing
+The Broken Seal. Its `Music/TLA/loops.txt` can use a qualified track number:
+`1042` means track 42 in the fallback `Music/TBS` folder. The primary game's
+entry takes priority over that folder's own entry. For the supplied First
+Book Extended recording, TLA repeats it while TBS still plays it once.
+The TLA loop tool creates this exception from the sibling `Music/TBS`
+recording and its play-once entry; keep both folders together when making
+or sharing the music mod. Loop positions still depend on the exact file.
+
 You can write these by hand (an audio editor shows sample positions), or
 let the tool work them out from your ROM:
 
@@ -157,6 +166,11 @@ line's comment gives the musical loop start and end in file time and how
 closely the recording matches itself at the chosen jump (100% = the two
 passes are identical there). A low match means the recording differs
 between passes; listen to that song's loop.
+
+JusteD corrected Venus Lighthouse in the TBS album: use
+`38 7281013 3643628` in `Music/TBS/loops.txt` (also used by TLA). The tool
+preserves this reviewed jump when it recognises that exact FLAC file;
+other recordings still get their own detected loop points.
 
 ### 3. Share it
 

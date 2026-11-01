@@ -132,7 +132,10 @@ bool WorldMapSource::update(const std::uint8_t* ewram, std::size_t ewram_bytes,
     if (!ewram || !iwram || !rom) return false;
     const Guest g{ewram, ewram_bytes, iwram, iwram_bytes};
     unsigned map_number = 0;
-    if (!g.u16(layout_.map_number_addr, &map_number) || map_number != 2u) return false;
+    if (!g.u16(layout_.map_number_addr, &map_number) ||
+        (map_number != 2u &&
+         (layout_.second_map_number == 0 || map_number != layout_.second_map_number)))
+        return false;
     std::uint32_t state = 0, directory = 0;
     if (!g.u32(layout_.state_pointer_addr, &state) ||
         !g.u32(state + layout_.directory_offset, &directory))

@@ -77,6 +77,7 @@ struct Cli {
     uint32_t rom_base = 0x08000000u;
     std::size_t max_functions = 4096;
     bool ok = true;
+    bool help = false;          // --help: usage, success
     bool bios_mode = false;     // set when --bios is parsed
     bool emit_symbol_map = true; // --no-symbol-map opts out (debug aid)
     // --slim: rewrite the written recompiled*.cpp with slim_pass.h
@@ -185,7 +186,7 @@ Cli parse_cli(int argc, char** argv) {
             if (v) c.max_functions =
                 static_cast<std::size_t>(std::strtoul(v, nullptr, 10));
         } else if (a == "--help" || a == "-h") {
-            print_usage();
+            c.help = true;
             c.ok = false;
             return c;
         } else {
@@ -970,8 +971,10 @@ bool validate_alu_immediate_override_sites(
 int main(int argc, char** argv) {
     Cli cli = parse_cli(argc, argv);
     if (!cli.ok) {
+        // Any rejected argument fails, so a caller never takes the usage
+        // text for a translation (player_builder checks the exit code).
         print_usage();
-        return (cli.rom_path.empty() && cli.bios_path.empty()) ? 2 : 0;
+        return cli.help ? 0 : 2;
     }
     if (!cli.symbol_prefix.empty() &&
         (!is_valid_c_identifier(cli.symbol_prefix) ||

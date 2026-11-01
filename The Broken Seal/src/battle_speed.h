@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "game_options.h"
+#include "rom_version.h"
 
 // Battle speed-up: Select in battle toggles 2x, shown as ">>" at the top
 // left.
@@ -27,13 +28,13 @@
 // clear, the wait's own loop halts again as normal (the drop is one-shot).
 namespace gsr::battle_speed {
 
-constexpr std::uint32_t kWaitMaskLiteralPc = 0x08003318u;
+const std::uint32_t kWaitMaskLiteralPc = gs::rom(0x08003318u);
 constexpr std::uint32_t kWaitMask = 0x0000FFFEu;
 constexpr std::uint32_t kKeepFlagMask = 0x0000FFFFu;
-constexpr std::uint32_t kWaitHaltReturnPc = 0x08003324u;
+const std::uint32_t kWaitHaltReturnPc = gs::rom(0x08003324u);
 constexpr std::uint32_t kSwiHalt = 2u;
 
-constexpr std::uint32_t kBattleHeapSlot = 0x03001F00u;
+const std::uint32_t kBattleHeapSlot = gs::ram(0x03001F00u);
 
 // The battle background's per-line tables: two 0x780-byte buffers in the
 // block at [0x03001ED8]; the byte at +0xF00 selects the one DMA0 scans out
@@ -42,7 +43,7 @@ constexpr std::uint32_t kBattleHeapSlot = 0x03001F00u;
 // VBlank the second would fill the buffer on screen, so on every dropped
 // wait the byte is put back to what the last VBlank used (FACTS.md,
 // 2026-09-23).
-constexpr std::uint32_t kBattleBgTablesSlot = 0x03001ED8u;
+const std::uint32_t kBattleBgTablesSlot = gs::ram(0x03001ED8u);
 constexpr std::uint32_t kBattleBgIndexOffset = 0xF00u;
 
 // The arena's BG2CNT line table, the same scheme (verified ROM, 2026-09-23):
@@ -52,7 +53,7 @@ constexpr std::uint32_t kBattleBgIndexOffset = 0xF00u;
 // 0x080C0A24 fills the other table and flips the word at 0x080C0BD0. Left
 // unprotected, the second frame of a pair rewrote the table on screen and
 // the bank switch landed 2-8 lines late (dark lines, gpu_rewind_0003).
-constexpr std::uint32_t kBattleArenaTablesSlot = 0x03001E78u;
+const std::uint32_t kBattleArenaTablesSlot = gs::ram(0x03001E78u);
 constexpr std::uint32_t kBattleArenaIndexOffset = 0x0u;
 
 // Display-paced work: some battle drawing advances once per displayed frame
@@ -67,7 +68,7 @@ constexpr std::uint32_t kBattleArenaIndexOffset = 0x0u;
 // 0x0800307C stores handlers in a word table at 0x030000E0, one per
 // interrupt bit; slot 2 is VCount. An empty slot holds 0x08003009.
 constexpr std::uint32_t kVCountHandlerSlot = 0x030000E0u + 2u * 4u;
-constexpr std::uint32_t kEntryVCountHandler = 0x080C0299u;
+const std::uint32_t kEntryVCountHandler = gs::rom(0x080C0299u);
 
 // Layer switches wait for a real VBlank (FACTS.md 2026-10-15,
 // gpu_rewind_0045 frames 4-5 and 103-104). The game queues register writes
@@ -108,8 +109,8 @@ constexpr const char* kOptionsKey = gbarecomp::kOptionBattleSpeed;
 // is gone for the target's reaction and for scenes that only run a cast's
 // routines (Mars Star, FACTS.md 2026-10-05). With the setting on Fast those
 // frames run at the same 2x as battle.
-constexpr std::uint32_t kFieldCastSlot = 0x03001F30u;
-constexpr std::uint32_t kFieldDispatcherReturns[] = {0x0808E8CFu, 0x0808E8D5u};
+const std::uint32_t kFieldCastSlot = gs::ram(0x03001F30u);
+const std::uint32_t kFieldDispatcherReturns[] = {gs::rom(0x0808E8CFu), gs::rom(0x0808E8D5u)};
 constexpr std::uint32_t kStackBottom = 0x03007000u;
 constexpr std::uint32_t kStackTop = 0x03007F00u;
 
@@ -121,9 +122,9 @@ constexpr std::uint32_t kStackTop = 0x03007F00u;
 // stores it to S+0x17E, which ends Reveal. Better Field Psy doubles the
 // distance: the load then returns S+0x17E's own value (the store changes
 // nothing) while r2 is under 4 * 0xE10 and the countdown is not 0.
-constexpr std::uint32_t kRevealEndLiteralPc = 0x08098370u;
+const std::uint32_t kRevealEndLiteralPc = gs::rom(0x08098370u);
 constexpr std::uint32_t kRevealEndCommand = 0x00002090u;
-constexpr std::uint32_t kRevealStatePointer = 0x03001EBCu;
+const std::uint32_t kRevealStatePointer = gs::ram(0x03001EBCu);
 constexpr std::uint32_t kRevealCountdownOffset = 0xCBAu;
 constexpr std::uint32_t kRevealCommandOffset = 0x17Eu;
 constexpr std::uint32_t kRevealRangeSquared = 0xE10u;

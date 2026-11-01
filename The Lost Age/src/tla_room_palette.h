@@ -43,6 +43,16 @@ inline bool tla_restore_room_palette(bool window_open,
                 if ((*palette)[i] != colour(i)) { agree = false; break; }
         }
         if (!agree) continue;
+        // A portrait or menu replaces all four banks (F12 0035, 0066, 0163:
+        // 15-16 colours in each). A bank that still agrees means nothing was
+        // replaced: the game's own effect owns the change (0185, Mt. Aleph's
+        // gold pulse in bank 4 alone, 15 colours; banks 5-7 agree).
+        for (int bank = 4; bank < 8; ++bank) {
+            bool differs = false;
+            for (int i = bank * 16; i < (bank + 1) * 16 && !differs; ++i)
+                differs = (*palette)[i] != colour(i);
+            if (!differs) return false;
+        }
         bool changed = false;
         for (int i = 4 * 16; i < 8 * 16; ++i) {
             changed |= (*palette)[i] != colour(i);

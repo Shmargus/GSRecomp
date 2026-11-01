@@ -47,6 +47,7 @@
 // cursor row halfword at +0x574), clears from x 0xA0 (0x08040350) and draws
 // at x 0xA0 (0x08040360).
 
+#include "tla_rom_version.h"
 #include <cstdint>
 #include <string>
 
@@ -63,35 +64,35 @@ constexpr uint8_t kHard = 2u;
 constexpr uint32_t kClearDataFlag = 0x02003860u;
 
 // Enemy stats: rebuild entered from setup's `bl` at 0x080AFD60.
-constexpr uint32_t kStatRebuildEntry = 0x080AD3F8u;
-constexpr uint32_t kEnemySetupReturn = 0x080AFD65u;
+const uint32_t kStatRebuildEntry = TLA_ROM(0x080AD3F8u);
+const uint32_t kEnemySetupReturn = TLA_ROM(0x080AFD65u);
 constexpr uint32_t kBaseHp = 0x10u, kMaxHp = 0x34u, kHp = 0x38u;
 constexpr uint32_t kBaseAttack = 0x18u, kBaseDefence = 0x1Au;
 constexpr uint32_t kStatMax = 0x7FFFu;
 
-constexpr uint32_t kChoiceEntry = 0x080382F8u;
-constexpr uint32_t kBeforeLevelCheckReturn = 0x02008585u;
-constexpr uint32_t kShowTextEntry = 0x08038040u;
-constexpr uint32_t kEasyQuestionReturn = 0x020085BDu;
-constexpr uint32_t kEasyQuestionText = 0x25u;
-constexpr uint32_t kHardQuestionText = 0x27u;
-constexpr uint32_t kHardQuestionReturn = 0x02008651u;
+const uint32_t kChoiceEntry = TLA_ROM(0x080382F8u);
+const uint32_t kBeforeLevelCheckReturn = TLA_OVL("title", 0x02008585u);
+const uint32_t kShowTextEntry = TLA_ROM(0x08038040u);
+const uint32_t kEasyQuestionReturn = TLA_OVL("title", 0x020085BDu);
+const uint32_t kEasyQuestionText = TLA_TEXT(0x25u);
+const uint32_t kHardQuestionText = TLA_TEXT(0x27u);
+const uint32_t kHardQuestionReturn = TLA_OVL("title", 0x02008651u);
 
 constexpr uint32_t kAutoSleepSaved = 0x0200048Au;
 constexpr uint32_t kAutoSleepLive = 0x03001200u;
-constexpr uint32_t kSettingsSetupEntry = 0x0803FC38u;
-constexpr uint32_t kSettingsCloseEntry = 0x0803FD14u;
-constexpr uint32_t kSettingsCloseReturn = 0x08040593u;
+const uint32_t kSettingsSetupEntry = TLA_ROM(0x0803FC38u);
+const uint32_t kSettingsCloseEntry = TLA_ROM(0x0803FD14u);
+const uint32_t kSettingsCloseReturn = TLA_ROM(0x08040593u);
 
-constexpr uint32_t kIdleBranchPc = 0x08013616u;
-constexpr uint32_t kSleepNoticeBranchPc = 0x080404D2u;
+const uint32_t kIdleBranchPc = TLA_ROM(0x08013616u);
+const uint32_t kSleepNoticeBranchPc = TLA_ROM(0x080404D2u);
 
-constexpr uint32_t kLabelText = 0x1143u;
-constexpr uint32_t kHelpText = 0x114Au;
+const uint32_t kLabelText = TLA_TEXT(0x1143u);
+const uint32_t kHelpText = TLA_TEXT(0x114Au);
 
-constexpr uint32_t kValueTextLiteralPc = 0x08040346u;
-constexpr uint32_t kValueTextBase = 0x1144u;
-constexpr uint32_t kValueDrawXPc = 0x08040360u;
+const uint32_t kValueTextLiteralPc = TLA_ROM(0x08040346u);
+const uint32_t kValueTextBase = TLA_TEXT(0x1144u);
+const uint32_t kValueDrawXPc = TLA_ROM(0x08040360u);
 constexpr uint32_t kHardModeRow = 4u;
 constexpr const char* kWords[2] = {"No", "Yes"};
 TlaValueCaption g_caption;
@@ -176,7 +177,7 @@ void tla_hard_mode_on_entry(uint32_t pc) {
 bool tla_hard_mode_text(uint32_t text_id, std::string& out) {
     if (g_caption.take(text_id, out)) return true;
     if (text_id == kLabelText) out = "Hard Mode";
-    else if (text_id == kHelpText) out = "Make monsters stronger.";
+    else if (text_id == kHelpText) out = "Make enemies tougher.";
     else return false;
     return true;
 }

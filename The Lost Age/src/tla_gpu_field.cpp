@@ -49,6 +49,7 @@
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
 #include "tla.h"
+#include "tla_world_map.h"
 
 namespace {
 
@@ -348,6 +349,7 @@ void capture() {
     gba::GbaBus* bus = gbarecomp::active_bus();
     gba::GbaPpu* ppu = gbarecomp::active_ppu();
     if (!bus || !ppu) return;
+    tla_trackers_sample();
     if (g_only) {
         static bool applied = false;
         if (!applied) {
@@ -680,8 +682,8 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
                            std::uint32_t height, const Capture& capture) {
     const std::vector<std::uint8_t>& io = capture.io;
     const bool world_map = capture.ewram.size() >= 0x42Au &&
-        (unsigned(capture.ewram[0x428]) |
-         (unsigned(capture.ewram[0x429]) << 8)) == 2u;
+        tla_world_map(unsigned(capture.ewram[0x428]) |
+                      (unsigned(capture.ewram[0x429]) << 8));
     if (!world_map || !world_map_blocks(io)) {
         g_world_margin.clear();  // anywhere else: the saved view is stale
         g_world_settled = {};
@@ -758,6 +760,13 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
         shake_x = offset(0x14);
         shake_y = offset(0x16);
     }
+    // A lighthouse beam: the margins already hold BG0's glow added to the
+    // black backdrop (tla_field_draw.h), so add the held map beneath it the
+    // way the console adds the snapshot (second target, weight EVB/16; EVB
+    // 16 in every beam frame of 0181..0184).
+    const unsigned evb = std::min(io[0x53] & 0x1Fu, 16u);
+    const bool glow = held && tla_beam_glow_frame(io.data(),
+        unsigned(capture.ewram[0x428]) | (unsigned(capture.ewram[0x429]) << 8));
     for (std::uint32_t y = 0; y < height; ++y) {
         const bool native_row = y >= y0 && y < y0 + 160u;
         std::uint8_t* dst = rgb + std::size_t{y} * width * 3u;
@@ -767,6 +776,13 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
         for (std::uint32_t x = 0; x < width; ++x) {
             if (native_row && x >= x0 && x < x0 + 240u) continue;
             const int sx = std::clamp(int(x) + shake_x, 0, int(width) - 1);
+            if (glow) {
+                const std::uint8_t* h = src + std::size_t(sx) * 3u;
+                for (int c = 0; c < 3; ++c)
+                    dst[x * 3u + c] = std::uint8_t(
+                        std::min(255u, dst[x * 3u + c] + h[c] * evb / 16u));
+                continue;
+            }
             // No settled frame to hold: black rather than the world map's
             // rotation-layer data read as text layers.
             std::memcpy(dst + x * 3u, held ? src + std::size_t(sx) * 3u : colour, 3);
@@ -927,6 +943,8 @@ void tla_install_gpu_field() {
         g_world_margin.clear();
         g_world_margin_w = g_world_margin_h = 0;
         tla_local_music_on_savestate_load();
+        tla_custom_battle_reset();
+        tla_sprite_memory_restore();
     });
     if (g_enabled)
         std::fprintf(stderr, "[gpu-field] on%s%s\n", g_only ? ", only" : "",

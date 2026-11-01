@@ -1,0 +1,164 @@
+# Reviewed Spain counterparts for USA addresses feature code names, where the
+# address map alone cannot give one. Each needs its evidence (FACTS.md).
+# Read by tools/build_rom_address_table.py.
+
+[[rom]]
+usa = 0x080370D4
+spain = 0x0803639C
+evidence = "224-byte menu glyph-width table: the USA bytes occur once in Spain (FACTS.md 'Spanish text layout comparison', 2026-10-08)"
+
+[[rom]]
+usa = 0x080000B8
+spain = 0x080000B8
+evidence = "cartridge header word used as a constant zero: reads 0x00000000 in both ROMs"
+
+[[rom]]
+usa = 0x08016E56
+spain = 0x08015E1A
+evidence = "Message speed delay-table load in the text printer (USA Func_168f4, rewritten in Spain). Spain's 0x08015E0C..0x08015E24 is the same sequence: bl; ldr r3; adds r4,r0; movs r0,#0x83; lsls; adds; ldr r2,=table; ldrb; ldrb; strh r3,[r6,#0x22]; cmp r4,#0; beq. Its literal is the Spain delay table 0x08073368 (USA 0x08073808); the other two Message speed table loads in the same function read 0x0807336B / 0x0807336E (USA 0x0807380B / 0x0807380E), the same -0x4A0 shift."
+
+[[rom]]
+usa = 0x08073808
+spain = 0x08073368
+evidence = "Message speed delay table: the literal loaded at Spain 0x08015E1A (see 0x08016E56); its first 16 bytes equal USA's"
+
+# Overlay code (loaded at 0x02008000). Measured on the images both ROMs'
+# own decompressor produces (tools/localized_rom_map.py).
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085D2
+spain = 0x020085D2
+evidence = "world-map town box, OvlFunc_598 byte-matched at the same place; same ldr r2,[pc,#0xd0]"
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085D6
+spain = 0x020085D6
+evidence = "OvlFunc_598 byte-matched; same movs r1,#0xa0"
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085E4
+spain = 0x020085E4
+evidence = "OvlFunc_598 byte-matched; same ldr r2,[pc,#0xc0]"
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085E6
+spain = 0x020085E6
+evidence = "OvlFunc_598 byte-matched; same movs r1,#0xc8"
+
+[[overlay]]
+overlay = "rom_78c76c"
+usa = 0x02008EEC
+spain = 0x02008EEC
+evidence = "Sol Sanctum cloud bhi: OvlFunc_eb0 changed elsewhere, but cmp r3,#0xAF; bhi #0x2008fb2 is at the same place"
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008BE2
+spain = 0x02008C02
+evidence = "receptionist handler OvlFunc_b94 is the same code 0x20 later (0x02008BB4); differs only in text IDs (base 0x2930 -> 0x2912)"
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008BEA
+spain = 0x02008C0A
+evidence = "as 0x02008BE2: movs r0,#0 after her show call"
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008BF2
+spain = 0x02008C12
+evidence = "as 0x02008BE2: return of the Yes/No call (adds r5,r0,#0)"
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008C7A
+spain = 0x02008C9A
+evidence = "as 0x02008BE2: return of the line call (movs r0,#8)"
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008D48
+spain = 0x02008D68
+evidence = "literal of ldr r6,[pc,#0x1b0] at 0x02008BB6 (USA 0x02008B96): holds the text base, 0x2912 in Spain"
+
+# Game text IDs (message numbers) feature code names. Spain's text table is
+# renumbered; each is measured from the code that uses it.
+
+[[text]]
+usa = 0x2930
+spain = 0x2912
+evidence = "receptionist text base: the r6 literal of her handler (above)"
+
+[[text]]
+usa = 0x2935
+spain = 0x2917
+evidence = "base + 5: adds r0,r6,#5 at Spain 0x02008BFC, as USA 0x02008BDC"
+
+[[text]]
+usa = 0x2936
+spain = 0x2918
+evidence = "base + 6: adds r0,r6,#6 at Spain 0x02008C5C, as USA 0x02008C3C"
+
+[[text]]
+usa = 0x2937
+spain = 0x2919
+evidence = "base + 7: adds r0,r6,#7 at Spain 0x02008C42, as USA 0x02008C22"
+
+# Settings screen (option labels, captions, help). The screen's setup code has
+# the same literal pool in both ROMs; slot for slot Spain's IDs are 0x4D lower
+# (USA 0x0801D460.. 0xC07 0xC0D 0xC0F 0xC12 / 0x0801D908.. 0xC0A 0xC10 0xC13
+# 0xC15; Spain 0x0801C470.. 0xBBA 0xBC0 0xBC2 0xBC5 / 0x0801C918.. 0xBBD 0xBC3
+# 0xBC6 0xBC8). Decoded with tools/gs_text_encode.py's tables at the Spain text
+# table 0x08073210 / trees 0x08037884: 0xBC5 "Salvapantallas" (USA 0xC12
+# "Auto-Sleep"), 0xBCC "Configura el salvapantallas." (USA 0xC19 "Turn
+# auto-sleep on or off."), 0xBBD "Lento" (USA 0xC0A "Slow"), 0xBC8 "Cambia el
+# color de la ventana." (USA 0xC15 "Change the window's color.").
+
+[[text]]
+usa = 0xC0A
+spain = 0xBBD
+evidence = "Message speed caption base (literal slot 0x0801D908 / 0x0801C918); decodes 'Slow' / 'Lento'"
+
+[[text]]
+usa = 0xC12
+spain = 0xBC5
+evidence = "Auto-Sleep label (literal slot 0x0801D46C / 0x0801C47C); decodes 'Auto-Sleep' / 'Salvapantallas'"
+
+[[text]]
+usa = 0xC13
+spain = 0xBC6
+evidence = "Auto-Sleep caption base (literal slot 0x0801D910 / 0x0801C920)"
+
+[[text]]
+usa = 0xC15
+spain = 0xBC8
+evidence = "settings help base (literal slot 0x0801D918 / 0x0801C928); decodes the window-colour help in both"
+
+[[text]]
+usa = 0xC19
+spain = 0xBCC
+evidence = "Auto-Sleep help = help base + 4 in both; decodes 'Turn auto-sleep on or off.' / 'Configura el salvapantallas.'"
+
+[[text]]
+usa = 0x287
+spain = 0x37E
+evidence = "item/enemy name base: Func_79460's literal at +0x194 is 0x28F (USA 0x080795F4) / 0x386 (Spain 0x0807E5F4), base + 8 after its subs r5,#8; base+1..5 decode 'Adept Ring'.. / 'Anillos de Adepto'.."
+
+[[rom]]
+usa = 0x080736B8
+spain = 0x08073210
+evidence = "text table (data, lengths per 256-line block): literal pair; decoding with it reproduces the lines above"
+
+[[rom]]
+usa = 0x0803842C
+spain = 0x08037884
+evidence = "Huffman tree table: literal pair; decoding with it reproduces the lines above"
+
+[[rom]]
+usa = 0x08032224
+spain = 0x080314B4
+evidence = "Shaded description font: unique S glyph anchor, all 224 advance words validated, and explicit native font/width routine literals. F12 0192; FACTS 2026-11-01."

@@ -205,7 +205,8 @@ bool parse_state(const std::vector<uint8_t>& blob, const SnapshotContext& ctx,
 }
 
 // Write every section into the live machine. False if any section ran
-// short; the machine is then partly overwritten and the caller restores it.
+// short or held values its subsystem rejects; the machine is then partly
+// overwritten and the caller restores it.
 bool apply_state(const std::vector<uint8_t>& blob, const SectionMap& sections,
                  const SnapshotContext& ctx) {
     bool ok = true;
@@ -293,7 +294,8 @@ bool load_state(const char* path, const SnapshotContext& ctx, std::string* err) 
     if (!parse_state(blob, ctx, &sections, err)) return false;
 
     // Keep the running game, so a file that turns out damaged partway
-    // through (a section shorter than its contents) puts it back untouched.
+    // through (a section short or holding impossible values) puts it back
+    // untouched.
     SnapshotWriter running;
     build_state(ctx, running);
     if (apply_state(blob, sections, ctx)) return true;
@@ -308,7 +310,7 @@ bool load_state(const char* path, const SnapshotContext& ctx, std::string* err) 
         std::abort();
     }
     if (err) *err = std::string("snapshot: damaged state (a section is "
-                                "shorter than its contents): ") + path;
+                                "short or holds impossible values): ") + path;
     return false;
 }
 

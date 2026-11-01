@@ -104,8 +104,12 @@ public:
     bool ok() const { return ok_; }
     std::size_t remaining() const { return static_cast<std::size_t>(end_ - cur_); }
 
-private:
+    // Marks the load damaged. Subsystems call it when a complete section
+    // holds values their fixed buffers or divisors cannot accept, so the
+    // loader puts the running game back instead of installing them.
     void fail() { ok_ = false; }
+
+private:
     const uint8_t* cur_;
     const uint8_t* end_;
     bool ok_ = true;

@@ -1,5 +1,6 @@
 // Golden Sun: The Lost Age -- reward cheats, controlled by F1 > Cheats.
 
+#include "tla_rom_version.h"
 #include <algorithm>
 #include <cstdint>
 #include <string>
@@ -18,10 +19,10 @@ constexpr unsigned kPartySlots = 8u;
 
 // The tally's accumulating stores in 0x0812824C (32-bit `str`): coins on
 // the bonus path and the plain path, EXP on both.
-constexpr uint32_t kCoinBonusStorePc = 0x0812839Eu;
-constexpr uint32_t kCoinStorePc = 0x081283F8u;
-constexpr uint32_t kExpStorePc = 0x08128404u;
-constexpr uint32_t kDropBranchPc = 0x0812846Eu;
+const uint32_t kCoinBonusStorePc = TLA_ROM(0x0812839Eu);
+const uint32_t kCoinStorePc = TLA_ROM(0x081283F8u);
+const uint32_t kExpStorePc = TLA_ROM(0x08128404u);
+const uint32_t kDropBranchPc = TLA_ROM(0x0812846Eu);
 
 // Multiplier steps, in halves so 0.5x stays exact. 25x..100x apply to
 // Experience and Coins only; Drop Chance stops at 10x, where a drop is

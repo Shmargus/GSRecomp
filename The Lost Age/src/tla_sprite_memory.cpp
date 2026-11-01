@@ -21,7 +21,17 @@
 //
 // Inert in the console's 240x160 view, with the CPU renderer (Direct3D
 // compatibility mode), and with the launcher's "Console sprite memory".
+//
+// Custom Battle Mode's crowded fights (The Broken Seal's F12 0063: big
+// monsters plus the party fill the 32 KB): a fighter request the console
+// cannot grant (0x080142D4 returns 0) is granted from the page instead, in
+// any view, as The Broken Seal does (its battle_sprite_memory.h). Battles
+// note no placements, so the builder's 8bpp record (attr0 copy at +4, tile
+// at +8) carries the page in attr2 bit 15 (sprites::kPageMarker, unused
+// palette bits for 8bpp), marked at the builder's scratch free 0x08013164
+// from 0x08021FDC (record still in r7); the game copies it into OAM.
 
+#include "tla_rom_version.h"
 #include <cstdint>
 #include <array>
 #include <cstdio>
@@ -32,6 +42,8 @@
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
 #include "tla.h"
+#include "../../The Broken Seal/src/battle_sprite_memory.h"
+#include "../../The Broken Seal/src/custom_battle.h"
 
 namespace {
 
@@ -45,8 +57,14 @@ constexpr std::uint32_t kPageStart = 0x8000u, kPageEnd = 0x10000u;
 // 0x080142D4 after its first fit: `cmp r5, #-1; beq` returns 0 (no tile).
 // r5 the offset or -1, r6 bytes, r7 the owner's table entry; the caller's
 // return address is at sp + 16 (`push {r5-r7, lr}`, `push {r8}`).
-constexpr std::uint32_t kAllocResult = 0x0801431Au;
-constexpr std::uint32_t kBuilderReturn = 0x08021FA5u;
+const std::uint32_t kAllocResult = TLA_ROM(0x0801431Au);
+const std::uint32_t kAllocEntry = TLA_ROM(0x080142D4u);
+const std::uint32_t kBuilderReturn = TLA_ROM(0x08021FA5u);
+const std::uint32_t kScratchFreePc = TLA_ROM(0x08013164u);
+const std::uint32_t kBuilderFreeReturn = TLA_ROM(0x08021FE0u);
+constexpr std::uint32_t kRecordAttr0 = 4u, kRecordAttr2 = 8u, kRecordOwner = 0x10u;
+constexpr std::uint16_t k8bpp = 0x2000u;
+namespace sprites = gsr::custom_battle::sprites;
 
 bool g_on = false;        // granting from the page this frame
 unsigned g_peak = 0;      // most page blocks in use at once this session
@@ -117,6 +135,36 @@ bool page_grant(gba::GbaBus& b, unsigned owner, std::uint32_t* from,
     return true;
 }
 
+// Keep a shrinking field picture at its existing page address. The console
+// allocator otherwise frees any differently-sized grant before its first fit
+// (080142FA..08014312). Icon uploads can discard the returned tile, relying on
+// that first fit reusing the address. With our page they instead land back in
+// console memory: F12 0194 replaces 256 bytes at 8600 with the 128-byte apple
+// at 2280, leaving its sprite pointing at tile 030. Resizing the live grant
+// before the size comparison takes the game's existing equal-size reuse path;
+// the smaller grant also releases its unused page blocks automatically.
+void preserve_page_shrink(gba::GbaBus& b) {
+    const unsigned owner = g_cpu.R[0];
+    const std::uint32_t bytes = g_cpu.R[1];
+    if (!b.obj_extra() || owner >= kOwners || bytes <= 0x10u || bytes > 0x2000u ||
+        b.read16(kMapNumber) <= 1u || b.read32(kTlaBattleSlot) != 0u)
+        return;
+    const std::uint32_t entry = kOwnerTable + owner * 4u;
+    std::uint32_t from = 0, to = 0;
+    if (bytes < b.read16(entry) && page_grant(b, owner, &from, &to) &&
+        to <= kPageEnd)
+        b.write16(entry, static_cast<std::uint16_t>(bytes));
+}
+
+// A Custom Battle fight: battle running, the arena flag set and the switch
+// on.
+bool crowded_fight(gba::GbaBus& b) {
+    return b.read32(kTlaBattleSlot) != 0u &&
+           ((b.read8(gsr::custom_battle::kFlags + (gsr::custom_battle::kArenaFlag >> 3)) >>
+             (gsr::custom_battle::kArenaFlag & 7u)) & 1u) &&
+           gbarecomp::game_option_get(gsr::custom_battle::kOptionKey, gsr::custom_battle::kOptionDefault) != 0;
+}
+
 // First fit in the page, every other owner's grant excluded; -1 when full.
 // `used` gets the page bytes already granted.
 std::int32_t page_first_fit(gba::GbaBus& b, unsigned skip, std::uint32_t bytes,
@@ -168,6 +216,18 @@ int tla_sprite_memory_branch(std::uint32_t pc, std::uint32_t original,
     // sprites tell the renderers their page (F12 tla_rewind_0049: the party
     // and King Scorpion granted 0x8000..0xBFFF, drawn from the console's).
     const bool field = b->read16(kMapNumber) > 1u && b->read32(kTlaBattleSlot) == 0u;
+    if (caller == kBuilderReturn && original && crowded_fight(*b)) {
+        std::uint32_t used = 0;
+        const std::int32_t at = page_first_fit(*b, owner, bytes, &used);
+        if (at < 0) {
+            note_once(*b, "second sprite page full in battle", owner, bytes, caller);
+            return 0;
+        }
+        b->set_obj_extra(true);
+        g_cpu.R[5] = static_cast<std::uint32_t>(at);
+        *out_decision = 0u;
+        return 1;
+    }
     if (caller != kBuilderReturn || !g_on || !field) {
         // Measure whether the console's 32 KB still runs out.
         if (original && g_on) note_once(*b, "console sprite memory full", owner, bytes, caller);
@@ -230,4 +290,44 @@ int tla_sprite_memory_tile(std::uint32_t record, std::uint16_t attr2) {
     // The sprite's 10 bits must fall inside its owner's grant.
     const unsigned tile = 0x400u | (attr2 & 0x3FFu);
     return tile >= from / 32u && tile < to / 32u ? static_cast<int>(tile) : -1;
+}
+
+// Keep a shrinking field grant stable before allocation. At the fighter
+// builder's scratch free, mark its 8bpp record with the granted page.
+void tla_sprite_memory_on_entry(std::uint32_t pc) {
+    if (pc == kAllocEntry) {
+        if (gba::GbaBus* b = bus()) preserve_page_shrink(*b);
+        return;
+    }
+    if (pc != kScratchFreePc || (g_cpu.R[14] & ~1u) != kBuilderFreeReturn) return;
+    gba::GbaBus* b = bus();
+    if (!b || b->read32(kTlaBattleSlot) == 0u) return;
+    const std::uint32_t record = g_cpu.R[7];
+    if ((record >> 24) != 0x02u && (record >> 24) != 0x03u) return;
+    if (!(b->read16(record + kRecordAttr0) & k8bpp)) return;
+    const unsigned owner = b->read8(record + kRecordOwner);
+    std::uint32_t from = 0, to = 0;
+    if (owner >= kOwners) return;
+    const std::uint16_t attr2 = b->read16(record + kRecordAttr2);
+    if (page_grant(*b, owner, &from, &to))
+        b->write16(record + kRecordAttr2, attr2 | sprites::kPageMarker);
+    else if (b->obj_extra())
+        b->write16(record + kRecordAttr2, attr2 & ~sprites::kPageMarker);
+}
+
+int tla_sprite_memory_battle_tile(std::uint16_t attr0, std::uint16_t attr2) {
+    gba::GbaBus* b = bus();
+    return b && b->read32(kTlaBattleSlot) != 0u ? sprites::tile(attr0, attr2) : -1;
+}
+
+void tla_sprite_memory_restore() {
+    // A state can hold page grants before this process has granted any.
+    gba::GbaBus* b = bus();
+    if (!b) return;
+    std::uint32_t from = 0, to = 0;
+    for (unsigned owner = 0; owner < kOwners; ++owner)
+        if (page_grant(*b, owner, &from, &to)) {
+            b->set_obj_extra(true);
+            return;
+        }
 }

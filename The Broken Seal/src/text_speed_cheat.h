@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include "rom_version.h"
 
 // Golden Sun USA/Europe metadata belongs to the project runner, not the
 // reusable ARMv4T runtime. These identities were measured from the generated
@@ -28,8 +29,8 @@ namespace gsr::text_speed_cheat {
 // space stop. The line-break and box stops at 0x08016A34 / 0x08016D72 are
 // deliberately left alone, so page waits and "press A to continue" keep
 // their original behaviour.
-constexpr std::uint32_t kBudgetSeedPc = 0x08016920u;
-constexpr std::uint32_t kWordStopPc = 0x08016EDCu;
+const std::uint32_t kBudgetSeedPc = gs::rom(0x08016920u);
+const std::uint32_t kWordStopPc = gs::rom(0x08016EDCu);
 
 // One page of dialogue is far below this. The counter is decremented once per
 // parsed token and the slot is a full word, so a large value simply means the
@@ -49,7 +50,7 @@ constexpr bool matches(std::uint32_t pc, std::uint32_t width) {
 // The settings screen's setup 0x0801D014 stores each option's choice count;
 // the screen's input loop 0x0801D4CC wraps left/right by it. 0x0801D072 is
 // `movs r3,#3`, Message speed's count. Four makes value 3 reachable.
-constexpr std::uint32_t kChoiceCountPc = 0x0801D072u;
+const std::uint32_t kChoiceCountPc = gs::rom(0x0801D072u);
 constexpr std::uint32_t kChoiceCountWithInstant = 4u;
 
 // The settings screen's per-frame routine 0x0801CF48 bounces the selected
@@ -57,7 +58,7 @@ constexpr std::uint32_t kChoiceCountWithInstant = 4u;
 // the screen struct (r5); the row has three slots, so value 3 lands on the
 // next row's first icon. 0x0801CFC6 is `ble` on the row index (r6) that skips
 // the bounce; forcing it taken leaves no icon bouncing for Instant.
-constexpr std::uint32_t kIconBounceBranchPc = 0x0801CFC6u;
+const std::uint32_t kIconBounceBranchPc = gs::rom(0x0801CFC6u);
 constexpr std::uint32_t kMessageSpeedRow = 2u;
 constexpr std::uint32_t kScreenMessageSpeedOffset = 0x596u;
 
@@ -66,13 +67,16 @@ constexpr std::uint32_t kScreenMessageSpeedOffset = 0x596u;
 // Value 3 reaches 0xC0D, "Message" -- the row's own label, which setup also
 // draws. The runner writes the whole caption itself: the text decoder
 // 0x08018038 takes each decoded character at 0x080180D0 (`adds r7,r0,#0`,
-// ASCII; the text ID is at [sp+0x30]) and ends the string on 0 (0x080182A6
-// -> 0x0801831A). The caption is the word, with "< " and " >" around it
+// ASCII) and ends the string on 0 (0x080182A6 -> 0x0801831A). Its text ID is
+// what it passed to the line start 0x08019BAC(state, id) from 0x080180BE:
+// USA also keeps it at [sp+0x30], Spain only in a register the character
+// loop reuses, so the runner records it there (kLineStartPc). The caption is the word, with "< " and " >" around it
 // while the cursor is on this row.
-constexpr std::uint32_t kCaptionBaseLiteralPc = 0x0801D6AEu;
-constexpr std::uint32_t kCaptionBase = 0x00000C0Au;
-constexpr std::uint32_t kDecodedCharPc = 0x080180D0u;
-constexpr std::uint32_t kDecoderTextIdStackOffset = 0x30u;
+const std::uint32_t kCaptionBaseLiteralPc = gs::rom(0x0801D6AEu);
+const std::uint32_t kCaptionBase = gs::text(0x00000C0Au);
+const std::uint32_t kDecodedCharPc = gs::rom(0x080180D0u);
+const std::uint32_t kLineStartPc = gs::rom(0x08019BACu);
+const std::uint32_t kLineStartReturn = gs::rom(0x080180C2u);
 constexpr const char* kSpeedWords[4] = {"Slow", "Normal", "Fast", "Instant"};
 constexpr char kArrowLeft[] = "< ";
 constexpr char kArrowRight[] = " >";
@@ -82,7 +86,7 @@ constexpr char kArrowRight[] = " >";
 // Menu text and menu icons share one window-relative x: the Auto-Sleep and
 // Speech icons sit at 0x64 and 0x7C with a 24-pixel pitch, spanning
 // 0x64..0x94, so the caption is centred on 0x7C.
-constexpr std::uint32_t kGlyphWidthTable = 0x080370D4u;
+const std::uint32_t kGlyphWidthTable = gs::rom(0x080370D4u);
 constexpr std::uint32_t kCaptionCentreX = 0x7Cu;
 
 // The Message-speed row is text only: its three icons are uploaded blank and
@@ -94,16 +98,16 @@ constexpr std::uint32_t kCaptionCentreX = 0x7Cu;
 // 0xFFFFFFFF makes that upload clear the slot instead (0x08003FFA ->
 // 0x03000164, a zero fill). Caption clear and draw take x = 0xA0 at
 // 0x0801D6B8 / 0x0801D6C6; the first icon's x is 0x54.
-constexpr std::uint32_t kSetupIconTableLiteralPc = 0x0801D39Cu;
-constexpr std::uint32_t kRedrawIconTableLiteralPc = 0x0801D5B6u;
-constexpr std::uint32_t kMessageSpeedIconTable = 0x080367C9u;
+const std::uint32_t kSetupIconTableLiteralPc = gs::rom(0x0801D39Cu);
+const std::uint32_t kRedrawIconTableLiteralPc = gs::rom(0x0801D5B6u);
+const std::uint32_t kMessageSpeedIconTable = gs::rom(0x080367C9u);
 constexpr std::uint32_t kSetupIconCount = 3u;
-constexpr std::uint32_t kIconSourcePc = 0x08021732u;
+const std::uint32_t kIconSourcePc = gs::rom(0x08021732u);
 constexpr std::uint32_t kFirstMessageSpeedIcon = 34u;
 constexpr std::uint32_t kLastMessageSpeedIcon = 36u;
 constexpr std::uint32_t kBlankIconSource = 0xFFFFFFFFu;
-constexpr std::uint32_t kCaptionClearXPc = 0x0801D6B8u;
-constexpr std::uint32_t kCaptionDrawXPc = 0x0801D6C6u;
+const std::uint32_t kCaptionClearXPc = gs::rom(0x0801D6B8u);
+const std::uint32_t kCaptionDrawXPc = gs::rom(0x0801D6C6u);
 constexpr std::uint32_t kCaptionClearX = 0x54u;
 
 // Two ROM tables are indexed by the Message-speed byte and hold only three
@@ -112,9 +116,9 @@ constexpr std::uint32_t kCaptionClearX = 0x54u;
 // {1, 3, 10} (index 3 = 0). Re-basing the table pointer one byte lower makes
 // index 3 read Fast's entry. Applied whenever the byte is 3, launcher option
 // or not, so a save holding 3 never reads the out-of-range bytes.
-constexpr std::uint32_t kDelayTableLiteralPc = 0x08016E56u;
-constexpr std::uint32_t kDelayTable = 0x08073808u;
-constexpr std::uint32_t kBattleTableLiteralPc = 0x08093332u;
-constexpr std::uint32_t kBattleTable = 0x0809FC28u;
+const std::uint32_t kDelayTableLiteralPc = gs::rom(0x08016E56u);
+const std::uint32_t kDelayTable = gs::rom(0x08073808u);
+const std::uint32_t kBattleTableLiteralPc = gs::rom(0x08093332u);
+const std::uint32_t kBattleTable = gs::rom(0x0809FC28u);
 
 }  // namespace gsr::text_speed_cheat

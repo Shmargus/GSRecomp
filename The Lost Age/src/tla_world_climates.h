@@ -29,6 +29,7 @@
 //    tiles (its asset 1 script), which other sets' cells show unanimated.
 #pragma once
 
+#include "tla_rom_version.h"
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -94,7 +95,7 @@ public:
     }
 
 private:
-    static constexpr std::uint32_t kSetRecords = 0x0802ED34u;
+    inline static const std::uint32_t kSetRecords = TLA_ROM(0x0802ED34u);
     static constexpr int kSetColours = 0x70 * 2;  // 224: DMA of 0x70 words
     static constexpr std::size_t kBlock = 0x2000;  // one staged asset, 8 KB
 

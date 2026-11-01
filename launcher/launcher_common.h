@@ -48,11 +48,13 @@ inline std::string read_text(const fs::path& path) {
             std::istreambuf_iterator<char>()};
 }
 
-// Whether `path` is the supported ROM, or with the launcher's "Skip the ROM
-// check" on, any readable file. The error text is for the player.
+// Whether `path` is a supported ROM (with `language` >= 0, only that one of
+// game.rom_sha1s), or with the launcher's "Skip the ROM check" on, any
+// readable file. The error text is for the player.
 inline bool validate_rom(const fs::path& path, std::string* error,
                          const GameIdentity& game = session_game(),
-                         bool any_rom = gbarecomp::any_rom_allowed()) {
+                         bool any_rom = gbarecomp::any_rom_allowed(),
+                         int language = -1) {
     std::error_code ec;
     if (!fs::is_regular_file(path, ec)) {
         *error = "That file could not be opened.";
@@ -68,10 +70,20 @@ inline bool validate_rom(const fs::path& path, std::string* error,
         *error = "The ROM could not be read.";
         return false;
     }
-    if (actual != game.rom_sha1) {
-        *error = std::string("That is not the required ") + game.title +
-                 " USA/Europe ROM.\n\nExpected SHA-1:\n" + game.rom_sha1 +
-                 "\n\nFound SHA-1:\n" + actual;
+    if (!accepts_rom(game, actual)) {
+        *error = std::string("That is not a supported ") + game.title +
+                 " ROM.\n\nExpected SHA-1:";
+        for (const char* accepted : game.rom_sha1s)
+            if (accepted) *error += std::string("\n") + accepted;
+        *error += "\n\nFound SHA-1:\n" + actual;
+        return false;
+    }
+    if (language >= 0 && actual != game.rom_sha1s[language]) {
+        int found = 0;
+        while (actual != game.rom_sha1s[found]) ++found;  // accepts_rom checked above
+        *error = std::string("That is the ") + game.rom_names[found] + " ROM, but the flag under " +
+                 game.title + " is set to " + game.rom_names[language] +
+                 ".\n\nClick the flag to switch, or choose the " + game.rom_names[language] + " ROM.";
         return false;
     }
     return true;
@@ -265,18 +277,22 @@ inline std::string release_fingerprint(const fs::path& root,
     return text;
 }
 
-// The ROM the game code must be built from: the supported one, or with the
-// ROM check off, the copy this collection plays. Empty when unreadable.
+// The ROM the game code must be built from: the copy this collection plays
+// for the chosen language (The Broken Seal's flag) when it is that one (or
+// with the ROM check off, any), so switching language asks for a rebuild.
+// Otherwise that language's ROM, or with the ROM check off, empty.
 inline std::string required_rom_sha1(const fs::path& root, const GameIdentity& game,
                                      bool any_rom) {
-    if (!any_rom) return game.rom_sha1;
     std::string digest;
+    int language = 0;
     try {
-        const auto rom = gsr_collection::managed_paths(
-            gsr_collection::infer_collection_root(root), game.stem).rom;
-        if (sha1_file(rom, &digest)) return digest;
+        const auto collection = gsr_collection::infer_collection_root(root);
+        language = gsr_collection::rom_language(collection,&game == &kGames[1]);
+        const auto rom = gsr_collection::managed_paths(collection, game.stem).rom;
+        if (sha1_file(rom, &digest) && (any_rom || digest == game.rom_sha1s[language]))
+            return digest;
     } catch (const std::exception&) {}
-    return {};
+    return any_rom ? std::string{} : game.rom_sha1s[language];
 }
 
 // Whether the game library beside the game was built from that ROM by this

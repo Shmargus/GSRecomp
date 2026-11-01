@@ -8,10 +8,12 @@
 #include "collection_update.h"
 #include "collection_storage.h"
 #include "collection_settings.h"
+#include "english_save_test.h"
+#include "save_language_import.h"
 #include "collection_session.h"
 #include "collection_preferences.h"
 #include "collection_view_settings.h"
-#include "adventure_settings.h"
+#include "tracker_settings.h"
 #include "music_mod_settings.h"
 #include "launcher_common.h"
 #include "launcher_test_policy.h"
@@ -24,6 +26,7 @@
 #include "../engine/src/runtime/cartridge_art.h"
 #include "../engine/src/runtime/handover.h"
 #include "../engine/src/runtime/seamless.h"
+#include "../The Broken Seal/src/custom_battle_option.h"
 #include "../engine/src/runtime/soft_reset.h"
 
 #include <algorithm>
@@ -321,6 +324,34 @@ std::wstring quote_argument(const std::wstring& value) {
 }
 #endif
 
+// The game itself recovers a cross-language save at its nearest sanctuary.
+// Offer the permanent language-specific copy only after that ROM builds.
+bool offer_save_language_import(SDL_Window* window, const fs::path& root, int game,
+                                int language, std::string& error) {
+    try {
+        const auto offer = gsr_collection::pending_save_language_import(root, game, language);
+        if (!offer) return true;
+        const auto& text = gsr_collection::collection_popup_text(offer->language);
+        const auto message = gsr_collection::save_language_import_message(*offer);
+        const SDL_MessageBoxButtonData buttons[] = {
+            {0, 1, text.save_convert},
+            {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT | SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT,
+             0, text.save_skip}
+        };
+        const SDL_MessageBoxData dialog{SDL_MESSAGEBOX_INFORMATION, window, text.save_title,
+                                       message.c_str(), 2, buttons, nullptr};
+        int answer = 0;
+        if (SDL_ShowMessageBox(&dialog, &answer) != 0) {
+            error = "Could not ask about converting your English save.";
+            return false;
+        }
+        return gsr_collection::finish_save_language_import(*offer, answer == 1, error);
+    } catch (const std::exception& failure) {
+        error = "Could not prepare the save-conversion question: " + std::string(failure.what());
+        return false;
+    }
+}
+
 class Child {
 #ifdef _WIN32
     HANDLE process_ = nullptr;
@@ -331,6 +362,7 @@ class Child {
     int started_game_ = -1;
     int exit_code_ = -1;
     bool finished_ = false;
+    fs::path test_state_base_;
 public:
     ~Child() {
 #ifdef _WIN32
@@ -364,7 +396,8 @@ public:
         return true;
     }
     bool start(const fs::path& root, int choice, std::string& error,
-               const gsr_collection::GameSettings* settings = nullptr, int seamless_slot = -1) {
+               const gsr_collection::GameSettings* settings = nullptr, int seamless_slot = -1,
+               bool restarting = false) {
         if (running()) return false;
         finished_ = false;
         const auto executable = executable_file();
@@ -378,6 +411,15 @@ public:
             error = "This game's files are missing. Please extract the complete release.";
             return false;
         }
+        gsr_collection::TestProgress test_progress;
+#ifdef GSR_COLLECTION_DEV
+        if (settings && settings->english_save_test) {
+            const bool prepared = restarting && started_game_ == choice && !test_state_base_.empty()
+                ? gsr_collection::open_english_save_test(root, choice, test_state_base_, test_progress, error)
+                : gsr_collection::create_english_save_test(root, choice, test_progress, error);
+            if (!prepared) return false;
+        }
+#endif
 #ifdef _WIN32
         std::wstring arguments = quote_argument(executable.wstring()) +
             L" --session-game " + (choice ? std::wstring(L"LostAge") : std::wstring(L"BrokenSeal")) +
@@ -388,6 +430,8 @@ public:
         if (settings) {
             const auto tests = gsr_collection::serialize_tests(*settings);
             arguments += L" --collection-tests " + std::wstring(tests.begin(), tests.end());
+            if (!test_progress.state_base.empty())
+                arguments += L" --english-save-test " + quote_argument(test_progress.state_base.wstring());
         }
 #endif
         STARTUPINFOW startup{}; startup.cb = sizeof(startup);
@@ -409,7 +453,12 @@ public:
         std::vector<std::string> arguments{program, "--session-game", choice ? "LostAge" : "BrokenSeal",
             "--collection-play", "--collection-update-checked", "--collection-root", root.string()};
 #ifdef GSR_COLLECTION_DEV
-        if (settings) { arguments.push_back("--collection-tests"); arguments.push_back(gsr_collection::serialize_tests(*settings)); }
+        if (settings) {
+            arguments.push_back("--collection-tests"); arguments.push_back(gsr_collection::serialize_tests(*settings));
+            if (!test_progress.state_base.empty()) {
+                arguments.push_back("--english-save-test"); arguments.push_back(test_progress.state_base.string());
+            }
+        }
 #endif
         if (seamless_slot >= 0) { arguments.push_back("--seamless-slot"); arguments.push_back(std::to_string(seamless_slot)); }
         std::vector<char*> argv;
@@ -435,6 +484,7 @@ public:
         }
         started_game_ = choice;
 #endif
+        test_state_base_ = test_progress.state_base;
         error.clear();
         return true;
     }
@@ -506,6 +556,55 @@ bool make_background(SDL_Renderer* renderer, Texture& background) {
     background.texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, background.width, background.height);
     if (!background.texture || SDL_UpdateTexture(background.texture, nullptr, pixels.data(), background.width * 4) != 0) return false;
     SDL_SetTextureScaleMode(background.texture, SDL_ScaleModeLinear);
+    return true;
+}
+
+// The flags under The Broken Seal's cartridge, one button per language: which
+// language ROM the launcher expects (collection_storage.h rom_language). USA/Europe is the US and UK
+// flags split on the diagonal; Spain, Italy, France and Germany their own. Drawn here, 4x4 samples a
+// pixel, on a 300x200 design grid.
+bool make_flag(SDL_Renderer* renderer, int language, Texture& flag) {
+    struct Rgb { float r, g, b; };
+    const auto color = [language](float x, float y) -> Rgb {
+        if (language == 4) return y < 200.0f / 3 ? Rgb{0, 0, 0} : y < 400.0f / 3 ? Rgb{221, 0, 0} : Rgb{255, 206, 0};
+        if (language == 3) return x < 100 ? Rgb{0, 85, 164} : x < 200 ? Rgb{255, 255, 255} : Rgb{239, 65, 53};
+        if (language == 2) return x < 100 ? Rgb{0, 146, 70} : x < 200 ? Rgb{255, 255, 255} : Rgb{206, 43, 55};
+        if (language == 1) return y < 50 || y >= 150 ? Rgb{170, 21, 27} : Rgb{241, 191, 0};
+        if (x / 300 + y / 200 < 1) {  // United States, top left
+            if (x < 120 && y < 200 * 7 / 13.0f) {
+                const float sx = std::fmod(x, 20.0f) - 10, sy = std::fmod(y, 200 * 7 / 65.0f) - 100 * 7 / 65.0f;
+                return sx * sx + sy * sy < 16 ? Rgb{255, 255, 255} : Rgb{60, 59, 110};
+            }
+            return int(y * 13 / 200) % 2 ? Rgb{255, 255, 255} : Rgb{178, 34, 52};
+        }
+        // United Kingdom, bottom right
+        const float diagonal = std::min(std::abs(200 * x - 300 * y), std::abs(200 * x + 300 * y - 60000)) / 360.6f;
+        const float cross = std::min(std::abs(x - 150), std::abs(y - 100));
+        if (cross < 20) return {200, 16, 46};
+        if (cross < 33.3f) return {255, 255, 255};
+        if (diagonal < 6.7f) return {200, 16, 46};
+        if (diagonal < 20) return {255, 255, 255};
+        return {1, 33, 105};
+    };
+    flag.width = 48; flag.height = 32;
+    std::vector<unsigned char> pixels(std::size_t(flag.width) * flag.height * 4);
+    for (int y = 0; y < flag.height; ++y) for (int x = 0; x < flag.width; ++x) {
+        Rgb sum{};
+        for (int sy = 0; sy < 4; ++sy) for (int sx = 0; sx < 4; ++sx) {
+            const Rgb c = color((x + (sx + 0.5f) / 4) * 300 / flag.width, (y + (sy + 0.5f) / 4) * 200 / flag.height);
+            sum.r += c.r; sum.g += c.g; sum.b += c.b;
+        }
+        const auto at = (std::size_t(y) * flag.width + x) * 4;
+        pixels[at] = static_cast<unsigned char>(sum.r / 16);
+        pixels[at + 1] = static_cast<unsigned char>(sum.g / 16);
+        pixels[at + 2] = static_cast<unsigned char>(sum.b / 16);
+        pixels[at + 3] = 255;
+    }
+    flag.texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, flag.width, flag.height);
+    if (!flag.texture || SDL_UpdateTexture(flag.texture, nullptr, pixels.data(), flag.width * 4) != 0) return false;
+    SDL_SetTextureScaleMode(flag.texture, SDL_ScaleModeLinear);
+    // The chosen flag glows as the selected cartridge does.
+    flag.make_glow(renderer, pixels);
     return true;
 }
 
@@ -593,8 +692,10 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
     ImFont* heading = load_font(io, true);
     ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer2_Init(renderer);
-    Texture logo, cartridges[2], background;
-    if (!make_background(renderer, background)) {
+    Texture logo, cartridges[2], background, flags[5];
+    if (!make_background(renderer, background) || !make_flag(renderer, 0, flags[0]) ||
+        !make_flag(renderer, 1, flags[1]) || !make_flag(renderer, 2, flags[2]) || !make_flag(renderer, 3, flags[3]) ||
+        !make_flag(renderer, 4, flags[4])) {
         std::fprintf(stderr, "Cannot create launcher background: %s\n", SDL_GetError());
         ImGui_ImplSDLRenderer2_Shutdown(); ImGui_ImplSDL2_Shutdown(); ImGui::DestroyContext();
         return 1;
@@ -631,6 +732,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
     };
     refresh_builds();
     int building_choice = -1;
+    int building_language = -1;
     int build_choice = -1;
     bool play_after_build = false;
     // When both games need building, the player may build the other one
@@ -640,6 +742,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
     auto settings = preview.empty() ? gsr_collection::load_settings(root) : gsr_collection::CollectionSettings{};
     std::array<gsr_session::LauncherAudioSettings, 2> preferences{};
     std::array<gsr_collection::ViewSettings, 2> view_settings{};
+    std::array<gsr_collection::TrackerSettings, 2> trackers{};
     if (preview.empty()) for (int game = 0; game < 2; ++game)
         preferences[game] = gsr_session::load_launcher_audio_settings(gsr_session::game_root(root, game));
     // Music mod (music_mod_settings.h): found recordings and the saved choice,
@@ -665,6 +768,13 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
     bool settings_open = preview_settings >= 0;
     int settings_game = preview_settings >= 0 ? preview_settings : 0;
     bool request_settings = settings_open;
+    // Each game's own options file (game_options.ini next to its program).
+    const auto game_options_file = [&](int game) {
+        return (gsr_session::engine(gsr_session::game_root(root, game), game).parent_path() /
+                "game_options.ini").string();
+    };
+    // The Lost Age's Custom Battle switch, read when Settings opens.
+    bool tla_custom_battle = false;
     Box settings_box{};
     gsr_collection::ReleaseCheck updates(preview.empty());
     // What's New: the newest release's notes, loaded when first opened.
@@ -685,6 +795,10 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
     bool alive = true, hidden = false;
     std::string error;
     Box cartridge_boxes[2]{};
+    // The Broken Seal's language flags (make_flag); clicking one picks it.
+    int rom_language[2] = {preview.empty() ? gsr_collection::rom_language(root,0) : 0,
+                           preview.empty() ? gsr_collection::rom_language(root,1) : 0};
+    Box flag_boxes[2][5]{};
     const Uint64 start = SDL_GetPerformanceCounter();
     int result = 0;
     int preview_frames = 0;
@@ -703,8 +817,12 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             if (!build.succeeded || !checking_builds[choice]) {
                 building_choice = -1; checking_build_result = false;
                 if (!build.succeeded || !built[choice]) {
-                    error = build.error.empty() ? "The build did not finish. Please try again." : build.error;
-                    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Game build", error.c_str(), window);
+                    const auto& text = gsr_collection::collection_popup_text(building_language);
+                    error = build.error.empty() ? text.build_retry : build.error;
+                    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, text.build_title, error.c_str(), window);
+                } else if (!offer_save_language_import(window, root, choice, building_language, error)) {
+                    play_after_build = false; then_build = play_game = -1;
+                    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Save conversion", error.c_str(), window);
                 } else if (then_build >= 0) {
                     build_choice = then_build; then_build = -1;
                     continue;
@@ -721,7 +839,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             if (finished && finished_code == gbarecomp::soft_reset::kExitCode &&
                 finished_game >= 0 && finished_game < 2 && preview.empty()) {
                 error.clear();
-                if (child.start(root, finished_game, error, &settings[finished_game])) {
+                if (child.start(root, finished_game, error, &settings[finished_game], -1, true)) {
                     SDL_Delay(30); continue;
                 }
                 SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Soft Reset", error.c_str(), window);
@@ -832,7 +950,26 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             if (event.type == SDL_MOUSEMOTION) {
                 for (int i = 0; i < 2; ++i) if (cartridge_boxes[i].contains(float(event.motion.x), float(event.motion.y))) selected = i;
             }
-            if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT) {
+            int flag_hit = -1, flag_game = -1;
+            if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT)
+                for (int game = 0; game < 2; ++game)
+                    for (int flag = 0; flag < 5; ++flag)
+                        if (gsr_launcher::kGames[game].rom_sha1s[flag] &&
+                            flag_boxes[game][flag].contains(float(event.button.x),float(event.button.y))) {
+                            flag_hit = flag; flag_game = game;
+                        }
+            if (flag_hit >= 0) {
+                // Each language has its own ROM, saves and game build.
+                if (preview.empty() && flag_hit != rom_language[flag_game] && !build.running && building_choice < 0 &&
+                    pending_choice < 0 && insertion_choice < 0) {
+                    rom_language[flag_game] = flag_hit;
+                    selected = flag_game;
+                    if (!gsr_collection::set_rom_language(root, rom_language[flag_game],flag_game))
+                        error = "Could not save the language choice.";
+                    else error.clear();
+                    refresh_builds();
+                }
+            } else if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT) {
                 for (int i = 0; i < 2; ++i) if (cartridge_boxes[i].contains(float(event.button.x), float(event.button.y))) {
                     selected = i; if (play_choice < 0) play_choice = i;
                 }
@@ -875,15 +1012,13 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 play_after_build = true;
                 then_build = -1;
                 if (!built[1 - choice]) {
-                    const char* names[] = {"The Broken Seal", "The Lost Age"};
-                    const std::string message = std::string(names[choice]) + " needs to be built before it can start. " +
-                        names[1 - choice] + " needs building too. Build both now?";
-                    const std::string both = "Build both", one = std::string("Only ") + names[choice];
+                    const auto& text = gsr_collection::collection_popup_text(rom_language[choice]);
+                    const auto message = gsr_collection::build_games_message(choice, rom_language[choice]);
                     const SDL_MessageBoxButtonData buttons[] = {
-                        {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, both.c_str()},
-                        {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, one.c_str()}
+                        {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, text.build_both},
+                        {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, text.build_one}
                     };
-                    const SDL_MessageBoxData dialog{SDL_MESSAGEBOX_INFORMATION, window, "Game build",
+                    const SDL_MessageBoxData dialog{SDL_MESSAGEBOX_INFORMATION, window, text.build_title,
                                                    message.c_str(), 2, buttons, nullptr};
                     int answer = 0;
                     if (SDL_ShowMessageBox(&dialog, &answer) == 0 && answer == 1) then_build = 1 - choice;
@@ -906,12 +1041,15 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             error.clear();
             if (gsr_collection::prepare_rom(window, root, choice, rom, error)) {
                 if (builder.start(root, choice, rom, error)) {
+                    building_language = gsr_collection::rom_language(root, choice);
                     building_choice = selected = choice;
                     continue;
                 }
             }
             play_after_build = false; then_build = play_game = -1;
-            if (!error.empty()) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Game build", error.c_str(), window);
+            if (!error.empty()) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,
+                gsr_collection::collection_popup_text(gsr_collection::rom_language(root, choice)).build_title,
+                error.c_str(), window);
         }
         const double elapsed = double(SDL_GetPerformanceCounter() - start) / SDL_GetPerformanceFrequency();
         const double transition_duration = fade_only ? fade_duration : insertion_duration;
@@ -949,6 +1087,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
         const float pulse = gbarecomp::cartridge_art::pulse(seconds);
         const int inserting = preview_insertion >= 0 ? preview_choice : fade_only ? -1 : insertion_choice;
         const float insertion_progress = transition_progress;
+        for (auto& game_flags : flag_boxes) for (auto& flag_box : game_flags) flag_box = {};
         for (int i = 0; i < 2; ++i) {
             const float x = width * (i ? 0.75f : 0.25f);
             cartridge_boxes[i] = {{i ? center : 0, 208 * scale}, {i ? width : center, footer}};
@@ -985,9 +1124,56 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             draw->PopClipRect();
             if (!starting) {
                 const auto game = gsr_session::game_root(root, i);
-                centered_text(draw, body, 16 * scale, x, 477 * scale,
-                    built[i] ? IM_COL32(188, 218, 195, 255) : IM_COL32(241, 194, 78, 255),
-                    build.running && building_choice == i ? "Building..." : checking_builds[i] ? "Checking build..." : build_label(game, i, built[i]));
+                const std::string label = build.running && building_choice == i ? "Building..." :
+                    checking_builds[i] ? "Checking build..." : build_label(game, i, built[i]);
+                const ImU32 label_color = built[i] ? IM_COL32(188, 218, 195, 255) : IM_COL32(241, 194, 78, 255);
+                centered_text(draw, body, 16 * scale, x, 477 * scale, label_color, label.c_str());
+                // Hidden during a build, whose progress line runs across here.
+                if (!build.running) {
+                    // The language flags under the build status, one button each;
+                    // the chosen one glows and bounces as the selected cartridge.
+                    namespace art = gbarecomp::cartridge_art;
+                    const float flag_w = 30 * scale, flag_h = 20 * scale, gap = 14 * scale;
+                    const float flag_y = 513 * scale;
+                    const int flag_count = gsr_launcher::rom_language_count(gsr_launcher::kGames[i]);
+                    for (int f = 0; f < flag_count; ++f) {
+                        const float fx = x + (f - (flag_count - 1) / 2.0f) * (flag_w + gap);
+                        flag_boxes[i][f] = {{fx - flag_w / 2 - 4 * scale, flag_y - flag_h / 2 - 4 * scale},
+                                         {fx + flag_w / 2 + 4 * scale, flag_y + flag_h / 2 + 4 * scale}};
+                        const bool hover = !settings_open && !notes_open && !music_prompt_open &&
+                            ImGui::IsMouseHoveringRect(flag_boxes[i][f].min, flag_boxes[i][f].max, false);
+                        const Texture& flag = flags[f];
+                        // A flag is small beside a cartridge, so its pulse is
+                        // three times the cartridge's and its glow brighter
+                        // and wider (kFlagGlowAlpha, kFlagGlowSpread).
+                        constexpr float kFlagPulse = 3, kFlagGlowAlpha = 1.6f, kFlagGlowSpread = 1.25f;
+                        const float grow = f == rom_language[i] ? 1 + (pulse - 1) * kFlagPulse : 1;
+                        const art::Glow no_glow;
+                        for (const art::Piece& piece : art::selected(0, fx, flag_y, flag_w * grow, flag_h * grow,
+                                 f == rom_language[i] && flag.glow ? flag.glow_info : no_glow, scale, seconds, 1)) {
+                            if (piece.kind == art::Piece::Dot) {
+                                draw->AddCircleFilled({piece.x0, piece.y0}, piece.x1,
+                                    IM_COL32(piece.r, piece.g, piece.b, piece.a), piece.segments);
+                            } else if (piece.kind == art::Piece::GlowImage) {
+                                const float cx = (piece.x0 + piece.x1) / 2, cy = (piece.y0 + piece.y1) / 2;
+                                const float hw = (piece.x1 - piece.x0) / 2 * kFlagGlowSpread;
+                                const float hh = (piece.y1 - piece.y0) / 2 * kFlagGlowSpread;
+                                const int alpha = std::min(255, int(piece.a * kFlagGlowAlpha));
+                                draw->AddImage(reinterpret_cast<ImTextureID>(flag.glow), {cx - hw, cy - hh},
+                                               {cx + hw, cy + hh}, {0, 0}, {1, 1},
+                                               IM_COL32(piece.r, piece.g, piece.b, alpha));
+                            } else {
+                                draw->AddImage(reinterpret_cast<ImTextureID>(flag.texture),
+                                               {piece.x0, piece.y0}, {piece.x1, piece.y1}, {0, 0}, {1, 1},
+                                               IM_COL32(piece.r, piece.g, piece.b, piece.a));
+                            }
+                        }
+                        if (hover) {
+                            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                            ImGui::SetTooltip("%s ROM", gsr_launcher::kGames[i].rom_names[f]);
+                        }
+                    }
+                }
             }
         }
         if (build.running) {
@@ -1095,11 +1281,16 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
         cog->AddLine({glint.x, glint.y - 1.5f * scale}, {glint.x, glint.y + 1.5f * scale}, IM_COL32(255, 247, 206, 240), 0.75f * scale);
         ImGui::End(); ImGui::PopStyleVar();
         if (request_settings) {
-            if (preview.empty()) for (int game = 0; game < 2; ++game)
-                view_settings[game] = gsr_collection::load_view_settings(
-                    gsr_session::engine(gsr_session::game_root(root, game), game).parent_path());
-            if (preview.empty()) gbarecomp::game_options_load((gsr_session::engine(gsr_session::game_root(root, 0), 0).parent_path() /
-                                                               "game_options.ini").string());
+            if (preview.empty()) for (int game = 0; game < 2; ++game) {
+                const auto directory = gsr_session::engine(gsr_session::game_root(root, game), game).parent_path();
+                view_settings[game] = gsr_collection::load_view_settings(directory);
+                trackers[game] = gsr_collection::load_tracker_settings(directory);
+            }
+            if (preview.empty()) {
+                gbarecomp::game_options_load(game_options_file(1));
+                tla_custom_battle = gbarecomp::game_option_get(gsr::custom_battle::kOptionKey, gsr::custom_battle::kOptionDefault) != 0;
+                gbarecomp::game_options_load(game_options_file(0));
+            }
             if (preview.empty()) refresh_music();
             ImGui::OpenPopup("Settings"); request_settings = false;
         }
@@ -1154,6 +1345,32 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 ImGui::TextWrapped("At the end of the game, skip the credits, save to the file you are playing and go straight on to The Lost Age.");
                 ImGui::Separator();
             }
+            {
+                // Custom Battle Mode, in each game's own game_options.ini. The
+                // loaded options are The Broken Seal's (Seamless mode above);
+                // The Lost Age's value was read when the page opened, and a
+                // click writes its file, then loads The Broken Seal's back.
+                bool custom_battle_on = settings_game == 0
+                    ? gbarecomp::game_option_get(gsr::custom_battle::kOptionKey, gsr::custom_battle::kOptionDefault) != 0
+                    : tla_custom_battle;
+                if (ImGui::Checkbox("Choose Battle Mode opponents", &custom_battle_on) && preview.empty()) {
+                    gbarecomp::game_options_load(game_options_file(settings_game));
+                    gbarecomp::game_option_set(gsr::custom_battle::kOptionKey, custom_battle_on ? 1 : 0);
+                    if (settings_game == 1) {
+                        tla_custom_battle = custom_battle_on;
+                        gbarecomp::game_options_load(game_options_file(0));
+                    }
+                }
+                ImGui::TextWrapped(settings_game == 0
+                    ? "In Battle Mode the receptionist lets you choose how many monsters to fight, "
+                      "each one, and whether they match your party's strength. Unfinished saves "
+                      "offer what you could have met so far; Clear Data offers every opponent."
+                    : "In the Battle Arena's Monster Battles the receptionist lets you choose how many "
+                      "monsters to fight, each one, and whether they match your party's strength. "
+                      "Saves offer the monsters you have beaten and everything met up to then, "
+                      "bosses once beaten; Clear Data offers every opponent.");
+                ImGui::Separator();
+            }
             if (settings_game == 1) {
                 if (ImGui::Checkbox("Import Golden Sun save files", &preferences[1].gs_save_import) &&
                     preview.empty() && !gsr_session::save_launcher_audio_settings(
@@ -1205,20 +1422,24 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             ImGui::BeginDisabled(view.mode != 0 && view.aspect == gbarecomp::ViewAspectMinimalSharpPixels);
             view_changed |= ImGui::Checkbox("Sharp pixels", &view.sharp_pixels);
             ImGui::EndDisabled();
-            ImGui::TextWrapped("Aspect ratios fit inside the selected view. Window follows resizing; Minimal Sharp Pixels adds only enough scenery to fill the window.");
+            ImGui::TextWrapped("Aspect ratios fit inside the selected view. Window follows resizing; Pixel-perfect fit adds only enough scenery to fill the window.");
             if (view_changed && preview.empty() &&
                 !gsr_collection::save_view_settings(
                     gsr_session::engine(gsr_session::game_root(root, settings_game), settings_game).parent_path(), view))
                 error = "Could not save view settings.";
-// Commented out: TBS guide options hidden for now.
-// #ifdef GSR_COLLECTION_DEV
-//             // Quest Tracker, Guide and Area collectibles: developer builds only.
-//             if (settings_game == 0)
-//                 gsr_collection::adventure_settings(
-//                     gsr_session::engine(gsr_session::game_root(root, settings_game), settings_game).parent_path(),
-//                     preview.empty(), error);
-// #endif
+            gsr_collection::tracker_settings(
+                trackers[settings_game],
+                gsr_session::engine(gsr_session::game_root(root, settings_game), settings_game).parent_path(),
+                preview.empty(), error);
 #ifdef GSR_COLLECTION_DEV
+            ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+            ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "Save testing");
+            if (ImGui::Checkbox("Use English saves (test copy)", &game.english_save_test) &&
+                preview.empty() && !gsr_collection::save_settings(root, settings))
+                error = "Could not save the English save testing setting.";
+            ImGui::TextWrapped("Each launch starts from a fresh copy of this game's English in-game save. "
+                "Your normal saves stay untouched. Test saves and new savestates stay in "
+                "Saves/English save tests; existing savestates are not copied.");
             ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
 #ifdef _WIN32
             ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "Game options");

@@ -734,10 +734,10 @@ const char* const kHotkeyLabels[HK_COUNT] = {
     "Settings Menu",
     "Fast Forward (toggle)",
     "Cheat Menu",
-    "Auto Fire A",
-    "Auto Fire B",
+    "Auto-repeat A",
+    "Auto-repeat B",
     "Quit Game",
-    "Soft Reset",
+    "Restart game",
 };
 const char* const kHotkeyDefaults[HK_COUNT] = {
     "Alt+Return", "Shift+P", "Tab",

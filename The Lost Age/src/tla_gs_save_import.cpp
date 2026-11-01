@@ -1,4 +1,5 @@
 // Direct GS1 save transfer through TLA's existing link-data importer.
+#include "tla_rom_version.h"
 #include "tla.h"
 #include "env_flag.h"
 #include "gs_save.h"
@@ -92,16 +93,16 @@ Seamless g_seamless = Seamless::Off;
 // The Broken Seal's save, from the launcher; empty when it gave none.
 fs::path g_broken_seal_save;
 unsigned g_seamless_slot = 0;
-constexpr std::uint32_t kStartRoomSetPc = 0x08038348u;  // first call after it
+const std::uint32_t kStartRoomSetPc = TLA_ROM(0x08038348u);  // first call after it
 constexpr std::uint32_t kRoomAddr = 0x02000420u;        // u16, entrance +2
 constexpr std::uint32_t kEntranceAddr = 0x02000422u;
 constexpr std::uint16_t kIntroRoom = 0u, kTitleRoom = 1u, kStartEntrance = 1u;
-constexpr std::uint32_t kTitleNoSavesTestPc = 0x0804D5C0u;
-constexpr std::uint32_t kNamingEntryPc = 0x080382F8u;  // title code's naming call
-constexpr std::uint32_t kMessagePc = 0x08038040u;      // r0 = text ID
-constexpr std::uint32_t kQuestionText = 0x24u;
-constexpr std::uint32_t kYesNoPc = 0x08038378u;        // 0 = Yes
-constexpr std::uint32_t kMessageClosePc = 0x08038140u;
+const std::uint32_t kTitleNoSavesTestPc = TLA_ROM(0x0804D5C0u);
+const std::uint32_t kNamingEntryPc = TLA_ROM(0x080382F8u);  // title code's naming call
+const std::uint32_t kMessagePc = TLA_ROM(0x08038040u);      // r0 = text ID
+const std::uint32_t kQuestionText = TLA_TEXT(0x24u);
+const std::uint32_t kYesNoPc = TLA_ROM(0x08038378u);        // 0 = Yes
+const std::uint32_t kMessageClosePc = TLA_ROM(0x08038140u);
 
 // While the picture is covered: the frame it was covered at. Each covered
 // stretch (start to the naming; the question to the end of the import) ran
@@ -192,6 +193,10 @@ std::shared_ptr<PickerResult> browse_for_save(SDL_Window* owner_window = nullptr
     }
     fs::path base;
     if (char* dir = SDL_GetBasePath()) { base = utf8_path(dir); SDL_free(dir); }
+    // Capture translated display text before the detached picker thread starts.
+    const std::string picker_title = gbarecomp::ui_text("Select your Golden Sun save file");
+    const std::string save_filter = gbarecomp::ui_text("Golden Sun save (*.sav)");
+    const std::string all_files = gbarecomp::ui_text("All files");
 #ifdef _WIN32
     HWND owner = nullptr;
     SDL_SysWMinfo info{};
@@ -201,7 +206,7 @@ std::shared_ptr<PickerResult> browse_for_save(SDL_Window* owner_window = nullptr
 #endif
     // Only the private result is shared. Guest memory, SDL and audio remain
     // on the game thread. Closing TLA does not wait for an open file dialog.
-    std::thread([result, base
+    std::thread([result, base, picker_title, save_filter, all_files
 #ifdef _WIN32
                  , owner
 #endif
@@ -213,6 +218,17 @@ std::shared_ptr<PickerResult> browse_for_save(SDL_Window* owner_window = nullptr
                 std::fprintf(stderr, "[gs-save-import] Preselected %s\n", reinterpret_cast<const char*>(text.c_str()));
             }
 #ifdef _WIN32
+            const auto wide_text = [](const std::string& text) {
+                const int size = MultiByteToWideChar(CP_UTF8, 0, text.data(),
+                    static_cast<int>(text.size()), nullptr, 0);
+                std::wstring wide(size, L'\0');
+                MultiByteToWideChar(CP_UTF8, 0, text.data(),
+                    static_cast<int>(text.size()), wide.data(), size);
+                return wide;
+            };
+            const std::wstring title = wide_text(picker_title);
+            const std::wstring filter = wide_text(save_filter) + L'\0' + L"*.sav" + L'\0' +
+                wide_text(all_files) + L'\0' + L"*.*" + L'\0';
             wchar_t path[32768]{};
             const std::wstring initial = detected.wstring();
             std::copy_n(initial.c_str(), std::min(initial.size(), std::size(path) - 1), path);
@@ -220,20 +236,23 @@ std::shared_ptr<PickerResult> browse_for_save(SDL_Window* owner_window = nullptr
             OPENFILENAMEW ofn{};
             ofn.lStructSize = sizeof(ofn);
             ofn.hwndOwner = owner;
-            ofn.lpstrFilter = L"Golden Sun save (*.sav)\0*.sav\0All files\0*.*\0";
+            ofn.lpstrFilter = filter.c_str();
             ofn.lpstrFile = path;
             ofn.nMaxFile = static_cast<DWORD>(std::size(path));
             ofn.lpstrInitialDir = folder.empty() ? nullptr : folder.c_str();
-            ofn.lpstrTitle = L"Select your Golden Sun save file";
+            ofn.lpstrTitle = title.c_str();
             ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
             if (GetOpenFileNameW(&ofn)) result->path = fs::path(path);
             else if (CommDlgExtendedError()) result->error = "Could not open the file browser.";
 #else
             std::string command;
             if (std::system("command -v zenity >/dev/null 2>&1") == 0)
-                command = "zenity --file-selection --title='Select your Golden Sun save file' --file-filter='Golden Sun save | *.sav *.SAV' --filename=" + shell_quote(detected.string()) + " 2>/dev/null";
+                command = "zenity --file-selection --title=" + shell_quote(picker_title) +
+                    " --file-filter=" + shell_quote(save_filter + " | *.sav *.SAV") +
+                    " --filename=" + shell_quote(detected.string()) + " 2>/dev/null";
             else if (std::system("command -v kdialog >/dev/null 2>&1") == 0)
-                command = "kdialog --getopenfilename " + shell_quote(detected.empty() ? "." : detected.string()) + " '*.sav *.SAV|Golden Sun save' 2>/dev/null";
+                command = "kdialog --getopenfilename " + shell_quote(detected.empty() ? "." : detected.string()) +
+                    " " + shell_quote("*.sav *.SAV|" + save_filter) + " --title " + shell_quote(picker_title) + " 2>/dev/null";
             else result->error = "Install zenity or kdialog to browse.";
             if (!command.empty()) {
                 if (FILE* pipe = popen(command.c_str(), "r")) {
@@ -352,10 +371,10 @@ void menu_frame(gba::GbaBus& bus) {
 }
 
 int import_literal(std::uint32_t pc, std::uint32_t original, std::uint32_t* value) {
-    if (!update_active() && g_enabled && pc == 0x080381F8u && original == 0x0804D7FDu &&
-        g_cpu.R[14] == 0x020084DBu && g_cpu.R[0] == 0) begin_import();
-    if (g_import_menu.stage != ImportStage::Idle && pc == 0x0804D1DAu && original == 0x03001150u) {
-        *value = 0x080000ACu; // Existing measured no-keys stand-in.
+    if (!update_active() && g_enabled && pc == TLA_ROM(0x080381F8u) && original == TLA_ROM(0x0804D7FDu) &&
+        g_cpu.R[14] == TLA_OVL("title", 0x020084DBu) && g_cpu.R[0] == 0) begin_import();
+    if (g_import_menu.stage != ImportStage::Idle && pc == TLA_ROM(0x0804D1DAu) && original == 0x03001150u) {
+        *value = TLA_ROM(0x080000ACu); // Existing measured no-keys stand-in.
         return 1;
     }
     return g_next_literal ? g_next_literal(pc, original, value) : 0;
@@ -370,10 +389,10 @@ int import_alu(std::uint32_t pc, std::uint32_t original, std::uint32_t* value) {
     }
     if (menu.stage != ImportStage::Idle) {
         if (gba::GbaBus* bus = gbarecomp::active_bus()) {
-            if (pc == 0x0804D1EAu) {
+            if (pc == TLA_ROM(0x0804D1EAu)) {
                 menu_frame(*bus);
                 g_cpu.R[2] = menu.stage == ImportStage::Finish ? 1 : 0;
-            } else if (pc == 0x0804D94Au && bus->read32(g_cpu.R[13] + 24) == 0x020084DBu) {
+            } else if (pc == TLA_ROM(0x0804D94Au) && bus->read32(g_cpu.R[13] + 24) == TLA_OVL("title", 0x020084DBu)) {
                 // After its frame loop and window cleanup, use the original
                 // epilogue. Saved r8 is SP+4; saved caller PC is SP+24.
                 if (menu.accepted) {
@@ -382,7 +401,7 @@ int import_alu(std::uint32_t pc, std::uint32_t original, std::uint32_t* value) {
                     bus->write32(g_cpu.R[13] + 4, 0xFFFFFFFFu);
                     std::fprintf(stderr, "[gs-save-import] Imported Clear Data slot %u (level %u).\n", slot.slot, slot.level);
                 }
-                bus->write32(g_cpu.R[13] + 24, menu.accepted ? 0x02008525u : 0x020084B7u);
+                bus->write32(g_cpu.R[13] + 24, menu.accepted ? TLA_OVL("title", 0x02008525u) : TLA_OVL("title", 0x020084B7u));
                 menu.stage = ImportStage::Idle;
                 if (g_seamless == Seamless::Done) uncover();
                 menu.source.picker.reset();
@@ -425,7 +444,7 @@ void close_update() {
 
 void draw_update_action() {
     ImGui::BeginDisabled(g_import_menu.stage != ImportStage::Idle || update_active());
-    if (ImGui::Button("Update from The Broken Seal...")) {
+    if (ImGui::Button(gbarecomp::ui_text("Update from The Broken Seal..."))) {
         g_update_menu = {};
         g_update_menu.stage = UpdateStage::File;
         const auto* viewport = ImGui::GetWindowViewport();
@@ -435,8 +454,8 @@ void draw_update_action() {
         g_update_menu.source.picker = browse_for_save(SDL_GetWindowFromID(window_id));
     }
     ImGui::EndDisabled();
-    ImGui::TextUnformatted("Choose TBS Clear Data and a saved TLA slot to update.");
-    ImGui::TextUnformatted("Available before Isaac's party joins. Your current game stays paused.");
+    ImGui::TextUnformatted(gbarecomp::ui_text("Choose TBS Clear Data and a saved TLA slot to update."));
+    ImGui::TextUnformatted(gbarecomp::ui_text("Available before Isaac's party joins. Your current game stays paused."));
 }
 
 bool update_wants_keyboard() {
@@ -482,7 +501,7 @@ void draw_update_dialog() {
     auto& menu = g_update_menu;
     if (g_next_extra_draw) g_next_extra_draw();
     if (!update_active()) return;
-    constexpr const char* title = "Update from The Broken Seal";
+    const char* title = gbarecomp::ui_text("Update from The Broken Seal###TlaSaveUpdate");
     if (!ImGui::IsPopupOpen(title)) ImGui::OpenPopup(title);
     // F1 has its own OS window in windowed OpenGL play. The extra-draw
     // callback otherwise creates this modal in the game window behind it.
@@ -508,21 +527,21 @@ void draw_update_dialog() {
         }
     }
     if (menu.stage == UpdateStage::File) {
-        ImGui::TextUnformatted("Choose your TBS .sav file in the file browser.");
+        ImGui::TextUnformatted(gbarecomp::ui_text("Choose your TBS .sav file in the file browser."));
     } else if (menu.stage == UpdateStage::Slots) {
-        ImGui::TextUnformatted("Which TBS Clear Data slot should be imported?");
+        ImGui::TextUnformatted(gbarecomp::ui_text("Which TBS Clear Data slot should be imported?"));
         for (unsigned i = 0; i < menu.source.slots.size(); ++i) {
             const auto& s = menu.source.slots[i];
-            const auto label = "TBS Slot " + std::to_string(s.slot) + ": " +
-                               s.name + "  Lv." + std::to_string(s.level);
+            const auto label = std::string(gbarecomp::ui_text("TBS Slot ")) + std::to_string(s.slot) + ": " +
+                               s.name + gbarecomp::ui_text("  Lv.") + std::to_string(s.level);
             if (ImGui::Selectable(label.c_str(), menu.source.row == i)) menu.source.row = i;
         }
-        if (ImGui::Button("Next: choose TLA slot")) read_destinations();
+        if (ImGui::Button(gbarecomp::ui_text("Next: choose TLA slot"))) read_destinations();
     } else if (menu.stage == UpdateStage::Destination) {
-        ImGui::TextUnformatted("Which saved TLA adventure should receive it?");
+        ImGui::TextUnformatted(gbarecomp::ui_text("Which saved TLA adventure should receive it?"));
         for (const auto& s : menu.destinations) {
-            const auto label = "TLA Slot " + std::to_string(s.slot) + ": " + s.name +
-                "  Lv." + std::to_string(s.level) + (s.post_reunion ? " (Post-Reunion Data)" : "");
+            const auto label = std::string(gbarecomp::ui_text("TLA Slot ")) + std::to_string(s.slot) + ": " + s.name +
+                gbarecomp::ui_text("  Lv.") + std::to_string(s.level) + (s.post_reunion ? gbarecomp::ui_text(" (Post-Reunion Data)") : "");
             ImGui::BeginDisabled(s.post_reunion);
             if (ImGui::Selectable(label.c_str())) {
                 menu.destination = s.slot;
@@ -530,27 +549,31 @@ void draw_update_dialog() {
             }
             ImGui::EndDisabled();
         }
-        ImGui::TextUnformatted("Post-Reunion Data cannot be updated.");
-        if (ImGui::Button("Back")) menu.stage = UpdateStage::Slots;
+        ImGui::TextUnformatted(gbarecomp::ui_text("Post-Reunion Data cannot be updated."));
+        if (ImGui::Button(gbarecomp::ui_text("Back"))) menu.stage = UpdateStage::Slots;
     } else if (menu.stage == UpdateStage::Confirm) {
-        ImGui::Text("Import TBS Slot %u into TLA Slot %u?", menu.source.slots[menu.source.row].slot, menu.destination);
-        ImGui::TextUnformatted("This replaces the transferred TBS data in that saved adventure.");
-        ImGui::TextUnformatted("A backup of the save file will be kept before updating.");
-        ImGui::TextUnformatted("Your running game and unsaved progress will stay unchanged.");
-        ImGui::TextUnformatted("Load the updated slot to use it. Saving over it from this session");
-        ImGui::TextUnformatted("will replace this update with your running game's data.");
-        if (ImGui::Button("Update saved slot")) commit_update();
+        ImGui::Text(gbarecomp::ui_text("Import TBS Slot %u into TLA Slot %u?"), menu.source.slots[menu.source.row].slot, menu.destination);
+        ImGui::TextUnformatted(gbarecomp::ui_text("This replaces the transferred TBS data in that saved adventure."));
+        ImGui::TextUnformatted(gbarecomp::ui_text("A backup of the save file will be kept before updating."));
+        ImGui::TextUnformatted(gbarecomp::ui_text("Your running game and unsaved progress will stay unchanged."));
+        ImGui::TextUnformatted(gbarecomp::ui_text("Load the updated slot to use it. Saving over it from this session"));
+        ImGui::TextUnformatted(gbarecomp::ui_text("will replace this update with your running game's data."));
+        if (ImGui::Button(gbarecomp::ui_text("Update saved slot"))) commit_update();
         ImGui::SameLine();
-        if (ImGui::Button("Back")) menu.stage = UpdateStage::Destination;
+        if (ImGui::Button(gbarecomp::ui_text("Back"))) menu.stage = UpdateStage::Destination;
     } else if (menu.stage == UpdateStage::Updated) {
-        ImGui::Text("TLA Slot %u was updated.", menu.destination);
-        ImGui::TextUnformatted("Load that slot to use the updated data.");
-        ImGui::TextUnformatted("Your current game and unsaved progress have not changed.");
+        ImGui::Text(gbarecomp::ui_text("TLA Slot %u was updated."), menu.destination);
+        ImGui::TextUnformatted(gbarecomp::ui_text("Load that slot to use the updated data."));
+        ImGui::TextUnformatted(gbarecomp::ui_text("Your current game and unsaved progress have not changed."));
     } else if (menu.stage == UpdateStage::Error) {
-        ImGui::TextUnformatted(menu.error.c_str());
+        constexpr const char* prefix = "The save update could not finish: ";
+        const std::string error = menu.error.rfind(prefix, 0) == 0
+            ? std::string(gbarecomp::ui_text(prefix)) + menu.error.substr(std::strlen(prefix))
+            : gbarecomp::ui_text(menu.error.c_str());
+        ImGui::TextUnformatted(error.c_str());
     }
     if (menu.stage != UpdateStage::File && ImGui::Button(
-            menu.stage == UpdateStage::Updated || menu.stage == UpdateStage::Error ? "Close" : "Cancel")) close_update();
+            gbarecomp::ui_text(menu.stage == UpdateStage::Updated || menu.stage == UpdateStage::Error ? "Close" : "Cancel"))) close_update();
     ImGui::EndPopup();
 }
 #endif

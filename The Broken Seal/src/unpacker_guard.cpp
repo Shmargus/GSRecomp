@@ -44,7 +44,21 @@ constexpr std::uint32_t kForceAfter = 0x3Eu;
 constexpr std::size_t kFullJournalMax = 400'000;
 constexpr const char* kJournalFile = "unpacker_journal.csv";
 
-std::uint32_t g_rom = 0;    // Func_2808 in this game's ROM
+// Func_2544 (format0), from its ARM entry: `push {r5-r7,sb,lr}` first; the
+// pop and `bx lr` at +0x23C/+0x240 leave with no dispatch in between, so
+// every later dispatch inside it has exactly this frame.
+constexpr std::uint32_t kFormat0Size = 0x2C4u;
+constexpr std::uint32_t kFormat0Frame = 0x14u;
+// The input pointer of the TLA 0.6 crash (The Lost Age FACTS.md 2026-10-29),
+// what the Force unpacker fault test option puts in Func_2544's r0.
+constexpr std::uint32_t kFormat0ForcedInput = 0x4B120EC4u;
+
+std::uint32_t g_rom_2808 = 0;     // Func_2808 in this game's ROM
+std::uint32_t g_rom_format0 = 0;  // Func_2544, 0 if this game does not watch it
+// The unpack being watched.
+bool g_format0 = false;
+std::uint32_t g_rom = 0;    // its routine in ROM
+std::uint32_t g_size = 0;
 std::uint32_t g_start = 0;  // the resident copy being watched
 std::uint32_t g_end = 0;
 bool g_force_fault = false;
@@ -122,12 +136,43 @@ unsigned g_captures = 0;
 unsigned long long g_capture_at = 0;  // guest frame; 0 = none due
 std::string g_capture_note;
 
-bool unpacker_resident(std::uint32_t start) {
-    for (std::uint32_t off = 0; off < kUnpackerSize; off += 4u) {
-        if (bus_read_u32(start + off) != bus_read_u32(g_rom + off))
+bool unpacker_resident(std::uint32_t start, std::uint32_t rom, std::uint32_t size) {
+    for (std::uint32_t off = 0; off < size; off += 4u) {
+        if (bus_read_u32(start + off) != bus_read_u32(rom + off))
             return false;
     }
     return true;
+}
+
+const char* routine_name() {
+    return g_format0 ? "Func_2544 (format0)" : "Func_2808";
+}
+
+// The end of the GBA memory area holding `a`: EWRAM 256 KB, IWRAM 32 KB, each
+// 32 MB ROM wait-state window, anything else its 16 MB page.
+std::uint32_t area_end(std::uint32_t a) {
+    if ((a >> 24) == 0x02u) return 0x02040000u;
+    if ((a >> 24) == 0x03u) return 0x03008000u;
+    if (a >= 0x08000000u && a < 0x0E000000u) return (a & ~0x01FFFFFFu) + 0x02000000u;
+    return (a & 0xFF000000u) + 0x01000000u;
+}
+
+// Why Func_2544's state at a dispatch at `pc` inside it is one no correct run
+// has, or null. r0 is the next input byte; r1 the last output byte (its
+// format-0 path writes at ++r1, starting at dst-1) or the next one (the other
+// path writes at r1++), so it may stand one byte past the area or the start
+// of the routine at a correct end.
+const char* format0_impossible(std::uint32_t pc) {
+    const std::uint32_t entry_sp = g_entry.r[13];
+    const std::uint32_t src = g_entry.r[0], dst = g_entry.r[1];
+    const std::uint32_t in = g_cpu.R[0], out = g_cpu.R[1];
+    if (g_cpu.R[13] != (pc == g_start ? entry_sp : entry_sp - kFormat0Frame))
+        return "a stack it cannot have";
+    if (in < src || in > area_end(src)) return "its input pointer left its input";
+    if (out + 1u < dst || out > area_end(dst))
+        return "its output pointer left its output area";
+    if (dst < g_start && out > g_start) return "its output reached its own code";
+    return nullptr;
 }
 
 bool env_on(const char* name) {
@@ -284,29 +329,40 @@ void audit_return() {
 }
 
 int unmatched_return(std::uint32_t target);
-int recover(std::uint32_t at, std::uint32_t frames, bool early);
+int recover(std::uint32_t at, std::uint32_t frames, const char* early_why);
 
 }  // namespace
 
 void unpacker_guard_install(std::uint32_t rom_address) {
-    g_rom = rom_address;
+    g_rom_2808 = rom_address;
     g_force_fault = env_on("GSR_UNPACKER_FORCE_FAULT");
     g_audit = env_on("GSR_UNPACKER_AUDIT");
     g_runtime_unmatched_return_hook = &unmatched_return;
     if (g_force_fault || g_audit)
         std::fprintf(stderr, "[unpacker-guard] test options: force fault %s, "
                              "audit %s (unpacker in ROM at 0x%08X)\n",
-                     g_force_fault ? "ON" : "off", g_audit ? "ON" : "off", g_rom);
+                     g_force_fault ? "ON" : "off", g_audit ? "ON" : "off", g_rom_2808);
+}
+
+void unpacker_guard_install_format0(std::uint32_t rom_address) {
+    g_rom_format0 = rom_address;
 }
 
 void unpacker_guard_note_entry(std::uint32_t pc) {
-    if (g_irq_nest_depth != 0u || g_rom == 0u) return;
+    if (g_irq_nest_depth != 0u || g_rom_2808 == 0u) return;
     // Cheap first: most dispatches are some other routine.
-    if (bus_read_u32(pc) != bus_read_u32(g_rom)) return;
+    const std::uint32_t first = bus_read_u32(pc);
+    const bool format0 = g_rom_format0 != 0u && first == bus_read_u32(g_rom_format0);
+    if (!format0 && first != bus_read_u32(g_rom_2808)) return;
     g_unpacker_guard_pending = false;
-    if (!unpacker_resident(pc)) return;
+    const std::uint32_t rom = format0 ? g_rom_format0 : g_rom_2808;
+    const std::uint32_t size = format0 ? kFormat0Size : kUnpackerSize;
+    if (!unpacker_resident(pc, rom, size)) return;
+    g_format0 = format0;
+    g_rom = rom;
+    g_size = size;
     g_start = pc;
-    g_end = pc + kUnpackerSize;
+    g_end = pc + size;
     g_forced = false;
     g_full.clear();
     g_full_overflow = false;
@@ -374,6 +430,30 @@ bool unpacker_guard_note_dispatch(std::uint32_t pc, GuardGuestFn fn,
         }
     }
     const std::uint32_t entry_sp = g_entry.r[13];
+    if (g_format0) {
+        // Force unpacker fault: the crash's input pointer, once the output is
+        // past byte 0x3E. The next dispatch has to find it.
+        if (g_force_fault && !g_forced && pc != g_start &&
+            e.r1 - g_entry.r[1] + 1u >= kForceAfter) {
+            g_forced = true;
+            ++g_forced_total;
+            std::fprintf(stderr, "[unpacker-guard] FORCED FAULT %llu (test option): "
+                                 "%s input 0x%08X -> 0x%08X at dispatch 0x%08X, "
+                                 "output offset 0x%X\n",
+                         g_forced_total, routine_name(), g_cpu.R[0],
+                         kFormat0ForcedInput, pc, e.r1 - g_entry.r[1] + 1u);
+            g_cpu.R[0] = kFormat0ForcedInput;
+            return false;
+        }
+        const char* why = format0_impossible(pc);
+        if (!why || j.frozen) return false;
+        j.frozen = true;
+        j.frozen_ring = j.ring;
+        j.frozen_count = j.count;
+        j.frozen_next = j.next;
+        j.frozen_at = j.dispatches;
+        return recover(pc, 0u, why) != 0;
+    }
     // The Force unpacker fault test option: inside a literal (its
     // `push {r5,sb}` frame live), once the output is past byte 0x3E, push one
     // more frame of the current r5/sb. The literal's pop then takes this one
@@ -413,7 +493,7 @@ bool unpacker_guard_note_dispatch(std::uint32_t pc, GuardGuestFn fn,
         j.frozen_count = j.count;
         j.frozen_next = j.next;
         j.frozen_at = j.dispatches;
-        return recover(pc, 0u, true) != 0;
+        return recover(pc, 0u, "a stack it cannot have") != 0;
     }
     return false;
 }
@@ -438,24 +518,24 @@ bool unpacker_guard_capture_due(std::string* note) {
 namespace {
 
 void write_report(std::FILE* f, std::uint32_t target, std::uint32_t frames,
-                  bool early, std::uint32_t bad_out,
+                  const char* early_why, std::uint32_t bad_out,
                   const std::uint32_t* bad_regs, std::uint32_t bad_cpsr) {
-    if (early) {
+    if (early_why) {
         std::fprintf(f,
             "Golden Sun Recompiled -- unpacker crash caught early (recovery %u)\n"
-            "The data unpacker (0x%08X..0x%08X) dispatched 0x%08X with sp "
-            "0x%08X (entry sp 0x%08X), a stack it cannot have. The unpack was "
-            "redone on the interpreter; result below.\n\n",
-            g_recoveries, g_start, g_end, target, bad_regs[13],
-            g_entry.r[13]);
+            "The data unpacker %s (0x%08X..0x%08X) dispatched 0x%08X with sp "
+            "0x%08X (entry sp 0x%08X), input 0x%08X, output 0x%08X: %s. The "
+            "unpack was redone on the interpreter; result below.\n\n",
+            g_recoveries, routine_name(), g_start, g_end, target, bad_regs[13],
+            g_entry.r[13], bad_regs[0], bad_regs[1], early_why);
     } else {
         std::fprintf(f,
             "Golden Sun Recompiled -- unpacker crash caught (recovery %u)\n"
-            "The data unpacker (0x%08X..0x%08X) tried to return to 0x%08X instead "
-            "of its caller 0x%08X, with %u extra stack frame(s) of 8 bytes. The "
-            "unpack was redone on the interpreter; result below.\n\n",
-            g_recoveries, g_start, g_end, target, g_entry.r[14] & ~1u,
-            frames);
+            "The data unpacker %s (0x%08X..0x%08X) tried to return to 0x%08X "
+            "instead of its caller 0x%08X, with %u extra stack frame(s) of 8 "
+            "bytes. The unpack was redone on the interpreter; result below.\n\n",
+            g_recoveries, routine_name(), g_start, g_end, target,
+            g_entry.r[14] & ~1u, frames);
     }
     if (g_forced)
         std::fprintf(f, "This fault was FORCED by the Force unpacker fault test "
@@ -504,13 +584,14 @@ int unmatched_return(std::uint32_t target) {
         g_unpacker_guard_pending = false;
         return 0;
     }
-    if (target >= g_start + kBody && target < g_end) return 0;
+    // Func_2544's refill returns to +0x10C, never to where it was called from.
+    if (target >= g_start + (g_format0 ? 0u : kBody) && target < g_end) return 0;
 
-    // The shape of the known fault: `bx lr` straight after the final
+    // The shape of Func_2808's known fault: `bx lr` straight after the final
     // `pop {r5-fp,lr}`, with 1..8 unpopped 8-byte frames under it.
     const std::uint32_t sp = g_cpu.R[13];
     const std::uint32_t entry_sp = g_entry.r[13];
-    bool shape = target == (g_cpu.R[14] & ~1u) && sp < entry_sp &&
+    bool shape = !g_format0 && target == (g_cpu.R[14] & ~1u) && sp < entry_sp &&
                  (entry_sp - sp) % kLiteralFrame == 0u &&
                  entry_sp - sp <= 8u * kLiteralFrame;
     for (int i = 0; shape && i < 8; ++i) {
@@ -520,16 +601,18 @@ int unmatched_return(std::uint32_t target) {
     g_unpacker_guard_pending = false;
     if (!shape) {
         std::fprintf(stderr,
-            "[unpacker-guard] the unpacker left for 0x%08X (caller 0x%08X, sp "
+            "[unpacker-guard] %s left for 0x%08X (caller 0x%08X, sp "
             "0x%08X, entry sp 0x%08X), not the known stack shape: not "
-            "recovered\n", target, caller, sp, entry_sp);
+            "recovered\n", routine_name(), target, caller, sp, entry_sp);
         return 0;
     }
-    return recover(target, (entry_sp - sp) / kLiteralFrame, false);
+    return recover(target, (entry_sp - sp) / kLiteralFrame, nullptr);
 }
 
-// `at` is the bad return target, or for an early catch the dispatched pc.
-int recover(std::uint32_t at, std::uint32_t frames, bool early) {
+// `at` is the bad return target, or for an early catch (`early_why`, what
+// was impossible) the dispatched pc.
+int recover(std::uint32_t at, std::uint32_t frames, const char* early_why) {
+    const bool early = early_why != nullptr;
     g_unpacker_guard_pending = false;
     ++g_recoveries;
     const std::uint32_t caller = g_entry.r[14] & ~1u;
@@ -540,18 +623,18 @@ int recover(std::uint32_t at, std::uint32_t frames, bool early) {
     const std::uint32_t bad_cpsr = g_cpu.cpsr;
     if (early) {
         std::fprintf(stderr,
-            "[unpacker-guard] CAUGHT EARLY: the data unpacker dispatched 0x%08X "
-            "with sp 0x%08X (entry sp 0x%08X), output at offset 0x%X of "
-            "0x%08X; redoing the unpack on the interpreter (recovery %u)\n",
-            at, bad_regs[13], entry_sp, bad_out - g_entry.r[1] + 1u,
-            g_entry.r[1], g_recoveries);
+            "[unpacker-guard] CAUGHT EARLY: %s dispatched 0x%08X with sp "
+            "0x%08X (entry sp 0x%08X), input 0x%08X: %s; output at offset 0x%X "
+            "of 0x%08X; redoing the unpack on the interpreter (recovery %u)\n",
+            routine_name(), at, bad_regs[13], entry_sp, bad_regs[0], early_why,
+            bad_out - g_entry.r[1] + 1u, g_entry.r[1], g_recoveries);
     } else {
         std::fprintf(stderr,
-            "[unpacker-guard] CAUGHT: the data unpacker returned to 0x%08X instead "
+            "[unpacker-guard] CAUGHT: %s returned to 0x%08X instead "
             "of 0x%08X (%u extra stack frame(s), output stopped at offset 0x%X of "
             "0x%08X); redoing the unpack on the interpreter (recovery %u)\n",
-            at, caller, frames, bad_out - g_entry.r[1] + 1u, g_entry.r[1],
-            g_recoveries);
+            routine_name(), at, caller, frames, bad_out - g_entry.r[1] + 1u,
+            g_entry.r[1], g_recoveries);
     }
     // The session's first entry (an audit mismatch may have come first)
     // creates the files; later ones append.
@@ -561,7 +644,7 @@ int recover(std::uint32_t at, std::uint32_t frames, bool early) {
         ? std::fopen(kTextFile, first ? "wb" : "ab") : nullptr;
     if (f) {
         if (!first) std::fprintf(f, "\n\n");
-        write_report(f, at, frames, early, bad_out, bad_regs, bad_cpsr);
+        write_report(f, at, frames, early_why, bad_out, bad_regs, bad_cpsr);
         if (first)
             std::fprintf(f, "\n%s: %s\n", kMemoryFile, memory ? "written" : "FAILED");
         std::fflush(f);
@@ -573,13 +656,21 @@ int recover(std::uint32_t at, std::uint32_t frames, bool early) {
     const std::uint32_t src = g_entry.r[0];
     const bool rom_source = src >= 0x08000000u && src < 0x0E000000u;
     const char* refused = !rom_source ? "the source is not in ROM"
-                        : !unpacker_resident(g_start) ? "the unpacker's code was overwritten"
+                        : !unpacker_resident(g_start, g_rom, g_size)
+                        ? "the unpacker's code was overwritten"
                         : nullptr;
     if (refused) {
         std::fprintf(stderr, "[unpacker-guard] not recovered: %s\n", refused);
         if (f) {
             std::fprintf(f, "\nNOT RECOVERED: %s\n", refused);
             std::fclose(f);
+        }
+        // A Func_2544 run left to go on writes until it overwrites all of
+        // memory and itself (FACTS.md 2026-10-29); stop now, with the
+        // evidence above intact, rather than crash later with none.
+        if (g_format0) {
+            std::fprintf(stderr, "[unpacker-guard] stopping the game\n");
+            std::abort();
         }
         return 0;
     }
@@ -622,11 +713,11 @@ int recover(std::uint32_t at, std::uint32_t frames, bool early) {
         char note[256];
         if (early) {
             std::snprintf(note, sizeof note,
-                "%sunpacker crash caught early at frame %llu: dispatched 0x%08X "
-                "with sp 0x%08X (entry sp 0x%08X); output offset 0x%X of "
-                "0x%08X; redone on the interpreter (see unpacker_recovered.txt)\n",
-                g_forced ? "FORCED " : "", runtime_current_frame(), at,
-                bad_regs[13], entry_sp, bad_out - g_entry.r[1] + 1u, g_entry.r[1]);
+                "%sunpacker crash caught early at frame %llu: %s dispatched "
+                "0x%08X, %s; output offset 0x%X of 0x%08X; redone on the "
+                "interpreter (see unpacker_recovered.txt)\n",
+                g_forced ? "FORCED " : "", runtime_current_frame(), routine_name(),
+                at, early_why, bad_out - g_entry.r[1] + 1u, g_entry.r[1]);
         } else {
             std::snprintf(note, sizeof note,
                 "unpacker crash caught at frame %llu: returned to 0x%08X instead of "

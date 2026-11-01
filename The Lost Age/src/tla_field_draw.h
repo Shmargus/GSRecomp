@@ -19,6 +19,7 @@
 #include "scene_repeat.h"
 #include "tla_alhafra_ship_view.h"
 #include "tla_background_margins.h"
+#include "tla_beacon_margins.h"
 #include "tla_kept_cells.h"
 #include "tla_line_table_margins.h"
 #include "tla_room_sprite_clip.h"
@@ -26,7 +27,9 @@
 #include "tla_ship_water_margins.h"
 #include "tla_tornado_margins.h"
 #include "tla_water_ripple.h"
+#include "tla_world_map.h"
 #include "tla_world_climates.h"
+#include "tla_world_affine.h"
 #include "world_map_source.h"
 
 // What one frame hands the renderer besides its scene. Pointers may be null
@@ -101,6 +104,7 @@ inline bool tla_field_draw(gsr::FieldSceneRenderer& renderer, gsr::FieldScene& s
     if (expanded)
         tla_hide_outside_room(scene, in.ewram, in.ewram_bytes, in.iwram, in.iwram_bytes);
     tla_weather_sprite_margins(scene, margins, frame_vram, in.menu_open, &state.weather);
+    if (expanded) tla_beacon_margins(scene, margins, frame_vram, first_y);
     tla_tornado_margins(scene, margins,
         expanded && frame_vram.size() >= 0x2800u ? frame_vram.data() : nullptr,
         first_y, in.camera_hold_y);
@@ -120,6 +124,14 @@ inline bool tla_field_draw(gsr::FieldSceneRenderer& renderer, gsr::FieldScene& s
         r.ship_water = tla_ship_water_margins(scene, margins, frame_vram,
             in.ewram, in.ewram_bytes, width, height);
         r.background = tla_background_margins(scene, margins, in.ewram, in.ewram_bytes);
+        // Credits glow: one 256x128 picture, with a uniform outer colour
+        // that carries the fade. Extend that border, never wrap the light
+        // into another copy (F12 0191). The held map stays beneath it.
+        if (in.ewram && in.ewram_bytes >= 0x42Au &&
+            tla_beam_glow_frame(in.io, unsigned(in.ewram[0x428] | (in.ewram[0x429] << 8)))) {
+            margins.layers[0].vram_height = 128;
+            margins.layers[0].vram_clamp = true;
+        }
     }
     // A battle (slot 0x03000024 set, tla.h kTlaBattleSlot): sprites the game
     // reused past the screen keep their picture (tla_kept_cells.h).
@@ -191,6 +203,7 @@ inline bool tla_field_draw(gsr::FieldSceneRenderer& renderer, gsr::FieldScene& s
             renderer.upload_world_map(state.world_map.tiles().data(),
                                       state.world_map.generation());
         r.world_map = true;
+        tla_world_affine(scene, margins, in.iwram, in.iwram_bytes);
     } else {
         renderer.upload_world_map(nullptr, 0);
     }

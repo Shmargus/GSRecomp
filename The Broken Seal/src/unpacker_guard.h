@@ -34,11 +34,21 @@
 // before the bad run can write past its output into its own code (FACTS.md
 // "0.4.3 player crash: same byte 0x3E, third data set").
 //
+// The second unpacker, Func_2544 ("format0"; TBS 0x08002544, TLA 0x080128AC
+// in reloc_128a8, the same bytes), is watched the same way where a game
+// installs it. It has no stack shape to recognise; a correct run only moves
+// its input pointer forward through its input and its output pointer forward
+// through its output area, below its own code, with one fixed frame. The
+// first dispatch inside it that breaks any of that is redone the same way
+// (TLA 0.6 crash: input read from 0x4B120EC4, all of EWRAM overwritten;
+// The Lost Age FACTS.md 2026-10-29).
+//
 // Two launcher test options (off in normal play):
 // - GSR_UNPACKER_FORCE_FAULT ("Force unpacker fault"): once per unpack, after
 //   output byte 0x3E, leaves one extra 8-byte frame on the stack inside a
 //   literal, the state every crash report shows (one unpopped push {r5,sb},
 //   sb left at a scratch value), so the safety net can be tested in play.
+//   In Func_2544 it moves the input pointer to the crash's 0x4B120EC4.
 // - GSR_UNPACKER_AUDIT ("Unpacker audit"): every unpack that returns normally
 //   is run again from ROM in a sandbox (player_builder/guest_call.h) and its
 //   output compared; every dispatch is kept with all registers. The first
@@ -65,6 +75,8 @@ inline bool g_unpacker_guard_pending = false;
 // `rom_address`: Func_2808 in this game's ROM (the bytes a resident copy
 // must equal).
 void unpacker_guard_install(std::uint32_t rom_address);
+// `rom_address`: Func_2544's ARM entry in this game's ROM. After install.
+void unpacker_guard_install_format0(std::uint32_t rom_address);
 
 // The RAM dispatch hook, for every ARM dispatch it handles. note_entry starts
 // a watch when `pc` holds a resident copy of the unpacker (its first word is

@@ -1,0 +1,142 @@
+# Measured Italian counterparts; SHA-1 ca45e04b26b2f040ac63e679a459d21869f5f28d.
+# Evidence: FACTS.md, Italian ROM support (2026-10-31).
+
+[[rom]]
+usa = 0x080000B8
+italy = 0x080000B8
+evidence = "Cartridge header constant reads zero in both verified ROMs."
+
+[[rom]]
+usa = 0x080370D4
+italy = 0x08037268
+evidence = "The complete 224-byte USA menu glyph-width table occurs uniquely at this Italian ROM address."
+
+[[rom]]
+usa = 0x08016E56
+italy = 0x08016E00
+evidence = "Italian text printer Func_168f4: BL 08016DF2, ldr r3, adds r4,r0, movs r0,#0x83, lsls #2, adds, then this ldr r2 loads literal 08016E54 (08072D85), followed by ldrb, ldrb, strh [r6,#0x22]. Same delay assignment as USA."
+
+[[rom]]
+usa = 0x08073808
+italy = 0x08072D85
+evidence = "Delay table loaded by 08016E00 through literal 08016E54; its nine bytes (three speed tables) equal the USA table."
+
+[[rom]]
+usa = 0x080180C2
+italy = 0x08017FC8
+evidence = "Italian menu printer calls line start 08019B18 at 08017FC4 with state in r0, text ID in r1; return 08017FC8. Per-character result at 08017FD4 reuses r7, as in USA."
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085D2
+italy = 0x020085D2
+evidence = "Town-box OvlFunc_598 matches at the same address in decompressed Italian rom_77a7c8; identical instruction at the hook."
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085D6
+italy = 0x020085D6
+evidence = "Town-box OvlFunc_598 matches at the same address in decompressed Italian rom_77a7c8; identical instruction at the hook."
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085E4
+italy = 0x020085E4
+evidence = "Town-box OvlFunc_598 matches at the same address in decompressed Italian rom_77a7c8; identical instruction at the hook."
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085E6
+italy = 0x020085E6
+evidence = "Town-box OvlFunc_598 matches at the same address in decompressed Italian rom_77a7c8; identical instruction at the hook."
+
+[[overlay]]
+overlay = "rom_78c76c"
+usa = 0x02008EEC
+italy = 0x02008EEC
+evidence = "Sol Sanctum cloud comparison and bhi 02008FB2 remain at the same addresses in the decompressed Italian overlay."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008BE2
+italy = 0x02008C02
+evidence = "Italian receptionist handler starts 02008BB4 (+0x20); corresponding aligned instructions keep show/ask returns. Its ldr r6 at 02008BB6 references literal 02008D68, text base 0x2912."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008BEA
+italy = 0x02008C0A
+evidence = "Italian receptionist handler starts 02008BB4 (+0x20); corresponding aligned instructions keep show/ask returns. Its ldr r6 at 02008BB6 references literal 02008D68, text base 0x2912."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008BF2
+italy = 0x02008C12
+evidence = "Italian receptionist handler starts 02008BB4 (+0x20); corresponding aligned instructions keep show/ask returns. Its ldr r6 at 02008BB6 references literal 02008D68, text base 0x2912."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008C7A
+italy = 0x02008C9A
+evidence = "Italian receptionist handler starts 02008BB4 (+0x20); corresponding aligned instructions keep show/ask returns. Its ldr r6 at 02008BB6 references literal 02008D68, text base 0x2912."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008D48
+italy = 0x02008D68
+evidence = "Italian receptionist handler starts 02008BB4 (+0x20); corresponding aligned instructions keep show/ask returns. Its ldr r6 at 02008BB6 references literal 02008D68, text base 0x2912."
+
+[[text]]
+usa = 0x00000287
+italy = 0x0000037E
+evidence = "Item/enemy name routine has the same instructions; its literal at 080795F4 is 0x386 instead of 0x28F, minus 8 in both. Base+1/+2 decode Italian ring names."
+
+[[text]]
+usa = 0x00000C0A
+italy = 0x00000BBD
+evidence = "Message speed caption literal 0801D8A4, loaded by corresponding settings instructions; decodes Bassa, Media, Alta."
+
+[[text]]
+usa = 0x00000C12
+italy = 0x00000BC5
+evidence = "Settings setup literal 0801D408; decodes Auto-riposo."
+
+[[text]]
+usa = 0x00000C13
+italy = 0x00000BC6
+evidence = "Settings caption literal 0801D8AC; decodes No and Si with a Latin-1 grave accent."
+
+[[text]]
+usa = 0x00000C15
+italy = 0x00000BC8
+evidence = "Settings help literal 0801D8B4; decodes window-colour help."
+
+[[text]]
+usa = 0x00000C19
+italy = 0x00000BCC
+evidence = "Settings help base +4, as USA; decodes auto-sleep help."
+
+[[text]]
+usa = 0x00002930
+italy = 0x00002912
+evidence = "Receptionist r6 base literal 02008D68 = 0x2912; same additions +5/+6/+7 in handler; decoded Italian questions/answers match the roles."
+
+[[text]]
+usa = 0x00002935
+italy = 0x00002917
+evidence = "Receptionist r6 base literal 02008D68 = 0x2912; same additions +5/+6/+7 in handler; decoded Italian questions/answers match the roles."
+
+[[text]]
+usa = 0x00002936
+italy = 0x00002918
+evidence = "Receptionist r6 base literal 02008D68 = 0x2912; same additions +5/+6/+7 in handler; decoded Italian questions/answers match the roles."
+
+[[text]]
+usa = 0x00002937
+italy = 0x00002919
+evidence = "Receptionist r6 base literal 02008D68 = 0x2912; same additions +5/+6/+7 in handler; decoded Italian questions/answers match the roles."
+
+[[rom]]
+usa = 0x08032224
+italy = 0x0803236C
+evidence = "Shaded description font: unique S glyph anchor, all 224 advance words validated, and explicit native font/width routine literals. F12 0192; FACTS 2026-11-01."

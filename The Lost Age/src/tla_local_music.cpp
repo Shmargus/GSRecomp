@@ -19,6 +19,7 @@
 //   `bgt 0x081C0776` at 0x081C079C. Taking the branch and storing 0 there
 //   silences a voice (config/tla/main.toml).
 
+#include "tla_rom_version.h"
 #include <cstdint>
 
 #include "local_music_m4a.h"
@@ -29,12 +30,12 @@
 
 namespace {
 
-constexpr gbarecomp::m4a_music::Player kPlayer{
+const gbarecomp::m4a_music::Player kPlayer{
     0x02006A90u, 0x02006CE0u, 10u, 0x50u,
-    0x081C09D0u,                     // main routine
-    0x081C2740u,                     // MPlayStart's accepted header store
-    {0x081C078Eu, 1u, 0x081C0772u},  // left: BGT taken reaches MOVS #255
-    {0x081C079Cu, 1u, 0x081C0776u}}; // right
+    TLA_ROM(0x081C09D0u),                     // main routine
+    TLA_ROM(0x081C2740u),                     // MPlayStart's accepted header store
+    {TLA_ROM(0x081C078Eu), 1u, TLA_ROM(0x081C0772u)},  // left: BGT taken reaches MOVS #255
+    {TLA_ROM(0x081C079Cu), 1u, TLA_ROM(0x081C0776u)}}; // right
 gbarecomp::m4a_music::Replacement g_music{kPlayer, tla_local_music::recordings.data(),
                                           tla_local_music::recordings.size()};
 

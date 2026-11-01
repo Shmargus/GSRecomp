@@ -10,6 +10,9 @@
 /Archive/
 /*.exe
 /*.dll
+# Machine-local classic-console build shortcuts (absolute paths).
+/Build launcher.lnk
+/Build games.lnk
 *.gba
 *.rom
 *.sav

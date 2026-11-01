@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <string>
 
 #include "crash_handler.h"
@@ -25,18 +26,25 @@
 #include "runtime.h"
 #include "view_config.h"
 #include "tla.h"
+#include "host_config_ui.h"
+#include "../../The Broken Seal/src/spanish_menu.h"
+#include "../../The Broken Seal/src/italian_menu.h"
+#include "../../The Broken Seal/src/french_menu.h"
+#include "../../The Broken Seal/src/german_menu.h"
 
 namespace {
 
-constexpr char kRomSha1[] = "b500663220cb9bf56b9f8e8c0c544f1d6fa3a824";
-
 void on_function_entry(std::uint32_t pc) {
     tla_publish_menu_art();
+    tla_text_on_entry(pc);
     tla_gpu_field_on_entry(pc);
     tla_widescreen_on_entry(pc);
     tla_hard_mode_on_entry(pc);
     tla_gs_save_import_on_entry(pc);
     tla_local_music_on_entry(pc);
+    tla_custom_battle_on_entry(pc);
+    tla_enemy_hp_bar_on_entry(pc);
+    tla_sprite_memory_on_entry(pc);
 }
 
 }  // namespace
@@ -63,14 +71,27 @@ int main(int argc, char** argv) {
         if (std::strcmp(argv[i], "--help") == 0 ||
             std::strcmp(argv[i], "-h") == 0) {
             std::printf(
-                "TLARecomp --rom <Golden Sun - The Lost Age (USA, Europe).gba>\n"
+                "TLARecomp --rom <Golden Sun - The Lost Age.gba>\n"
                 "\n"
                 "Runs without the BIOS by default. Expected ROM SHA-1: %s\n",
-                kRomSha1);
+                tla_rom::sha1());
             return 0;
         }
     }
 
+    if (tla_rom::spanish())
+        gbarecomp::config_ui_set_translations(gsr::spanish_menu::kTable,
+            static_cast<int>(std::size(gsr::spanish_menu::kTable)));
+    else if (tla_rom::version()==tla_rom::Version::Italian)
+        gbarecomp::config_ui_set_translations(gsr::italian_menu::kTable,
+            static_cast<int>(std::size(gsr::italian_menu::kTable)));
+    else if (tla_rom::version()==tla_rom::Version::French)
+        gbarecomp::config_ui_set_translations(gsr::french_menu::kTable,
+            static_cast<int>(std::size(gsr::french_menu::kTable)));
+    else if (tla_rom::version()==tla_rom::Version::German)
+        gbarecomp::config_ui_set_translations(gsr::german_menu::kTlaTable.data(),
+            static_cast<int>(gsr::german_menu::kTlaTable.size()));
+    else gbarecomp::config_ui_set_translations(nullptr,0);
     tla_install_ram_images();
 
     gbarecomp::RunOptions options;
@@ -93,16 +114,19 @@ int main(int argc, char** argv) {
     tla_install_walk_through_walls(options);
     tla_install_spell_sparks(options);
     tla_install_gs_save_import(options, headless);
+    tla_install_custom_battle(options);
+    tla_install_enemy_hp_bar();
+    tla_install_trackers();
     tla_install_text(options);
     tla_install_rewind();
     tla_install_gpu_field();
     options.function_entry_observer = on_function_entry;
     options.builtin_game_name = "Golden Sun: The Lost Age";
-    options.builtin_rom_sha1 = kRomSha1;
+    options.builtin_rom_sha1 = tla_rom::sha1();
     // Same as Golden Sun 1: no Nintendo code runs; the
     // runtime's own stand-ins replace every BIOS service.
     options.no_bios_by_default = true;
-    options.launcher_region = "USA/Europe";
+    options.launcher_region = tla_rom::name();
     options.launcher_game_config = "game.toml";
     options.max_view_width = 480;
     options.max_view_height = 320;

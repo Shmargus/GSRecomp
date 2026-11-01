@@ -24,12 +24,14 @@
 #include "launcher_build_progress.h"
 #include "collection_storage.h"
 #include "collection_settings.h"
+#include "english_save_test.h"
 #include "launcher_online.h"
 #include "collection_session.h"
 #include "collection_preferences.h"
 #include "../engine/src/runtime/handover.h"
 #include "../engine/src/runtime/seamless.h"
 #include "../engine/src/runtime/soft_reset.h"
+#include "../player_builder/bundled_toolchain.h"
 
 #include <algorithm>
 #include <atomic>
@@ -71,6 +73,8 @@ namespace {
 bool g_collection_direct3d = false;
 bool g_collection_tests_supplied = false;
 gsr_collection::GameSettings g_collection_tests;
+fs::path g_english_test_base;
+gsr_collection::TestProgress g_test_progress;
 fs::path g_collection_root;
 bool g_collection_update_checked = false;
 bool g_collection_activation_pending = false;
@@ -334,6 +338,7 @@ bool prepare_collection_rom(const fs::path& root, std::wstring& rom, HWND owner,
 }
 
 fs::path active_save_path(const fs::path& root) {
+    if (!g_test_progress.save.empty()) return g_test_progress.save;
     return gsr_collection::managed_paths(g_collection_root.empty()
         ? gsr_collection::infer_collection_root(root) : g_collection_root,
         session_game().stem).save;
@@ -1358,13 +1363,13 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
     gsr::CommonEnvironment common;
     common.controls_dir = wide_to_utf8((g_collection_root / L"Controls").wstring());
     fs::create_directories(g_collection_root / "Controls");
-    common.state_base = wide_to_utf8(files.state_base.wstring());
+    common.state_base = wide_to_utf8((g_test_progress.state_base.empty()
+        ? files.state_base : g_test_progress.state_base).wstring());
     common.heal_cache = wide_to_utf8((root / L"recomp_cache").wstring());
     // Release: point the game's self-heal at the bundled g++ (absent on dev).
-    if (std::filesystem::exists(root / L"builder" / L"mingw64" / L"bin" /
-                                L"g++.exe")) {
-        common.heal_toolchain = wide_to_utf8((root / L"builder" / L"mingw64").wstring());
-    }
+    const fs::path toolchain = bundled_toolchain(root);
+    if (std::filesystem::exists(toolchain / L"bin" / L"g++.exe"))
+        common.heal_toolchain = wide_to_utf8(toolchain.wstring());
     if (session_game_index == 1)  // The Lost Age imports Golden Sun saves.
         common.save_import = g_audio_settings.gs_save_import;
     // Enhanced Options: experimental fixes, room-buffer rendering and host
@@ -1522,7 +1527,7 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
 
     std::wstring command = L"\"" + game.wstring() + L"\"";
     command += L" --rom \"" + rom + L"\"";
-    command += L" --save \"" + files.save.wstring() + L"\"";
+    command += L" --save \"" + active_save_path(root).wstring() + L"\"";
     // Developer-only replay seam. The normal launcher command is unchanged
     // when these inherited variables are absent. Input replay is already
     // inherited by ChildEnvironment; these controls only bridge the state
@@ -2825,6 +2830,16 @@ int gsr_session_main(int game, int, char**) {
                 }
                 g_collection_tests_supplied = true;
             }
+            else if (std::wcscmp(arguments[i], L"--english-save-test") == 0) {
+                if (!g_english_test_base.empty() || ++i >= argument_count ||
+                    !fs::path(arguments[i]).is_absolute()) {
+                    MessageBoxW(nullptr, L"The English test save needs one absolute path.",
+                                session_game().title_w, MB_OK | MB_ICONERROR);
+                    LocalFree(arguments);
+                    return 1;
+                }
+                g_english_test_base = arguments[i];
+            }
             else if (std::wcscmp(arguments[i], L"--collection-root") == 0) {
                 if (++i >= argument_count || !fs::path(arguments[i]).is_absolute()) {
                     MessageBoxW(nullptr, L"The collection folder must be an absolute path.",
@@ -2837,7 +2852,7 @@ int gsr_session_main(int game, int, char**) {
         }
         LocalFree(arguments);
     }
-    if (g_collection_tests_supplied && (kReleaseLauncher || !collection_play)) {
+    if ((g_collection_tests_supplied || !g_english_test_base.empty()) && (kReleaseLauncher || !collection_play)) {
         MessageBoxW(nullptr, L"Collection test settings require a developer collection launch.",
                     session_game().title_w, MB_OK | MB_ICONERROR);
         return 1;
@@ -2848,6 +2863,14 @@ int gsr_session_main(int game, int, char**) {
         return 1;
     }
     const fs::path root = gsr_session::game_root(g_collection_root, session_game_index);
+    if (!g_english_test_base.empty()) {
+        std::string error;
+        if (!gsr_collection::open_english_save_test(g_collection_root, session_game_index,
+                                                  g_english_test_base, g_test_progress, error)) {
+            MessageBoxW(nullptr, utf8_to_wide(error).c_str(), session_game().title_w, MB_OK | MB_ICONERROR);
+            return 1;
+        }
+    }
     // "Skip the ROM check" (any_rom.h): this session, the builder and the game
     // all read it from here.
     _putenv_s(gbarecomp::kAnyRomEnv, load_launcher_audio_settings(root).any_rom ? "1" : "0");

@@ -34,6 +34,19 @@ Developer launcher sessions always capture host profiling, cost probe and
 present cadence, including when Test variables is off. These three boxes
 are fixed on in developer settings; other tests remain optional.
 
+For language testing, Settings > either game > Save testing offers **Use
+English saves (test copy)**. It starts with a fresh copy of that game's English
+in-game save and keeps test saves/states under `Saves/English save tests`.
+English and normal language-specific progress stays untouched; existing
+savestates are not copied across ROM languages. Existing savestates for every
+language must be retained through player updates and flag changes; the English
+filenames remain compatible. Test-copy mode is developer-only, including when
+a player launcher finds old developer settings. F2 states require their original
+ROM language; sharing a filename does not convert the captured game session. Restart game keeps the current
+test copy; starting again from the selector makes a fresh one. The checkbox is
+off by default, remembered per game, and independent of Test variables.
+Rebuild the launcher with `build_launcher.bat` after changing launcher sources.
+
 Music mods (`Music/TBS`, `Music/TLA`, see [MUSIC_MODS.md](MUSIC_MODS.md))
 work the same in developer and player builds; `Music/` is never committed.
 The engine decodes FLAC with dr_flac: a copy in `engine/third_party/dr_libs`
@@ -48,6 +61,41 @@ build_dev.bat -Game BrokenSeal   one game (also updates the launcher)
 build_dev.bat -Game LostAge
 build_dev.bat -CheckOnly         check dependencies; builds and writes nothing
 ```
+
+The Broken Seal builds for the language its launcher flag picks
+(`local/broken-seal-language.txt`; English, Spanish, Italian, French or German). Each
+language has its own ROM and saves: `ROMs/The Broken Seal.gba`, or the same
+name with ` (Spain)`, ` (Italy)`, ` (France)` or ` (Germany)` before `.gba`. USA/Europe uses
+`local/gs011`, Spain `local/es/gs011`, Italy `local/it/gs011`, France `local/fr/gs011`, and Germany
+`local/de/gs011`. `scripts/build_game.ps1` makes localized code with the player
+builder from `config/es`, `config/it`, `config/fr` or `config/de` the first time and whenever
+the ROM, configs or gba_recompile change (`local/game_code_revision.txt`
+records the choice). Switching ROM recompiles all the game code.
+
+The Lost Age has the same five language flags, saved independently in
+`local/lost-age-language.txt`. Localized ROMs use `ROMs/The Lost Age` with
+` (Spain)`, ` (Italy)`, ` (France)` or ` (Germany)` before `.gba`; each has its
+own saves/states. Game code lives under `The Lost Age/local/es/tla`,
+`local/it/tla`, `local/fr/tla` or `local/de/tla`. Windows developer builds and
+Windows/Linux player builders use the corresponding `config/es`, `config/it`,
+`config/fr` or `config/de`. After changing launcher sources, close it and run
+`build_launcher.bat` before selecting a new flag and building The Lost Age.
+
+The build-one/both question uses the flag of the game you selected. Save
+conversion questions use the flag of the game just built, including when the
+two games have different flags. Titles, messages and buttons follow that
+language. Rebuild the launcher with `build_launcher.bat` after changing this
+wording.
+
+After a successful build for a new language, the launcher offers to convert
+that game's English in-game save if it exists and there is no save for the new
+language. This option is available in both player and developer launchers.
+The prompt warns in all five languages that only in-game saves transfer;
+F-key savestates (F2, etc.) do NOT carry over and remain in their original
+language. It also warns that characters move to the nearest sanctuary.
+Accepting keeps the English original and creates a separate save for the
+chosen language; existing savestates remain untouched. Declining is remembered
+for that game/language, and existing language saves are never replaced.
 
 The Lost Age's harvested RAM code (code the game ran from RAM in play
 sessions) is most of its compile, so developer builds leave it out by

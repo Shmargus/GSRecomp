@@ -14,6 +14,7 @@
 #include "host_config_ui.h"
 #include "runtime_bus_bridge.h"
 #include "widescreen_policy.h"
+#include "rom_version.h"
 
 #ifdef GBARECOMP_HAVE_IMGUI
 #include "imgui.h"
@@ -99,9 +100,9 @@ bool rect_is_room(const Rect& r) {
 // passes a different cell per slot. room_buffer_on_function_args currently
 // only recognises them; the offsets used for drawing come from the scroll
 // registers (layer_offset).
-constexpr std::uint32_t kFieldTilemapWriters[6] = {
-    0x0800FEC8u, 0x0800FF54u, 0x08010230u,
-    0x08010424u, 0x08010560u, 0x08010788u,
+const std::uint32_t kFieldTilemapWriters[6] = {
+    gs::rom(0x0800FEC8u), gs::rom(0x0800FF54u), gs::rom(0x08010230u),
+    gs::rom(0x08010424u), gs::rom(0x08010560u), gs::rom(0x08010788u),
 };
 
 // Slot 0/1/2 maps to the screenblock at 0x2800/0x3000/0x3800, i.e. BG3/BG2/BG1

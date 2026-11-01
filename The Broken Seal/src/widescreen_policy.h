@@ -5,6 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include "rom_version.h"
 
 namespace gsr::widescreen {
 
@@ -71,23 +72,23 @@ struct GoldenSunViewportBranchReview {
     bool forced_decision;
 };
 
-inline constexpr std::array<GoldenSunViewportBranchReview,
+inline const std::array<GoldenSunViewportBranchReview,
                              static_cast<std::size_t>(
                                  GoldenSunViewportBranchSite::Count)>
     kGoldenSunViewportBranchReviews{{
-        {0x0800B27Eu, false},
-        {0x0800B324u, false},
-        {0x0800B328u, false},
-        {0x0800B3D2u, true},
-        {0x0800B3DCu, true},
-        {0x0800B3E6u, true},
-        {0x0800B3ECu, true},
-        {0x0800C6FAu, true},
-        {0x0800C702u, false},
-        {0x0800C708u, false},
+        {gs::rom(0x0800B27Eu), false},
+        {gs::rom(0x0800B324u), false},
+        {gs::rom(0x0800B328u), false},
+        {gs::rom(0x0800B3D2u), true},
+        {gs::rom(0x0800B3DCu), true},
+        {gs::rom(0x0800B3E6u), true},
+        {gs::rom(0x0800B3ECu), true},
+        {gs::rom(0x0800C6FAu), true},
+        {gs::rom(0x0800C702u), false},
+        {gs::rom(0x0800C708u), false},
     }};
 
-inline constexpr int golden_sun_viewport_branch_site_index(
+inline int golden_sun_viewport_branch_site_index(
     std::uint32_t pc) {
     for (std::size_t i = 0; i < kGoldenSunViewportBranchReviews.size();
          ++i) {
@@ -167,12 +168,12 @@ inline constexpr bool golden_sun_expanded_viewport_branch_override(
     }
     const int index = golden_sun_viewport_branch_site_index(pc);
     if (index < 0) return false;
-    const bool object_x_route = pc == 0x0800B324u;
+    const bool object_x_route = pc == GS_ROM(0x0800B324u);
     // B328 is an alternate writer route. Its widened fall-through can create
     // an unauthenticated positive-Y OAM entry, so preserve the guest decision
     // here. A narrower parent-correlated helper below handles the one proven
     // route without making this generic policy depend on runtime state.
-    const bool object_y_route = pc == 0x0800B27Eu;
+    const bool object_y_route = pc == GS_ROM(0x0800B27Eu);
     if (object_x_route) {
         // B322 compares r4 against 239; admit x=240 out to the view's right
         // edge plus the actor-reference slack above (240..335 as measured).
@@ -198,7 +199,7 @@ inline constexpr bool golden_sun_expanded_viewport_branch_override(
     }
     // Func_b388 lower-X/lower-Y: admit only the new lower band. A stock
     // accepted decision is never rewritten.
-    if (pc == 0x0800B3D2u) {
+    if (pc == GS_ROM(0x0800B3D2u)) {
         const std::int64_t lower = -static_cast<std::int64_t>(
             golden_sun_actor_precull_negative_x_padding(extra_left));
         const std::int64_t stock_lower = -32;
@@ -210,7 +211,7 @@ inline constexpr bool golden_sun_expanded_viewport_branch_override(
         }
         return false;
     }
-    if (pc == 0x0800B3E6u) {
+    if (pc == GS_ROM(0x0800B3E6u)) {
         const std::int64_t lower = -static_cast<std::int64_t>(
             golden_sun_actor_precull_negative_y_padding(extra_top));
         const std::int64_t stock_lower = -32;
@@ -224,7 +225,7 @@ inline constexpr bool golden_sun_expanded_viewport_branch_override(
     }
     // Func_b388 upper-X/upper-Y: admit only the new upper band. A stock
     // accepted decision is never rewritten.
-    if (pc == 0x0800B3DCu) {
+    if (pc == GS_ROM(0x0800B3DCu)) {
         const std::int64_t upper = 2 * static_cast<std::int64_t>(
             golden_sun_actor_precull_right_half_limit(extra_right));
         if (!original_decision && compared_value > 272 &&
@@ -234,7 +235,7 @@ inline constexpr bool golden_sun_expanded_viewport_branch_override(
         }
         return false;
     }
-    if (pc == 0x0800B3ECu) {
+    if (pc == GS_ROM(0x0800B3ECu)) {
         const std::int64_t upper = static_cast<std::int64_t>(
             golden_sun_actor_precull_bottom_limit(extra_bottom));
         if (!original_decision && compared_value > 208 &&
@@ -246,7 +247,7 @@ inline constexpr bool golden_sun_expanded_viewport_branch_override(
     }
     // Func_c62c upper-X: retain the unsigned lower behavior and widen only
     // the interval above the stock literal.
-    if (pc == 0x0800C6FAu) {
+    if (pc == GS_ROM(0x0800C6FAu)) {
         const std::uint32_t operand = static_cast<std::uint32_t>(
             compared_value);
         constexpr std::uint32_t stock_upper = 0x012FFFFEu;
@@ -270,7 +271,7 @@ inline constexpr bool golden_sun_expanded_viewport_branch_override(
     }
     // Func_c62c lower-Y: this is a direct reject branch, so bypass only a
     // taken reject whose signed operand is above the expanded lower bound.
-    if (pc == 0x0800C702u) {
+    if (pc == GS_ROM(0x0800C702u)) {
         const std::int64_t lower = static_cast<std::int64_t>(
             static_cast<std::int32_t>(
                 golden_sun_field_list_y_lower_literal(extra_top)));
@@ -283,7 +284,7 @@ inline constexpr bool golden_sun_expanded_viewport_branch_override(
     }
     // Func_c62c upper-Y: bypass a taken reject through the expanded upper
     // boundary; values above it remain rejected.
-    if (pc == 0x0800C708u) {
+    if (pc == GS_ROM(0x0800C708u)) {
         const std::int64_t upper = (208ll + extra_bottom) << 16;
         if (original_decision &&
             static_cast<std::int64_t>(compared_value) <= upper) {
@@ -428,8 +429,8 @@ inline constexpr int golden_sun_oam_shadow_slot(std::uint32_t attr0_address) {
 // B27E writes the second word and B328 writes the first word of the slot.
 inline constexpr std::uint32_t golden_sun_obj_y_provenance_offset(
     std::uint32_t branch_pc) {
-    return branch_pc == 0x0800B27Eu ? 16u
-         : branch_pc == 0x0800B328u ? 4u
+    return branch_pc == GS_ROM(0x0800B27Eu) ? 16u
+         : branch_pc == GS_ROM(0x0800B328u) ? 4u
                                     : UINT32_MAX;
 }
 
@@ -439,7 +440,7 @@ inline constexpr std::uint32_t golden_sun_obj_y_provenance_offset(
 inline constexpr bool golden_sun_obj_y_branch_writes_oam(
     std::uint32_t branch_pc, std::uint32_t original_decision,
     bool overridden, std::uint32_t resulting_decision) {
-    if (branch_pc != 0x0800B27Eu && branch_pc != 0x0800B328u) return false;
+    if (branch_pc != GS_ROM(0x0800B27Eu) && branch_pc != GS_ROM(0x0800B328u)) return false;
     return (overridden ? resulting_decision : original_decision) == 0u;
 }
 
@@ -476,7 +477,7 @@ inline constexpr unsigned kGoldenSunObjParkRawY = 192u;
 inline constexpr bool golden_sun_obj_x_provenance_address(
     std::uint32_t branch_pc, std::uint32_t r7,
     std::uint32_t* out_attr0_address) {
-    if (!out_attr0_address || branch_pc != 0x0800B324u ||
+    if (!out_attr0_address || branch_pc != GS_ROM(0x0800B324u) ||
         r7 > UINT32_MAX - 4u) {
         return false;
     }

@@ -67,7 +67,8 @@ public:
         if (pc != player_.header_store || address != player_.info || width != 4u ||
             !enabled())
             return;
-        player_state(header, 0, 0, 0, true);
+        // MPlayStart has not initialised the new tracks yet.
+        player_state(header, 0, 1.0f, true);
     }
 
     // Conditional-branch override: steer an owned voice to the MOVS #255.
@@ -95,8 +96,7 @@ public:
         const bool was_active = active_;
         if (enabled()) {
             player_state(bus_read_u32(player_.info), bus_read_u32(player_.info + 4),
-                         bus_read_u16(player_.info + 0x24),
-                         bus_read_u16(player_.info + 0x28), restart);
+                         volume_gain(), restart);
         } else if (active_) {
             active_ = false;
             local_music_playback(false, false, 0.0f, false);
@@ -128,12 +128,29 @@ private:
         return 0;
     }
 
-    // status bit 31: paused. A fade scales the recording like the song.
+    // MPlayVolumeControl and the fade routine both write the track's public
+    // volume at +0x13; 64 is unity (MPlayMain's initial value). Follow that
+    // final value, rather than multiplying a fade by the same volume twice.
+    // A mixed recording has one gain: use the first live, initialised track.
+    // In particular, skip C0 tracks: their volume still belongs to the old
+    // song until MPlayMain clears the initialisation flag (0x40).
+    float volume_gain() const {
+        for (std::uint32_t i = 0; i < player_.track_count; ++i) {
+            const std::uint32_t track = player_.tracks + i * player_.track_bytes;
+            if ((bus_read_u8(track) & 0xC0u) == 0x80u)
+                return float(bus_read_u8(track + 0x13)) / 64.0f;
+        }
+        // Before the first track is initialised, retain the existing fade
+        // behaviour. Once tracks run, they carry jingles' duck/recovery too.
+        return bus_read_u16(player_.info + 0x24)
+                   ? float(bus_read_u16(player_.info + 0x28) & 0xFFFCu) / 256.0f
+                   : 1.0f;
+    }
+
+    // status bit 31: paused. Volume follows the running song's driver.
     void player_state(std::uint32_t header, std::uint32_t status,
-                      std::uint16_t fade_period, std::uint16_t fade_volume,
-                      bool restart) {
+                      float gain, bool restart) {
         active_ = local_music_select(recording_for(header));
-        const float gain = fade_period ? float(fade_volume & 0xFFFCu) / 256.0f : 1.0f;
         local_music_playback(active_, (status & 0x80000000u) != 0, gain, restart);
     }
 

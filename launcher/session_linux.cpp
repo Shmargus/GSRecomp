@@ -57,6 +57,7 @@
 #include "launcher_online.h"
 #include "collection_storage.h"
 #include "collection_settings.h"
+#include "english_save_test.h"
 #include "session_environment.h"
 #include "launcher_widescreen_diagnostics_policy.h"
 #include "../engine/src/runtime/seamless.h"
@@ -70,6 +71,8 @@ namespace {
 bool g_collection_play = false;
 bool g_collection_tests_override = false;
 gsr_collection::GameSettings g_collection_settings;
+fs::path g_english_test_base;
+gsr_collection::TestProgress g_test_progress;
 bool g_collection_update_checked = false;
 bool g_collection_activation_pending = false;
 // Forward Seamless handovers to the collection window; Soft Reset stays here.
@@ -395,7 +398,8 @@ GameResult run_game(const std::string& rom) {
     gsr::CommonEnvironment common;
     common.controls_dir = (g_collection_root / "Controls").string();
     fs::create_directories(g_collection_root / "Controls");
-    common.state_base = g_collection_play ? g_managed.state_base.string() : std::string();
+    common.state_base = !g_test_progress.state_base.empty() ? g_test_progress.state_base.string() :
+        g_collection_play ? g_managed.state_base.string() : std::string();
     common.heal_cache = (g_root / "recomp_cache").string();
     // Release: point the game's self-heal at the bundled g++ (absent on dev).
     if (fs::exists(g_root / "builder" / "toolchain" / "bin" / "g++"))
@@ -496,7 +500,7 @@ GameResult run_game(const std::string& rom) {
     const std::string game = gsr_session::engine(g_root, session_game_index).string();
     const std::string root_s = g_root.string();
     std::string rom_arg = rom;
-    std::string save_arg = g_managed.save.string();
+    std::string save_arg = (g_test_progress.save.empty() ? g_managed.save : g_test_progress.save).string();
     std::vector<char*> argv = {const_cast<char*>(game.c_str()),
                                const_cast<char*>("--rom"), rom_arg.data(), nullptr};
     if (g_collection_play) {
@@ -614,7 +618,7 @@ std::vector<fs::path> make_bug_report(const GameResult& game) {
     // The game's save (the managed one in collection play, else beside the ROM:
     // runtime.cpp uses the ROM path with .sav), so the problem can be replayed.
     if (!game.rom.empty())
-        copy_into_report(g_collection_play ? g_managed.save :
+        copy_into_report(!g_test_progress.save.empty() ? g_test_progress.save : g_collection_play ? g_managed.save :
             fs::path(game.rom).replace_extension(".sav"), staging);
     copy_report_files(g_root, g_root, g_root, game.crashed, staging);
     write_text(staging / "report_info.txt",
@@ -1018,6 +1022,11 @@ int gsr_session_main(int game, int argc, char** argv) {
         }
         else if (std::strcmp(argv[i], "--collection-play") == 0)
             g_collection_play = true;
+        else if (std::strcmp(argv[i], "--english-save-test") == 0) {
+            if (!g_english_test_base.empty() || i + 1 >= argc || !fs::path(argv[i + 1]).is_absolute())
+                settings_error = "The English test save needs one absolute path.";
+            else g_english_test_base = argv[++i];
+        }
         else if (std::strcmp(argv[i], "--collection-update-checked") == 0)
             g_collection_update_checked = true;
         else if (std::strcmp(argv[i], "--collection-root") == 0 && i + 1 < argc)
@@ -1027,10 +1036,10 @@ int gsr_session_main(int game, int argc, char** argv) {
             seamless_slot = gbarecomp::seamless::parse_slot(argv[++i]);
         }
     }
-    if (g_collection_tests_override && !g_collection_play)
+    if ((g_collection_tests_override || !g_english_test_base.empty()) && !g_collection_play)
         settings_error = "Collection test settings require collection play.";
 #ifndef GSR_LINUX_DEV_LAUNCHER
-    if (g_collection_tests_override)
+    if (g_collection_tests_override || !g_english_test_base.empty())
         settings_error = "Collection test settings require the developer launcher.";
 #endif
     if (!settings_error.empty()) {
@@ -1043,6 +1052,14 @@ int gsr_session_main(int game, int argc, char** argv) {
         return 1;
     }
     g_root = gsr_session::game_root(g_collection_root, session_game_index);
+    if (!g_english_test_base.empty()) {
+        std::string error;
+        if (!gsr_collection::open_english_save_test(g_collection_root, session_game_index,
+                                                  g_english_test_base, g_test_progress, error)) {
+            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, session_game().title, error.c_str(), nullptr);
+            return 1;
+        }
+    }
     // "Skip the ROM check" (any_rom.h): this session, the builder and the game
     // all read it from here.
     setenv(gbarecomp::kAnyRomEnv,
@@ -1490,7 +1507,7 @@ int gsr_session_main(int game, int argc, char** argv) {
                 // Golden Sun's flash save is 64 KiB; the engine refuses a larger
                 // .sav (runtime.cpp "save file too large"), so say why.
                 constexpr std::uintmax_t kGameSaveBytes = 0x10000;
-                const fs::path save = g_collection_play ? g_managed.save :
+                const fs::path save = !g_test_progress.save.empty() ? g_test_progress.save : g_collection_play ? g_managed.save :
                     fs::path(pending.substr(6)).replace_extension(".sav");
                 std::error_code save_ec;
                 const std::uintmax_t save_size = fs::file_size(save, save_ec);

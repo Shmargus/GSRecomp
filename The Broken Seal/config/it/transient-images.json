@@ -1,0 +1,600 @@
+{
+ "transient-func-15430-0300347c.toml": [
+  {
+   "runtime_start": "0x0300347c",
+   "usa_source": "0x08015430",
+   "target_source": "0x08015430",
+   "usa_size": 320,
+   "target_size": 320,
+   "usa_sha1": "d49cef2181ce6f9fee635daa0ba3b072d336109a",
+   "target_sha1": "db7198c6f32475390376c2a2bed61066070650a3",
+   "source": "mapped"
+  },
+  {
+   "runtime_start": "0x030035bc",
+   "usa_source": "0x08015570",
+   "target_source": "0x08015570",
+   "usa_size": 96,
+   "target_size": 96,
+   "usa_sha1": "20f9190c9b7aac90e091beff5f7e54a46ba833eb",
+   "target_sha1": "2bfd502f199899d10fe2398ac2cfdd1d19cef744",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-15430-03003b9c.toml": [
+  {
+   "runtime_start": "0x03003b9c",
+   "usa_source": "0x08015430",
+   "target_source": "0x08015430",
+   "usa_size": 320,
+   "target_size": 320,
+   "usa_sha1": "d49cef2181ce6f9fee635daa0ba3b072d336109a",
+   "target_sha1": "db7198c6f32475390376c2a2bed61066070650a3",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-15570-03003cdc.toml": [
+  {
+   "runtime_start": "0x03003cdc",
+   "usa_source": "0x08015570",
+   "target_source": "0x08015570",
+   "usa_size": 96,
+   "target_size": 96,
+   "usa_sha1": "20f9190c9b7aac90e091beff5f7e54a46ba833eb",
+   "target_sha1": "2bfd502f199899d10fe2398ac2cfdd1d19cef744",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-158e8-0300347c.toml": [
+  {
+   "runtime_start": "0x0300347c",
+   "usa_source": "0x080158e8",
+   "target_source": "0x080158c4",
+   "usa_size": 532,
+   "target_size": 532,
+   "usa_sha1": "03e57ceee902e248334bb546cd32716edf90fca3",
+   "target_sha1": "e34eb40fec43c8cd1d88b3c9d95f996831bce663",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-15afc-03003a84.toml": [
+  {
+   "runtime_start": "0x03003a84",
+   "usa_source": "0x08015afc",
+   "target_source": "0x08015ad8",
+   "usa_size": 632,
+   "target_size": 632,
+   "usa_sha1": "f6ab01b56876f8d1b72a4bf5239bd5cbac620cb0",
+   "target_sha1": "f6ab01b56876f8d1b72a4bf5239bd5cbac620cb0",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-15e10-03003a84.toml": [
+  {
+   "runtime_start": "0x03003a84",
+   "usa_source": "0x08015e10",
+   "target_source": "0x08015dec",
+   "usa_size": 124,
+   "target_size": 124,
+   "usa_sha1": "50cf8d2eaf6ba74b7ae74a97458d04214a00af57",
+   "target_sha1": "50cf8d2eaf6ba74b7ae74a97458d04214a00af57",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-1dc8-relocatable.toml": [
+  {
+   "runtime_start": "0x03002400",
+   "usa_source": "0x08001dc8",
+   "target_source": "0x08001dc8",
+   "usa_size": 224,
+   "target_size": 224,
+   "usa_sha1": "c2e9ace3620fc779387d91100c97071ebf21640b",
+   "target_sha1": "c2e9ace3620fc779387d91100c97071ebf21640b",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-2544-03006000.toml": [
+  {
+   "runtime_start": "0x03006000",
+   "usa_source": "0x08002544",
+   "target_source": "0x08002544",
+   "usa_size": 708,
+   "target_size": 708,
+   "usa_sha1": "b8967c9f00835f22da02cce31595588bb05496e6",
+   "target_sha1": "b8967c9f00835f22da02cce31595588bb05496e6",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-2544.toml": [
+  {
+   "runtime_start": "0x03002000",
+   "usa_source": "0x08002544",
+   "target_source": "0x08002544",
+   "usa_size": 708,
+   "target_size": 708,
+   "usa_sha1": "b8967c9f00835f22da02cce31595588bb05496e6",
+   "target_sha1": "b8967c9f00835f22da02cce31595588bb05496e6",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-2808-03006000.toml": [
+  {
+   "runtime_start": "0x03006000",
+   "usa_source": "0x08002808",
+   "target_source": "0x08002808",
+   "usa_size": 1260,
+   "target_size": 1260,
+   "usa_sha1": "5fd23904086a4129fe3472dbf6658bb5e73f0363",
+   "target_sha1": "5fd23904086a4129fe3472dbf6658bb5e73f0363",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-2cf4-03007ba4.toml": [
+  {
+   "runtime_start": "0x03007ba4",
+   "usa_source": "0x08002cf4",
+   "target_source": "0x08002cf4",
+   "usa_size": 104,
+   "target_size": 104,
+   "usa_sha1": "87b609455a1aa6cd4f6251a73f8e15f4b6bc9c05",
+   "target_sha1": "87b609455a1aa6cd4f6251a73f8e15f4b6bc9c05",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-2cf4-03007dbc.toml": [
+  {
+   "runtime_start": "0x03007dbc",
+   "usa_source": "0x08002cf4",
+   "target_source": "0x08002cf4",
+   "usa_size": 104,
+   "target_size": 104,
+   "usa_sha1": "87b609455a1aa6cd4f6251a73f8e15f4b6bc9c05",
+   "target_sha1": "87b609455a1aa6cd4f6251a73f8e15f4b6bc9c05",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-2cf4-03007dc4.toml": [
+  {
+   "runtime_start": "0x03007dc4",
+   "usa_source": "0x08002cf4",
+   "target_source": "0x08002cf4",
+   "usa_size": 104,
+   "target_size": 104,
+   "usa_sha1": "87b609455a1aa6cd4f6251a73f8e15f4b6bc9c05",
+   "target_sha1": "87b609455a1aa6cd4f6251a73f8e15f4b6bc9c05",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-2cf4-03007dc8.toml": [
+  {
+   "runtime_start": "0x03007dc8",
+   "usa_source": "0x08002cf4",
+   "target_source": "0x08002cf4",
+   "usa_size": 104,
+   "target_size": 104,
+   "usa_sha1": "87b609455a1aa6cd4f6251a73f8e15f4b6bc9c05",
+   "target_sha1": "87b609455a1aa6cd4f6251a73f8e15f4b6bc9c05",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-2cf4-relocatable.toml": [
+  {
+   "runtime_start": "0x03007ba4",
+   "usa_source": "0x08002cf4",
+   "target_source": "0x08002cf4",
+   "usa_size": 104,
+   "target_size": 104,
+   "usa_sha1": "87b609455a1aa6cd4f6251a73f8e15f4b6bc9c05",
+   "target_sha1": "87b609455a1aa6cd4f6251a73f8e15f4b6bc9c05",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-2d5c.toml": [
+  {
+   "runtime_start": "0x03002000",
+   "usa_source": "0x08002d5c",
+   "target_source": "0x08002d5c",
+   "usa_size": 124,
+   "target_size": 124,
+   "usa_sha1": "a0e2414cc0e339ec6f61fbd387eb6325a8eabe84",
+   "target_sha1": "a0e2414cc0e339ec6f61fbd387eb6325a8eabe84",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-6abc-03007bc0.toml": [
+  {
+   "runtime_start": "0x03007bc0",
+   "usa_source": "0x08006abc",
+   "target_source": "0x08006afc",
+   "usa_size": 4,
+   "target_size": 4,
+   "usa_sha1": "bbfc4c623d6e47e6d00a0c13ca4a9bbf58f6af36",
+   "target_sha1": "bbfc4c623d6e47e6d00a0c13ca4a9bbf58f6af36",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-6abc-03007df8.toml": [
+  {
+   "runtime_start": "0x03007df8",
+   "usa_source": "0x08006abc",
+   "target_source": "0x08006afc",
+   "usa_size": 4,
+   "target_size": 4,
+   "usa_sha1": "bbfc4c623d6e47e6d00a0c13ca4a9bbf58f6af36",
+   "target_sha1": "bbfc4c623d6e47e6d00a0c13ca4a9bbf58f6af36",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-6abc-relocatable.toml": [
+  {
+   "runtime_start": "0x03007df8",
+   "usa_source": "0x08006abc",
+   "target_source": "0x08006afc",
+   "usa_size": 4,
+   "target_size": 4,
+   "usa_sha1": "bbfc4c623d6e47e6d00a0c13ca4a9bbf58f6af36",
+   "target_sha1": "bbfc4c623d6e47e6d00a0c13ca4a9bbf58f6af36",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-9bb8-0300347c.toml": [
+  {
+   "runtime_start": "0x0300347c",
+   "usa_source": "0x08009bb8",
+   "target_source": "0x08009bb8",
+   "usa_size": 708,
+   "target_size": 708,
+   "usa_sha1": "38da8bb7176c71ef1e86ce50346af1d72174529c",
+   "target_sha1": "38da8bb7176c71ef1e86ce50346af1d72174529c",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-9bb8-03003b9c.toml": [
+  {
+   "runtime_start": "0x03003b9c",
+   "usa_source": "0x08009bb8",
+   "target_source": "0x08009bb8",
+   "usa_size": 708,
+   "target_size": 708,
+   "usa_sha1": "38da8bb7176c71ef1e86ce50346af1d72174529c",
+   "target_sha1": "38da8bb7176c71ef1e86ce50346af1d72174529c",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-a37c.toml": [
+  {
+   "runtime_start": "0x03002000",
+   "usa_source": "0x0800a37c",
+   "target_source": "0x0800a37c",
+   "usa_size": 156,
+   "target_size": 156,
+   "usa_sha1": "77bec232b22b723f3c5f5e0fedd28680fde50048",
+   "target_sha1": "77bec232b22b723f3c5f5e0fedd28680fde50048",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-a418-03003400.toml": [
+  {
+   "runtime_start": "0x03003400",
+   "usa_source": "0x0800a418",
+   "target_source": "0x0800a418",
+   "usa_size": 124,
+   "target_size": 124,
+   "usa_sha1": "d3261b6f7b57ba4e7da8e44cf555d009c7cc27d1",
+   "target_sha1": "d3261b6f7b57ba4e7da8e44cf555d009c7cc27d1",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-a418-relocatable.toml": [
+  {
+   "runtime_start": "0x03002000",
+   "usa_source": "0x0800a418",
+   "target_source": "0x0800a418",
+   "usa_size": 124,
+   "target_size": 124,
+   "usa_sha1": "d3261b6f7b57ba4e7da8e44cf555d009c7cc27d1",
+   "target_sha1": "d3261b6f7b57ba4e7da8e44cf555d009c7cc27d1",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-b5138-relocatable.toml": [
+  {
+   "runtime_start": "0x0300207c",
+   "usa_source": "0x080b5138",
+   "target_source": "0x080b5138",
+   "usa_size": 560,
+   "target_size": 560,
+   "usa_sha1": "ec38094f7b1c2b14f7af17fdeb0072aa84d34ebe",
+   "target_sha1": "ec38094f7b1c2b14f7af17fdeb0072aa84d34ebe",
+   "source": "mapped"
+  }
+ ],
+ "transient-func-f0024-relocatable.toml": [
+  {
+   "runtime_start": "0x0300347c",
+   "usa_source": "0x080f0024",
+   "target_source": "0x080f0024",
+   "usa_size": 560,
+   "target_size": 560,
+   "usa_sha1": "5b2df8ba8dfdf8614287530fba0c1749ed07f76e",
+   "target_sha1": "5b2df8ba8dfdf8614287530fba0c1749ed07f76e",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_15430-relocatable.toml": [
+  {
+   "runtime_start": "0x0300347c",
+   "usa_source": "0x08015430",
+   "target_source": "0x08015430",
+   "usa_size": 320,
+   "target_size": 320,
+   "usa_sha1": "d49cef2181ce6f9fee635daa0ba3b072d336109a",
+   "target_sha1": "db7198c6f32475390376c2a2bed61066070650a3",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_15570-relocatable.toml": [
+  {
+   "runtime_start": "0x030035bc",
+   "usa_source": "0x08015570",
+   "target_source": "0x08015570",
+   "usa_size": 96,
+   "target_size": 96,
+   "usa_sha1": "20f9190c9b7aac90e091beff5f7e54a46ba833eb",
+   "target_sha1": "2bfd502f199899d10fe2398ac2cfdd1d19cef744",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_155d0-relocatable.toml": [
+  {
+   "runtime_start": "0x030044f4",
+   "usa_source": "0x080155d0",
+   "target_source": "0x080155d0",
+   "usa_size": 792,
+   "target_size": 756,
+   "usa_sha1": "4b3fe199338f1ecb1399cf9668839e72386bf7bc",
+   "target_sha1": "a64de5ce21d2cfa18c963036f83cc06e00202f81",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_158e8-relocatable.toml": [
+  {
+   "runtime_start": "0x0300347c",
+   "usa_source": "0x080158e8",
+   "target_source": "0x080158c4",
+   "usa_size": 532,
+   "target_size": 532,
+   "usa_sha1": "03e57ceee902e248334bb546cd32716edf90fca3",
+   "target_sha1": "e34eb40fec43c8cd1d88b3c9d95f996831bce663",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_15afc-relocatable.toml": [
+  {
+   "runtime_start": "0x03003a84",
+   "usa_source": "0x08015afc",
+   "target_source": "0x08015ad8",
+   "usa_size": 632,
+   "target_size": 632,
+   "usa_sha1": "f6ab01b56876f8d1b72a4bf5239bd5cbac620cb0",
+   "target_sha1": "f6ab01b56876f8d1b72a4bf5239bd5cbac620cb0",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_15d74-relocatable.toml": [
+  {
+   "runtime_start": "0x030044f4",
+   "usa_source": "0x08015d74",
+   "target_source": "0x08015d50",
+   "usa_size": 156,
+   "target_size": 156,
+   "usa_sha1": "4058793ba5db0477fc9c5c556edb91984dee3de0",
+   "target_sha1": "4058793ba5db0477fc9c5c556edb91984dee3de0",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_15e10-relocatable.toml": [
+  {
+   "runtime_start": "0x03003a84",
+   "usa_source": "0x08015e10",
+   "target_source": "0x08015dec",
+   "usa_size": 124,
+   "target_size": 124,
+   "usa_sha1": "50cf8d2eaf6ba74b7ae74a97458d04214a00af57",
+   "target_sha1": "50cf8d2eaf6ba74b7ae74a97458d04214a00af57",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_1b70-relocatable.toml": [
+  {
+   "runtime_start": "0x0300387c",
+   "usa_source": "0x08001b70",
+   "target_source": "0x08001b70",
+   "usa_size": 600,
+   "target_size": 600,
+   "usa_sha1": "7e06447b0578b9d6ea559eda377aafdd6faecdbe",
+   "target_sha1": "7e06447b0578b9d6ea559eda377aafdd6faecdbe",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_1ea8-relocatable.toml": [
+  {
+   "runtime_start": "0x03007c14",
+   "usa_source": "0x08001ea8",
+   "target_source": "0x08001ea8",
+   "usa_size": 80,
+   "target_size": 80,
+   "usa_sha1": "f2fe52c16d6b2287b19a632445629fe39d660ae5",
+   "target_sha1": "f2fe52c16d6b2287b19a632445629fe39d660ae5",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_1ef8-relocatable.toml": [
+  {
+   "runtime_start": "0x03007c7c",
+   "usa_source": "0x08001ef8",
+   "target_source": "0x08001ef8",
+   "usa_size": 64,
+   "target_size": 64,
+   "usa_sha1": "1967086826fcff37e022aac5bebc4e74b2a9978b",
+   "target_sha1": "1967086826fcff37e022aac5bebc4e74b2a9978b",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_1f38-relocatable.toml": [
+  {
+   "runtime_start": "0x03007bcc",
+   "usa_source": "0x08001f38",
+   "target_source": "0x08001f38",
+   "usa_size": 128,
+   "target_size": 128,
+   "usa_sha1": "ba870c47936e1e54df7cd9a7846110e663452a59",
+   "target_sha1": "ba870c47936e1e54df7cd9a7846110e663452a59",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_1fb8-relocatable.toml": [
+  {
+   "runtime_start": "0x03007c4c",
+   "usa_source": "0x08001fb8",
+   "target_source": "0x08001fb8",
+   "usa_size": 132,
+   "target_size": 132,
+   "usa_sha1": "5f53a347bca3fb9556047098c0ea8d5532dd4bb2",
+   "target_sha1": "5f53a347bca3fb9556047098c0ea8d5532dd4bb2",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_203c-relocatable.toml": [
+  {
+   "runtime_start": "0x03007e00",
+   "usa_source": "0x0800203c",
+   "target_source": "0x0800203c",
+   "usa_size": 92,
+   "target_size": 92,
+   "usa_sha1": "edbf9a7eabc225926dd5c0ba22d1b928afab1b02",
+   "target_sha1": "edbf9a7eabc225926dd5c0ba22d1b928afab1b02",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_2098-relocatable.toml": [
+  {
+   "runtime_start": "0x03007ce0",
+   "usa_source": "0x08002098",
+   "target_source": "0x08002098",
+   "usa_size": 92,
+   "target_size": 92,
+   "usa_sha1": "92f07a6eb708e30d86f375fd841dac38bf6dc905",
+   "target_sha1": "92f07a6eb708e30d86f375fd841dac38bf6dc905",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_2544-relocatable.toml": [
+  {
+   "runtime_start": "0x03002000",
+   "usa_source": "0x08002544",
+   "target_source": "0x08002544",
+   "usa_size": 708,
+   "target_size": 708,
+   "usa_sha1": "b8967c9f00835f22da02cce31595588bb05496e6",
+   "target_sha1": "b8967c9f00835f22da02cce31595588bb05496e6",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_6b84-relocatable.toml": [
+  {
+   "runtime_start": "0x03007b64",
+   "usa_source": "0x08006b84",
+   "target_source": "0x08006bc4",
+   "usa_size": 34,
+   "target_size": 34,
+   "usa_sha1": "bb05c02ca568f1e3ec93e421166ceb083b0a47de",
+   "target_sha1": "bb05c02ca568f1e3ec93e421166ceb083b0a47de",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_6c24-relocatable.toml": [
+  {
+   "runtime_start": "0x03007d1c",
+   "usa_source": "0x08006c24",
+   "target_source": "0x08006c64",
+   "usa_size": 68,
+   "target_size": 68,
+   "usa_sha1": "94dd9ae3cdd074edfbf78693bc50dbffe0ca3e39",
+   "target_sha1": "94dd9ae3cdd074edfbf78693bc50dbffe0ca3e39",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_7994-relocatable.toml": [
+  {
+   "runtime_start": "0x03007d44",
+   "usa_source": "0x08007994",
+   "target_source": "0x080079d4",
+   "usa_size": 28,
+   "target_size": 28,
+   "usa_sha1": "1f75f819768ebe6da0a4200ec6d2f0f3ff29f663",
+   "target_sha1": "1f75f819768ebe6da0a4200ec6d2f0f3ff29f663",
+   "source": "found by bytes in the mapped gap"
+  }
+ ],
+ "transient-func_9bb8-relocatable.toml": [
+  {
+   "runtime_start": "0x0300347c",
+   "usa_source": "0x08009bb8",
+   "target_source": "0x08009bb8",
+   "usa_size": 708,
+   "target_size": 708,
+   "usa_sha1": "38da8bb7176c71ef1e86ce50346af1d72174529c",
+   "target_sha1": "38da8bb7176c71ef1e86ce50346af1d72174529c",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_9bb8_code-relocatable.toml": [
+  {
+   "runtime_start": "0x03003b9c",
+   "usa_source": "0x08009bb8",
+   "target_source": "0x08009bb8",
+   "usa_size": 472,
+   "target_size": 472,
+   "usa_sha1": "36f6cde400bd706d9418bf212705dcfda0a02d94",
+   "target_sha1": "36f6cde400bd706d9418bf212705dcfda0a02d94",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_9bb8_short-relocatable.toml": [
+  {
+   "runtime_start": "0x03003eec",
+   "usa_source": "0x08009bb8",
+   "target_source": "0x08009bb8",
+   "usa_size": 484,
+   "target_size": 484,
+   "usa_sha1": "49496bc9fb68cacac07613ccb2ead86bc0583ffc",
+   "target_sha1": "49496bc9fb68cacac07613ccb2ead86bc0583ffc",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_9e7c-relocatable.toml": [
+  {
+   "runtime_start": "0x03005ae0",
+   "usa_source": "0x08009e7c",
+   "target_source": "0x08009e7c",
+   "usa_size": 636,
+   "target_size": 636,
+   "usa_sha1": "befbca336a97e12e686a9ce42c10793388f837c2",
+   "target_sha1": "befbca336a97e12e686a9ce42c10793388f837c2",
+   "source": "mapped"
+  }
+ ],
+ "transient-func_a0f8-relocatable.toml": [
+  {
+   "runtime_start": "0x030057e0",
+   "usa_source": "0x0800a0f8",
+   "target_source": "0x0800a0f8",
+   "usa_size": 644,
+   "target_size": 644,
+   "usa_sha1": "fc4539c4a9b4e13efc9022885c57dd23ea8fbb7a",
+   "target_sha1": "fc4539c4a9b4e13efc9022885c57dd23ea8fbb7a",
+   "source": "mapped"
+  }
+ ]
+}

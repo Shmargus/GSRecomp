@@ -30,9 +30,31 @@ inline std::string build_path_text(const fs::path& path) {
     return {reinterpret_cast<const char*>(text.data()), text.size()};
 }
 
+// Each game's code: the ROM it was made for and its folder under
+// local/, as scripts/build_game.ps1 records them (USA/Europe until it has).
+struct GameCode { std::string rom_sha1, corpus; };
+inline GameCode game_code(const fs::path& game_root, int choice) {
+    GameCode code{gsr_launcher::kGames[choice].rom_sha1s[0], "gs011"};
+#ifdef _WIN32
+    if (choice) code.corpus = "tla";
+#else
+    if (choice) code.corpus = "tla_linux";
+#endif
+    std::istringstream in(gsr_launcher::read_text(game_root / "local" / "game_code_revision.txt"));
+    for (std::string line; std::getline(in, line);) {
+        if (line.rfind("rom_sha1=", 0) == 0) code.rom_sha1 = line.substr(9);
+        else if (line.rfind("corpus=", 0) == 0) code.corpus = line.substr(7);
+    }
+    return code;
+}
+
 inline bool developer_build_ready(const fs::path& game_root, int choice,
                                   const fs::path& engine, std::stop_token stop = {}) {
     try {
+        // A tree built for another language's ROM needs a rebuild.
+        const auto code = game_code(game_root,choice);
+        if (code.rom_sha1 != gsr_launcher::required_rom_sha1(game_root, gsr_launcher::kGames[choice], false))
+            return false;
         const auto record = gsr_launcher::read_text(engine.parent_path() / "collection-build.txt");
         if (record.rfind("developer_build=1\n", 0) != 0) return false;
         const auto root = fs::canonical(game_root.parent_path());
@@ -63,11 +85,9 @@ inline bool developer_build_ready(const fs::path& game_root, int choice,
             if (game != "Both" && game != (choice ? "LostAge" : "BrokenSeal")) continue;
             auto name = line.substr(tab + 1);
             if (const auto corpus = name.find("{tla_corpus}"); corpus != std::string::npos)
-#ifdef _WIN32
-                name.replace(corpus, 12, "tla");
-#else
-                name.replace(corpus, 12, "tla_linux");
-#endif
+                name.replace(corpus, 12, code.corpus);
+            if (const auto corpus = name.find("{tbs_corpus}"); corpus != std::string::npos)
+                name.replace(corpus, 12, code.corpus);
             if (name.empty() || name.find_first_of("\\:\t\r\n") != std::string::npos) return false;
             const fs::path relative(std::u8string(name.begin(), name.end()));
             if (relative.empty() || relative.is_absolute()) return false;

@@ -628,8 +628,15 @@ void LocalMusicPlayer::preload_directory(const char* directory, bool can_stream,
             const unsigned base = folder * kLocalMusicFolderTracks;
             const auto* entry8 = reinterpret_cast<const char8_t*>(entry.data());
             const std::filesystem::path root(std::u8string(entry8, entry8 + entry.size()));
-            for (const auto& [track, loop] : read_local_music_loops(root))
-                if (track < kLocalMusicFolderTracks) loops[base + track] = loop;
+            for (const auto& [track, loop] : read_local_music_loops(root)) {
+                // The primary game's folder may override a borrowed song's
+                // qualified ID. Keep that policy when its fallback folder
+                // later supplies its own (possibly play-once) loop entry.
+                if (track < kLocalMusicFolderTracks)
+                    loops.try_emplace(base + track, loop);
+                else if (folder == 0)
+                    loops[track] = loop;
+            }
             std::error_code ec;
             std::filesystem::directory_iterator it(root, ec), end;
             while (!ec && it != end) {

@@ -8,6 +8,7 @@
 
 #include <array>
 #include <cstring>
+#include <map>
 #include <mutex>
 #include <string>
 #include <type_traits>
@@ -28,6 +29,34 @@ std::array<uint16_t, 16> g_menu_palette{};
 bool g_menu_art_pending = false;
 bool g_open_cheats_requested = false;
 }  // namespace
+namespace {
+const UiTranslation* g_translations = nullptr;
+int g_translation_count = 0;
+}  // namespace
+void config_ui_set_translations(const UiTranslation* table, int count) {
+    g_translations = table;
+    g_translation_count = table ? count : 0;
+}
+const char* ui_text(const char* english) {
+    if (!english || !g_translation_count) return english;
+    const char* id = std::strstr(english, "##");
+    if (id == english) return english;
+    const std::size_t length = id ? std::size_t(id - english) : std::strlen(english);
+    for (int i = 0; i < g_translation_count; ++i) {
+        const UiTranslation& t = g_translations[i];
+        if (std::strlen(t.english) != length || std::strncmp(t.english, english, length) != 0)
+            continue;
+        if (!id) return t.text;
+        // Translated label, same id. Kept for the table's lifetime.
+        static std::mutex mutex;
+        static std::map<std::string, std::string> labels;
+        std::lock_guard<std::mutex> lock(mutex);
+        auto [at, added] = labels.try_emplace(english);
+        if (added) at->second = std::string(t.text) + id;
+        return at->second.c_str();
+    }
+    return english;
+}
 void config_ui_set_game_page(void (*draw)()) { g_game_page_draw = draw; }
 void config_ui_set_game_switches(const GameOptionSwitch* switches, int count) {
     g_game_switches = switches;
@@ -105,6 +134,10 @@ bool g_setting_label_hovered = false;
 bool g_help_panel_visible = true;
 bool g_fit_default_window = false;
 float g_default_fit_height = 0;
+ImVec2 g_config_work_pos;
+ImVec2 g_config_work_size;
+bool g_config_resize_pending = false;
+bool g_config_move_pending = false;
 const ImVec4 kGold      (0.93f, 0.76f, 0.30f, 1.00f);
 const ImVec4 kParchment (0.96f, 0.93f, 0.84f, 1.00f);
 const char* const kNavigationHelp =
@@ -346,7 +379,7 @@ bool native_button(const char* label, ImVec2 size = ImVec2(0, 0)) {
     for (ImGuiCol role : {ImGuiCol_Button, ImGuiCol_ButtonHovered, ImGuiCol_ButtonActive})
         ImGui::PushStyleColor(role, ImVec4(0,0,0,0));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0);
-    const bool pressed = ImGui::Button(label, size);
+    const bool pressed = ImGui::Button(ui_text(label), size);
     ImGui::PopStyleVar();
     ImGui::PopStyleColor(3);
     const bool focus = ImGui::IsItemFocused();
@@ -365,7 +398,7 @@ void tab_strip(const char* id, const char* const* names, int count,
     const ImGuiStyle& style = ImGui::GetStyle();
     float width = 0;
     for (int i = 0; i < count; ++i)
-        width += ImGui::CalcTextSize(names[i]).x + style.FramePadding.x * 2 +
+        width += ImGui::CalcTextSize(ui_text(names[i])).x + style.FramePadding.x * 2 +
             (i ? style.ItemSpacing.x : 0);
     const float height = ImGui::GetFrameHeight() +
         (width > ImGui::GetContentRegionAvail().x ? style.ScrollbarSize : 0);
@@ -378,13 +411,13 @@ void tab_strip(const char* id, const char* const* names, int count,
                 ? ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive) : ImVec4(0, 0, 0, 0));
             if (active) ImGui::PushStyleColor(ImGuiCol_Text, kGold);
             ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0);
-            const bool pressed = active ? native_button(names[i]) : ImGui::Button(names[i]);
+            const bool pressed = active ? native_button(names[i]) : ImGui::Button(ui_text(names[i]));
             if (pressed) selected = i;
             ImGui::PopStyleVar();
             if (active && reveal) ImGui::SetScrollHereX();
             const bool show_help = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal);
             ImGui::PopStyleColor(active ? 2 : 1);
-            if (show_help) ImGui::SetTooltip("%s", kNavigationHelp);
+            if (show_help) ImGui::SetTooltip("%s", ui_text(kNavigationHelp));
         }
     }
     ImGui::EndChild();
@@ -406,7 +439,7 @@ bool native_selectable(const char* label, bool selected) {
     const ImVec2 text_pos(lo.x + padding, lo.y + (hi.y-lo.y-ImGui::GetFontSize())*0.5f);
     if (highlight) draw->AddText(text_pos, ImGui::GetColorU32(ImGuiCol_Text), ">");
     draw->AddText(ImVec2(text_pos.x + ImGui::CalcTextSize("> ").x, text_pos.y),
-                  ImGui::GetColorU32(ImGuiCol_Text), label);
+                  ImGui::GetColorU32(ImGuiCol_Text), ui_text(label));
     if (highlight) {
         layers.SetCurrentChannel(draw, 0);
         native_control_frame(draw, lo, hi, ImGui::GetColorU32(ImGuiCol_HeaderActive));
@@ -432,7 +465,7 @@ bool native_combo(const char* id, const char* value) {
     const float y = lo.y + (hi.y-lo.y-ImGui::GetFontSize())*0.5f;
     const float arrow = ImGui::CalcTextSize(">").x;
     draw->PushClipRect(lo, ImVec2(hi.x-padding-arrow-padding,hi.y), true);
-    draw->AddText(ImVec2(lo.x+padding,y), ImGui::GetColorU32(ImGuiCol_Text), value);
+    draw->AddText(ImVec2(lo.x+padding,y), ImGui::GetColorU32(ImGuiCol_Text), ui_text(value));
     draw->PopClipRect();
     draw->AddText(ImVec2(hi.x-padding-arrow,y), ImGui::GetColorU32(ImGuiCol_Text), ">");
     layers.SetCurrentChannel(draw, 0);
@@ -547,7 +580,7 @@ struct SettingsPanel {
         ImGui::Dummy(ImVec2(0, padding));
         ImGui::Indent(padding);
         window->WorkRect.Max.x -= padding;
-        ImGui::TextColored(kGold, "%s", title);
+        ImGui::TextColored(kGold, "%s", ui_text(title));
         ImGui::Spacing();
     }
     ~SettingsPanel() {
@@ -619,13 +652,12 @@ const char* pad_label(int button) {
 // Hotkeys carry modifiers, so they render as "Shift+P" rather than a bare key.
 void hotkey_label(char* out, std::size_t n, int keycode, unsigned mods) {
     if (keycode == 0) { std::snprintf(out, n, "(unset)"); return; }
-    char buf[96];
-    buf[0] = '\0';
-    if (mods & KMOD_CTRL)  std::strncat(buf, "Ctrl+",  sizeof(buf) - 1);
-    if (mods & KMOD_ALT)   std::strncat(buf, "Alt+",   sizeof(buf) - 1);
-    if (mods & KMOD_SHIFT) std::strncat(buf, "Shift+", sizeof(buf) - 1);
+    std::string prefix;
+    if (mods & KMOD_CTRL)  { prefix += ui_text("Ctrl"); prefix += '+'; }
+    if (mods & KMOD_ALT)   { prefix += ui_text("Alt"); prefix += '+'; }
+    if (mods & KMOD_SHIFT) { prefix += ui_text("Shift"); prefix += '+'; }
     const char* kn = SDL_GetKeyName(static_cast<SDL_Keycode>(keycode));
-    std::snprintf(out, n, "%s%s", buf, (kn && *kn) ? kn : "?");
+    std::snprintf(out, n, "%s%s", prefix.c_str(), (kn && *kn) ? ui_text(kn) : "?");
 }
 
 // Keep explanations in the fixed help panel, for mouse and nav focus alike.
@@ -637,9 +669,9 @@ void caption(const char* text) {
         if (!g_help_panel_visible) {
             ImGui::BeginTooltip();
             ImGui::PushTextWrapPos(ImGui::GetCursorPosX() +
-                std::min(ImGui::CalcTextSize("Mute while fast forwarding").x,
+                std::min(ImGui::CalcTextSize(ui_text("Mute while fast forwarding")).x,
                          ImGui::GetMainViewport()->WorkSize.x - ImGui::GetStyle().WindowPadding.x * 2));
-            ImGui::TextUnformatted(text);
+            ImGui::TextUnformatted(ui_text(text));
             ImGui::PopTextWrapPos();
             ImGui::EndTooltip();
         }
@@ -653,16 +685,16 @@ void setting_label(const char* label, float minimum_value = 0) {
     const float start = ImGui::GetCursorPosX();
     const float available = ImGui::GetContentRegionAvail().x;
     const float value_min = minimum_value > 0 ? minimum_value :
-        ImGui::CalcTextSize("3:2 (original) >").x + ImGui::GetStyle().FramePadding.x * 2;
+        ImGui::CalcTextSize(ui_text("3:2 (original) >")).x + ImGui::GetStyle().FramePadding.x * 2;
     const float column = std::min(
-        ImGui::CalcTextSize("Mute while fast forwarding").x +
+        ImGui::CalcTextSize(ui_text("Mute while fast forwarding")).x +
             ImGui::GetStyle().ItemInnerSpacing.x * 2,
         available * 0.46f);
     const bool inline_value = available - column >= value_min;
     ImGui::AlignTextToFramePadding();
     ImGui::PushTextWrapPos(start + (inline_value
         ? column - ImGui::GetStyle().ItemInnerSpacing.x : available));
-    ImGui::TextUnformatted(label);
+    ImGui::TextUnformatted(ui_text(label));
     g_setting_label_hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
     ImGui::PopTextWrapPos();
     if (inline_value) {
@@ -725,7 +757,7 @@ bool setting_items(const char* label, int* value, const char* items) {
 void section(const char* title) {
     ImGui::Spacing();
     ImGui::PushStyleColor(ImGuiCol_Text, kGold);
-    ImGui::SeparatorText(title);
+    ImGui::SeparatorText(ui_text(title));
     ImGui::PopStyleColor();
 }
 
@@ -742,7 +774,7 @@ bool bind_row(const char* label, const char* value, bool armed,
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
         ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted(label);
+        ImGui::TextUnformatted(ui_text(label));
         ImGui::TableSetColumnIndex(1);
     } else {
         ImGui::TableSetColumnIndex(column);
@@ -819,9 +851,9 @@ void draw_controls_page(ConfigUiState* st) {
     const ImGuiStyle& style = ImGui::GetStyle();
     float button_label_w = 0;
     for (const auto& button : kButtons)
-        button_label_w = std::max(button_label_w, ImGui::CalcTextSize(button.label).x);
+        button_label_w = std::max(button_label_w, ImGui::CalcTextSize(ui_text(button.label)).x);
     const float clear_w = ImGui::CalcTextSize("x").x + style.FramePadding.x * 2;
-    const float bind_w = ImGui::CalcTextSize("press a button...").x + style.FramePadding.x * 2;
+    const float bind_w = ImGui::CalcTextSize(ui_text("press a button...")).x + style.FramePadding.x * 2;
     const bool stacked = ImGui::GetContentRegionAvail().x <
         button_label_w + (bind_w + clear_w) * 3 + style.CellPadding.x * 14;
     // Both layouts use identical capture and clear handlers.
@@ -838,7 +870,7 @@ void draw_controls_page(ConfigUiState* st) {
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
             ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted(keyboard ? "Keyboard" : slot == 0 ? "Controller" : "Alternate");
+            ImGui::TextUnformatted(ui_text(keyboard ? "Keyboard" : slot == 0 ? "Controller" : "Alternate"));
         }
         ImGui::TableSetColumnIndex(column);
         if (armed) ImGui::PushStyleColor(ImGuiCol_Button,
@@ -864,7 +896,7 @@ void draw_controls_page(ConfigUiState* st) {
             section(kButtons[i].label);
             if (ImGui::BeginTable("binding", 3, ImGuiTableFlags_SizingStretchProp)) {
                 ImGui::TableSetupColumn("Source", ImGuiTableColumnFlags_WidthFixed,
-                    ImGui::CalcTextSize("Controller").x);
+                    ImGui::CalcTextSize(ui_text("Controller")).x);
                 ImGui::TableSetupColumn("Binding", ImGuiTableColumnFlags_WidthStretch);
                 ImGui::TableSetupColumn("Clear", ImGuiTableColumnFlags_WidthFixed, clear_w);
                 for (int slot = -1; slot < 2; ++slot) binding(kButtons[i].bit, slot);
@@ -874,9 +906,9 @@ void draw_controls_page(ConfigUiState* st) {
         }
     } else if (ImGui::BeginTable("binds", 7,
         ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
-        ImGui::TableSetupColumn("Button", ImGuiTableColumnFlags_WidthFixed, button_label_w);
+        ImGui::TableSetupColumn(ui_text("Button"), ImGuiTableColumnFlags_WidthFixed, button_label_w);
         for (const char* name : {"Keyboard", "Controller", "Alternate"}) {
-            ImGui::TableSetupColumn(name, ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn(ui_text(name), ImGuiTableColumnFlags_WidthStretch);
             ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, clear_w);
         }
         ImGui::TableHeadersRow();
@@ -885,7 +917,7 @@ void draw_controls_page(ConfigUiState* st) {
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
             ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted(kButtons[i].label);
+            ImGui::TextUnformatted(ui_text(kButtons[i].label));
             for (int slot = -1; slot < 2; ++slot) binding(kButtons[i].bit, slot);
             ImGui::PopID();
         }
@@ -918,25 +950,23 @@ void draw_controls_page(ConfigUiState* st) {
 
 void draw_hotkeys_page(ConfigUiState* st) {
     section("Hotkeys");
-    caption("Shortcuts that work while playing. Each can have a key, a "
-            "controller button, or both. Auto Fire presses A or B rapidly "
-            "while held. Soft Reset restarts the game; unsaved progress is lost.");
+    caption("Shortcuts that work while playing. Each can use a key, a controller button, or both. Auto-repeat repeatedly presses A or B while the shortcut is held. Restart game returns to the start; unsaved progress is lost.");
     const ImGuiStyle& style = ImGui::GetStyle();
     float action_w = 0;
     for (int h = 0; h < st->hotkey_count; ++h)
         action_w = std::max(action_w,
-            ImGui::CalcTextSize(st->hotkey_names ? st->hotkey_names[h] : "?").x);
-    const float clear_w = ImGui::CalcTextSize("clear").x + style.FramePadding.x * 2;
-    const float bind_w = ImGui::CalcTextSize("press a button...").x + style.FramePadding.x * 2;
+            ImGui::CalcTextSize(ui_text(st->hotkey_names ? st->hotkey_names[h] : "?")).x);
+    const float clear_w = ImGui::CalcTextSize(ui_text("clear")).x + style.FramePadding.x * 2;
+    const float bind_w = ImGui::CalcTextSize(ui_text("press a button...")).x + style.FramePadding.x * 2;
     const bool stacked = ImGui::GetContentRegionAvail().x <
         action_w + (bind_w + clear_w) * 2 + style.CellPadding.x * 10;
     if (ImGui::BeginTable("hotkeys", stacked ? 3 : 5,
         ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
-        ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch, 1.5f);
-        ImGui::TableSetupColumn("Keyboard", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn(ui_text("Action"), ImGuiTableColumnFlags_WidthStretch, 1.5f);
+        ImGui::TableSetupColumn(ui_text("Keyboard"), ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, clear_w);
         if (!stacked) {
-            ImGui::TableSetupColumn("Controller", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn(ui_text("Controller"), ImGuiTableColumnFlags_WidthStretch);
             ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, clear_w);
             ImGui::TableHeadersRow();
         }
@@ -945,7 +975,7 @@ void draw_hotkeys_page(ConfigUiState* st) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
                 ImGui::PushTextWrapPos(0);
-                ImGui::TextColored(kGold, "%s", st->hotkey_names ? st->hotkey_names[h] : "?");
+                ImGui::TextColored(kGold, "%s", ui_text(st->hotkey_names ? st->hotkey_names[h] : "?"));
                 ImGui::PopTextWrapPos();
             }
             // Keyboard half.
@@ -986,8 +1016,8 @@ void draw_hotkeys_page(ConfigUiState* st) {
 
 float display_group_min_width() {
     const ImGuiStyle& style = ImGui::GetStyle();
-    return ImGui::CalcTextSize("Sharp pixels").x +
-        ImGui::CalcTextSize("3:2 (original) >").x +
+    return ImGui::CalcTextSize(ui_text("Sharp pixels")).x +
+        ImGui::CalcTextSize(ui_text("3:2 (original) >")).x +
         style.FramePadding.x * 2 + style.WindowPadding.x * 2 +
         style.ItemInnerSpacing.x;
 }
@@ -1057,10 +1087,10 @@ void draw_video_page(ConfigUiState* st) {
             if (setting_checkbox("Sharp pixels", &st->integer_scale))
                 st->video_changed = true;
             if (sharp_fill) ImGui::EndDisabled();
-            caption(sharp_fill ? "Minimal Sharp Pixels uses whole-pixel scaling."
+            caption(sharp_fill ? "Pixel-perfect fit uses whole-pixel scaling."
                                : "Keeps pixel sizes uniform. Off scales to fit the selected aspect ratio.");
             if (setting_checkbox("V-Sync", &st->vsync)) st->video_changed = true;
-            caption("Matches the monitor's refresh to prevent tearing.");
+            caption("Synchronizes frames with the display to prevent tearing.");
             // Only changes the picture in Expanded View (a wider-than-3:2 view).
             const bool aspect_active = st->widescreen_available && st->widescreen;
             const int aspect_count = st->aspect_view_available ? kViewAspectCount : 2;
@@ -1080,8 +1110,7 @@ void draw_video_page(ConfigUiState* st) {
             if (!aspect_active) ImGui::EndDisabled();
             caption(aspect_active
                 ? (st->aspect_view_available
-                    ? "Fits inside the selected view size. Window follows its shape; "
-                      "Minimal Sharp Pixels adds only enough scenery to fill it."
+                    ? "Fits inside the selected view size. Window follows its shape; Pixel-perfect fit adds only enough scenery to fill it."
                     : "4:3 shows the middle of the wide picture; 3:2 shows the full width.")
                 : "Choose Wide or Extra Wide to change the aspect ratio.");
         }
@@ -1156,9 +1185,7 @@ void draw_video_page(ConfigUiState* st) {
                 }
                 ImGui::EndCombo();
             }
-            caption("For colour-blind players: moves colours you cannot tell apart "
-                    "into ones you can. Deuteranopia is red-green, Tritanopia "
-                    "blue-yellow. Works with any Colours choice and filter.");
+            caption("Adjusts colours to help distinguish them. Deuteranopia: red-green; tritanopia: blue-yellow. Works with all colour profiles and filters.");
         }
     } else {
         section("Screen filter");
@@ -1262,8 +1289,8 @@ void draw_enhancements_page(ConfigUiState* st) {
 
 void draw_troubleshooting_page(ConfigUiState* st) {
     section("Menu controls");
-    ImGui::TextWrapped("%s", kNavigationHelp);
-    ImGui::TextWrapped("Drag the heading to move the menu. Drag its edges or corners to resize it.");
+    ImGui::TextWrapped("%s", ui_text(kNavigationHelp));
+    ImGui::TextWrapped("%s", ui_text("Drag the heading to move the menu. Drag its edges or corners to resize it."));
     section("Troubleshooting");
     if (setting_checkbox("Crash log", &st->crash_log))
         st->logging_changed = true;
@@ -1338,7 +1365,7 @@ void draw_fps_overlay(const ConfigUiState* st) {
     if (ImGui::Begin("##FpsOverlay", nullptr, kFlags)) {
         ImGui::TextColored(kGold, "%.0f FPS", st->fps);
         ImGui::SameLine();
-        ImGui::TextColored(kParchment, "%.0f%% speed",
+        ImGui::TextColored(kParchment, ui_text("%.0f%% speed"),
                            st->emulation_speed_percent);
     }
     ImGui::End();
@@ -1456,6 +1483,10 @@ bool config_ui_init(SDL_Window* window, SDL_Renderer* renderer,
     if (g_ready || !window || !renderer) return g_ready;
     g_fit_default_window = false;
     g_default_fit_height = 0;
+    g_config_work_pos = ImVec2();
+    g_config_work_size = ImVec2();
+    g_config_resize_pending = false;
+    g_config_move_pending = false;
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
@@ -1576,6 +1607,10 @@ void config_ui_set_edition_badge(const char* bitmap_path, const char* caption,
 }
 
 bool config_ui_visible() { return g_ready && g_visible; }
+
+void config_ui_draw_menu_frame(float x, float y, float width, float height) {
+    draw_menu_frame(ImVec2(x, y), ImVec2(width, height));
+}
 
 void config_ui_set_visible(bool on) {
     if (!g_ready) return;
@@ -1734,19 +1769,26 @@ void config_ui_draw(ConfigUiState* st) {
 
     if (g_visible) {
         const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        const bool viewport_changed = g_config_work_size.x != viewport->WorkSize.x ||
+            g_config_work_size.y != viewport->WorkSize.y ||
+            g_config_work_pos.x != viewport->WorkPos.x ||
+            g_config_work_pos.y != viewport->WorkPos.y;
+        g_config_work_pos = viewport->WorkPos;
+        g_config_work_size = viewport->WorkSize;
         const ImGuiStyle& style = ImGui::GetStyle();
         const float margin = style.WindowPadding.x;
         float preferred_w = margin * 2;
         for (const char* name : {"Video", "Audio", "Controls", "Hotkeys",
                                 "Speed", "Game", "Cheats", "Help"})
-            preferred_w += ImGui::CalcTextSize(name).x + style.FramePadding.x * 2 +
+            preferred_w += ImGui::CalcTextSize(ui_text(name)).x + style.FramePadding.x * 2 +
                 style.ItemSpacing.x;
         preferred_w = std::max(preferred_w, display_group_min_width() * 2 +
             margin * 6 + style.FramePadding.x * 2 + style.ScrollbarSize);
         const float preferred_h = ImGui::GetFrameHeightWithSpacing() * 15 +
             ImGui::GetTextLineHeightWithSpacing() * 5 + style.WindowPadding.y * 2;
         const ImVec2 minimum(
-            ImGui::CalcTextSize("Restore defaults   Quit Game").x + margin * 2,
+            ImGui::CalcTextSize((std::string(ui_text("Restore defaults")) + "   " +
+                                 ui_text("Quit Game")).c_str()).x + margin * 2,
             ImGui::GetFrameHeightWithSpacing() * 5 + style.WindowPadding.y * 2);
         const bool saved_layout = st->menu_width > 0 && st->menu_height > 0;
         const ImVec2 size(
@@ -1765,19 +1807,24 @@ void config_ui_draw(ConfigUiState* st) {
                 ? std::clamp(float(st->menu_y), 0.0f, viewport->WorkSize.y - size.y)
                 : (viewport->WorkSize.y - size.y) * 0.5f)),
             ImGuiCond_FirstUseEver);
-        // Retain the player's size/position, but recover inside the game when
-        // its viewport shrinks or F1 reopens. Never reduce the font to make it fit.
+        // Fit the preferred geometry again when space changes, in either
+        // direction. A temporary fit must never become the saved preference.
         if (ImGuiWindow* previous = ImGui::FindWindowByName("Settings###Configuration")) {
-            const ImVec2 fitted(std::min(previous->Size.x, viewport->WorkSize.x),
-                                std::min(previous->Size.y, viewport->WorkSize.y));
+            const bool recover = viewport_changed || g_config_window_recover;
+            const ImVec2 fitted = recover ? size : previous->Size;
             if (fitted.x != previous->Size.x || fitted.y != previous->Size.y)
                 ImGui::SetNextWindowSize(fitted);
+            const ImVec2 preferred_pos = saved_layout
+                ? ImVec2(viewport->WorkPos.x + st->menu_x, viewport->WorkPos.y + st->menu_y)
+                : ImVec2(viewport->WorkPos.x + (viewport->WorkSize.x - fitted.x) * 0.5f,
+                         viewport->WorkPos.y + (viewport->WorkSize.y - fitted.y) * 0.5f);
+            const ImVec2 source_pos = recover ? preferred_pos : previous->Pos;
             const ImVec2 pos(
-                std::clamp(previous->Pos.x, viewport->WorkPos.x,
+                std::clamp(source_pos.x, viewport->WorkPos.x,
                     viewport->WorkPos.x + viewport->WorkSize.x - fitted.x),
-                std::clamp(previous->Pos.y, viewport->WorkPos.y,
+                std::clamp(source_pos.y, viewport->WorkPos.y,
                     viewport->WorkPos.y + viewport->WorkSize.y - fitted.y));
-            if (g_config_window_recover || pos.x != previous->Pos.x || pos.y != previous->Pos.y)
+            if (recover || pos.x != previous->Pos.x || pos.y != previous->Pos.y)
                 ImGui::SetNextWindowPos(pos);
         }
         ImGui::SetNextWindowSizeConstraints(
@@ -1794,9 +1841,16 @@ void config_ui_draw(ConfigUiState* st) {
         }
         ImGui::SetNextWindowViewport(viewport->ID);
         bool window_open = true;
-        if (ImGui::Begin("Settings###Configuration", &window_open,
+        if (ImGui::Begin(ui_text("Settings###Configuration"), &window_open,
                          ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking)) {
             g_config_window_recover = false;
+            ImGuiWindow* root = ImGui::GetCurrentWindow();
+            const ImGuiID active = GImGui->ActiveId;
+            for (int corner = 0; corner < 4; ++corner)
+                g_config_resize_pending |= active == ImGui::GetWindowResizeCornerID(root, corner);
+            for (int border = 0; border < 4; ++border)
+                g_config_resize_pending |= active == ImGui::GetWindowResizeBorderID(root, ImGuiDir(border));
+            g_config_move_pending |= GImGui->MovingWindow == root;
             draw_menu_frame(ImGui::GetWindowPos(), ImGui::GetWindowSize());
             const ImVec2 title_pos = ImGui::GetCursorScreenPos();
             ImGui::InvisibleButton("##SettingsDrag",
@@ -1804,8 +1858,8 @@ void config_ui_draw(ConfigUiState* st) {
             if (ImGui::IsItemActivated())
                 ImGui::StartMouseMovingWindow(ImGui::GetCurrentWindow());
             ImGui::SetCursorScreenPos(title_pos);
-            ImGui::TextColored(kGold, "Settings");
-            const char* saved_hint = "Saved automatically";
+            ImGui::TextColored(kGold, "%s", ui_text("Settings"));
+            const char* saved_hint = ui_text("Changes saved automatically");
             const float saved_w = ImGui::CalcTextSize(saved_hint).x;
             if (ImGui::GetContentRegionAvail().x > saved_w + ImGui::GetStyle().ItemSpacing.x) {
                 ImGui::SameLine();
@@ -1925,28 +1979,28 @@ void config_ui_draw(ConfigUiState* st) {
                                   ImGuiChildFlags_None,
                                   ImGuiWindowFlags_AlwaysUseWindowPadding);
                 ImGui::PushTextWrapPos(0);
-                ImGui::TextUnformatted(g_context_help ? g_context_help : "Choose a setting for help.");
+                ImGui::TextUnformatted(ui_text(g_context_help ? g_context_help : "Choose a setting for help."));
                 ImGui::PopTextWrapPos();
                 if (ImGui::IsItemHovered() && g_context_help)
-                    ImGui::SetTooltip("%s", g_context_help);
+                    ImGui::SetTooltip("%s", ui_text(g_context_help));
                 ImGui::EndChild();
                 ImGui::PopStyleVar();
             }
             const char* quit_label = "Quit Game";
-            const float quit_w = ImGui::CalcTextSize(quit_label).x +
+            const float quit_w = ImGui::CalcTextSize(ui_text(quit_label)).x +
                                  ImGui::GetStyle().FramePadding.x * 2.0f;
             if (native_button("Back")) window_open = false;
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-                ImGui::SetTooltip("%s", kNavigationHelp);
-            const char* footer_hint = "Esc/B: Back   Enter/A: Select";
+                ImGui::SetTooltip("%s", ui_text(kNavigationHelp));
+            const char* footer_hint = ui_text("Esc/B: Back   Enter/A: Select");
             if (ImGui::GetContentRegionMax().x - ImGui::GetCursorPosX() >
                 ImGui::CalcTextSize(footer_hint).x + quit_w + style.ItemSpacing.x * 2 +
-                ImGui::CalcTextSize("Back").x + style.FramePadding.x * 2) {
+                ImGui::CalcTextSize(ui_text("Back")).x + style.FramePadding.x * 2) {
                 ImGui::SameLine();
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextDisabled("%s", footer_hint);
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-                    ImGui::SetTooltip("%s", kNavigationHelp);
+                    ImGui::SetTooltip("%s", ui_text(kNavigationHelp));
             }
             ImGui::SameLine(ImGui::GetContentRegionMax().x - quit_w);
             if (native_button(quit_label)) st->request_quit = true;
@@ -1975,24 +2029,34 @@ void config_ui_draw(ConfigUiState* st) {
             // Measure the actual page and chrome for a compact first-run size.
             // Once fitted (or manually dragged/resized), geometry is user-owned.
             if (g_fit_default_window) {
-                const ImGuiWindow* root = ImGui::GetCurrentWindow();
-                g_default_fit_height = std::clamp(std::ceil(
+                g_default_fit_height = std::ceil(
                     root->DC.CursorMaxPos.y - root->Pos.y + root->Scroll.y + root->WindowPadding.y -
-                    content_h + content_needed),
-                    std::min(minimum.y, viewport->WorkSize.y), viewport->WorkSize.y);
-                if (g_default_fit_height == root->Size.y) g_fit_default_window = false;
+                    content_h + content_needed);
+                if (std::clamp(g_default_fit_height,
+                        std::min(minimum.y, viewport->WorkSize.y), viewport->WorkSize.y) == root->Size.y)
+                    g_fit_default_window = false;
             }
+            // Only an explicit drag/resize replaces a saved preference. The
+            // first default keeps its natural dimensions even when clipped.
             if (!g_fit_default_window && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
                 const ImVec2 pos = ImGui::GetWindowPos(), extent = ImGui::GetWindowSize();
-                const int x = int(std::round(pos.x - viewport->WorkPos.x));
-                const int y = int(std::round(pos.y - viewport->WorkPos.y));
-                const int width = int(std::round(extent.x)), height = int(std::round(extent.y));
+                const int x = saved_layout && !g_config_move_pending ? st->menu_x :
+                    int(std::round(pos.x - viewport->WorkPos.x));
+                const int y = saved_layout && !g_config_move_pending ? st->menu_y :
+                    int(std::round(pos.y - viewport->WorkPos.y));
+                const int width = g_config_resize_pending ? int(std::round(extent.x)) :
+                    saved_layout ? st->menu_width : int(std::round(preferred_w));
+                const int height = g_config_resize_pending ? int(std::round(extent.y)) :
+                    saved_layout ? st->menu_height : int(std::round(
+                        g_default_fit_height > 0 ? g_default_fit_height : preferred_h));
                 if (st->menu_x != x || st->menu_y != y ||
                     st->menu_width != width || st->menu_height != height) {
                     st->menu_x = x; st->menu_y = y;
                     st->menu_width = width; st->menu_height = height;
                     st->menu_layout_changed = true;
                 }
+                g_config_resize_pending = false;
+                g_config_move_pending = false;
             }
 
             // Esc closes the menu, unless it is cancelling a bind capture.
@@ -2044,6 +2108,7 @@ void config_ui_shutdown() {}
 void config_ui_set_edition_badge(const char*, const char*, const char*) {}
 bool config_ui_handle_event(const SDL_Event*) { return false; }
 bool config_ui_visible() { return false; }
+void config_ui_draw_menu_frame(float, float, float, float) {}
 void config_ui_toggle() {}
 void config_ui_set_visible(bool) {}
 bool config_ui_capture_key(ConfigUiState*, int, int, unsigned) { return false; }

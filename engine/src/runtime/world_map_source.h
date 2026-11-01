@@ -31,6 +31,8 @@ struct WorldMapLayout {
     int grid_side;
     unsigned second_layer_ids;
     bool zero_offset_is_empty = false;
+    // A second map number showing the same world (0: none).
+    unsigned second_map_number = 0;
 };
 
 // The game's own decompressor, the ARM routine at ROM 0x08001B70 (see

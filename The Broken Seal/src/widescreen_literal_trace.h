@@ -4,11 +4,12 @@
 #pragma once
 
 #include <cstdint>
+#include "rom_version.h"
 
 namespace gsr::widescreen {
 
-inline constexpr std::uint32_t kFieldListXUpperLiteralPc = 0x0800C6F2u;
-inline constexpr std::uint32_t kFieldListYLowerLiteralPc = 0x0800C6FEu;
+inline const std::uint32_t kFieldListXUpperLiteralPc = gs::rom(0x0800C6F2u);
+inline const std::uint32_t kFieldListYLowerLiteralPc = gs::rom(0x0800C6FEu);
 
 struct GoldenSunLiteralTraceStats {
     std::uint32_t pc = 0;

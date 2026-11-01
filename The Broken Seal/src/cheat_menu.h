@@ -3,11 +3,14 @@
 #include <cstdint>
 
 #include "game_options.h"
+#include "rom_version.h"
 
 // The cheat menu: a window in Golden Sun's own style, opened with the F1
 // menu's rebindable "Cheat Menu" hotkey (default F11) anywhere in the game.
-// The game is paused while it is open and every key goes to the menu
-// (RunOptions::game_menu_toggle / keyinput_filter / paused_overlay).
+// Every key goes to the window while it is open (keyinput_filter). The
+// new-game questions run over the live game (runner_main.cpp
+// question_hold_new_game_entry); paused_overlay still draws them during a
+// host pause.
 //
 // Infinite HP and PP are the engine's F1 cheats (runtime_set_infinite_hp/pp),
 // so both menus always show the same state. The three multipliers act on
@@ -22,14 +25,14 @@ namespace gsr::cheat_menu {
 // The tally's three accumulating stores. 0x080C25F6 is the coin store on
 // the bonus path, 0x080C2650 on the plain path; both paths store experience
 // at 0x080C265C. The runner scales what each store adds.
-constexpr std::uint32_t kCoinBonusStorePc = 0x080C25F6u;
-constexpr std::uint32_t kCoinStorePc = 0x080C2650u;
-constexpr std::uint32_t kExpStorePc = 0x080C265Cu;
+const std::uint32_t kCoinBonusStorePc = gs::rom(0x080C25F6u);
+const std::uint32_t kCoinStorePc = gs::rom(0x080C2650u);
+const std::uint32_t kExpStorePc = gs::rom(0x080C265Cu);
 
 // The drop roll: threshold r5 = 0x20000 >> rate (enemy data +0x50, 2 less on
 // the bonus path), roll r0 = random & 0xFFFF; `cmp r5, r0` then this BLE
 // skips the drop when r5 <= r0. The runner compares r5 * multiplier instead.
-constexpr std::uint32_t kDropBranchPc = 0x080C26BEu;
+const std::uint32_t kDropBranchPc = gs::rom(0x080C26BEu);
 
 // Multiplier steps, in halves so 0.5x stays exact.
 // 25x..100x apply to Experience and Coins only; Drop Chance stops at 10x

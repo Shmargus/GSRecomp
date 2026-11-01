@@ -154,10 +154,10 @@ def main():
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     rom = open(args.rom, "rb").read()
-    if hashlib.sha1(rom).hexdigest() != ROM_SHA1:
-        raise SystemExit("unexpected ROM")
+    from tla_rom_revisions import identify
+    rom_sha1,_=identify(rom)
 
-    clusters = clusters_of(read_pieces(args.cache, ROM_SHA1))
+    clusters = clusters_of(read_pieces(args.cache, rom_sha1))
     routines = []  # (pad, bytes, entries relative to the slot, origin note)
     seen = set()
     for c in clusters:

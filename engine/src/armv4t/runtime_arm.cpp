@@ -8,6 +8,7 @@
 // interpreter's case in src/armv4t/interpreter.cpp.
 
 #include "runtime_arm.h"
+#include "ram_code_words.h"
 #include "crc32.h"
 #include "symbol_lookup.h"
 #include "env_flag.h"
@@ -139,12 +140,36 @@ extern "C" unsigned long long g_ram_code_page_mask_ewram_hi = 0;
 extern "C" unsigned int g_ram_code_page_mask_iwram = 0;
 extern "C" unsigned int g_ram_code_page_epoch_ewram[64] = {};
 extern "C" unsigned int g_ram_code_page_epoch_iwram[8] = {};
+extern "C" unsigned int g_ram_code_word_epoch_ewram[64] = {};
+extern "C" unsigned int g_ram_code_word_epoch_iwram[8] = {};
+extern "C" unsigned int g_ram_watch_word_epoch_ewram[64] = {};
+extern "C" unsigned int g_ram_watch_word_epoch_iwram[8] = {};
 
 extern "C" unsigned long long g_runtime_vblank_starts;
 
 namespace {
 uint64_t g_ram_dirty_ewram[1024] = {};
 uint64_t g_ram_dirty_iwram[128] = {};
+// Words registered by runtime_register_ram_code_words (ram_code_words.h).
+uint64_t g_ram_code_words_ewram[1024] = {};
+uint64_t g_ram_code_words_iwram[128] = {};
+uint64_t g_ram_watch_words_ewram[1024] = {};
+uint64_t g_ram_watch_words_iwram[128] = {};
+
+// Sets the bits of every word overlapping [start, end) in a region's map.
+void mark_words(uint64_t* ewram, uint64_t* iwram, uint32_t start, uint32_t end) {
+    if (end <= start || (start >> 24) != ((end - 1u) >> 24)) return;
+    const uint32_t region = start >> 24;
+    uint64_t* bits = nullptr;
+    uint32_t mask = 0;
+    if (region == 0x03u) { bits = iwram; mask = 0x7FFFu; }
+    else if (region == 0x02u) { bits = ewram; mask = 0x3FFFFu; }
+    else return;
+    const uint32_t first = (start & mask) >> 2;
+    const uint32_t last = ((end - 1u) & mask) >> 2;
+    for (uint32_t word = first; word <= last; ++word)
+        bits[word >> 6] |= 1ull << (word & 63u);
+}
 
 struct PoolDispatchHistoryEntry {
     uint32_t pc = 0;
@@ -1140,6 +1165,26 @@ extern "C" void runtime_note_ram_code_write(uint32_t addr, uint32_t width) {
     const uint32_t last = ((addr & mask) + width - 1u) >> 2;
     for (uint32_t word = first; word <= last; ++word)
         bits[word >> 6] |= 1ull << (word & 63u);
+    const bool iwram = region == 0x03u;
+    const uint64_t* code = iwram ? g_ram_code_words_iwram : g_ram_code_words_ewram;
+    const uint64_t* watch = iwram ? g_ram_watch_words_iwram : g_ram_watch_words_ewram;
+    unsigned int* code_epochs =
+        iwram ? g_ram_code_word_epoch_iwram : g_ram_code_word_epoch_ewram;
+    unsigned int* watch_epochs =
+        iwram ? g_ram_watch_word_epoch_iwram : g_ram_watch_word_epoch_ewram;
+    for (uint32_t word = first; word <= last; ++word) {
+        const uint64_t bit = 1ull << (word & 63u);
+        if (code[word >> 6] & bit) ++code_epochs[word >> 10];
+        if (watch[word >> 6] & bit) ++watch_epochs[word >> 10];
+    }
+}
+
+extern "C" void runtime_register_ram_code_words(uint32_t start, uint32_t end) {
+    mark_words(g_ram_code_words_ewram, g_ram_code_words_iwram, start, end);
+}
+
+extern "C" void runtime_register_ram_watch_words(uint32_t start, uint32_t end) {
+    mark_words(g_ram_watch_words_ewram, g_ram_watch_words_iwram, start, end);
 }
 
 extern "C" int runtime_ram_code_range_dirty(uint32_t start, uint32_t end) {

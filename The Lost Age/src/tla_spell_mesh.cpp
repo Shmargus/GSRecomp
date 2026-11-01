@@ -30,6 +30,7 @@
 // per listed triangle. rasterize_flat() is that code line for line; the
 // 64x64 one (0x0813B7A0) is left alone too.
 
+#include "tla_rom_version.h"
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -74,11 +75,11 @@ struct Variant {
     Op op;
     int side_shift;  // log2 of the canvas side
 };
-constexpr Variant kVariants[] = {
-    {0x081395F8u, 7, Op::Replace, 7},     {0x08139AACu, 9, Op::Max, 7},
-    {0x08139F70u, 11, Op::AddSat, 7},     {0x0813A444u, 11, Op::SubMax, 7},
-    {0x0813A924u, 13, Op::SubAdd, 7},     {0x0813AE14u, 10, Op::SubReplace, 7},
-    {0x0813B2ECu, 7, Op::Replace, 6},
+const Variant kVariants[] = {
+    {TLA_ROM(0x081395F8u), 7, Op::Replace, 7},     {TLA_ROM(0x08139AACu), 9, Op::Max, 7},
+    {TLA_ROM(0x08139F70u), 11, Op::AddSat, 7},     {TLA_ROM(0x0813A444u), 11, Op::SubMax, 7},
+    {TLA_ROM(0x0813A924u), 13, Op::SubAdd, 7},     {TLA_ROM(0x0813AE14u), 10, Op::SubReplace, 7},
+    {TLA_ROM(0x0813B2ECu), 7, Op::Replace, 6},
 };
 // Words the setup patches (shift amounts), never compared.
 constexpr u32 kPatched[] = {0x168u, 0x170u, 0x22Cu, 0x324u, 0x328u};
@@ -94,10 +95,10 @@ struct FlatVariant {
     u32 literal;  // the reciprocal table's word
     Op op;
 };
-constexpr FlatVariant kFlatVariants[] = {
-    {0x08138FC8u, 0x200u, 0x1F4u, Op::Replace},
-    {0x081391C8u, 0x210u, 0x204u, Op::Max},
-    {0x081393D8u, 0x220u, 0x214u, Op::AddSat},
+const FlatVariant kFlatVariants[] = {
+    {TLA_ROM(0x08138FC8u), 0x200u, 0x1F4u, Op::Replace},
+    {TLA_ROM(0x081391C8u), 0x210u, 0x204u, Op::Max},
+    {TLA_ROM(0x081393D8u), 0x220u, 0x214u, Op::AddSat},
 };
 
 struct Triangle {

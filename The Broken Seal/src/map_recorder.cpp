@@ -23,6 +23,7 @@
 #include "host_config_ui.h"
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
+#include "rom_version.h"
 
 #ifdef GBARECOMP_HAVE_IMGUI
 #include "imgui.h"
@@ -823,9 +824,9 @@ void map_recorder_on_entry(std::uint32_t entry_pc) {
 // cross-checked against the store PCs the VRAM trace recorded in
 // session_20260905_104619. Not a guess, and not a list to extend without
 // re-running that scan.
-constexpr std::uint32_t kFieldTilemapWriters[6] = {
-    0x0800FEC8u, 0x0800FF54u, 0x08010230u,
-    0x08010424u, 0x08010560u, 0x08010788u,
+const std::uint32_t kFieldTilemapWriters[6] = {
+    gs::rom(0x0800FEC8u), gs::rom(0x0800FF54u), gs::rom(0x08010230u),
+    gs::rom(0x08010424u), gs::rom(0x08010560u), gs::rom(0x08010788u),
 };
 
 struct WriterArgs {

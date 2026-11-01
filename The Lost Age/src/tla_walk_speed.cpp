@@ -43,6 +43,7 @@
 // (the same path as Golden Sun 1's). The cheat takes it by deciding its two
 // `beq`s as not taken; the debug byte itself is never written.
 
+#include "tla_rom_version.h"
 #include <cstdint>
 #include <cstdio>
 
@@ -52,22 +53,24 @@
 #include "runtime.h"
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
+#include "../../The Broken Seal/src/enemy_hp_bar.h"
+#include "../../The Broken Seal/src/trackers.h"
 #include "tla.h"
 
 namespace {
 
 constexpr uint32_t kSpeedLimitOffset = 0x30u;
-constexpr uint32_t kWriterPcs[] = {
-    0x080270ACu,  // field run
-    0x080270C0u,  // field walk
-    0x080279E2u,  // world map run
-    0x080279F4u,  // world map walk
-    0x08029592u,  // rope walk
-    0x08029118u,  // climb
-    0x080285ACu,  // sailing
-    0x08027E7Au,  // boat
-    0x08027E9Au,  // boat, B held
-    0x08028B3Cu,  // flying ship
+const uint32_t kWriterPcs[] = {
+    TLA_ROM(0x080270ACu),  // field run
+    TLA_ROM(0x080270C0u),  // field walk
+    TLA_ROM(0x080279E2u),  // world map run
+    TLA_ROM(0x080279F4u),  // world map walk
+    TLA_ROM(0x08029592u),  // rope walk
+    TLA_ROM(0x08029118u),  // climb
+    TLA_ROM(0x080285ACu),  // sailing
+    TLA_ROM(0x08027E7Au),  // boat
+    TLA_ROM(0x08027E9Au),  // boat, B held
+    TLA_ROM(0x08028B3Cu),  // flying ship
 };
 constexpr unsigned kWriterCount = sizeof(kWriterPcs) / sizeof(kWriterPcs[0]);
 
@@ -99,8 +102,8 @@ int walk_speed_store(uint32_t pc, uint32_t addr, uint32_t requested,
 // Climb end tests (0x080290F4): r3 = ground height ahead minus the player's
 // height, r7 = the climbing object. The game keeps climbing while
 // Up: r3 >= 0x100000, Down: r3 <= -0x80000.
-constexpr uint32_t kClimbUpTestPc = 0x08029236u;
-constexpr uint32_t kClimbDownTestPc = 0x0802925Au;
+const uint32_t kClimbUpTestPc = TLA_ROM(0x08029236u);
+const uint32_t kClimbDownTestPc = TLA_ROM(0x0802925Au);
 constexpr int32_t kClimbUpStop = 0x100000, kClimbDownStop = -0x80000;
 constexpr int32_t kGameClimbSpeed = 0x8000;
 constexpr uint32_t kVelocityOffset = 0x24u;  // +0x24/+0x28/+0x2C
@@ -148,8 +151,8 @@ int climb_down_test(uint32_t pc, uint32_t original, uint32_t* out_value) {
     return g_next_literal ? g_next_literal(pc, original, out_value) : 0;
 }
 
-constexpr uint32_t kDebugByteBranchPc = 0x08027274u;  // beq: byte 0
-constexpr uint32_t kDebugKeyBranchPc = 0x08027282u;   // beq: L up
+const uint32_t kDebugByteBranchPc = TLA_ROM(0x08027274u);  // beq: byte 0
+const uint32_t kDebugKeyBranchPc = TLA_ROM(0x08027282u);   // beq: L up
 
 int (*g_next_branch)(uint32_t, uint32_t, uint32_t*) = nullptr;
 
@@ -160,10 +163,22 @@ int walk_through_walls_branch(uint32_t pc, uint32_t original,
     return g_next_branch ? g_next_branch(pc, original, out_decision) : 0;
 }
 
-const gbarecomp::GameOptionSwitch kDeveloperSwitches[] = {
+// F1's Game page: the Enemy HP bar (tla_enemy_hp_bar.cpp) and the
+// trackers (tla_trackers.cpp); developer sessions also list walking through
+// walls.
+const gbarecomp::GameOptionSwitch kGameSwitches[] = {
+    {gsr::enemy_hp_bar::kSwitchLabel, gsr::enemy_hp_bar::kSwitchCaption,
+     gsr::enemy_hp_bar::kOptionKey},
+    {gsr::djinn_tracker::kSwitchLabel, gsr::djinn_tracker::kSwitchCaption,
+     gsr::djinn_tracker::kOptionKey},
+    {gsr::djinn_tracker::kShowAllLabel, gsr::djinn_tracker::kShowAllCaption,
+     gsr::djinn_tracker::kShowAllKey},
+    {gsr::treasure_tracker::kSwitchLabel, gsr::treasure_tracker::kSwitchCaption,
+     gsr::treasure_tracker::kOptionKey},
     {gbarecomp::walk_through_walls::kSwitchLabel,
      gbarecomp::walk_through_walls::kSwitchCaption,
      gbarecomp::walk_through_walls::kOptionKey}};
+constexpr int kPlayerGameSwitchCount = 4;
 
 }  // namespace
 
@@ -182,9 +197,8 @@ void tla_install_walk_speed(gbarecomp::RunOptions& options) {
 void tla_install_walk_through_walls(gbarecomp::RunOptions& options) {
     g_next_branch = options.conditional_branch_override;
     options.conditional_branch_override = walk_through_walls_branch;
-    if (gbarecomp::developer_session())
-        gbarecomp::config_ui_set_game_switches(
-            kDeveloperSwitches,
-            static_cast<int>(sizeof(kDeveloperSwitches) /
-                             sizeof(kDeveloperSwitches[0])));
+    gbarecomp::config_ui_set_game_switches(
+        kGameSwitches, gbarecomp::developer_session()
+            ? static_cast<int>(sizeof(kGameSwitches) / sizeof(kGameSwitches[0]))
+            : kPlayerGameSwitchCount);
 }

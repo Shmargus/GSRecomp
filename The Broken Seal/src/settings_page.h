@@ -1,13 +1,15 @@
 #pragma once
 
+#include "settings_page_labels.h"
 #include "view_config.h"
 
 #include <cstdint>
 
 #include "game_options.h"
+#include "rom_version.h"
 
-// A second page on Golden Sun's settings screen: Walk Speed, Encounters,
-// Screen, No Slowdown and Better Field Psy.
+// A second page on Golden Sun's settings screen. Its labels and help are
+// shared with The Lost Age through settings_page_labels.h.
 //
 // The native screen is fixed at five rows filling the native height, so the
 // page is drawn by the runner over the settings window at present time; the
@@ -42,12 +44,12 @@
 // window colour preset, invisible from here).
 namespace gsr::settings_page {
 
-constexpr std::uint32_t kPressedKeysLiteralPc = 0x0801D772u;
-constexpr std::uint32_t kPressedKeys = 0x03001C94u;
-constexpr std::uint32_t kRepeatKeysLiteralPc = 0x0801D7CAu;
-constexpr std::uint32_t kRepeatKeys = 0x03001B04u;
+const std::uint32_t kPressedKeysLiteralPc = gs::rom(0x0801D772u);
+const std::uint32_t kPressedKeys = gs::ram(0x03001C94u);
+const std::uint32_t kRepeatKeysLiteralPc = gs::rom(0x0801D7CAu);
+const std::uint32_t kRepeatKeys = gs::ram(0x03001B04u);
 // ROM header bytes 0xB8..0xBB are reserved and zero.
-constexpr std::uint32_t kZeroWord = 0x080000B8u;
+const std::uint32_t kZeroWord = gs::rom(0x080000B8u);
 
 constexpr std::uint32_t kKeySelect = 0x04u;
 constexpr std::uint32_t kKeyRight = 0x10u;
@@ -70,12 +72,9 @@ constexpr int kEncounterRow = 1;
 constexpr int kScreenRow = 2;
 constexpr int kNoSlowdownRow = 3;
 constexpr int kFieldPsynergyRow = 4;
-constexpr const char* kRowLabels[kRowCount] = {
-    "Walk Speed", "Encounters", "Screen", "No Slowdown", "Better Field Psy"};
-constexpr const char* kRowHelp[kRowCount] = {
-    "Set walking speed.", "Set how often monsters appear.",
-    "Set the screen size.", "Remove slowdown.",
-    "Faster Psynergy, bigger Reveal."};
+inline constexpr auto& kRowLabels = gsr::settings_labels::kRows;
+inline constexpr auto& kRowHelp = gsr::settings_labels::kHelp;
+
 // Text line of each row, matching the cursor hand (above). Page one's five
 // rows sit on lines 0, 0x10, 0x28, 0x40 and 0x58 (FACTS.md, 2026-09-23), so
 // page two's fifth row uses page one's last line.
@@ -98,9 +97,9 @@ constexpr std::uint32_t kWindowHeight = 0xAu;
 constexpr std::uint32_t kWindowX = 0xCu;
 constexpr std::uint32_t kWindowY = 0xEu;
 
-constexpr std::uint32_t kAssetTable = 0x08320000u;
+const std::uint32_t kAssetTable = gs::rom(0x08320000u);
 constexpr std::uint32_t kFontAsset = 0x13u;
-constexpr std::uint32_t kGlyphWidthTable = 0x080370D4u;
+const std::uint32_t kGlyphWidthTable = gs::rom(0x080370D4u);
 constexpr std::uint8_t kGlyphLetter = 1u;
 constexpr std::uint8_t kGlyphShadow = 3u;
 
@@ -144,7 +143,7 @@ constexpr const char* kFieldPsynergyWords[2] = {"Off", "On"};
 // that on every step, Half on every other step. Double adds the step's
 // amount (r0 at the base load, the result of the multiply just before) to
 // the counter first, so the game's own add makes it twice.
-constexpr std::uint32_t kEncounterBaseLiteralPc = 0x0808AF84u;
+const std::uint32_t kEncounterBaseLiteralPc = gs::rom(0x0808AF84u);
 constexpr std::uint32_t kEncounterBase = 0x02000240u;
 constexpr std::uint32_t kEncounterCounterOffset = 0x238u;
 constexpr int kEncounterNormal = 0;
@@ -176,7 +175,7 @@ constexpr int kEncounterRateCount = 4;
 // as page two shows. Page one's icon sprites inside the window are hidden.
 // This is redone at the end of every game frame (the frame routine's wait,
 // 0x08003318), after the game's own drawing for that frame.
-constexpr std::uint32_t kWindowBlockSlot = 0x03001E8Cu;
+const std::uint32_t kWindowBlockSlot = gs::ram(0x03001E8Cu);
 constexpr std::uint32_t kTileUsageOffset = 0xDA0u;
 constexpr std::uint32_t kTileBankFlagOffset = 0xEA2u;
 constexpr std::uint32_t kBg0CharBase = 0x06000000u;
@@ -185,8 +184,14 @@ constexpr std::uint16_t kBlankTile = 0x20u;
 constexpr std::uint16_t kTextBankFirst = 0x80u;
 constexpr std::uint16_t kTextBankLast = 0xFFu;
 constexpr std::uint8_t kGlyphBackground = 4u;
-constexpr std::uint32_t kOamShadowSlot = 0x03001F20u;
-constexpr std::uint32_t kHelpTextBase = 0xC15u;
+const std::uint32_t kOamShadowSlot = gs::ram(0x03001F20u);
+const std::uint32_t kHelpTextBase = gs::text(0xC15u);
+
+// The game's sound effect call 0x080F9010(id). The settings screen plays
+// 0x6F for Up, Down, Left and Right (0x0801D7D8, 0x0801D7F4, 0x0801D80C,
+// 0x0801D82C), 0x70 for A and 0x71 for B; the Yes/No menu uses the same ids
+// (custom_battle.h kMoveSound / kSelectSound / kBackSound).
+const std::uint32_t kSoundPc = gs::rom(0x080F9010u);
 
 // Kept next to the executable; the engine's config.ini is its own.
 constexpr const char* kOptionsFile = "game_options.ini";

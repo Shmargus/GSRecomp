@@ -189,6 +189,24 @@ void GbaAudio::deserialize(gbarecomp::debug::SnapshotReader& r,
     if (!has_psg_extension)
         restore_legacy_psg_from_io(legacy_io, legacy_io_len);
     clear_stereo_fallback();
+    if (!state_consistent()) r.fail();
+}
+
+// Whether restored values fit the fixed ring, FIFO and table sizes and keep
+// the sample-rate divisor nonzero. A complete but damaged section can hold
+// any value; playback indexes and divides by these without further checks.
+bool GbaAudio::state_consistent() const {
+    auto fifo_ok = [](const DirectFifo& f) {
+        return f.write < 8 && f.read < 8 && f.count <= 8 &&
+               f.bytes_remaining <= 4;
+    };
+    return ring_.size() == kRingSize && ring_head_ < kRingSize &&
+           ring_tail_ < kRingSize && cycles_per_sample_ != 0 &&
+           sample_index_ <= kMaxSamplesPerEvent &&
+           fifo_ok(fifo_a_) && fifo_ok(fifo_b_) &&
+           ch1_.duty < 4 && ch1_.waveform_phase < 8 &&
+           ch2_.duty < 4 && ch2_.waveform_phase < 8 &&
+           ch4_.divisor_code < 8 && ch4_.shift < 16;
 }
 
 void GbaAudio::restore_legacy_psg_from_io(const uint8_t* io,

@@ -33,8 +33,29 @@ def excluded(name):
     return name.startswith(".") or ".bak" in name or name == "__pycache__"
 
 
-def input_name(name):
-    return name.replace("{tla_corpus}", "tla" if os.name == "nt" else "tla_linux")
+def tbs_corpus(root):
+    """The Broken Seal's game code folder for the collection's ROM, as
+    scripts/build_game.ps1 recorded it (USA/Europe before it ever has)."""
+    record = root / "The Broken Seal/local/game_code_revision.txt"
+    if record.is_file():
+        for line in record.read_text(encoding="utf-8").splitlines():
+            if line.startswith("corpus="):
+                return line[len("corpus="):]
+    return "gs011"
+
+
+def tla_corpus(root):
+    record = root / "The Lost Age/local/game_code_revision.txt"
+    if record.is_file():
+        for line in record.read_text(encoding="utf-8").splitlines():
+            if line.startswith("corpus="):
+                return line[len("corpus="):]
+    return "tla" if os.name == "nt" else "tla_linux"
+
+
+def input_name(name, root):
+    name = name.replace("{tla_corpus}", tla_corpus(root))
+    return name.replace("{tbs_corpus}", tbs_corpus(root)) if "{tbs_corpus}" in name else name
 
 
 def inventory(root, game):
@@ -49,7 +70,7 @@ def inventory(root, game):
         scope, name = fields
         if scope not in ("Both", game):
             continue
-        path = safe_path(root, input_name(name))
+        path = safe_path(root, input_name(name, root))
         if path.is_dir():
             def walk(directory):
                 for child in directory.iterdir():
