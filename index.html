@@ -3,33 +3,33 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Golden Sun Recompiled: Golden Sun and Golden Sun: The Lost Age for the Game Boy Advance, rebuilt as native PC games for Windows and Linux, with wider views, music mods, extra settings and more. A free fan project.">
+<meta name="description" content="Golden Sun Recompiled: Golden Sun and Golden Sun: The Lost Age rebuilt as native PC games for Windows and Linux, in English, Spanish, Italian, French and German, with wider views, trackers, music mods and more. A free fan project.">
 <meta property="og:title" content="Golden Sun Recompiled">
-<meta property="og:description" content="Golden Sun and The Lost Age rebuilt as native PC games for Windows and Linux. A free fan project.">
+<meta property="og:description" content="Golden Sun and The Lost Age rebuilt as native PC games for Windows and Linux, in five languages. A free fan project.">
 <meta property="og:image" content="logo.webp">
 <title>Golden Sun Recompiled</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,400;0,600;0,700;0,800;0,900;1,400&family=Cinzel:wght@700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Cinzel:wght@700&display=swap">
 <style>
-/* A Golden Sun menu screen, a little newer than the old fan site: a sunrise
-   sky, the games' blue bevelled windows as boxes, their yellow-green title
-   plates as headings, and the four Djinn colours as accents. One look in
-   every theme, so every colour is set here. */
+/* Night blue panels, gold headings, and the four Djinn elements (Venus,
+   Mars, Jupiter, Mercury) as small accents. One look in every theme, so
+   every colour is set here. Body text is 16px; every text colour meets WCAG
+   AA contrast on the panel blue. */
 :root {
-  --night: #0b1730;
-  --night-2: #13254a;
-  --win-top: #2f7fbf;
-  --win-bottom: #12466f;
-  --win-edge: #e9f3fb;
-  --win-line: #071526;
-  --text-soft: #dcebf7;
-  --text-dim: #a9c4da;
-  --gold: #ffcc4d;
-  --venus: #e6ad2e;
-  --mars: #e5603f;
-  --jupiter: #b07ae0;
-  --mercury: #4bb0f0;
+  --bg: #08111f;
+  --panel: #102644;
+  --panel-2: #0c1d36;
+  --line: #2a4a73;
+  --text: #f2f7fc;
+  --soft: #c9dbec;
+  --dim: #9fb8d0;
+  --gold: #f5c84c;
+  --gold-2: #e0a526;
+  --venus: #e8b23a;
+  --mars: #ef6b4d;
+  --jupiter: #b58ae6;
+  --mercury: #52b4f0;
   --body: "Nunito", "Segoe UI", Arial, sans-serif;
   --display: "Cinzel", Georgia, serif;
   color-scheme: dark;
@@ -37,649 +37,348 @@
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body {
-  margin: 0; padding: 0 16px 36px; font: 14px/1.55 var(--body); color: #fff;
-  background-color: var(--night);
-  background-image:
-    radial-gradient(ellipse 60% 300px at 50% 0, rgba(255,214,110,.5), transparent 70%),
-    linear-gradient(180deg, #f6c35b 0, #e6823a 180px, #8a3f6b 380px, var(--night-2) 620px, var(--night) 900px);
-  background-repeat: no-repeat;
+  margin: 0; padding: 0 16px 40px; font: 16px/1.6 var(--body); color: var(--text);
+  background: radial-gradient(ellipse 900px 420px at 50% -120px, rgba(245,200,76,.16), transparent 70%), var(--bg);
 }
-a { color: var(--gold); }
-a:hover { color: #fff1b3; }
+a { color: var(--gold); text-underline-offset: 2px; }
+a:hover { color: #ffe39a; }
 :focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
-.wrap { max-width: 940px; margin: 0 auto; }
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.wrap { max-width: 1040px; margin: 0 auto; }
+.skip { position: absolute; left: 16px; top: -60px; z-index: 10; padding: 10px 16px; border-radius: 8px; background: var(--gold); color: #2a1a00; font-weight: 800; }
+.skip:focus { top: 10px; }
+b, strong { color: #fff; }
+p { margin: 0 0 10px; color: var(--soft); }
+p:last-child { margin-bottom: 0; }
+
+/* The four elements: a row of small diamonds, used as a flourish. */
+.elements { display: inline-flex; gap: 6px; vertical-align: middle; }
+.elements i { width: 8px; height: 8px; transform: rotate(45deg); border-radius: 1px; }
+.elements i:nth-child(1) { background: var(--venus); }
+.elements i:nth-child(2) { background: var(--mars); }
+.elements i:nth-child(3) { background: var(--jupiter); }
+.elements i:nth-child(4) { background: var(--mercury); }
+.venus { --c: var(--venus); } .mars { --c: var(--mars); } .jupiter { --c: var(--jupiter); } .mercury { --c: var(--mercury); }
 
 /* ---- Top ---- */
-.ai-note { margin: 0; padding: 6px 0 0; text-align: center; font: 600 11px var(--body); color: #4a2a08; opacity: .8; }
-.hero { text-align: center; padding: 8px 0 0; }
+.ai-note { margin: 0; padding: 8px 0 0; text-align: center; font-size: 13px; color: var(--dim); }
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 28px; align-items: center; padding: 14px 0 6px; }
 .hero h1 { margin: 0; line-height: 0; }
-.hero img { width: 380px; max-width: 100%; height: auto; filter: drop-shadow(0 4px 10px rgba(80,30,0,.45)); }
-.tagline { margin: 2px auto 0; font: 800 15px/1.4 var(--body); text-shadow: 0 2px 0 rgba(90,30,0,.5); }
-.cta { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 12px 0 4px; }
-.stone {
-  display: inline-block; text-decoration: none; font: 900 14px var(--body); color: #4a2a00;
-  padding: 8px 18px; border-radius: 999px; background: linear-gradient(180deg, #fff2a8, var(--gold) 45%, #f0a91e);
-  border: 2px solid #fff6c9; box-shadow: 0 0 0 2px #8a5600, 0 4px 0 #8a5600; transition: transform .1s ease;
+.hero img { width: 100%; max-width: 440px; height: auto; filter: drop-shadow(0 6px 18px rgba(0,0,0,.5)); }
+.tagline { margin: 0 0 6px; font: 800 22px/1.35 var(--body); color: #fff; }
+.sub { margin: 0 0 14px; }
+.cta { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; }
+.btn {
+  display: inline-flex; align-items: center; min-height: 46px; padding: 10px 20px; border-radius: 10px;
+  text-decoration: none; font: 900 16px var(--body); color: #2a1a00;
+  background: linear-gradient(180deg, #ffe38a, var(--gold) 50%, var(--gold-2)); border: 1px solid #ffefb8;
+  box-shadow: 0 3px 0 #8a5a00;
 }
-.stone:hover { color: #4a2a00; transform: translateY(-1px); }
-.stone:active { transform: translateY(2px); }
-.release-line { margin: 8px 0 0; font: 700 12px var(--body); text-shadow: 0 1px 2px rgba(60,20,0,.6); }
-.release-line a { color: #fff; }
+.btn:hover { color: #2a1a00; filter: brightness(1.05); }
+.release-line { margin: 0; font-size: 15px; color: var(--dim); }
 
-nav.tabs { position: sticky; top: 0; z-index: 5; margin: 14px 0 22px; display: flex; justify-content: center; }
-nav.tabs ul {
-  list-style: none; margin: 0; padding: 4px; display: flex; flex-wrap: wrap; gap: 2px; justify-content: center;
-  background: rgba(7,21,38,.85); border: 2px solid rgba(233,243,251,.5); border-radius: 10px;
-}
-nav.tabs a { display: block; padding: 4px 11px; border-radius: 7px; text-decoration: none; font: 800 13px var(--body); color: var(--text-soft); }
-nav.tabs a:hover { background: rgba(255,204,77,.16); color: #fff; }
+nav.tabs { position: sticky; top: 0; z-index: 5; margin: 14px -16px 26px; padding: 8px 16px; background: rgba(8,17,31,.92); border-bottom: 1px solid var(--line); }
+nav.tabs ul { list-style: none; margin: 0 auto; padding: 0; max-width: 1040px; display: flex; flex-wrap: wrap; gap: 2px 4px; }
+nav.tabs a { display: block; padding: 6px 10px; border-radius: 7px; text-decoration: none; font: 800 15px var(--body); color: var(--soft); }
+nav.tabs a:hover { color: #fff; background: rgba(245,200,76,.12); }
 
-/* ---- Game windows and title plates ---- */
-.win {
-  border-radius: 8px; padding: 14px 16px;
-  background: linear-gradient(180deg, var(--win-top), var(--win-bottom));
-  border: 2px solid var(--win-edge); outline: 2px solid var(--win-line);
-  box-shadow: inset 0 2px 0 rgba(255,255,255,.16), 0 6px 16px rgba(0,0,0,.35);
-  text-shadow: 1px 1px 0 rgba(4,16,30,.75);
-}
-.win p { margin: 0 0 8px; color: var(--text-soft); }
-.win p:last-child { margin-bottom: 0; }
-.win b { color: #fff; }
-section { margin: 0 0 30px; scroll-margin-top: 60px; }
-.plate {
-  display: inline-block; margin: 0 0 10px; padding: 3px 12px 4px;
-  font: 900 16px/1.15 var(--body); color: #fff;
-  background: linear-gradient(180deg, #ffff58, #2fd82f);
-  border: 2px solid #fff; outline: 2px solid #1b1b1b; border-radius: 3px;
-  text-shadow: 2px 2px 0 #3a3a3a, -1px -1px 0 #3a3a3a, 1px -1px 0 #3a3a3a, -1px 1px 0 #3a3a3a;
-}
-.games { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 10px; }
-.games div { flex: 1 1 260px; }
-.games h3 { margin: 0 0 2px; font: 700 16px var(--display); color: var(--gold); }
-.note { margin-top: 10px; padding: 7px 11px; border-radius: 6px; color: #fff; background: rgba(255,204,77,.12); border: 1px dashed rgba(255,204,77,.6); }
-.note b { color: var(--gold); }
+/* ---- Sections ---- */
+section { margin: 0 0 40px; scroll-margin-top: 64px; }
+h2 { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; font: 700 24px/1.2 var(--display); color: var(--gold); }
+h2::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--line), transparent); }
+h3 { margin: 0 0 4px; font: 900 17px/1.3 var(--body); color: #fff; }
+.panel { background: linear-gradient(180deg, var(--panel), var(--panel-2)); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.note { margin-top: 12px; padding: 9px 13px; border-left: 3px solid var(--gold); background: rgba(245,200,76,.08); border-radius: 0 8px 8px 0; color: var(--soft); }
 
-/* Features: small windows, a Djinn-coloured stripe each */
-.cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.card { padding: 11px 13px 10px 16px; box-shadow: inset 4px 0 0 var(--c), inset 0 2px 0 rgba(255,255,255,.16), 0 6px 16px rgba(0,0,0,.35); display: flex; flex-direction: column; }
-.card h3 { margin: 0 0 3px; font: 900 14.5px/1.25 var(--body); color: #fff; }
-.card p { font-size: 13px; }
-.card .where { margin-top: auto; padding-top: 4px; font-size: 12px; color: var(--text-dim); }
-.venus { --c: var(--venus); } .mars { --c: var(--mars); } .jupiter { --c: var(--jupiter); } .mercury { --c: var(--mercury); }
-.new { font: 900 10px var(--body); text-transform: uppercase; letter-spacing: .06em; color: #3a2400; text-shadow: none; background: var(--gold); border-radius: 999px; padding: 1px 6px; margin-left: 3px; vertical-align: 1px; }
-kbd {
-  font: 800 11px var(--body); color: #12324f; white-space: nowrap; text-shadow: none;
-  background: linear-gradient(#ffffff, #d8e4ee); border: 1px solid #7c97ad; border-radius: 4px; padding: 0 5px; box-shadow: 0 1px 0 #6c8499;
-}
+.about { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 22px; }
+.games { display: grid; gap: 10px; align-content: start; }
+.game { padding: 10px 14px; border-radius: 10px; background: rgba(8,17,31,.4); border-left: 3px solid var(--c); }
+.game h3 { font: 700 18px var(--display); color: var(--gold); }
+.game p { font-size: 15px; }
 
-/* Music */
-.music { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 18px; align-items: start; }
-.steps { margin: 4px 0 8px; padding-left: 20px; color: var(--text-soft); }
-.steps li { margin-bottom: 3px; }
-.links { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.links a { display: block; text-decoration: none; padding: 6px 11px; border-radius: 7px; color: #fff; font-weight: 800; background: rgba(4,16,30,.35); border: 1px solid rgba(233,243,251,.35); }
+/* New in 0.7: compact cards with an element-coloured top edge */
+.card { display: flex; flex-direction: column; padding: 16px 18px 14px; border-top: 3px solid var(--c); }
+.card h3 { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
+.card p { font-size: 15px; }
+.where { margin-top: auto !important; padding-top: 8px; font-size: 14px; color: var(--dim) !important; }
+.tag { font: 800 12px var(--body); letter-spacing: .03em; color: var(--dim); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; white-space: nowrap; }
+.tag.on { color: #2a1a00; background: var(--gold); border-color: var(--gold); }
+.langs { display: flex; flex-wrap: wrap; gap: 5px; margin: 2px 0 8px; padding: 0; list-style: none; }
+.langs li { padding: 1px 9px; border-radius: 999px; font-size: 14px; font-weight: 800; background: rgba(82,180,240,.14); border: 1px solid rgba(82,180,240,.45); }
+
+/* Features: a two-column list, each with an element bullet */
+.flist { list-style: none; margin: 4px 0 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; }
+.flist li { position: relative; padding: 9px 0 9px 22px; border-bottom: 1px solid rgba(42,74,115,.6); }
+.flist li::before { content: ""; position: absolute; left: 2px; top: 17px; width: 8px; height: 8px; transform: rotate(45deg); background: var(--c); }
+.flist b { display: block; }
+.flist span { display: block; font-size: 15px; color: var(--soft); }
+.flist small { display: block; font-size: 14px; color: var(--dim); }
+
+kbd { font: 800 13px var(--body); color: #0f2c47; white-space: nowrap; background: linear-gradient(#ffffff, #d8e4ee); border: 1px solid #7c97ad; border-radius: 5px; padding: 0 5px; box-shadow: 0 1px 0 #6c8499; }
+
+/* Getting started */
+.steps { counter-reset: step; list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.steps li { counter-increment: step; }
+.steps li::before {
+  content: counter(step); display: grid; place-items: center; width: 30px; height: 30px; margin-bottom: 8px;
+  border-radius: 50%; font: 900 16px var(--body); color: #2a1a00; background: var(--gold);
+}
+.steps p { font-size: 15px; }
+.needs { margin-top: 16px !important; padding-top: 14px; border-top: 1px solid var(--line); font-size: 15px; }
+
+/* Music and keys */
+.music ol { margin: 4px 0 10px; padding-left: 22px; color: var(--soft); }
+.links { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.links a { display: inline-block; padding: 7px 12px; border-radius: 8px; text-decoration: none; font-weight: 800; font-size: 15px; color: var(--text); border: 1px solid var(--line); background: rgba(8,17,31,.4); }
 .links a:hover { border-color: var(--gold); }
-.links a.main { color: #3a2400; text-shadow: none; background: linear-gradient(180deg, #fff2a8, var(--gold) 50%, #f0a91e); border-color: #fff6c9; }
-.links small { display: block; font-weight: 600; font-size: 11.5px; opacity: .8; }
-.thanks { font-size: 12.5px; }
-
-/* Try the menus */
-.try { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.try h3 { margin: 0 0 2px; font: 900 14.5px var(--body); }
-.try .hint { font-size: 12.5px; }
-.bezel { margin: 6px 0; padding: 7px; border-radius: 9px; background: linear-gradient(#3f4656, #262b36); box-shadow: inset 0 2px 4px rgba(0,0,0,.6); }
-canvas.gba { display: block; width: 100%; aspect-ratio: 3 / 2; image-rendering: pixelated; image-rendering: crisp-edges; background: #16222e; border-radius: 3px; cursor: pointer; }
-.pad { display: flex; gap: 4px; }
-.btn { font: 900 12px var(--body); color: #12324f; cursor: pointer; min-width: 32px; padding: 3px 8px; background: linear-gradient(#ffffff, #d8e4ee); border: 1px solid #7c97ad; border-radius: 6px; box-shadow: 0 2px 0 #6c8499; }
-.btn:active { transform: translateY(1px); box-shadow: 0 1px 0 #6c8499; }
-.explain { margin-top: 6px; padding: 7px 10px; border-radius: 7px; background: rgba(4,16,30,.35); min-height: 74px; font-size: 13px; }
-.explain h3 { color: var(--gold); margin: 0 0 1px; font: 900 13px var(--body); }
-.explain p { margin: 0 0 3px; }
-.explain .opts { font-size: 12px; color: var(--text-dim); margin: 0; }
-
-/* Keys and needs */
-.duo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.duo h3 { margin: 0 0 6px; font: 900 14.5px var(--body); }
-.keys { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 18px; }
-.keys li { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; break-inside: avoid; color: var(--text-soft); font-size: 13px; }
-.fine { font-size: 12px; color: var(--text-dim); margin-top: 6px !important; }
-.ticks { margin: 0; padding-left: 18px; color: var(--text-soft); }
-.ticks li { margin-bottom: 4px; }
+.links a.main { color: #2a1a00; background: var(--gold); border-color: var(--gold); }
+.keys { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; }
+.keys div { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 5px 0; border-bottom: 1px solid rgba(42,74,115,.6); font-size: 15px; }
+.keys dt { color: var(--soft); }
+.keys dd { margin: 0; text-align: right; }
+.fine { margin-top: 10px !important; font-size: 14px; color: var(--dim) !important; }
 
 /* FAQ */
-.faq { padding: 8px 10px; }
-.faq details + details { border-top: 1px solid rgba(233,243,251,.18); }
-.faq summary { list-style: none; cursor: pointer; padding: 7px 8px 7px 26px; position: relative; font-weight: 800; }
+.faq { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; padding: 6px 20px; align-items: start; }
+.faq details { border-bottom: 1px solid rgba(42,74,115,.6); }
+.faq summary { list-style: none; cursor: pointer; padding: 11px 4px 11px 24px; position: relative; font-weight: 800; }
 .faq summary::-webkit-details-marker { display: none; }
-.faq summary::before { content: ""; position: absolute; left: 9px; top: 12px; border: 5px solid transparent; border-left: 7px solid var(--gold); transition: transform .15s ease; transform-origin: 2px 5px; }
-.faq details[open] summary::before { transform: rotate(90deg); }
-.faq .a { padding: 0 8px 9px 26px; }
-.faq ol { margin: 0 0 6px; padding-left: 18px; color: var(--text-soft); }
+.faq summary::before { content: ""; position: absolute; left: 4px; top: 19px; width: 7px; height: 7px; transform: rotate(45deg); background: var(--gold); transition: transform .15s ease; }
+.faq details[open] summary::before { transform: rotate(135deg); background: var(--mercury); }
+.faq .a { padding: 0 4px 12px 24px; font-size: 15px; }
+.faq ol { margin: 0 0 8px; padding-left: 20px; color: var(--soft); }
 
-footer { text-align: center; font-size: 12px; color: var(--text-dim); display: grid; gap: 3px; }
-footer b { color: var(--text-soft); }
+footer { padding-top: 18px; border-top: 1px solid var(--line); text-align: center; font-size: 14px; color: var(--dim); display: grid; gap: 6px; justify-items: center; }
+footer b { color: var(--soft); }
 
 @media (max-width: 860px) {
-  .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .music, .try, .duo { grid-template-columns: minmax(0, 1fr); }
+  .hero, .about, .grid2, .faq { grid-template-columns: minmax(0, 1fr); }
+  .hero { text-align: center; gap: 12px; }
+  .hero img { max-width: 360px; }
+  .cta { justify-content: center; }
+  .grid3, .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (max-width: 520px) {
-  .cards { grid-template-columns: minmax(0, 1fr); }
-  .keys { columns: 1; }
+@media (max-width: 560px) {
+  .grid3, .steps, .flist, .keys { grid-template-columns: minmax(0, 1fr); }
+  .tagline { font-size: 19px; }
+  nav.tabs { position: static; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
 </style>
 </head>
 <body>
+<a class="skip" href="#main">Skip to the content</a>
 <p class="ai-note">Portions of this project were developed with the assistance of AI-based development tools.</p>
 
 <div class="wrap">
   <header class="hero">
     <h1><img src="logo.webp" width="1774" height="887" alt="Golden Sun Recompiled"></h1>
-    <p class="tagline">Golden Sun and The Lost Age, rebuilt as real PC games for Windows and Linux.</p>
-    <div class="cta">
-      <!-- Filled from GitHub's newest release when the page loads (script at
-           the end); these values are the fallback. -->
-      <a class="stone" id="download-windows" href="https://github.com/Shmargus/GSRecomp/releases/download/0.6/GoldenSunRecompiled-0.6-windows.zip">Download for Windows</a>
-      <a class="stone" id="download-linux" href="https://github.com/Shmargus/GSRecomp/releases/download/0.6/GoldenSunRecompiled-0.6-linux.zip">Download for Linux</a>
+    <div>
+      <p class="tagline">Golden Sun and The Lost Age, rebuilt as real PC games for Windows and Linux.</p>
+      <p class="sub">Now in English, Spanish, Italian, French and German. Free, and you bring your own game files.</p>
+      <div class="cta">
+        <!-- Filled from GitHub's newest release when the page loads (script at
+             the end); these values are the fallback. -->
+        <a class="btn" id="download-windows" href="https://github.com/Shmargus/GSRecomp/releases/download/0.7/GoldenSunRecompiled-0.7-windows.zip">Download for Windows</a>
+        <a class="btn" id="download-linux" href="https://github.com/Shmargus/GSRecomp/releases/download/0.7/GoldenSunRecompiled-0.7-linux.zip">Download for Linux</a>
+      </div>
+      <p class="release-line"><span id="release-line">Test release 0.7</span> &middot; <a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">release notes</a></p>
     </div>
-    <p class="release-line"><span id="release-line">Test release 0.6</span> &middot; free &middot; bring your own game files &middot; <a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">what's new</a></p>
   </header>
+</div>
 
-  <nav class="tabs" aria-label="Sections">
-    <ul>
-      <li><a href="#about">What is it?</a></li>
-      <li><a href="#features">Features</a></li>
-      <li><a href="#music">Music mods</a></li>
-      <li><a href="#try">Try the menus</a></li>
-      <li><a href="#keys">Keys</a></li>
-      <li><a href="#faq">FAQ</a></li>
-    </ul>
-  </nav>
+<nav class="tabs" aria-label="Sections">
+  <ul>
+    <li><a href="#about">What is it?</a></li>
+    <li><a href="#new">New in 0.7</a></li>
+    <li><a href="#features">Features</a></li>
+    <li><a href="#start">Getting started</a></li>
+    <li><a href="#music">Music &amp; keys</a></li>
+    <li><a href="#faq">FAQ</a></li>
+  </ul>
+</nav>
 
-  <section id="about">
-    <h2 class="plate">What is it?</h2>
-    <div class="win">
-      <p>Golden Sun Recompiled turns both Game Boy Advance games into programs that run straight on your PC. It isn't an emulator: the games' own code is translated into PC code, so you get the same adventure with a wider view, a proper settings menu and a few optional extras. You bring your own copy of each game; nothing from the games comes with this project.</p>
-      <div class="games">
-        <div><h3>The Broken Seal</h3><p>Isaac's journey, from the storm over Vale to Venus Lighthouse.</p></div>
-        <div><h3>The Lost Age</h3><p>Felix's side of the story, across the Great Eastern Sea to Mars Lighthouse.</p></div>
-      </div>
-      <p>One launcher runs both. With <b>Seamless mode</b> the end of The Broken Seal carries straight on into The Lost Age, and The Lost Age can import your Broken Seal team from a save.</p>
-      <div class="note"><b>Still in testing.</b> Both games are playable from start to finish, but a few things may still look or sound slightly off.</div>
-    </div>
-  </section>
-
-  <section id="features">
-    <h2 class="plate">Features</h2>
-    <div class="cards">
-      <div class="win card jupiter"><h3>Wider views</h3><p>Original, Wide or Extra Wide. Psynergy, weather and scenery fill the extra space.</p><p class="where">Settings page two &rarr; Screen</p></div>
-      <div class="win card mars"><h3>Your picture</h3><p>Colour profiles or your own sliders, colour-blind help, flicker reduction, sharp pixels and filters.</p><p class="where"><kbd>F1</kbd> &rarr; Video</p></div>
-      <div class="win card mercury"><h3>Music mods <span class="new">New</span></h3><p>Play a remastered soundtrack (FLAC), looping where the game loops each song.</p><p class="where">Launcher cogwheel, or <kbd>F1</kbd> &rarr; Audio</p></div>
-      <div class="win card venus"><h3>Faster adventuring</h3><p>Faster walking, fewer battles, 2x battles, instant text, no slowdown and fast forward.</p><p class="where">Settings page two, <kbd>Select</kbd>, <kbd>Tab</kbd></p></div>
-      <div class="win card mars"><h3>Hard Mode</h3><p>Enemies with 1.5x HP and 1.25x Attack and Defence. Asked when you start a new game.</p><p class="where">New game, or Settings</p></div>
-      <div class="win card jupiter"><h3>Cheat menu</h3><p>Infinite HP and PP, and up to 100x experience, coins and item drops.</p><p class="where"><kbd>F11</kbd> in game</p></div>
-      <div class="win card mercury"><h3>Save states</h3><p>Nine slots to save the exact moment, on top of the game's own saves.</p><p class="where"><kbd>Shift+F2</kbd>&ndash;<kbd>F10</kbd>, load <kbd>F2</kbd>&ndash;<kbd>F10</kbd></p></div>
-      <div class="win card venus"><h3>Your controls</h3><p>Keyboard or controller, D-pad and stick together, auto fire and Soft Reset, shared by both games.</p><p class="where"><kbd>F1</kbd> &rarr; Controls</p></div>
-    </div>
-  </section>
-
-  <section id="music">
-    <h2 class="plate">Music mods</h2>
-    <div class="win music">
+<div class="wrap">
+  <main id="main">
+  <section id="about" aria-labelledby="about-h">
+    <h2 id="about-h"><span class="elements" aria-hidden="true"><i></i><i></i><i></i><i></i></span>What is it?</h2>
+    <div class="panel about">
       <div>
-        <p>Both games can play recordings in place of the original soundtrack. Each song loops exactly where the game loops it; sound effects stay as they are.</p>
-        <ol class="steps">
-          <li>Unzip a music mod next to <b>GoldenSunLauncher</b>, into its <b>Music</b> folder.</li>
-          <li>Start the launcher: it finds the music and asks once whether to use it.</li>
-          <li>Switch it any time with <b>Enable Music Mod</b> under the cogwheel, or <kbd>F1</kbd> &rarr; Audio in game.</li>
-        </ol>
-        <p class="thanks">The first music mod is the remastered soundtrack of both games by Vincent Dortel aka Juste-D, shared with his permission; many thanks to him, also for his help with the loop points. Not every track has been heard in game yet: if one loops wrongly, please tell us.</p>
+        <p>Golden Sun Recompiled turns both Game Boy Advance games into programs that run straight on your PC. It isn't an emulator: the games' own code is translated into PC code, so you get the same adventure with a wider view, a proper settings menu and optional extras.</p>
+        <p>One launcher runs both. With <b>Seamless mode</b> the end of The Broken Seal carries straight on into The Lost Age, and The Lost Age can import your Broken Seal team from a save.</p>
+        <p class="note"><b>Still in testing.</b> Both games can be played start to finish; a few things may still look or sound slightly off.</p>
       </div>
-      <ul class="links">
-        <li><a class="main" href="https://drive.google.com/file/d/1oMiW5pYbjg3Dl9LHHVEYZLpP3jZoryLo/view?usp=drive_link" target="_blank" rel="noopener">Download the music mod<small>Both albums by Juste-D, loop points included</small></a></li>
-        <li><a href="https://drive.google.com/drive/folders/1Q2MWzb_uSvXp0Z3vWthvErnzM3xyL6Em" target="_blank" rel="noopener">Juste-D's original albums<small>Google Drive</small></a></li>
-        <li><a href="https://www.youtube.com/@JusteDni" target="_blank" rel="noopener">Juste-D on YouTube<small>@JusteDni</small></a></li>
-        <li><a href="https://github.com/Shmargus/GSRecomp/blob/main/MUSIC_MODS.md" target="_blank" rel="noopener">Make your own music mod<small>File names and loop points</small></a></li>
+      <div class="games">
+        <div class="game venus"><h3>The Broken Seal</h3><p>Isaac's journey, from the storm over Vale to Venus Lighthouse.</p></div>
+        <div class="game mars"><h3>The Lost Age</h3><p>Felix's side of the story, across the Great Eastern Sea to Mars Lighthouse.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="new" aria-labelledby="new-h">
+    <h2 id="new-h"><span class="elements" aria-hidden="true"><i></i><i></i><i></i><i></i></span>New in 0.7</h2>
+    <div class="grid3">
+      <div class="panel card mercury">
+        <h3>Five languages</h3>
+        <ul class="langs" aria-label="Languages">
+          <li lang="en">English</li><li lang="es">Español</li><li lang="it">Italiano</li><li lang="fr">Français</li><li lang="de">Deutsch</li>
+        </ul>
+        <p>Pick a flag under each game; each language needs its matching game file and keeps its own saves.</p>
+        <p class="where">The flags under each game in the launcher</p>
+      </div>
+      <div class="panel card venus">
+        <h3>Bring your save along</h3>
+        <p>After building a new language, the launcher offers to copy your English in-game save across. Your English save stays as it is.</p>
+        <p class="where">Savestates stay with their own language</p>
+      </div>
+      <div class="panel card jupiter">
+        <h3>Djinn Tracker <span class="tag">Off by default</span></h3>
+        <p>Every Djinni by element, with counts. Point at a missing one to see where to look.</p>
+        <p class="where">Launcher settings, or <kbd>F1</kbd> &rarr; Game</p>
+      </div>
+      <div class="panel card mars">
+        <h3>Treasure Tracker <span class="tag">Off by default</span></h3>
+        <p>A checklist of treasures by place, ticked as you take them. Where you are opens by itself.</p>
+        <p class="where">Launcher settings, or <kbd>F1</kbd> &rarr; Game</p>
+      </div>
+      <div class="panel card venus">
+        <h3>Choose your opponents <span class="tag on">On by default</span></h3>
+        <p>In the Battle Arena, pick how many monsters, which ones, and whether they match your party.</p>
+        <p class="where">Any Battle Arena; switch it off in the launcher</p>
+      </div>
+      <div class="panel card mercury">
+        <h3>Enemy HP bars <span class="tag">Off by default</span></h3>
+        <p>While you choose a target, a small red bar and the HP number show what that enemy has left.</p>
+        <p class="where"><kbd>F1</kbd> &rarr; Game</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="features" aria-labelledby="features-h">
+    <h2 id="features-h"><span class="elements" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Features</h2>
+    <div class="panel">
+      <p>Everything is optional: with nothing switched on, the games play as they did on the Game Boy Advance.</p>
+      <ul class="flist">
+        <li class="jupiter"><b>Wider views</b><span>Original, Wide or Extra Wide; Psynergy, weather and scenery fill the extra space.</span><small>Game Settings, page two</small></li>
+        <li class="mars"><b>Your picture</b><span>Colour profiles, colour-blind help, flicker reduction, sharp pixels and filters.</span><small><kbd>F1</kbd> &rarr; Video</small></li>
+        <li class="venus"><b>Faster adventuring</b><span>Faster walking, fewer or more battles, quicker field Psynergy, no slowdown, instant text.</span><small>Game Settings, both pages</small></li>
+        <li class="mercury"><b>Fast forward and 2x battles</b><span>Hold <kbd>Tab</kbd> to speed up, or press <kbd>Select</kbd> in battle.</span><small><kbd>F1</kbd> &rarr; Speed</small></li>
+        <li class="mars"><b>Hard Mode</b><span>Enemies with 1.5x HP and 1.25x Attack and Defence.</span><small>New game, or Game Settings, page one</small></li>
+        <li class="jupiter"><b>Cheats</b><span>Infinite HP and PP, up to 100x experience, coins and item drops.</span><small><kbd>F1</kbd> &rarr; Cheats, or <kbd>F11</kbd></small></li>
+        <li class="mercury"><b>Savestates</b><span>Nine slots for the exact moment, on top of the game's own saves.</span><small>Save <kbd>Shift</kbd>+<kbd>F2</kbd>&ndash;<kbd>F10</kbd>, load <kbd>F2</kbd>&ndash;<kbd>F10</kbd></small></li>
+        <li class="venus"><b>Your controls</b><span>Keyboard or controller, auto fire and Soft Reset, shared by both games.</span><small><kbd>F1</kbd> &rarr; Controls and Hotkeys</small></li>
       </ul>
     </div>
   </section>
 
-  <section id="try">
-    <h2 class="plate">Try the menus</h2>
-    <div class="try">
-      <div class="win">
-        <h3>Settings, page two</h3>
-        <p class="hint">Press Down past the last row of the game's Settings screen. Here: click the screen, then use the arrow keys or the buttons.</p>
-        <div class="bezel"><canvas id="settings-screen" class="gba" width="240" height="160" tabindex="0" role="application" aria-label="Settings page two. Use the arrow keys."></canvas></div>
-        <span class="sr" id="settings-live" aria-live="polite"></span>
-        <div class="pad" aria-label="Buttons">
-          <button class="btn" type="button" data-for="settings-screen" data-act="up" aria-label="Up">&#9650;</button>
-          <button class="btn" type="button" data-for="settings-screen" data-act="down" aria-label="Down">&#9660;</button>
-          <button class="btn" type="button" data-for="settings-screen" data-act="left" aria-label="Left">&#9664;</button>
-          <button class="btn" type="button" data-for="settings-screen" data-act="right" aria-label="Right">&#9654;</button>
-        </div>
-        <div class="explain" id="sim-explain"></div>
-        <p class="hint" style="margin-top:8px">Page one gains <b>Message Speed: Instant</b> too.</p>
-      </div>
-      <div class="win">
-        <h3>Cheat menu</h3>
-        <p class="hint">Press <kbd>F11</kbd> anywhere in either game. Here: click the screen, then use the arrow keys; A or Enter switches On and Off.</p>
-        <div class="bezel"><canvas id="cheat-screen" class="gba" width="240" height="160" tabindex="0" role="application" aria-label="Cheat menu. Use the arrow keys; A switches On and Off."></canvas></div>
-        <span class="sr" id="cheat-live" aria-live="polite"></span>
-        <div class="pad" aria-label="Buttons">
-          <button class="btn" type="button" data-for="cheat-screen" data-act="up" aria-label="Up">&#9650;</button>
-          <button class="btn" type="button" data-for="cheat-screen" data-act="down" aria-label="Down">&#9660;</button>
-          <button class="btn" type="button" data-for="cheat-screen" data-act="left" aria-label="Left">&#9664;</button>
-          <button class="btn" type="button" data-for="cheat-screen" data-act="right" aria-label="Right">&#9654;</button>
-        </div>
-        <div class="explain" id="cheat-explain"></div>
-      </div>
+  <section id="start" aria-labelledby="start-h">
+    <h2 id="start-h"><span class="elements" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Getting started</h2>
+    <div class="panel">
+      <ol class="steps">
+        <li><h3>Download</h3><p>Pick Windows or Linux and unzip it anywhere.</p></li>
+        <li><h3>Start the launcher</h3><p>Open <b>GoldenSunLauncher</b>, choose a game and click your language's flag.</p></li>
+        <li><h3>Choose your game file</h3><p>Point it at your own copy in that language. It remembers it.</p></li>
+        <li><h3>Wait once, then play</h3><p>The first time, the game is prepared on your PC. After that it starts straight away.</p></li>
+      </ol>
+      <p class="needs"><b>You need:</b> Windows 10 or 11, or a recent 64-bit Linux with SDL2 (Steam Deck included), and your own game file: the USA/Europe, Spanish, Italian, French or German version. No BIOS, no emulator.</p>
     </div>
   </section>
 
-  <section id="keys">
-    <h2 class="plate">Good to know</h2>
-    <div class="duo">
-      <div class="win">
+  <section id="music" aria-labelledby="music-h">
+    <h2 id="music-h"><span class="elements" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Music &amp; keys</h2>
+    <div class="grid2">
+      <div class="panel music">
+        <h3>Music mods</h3>
+        <p>Play recordings in place of the original soundtrack, looping exactly where the game loops each song.</p>
+        <ol>
+          <li>Unzip a music mod into the <b>Music</b> folder next to <b>GoldenSunLauncher</b>.</li>
+          <li>Start the launcher; it asks once whether to use it.</li>
+          <li>Switch it any time in the launcher settings or <kbd>F1</kbd> &rarr; Audio.</li>
+        </ol>
+        <p>The remastered soundtrack of both games is by Vincent Dortel aka Juste-D, shared with his permission. Many thanks to him.</p>
+        <ul class="links">
+          <li><a class="main" href="https://drive.google.com/file/d/1oMiW5pYbjg3Dl9LHHVEYZLpP3jZoryLo/view?usp=drive_link" target="_blank" rel="noopener">Download the music mod</a></li>
+          <li><a href="https://www.youtube.com/@JusteDni" target="_blank" rel="noopener">Juste-D on YouTube</a></li>
+          <li><a href="https://drive.google.com/drive/folders/1Q2MWzb_uSvXp0Z3vWthvErnzM3xyL6Em" target="_blank" rel="noopener">Original albums</a></li>
+          <li><a href="https://github.com/Shmargus/GSRecomp/blob/main/MUSIC_MODS.md" target="_blank" rel="noopener">Make your own</a></li>
+        </ul>
+      </div>
+      <div class="panel">
         <h3>Quick keys</h3>
-        <ul class="keys">
-          <li><span>Settings</span><kbd>F1</kbd></li>
-          <li><span>Cheats</span><kbd>F11</kbd></li>
-          <li><span>Save state</span><kbd>Shift+F2&ndash;F10</kbd></li>
-          <li><span>Load state</span><kbd>F2&ndash;F10</kbd></li>
-          <li><span>Fast forward</span><kbd>Tab</kbd></li>
-          <li><span>Fullscreen</span><kbd>Alt+Enter</kbd></li>
-          <li><span>Pause</span><kbd>Shift+P</kbd></li>
-          <li><span>FPS counter</span><kbd>F</kbd></li>
-          <li><span>Bug report</span><kbd>F12</kbd></li>
-          <li><span>2x battles</span><kbd>Select</kbd></li>
-        </ul>
-        <p class="fine">Change them under <b>F1</b> &rarr; Hotkeys, which also has Soft Reset, auto fire and Quit Game.</p>
-      </div>
-      <div class="win">
-        <h3>What you need</h3>
-        <ul class="ticks">
-          <li>Windows 10 or 11, or a recent 64-bit Linux with SDL2.</li>
-          <li>Your own Golden Sun and/or The Lost Age game file (USA/Europe).</li>
-          <li>That's it: no BIOS and no emulator. Unzip the download anywhere and start <b>GoldenSunLauncher</b>.</li>
-        </ul>
-        <p class="fine"><a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">All releases</a> &middot; <a href="https://github.com/Shmargus/GSRecomp" target="_blank" rel="noopener">Source code</a></p>
+        <dl class="keys">
+          <div><dt>Settings menu</dt><dd><kbd>F1</kbd></dd></div>
+          <div><dt>Cheats</dt><dd><kbd>F11</kbd></dd></div>
+          <div><dt>Save state</dt><dd><kbd>Shift</kbd>+<kbd>F2</kbd>&ndash;<kbd>F10</kbd></dd></div>
+          <div><dt>Load state</dt><dd><kbd>F2</kbd>&ndash;<kbd>F10</kbd></dd></div>
+          <div><dt>Fast forward</dt><dd><kbd>Tab</kbd></dd></div>
+          <div><dt>2x battles</dt><dd><kbd>Select</kbd></dd></div>
+          <div><dt>Fullscreen</dt><dd><kbd>Alt</kbd>+<kbd>Enter</kbd></dd></div>
+          <div><dt>Pause</dt><dd><kbd>Shift</kbd>+<kbd>P</kbd></dd></div>
+          <div><dt>FPS counter</dt><dd><kbd>F</kbd></dd></div>
+          <div><dt>Bug report</dt><dd><kbd>F12</kbd></dd></div>
+        </dl>
+        <p class="fine">Change them under <kbd>F1</kbd> &rarr; Hotkeys, which also has Soft Reset, auto fire and Quit Game.</p>
       </div>
     </div>
   </section>
 
-  <section id="faq">
-    <h2 class="plate">FAQ</h2>
-    <div class="win faq">
+  <section id="faq" aria-labelledby="faq-h">
+    <h2 id="faq-h"><span class="elements" aria-hidden="true"><i></i><i></i><i></i><i></i></span>FAQ</h2>
+    <div class="panel faq">
+      <details>
+        <summary>Which game files work?</summary>
+        <div class="a"><p>The USA/Europe, Spanish, Italian, French and German versions of each game. Click the flag under the game, then choose the matching file; the launcher checks it and tells you if they don't match. The two games can use different languages.</p></div>
+      </details>
       <details>
         <summary>How do I report a bug?</summary>
         <div class="a">
           <ol>
-            <li>Press <kbd>F12</kbd> right after the problem. The game keeps the last two seconds, so a flicker that's already gone is still caught.</li>
-            <li>Close the game. A window asks what happened; write a few words and press <b>Send report</b>.</li>
+            <li>Press <kbd>F12</kbd> right after the problem. The game keeps the last two seconds.</li>
+            <li>Close the game, write a few words in the window that opens and press <b>Send report</b>.</li>
           </ol>
-          <p>After a crash the same window opens by itself. Nothing is sent unless you press <b>Send report</b>, and your user name is taken out of the report.</p>
+          <p>After a crash the same window opens by itself. Nothing is sent unless you press <b>Send report</b>, and your user name is taken out.</p>
         </div>
+      </details>
+      <details>
+        <summary>Can I switch language and keep my progress?</summary>
+        <div class="a"><p>Each language has its own saves and savestates. After building a new language, the launcher offers to copy your English in-game save across; you continue from the nearest sanctuary. Savestates don't move between languages.</p></div>
       </details>
       <details>
         <summary>Is this an emulator?</summary>
         <div class="a"><p>No. The games' own code is translated into PC code ahead of time, so they run directly on your PC instead of through a program that imitates the Game Boy Advance.</p></div>
       </details>
       <details>
-        <summary>Do I need my own copy of the games?</summary>
-        <div class="a"><p>Yes, as USA/Europe game files. The launcher checks each is the exact version this was built for. No BIOS file is needed.</p></div>
-      </details>
-      <details>
         <summary>Why does the first start take a few minutes?</summary>
-        <div class="a"><p>The first time, each game is prepared from your game file on your PC, with a progress bar. After that it starts straight away, until an update needs it to prepare again.</p></div>
+        <div class="a"><p>The first time, and for each new language, the game is prepared from your game file on your PC, with a progress bar. After that it starts straight away.</p></div>
       </details>
       <details>
         <summary>How do I update, and do my saves come along?</summary>
-        <div class="a"><p>The launcher tells you when a new version is out and offers its download page. Unzip the new version into a new folder, start its launcher and choose your game file from the old folder's <b>ROMs</b>: your saves and save states come along.</p></div>
+        <div class="a"><p>The launcher tells you when a new version is out. Unzip it into a new folder, start its launcher and choose your game file from the old folder's <b>ROMs</b> folder: your saves and savestates come along.</p></div>
       </details>
       <details>
         <summary>Can I take my Broken Seal team to The Lost Age?</summary>
-        <div class="a"><p>Yes, three ways: <b>Seamless mode</b> (launcher cogwheel) goes straight on after the ending; a new Lost Age game asks for your Broken Seal save file; and <b>F1</b> &rarr; Game &rarr; <b>Update from The Broken Seal</b> brings it into an existing Lost Age save, keeping a backup.</p></div>
+        <div class="a"><p>Yes: <b>Seamless mode</b> (launcher settings) goes straight on after the ending; a new Lost Age game asks for your Broken Seal save; and <kbd>F1</kbd> &rarr; Game &rarr; <b>Update from The Broken Seal</b> updates an existing Lost Age save, keeping a backup.</p></div>
       </details>
       <details>
-        <summary>How do music mods work?</summary>
-        <div class="a"><p>The recordings go in the <b>Music</b> folder next to the launcher, in <b>TBS</b> and <b>TLA</b>; a ready-made mod already has that layout. The Lost Age also plays the Broken Seal recordings for the songs it borrows from the first game, so keep both. Making your own is explained in <a href="https://github.com/Shmargus/GSRecomp/blob/main/MUSIC_MODS.md" target="_blank" rel="noopener">MUSIC_MODS.md</a>.</p></div>
-      </details>
-      <details>
-        <summary>Can I play a translation or a hack?</summary>
-        <div class="a"><p>The launcher's cogwheel has <b>Skip the ROM check</b> for each game. Only the original games are supported, so expect problems.</p></div>
+        <summary>Can I play a fan translation or a hack?</summary>
+        <div class="a"><p>The official Spanish, Italian, French and German versions are supported. For anything else, the launcher settings have <b>Skip the ROM check</b>; it isn't supported, so expect problems.</p></div>
       </details>
       <details>
         <summary>Is it finished, and does it cost anything?</summary>
-        <div class="a"><p>Not finished yet: test release <span id="release-version">0.6</span> is out, and each <a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">release</a> lists what changed and its known issues. It's free, a noncommercial fan project.</p></div>
+        <div class="a"><p>Not yet: test release <span id="release-version">0.7</span> is out, and each <a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">release</a> lists its changes and known issues. It's free, a noncommercial fan project.</p></div>
       </details>
     </div>
   </section>
+  </main>
 
   <footer>
+    <span class="elements" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
     <span>Thanks to <b>Vincent Dortel aka Juste-D</b> for the remastered soundtracks, and to <b>Matthew Stan</b> for <a href="https://github.com/mstan/gbarecomp" target="_blank" rel="noopener">gbarecomp</a>, the recompiler our engine is built on.</span>
     <span>A free, noncommercial fan project. Golden Sun and Golden Sun: The Lost Age belong to their owners; you need your own legally obtained copies to play.</span>
-    <span><a href="https://github.com/Shmargus/GSRecomp" target="_blank" rel="noopener">GitHub</a> &middot; Updated October 2026</span>
+    <span><a href="https://github.com/Shmargus/GSRecomp" target="_blank" rel="noopener">GitHub</a> &middot; Updated November 2026</span>
   </footer>
 </div>
-<script>
-(function () {
-  // ---- A small pixel font, drawn for this page (not the game's). Same
-  // metrics as the game's menu text: capitals 7 pixels, lowercase 5, a
-  // 1-pixel shadow down and to the right.
-  const G = {
-    "A": [" ### ","#   #","#   #","#####","#   #","#   #","#   #"],
-    "B": ["#### ","#   #","#   #","#### ","#   #","#   #","#### "],
-    "C": [" ### ","#   #","#    ","#    ","#    ","#   #"," ### "],
-    "D": ["#### ","#   #","#   #","#   #","#   #","#   #","#### "],
-    "E": ["#####","#    ","#    ","#### ","#    ","#    ","#####"],
-    "F": ["#####","#    ","#    ","#### ","#    ","#    ","#    "],
-    "G": [" ### ","#   #","#    ","# ###","#   #","#   #"," ####"],
-    "H": ["#   #","#   #","#   #","#####","#   #","#   #","#   #"],
-    "I": ["###"," # "," # "," # "," # "," # ","###"],
-    "J": ["  ###","   # ","   # ","   # ","   # ","#  # "," ##  "],
-    "K": ["#   #","#  # ","# #  ","##   ","# #  ","#  # ","#   #"],
-    "L": ["#    ","#    ","#    ","#    ","#    ","#    ","#####"],
-    "M": ["#   #","## ##","# # #","# # #","#   #","#   #","#   #"],
-    "N": ["#   #","##  #","# # #","#  ##","#   #","#   #","#   #"],
-    "O": [" ### ","#   #","#   #","#   #","#   #","#   #"," ### "],
-    "P": ["#### ","#   #","#   #","#### ","#    ","#    ","#    "],
-    "Q": [" ### ","#   #","#   #","#   #","# # #","#  # "," ## #"],
-    "R": ["#### ","#   #","#   #","#### ","# #  ","#  # ","#   #"],
-    "S": [" ####","#    ","#    "," ### ","    #","    #","#### "],
-    "T": ["#####","  #  ","  #  ","  #  ","  #  ","  #  ","  #  "],
-    "U": ["#   #","#   #","#   #","#   #","#   #","#   #"," ### "],
-    "V": ["#   #","#   #","#   #","#   #","#   #"," # # ","  #  "],
-    "W": ["#   #","#   #","#   #","# # #","# # #","## ##","#   #"],
-    "X": ["#   #","#   #"," # # ","  #  "," # # ","#   #","#   #"],
-    "Y": ["#   #","#   #"," # # ","  #  ","  #  ","  #  ","  #  "],
-    "Z": ["#####","    #","   # ","  #  "," #   ","#    ","#####"],
-    "a": ["    ","    "," ## ","   #"," ###","#  #"," ###"],
-    "b": ["#   ","#   ","### ","#  #","#  #","#  #","### "],
-    "c": ["   ","   "," ##","#  ","#  ","#  "," ##"],
-    "d": ["   #","   #"," ###","#  #","#  #","#  #"," ###"],
-    "e": ["    ","    "," ## ","#  #","####","#   "," ###"],
-    "f": [" ##","#  ","#  ","###","#  ","#  ","#  "],
-    "g": ["    ","    "," ###","#  #","#  #","#  #"," ###","   #"," ## "],
-    "h": ["#   ","#   ","### ","#  #","#  #","#  #","#  #"],
-    "i": ["#"," ","#","#","#","#","#"],
-    "j": ["  #","   ","  #","  #","  #","  #","  #","  #","## "],
-    "k": ["#   ","#   ","#  #","# # ","##  ","# # ","#  #"],
-    "l": ["#","#","#","#","#","#","#"],
-    "m": ["     ","     ","#### ","# # #","# # #","# # #","# # #"],
-    "n": ["    ","    ","### ","#  #","#  #","#  #","#  #"],
-    "o": ["    ","    "," ## ","#  #","#  #","#  #"," ## "],
-    "p": ["    ","    ","### ","#  #","#  #","#  #","### ","#   ","#   "],
-    "q": ["    ","    "," ###","#  #","#  #","#  #"," ###","   #","   #"],
-    "r": ["   ","   ","# #","## ","#  ","#  ","#  "],
-    "s": ["    ","    "," ###","#   "," ## ","   #","### "],
-    "t": [" # "," # ","###"," # "," # "," # ","  #"],
-    "u": ["    ","    ","#  #","#  #","#  #","#  #"," ###"],
-    "v": ["     ","     ","#   #","#   #","#   #"," # # ","  #  "],
-    "w": ["     ","     ","#   #","#   #","# # #","# # #"," # # "],
-    "x": ["    ","    ","#  #","#  #"," ## ","#  #","#  #"],
-    "y": ["    ","    ","#  #","#  #","#  #","#  #"," ###","   #"," ## "],
-    "z": ["    ","    ","####","  # "," #  ","#   ","####"],
-    "0": [" ## ","#  #","#  #","#  #","#  #","#  #"," ## "],
-    "1": [" # ","## "," # "," # "," # "," # ","###"],
-    "2": [" ## ","#  #","   #","  # "," #  ","#   ","####"],
-    "3": ["### ","   #","   #"," ## ","   #","   #","### "],
-    "4": ["#  #","#  #","#  #","####","   #","   #","   #"],
-    "5": ["####","#   ","### ","   #","   #","#  #"," ## "],
-    "6": [" ## ","#   ","#   ","### ","#  #","#  #"," ## "],
-    "7": ["####","   #","  # ","  # "," #  "," #  "," #  "],
-    "8": [" ## ","#  #","#  #"," ## ","#  #","#  #"," ## "],
-    "9": [" ## ","#  #","#  #"," ###","   #","   #"," ## "],
-    ".": [" "," "," "," "," "," ","#"],
-    ",": [" "," "," "," "," "," ","#","#"],
-    "/": ["  #","  #"," # "," # "," # ","#  ","#  "],
-    "<": ["   ","  #"," # ","#  "," # ","  #","   "],
-    ">": ["   ","#  "," # ","  #"," # ","#  ","   "],
-    " ": ["  "]
-  };
-  const width = ch => (G[ch] || G[" "]).reduce((m, r) => Math.max(m, r.length), 0);
-  const textWidth = s => [...s].reduce((w, ch) => w + width(ch) + 1, 0) - (s.length ? 1 : 0);
-
-  // ---- Colours measured from the game's own window on screen.
-  const C = {
-    edge: [82, 82, 82], white: [255, 255, 255], light: [164, 164, 164], black: [0, 0, 0],
-    shade: [[0, 74, 82], [0, 82, 99], [0, 90, 115]],
-    glow: [[8, 132, 189], [8, 115, 173], [8, 107, 156]],
-    fill: [0, 99, 140], shadowText: [0, 0, 0], text: [255, 255, 255],
-    backdrop: [22, 34, 46], backdrop2: [28, 44, 58]
-  };
-
-  function Screen(canvas) {
-    const ctx = canvas.getContext("2d");
-    const img = ctx.createImageData(240, 160);
-    const d = img.data;
-    const px = (x, y, c) => {
-      if (x < 0 || y < 0 || x >= 240 || y >= 160) return;
-      const i = (y * 240 + x) * 4;
-      d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
-    };
-    return {
-      px,
-      clear() {
-        // Checkered backdrop where the game shows the map behind the menu.
-        for (let y = 0; y < 160; y++)
-          for (let x = 0; x < 240; x++)
-            px(x, y, ((x >> 3) + (y >> 3)) & 1 ? C.backdrop : C.backdrop2);
-      },
-      // The bevelled window: 4 border rings, then 3 rings of shading inside
-      // (darker along the top and left, lighter along the bottom and right).
-      window(x0, y0, w, h) {
-        for (let y = 0; y < h; y++) {
-          for (let x = 0; x < w; x++) {
-            const l = x, t = y, r = w - 1 - x, b = h - 1 - y;
-            if ((l === 0 || r === 0) && (t === 0 || b === 0)) continue;
-            if ((l <= 1 && t <= 1) || (r <= 1 && t <= 1) || (l <= 1 && b <= 1) || (r <= 1 && b <= 1)) {
-              if (l + t === 1 || r + t === 1 || l + b === 1 || r + b === 1) { px(x0 + x, y0 + y, C.black); continue; }
-            }
-            const lowSide = Math.min(r, b), highSide = Math.min(l, t);
-            let c;
-            if (lowSide < highSide) {
-              c = [C.black, C.light, C.white, C.edge][lowSide] || C.glow[lowSide - 4] || C.fill;
-            } else {
-              c = [C.edge, C.white, C.light, C.black][highSide] || C.shade[highSide - 4] || C.fill;
-            }
-            px(x0 + x, y0 + y, c);
-          }
-        }
-      },
-      // A groove across the window, as between the Settings rows.
-      groove(x0, x1, y) {
-        const rows = [C.shade[2], C.shade[0], C.glow[0], C.glow[2]];
-        rows.forEach((c, i) => { for (let x = x0; x <= x1; x++) px(x, y + i, c); });
-      },
-      text(s, x, y, colour = C.text, shadow = C.shadowText, bold = false) {
-        let cx = x;
-        for (const ch of s) {
-          const g = G[ch] || G[" "];
-          for (const [dx, dy] of [[1, 1], [0, 0]]) {
-            g.forEach((row, ry) => {
-              for (let rx = 0; rx < row.length; rx++) {
-                if (row[rx] !== "#") continue;
-                px(cx + rx + dx, y + ry + dy, dx ? shadow : colour);
-                if (bold) px(cx + rx + dx + 1, y + ry + dy, dx ? shadow : colour);
-              }
-            });
-          }
-          cx += width(ch) + 1 + (bold ? 1 : 0);
-        }
-      },
-      // The cursor hand, pointing right; 12 x 9.
-      hand(x, y) {
-        const H = [
-          "  oooo      ",
-          " o####oooooo",
-          "o#########o ",
-          "o####ooooo  ",
-          "o#####o     ",
-          "o####oo     ",
-          "o#####o     ",
-          " o###o      ",
-          "  ooo       "];
-        H.forEach((row, ry) => { for (let rx = 0; rx < row.length; rx++) {
-          if (row[rx] === "#") px(x + rx, y + ry, C.white);
-          else if (row[rx] === "o") px(x + rx, y + ry, C.black);
-        } });
-      },
-      // Page marker chevron (up), 7 wide.
-      chevron(x, y) {
-        ["   #   ", "  ###  ", " ##### ", "#######"].forEach((row, ry) => {
-          for (let rx = 0; rx < 7; rx++) if (row[rx] === "#") { px(x + rx + 1, y + ry + 1, C.black); }
-        });
-        ["   #   ", "  ###  ", " ##### ", "#######"].forEach((row, ry) => {
-          for (let rx = 0; rx < 7; rx++) if (row[rx] === "#") px(x + rx, y + ry, C.white);
-        });
-      },
-      // The yellow-to-green title plate above the Settings windows.
-      plate(label, x, y) {
-        const w = textWidth(label) + label.length + 10, h = 14;
-        for (let j = 0; j < h; j++) {
-          const t = j / (h - 1);
-          const c = [Math.round(255 * (1 - t)), 255, 0];
-          for (let i = 0; i < w; i++) px(x + i, y + j, c);
-        }
-        for (let i = 0; i < w; i++) { px(x + i, y - 1, C.white); px(x + i, y + h, C.black); }
-        for (let j = -1; j <= h; j++) px(x + w, y + j, C.black);
-        this.text(label, x + 5, y + 3, C.text, [58, 58, 58], true);
-      },
-      show() { ctx.putImageData(img, 0, 0); }
-    };
-  }
-
-  function makeMenu(opts) {
-    const canvas = document.getElementById(opts.canvas);
-    const scr = Screen(canvas);
-    const rows = opts.rows;
-    const state = rows.map(r => r.start || 0);
-    let cur = 0;
-    const exp = document.getElementById(opts.explain);
-    const live = document.getElementById(opts.live);
-    function draw() {
-      scr.clear();
-      opts.paint(scr, rows, state, cur);
-      scr.show();
-      const r = rows[cur], v = r.vals[state[cur]];
-      exp.innerHTML = "<h3>" + r.label + ": " + v + "</h3><p>" + r.say(v) +
-        '</p><p class="opts">Choices: ' + r.vals.join(" / ") + "</p>";
-      if (live) live.textContent = r.label + ", " + v;
-    }
-    function step(dir) {
-      const r = rows[cur], n = r.vals.length;
-      if (opts.wrapValues || r.flip) state[cur] = (state[cur] + dir + n) % n;
-      else state[cur] = Math.max(0, Math.min(n - 1, state[cur] + dir));
-      draw();
-    }
-    function move(dir) {
-      const n = rows.length;
-      cur = opts.wrapRows ? (cur + dir + n) % n : Math.max(0, Math.min(n - 1, cur + dir));
-      draw();
-    }
-    canvas.addEventListener("click", e => {
-      const box = canvas.getBoundingClientRect();
-      const y = (e.clientY - box.top) * 160 / box.height;
-      const hit = opts.rowAt(y);
-      if (hit >= 0) { cur = hit; draw(); }
-      canvas.focus();
-    });
-    canvas.addEventListener("keydown", e => {
-      const k = e.key;
-      if (k === "ArrowUp") move(-1);
-      else if (k === "ArrowDown") move(1);
-      else if (k === "ArrowLeft") step(-1);
-      else if (k === "ArrowRight") step(1);
-      else if ((k === "a" || k === "A" || k === "Enter") && rows[cur].flip) step(1);
-      else return;
-      e.preventDefault();
-    });
-    document.querySelectorAll('[data-for="' + opts.canvas + '"]').forEach(b => {
-      b.addEventListener("click", () => {
-        const a = b.dataset.act;
-        if (a === "up") move(-1); else if (a === "down") move(1);
-        else if (a === "left") step(-1); else if (a === "right") step(1);
-      });
-    });
-    draw();
-  }
-
-  // ---- Settings page two, laid out as the game draws it: help window
-  // 8,16 224x24; settings window 8,40 224x112; labels at x 24, values
-  // centred on x 140; row lines at 48, 64, 88, 112, 136; grooves at 56, 72,
-  // 96 and 120; "2/2" and the chevron under the bottom-right corner.
-  const SETTINGS = [
-    { label: "Walk Speed", help: "Set walking speed.", vals: ["Normal", "1.5x", "2x", "3x"],
-      say: v => ({ "Normal": "The normal walking and running speed.", "1.5x": "Walk, run, push and climb ladders one and a half times as fast.", "2x": "Walk, run, push and climb ladders twice as fast.", "3x": "Walk, run, push and climb ladders three times as fast." })[v] },
-    { label: "Encounters", help: "Set how often monsters appear.", vals: ["Normal", "Half", "Off", "Double"],
-      say: v => ({ "Normal": "Monsters appear as often as in the original.", "Half": "Half as many random battles.", "Off": "No random battles at all.", "Double": "Twice as many random battles, for levelling up." })[v] },
-    { label: "Screen", help: "Set the screen size.", vals: ["Original", "Wide", "Extra Wide"],
-      say: v => ({ "Original": "The original screen size.", "Wide": "A wider view: more of the world on screen.", "Extra Wide": "The widest view, for big screens." })[v] },
-    { label: "No Slowdown", help: "Remove slowdown.", vals: ["Off", "On"], flip: true,
-      say: v => v === "On" ? "Busy scenes stay at full speed." : "Busy scenes slow down like on the handheld." },
-    { label: "Better Field Psy", help: "Faster Psynergy, bigger Reveal.", vals: ["Off", "On"], flip: true,
-      say: v => v === "On" ? "Field Psynergy casts faster, and Reveal shows the whole screen and lasts twice as far." : "Psynergy in the field works like the original." }
-  ];
-  const SET_LINES = [48, 64, 88, 112, 136];
-  makeMenu({
-    canvas: "settings-screen", explain: "sim-explain", live: "settings-live",
-    rows: SETTINGS, wrapRows: false, wrapValues: true,
-    rowAt: y => SET_LINES.findIndex(l => y >= l - 6 && y < l + 12),
-    paint(s, rows, state, cur) {
-      s.window(8, 16, 224, 24);
-      s.window(8, 40, 224, 112);
-      [56, 72, 96, 120].forEach(y => s.groove(13, 226, y + 2));
-      s.plate("Settings", 82, 3);
-      s.text(rows[cur].help, 16, 24);
-      rows.forEach((r, i) => {
-        const y = SET_LINES[i];
-        s.text(r.label, 24, y);
-        const v = i === cur ? "< " + r.vals[state[i]] + " >" : r.vals[state[i]];
-        s.text(v, 140 - (textWidth(v) >> 1), y);
-      });
-      s.hand(4, SET_LINES[cur] - 1);
-      s.text("2/2", 232 - 8 - textWidth("2/2") - 2, 152);
-      s.chevron(232 - 8, 154);
-    }
-  });
-
-  // ---- The cheat menu: one window of 20 x 14 tiles at tile 5,3 (x 40,
-  // y 24, 160 x 112); "Cheats" centred on x 120 at y 32; rows every 16
-  // pixels from y 48; labels at x 56, values centred on x 160; no hand.
-  const STEPS = ["0x", "0.5x", "1x", "2x", "5x", "10x", "25x", "50x", "100x"];
-  const CHEATS = [
-    { label: "Infinite HP", vals: ["Off", "On"], flip: true,
-      say: v => v === "On" ? "Your party's HP stays full, in battle and out." : "HP works as normal." },
-    { label: "Infinite PP", vals: ["Off", "On"], flip: true,
-      say: v => v === "On" ? "Your party never runs out of Psynergy points." : "PP works as normal." },
-    { label: "Experience", vals: STEPS, start: 2,
-      say: v => v === "0x" ? "Battles give no experience at all." : v === "1x" ? "Normal experience from each defeated enemy." : "Each defeated enemy gives " + v + " its normal experience." },
-    { label: "Coins", vals: STEPS, start: 2,
-      say: v => v === "0x" ? "Battles give no coins at all." : v === "1x" ? "Normal coins from each defeated enemy." : "Each defeated enemy gives " + v + " its normal coins." },
-    { label: "Drop Chance", vals: STEPS.slice(0, 6), start: 2,
-      say: v => v === "0x" ? "Enemies never drop their items." : v === "1x" ? "Items drop as often as normal." : "Enemies are " + v + " as likely to drop their item." + (v === "10x" ? " At 10x a drop is all but certain." : "") }
-  ];
-  makeMenu({
-    canvas: "cheat-screen", explain: "cheat-explain", live: "cheat-live",
-    rows: CHEATS, wrapRows: true, wrapValues: false,
-    rowAt: y => { const i = Math.floor((y - 44) / 16); return i >= 0 && i < 5 ? i : -1; },
-    paint(s, rows, state, cur) {
-      s.window(40, 24, 160, 112);
-      s.text("Cheats", 120 - (textWidth("Cheats") >> 1), 32);
-      rows.forEach((r, i) => {
-        const y = 48 + 16 * i;
-        s.text(r.label, 56, y);
-        const v = i === cur ? "< " + r.vals[state[i]] + " >" : r.vals[state[i]];
-        s.text(v, 160 - (textWidth(v) >> 1), y);
-      });
-    }
-  });
-
-})();
-</script>
 <script>
 // The download buttons follow GitHub's newest release (pre-releases included,
 // which /releases/latest would skip), so a new release needs no page edit.
