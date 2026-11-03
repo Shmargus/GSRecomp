@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Set up Golden Sun Recompiled on Windows, Linux or Steam Deck.">
+<title>Getting Started | Golden Sun Recompiled</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Cinzel:wght@700&display=swap">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to the content</a>
+<header class="wrap guide-header">
+  <a class="guide-brand" href="./">Golden Sun Recompiled</a>
+  <h1>Getting Started</h1>
+  <p>Set up Golden Sun Recompiled on Windows, Linux or Steam Deck.</p>
+</header>
+
+<nav class="tabs" aria-label="Site">
+  <ul>
+    <li><a href="./">Home</a></li>
+    <li><a href="getting-started.html" aria-current="page">Getting Started</a></li>
+    <li><a href="features.html">Features</a></li>
+    <li><a href="music.html">Music</a></li>
+    <li><a href="controls.html">Controls</a></li>
+    <li><a href="whats-new.html">What’s New</a></li>
+    <li><a href="faq.html">FAQ</a></li>
+  </ul>
+</nav>
+
+<div class="wrap">
+  <main id="main" class="guide">
+    <div class="panel">
+      <p><b>Before you start</b> · Have your own .gba ROM for the game and language you want to play. Supported versions are USA/Europe (English), Spanish, Italian, French and German.</p>
+      <ol class="steps setup-steps">
+        <li>
+          <h2>Download the ZIP for your system</h2>
+          <p>Use the <a href="./#downloads">Windows or Linux download on the homepage</a>. On Steam Deck, pick Linux and switch to Desktop Mode for setup.</p>
+        </li>
+        <li>
+          <h2>Extract the whole ZIP</h2>
+          <p>Extract it to a folder you can write to. Keep the included folders beside the launcher.</p>
+        </li>
+        <li>
+          <h2>Open the launcher</h2>
+          <p>Run <b>GoldenSunLauncher.exe</b> on Windows or <b>GoldenSunLauncher</b> on Linux and Steam Deck. Linux needs SDL2 and OpenGL. If SDL2 is missing, install it through your distribution’s package manager.</p>
+        </li>
+        <li id="game-and-language">
+          <h2>Pick your game and language</h2>
+          <p>Click the flag below The Broken Seal or The Lost Age, then select that game’s cartridge. Accept the preparation prompt and select your matching .gba file when asked.</p>
+          <figure class="setup-image">
+            <a href="media/launcher-picker.webp"><img src="media/launcher-picker.webp" width="822" height="632" loading="lazy" alt="GoldenSunLauncher with The Broken Seal on the left, The Lost Age on the right, and language flags beneath each cartridge."></a>
+            <figcaption>Choose a flag under the cartridge, then click the cartridge.</figcaption>
+          </figure>
+          <figure class="setup-image setup-prompt">
+            <img src="media/launcher-prompt.webp" width="361" height="164" loading="lazy" alt="First-run Game build prompt with buttons for Only this game and Build both.">
+            <figcaption>If both games need setup, choose <b>Only this game</b> or <b>Build both</b>.</figcaption>
+          </figure>
+        </li>
+        <li>
+          <h2>Wait for first-time setup</h2>
+          <p>The launcher prepares the game on your PC and shows its progress. Select the cartridge again if the game hasn’t opened when setup finishes. After that, select the cartridge to play.</p>
+        </li>
+        <li>
+          <h2>Play and set up your controls</h2>
+          <p>Press <kbd>F1</kbd> for video, audio and <a href="controls.html">controls</a>. To set up the other game, repeat from step 4 with its own ROM.</p>
+        </li>
+      </ol>
+    </div>
+    <p class="note">Back up the <b>Saves</b> folder to keep your in-game saves and savestates. See the <a href="faq.html">FAQ</a> for updates and help.</p>
+  </main>
+
+  <footer>
+    <span class="elements" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+    <span><a href="./">Golden Sun Recompiled</a> · <a href="https://github.com/Shmargus/GSRecomp">GitHub</a></span>
+  </footer>
+</div>
+</body>
+</html>

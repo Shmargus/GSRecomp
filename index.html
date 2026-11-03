@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Golden Sun Recompiled: Golden Sun and Golden Sun: The Lost Age rebuilt as native PC games for Windows and Linux, in English, Spanish, Italian, French and German, with wider views, trackers, music mods and more. A free fan project.">
+<meta name="description" content="Golden Sun and Golden Sun: The Lost Age on Windows and Linux, with wider views, trackers and an optional music mod featuring Juste-D's remastered soundtracks.">
 <meta property="og:title" content="Golden Sun Recompiled">
 <meta property="og:description" content="Golden Sun and The Lost Age rebuilt as native PC games for Windows and Linux, in five languages. A free fan project.">
 <meta property="og:image" content="logo.webp">
@@ -11,165 +11,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Cinzel:wght@700&display=swap">
-<style>
-/* Night blue panels, gold headings, and the four Djinn elements (Venus,
-   Mars, Jupiter, Mercury) as small accents. One look in every theme, so
-   every colour is set here. Body text is 16px; every text colour meets WCAG
-   AA contrast on the panel blue. */
-:root {
-  --bg: #08111f;
-  --panel: #102644;
-  --panel-2: #0c1d36;
-  --line: #2a4a73;
-  --text: #f2f7fc;
-  --soft: #c9dbec;
-  --dim: #9fb8d0;
-  --gold: #f5c84c;
-  --gold-2: #e0a526;
-  --venus: #e8b23a;
-  --mars: #ef6b4d;
-  --jupiter: #b58ae6;
-  --mercury: #52b4f0;
-  --body: "Nunito", "Segoe UI", Arial, sans-serif;
-  --display: "Cinzel", Georgia, serif;
-  color-scheme: dark;
-}
-* { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
-body {
-  margin: 0; padding: 0 16px 40px; font: 16px/1.6 var(--body); color: var(--text);
-  background: radial-gradient(ellipse 900px 420px at 50% -120px, rgba(245,200,76,.16), transparent 70%), var(--bg);
-}
-a { color: var(--gold); text-underline-offset: 2px; }
-a:hover { color: #ffe39a; }
-:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
-.wrap { max-width: 1040px; margin: 0 auto; }
-.skip { position: absolute; left: 16px; top: -60px; z-index: 10; padding: 10px 16px; border-radius: 8px; background: var(--gold); color: #2a1a00; font-weight: 800; }
-.skip:focus { top: 10px; }
-b, strong { color: #fff; }
-p { margin: 0 0 10px; color: var(--soft); }
-p:last-child { margin-bottom: 0; }
-
-/* The four elements: a row of small diamonds, used as a flourish. */
-.elements { display: inline-flex; gap: 6px; vertical-align: middle; }
-.elements i { width: 8px; height: 8px; transform: rotate(45deg); border-radius: 1px; }
-.elements i:nth-child(1) { background: var(--venus); }
-.elements i:nth-child(2) { background: var(--mars); }
-.elements i:nth-child(3) { background: var(--jupiter); }
-.elements i:nth-child(4) { background: var(--mercury); }
-.venus { --c: var(--venus); } .mars { --c: var(--mars); } .jupiter { --c: var(--jupiter); } .mercury { --c: var(--mercury); }
-
-/* ---- Top ---- */
-.ai-note { margin: 0; padding: 8px 0 0; text-align: center; font-size: 13px; color: var(--dim); }
-.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 28px; align-items: center; padding: 14px 0 6px; }
-.hero h1 { margin: 0; line-height: 0; }
-.hero img { width: 100%; max-width: 440px; height: auto; filter: drop-shadow(0 6px 18px rgba(0,0,0,.5)); }
-.tagline { margin: 0 0 6px; font: 800 22px/1.35 var(--body); color: #fff; }
-.sub { margin: 0 0 14px; }
-.cta { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; }
-.btn {
-  display: inline-flex; align-items: center; min-height: 46px; padding: 10px 20px; border-radius: 10px;
-  text-decoration: none; font: 900 16px var(--body); color: #2a1a00;
-  background: linear-gradient(180deg, #ffe38a, var(--gold) 50%, var(--gold-2)); border: 1px solid #ffefb8;
-  box-shadow: 0 3px 0 #8a5a00;
-}
-.btn:hover { color: #2a1a00; filter: brightness(1.05); }
-.release-line { margin: 0; font-size: 15px; color: var(--dim); }
-
-nav.tabs { position: sticky; top: 0; z-index: 5; margin: 14px -16px 26px; padding: 8px 16px; background: rgba(8,17,31,.92); border-bottom: 1px solid var(--line); }
-nav.tabs ul { list-style: none; margin: 0 auto; padding: 0; max-width: 1040px; display: flex; flex-wrap: wrap; gap: 2px 4px; }
-nav.tabs a { display: block; padding: 6px 10px; border-radius: 7px; text-decoration: none; font: 800 15px var(--body); color: var(--soft); }
-nav.tabs a:hover { color: #fff; background: rgba(245,200,76,.12); }
-
-/* ---- Sections ---- */
-section { margin: 0 0 40px; scroll-margin-top: 64px; }
-h2 { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; font: 700 24px/1.2 var(--display); color: var(--gold); }
-h2::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--line), transparent); }
-h3 { margin: 0 0 4px; font: 900 17px/1.3 var(--body); color: #fff; }
-.panel { background: linear-gradient(180deg, var(--panel), var(--panel-2)); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
-.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-.note { margin-top: 12px; padding: 9px 13px; border-left: 3px solid var(--gold); background: rgba(245,200,76,.08); border-radius: 0 8px 8px 0; color: var(--soft); }
-
-.about { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 22px; }
-.games { display: grid; gap: 10px; align-content: start; }
-.game { padding: 10px 14px; border-radius: 10px; background: rgba(8,17,31,.4); border-left: 3px solid var(--c); }
-.game h3 { font: 700 18px var(--display); color: var(--gold); }
-.game p { font-size: 15px; }
-
-/* New in 0.7: compact cards with an element-coloured top edge */
-.card { display: flex; flex-direction: column; padding: 16px 18px 14px; border-top: 3px solid var(--c); }
-.card h3 { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
-.card p { font-size: 15px; }
-.where { margin-top: auto !important; padding-top: 8px; font-size: 14px; color: var(--dim) !important; }
-.tag { font: 800 12px var(--body); letter-spacing: .03em; color: var(--dim); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; white-space: nowrap; }
-.tag.on { color: #2a1a00; background: var(--gold); border-color: var(--gold); }
-.langs { display: flex; flex-wrap: wrap; gap: 5px; margin: 2px 0 8px; padding: 0; list-style: none; }
-.langs li { padding: 1px 9px; border-radius: 999px; font-size: 14px; font-weight: 800; background: rgba(82,180,240,.14); border: 1px solid rgba(82,180,240,.45); }
-
-/* Features: a two-column list, each with an element bullet */
-.flist { list-style: none; margin: 4px 0 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; }
-.flist li { position: relative; padding: 9px 0 9px 22px; border-bottom: 1px solid rgba(42,74,115,.6); }
-.flist li::before { content: ""; position: absolute; left: 2px; top: 17px; width: 8px; height: 8px; transform: rotate(45deg); background: var(--c); }
-.flist b { display: block; }
-.flist span { display: block; font-size: 15px; color: var(--soft); }
-.flist small { display: block; font-size: 14px; color: var(--dim); }
-
-kbd { font: 800 13px var(--body); color: #0f2c47; white-space: nowrap; background: linear-gradient(#ffffff, #d8e4ee); border: 1px solid #7c97ad; border-radius: 5px; padding: 0 5px; box-shadow: 0 1px 0 #6c8499; }
-
-/* Getting started */
-.steps { counter-reset: step; list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
-.steps li { counter-increment: step; }
-.steps li::before {
-  content: counter(step); display: grid; place-items: center; width: 30px; height: 30px; margin-bottom: 8px;
-  border-radius: 50%; font: 900 16px var(--body); color: #2a1a00; background: var(--gold);
-}
-.steps p { font-size: 15px; }
-.needs { margin-top: 16px !important; padding-top: 14px; border-top: 1px solid var(--line); font-size: 15px; }
-
-/* Music and keys */
-.music ol { margin: 4px 0 10px; padding-left: 22px; color: var(--soft); }
-.links { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
-.links a { display: inline-block; padding: 7px 12px; border-radius: 8px; text-decoration: none; font-weight: 800; font-size: 15px; color: var(--text); border: 1px solid var(--line); background: rgba(8,17,31,.4); }
-.links a:hover { border-color: var(--gold); }
-.links a.main { color: #2a1a00; background: var(--gold); border-color: var(--gold); }
-.keys { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; }
-.keys div { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 5px 0; border-bottom: 1px solid rgba(42,74,115,.6); font-size: 15px; }
-.keys dt { color: var(--soft); }
-.keys dd { margin: 0; text-align: right; }
-.fine { margin-top: 10px !important; font-size: 14px; color: var(--dim) !important; }
-
-/* FAQ */
-.faq { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; padding: 6px 20px; align-items: start; }
-.faq details { border-bottom: 1px solid rgba(42,74,115,.6); }
-.faq summary { list-style: none; cursor: pointer; padding: 11px 4px 11px 24px; position: relative; font-weight: 800; }
-.faq summary::-webkit-details-marker { display: none; }
-.faq summary::before { content: ""; position: absolute; left: 4px; top: 19px; width: 7px; height: 7px; transform: rotate(45deg); background: var(--gold); transition: transform .15s ease; }
-.faq details[open] summary::before { transform: rotate(135deg); background: var(--mercury); }
-.faq .a { padding: 0 4px 12px 24px; font-size: 15px; }
-.faq ol { margin: 0 0 8px; padding-left: 20px; color: var(--soft); }
-
-footer { padding-top: 18px; border-top: 1px solid var(--line); text-align: center; font-size: 14px; color: var(--dim); display: grid; gap: 6px; justify-items: center; }
-footer b { color: var(--soft); }
-
-@media (max-width: 860px) {
-  .hero, .about, .grid2, .faq { grid-template-columns: minmax(0, 1fr); }
-  .hero { text-align: center; gap: 12px; }
-  .hero img { max-width: 360px; }
-  .cta { justify-content: center; }
-  .grid3, .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 560px) {
-  .grid3, .steps, .flist, .keys { grid-template-columns: minmax(0, 1fr); }
-  .tagline { font-size: 19px; }
-  nav.tabs { position: static; }
-}
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
-</style>
+<link rel="stylesheet" href="site.css">
 </head>
 <body>
 <a class="skip" href="#main">Skip to the content</a>
-<p class="ai-note">Portions of this project were developed with the assistance of AI-based development tools.</p>
+<p class="ai-note">AI tools helped build parts of this project.</p>
 
 <div class="wrap">
   <header class="hero">
@@ -177,25 +23,36 @@ footer b { color: var(--soft); }
     <div>
       <p class="tagline">Golden Sun and The Lost Age, rebuilt as real PC games for Windows and Linux.</p>
       <p class="sub">Now in English, Spanish, Italian, French and German. Free, and you bring your own game files.</p>
-      <div class="cta">
+      <div class="cta" id="downloads">
         <!-- Filled from GitHub's newest release when the page loads (script at
              the end); these values are the fallback. -->
         <a class="btn" id="download-windows" href="https://github.com/Shmargus/GSRecomp/releases/download/0.7/GoldenSunRecompiled-0.7-windows.zip">Download for Windows</a>
         <a class="btn" id="download-linux" href="https://github.com/Shmargus/GSRecomp/releases/download/0.7/GoldenSunRecompiled-0.7-linux.zip">Download for Linux</a>
       </div>
-      <p class="release-line"><span id="release-line">Test release 0.7</span> &middot; <a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">release notes</a></p>
+      <p class="release-line"><span id="release-line">Test release 0.7</span> &middot; <a href="https://github.com/Shmargus/GSRecomp">GitHub</a> &middot; <a href="https://github.com/Shmargus/GSRecomp/releases">All releases</a></p>
     </div>
   </header>
+  <section class="panel card jupiter music-feature" aria-labelledby="music-feature-h">
+    <div>
+      <h2 id="music-feature-h">Juste-D’s remastered soundtracks</h2>
+      <p>Vincent Dortel (Juste-D) remastered both Golden Sun soundtracks. The optional mod includes both albums with their in-game loop points.</p>
+    </div>
+    <ul class="links" aria-label="Music mod links">
+      <li><a class="main" href="https://drive.google.com/file/d/1oMiW5pYbjg3Dl9LHHVEYZLpP3jZoryLo/view?usp=drive_link">Download the music mod</a></li>
+      <li><a href="music.html">Setup guide</a></li>
+    </ul>
+  </section>
 </div>
 
-<nav class="tabs" aria-label="Sections">
+<nav class="tabs" aria-label="Site">
   <ul>
-    <li><a href="#about">What is it?</a></li>
-    <li><a href="#new">New in 0.7</a></li>
-    <li><a href="#features">Features</a></li>
-    <li><a href="#start">Getting started</a></li>
-    <li><a href="#music">Music &amp; keys</a></li>
-    <li><a href="#faq">FAQ</a></li>
+    <li><a href="./" aria-current="page">Home</a></li>
+    <li><a href="getting-started.html">Getting Started</a></li>
+    <li><a href="features.html">Features</a></li>
+    <li><a href="music.html">Music</a></li>
+    <li><a href="controls.html">Controls</a></li>
+    <li><a href="whats-new.html">What’s New</a></li>
+    <li><a href="faq.html">FAQ</a></li>
   </ul>
 </nav>
 
@@ -216,159 +73,16 @@ footer b { color: var(--soft); }
     </div>
   </section>
 
-  <section id="new" aria-labelledby="new-h">
-    <h2 id="new-h"><span class="elements" aria-hidden="true"><i></i><i></i><i></i><i></i></span>New in 0.7</h2>
-    <div class="grid3">
-      <div class="panel card mercury">
-        <h3>Five languages</h3>
-        <ul class="langs" aria-label="Languages">
-          <li lang="en">English</li><li lang="es">Español</li><li lang="it">Italiano</li><li lang="fr">Français</li><li lang="de">Deutsch</li>
-        </ul>
-        <p>Pick a flag under each game; each language needs its matching game file and keeps its own saves.</p>
-        <p class="where">The flags under each game in the launcher</p>
-      </div>
-      <div class="panel card venus">
-        <h3>Bring your save along</h3>
-        <p>After building a new language, the launcher offers to copy your English in-game save across. Your English save stays as it is.</p>
-        <p class="where">Savestates stay with their own language</p>
-      </div>
-      <div class="panel card jupiter">
-        <h3>Djinn Tracker <span class="tag">Off by default</span></h3>
-        <p>Every Djinni by element, with counts. Point at a missing one to see where to look.</p>
-        <p class="where">Launcher settings, or <kbd>F1</kbd> &rarr; Game</p>
-      </div>
-      <div class="panel card mars">
-        <h3>Treasure Tracker <span class="tag">Off by default</span></h3>
-        <p>A checklist of treasures by place, ticked as you take them. Where you are opens by itself.</p>
-        <p class="where">Launcher settings, or <kbd>F1</kbd> &rarr; Game</p>
-      </div>
-      <div class="panel card venus">
-        <h3>Choose your opponents <span class="tag on">On by default</span></h3>
-        <p>In the Battle Arena, pick how many monsters, which ones, and whether they match your party.</p>
-        <p class="where">Any Battle Arena; switch it off in the launcher</p>
-      </div>
-      <div class="panel card mercury">
-        <h3>Enemy HP bars <span class="tag">Off by default</span></h3>
-        <p>While you choose a target, a small red bar and the HP number show what that enemy has left.</p>
-        <p class="where"><kbd>F1</kbd> &rarr; Game</p>
-      </div>
-    </div>
-  </section>
-
-  <section id="features" aria-labelledby="features-h">
-    <h2 id="features-h"><span class="elements" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Features</h2>
-    <div class="panel">
-      <p>Everything is optional: with nothing switched on, the games play as they did on the Game Boy Advance.</p>
-      <ul class="flist">
-        <li class="jupiter"><b>Wider views</b><span>Original, Wide or Extra Wide; Psynergy, weather and scenery fill the extra space.</span><small>Game Settings, page two</small></li>
-        <li class="mars"><b>Your picture</b><span>Colour profiles, colour-blind help, flicker reduction, sharp pixels and filters.</span><small><kbd>F1</kbd> &rarr; Video</small></li>
-        <li class="venus"><b>Faster adventuring</b><span>Faster walking, fewer or more battles, quicker field Psynergy, no slowdown, instant text.</span><small>Game Settings, both pages</small></li>
-        <li class="mercury"><b>Fast forward and 2x battles</b><span>Hold <kbd>Tab</kbd> to speed up, or press <kbd>Select</kbd> in battle.</span><small><kbd>F1</kbd> &rarr; Speed</small></li>
-        <li class="mars"><b>Hard Mode</b><span>Enemies with 1.5x HP and 1.25x Attack and Defence.</span><small>New game, or Game Settings, page one</small></li>
-        <li class="jupiter"><b>Cheats</b><span>Infinite HP and PP, up to 100x experience, coins and item drops.</span><small><kbd>F1</kbd> &rarr; Cheats, or <kbd>F11</kbd></small></li>
-        <li class="mercury"><b>Savestates</b><span>Nine slots for the exact moment, on top of the game's own saves.</span><small>Save <kbd>Shift</kbd>+<kbd>F2</kbd>&ndash;<kbd>F10</kbd>, load <kbd>F2</kbd>&ndash;<kbd>F10</kbd></small></li>
-        <li class="venus"><b>Your controls</b><span>Keyboard or controller, auto fire and Soft Reset, shared by both games.</span><small><kbd>F1</kbd> &rarr; Controls and Hotkeys</small></li>
-      </ul>
-    </div>
-  </section>
-
-  <section id="start" aria-labelledby="start-h">
-    <h2 id="start-h"><span class="elements" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Getting started</h2>
-    <div class="panel">
-      <ol class="steps">
-        <li><h3>Download</h3><p>Pick Windows or Linux and unzip it anywhere.</p></li>
-        <li><h3>Start the launcher</h3><p>Open <b>GoldenSunLauncher</b>, choose a game and click your language's flag.</p></li>
-        <li><h3>Choose your game file</h3><p>Point it at your own copy in that language. It remembers it.</p></li>
-        <li><h3>Wait once, then play</h3><p>The first time, the game is prepared on your PC. After that it starts straight away.</p></li>
-      </ol>
-      <p class="needs"><b>You need:</b> Windows 10 or 11, or a recent 64-bit Linux with SDL2 (Steam Deck included), and your own game file: the USA/Europe, Spanish, Italian, French or German version. No BIOS, no emulator.</p>
-    </div>
-  </section>
-
-  <section id="music" aria-labelledby="music-h">
-    <h2 id="music-h"><span class="elements" aria-hidden="true"><i></i><i></i><i></i><i></i></span>Music &amp; keys</h2>
-    <div class="grid2">
-      <div class="panel music">
-        <h3>Music mods</h3>
-        <p>Play recordings in place of the original soundtrack, looping exactly where the game loops each song.</p>
-        <ol>
-          <li>Unzip a music mod into the <b>Music</b> folder next to <b>GoldenSunLauncher</b>.</li>
-          <li>Start the launcher; it asks once whether to use it.</li>
-          <li>Switch it any time in the launcher settings or <kbd>F1</kbd> &rarr; Audio.</li>
-        </ol>
-        <p>The remastered soundtrack of both games is by Vincent Dortel aka Juste-D, shared with his permission. Many thanks to him.</p>
-        <ul class="links">
-          <li><a class="main" href="https://drive.google.com/file/d/1oMiW5pYbjg3Dl9LHHVEYZLpP3jZoryLo/view?usp=drive_link" target="_blank" rel="noopener">Download the music mod</a></li>
-          <li><a href="https://www.youtube.com/@JusteDni" target="_blank" rel="noopener">Juste-D on YouTube</a></li>
-          <li><a href="https://drive.google.com/drive/folders/1Q2MWzb_uSvXp0Z3vWthvErnzM3xyL6Em" target="_blank" rel="noopener">Original albums</a></li>
-          <li><a href="https://github.com/Shmargus/GSRecomp/blob/main/MUSIC_MODS.md" target="_blank" rel="noopener">Make your own</a></li>
-        </ul>
-      </div>
-      <div class="panel">
-        <h3>Quick keys</h3>
-        <dl class="keys">
-          <div><dt>Settings menu</dt><dd><kbd>F1</kbd></dd></div>
-          <div><dt>Cheats</dt><dd><kbd>F11</kbd></dd></div>
-          <div><dt>Save state</dt><dd><kbd>Shift</kbd>+<kbd>F2</kbd>&ndash;<kbd>F10</kbd></dd></div>
-          <div><dt>Load state</dt><dd><kbd>F2</kbd>&ndash;<kbd>F10</kbd></dd></div>
-          <div><dt>Fast forward</dt><dd><kbd>Tab</kbd></dd></div>
-          <div><dt>2x battles</dt><dd><kbd>Select</kbd></dd></div>
-          <div><dt>Fullscreen</dt><dd><kbd>Alt</kbd>+<kbd>Enter</kbd></dd></div>
-          <div><dt>Pause</dt><dd><kbd>Shift</kbd>+<kbd>P</kbd></dd></div>
-          <div><dt>FPS counter</dt><dd><kbd>F</kbd></dd></div>
-          <div><dt>Bug report</dt><dd><kbd>F12</kbd></dd></div>
-        </dl>
-        <p class="fine">Change them under <kbd>F1</kbd> &rarr; Hotkeys, which also has Soft Reset, auto fire and Quit Game.</p>
-      </div>
-    </div>
-  </section>
-
-  <section id="faq" aria-labelledby="faq-h">
-    <h2 id="faq-h"><span class="elements" aria-hidden="true"><i></i><i></i><i></i><i></i></span>FAQ</h2>
-    <div class="panel faq">
-      <details>
-        <summary>Which game files work?</summary>
-        <div class="a"><p>The USA/Europe, Spanish, Italian, French and German versions of each game. Click the flag under the game, then choose the matching file; the launcher checks it and tells you if they don't match. The two games can use different languages.</p></div>
-      </details>
-      <details>
-        <summary>How do I report a bug?</summary>
-        <div class="a">
-          <ol>
-            <li>Press <kbd>F12</kbd> right after the problem. The game keeps the last two seconds.</li>
-            <li>Close the game, write a few words in the window that opens and press <b>Send report</b>.</li>
-          </ol>
-          <p>After a crash the same window opens by itself. Nothing is sent unless you press <b>Send report</b>, and your user name is taken out.</p>
-        </div>
-      </details>
-      <details>
-        <summary>Can I switch language and keep my progress?</summary>
-        <div class="a"><p>Each language has its own saves and savestates. After building a new language, the launcher offers to copy your English in-game save across; you continue from the nearest sanctuary. Savestates don't move between languages.</p></div>
-      </details>
-      <details>
-        <summary>Is this an emulator?</summary>
-        <div class="a"><p>No. The games' own code is translated into PC code ahead of time, so they run directly on your PC instead of through a program that imitates the Game Boy Advance.</p></div>
-      </details>
-      <details>
-        <summary>Why does the first start take a few minutes?</summary>
-        <div class="a"><p>The first time, and for each new language, the game is prepared from your game file on your PC, with a progress bar. After that it starts straight away.</p></div>
-      </details>
-      <details>
-        <summary>How do I update, and do my saves come along?</summary>
-        <div class="a"><p>The launcher tells you when a new version is out. Unzip it into a new folder, start its launcher and choose your game file from the old folder's <b>ROMs</b> folder: your saves and savestates come along.</p></div>
-      </details>
-      <details>
-        <summary>Can I take my Broken Seal team to The Lost Age?</summary>
-        <div class="a"><p>Yes: <b>Seamless mode</b> (launcher settings) goes straight on after the ending; a new Lost Age game asks for your Broken Seal save; and <kbd>F1</kbd> &rarr; Game &rarr; <b>Update from The Broken Seal</b> updates an existing Lost Age save, keeping a backup.</p></div>
-      </details>
-      <details>
-        <summary>Can I play a fan translation or a hack?</summary>
-        <div class="a"><p>The official Spanish, Italian, French and German versions are supported. For anything else, the launcher settings have <b>Skip the ROM check</b>; it isn't supported, so expect problems.</p></div>
-      </details>
-      <details>
-        <summary>Is it finished, and does it cost anything?</summary>
-        <div class="a"><p>Not yet: test release <span id="release-version">0.7</span> is out, and each <a href="https://github.com/Shmargus/GSRecomp/releases" target="_blank" rel="noopener">release</a> lists its changes and known issues. It's free, a noncommercial fan project.</p></div>
-      </details>
-    </div>
+  <section aria-labelledby="pages-h">
+    <h2 id="pages-h">Explore the site</h2>
+    <ul class="links">
+      <li id="start"><a class="main" href="getting-started.html">Getting Started</a></li>
+      <li id="features"><a href="features.html">Features</a></li>
+      <li id="music"><a href="music.html">Music</a></li>
+      <li><a href="controls.html">Controls</a></li>
+      <li id="new"><a href="whats-new.html">What’s New</a></li>
+      <li id="faq"><a href="faq.html">FAQ</a></li>
+    </ul>
   </section>
   </main>
 
@@ -379,34 +93,6 @@ footer b { color: var(--soft); }
     <span><a href="https://github.com/Shmargus/GSRecomp" target="_blank" rel="noopener">GitHub</a> &middot; Updated November 2026</span>
   </footer>
 </div>
-<script>
-// The download buttons follow GitHub's newest release (pre-releases included,
-// which /releases/latest would skip), so a new release needs no page edit.
-// Offline or rate-limited, the values written in the page stay.
-(function () {
-  fetch("https://api.github.com/repos/Shmargus/GSRecomp/releases?per_page=1")
-    .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
-    .then(function (list) {
-      var rel = list && list[0];
-      if (!rel || !rel.tag_name) return;
-      var assets = rel.assets || [];
-      var zip = function (linux) {
-        return assets.filter(function (a) {
-          return /\.zip$/i.test(a.name) && /linux/i.test(a.name) === linux;
-        })[0];
-      };
-      var win = zip(false), lin = zip(true);
-      if (!win || !lin) return;
-      var date = new Date(rel.published_at || rel.created_at).toLocaleDateString(
-        "en-GB", { day: "numeric", month: "long", year: "numeric" });
-      document.getElementById("download-windows").href = win.browser_download_url;
-      document.getElementById("download-linux").href = lin.browser_download_url;
-      document.getElementById("release-version").textContent = rel.tag_name;
-      document.getElementById("release-line").textContent =
-        "Test release " + rel.tag_name + ", " + date;
-    })
-    .catch(function () {});
-})();
-</script>
+<script defer src="release.js"></script>
 </body>
 </html>
