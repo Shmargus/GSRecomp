@@ -1,4 +1,5 @@
 #include "custom_battle.h"
+#include "custom_battle_arena.h"
 #include "custom_battle_text.h"
 
 #include <algorithm>
@@ -47,6 +48,7 @@ struct Roster {
     bool armed = false;
     bool scaled = true;
     std::vector<unsigned> ids;
+    unsigned arena = 0;  // 0 keeps the backdrop the game chose
 } g_roster, g_fight;
 int g_fight_target = 0;
 
@@ -60,17 +62,20 @@ struct Picker {
     std::vector<const Monster*> list;  // what this save offers
     std::vector<const Monster*> picks;
     bool scaled = true;
-    // The panel: up over her menu, its page (Monsters or Bosses), the cursor
+    // The panel: up over her menu, its page, the cursor
     // on each page (into what fits), the first visible row, and the answer
     // it is closing her menu with.
     bool open = false;
-    bool bosses = false;
-    std::size_t cursor[2] = {0, 0};
+    Page page = Page::Monsters;
+    std::array<std::size_t, static_cast<std::size_t>(Page::Count)> cursors{};
+    unsigned arena = 0;
     std::size_t first = 0;
     int closing = -1;  // 0 Yes, 1 No
     bool skip_select_sound = false;
     bool fresh = false;  // keys of the frame it opened belong to her question
     std::vector<std::uint32_t> sounds;
+
+    std::size_t& cursor() { return cursors[static_cast<std::size_t>(page)]; }
 } g_picker;
 
 // Battle pictures already decoded, by monster.
@@ -79,6 +84,8 @@ struct Picture {
     std::vector<std::uint32_t> pixels;
 };
 std::map<unsigned, Picture> g_pictures;
+std::vector<unsigned> g_arenas;
+std::map<unsigned, std::vector<std::uint32_t>> g_arena_pictures;
 
 // Immutable, unpacked animation assets in the in-memory ROM extension.
 // Bank tags 8..13 encode the six native colour variants, independently of
@@ -135,6 +142,32 @@ std::uint32_t rom_u32(Rom rom, std::uint32_t at) {
            (std::uint32_t(rom_u8(rom, at + 3)) << 24);
 }
 std::uint32_t offset(std::uint32_t address) { return address - mods::kRomBase; }
+
+void build_arenas(Rom rom) {
+    if (!g_arenas.empty() || rom.empty()) return;
+    std::set<unsigned> ids;
+    for (auto at = offset(g_game.arena_table); at < rom.size(); at += 4) {
+        const auto entry = rom_u32(rom, at);
+        if (!entry) break;
+        if (entry & 0x80000000u) ids.insert(entry & 0xFFFFu);
+    }
+    if (g_game.arena_variant) ids.insert(g_game.arena_variant);
+    g_arenas.push_back(0);  // Default
+    g_arenas.insert(g_arenas.end(), ids.begin(), ids.end());
+}
+
+const std::vector<std::uint32_t>& arena_picture(unsigned id) {
+    auto [cached, inserted] = g_arena_pictures.try_emplace(id);
+    if (inserted) {
+        const Rom rom = rom_bytes();
+        const auto entry = offset(g_game.asset_table) + id * 4u;
+        const auto begin = offset(rom_u32(rom, entry));
+        const auto end = offset(rom_u32(rom, entry + 4u));
+        if (begin < end && end <= rom.size())
+            cached->second = decode_arena(rom.subspan(begin, end - begin));
+    }
+    return cached->second;
+}
 
 // Monster `id`'s battle artwork: its first sprite, normalized colour variant
 // and the number of consecutive sprites it is built from.
@@ -445,7 +478,7 @@ std::vector<const Monster*> fitting(bool bosses) {
     }
     return fits;
 }
-std::vector<const Monster*> fitting() { return fitting(g_picker.bosses); }
+std::vector<const Monster*> fitting() { return fitting(g_picker.page == Page::Bosses); }
 
 // Another opponent fits on either page.
 bool can_add() { return !fitting(false).empty() || !fitting(true).empty(); }
@@ -493,6 +526,7 @@ void cancel_selection() {
     g_picker.picks.clear();
     g_roster.armed = false;
     g_roster.ids.clear();
+    g_roster.arena = 0;
     g_line_pos = -1;
 }
 
@@ -512,8 +546,13 @@ void answered(bool yes) {
     case Screen::Strength:
         p.scaled = yes;
         p.picks.clear();
-        p.bosses = false;
-        p.cursor[0] = p.cursor[1] = 0;
+        p.page = Page::Monsters;
+        p.cursors.fill(0);
+        p.first = 0;
+        p.arena = 0;
+        build_arenas(rom_bytes());
+        // Show a real preview on first entering Arena; Default stays selected.
+        if (g_arenas.size() > 1) p.cursors[static_cast<std::size_t>(Page::Arena)] = 1;
         p.screen = Screen::Panel;
         break;
     case Screen::Panel:
@@ -536,6 +575,7 @@ void answered(bool yes) {
         if (yes) {
             g_roster.armed = true;
             g_roster.scaled = p.scaled;
+            g_roster.arena = p.arena;
             g_roster.ids.clear();
             for (const auto* m : p.picks) g_roster.ids.push_back(m->id);
             std::fprintf(stderr, "[custom-battle] %zu opponents chosen, %s\n",
@@ -580,24 +620,39 @@ void publish() {
         const unsigned menu_row =
             bus_read_u16(bus_read_u32(g_game.menu_context_ptr) + kMenuRowOffset);
         view.tile_y = menu_row < kScreenTileRows / 2 ? 0 : kScreenTileRows - kPanelRows;
-        view.bosses = p.bosses;
+        view.page = p.page;
         for (std::size_t i = 0; i < p.picks.size(); ++i)
             view.chosen += (i ? ", " : "") + p.picks[i]->name;
-        const auto fits = fitting();
-        // The cursor on a monster that fits, its row in view.
-        std::size_t& at = p.cursor[p.bosses];
-        if (at >= fits.size()) at = 0;
+        const bool arena = p.page == Page::Arena;
+        const auto fits = arena ? std::vector<const Monster*>{} : fitting();
+        const auto count = arena ? g_arenas.size() : fits.size();
+        std::size_t& at = p.cursor();
+        if (at >= count) at = 0;
         const std::size_t rows = std::size_t(kPanelVisibleRows);
         if (at < p.first) p.first = at;
         if (at >= p.first + rows) p.first = at + 1 - rows;
-        if (p.first + rows > fits.size())
-            p.first = fits.size() > rows ? fits.size() - rows : 0;
-        for (std::size_t i = p.first; i < fits.size() && i < p.first + rows; ++i)
-            view.rows.push_back(fits[i]->name);
+        if (p.first + rows > count)
+            p.first = count > rows ? count - rows : 0;
+        for (std::size_t i = p.first; i < count && i < p.first + rows; ++i) {
+            if (arena) {
+                std::string label = i == 0 ? gsr::menu_text("Default")
+                                           : gsr::menu_text("Arena") + " " + std::to_string(i);
+                if (g_arenas[i] == p.arena) label = "> " + label;
+                view.rows.push_back(std::move(label));
+            } else {
+                view.rows.push_back(fits[i]->name);
+            }
+        }
         view.selected = int(at - p.first);
         view.more_above = p.first > 0;
-        view.more_below = p.first + rows < fits.size();
-        if (at < fits.size()) {
+        view.more_below = p.first + rows < count;
+        if (arena && at < count && g_arenas[at]) {
+            view.picture = arena_picture(g_arenas[at]);
+            if (!view.picture.empty()) {
+                view.picture_width = kArenaWidth;
+                view.picture_height = kArenaHeight;
+            }
+        } else if (!arena && at < count) {
             if (!p.scaled) view.level = gsr::menu_text("Lv") + " " + std::to_string(fits[at]->level);
             const Picture& pic = picture(fits[at]->id);
             view.picture_width = pic.width;
@@ -637,20 +692,26 @@ void panel_keys() {
         return;
     }
     if (pressed & (kKeyLeft | kKeyRight)) {
-        // Monsters or Bosses.
-        p.bosses = !p.bosses;
+        constexpr int pages = static_cast<int>(Page::Count);
+        const int direction = pressed & kKeyLeft ? -1 : 1;
+        p.page = static_cast<Page>((static_cast<int>(p.page) + pages + direction) % pages);
         p.first = 0;
         moved();
         return;
     }
-    const auto fits = fitting();
-    std::size_t& at = p.cursor[p.bosses];
-    if (fits.empty()) return;
-    if (at >= fits.size()) at = 0;
-    const std::size_t n = fits.size();
+    const bool arena = p.page == Page::Arena;
+    const auto fits = arena ? std::vector<const Monster*>{} : fitting();
+    std::size_t& at = p.cursor();
+    const std::size_t n = arena ? g_arenas.size() : fits.size();
+    if (!n) return;
+    if (at >= n) at = 0;
     if (pressed & kKeyA) {
-        p.picks.push_back(fits[at]);
         p.sounds.push_back(kSelectSound);
+        if (arena) {
+            p.arena = g_arenas[at];
+            return;
+        }
+        p.picks.push_back(fits[at]);
         // The next pick starts on the same monster when it still fits.
         const auto next = fitting();
         const auto same = std::find(next.begin(), next.end(), p.picks.back());
@@ -889,6 +950,12 @@ void on_entry(std::uint32_t pc) {
             bus_write_u16(list + 2u * std::uint32_t(i), std::uint16_t(g_roster.ids[i]));
         bus_write_u16(list + 2u * std::uint32_t(g_roster.ids.size()), 0);
         bus_write_u32(sp + kLevelsOffset, g_roster.scaled ? 1u : 0u);
+        if (g_roster.arena) {
+            // The room's backdrop is already cached, and the native
+            // graphics loader reads it after the builder returns.
+            const auto battle = bus_read_u32(g_game.battle_context_ptr);
+            if (battle) bus_write_u16(battle + g_game.arena_offset, std::uint16_t(g_roster.arena));
+        }
         g_fight = g_roster;
         g_in_picker = true;
         g_abort = false;

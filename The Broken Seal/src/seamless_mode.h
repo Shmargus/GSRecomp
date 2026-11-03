@@ -4,7 +4,7 @@
 
 #include "seamless.h"  // engine/src/runtime: option key, exit code
 #include "rom_version.h"
-#include "seamless_labels.h"
+#include "../../shared_game/seamless_labels.h"
 
 // Seamless mode, The Broken Seal's half: when the ship sails off, save the
 // Clear Data to the player's chosen slot and exit for the launcher to start

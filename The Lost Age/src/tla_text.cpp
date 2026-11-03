@@ -24,7 +24,7 @@
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
 #include "tla.h"
-#include "../../The Broken Seal/src/menu_text.h"
+#include "../../shared_game/menu_text.h"
 
 namespace {
 

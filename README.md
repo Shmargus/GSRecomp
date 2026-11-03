@@ -89,6 +89,7 @@ version changed; updating can make the launcher prepare your game code again.
 ```text
 GoldenSunLauncher.exe   the one launcher for both games
 engine/                 shared engine and translator (edited gbarecomp)
+shared_game/            features shared by both Golden Sun games
 launcher/               launcher source: game selection, builds, settings, reports
 player_builder/         builder that player packages run on the player's ROM
 scripts/                shared build, readiness and release scripts
@@ -105,10 +106,10 @@ Controls/               shared keyboard, controller and hotkey bindings
 Music/                  optional music mods (never committed)
 ```
 
-Generic ARMv4T/GBA engine fixes go in `engine/` and rebuild both games. Code
-both games share (the field renderer in `engine/src/field/`, the F12 history,
-the options file) lives there too and takes each game's addresses from that
-game. Each game's addresses, hooks and generated code stay in its own folder.
+Generic ARMv4T/GBA code lives in `engine/`. Golden Sun features such as Retreat,
+Custom Battle and the trackers share code in `shared_game/`. Changes in either
+folder trigger a rebuild for both games. Each game's addresses, hooks and
+generated code stay in its own folder.
 
 ## Building
 

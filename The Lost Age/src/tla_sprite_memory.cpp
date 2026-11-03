@@ -42,8 +42,8 @@
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
 #include "tla.h"
-#include "../../The Broken Seal/src/battle_sprite_memory.h"
-#include "../../The Broken Seal/src/custom_battle.h"
+#include "../../shared_game/battle_sprite_memory.h"
+#include "../../shared_game/custom_battle.h"
 
 namespace {
 

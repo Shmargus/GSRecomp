@@ -10,6 +10,7 @@
 #include "gba_vram_trace.h"
 #include "env_flag.h"
 #include "game_ram_layout.h"
+#include "runtime_arm.h"
 
 #include <cstdlib>
 #include <cstdio>
@@ -17,25 +18,13 @@
 #include <map>
 #include <tuple>
 
-// Shared with the ARM fast-RAM accessors.  GbaBus is also the chokepoint for
-// DMA and other non-generated writes, so those stores must invalidate the
-// runtime's cached RAM-overlay identities too.
-extern "C" unsigned long long g_ram_write_epoch;
-extern "C" unsigned long long g_ram_code_page_mask_ewram_lo;
-extern "C" unsigned long long g_ram_code_page_mask_ewram_hi;
-extern "C" unsigned int g_ram_code_page_mask_iwram;
-extern "C" unsigned int g_ram_code_page_epoch_ewram[64];
-extern "C" unsigned int g_ram_code_page_epoch_iwram[8];
 extern "C" unsigned int g_ram_code_word_epoch_ewram[64];
 extern "C" unsigned int g_ram_code_word_epoch_iwram[8];
 extern "C" unsigned int g_ram_watch_word_epoch_ewram[64];
 extern "C" unsigned int g_ram_watch_word_epoch_iwram[8];
-extern "C" void runtime_note_ram_code_write(uint32_t addr, uint32_t width);
 extern "C" void runtime_unpacker_slot_note_cpu(uint32_t addr, uint32_t width);
 extern "C" void runtime_note_ram_image_bus_write(uint32_t addr,
                                                    uint32_t width);
-extern "C" void runtime_ram_code_dirty_reset(void);
-extern "C" uint32_t runtime_current_pc(void);
 
 // Protected BIOS-read inventory (BIOS removal plan, step 1). When
 // GBARECOMP_BIOS_READ_LOG names a file, every data read of 0x0000..0x3FFF
@@ -94,39 +83,6 @@ uint32_t bios_read_log_save_file(const char* path) {
 }
 }  // namespace gba
 
-static bool ram_code_write_affects_bus(uint32_t addr, uint32_t width) {
-    const uint32_t region = addr >> 24;
-    if (region == 0x03u) {
-        const uint32_t off = addr & 0x00007FFFu;
-        const uint32_t first = off >> 12;
-        const uint32_t last = (off + width - 1u) >> 12;
-        const unsigned int span = (1u << (last - first + 1u)) - 1u;
-        return (g_ram_code_page_mask_iwram & (span << first)) != 0u;
-    }
-    if (region == 0x02u) {
-        const uint32_t off = addr & 0x0003FFFFu;
-        const uint32_t first = off >> 12;
-        const uint32_t last = (off + width - 1u) >> 12;
-        bool hit = false;
-        if (first < 32u) {
-            const uint32_t low_last = last < 31u ? last : 31u;
-            const unsigned long long span =
-                (1ull << (low_last - first + 1u)) - 1ull;
-            hit = (g_ram_code_page_mask_ewram_lo & (span << first)) != 0ull;
-        }
-        if (last >= 32u) {
-            const uint32_t high_first = first > 32u ? first - 32u : 0u;
-            const uint32_t high_last = last - 32u;
-            const unsigned long long span =
-                (1ull << (high_last - high_first + 1u)) - 1ull;
-            hit = hit || ((g_ram_code_page_mask_ewram_hi &
-                           (span << high_first)) != 0ull);
-        }
-        return hit;
-    }
-    return false;
-}
-
 static inline void note_ram_code_write_bus(uint32_t addr, uint32_t width) {
     // Unpacker-slot journal: always on, not gated by the RAM-code page mask.
     // A zero slot length makes the range test false for every address.
@@ -134,23 +90,7 @@ static inline void note_ram_code_write_bus(uint32_t addr, uint32_t width) {
         (addr & 0x7FFFu) - (g_game_ram_layout.unpacker_slot & 0x7FFFu) <
             g_game_ram_layout.unpacker_slot_len)
         runtime_unpacker_slot_note_cpu(addr, width);
-    if (!ram_code_write_affects_bus(addr, width)) return;
-    runtime_note_ram_code_write(addr, width);
-    ++g_ram_write_epoch;
-    const uint32_t region = addr >> 24;
-    if (region == 0x03u) {
-        const uint32_t off = addr & 0x00007FFFu;
-        const uint32_t first = off >> 12;
-        const uint32_t last = (off + width - 1u) >> 12;
-        for (uint32_t page = first; page <= last && page < 8u; ++page)
-            ++g_ram_code_page_epoch_iwram[page];
-    } else if (region == 0x02u) {
-        const uint32_t off = addr & 0x0003FFFFu;
-        const uint32_t first = off >> 12;
-        const uint32_t last = (off + width - 1u) >> 12;
-        for (uint32_t page = first; page <= last && page < 64u; ++page)
-            ++g_ram_code_page_epoch_ewram[page];
-    }
+    note_ram_write_for_identity(addr, width);
 }
 
 #include "snapshot.h"

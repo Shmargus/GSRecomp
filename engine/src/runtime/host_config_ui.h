@@ -252,7 +252,13 @@ struct ConfigUiState {
     bool  debug_overlay_changed = false;
     bool  menu_layout_changed = false;
     bool  request_quit = false;
+    enum class QuitConfirmation { Closed, Open, Cancel, Quit, QuitAndDisable };
+    QuitConfirmation quit_confirmation = QuitConfirmation::Closed;
+    bool  quit_dont_ask_again = false;
 };
+
+inline constexpr const char* kQuitWarning =
+    "Are you sure you want to quit?\nUnsaved progress will be lost.";
 
 // Create/destroy the ImGui context and SDL backends. Safe to call when ImGui
 // is not compiled in (init returns false, shutdown does nothing).
@@ -283,11 +289,14 @@ void config_ui_open_cheats();
 // Feed every SDL event here BEFORE the host window interprets it. Returns true
 // when the UI consumed the event and the host/guest must ignore it — true
 // whenever the menu is visible and the event is mouse/keyboard input.
-bool config_ui_handle_event(const SDL_Event* e);
+bool config_ui_handle_event(const SDL_Event* e, bool quit_modal = false);
 
 // Is the menu currently visible? While visible, host_window feeds the guest
 // all-buttons-released.
 bool config_ui_visible();
+// An active text editor owns typing ahead of menu/game shortcuts. Includes
+// game-owned editors outside F1; false in builds without the UI.
+bool config_ui_text_input_active();
 void config_ui_toggle();
 void config_ui_set_visible(bool on);
 
@@ -334,6 +343,8 @@ struct GameOptionSwitch {
 void config_ui_set_game_switches(const GameOptionSwitch* switches, int count);
 // Optional game-owned controls below the switches on F1's Game page.
 void config_ui_set_game_page(void (*draw)());
+// Optional game-owned content on F1's Music page.
+void config_ui_set_music_page(void (*draw)());
 // The F1 menu's words in another language: a game installs {English, text}
 // pairs, UTF-8. The menu draws the ROM's font, whose codes 0xA0..0xFF are
 // Latin-1 (á = 0xE1, ñ = 0xF1, ¿ = 0xBF), so accented letters show as such.

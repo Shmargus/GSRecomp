@@ -6,7 +6,7 @@
 // No guest writes.
 #pragma once
 #include "adventure_walkthrough_data.h"
-#include "flag_bank.h"
+#include "../../shared_game/flag_bank.h"
 #include <cstddef>
 
 namespace gsr::story_progress {

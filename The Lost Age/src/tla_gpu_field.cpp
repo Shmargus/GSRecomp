@@ -50,6 +50,7 @@
 #include "runtime_bus_bridge.h"
 #include "tla.h"
 #include "tla_world_map.h"
+#include "../../shared_game/held_palette_effect.h"
 
 namespace {
 
@@ -630,6 +631,7 @@ bool draw_capture(const Capture& capture, std::uint8_t* rgb,
 // picture on menu frames.
 std::vector<std::uint8_t> g_world_margin;
 Capture g_world_settled;
+gsr::HeldPaletteEffect g_world_palette_effect;
 std::uint32_t g_world_margin_w = 0, g_world_margin_h = 0;
 
 bool world_map_blocks(const std::vector<std::uint8_t>& io) {
@@ -704,6 +706,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
                 g_world_margin = std::move(margin);
                 g_world_margin_w = width;
                 g_world_margin_h = height;
+                g_world_palette_effect.save(capture.pal);
             } catch (const std::bad_alloc&) {
                 g_world_margin.clear();
                 g_world_settled = {};
@@ -739,6 +742,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
                 g_world_margin = std::move(resized);
                 g_world_margin_w = width;
                 g_world_margin_h = height;
+                g_world_palette_effect.reset_indices();
             }
         } catch (const std::bad_alloc&) {
             // Existing no-held-frame colour is the allocation fallback.
@@ -788,6 +792,8 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
             std::memcpy(dst + x * 3u, held ? src + std::size_t(sx) * 3u : colour, 3);
         }
     }
+    if (held && !glow)
+        g_world_palette_effect.apply(rgb, width, height, g_world_margin, capture.pal);
     paint_shutter_rows(rgb, width, height, capture.scene);
 }
 
@@ -944,6 +950,7 @@ void tla_install_gpu_field() {
         g_world_margin_w = g_world_margin_h = 0;
         tla_local_music_on_savestate_load();
         tla_custom_battle_reset();
+        tla_retreat_travel_reset();
         tla_sprite_memory_restore();
     });
     if (g_enabled)

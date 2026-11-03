@@ -389,22 +389,9 @@ try {
                 Copy-Item -Destination (Join-Path $languageData 'overlays')
         }
 
-        # Engine: the headers generated code includes, and the import library
-        # built with the shipped engine.
-        foreach ($h in @('runtime_arm.h', 'runtime_arm_types.h')) {
-            Copy-Item -LiteralPath (Join-Path $engineRoot "src/armv4t/$h") -Destination (Join-Path $engineDir 'include')
-        }
+        & $python (Join-Path $PSScriptRoot 'stage_release_headers.py') $engineRoot $gameOut
+        if ($LASTEXITCODE -ne 0) { throw 'Could not stage The Broken Seal release headers.' }
         Copy-Item -LiteralPath $engineApi -Destination $engineDir
-
-        # Self-heal: the overlay shim headers the engine's runtime compile includes.
-        $ovInc = Join-Path $gameOut 'overlay_toolchain/include'
-        New-Item -ItemType Directory -Force -Path $ovInc | Out-Null
-        foreach ($h in @('src/runtime/overlay_runtime_arm.h', 'src/runtime/overlay_abi.h',
-                         'src/armv4t/runtime_arm_types.h')) {
-            $src = Join-Path $engineRoot $h
-            if (-not (Test-Path -LiteralPath $src)) { throw "Overlay header missing: $src" }
-            Copy-Item -LiteralPath $src -Destination $ovInc
-        }
 
         # ---- 4. Trimmed GCC -----------------------------------------------------
         Write-Host 'Assembling the compiler.'
@@ -585,15 +572,9 @@ $($packages -join "`r`n")
             Get-ChildItem -LiteralPath (Join-Path $tlaRepo "config/$language/reloc") -Filter '*.toml' |
                 Copy-Item -Destination (Join-Path $languageData 'reloc')
         }
-        foreach ($h in @('runtime_arm.h', 'runtime_arm_types.h')) {
-            Copy-Item -LiteralPath (Join-Path $engineRoot "src/armv4t/$h") -Destination (Join-Path $tlaEngine 'include')
-        }
+        & $python (Join-Path $PSScriptRoot 'stage_release_headers.py') $engineRoot $tlaOut
+        if ($LASTEXITCODE -ne 0) { throw 'Could not stage The Lost Age release headers.' }
         Copy-Item -LiteralPath (Join-Path $tlaBuild 'libTLARecomp_api.a') -Destination $tlaEngine
-        $tlaOverlayInc = Join-Path $tlaOut 'overlay_toolchain/include'
-        New-Item -ItemType Directory -Force -Path $tlaOverlayInc | Out-Null
-        foreach ($h in @('src/runtime/overlay_runtime_arm.h', 'src/runtime/overlay_abi.h', 'src/armv4t/runtime_arm_types.h')) {
-            Copy-Item -LiteralPath (Join-Path $engineRoot $h) -Destination $tlaOverlayInc
-        }
         foreach ($dll in @('SDL2.dll', 'libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll')) {
             Copy-Item -LiteralPath (Join-Path $mingw $dll) -Destination $tlaOut
         }

@@ -19,6 +19,11 @@ struct CollectionPopupText {
     const char* save_question;
     const char* save_convert;
     const char* save_skip;
+    const char* build_single_question;
+    const char* build_start;
+    const char* build_cancel;
+    const char* build_less_resources;
+    const char* build_resource_notice;
 };
 
 inline constexpr CollectionPopupText kCollectionPopupText[] = {
@@ -33,7 +38,10 @@ inline constexpr CollectionPopupText kCollectionPopupText[] = {
         "They stay available in their original language.\n\n"
         "Your characters will be moved to the nearest sanctuary.\n\n"
         "Your English save will be kept.\nSaved progress will be separate for each language.",
-        "Convert save", "Start without it"
+        "Convert save", "Start without it",
+        "Build or rebuild {game}?", "Build game", "Cancel",
+        "Use fewer system resources",
+        "Limits the build to 50% of CPU and RAM.\nBuilding may take longer.\nOther apps use additional resources."
     },
     {
         "Preparar el juego",
@@ -47,7 +55,10 @@ inline constexpr CollectionPopupText kCollectionPopupText[] = {
         "Se conservan para su idioma original.\n\n"
         "Tus personajes se trasladarán al santuario más cercano.\n\n"
         "Se conservará tu partida en inglés.\nCada idioma tendrá su propio progreso guardado.",
-        "Convertir", "Iniciar sin ella"
+        "Convertir", "Iniciar sin ella",
+        "¿Preparar o volver a preparar {game}?", "Preparar", "Cancelar",
+        "Usar menos recursos del sistema",
+        "Limita la preparación al 50% de CPU y RAM.\nPuede tardar más.\nLas otras aplicaciones usan recursos adicionales."
     },
     {
         "Prepara il gioco",
@@ -60,7 +71,10 @@ inline constexpr CollectionPopupText kCollectionPopupText[] = {
         "NON vengono trasferiti. Restano nella lingua originale.\n\n"
         "I personaggi saranno spostati al santuario più vicino.\n\n"
         "Il salvataggio inglese sarà conservato.\nOgni lingua avrà i propri progressi salvati.",
-        "Converti", "Avvia senza"
+        "Converti", "Avvia senza",
+        "Preparare o ricreare {game}?", "Prepara", "Annulla",
+        "Usa meno risorse di sistema",
+        "Limita la preparazione al 50% di CPU e RAM.\nPotrebbe richiedere più tempo.\nLe altre applicazioni usano risorse aggiuntive."
     },
     {
         "Préparer le jeu",
@@ -74,7 +88,10 @@ inline constexpr CollectionPopupText kCollectionPopupText[] = {
         "Elles restent disponibles dans leur langue d'origine.\n\n"
         "Vos personnages seront déplacés au sanctuaire le plus proche.\n\n"
         "Votre sauvegarde anglaise sera conservée.\nLa progression sera sauvegardée séparément pour chaque langue.",
-        "Convertir", "Lancer sans"
+        "Convertir", "Lancer sans",
+        "Préparer ou recréer {game} ?", "Préparer", "Annuler",
+        "Utiliser moins de ressources",
+        "Limite la préparation à 50% du CPU et de la RAM.\nElle peut prendre plus de temps.\nLes autres applications utilisent aussi des ressources."
     },
     {
         "Spiel erstellen",
@@ -87,7 +104,10 @@ inline constexpr CollectionPopupText kCollectionPopupText[] = {
         "NICHT übertragen. Sie bleiben in der ursprünglichen Sprache.\n\n"
         "Deine Charaktere werden zum nächsten Heiligtum gebracht.\n\n"
         "Dein englischer Spielstand bleibt erhalten.\nDer Fortschritt wird für jede Sprache getrennt gespeichert.",
-        "Umwandeln", "Ohne starten"
+        "Umwandeln", "Ohne starten",
+        "{game} erstellen oder neu erstellen?", "Erstellen", "Abbrechen",
+        "Weniger Systemressourcen nutzen",
+        "Begrenzt den Build auf 50% CPU und RAM.\nDas Erstellen kann länger dauern.\nAndere Programme nutzen zusätzliche Ressourcen."
     }
 };
 

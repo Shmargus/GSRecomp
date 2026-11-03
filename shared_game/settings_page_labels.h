@@ -7,5 +7,5 @@ inline constexpr const char* kRows[] = {
     "Walking speed", "Encounters", "View size", "No slowdown", "Faster Psynergy"};
 inline constexpr const char* kHelp[] = {
     "Set walking speed.", "Set encounter frequency.", "Set the view size.",
-    "Remove in-game slowdown.", "Faster Psynergy, wider Reveal."};
+    "Remove in-game slowdown.", "Faster Psynergy, wider Reveal, Retreat travel."};
 }

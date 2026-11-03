@@ -6,8 +6,8 @@
 #include "menu_text.h"
 
 // The opponent panel's contents (custom_battle.h), one copy for both runners:
-// the Monsters/Bosses tabs, the list, the highlighted monster's battle
-// picture and level, and the picks so far. Each runner paints the window in
+// the Monsters/Bosses/Arena tabs, the list, the highlighted preview, and
+// the picks so far. Each runner paints the window in
 // the game's own pieces first and passes its menu font and pixels, in native
 // coordinates: draw_text(text, x, y), text_width(text), pixel(x, y) ->
 // std::uint8_t* RGB or nullptr. inner_x/inner_y: the window's inside.
@@ -56,19 +56,21 @@ void paint_panel(const PanelView& view, DrawText& draw_text, TextWidth& text_wid
         }
     };
     // The pages as tabs, Left/Right between them; the shaded one is open.
-    const std::string tabs[2] = {gsr::menu_text("Monsters"), gsr::menu_text("Bosses")};
+    const std::string tabs[] = {gsr::menu_text("Monsters"), gsr::menu_text("Bosses"),
+                                gsr::menu_text("Arena")};
     int tab_x = kListX;
     arrow(tab_x - 6, 2, kLeft);
-    for (int t = 0; t < 2; ++t) {
+    for (int t = 0; t < static_cast<int>(Page::Count); ++t) {
         const int w = text_width(tabs[t]);
-        if (t == (view.bosses ? 1 : 0)) shade(tab_x - 3, -2, w + 6, 12, 5);
+        if (t == static_cast<int>(view.page)) shade(tab_x - 3, -2, w + 6, 12, 5);
         draw_text(tabs[t], inner_x + tab_x, inner_y);
         tab_x += w + 10;
     }
     arrow(tab_x - 5, 2, kRight);
-    centred(gsr::menu_text("L/R: page"), (kPictureX + kInnerWidth - 4) / 2, 0);
+    const auto hint = gsr::menu_text("L/R: page");
+    draw_text(hint, inner_x + kInnerWidth - 4 - text_width(hint), inner_y);
     if (view.rows.empty())
-        draw_text(fitted(gsr::menu_text(view.bosses ? "No boss fits." : "No monster fits."), kListWidth),
+        draw_text(fitted(gsr::menu_text(view.page == Page::Bosses ? "No boss fits." : "No monster fits."), kListWidth),
                   inner_x + kListX, inner_y + kListY);
     for (int i = 0; i < static_cast<int>(view.rows.size()); ++i) {
         const int y = kListY + i * kRowPitch;

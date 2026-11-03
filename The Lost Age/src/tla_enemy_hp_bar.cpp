@@ -1,7 +1,7 @@
 // Golden Sun: The Lost Age -- Enemy HP bar: while the player picks a target
 // in battle, a small red bar with the HP number sits just above the enemy's
 // name. The rules and measurements of both games are in
-// ../../The Broken Seal/src/enemy_hp_bar.h (one copy); this file installs
+// ../../shared_game/enemy_hp_bar.h (one copy); this file installs
 // The Lost Age's addresses and paints with this game's menu font. F1 Game
 // switch (src/tla_walk_speed.cpp lists it), off by default.
 
@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <string>
 
-#include "../../The Broken Seal/src/enemy_hp_bar.h"
+#include "../../shared_game/enemy_hp_bar.h"
 #include "gba_ppu.h"
 #include "runtime.h"
 #include "runtime_arm.h"

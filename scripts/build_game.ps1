@@ -15,6 +15,7 @@ param(
     [Parameter(Mandatory)][ValidateSet('BrokenSeal', 'LostAge')][string]$Game,
     [ValidateRange(1, 100)][int]$CpuPercent = 90,
     [ValidateRange(1, 100)][int]$RamPercent = 90,
+    [switch]$CpuCapInherited,
     # Relative to the game's folder. Empty = the game's normal tree below.
     # make_release.ps1 points this at the release build tree.
     [string]$BuildDir = '',
@@ -147,7 +148,7 @@ public static class GoldenSunBuildLimits {
                 throw new Win32Exception(Marshal.GetLastWin32Error());
         } finally { Marshal.FreeHGlobal(data); }
     }
-    public static IntPtr Apply(uint cpuPercent, ulong memoryBytes) {
+    public static IntPtr Apply(uint cpuPercent, ulong memoryBytes, bool cpuCapInherited) {
         IntPtr job = CreateJobObject(IntPtr.Zero, null);
         if (job == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
         try {
@@ -155,7 +156,10 @@ public static class GoldenSunBuildLimits {
             limits.BasicInfo.Flags = 0x200; // JOB_OBJECT_LIMIT_JOB_MEMORY
             limits.JobMemory = new UIntPtr(memoryBytes);
             Set(job, 9, limits); // JobObjectExtendedLimitInformation
-            Set(job, 15, new Cpu { Flags = 0x1 | 0x4, Rate = cpuPercent * 100 });
+            // Nested CPU quotas multiply. The launcher's outer cap already
+            // covers preparation, engine checks, CMake and every compiler.
+            if (!cpuCapInherited)
+                Set(job, 15, new Cpu { Flags = 0x1 | 0x4, Rate = cpuPercent * 100 });
             // Attach before starting CMake: all its descendants inherit caps.
             if (!AssignProcessToJobObject(job, GetCurrentProcess()))
                 throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -177,7 +181,7 @@ public static class GoldenSunBuildLimits {
     }
 }
 '@
-    $jobHandle = [GoldenSunBuildLimits]::Apply([uint32]$CpuPercent, $memoryLimit)
+    $jobHandle = [GoldenSunBuildLimits]::Apply([uint32]$CpuPercent, $memoryLimit, [bool]$CpuCapInherited)
     $kind = if ($PrepareOnly) { 'Preparing the game code' } else { "LTO build, game code -$GameCodeOpt" }
     if ($Game -eq 'LostAge' -and $PerInstruction) { $kind += ', per-instruction timing' }
     Write-Host "${kind}: CPU cap $CpuPercent%; parallel jobs $jobs."

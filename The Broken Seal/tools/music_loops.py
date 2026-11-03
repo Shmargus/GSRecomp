@@ -161,7 +161,7 @@ def recordings(table: str) -> list[tuple[int, int, str]]:
     return [(int(h, 16), int(n) + (folder_tracks() if borrowed else 0), name)
             for h, borrowed, n, name in re.findall(
         r'\{(?:(?:gs::rom|TLA_ROM)\()?0x([0-9A-Fa-f]+)u\)?, '
-        r'(kTbs\s*\+\s*)?(\d+)u\}, // song \d+: (.*)', text)]
+        r'(kTbs\s*\+\s*)?(\d+)u(?:, \"[^\"]*\")?\}, // song \d+: (.*)', text)]
 
 
 def folder_tracks() -> int:

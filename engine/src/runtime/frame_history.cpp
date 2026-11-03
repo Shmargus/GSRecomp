@@ -6,9 +6,20 @@
 #include <filesystem>
 #include <utility>
 
+#ifdef GBARECOMP_HAVE_SDL2
+#include <SDL.h>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+#endif
+
 #include "gba_bus.h"
 #include "gba_io.h"
 #include "gba_ppu.h"
+#include "host_config_ui.h"
 #include "memory_snapshot.h"
 #include "runtime_bus_bridge.h"
 
@@ -17,6 +28,7 @@ namespace {
 
 constexpr std::size_t kRows = gba::GbaPpu::kScreenHeight;
 constexpr std::size_t kRowBytes = gba::GbaPpu::kLineIoBytes;
+constexpr unsigned long long kReportNoticeFrames = 180;  // 3 seconds at 60 Hz
 
 double now_ms() {
     return std::chrono::duration<double, std::milli>(
@@ -59,9 +71,13 @@ HistoryFrame FrameHistory::capture() {
 }
 
 void FrameHistory::clear() {
+    // f12_was_down_ is kept on purpose: an F12 held while a state loads
+    // must be released before it can save another report.
     count_ = next_ = 0;
     last_present_ms_ = -1.0;
     last_live_guest_ = 0;
+    report_notice_ = ReportNotice::None;
+    report_notice_until_ = 0;
 }
 
 HistoryFrame& FrameHistory::record(const std::uint8_t* rgb, std::uint32_t width,
@@ -89,6 +105,34 @@ const HistoryFrame& FrameHistory::back(std::size_t i) const {
 
 const HistoryFrame& FrameHistory::oldest_first(std::size_t i) const {
     return ring_[(next_ + kFrames - count_ + i) % kFrames];
+}
+
+FrameHistory::ReportNotice FrameHistory::update_report(
+    const std::string* automatic_note, const char* note_file) {
+    const auto frame = runtime_current_frame();
+    auto saved = ReportNotice::None;
+    if (automatic_note && !write(*automatic_note, note_file).empty())
+        saved = ReportNotice::Automatic;
+#ifdef GBARECOMP_HAVE_SDL2
+#ifdef _WIN32
+    const bool down = (GetAsyncKeyState(VK_F12) & 0x8000) != 0;
+#else
+    const auto* keys = SDL_GetKeyboardState(nullptr);
+    const bool down = keys && keys[SDL_SCANCODE_F12];
+#endif
+    const bool pressed = down && !f12_was_down_;
+    // Track the key even while the editor owns it, so leaving the editor
+    // with F12 still held does not turn that press into a capture.
+    f12_was_down_ = down;
+    if (pressed && SDL_GetKeyboardFocus() && !config_ui_text_input_active() &&
+        !write().empty())
+        saved = ReportNotice::Manual;
+#endif
+    if (saved != ReportNotice::None) {
+        report_notice_ = saved;
+        report_notice_until_ = frame + kReportNoticeFrames;
+    }
+    return frame <= report_notice_until_ ? report_notice_ : ReportNotice::None;
 }
 
 std::string FrameHistory::write(const std::string& note,

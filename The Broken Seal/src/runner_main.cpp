@@ -1,3 +1,6 @@
+// The engine plug-in calls this runner's main directly.
+#define SDL_MAIN_HANDLED
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -19,6 +22,7 @@
 #include "env_flag.h"
 #include "game_exit.h"
 #include <memory>
+#include "frame_capture.h"
 #include "frame_history.h"
 #include "texture_readback_queue.h"
 #include "crash_handler.h"
@@ -31,7 +35,7 @@
 #include "obj_y_continuity.h"
 #include "effect_capture.h"
 #include "unpacker_catch.h"
-#include "unpacker_guard.h"
+#include "../../shared_game/unpacker_guard.h"
 #include "field_scene_renderer.h"
 #include "intro_music.h"
 #include "world_map_source.h"
@@ -40,9 +44,11 @@
 #include "cheat_menu.h"
 #include "trackers_tbs.h"
 #include "hard_mode.h"
-#include "custom_battle.h"
-#include "custom_battle_panel.h"
+#include "../../shared_game/custom_battle.h"
+#include "../../shared_game/custom_battle_panel.h"
 #include "custom_battle_tbs.h"
+#include "retreat_travel_tbs.h"
+#include "../../shared_game/held_palette_effect.h"
 #include "host_config_ui.h"
 #include "seamless_mode.h"
 #include "gpu_surface.h"
@@ -58,14 +64,15 @@
 #include "developer_session.h"
 #include "text_speed_cheat.h"
 #include "settings_page.h"
-#include "settings_help.h"
+#include "../../shared_game/settings_help.h"
 #include "battle_speed.h"
-#include "enemy_hp_bar.h"
-#include "spanish_menu.h"
-#include "menu_text.h"
-#include "italian_menu.h"
-#include "french_menu.h"
-#include "german_menu.h"
+#include "../../shared_game/enemy_hp_bar.h"
+#include "../../shared_game/field_character.h"
+#include "../../shared_game/spanish_menu.h"
+#include "../../shared_game/menu_text.h"
+#include "../../shared_game/italian_menu.h"
+#include "../../shared_game/french_menu.h"
+#include "../../shared_game/german_menu.h"
 #include "obj_placements.h"
 #include "runtime.h"
 #include "memory_snapshot.h"
@@ -9268,50 +9275,6 @@ void build_room_vram(const std::vector<std::uint8_t>& vram,
               out_palette->begin() + restore_from);
 }
 
-struct GpuFieldCapture {
-    bool valid = false;
-    gsr::CapturedEffectFrame effects;
-    gsr::FieldScene scene;
-    std::vector<std::uint8_t> vram;   // bus->vram_ptr(), 96 KB
-    // The same, except that while a game window is open BG0's character
-    // block holds what it held before the window opened (see
-    // build_room_vram). FieldSceneRenderer::upload_room_vram; room tiles
-    // in the margins read it.
-    std::vector<std::uint8_t> room_vram;
-    // Likewise the palette: the field's background colours restored while a
-    // window is open, else empty.
-    std::vector<std::uint16_t> room_palette;
-    // bus->ewram_ptr(), 256 KB: the room rect/camera/id-grid/atlas tables
-    // FieldSceneRenderer::upload_room reads (addresses in room_buffer.h),
-    // taken from the live guest, not the offline recorded snapshots the
-    // check tool uses.
-    std::vector<std::uint8_t> ewram;
-    // bus->iwram_ptr(), 32 KB. Not read by the renderer at all -- this is for
-    // the F12 dump alone, and it is here because the spell effects cannot be
-    // read any other way. Golden Sun composes an effect in a 16 KB buffer on
-    // its own IWRAM heap and RELOCATES the routine that stamps particles into
-    // that buffer to just behind it, so the routine exists only at runtime:
-    // its address is never a ROM literal and the disassembly has no symbol for
-    // it (FACTS.md, 2026-09-18). A write trace can say where it wrote but
-    // never what instructions it is. Capturing IWRAM captures the routine
-    // itself, to be disassembled offline.
-    std::vector<std::uint8_t> iwram;
-    // The cartridge, for WorldMapSource: the world map's pieces are unpacked
-    // from it (world_map_source.h). Constant for the session.
-    const std::uint8_t* rom = nullptr;
-    std::size_t rom_bytes = 0;
-    // Raw register/object/palette memory, for gpu_field_present_override()'s
-    // F12 dump only (see its header comment). `scene` already carries a
-    // decoded summary of IO/OAM/PAL, but a one-frame dump hands the replay
-    // tool the exact memory the hardware compositor reads, not a re-encoding
-    // of it, so these are separate full copies rather than derived from
-    // `scene` at dump time.
-    std::vector<std::uint8_t> io;     // bus->io().raw(), 0x400 bytes
-    std::vector<std::uint8_t> oam;    // bus->oam_ptr(), 1024 bytes
-    std::vector<std::uint8_t> pal;    // bus->pal_ptr(), 1024 bytes
-    // game_window_open() at this frame's capture (world-map margin hold).
-    bool window_open = false;
-};
 // Filled by gpu_field_capture_hook() at VBlank start -- the same boundary
 // the canonical framebuffer latches at (GbaPpu::latch_native_scene_state,
 // called from runtime_bus_bridge.cpp) -- and read once, later the same frame,
@@ -9320,17 +9283,17 @@ struct GpuFieldCapture {
 // dispatch, not necessarily where the host's GL context is current. The draw
 // happens at present time instead, beside the win.present() call it stands
 // in for (see runtime.cpp's present_first).
-GpuFieldCapture g_gpu_field_capture;
+gsr::GpuFieldCapture g_gpu_field_capture;
 struct GpuPresentation {
-    GpuFieldCapture capture;
+    gsr::GpuFieldCapture capture;
     gbarecomp::HistoryFrame frame;
     bool world_source_ok = false;
 };
 gbarecomp::TextureReadbackQueue<GpuPresentation> g_gpu_readback;
-GpuFieldCapture g_world_settled_capture;
+gsr::GpuFieldCapture g_world_settled_capture;
 
 bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
-                            const GpuFieldCapture& capture,
+                            const gsr::GpuFieldCapture& capture,
                             std::uint32_t width, std::uint32_t height);
 
 // ---- World-map margin hold ------------------------------------------------
@@ -9357,39 +9320,7 @@ bool g_world_map_source_ok = false;
 // world map's Psynergy tint turns the whole palette red (average 18,4,4
 // against 10,18,20; logs/gpu_frame_0102.bin, 2026-09-30) while the held
 // margins stayed green.
-std::array<std::uint16_t, 256> g_world_margin_pal{};
-std::unordered_map<std::uint32_t, std::uint8_t> g_world_margin_index;
-
-void world_margin_rgb_of(std::uint16_t c, int out[3]) {
-    out[0] = (c & 31) * 255 / 31;
-    out[1] = ((c >> 5) & 31) * 255 / 31;
-    out[2] = ((c >> 10) & 31) * 255 / 31;
-}
-
-// Nearest saved-palette index for every distinct colour in the saved
-// margins, found once per save with a new palette.
-void world_margin_index_colours(std::uint32_t width, std::uint32_t height) {
-    g_world_margin_index.clear();
-    int pal_rgb[256][3];
-    for (int i = 0; i < 256; ++i)
-        world_margin_rgb_of(g_world_margin_pal[i], pal_rgb[i]);
-    const std::uint8_t* p = g_world_margin_rgb.data();
-    const std::size_t n = std::size_t{width} * height;
-    for (std::size_t i = 0; i < n; ++i, p += 3) {
-        const std::uint32_t key = (std::uint32_t{p[0]} << 16) |
-                                  (std::uint32_t{p[1]} << 8) | p[2];
-        if (g_world_margin_index.count(key)) continue;
-        int best = 0, best_d = 1 << 30;
-        for (int k = 0; k < 256; ++k) {
-            const int dr = p[0] - pal_rgb[k][0];
-            const int dg = p[1] - pal_rgb[k][1];
-            const int db = p[2] - pal_rgb[k][2];
-            const int d = dr * dr + dg * dg + db * db;
-            if (d < best_d) { best_d = d; best = k; }
-        }
-        g_world_margin_index[key] = static_cast<std::uint8_t>(best);
-    }
-}
+gsr::HeldPaletteEffect g_world_palette_effect;
 
 bool world_map_blocks(const std::vector<std::uint8_t>& io) {
     if (io.size() < 0x10) return false;
@@ -9474,7 +9405,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
                            std::uint32_t height,
                            gsr::FieldSceneRenderer& renderer,
                            gbarecomp::GpuSurface& surface,
-                           const GpuFieldCapture& capture, bool world_source_ok) {
+                           const gsr::GpuFieldCapture& capture, bool world_source_ok) {
     const std::vector<std::uint8_t>& io = capture.io;
     const unsigned mode = io.empty() ? 0xFFu : (io[0] & 7u);
     const bool world = world_map_blocks(io);
@@ -9519,14 +9450,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
             g_world_margin_w = width;
             g_world_margin_h = height;
             g_world_settled_capture = capture;
-            const auto& pal = capture.pal;
-            for (int i = 0; i < 256; ++i)
-                g_world_margin_pal[i] = static_cast<std::uint16_t>(
-                    pal[i * 2] | (pal[i * 2 + 1] << 8));
-            // Saved every settled frame; the colour index is only needed if
-            // a palette effect follows, so it is built lazily on the first
-            // menu frame whose palette differs (see below).
-            g_world_margin_index.clear();
+            g_world_palette_effect.save(capture.pal);
         }
         return;
     }
@@ -9574,7 +9498,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
         g_world_margin_rgb.swap(resized);
         g_world_margin_w = width;
         g_world_margin_h = height;
-        g_world_margin_index.clear();
+        g_world_palette_effect.reset_indices();
     }
     // No settled world-map frame to hold, as when a Djinn event switches to
     // mode 0 straight away (logs/gpu_frame_0083.bin, Flint, 2026-09-26): the
@@ -9608,54 +9532,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
         std::memcpy(dst + std::size_t{right} * 3u, src + std::size_t{right} * 3u,
                     std::size_t{width - right} * 3u);
     }
-    // A palette effect started after the save (the Psynergy tint, a fade):
-    // move every held margin colour by the change of the palette entry it
-    // was drawn from, so the margins take the same tint as the picture.
-    // Only a whole-palette effect, though: menus load their own colours into
-    // a few banks (Status 0, 1 and 14; Djinn 0, 1, 4-7 and 14), and
-    // following those turned the held margins into noise
-    // (logs/gpu_rewind_0062/0063, 2026-10-01). The Psynergy tint changed
-    // every bank but 15, the windows' own (logs/gpu_frame_0102.bin). The
-    // green Djinn-join tint changes banks 0-13 only, not 14 or 15
-    // (gpu_rewind_0013 of bug_report_20261005_094058), so the check covers
-    // banks 0-13: no menu changes all of those.
-    const auto& pal = capture.pal;
-    if (pal.size() < 512) return;
-    int delta[256][3];
-    std::array<bool, 16> bank_used{}, bank_changed{};
-    for (int i = 0; i < 256; ++i) {
-        const std::uint16_t live =
-            static_cast<std::uint16_t>(pal[i * 2] | (pal[i * 2 + 1] << 8));
-        int a[3], b[3];
-        world_margin_rgb_of(g_world_margin_pal[i], a);
-        world_margin_rgb_of(live, b);
-        for (int k = 0; k < 3; ++k) delta[i][k] = b[k] - a[k];
-        if (g_world_margin_pal[i] != 0u) bank_used[i / 16] = true;
-        if (live != g_world_margin_pal[i]) bank_changed[i / 16] = true;
-    }
-    bool whole_palette = false;
-    for (int bank = 0; bank < 14; ++bank) {
-        if (!bank_used[bank]) continue;
-        if (!bank_changed[bank]) return;  // a menu's colours: keep the margins
-        whole_palette = true;
-    }
-    if (!whole_palette) return;
-    if (g_world_margin_index.empty()) world_margin_index_colours(width, height);
-    for (std::uint32_t y = 0; y < height; ++y) {
-        const bool native_row = y >= y0 && y < y0 + 160u;
-        std::uint8_t* row = rgb + std::size_t{y} * width * 3u;
-        for (std::uint32_t x = 0; x < width; ++x) {
-            if (native_row && x == x0) { x = x0 + 239u; continue; }
-            std::uint8_t* p = row + std::size_t{x} * 3u;
-            const std::uint32_t key = (std::uint32_t{p[0]} << 16) |
-                                      (std::uint32_t{p[1]} << 8) | p[2];
-            const auto it = g_world_margin_index.find(key);
-            if (it == g_world_margin_index.end()) continue;
-            for (int k = 0; k < 3; ++k)
-                p[k] = static_cast<std::uint8_t>(
-                    std::clamp(p[k] + delta[it->second][k], 0, 255));
-        }
-    }
+    g_world_palette_effect.apply(rgb, width, height, g_world_margin_rgb, capture.pal);
 }
 
 void native_page_frame_end(bool at_capture);
@@ -9815,154 +9692,6 @@ void gpu_field_capture_hook() {
     g_gpu_field_capture.valid = true;
 }
 
-// F12: dump the just-drawn GPU field frame (see the F12 history below).
-// F11 and F12 are the only function keys nothing else claims: host_window.cpp
-// binds F2..F10 to the nine save-state slots (plain = load, Shift = save) and
-// F1 is the rebind menu. The dump exists because tools/scene_renderer_check.cpp's
-// recorded corpus holds only one whole-frame register read per snapshot,
-// while the console re-reads registers every scanline; a per-scanline fault
-// can only be told apart from a whole-frame one by capturing what the console
-// itself saw, live, row by row. Deliberately not a launcher checkbox: it is a
-// one-shot action, not a persistent setting. The poll is one key-state call
-// per drawn frame.
-//
-// File layout follows the GSRSNAP1 format (map_recorder.cpp's
-// write_snapshot_bin), with the GSRGPUF1 magic: an 88-byte header (magic,
-// then zero, then section count as u32 at offset 12, frame number as u64 at
-// offset 16, the rest zero), then that many 24-byte directory entries
-// (8-byte name, u64 offset, u64 length), then the section bytes themselves.
-//
-// GetAsyncKeyState is declared here rather than by including <windows.h>:
-// this translation unit is huge, leans on std::min/std::max throughout, and
-// the Win32 headers risk an include-order collision. user32 is already linked
-// (engine/CMakeLists.txt links it PUBLIC).
-#if defined(_WIN32)
-extern "C" short __stdcall GetAsyncKeyState(int virtual_key);
-constexpr int kVirtualKeyDump = 0x7B;  // VK_F12
-bool dump_key_down() {
-    return (GetAsyncKeyState(kVirtualKeyDump) & 0x8000) != 0;
-}
-#else
-// Linux: SDL's keyboard state, declared here for the same reason (SDL2's
-// header is not included in this file). SDL_SCANCODE_F12 is 69.
-extern "C" const unsigned char* SDL_GetKeyboardState(int* numkeys);
-bool dump_key_down() {
-    const unsigned char* keys = SDL_GetKeyboardState(nullptr);
-    return keys && keys[69] != 0;
-}
-#endif
-
-// The GSRGPUF1 bytes of the current capture (layout above), shared by the
-// single F12 dump and the rewind ring below.
-std::string gpu_field_dump_bytes(const GpuFieldCapture& capture) {
-    const gsr::FieldScene& scene = capture.scene;
-    constexpr std::size_t kLineIoBytes = gsr::FieldScene::kLineIoBytes;
-    constexpr int kRows = gsr::FieldScene::kRows;
-
-    // LINEIO: row y's own registers where the console latched one, else the
-    // frame's end-of-frame register file -- substituted here so the replay
-    // tool never has to know the difference (field_scene.h's own contract
-    // for row_io/row_io_valid/io_bytes).
-    std::vector<std::uint8_t> line_io(kLineIoBytes * static_cast<std::size_t>(kRows));
-    for (int y = 0; y < kRows; ++y) {
-        const std::uint8_t* src = scene.row_io_valid[y]
-            ? scene.row_io[y].data() : scene.io_bytes.data();
-        std::memcpy(line_io.data() + static_cast<std::size_t>(y) * kLineIoBytes,
-                   src, kLineIoBytes);
-    }
-
-    // AFFREF: row y's own latched BG2/BG3 reference point where the console
-    // captured one, else the frame-level reference walked by PB/PD the same
-    // way field_scene_renderer.cpp's own per-row affine upload does, so a
-    // row this scene never latched still gets the value the renderer itself
-    // would use for it.
-    std::vector<std::int32_t> affine_refs(static_cast<std::size_t>(kRows) * 4u);
-    for (int y = 0; y < kRows; ++y) {
-        std::int32_t* r = affine_refs.data() + static_cast<std::size_t>(y) * 4u;
-        if (scene.row_affine_valid[y]) {
-            r[0] = scene.row_affine[y][0];
-            r[1] = scene.row_affine[y][1];
-            r[2] = scene.row_affine[y][2];
-            r[3] = scene.row_affine[y][3];
-        } else {
-            for (int k = 0; k < 2; ++k) {
-                const gsr::SceneLayer& layer = scene.layers[2 + k];
-                r[k * 2 + 0] = layer.affine_ref_x + y * layer.affine_pb;
-                r[k * 2 + 1] = layer.affine_ref_y + y * layer.affine_pd;
-            }
-        }
-    }
-
-    struct Section {
-        const char* name;
-        const std::uint8_t* data;
-        std::uint64_t length;
-    };
-    const Section sections[] = {
-        {"SCENE",  reinterpret_cast<const std::uint8_t*>(&scene), sizeof(scene)},
-        {"IO",     capture.io.data(), capture.io.size()},
-        {"OAM",    capture.oam.data(), capture.oam.size()},
-        {"PAL",    capture.pal.data(), capture.pal.size()},
-        {"VRAM",   capture.vram.data(), capture.vram.size()},
-        {"EWRAM",  capture.ewram.data(), capture.ewram.size()},
-        {"IWRAM",  capture.iwram.data(), capture.iwram.size()},
-        {"LINEIO", line_io.data(), line_io.size()},
-        {"AFFREF", reinterpret_cast<const std::uint8_t*>(affine_refs.data()),
-                   affine_refs.size() * sizeof(std::int32_t)},
-        {"FXSTAMP", reinterpret_cast<const std::uint8_t*>(
-                        capture.effects.stamps.data()),
-                    capture.effects.stamps.size() * sizeof(gsr::EffectSpark)},
-        {"FXART", capture.effects.artwork.data(),
-                  capture.effects.artwork.size()},
-    };
-    constexpr std::size_t kSectionCount = sizeof(sections) / sizeof(sections[0]);
-
-    auto put_u32 = [](std::string& out, std::uint32_t v) {
-        for (int i = 0; i < 4; ++i) out.push_back(static_cast<char>((v >> (8 * i)) & 0xFFu));
-    };
-    auto put_u64 = [](std::string& out, std::uint64_t v) {
-        for (int i = 0; i < 8; ++i) out.push_back(static_cast<char>((v >> (8 * i)) & 0xFFu));
-    };
-
-    // Zero-initialized already covers "rest zero", including offset 8-11
-    // (GSRSNAP1's version field, unused here).
-    std::string header(88, '\0');
-    std::memcpy(&header[0], "GSRGPUF1", 8);
-    // offset 12: section count
-    {
-        std::string cnt;
-        put_u32(cnt, static_cast<std::uint32_t>(kSectionCount));
-        std::memcpy(&header[12], cnt.data(), 4);
-    }
-    // offset 16: frame number
-    {
-        std::string frm;
-        put_u64(frm, scene.frame);
-        std::memcpy(&header[16], frm.data(), 8);
-    }
-
-    std::string table;
-    std::string data;
-    std::uint64_t data_off = 88 + kSectionCount * 24u;
-    for (const Section& s : sections) {
-        std::string name_field(8, '\0');
-        std::memcpy(&name_field[0], s.name,
-                   std::min(std::strlen(s.name), std::size_t{8}));
-        table += name_field;
-        put_u64(table, data_off);
-        put_u64(table, s.length);
-        if (s.length) data.append(reinterpret_cast<const char*>(s.data), s.length);
-        data_off += s.length;
-    }
-
-    std::string out;
-    out.reserve(header.size() + table.size() + data.size());
-    out += header;
-    out += table;
-    out += data;
-    return out;
-}
-
 // ---- F12 history (engine frame_history.h, always on) --------------------
 //
 // A one-frame flicker is gone before F12 lands, so every presented frame is
@@ -9971,88 +9700,6 @@ std::string gpu_field_dump_bytes(const GpuFieldCapture& capture) {
 // bytes for tools/scene_renderer_check. F12 writes the last 2 seconds to
 // logs/gpu_rewind_NNNN/.
 gbarecomp::FrameHistory g_history("gpu_rewind_");
-// Guest frame until which "BUG REPORT SAVED" shows (paint_bug_report_notice).
-unsigned long long g_bug_report_notice_until = 0;
-// The notice's text: F12's, or the unpacker guard's.
-const char* g_bug_report_notice_text = "BUG REPORT SAVED";
-
-// `note` (the unpacker guard's findings) goes to auto_capture.txt beside the
-// frames; F12 passes none.
-void frame_rewind_write(const std::string& note = {}) {
-    if (g_history.write(note, "auto_capture.txt").empty()) return;
-    // Three seconds of confirmation for the player (the launcher packs the
-    // folder when the game closes).
-    g_bug_report_notice_until = runtime_current_frame() + 180u;
-    g_bug_report_notice_text = "BUG REPORT SAVED";
-}
-
-// "BUG REPORT SAVED" at the top right, in a small built-in font (the game's
-// menu font is only read once a menu has opened), white on a dark box.
-void paint_bug_report_notice(std::uint8_t* rgb, std::uint32_t width,
-                             std::uint32_t height) {
-    struct Glyph { char c; const char* rows[7]; };
-    static const Glyph kGlyphs[] = {
-        {'A', {".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"}},
-        {'B', {"####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."}},
-        {'C', {".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."}},
-        {'D', {"####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."}},
-        {'E', {"#####", "#....", "#....", "####.", "#....", "#....", "#####"}},
-        {'G', {".###.", "#...#", "#....", "#.###", "#...#", "#...#", ".####"}},
-        {'H', {"#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"}},
-        {'I', {"#####", "..#..", "..#..", "..#..", "..#..", "..#..", "#####"}},
-        {'L', {"#....", "#....", "#....", "#....", "#....", "#....", "#####"}},
-        {'O', {".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."}},
-        {'P', {"####.", "#...#", "#...#", "####.", "#....", "#....", "#...."}},
-        {'R', {"####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"}},
-        {'S', {".####", "#....", "#....", ".###.", "....#", "....#", "####."}},
-        {'T', {"#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."}},
-        {'U', {"#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."}},
-        {'V', {"#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."}},
-    };
-    const char* const kText = g_bug_report_notice_text;
-    const int text_w = static_cast<int>(std::strlen(kText)) * 6 - 1;
-    const int box_w = text_w + 8, box_h = 7 + 8;
-    const int x0 = static_cast<int>(width) - box_w - 4, y0 = 4;
-    auto put = [&](int x, int y, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
-        if (x < 0 || y < 0 || x >= static_cast<int>(width) ||
-            y >= static_cast<int>(height)) return;
-        std::uint8_t* p = rgb + (static_cast<std::size_t>(y) * width + x) * 3u;
-        p[0] = r; p[1] = g; p[2] = b;
-    };
-    for (int y = 0; y < box_h; ++y)
-        for (int x = 0; x < box_w; ++x) {
-            const bool edge = x == 0 || y == 0 || x == box_w - 1 || y == box_h - 1;
-            if (edge) put(x0 + x, y0 + y, 200, 160, 255);
-            else put(x0 + x, y0 + y, 24, 14, 40);
-        }
-    int cx = x0 + 4;
-    for (const char* s = kText; *s; ++s, cx += 6) {
-        for (const Glyph& g : kGlyphs) {
-            if (g.c != *s) continue;
-            for (int ry = 0; ry < 7; ++ry)
-                for (int rx = 0; rx < 5; ++rx)
-                    if (g.rows[ry][rx] == '#') put(cx + rx, y0 + 4 + ry, 255, 255, 255);
-        }
-    }
-}
-
-// Called with the final picture of every presented frame.
-void frame_rewind_record(const std::uint8_t* rgb, std::uint32_t width,
-                         std::uint32_t height, gbarecomp::HistoryFrame frame) {
-    g_history.record(rgb, width, height, std::move(frame));
-    std::string unpacker_note;
-    if (gsr::unpacker_guard_capture_due(&unpacker_note)) {
-        frame_rewind_write(unpacker_note);
-        g_bug_report_notice_text = "CRASH CAUGHT REPORT SAVED";
-    }
-
-    static bool was_down = false;
-    const bool down = dump_key_down();
-    const bool pressed = down && !was_down;
-    was_down = down;
-    if (pressed) frame_rewind_write();
-}
-
 
 // Paint the whole frame flat magenta -- a colour Golden Sun's palettes do
 // not produce, so it can never be mistaken for a drawing fault. Returns true
@@ -10087,7 +9734,7 @@ bool gpu_field_paint_refused(std::uint8_t* rgb, std::uint32_t width,
 extern std::atomic<int> g_field_psynergy_fast;
 
 bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
-                            const GpuFieldCapture& capture,
+                            const gsr::GpuFieldCapture& capture,
                             std::uint32_t width, std::uint32_t height) {
     if (!renderer.set_output_size(static_cast<int>(width),
                                   static_cast<int>(height))) return false;
@@ -10313,7 +9960,7 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
                           delivered->capture, delivered->world_source_ok);
     frame = std::move(delivered->frame);
     frame.gpu_drawn = true;
-    frame.scene = gpu_field_dump_bytes(delivered->capture);
+    frame.scene = gsr::gpu_field_dump_bytes(delivered->capture);
     frame.scene_frame = delivered->capture.scene.frame;
 
     return true;
@@ -11506,6 +11153,7 @@ const gbarecomp::GameOptionSwitch kGameSwitches[] = {
 constexpr int kPlayerGameSwitchCount = 5;
 
 std::uint16_t cheat_menu_keyinput_filter(std::uint16_t keyinput) {
+    keyinput = gsr::retreat_travel::keyinput(keyinput);
     using gsr::settings_page::kKeyA;
     using gsr::settings_page::kKeyB;
     using gsr::settings_page::kKeyDown;
@@ -11746,7 +11394,7 @@ bool battle_spell_position_pending(const gba::GbaPpu& ppu) {
     return false;
 }
 
-// ---- Enemy HP bar (src/enemy_hp_bar.h) --------------------------------------
+// ---- Enemy HP bar (shared_game/enemy_hp_bar.h) ------------------------------
 // The drawn name's width in the menu font, from its u16 text.
 int enemy_hp_bar_name_width(std::uint32_t name) {
     load_menu_font();
@@ -11829,7 +11477,7 @@ bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
     // settings therefore form explicit synchronous boundaries.
     bool drawn = gpu_field_present_override(rgb, width, height, frame, settings || held);
     if (frame.scene.empty() && g_gpu_field_capture.valid) {
-        frame.scene = gpu_field_dump_bytes(g_gpu_field_capture);
+        frame.scene = gsr::gpu_field_dump_bytes(g_gpu_field_capture);
         frame.scene_frame = g_gpu_field_capture.scene.frame;
     }
     if (held) {
@@ -11844,7 +11492,11 @@ bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
     else g_settings_help.reset();
     const bool battle = frame.battle_2x;
     if (battle) paint_battle_speed_indicator(rgb, width, height);
-    frame_rewind_record(rgb, width, height, std::move(frame));
+    g_history.record(rgb, width, height, std::move(frame));
+    std::string unpacker_note;
+    const auto report_notice = g_history.update_report(
+        gsr::unpacker_guard_capture_due(&unpacker_note) ? &unpacker_note : nullptr,
+        "auto_capture.txt");
     // After the recording, so the HP bar, the Custom Battle panel and the
     // notice are not in the saved frames.
     gsr::enemy_hp_bar::Bar enemy_bar;
@@ -11852,12 +11504,24 @@ bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
     if (hp_bar) paint_enemy_hp_bar(rgb, width, height, enemy_bar);
     const auto panel = gsr::custom_battle::panel_view();
     if (panel.open) paint_custom_battle_panel(rgb, width, height, panel);
-    const bool notice = runtime_current_frame() <= g_bug_report_notice_until;
-    if (notice) paint_bug_report_notice(rgb, width, height);
+    const bool travel = gsr::retreat_travel::showing;
+    if (travel) {
+        namespace rt = gsr::retreat_travel;
+        menu_window_paint(rgb, width, height, rt::kTileX, rt::kTileY, rt::kTiles, rt::kRows,
+            [](auto& draw, auto& text_width, int x, int y, auto&) {
+                gsr::retreat_travel::paint(draw, text_width, x, y);
+            });
+    }
+    using ReportNotice = gbarecomp::FrameHistory::ReportNotice;
+    const bool notice = report_notice != ReportNotice::None;
+    if (notice) {
+        gsr::paint_bug_report_notice(rgb, width, height, report_notice == ReportNotice::Automatic
+            ? "CRASH CAUGHT REPORT SAVED" : "BUG REPORT SAVED");
+    }
     // The new-game questions, over the running game.
     const bool question = g_hard_prompt_open;
     if (question) cheat_menu_paint(rgb, width, height);
-    return drawn || settings || battle || hp_bar || panel.open || notice || question;
+    return drawn || settings || battle || hp_bar || panel.open || travel || notice || question;
 }
 
 // Instant text is the settings screen's fourth Message-speed choice.
@@ -12671,6 +12335,7 @@ int golden_sun_conditional_branch(std::uint32_t pc, std::uint32_t original,
 int golden_sun_write_override(std::uint32_t pc, std::uint32_t addr,
                               std::uint32_t requested, std::uint32_t width,
                               std::uint32_t* out_value) {
+    gsr::intro_music::choices.header_write(pc, addr, requested, width);
     gsr::intro_music::music.header_write(pc, addr, requested, width);
     if (const int r = cheat_reward_write(pc, addr, requested, width, out_value);
         r >= 0) {
@@ -14136,7 +13801,7 @@ void sample_known_active_relocatable_placements() {
 }
 
 // Which branch of verified_ram_dispatch answered, for the unpacker guard's
-// journal (src/unpacker_guard.h).
+// journal (shared_game/unpacker_guard.h).
 gsr::RamResolvePath g_ram_resolve_path = gsr::RamResolvePath::None;
 
 struct RelocatableOpcodeCandidate {
@@ -14444,6 +14109,9 @@ void hard_mode_settings_teardown() {
 }
 
 void golden_sun_function_entry_observer(std::uint32_t entry_pc) {
+    if (gsr::retreat_travel::tbs::on_entry(entry_pc)) return;
+    gsr::field_character::on_entry(entry_pc);
+    gsr::intro_music::choices.on_entry(entry_pc);
     gsr::intro_music::music.on_entry(entry_pc);
     gsr::custom_battle::tbs::on_entry(entry_pc);
     if (entry_pc == gsr::text_speed_cheat::kLineStartPc &&
@@ -15790,6 +15458,17 @@ int main(int argc, char** argv) {
     // build is the comparison run.
     options.no_bios_by_default = true;
     options.function_entry_observer = golden_sun_function_entry_observer;
+    {
+        namespace field = gsr::field_character;
+        static constexpr unsigned alternate_bodies[] = {18};  // Young Isaac.
+        static const field::Game walking_character{
+            GS_ROM(0x0800AA0Cu), GS_ROM(0x08185024u), kGoldenSunActorContextPtr,
+            0x02000438u, 0x24u, 0x25u, field::kNoAction,
+            field::kBrokenSealHeroes, alternate_bodies,
+        };
+        field::install(walking_character);
+        gbarecomp::config_ui_set_game_page(field::draw);
+    }
     gsr::map_recorder_init();
     // Independent of the map recorder: its own env flag, its own session
     // directory, no shared state. See obj_recorder.h.
@@ -15799,18 +15478,23 @@ int main(int argc, char** argv) {
     gsr::room_buffer_init();
     gsr::trackers::install(gsr::djinn_tracker::tbs::kGame, gsr::treasure_tracker::tbs::kGame,
                            gsr::trackers::tbs::kText);
+    gsr::retreat_travel::tbs::install(
+        [] { return g_field_psynergy_fast.load() != 0; }, load_menu_font);
+    gsr::intro_music::choices.install();
     // gbarecomp keeps one savestate-load hook.
     gbarecomp::set_savestate_load_hook([] {
+        gsr::retreat_travel::reset();
         gsr::custom_battle::tbs::reset();
         g_hard_prompt_open = false;
         g_question_hold = QuestionHold::Off;
+        gsr::intro_music::choices.on_load();
         gsr::intro_music::music.update(true);
         g_gpu_readback.invalidate();
         g_history.clear();
         g_world_settled_capture = {};
         g_world_margin_rgb.clear();
         g_world_margin_w = g_world_margin_h = 0;
-        g_world_margin_index.clear();
+        g_world_palette_effect.reset_indices();
         g_gpu_field_capture.valid = false;
         g_settings_open.store(false);
         g_settings_screen_text = false;

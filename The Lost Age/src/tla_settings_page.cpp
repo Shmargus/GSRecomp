@@ -1,5 +1,5 @@
 // Golden Sun: The Lost Age -- settings page two. Shared wording is in
-// The Broken Seal/src/settings_page_labels.h.
+// shared_game/settings_page_labels.h.
 //
 // Golden Sun 1's second settings page, re-found on this ROM (FACTS.md,
 // 2026-10-04). Down on Auto-Sleep (the last row) opens it; the game moves
@@ -41,8 +41,8 @@
 // 0x1146 + row) is suppressed by src/tla_text.cpp; the presentation painter
 // below supplies its shaded description, clipped and scrolled as needed.
 
-#include "../../The Broken Seal/src/settings_page_labels.h"
-#include "../../The Broken Seal/src/settings_help.h"
+#include "../../shared_game/settings_page_labels.h"
+#include "../../shared_game/settings_help.h"
 #include "tla_rom_version.h"
 #include <algorithm>
 #include <array>

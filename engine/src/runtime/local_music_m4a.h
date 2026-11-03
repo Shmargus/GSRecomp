@@ -31,6 +31,7 @@ struct GainSite {
 struct Recording {
     std::uint32_t header;  // the song's m4a header in the ROM
     unsigned track;
+    const char* title = nullptr;
 };
 
 struct Player {
@@ -51,6 +52,14 @@ public:
 
     // Music mod on (launcher cog, its first-run question or F1 > Audio).
     static bool enabled() { return game_option_get(kOptionMusicMod, 0) != 0; }
+
+    // An enhancement may keep the requested header for the game's continue
+    // checks while initialising another song's native tracks. Follow the song
+    // actually playing, including missing-recording fallback to those tracks.
+    void set_playback_header(std::uint32_t source, std::uint32_t selected) {
+        source_header_ = source;
+        selected_header_ = selected;
+    }
 
     // Function-entry observer: the player's main routine runs once a frame.
     void on_entry(std::uint32_t pc) {
@@ -123,6 +132,7 @@ private:
 
     // The album track for a song, 0 (keep the game's music) when none.
     unsigned recording_for(std::uint32_t header) const {
+        if (header == source_header_ && selected_header_) header = selected_header_;
         for (std::size_t i = 0; i < song_count_; ++i)
             if (songs_[i].header == header) return songs_[i].track;
         return 0;
@@ -158,6 +168,7 @@ private:
     const Recording* songs_;
     std::size_t song_count_;
     bool active_ = false;
+    std::uint32_t source_header_ = 0, selected_header_ = 0;
 };
 
 }  // namespace gbarecomp::m4a_music

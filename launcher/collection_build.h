@@ -1,5 +1,7 @@
 #pragma once
 #include "collection_session.h"
+#include "launcher_common.h"
+#include "build_resources.h"
 #include <atomic>
 #include <cstdio>
 #include <fstream>
@@ -17,6 +19,7 @@
 #include <csignal>
 #include <fcntl.h>
 #include <sys/file.h>
+#include <sys/prctl.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
@@ -56,8 +59,9 @@ class CollectionBuild {
         state_.succeeded = success && !cancelled_;
         state_.error = cancelled_ ? "Build cancelled." : std::move(error);
     }
-    void run(fs::path collection, fs::path executable, fs::path directory,
-             fs::path rom, int choice, bool player) {
+    void run(fs::path collection, fs::path executable, fs::path root,
+             fs::path rom, int choice, bool player, bool reduced) {
+        const fs::path directory = player ? executable.parent_path() : collection;
         std::ofstream log;
         bool done = false;
         std::string reported, pending;
@@ -94,6 +98,38 @@ class CollectionBuild {
                 }
             }
         };
+        auto complete = [&](bool exited_ok) {
+            // A final protocol line may arrive without its terminating newline.
+            if (!pending.empty() && !discarding) line(pending);
+            if (!exited_ok || (player && !done)) {
+#ifndef _WIN32
+                if (reported.empty() && reduced)
+                    reported = "The limited build failed. It needs systemd 254+ with user CPU and memory controls. See local/collection-build.log.";
+#endif
+                finish(false, reported.empty() ? "The build failed. See local/collection-build.log." : std::move(reported));
+                return;
+            }
+            if (player && !cancelled_) {
+                try {
+                    const auto& game = gsr_launcher::kGames[choice];
+                    std::string record_error;
+                    if (!gsr_launcher::finish_player_build_record(root, game, rom, &record_error)) {
+                        finish(false, std::move(record_error));
+                        return;
+                    }
+                    const auto fingerprint = gsr_launcher::release_fingerprint(root, game);
+                    if (!gba::replace_file(root / game.release_stamp, fingerprint.data(),
+                                           fingerprint.size(), &record_error)) {
+                        finish(false, std::move(record_error));
+                        return;
+                    }
+                } catch (const std::exception& e) {
+                    finish(false, e.what());
+                    return;
+                }
+            }
+            finish(true, {});
+        };
 #ifdef _WIN32
         HANDLE serial = nullptr;
         if (player) {
@@ -119,11 +155,15 @@ class CollectionBuild {
             release(); finish(false, "Could not create the build output pipe."); return;
         }
         std::wstring cmd = quote(executable.wstring());
-        if (player) cmd += L" --rom " + quote(rom.wstring());
+        if (player) {
+            cmd += L" --rom " + quote(rom.wstring());
+            if (reduced) cmd += L" --low-resources";
+        }
         else cmd += L" -NoProfile -ExecutionPolicy Bypass -File " +
             quote((collection / "scripts" / "build_dev.ps1").wstring()) +
             L" -Game " + (choice == 0 ? std::wstring(L"BrokenSeal") : std::wstring(L"LostAge")) +
             L" -LauncherProcessId " + std::to_wstring(GetCurrentProcessId()) + L" -SkipLauncher";
+        if (!player && reduced) cmd += L" -CpuPercent 50 -RamPercent 50 -CpuCapInherited";
         STARTUPINFOW startup{}; startup.cb = sizeof(startup);
         startup.dwFlags = STARTF_USESTDHANDLES;
         startup.hStdInput = input; startup.hStdOutput = startup.hStdError = writer;
@@ -131,7 +171,22 @@ class CollectionBuild {
         HANDLE job = CreateJobObjectW(nullptr, nullptr);
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        bool started = job && SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits)) &&
+        if (reduced) {
+            const auto resources = build_resources();
+            if (!resources.ram || !resources.cpus) {
+                if (job) CloseHandle(job);
+                CloseHandle(reader); CloseHandle(writer); CloseHandle(input); release();
+                finish(false, "Could not read CPU and RAM limits. The build was not started."); return;
+            }
+            limits.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_JOB_MEMORY;
+            limits.JobMemoryLimit = SIZE_T(resources.ram / 2);
+        }
+        JOBOBJECT_CPU_RATE_CONTROL_INFORMATION cpu{};
+        cpu.ControlFlags = JOB_OBJECT_CPU_RATE_CONTROL_ENABLE | JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP;
+        cpu.CpuRate = 50 * 100;
+        const bool configured = job && SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits)) &&
+            (!reduced || SetInformationJobObject(job, JobObjectCpuRateControlInformation, &cpu, sizeof(cpu)));
+        bool started = configured &&
             CreateProcessW(executable.c_str(), cmd.data(), nullptr, nullptr, TRUE,
                 CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr, directory.c_str(), &startup, &process);
         CloseHandle(writer); CloseHandle(input);
@@ -139,7 +194,7 @@ class CollectionBuild {
             if (process.hProcess) { TerminateProcess(process.hProcess, 1); WaitForSingleObject(process.hProcess, INFINITE); CloseHandle(process.hProcess); CloseHandle(process.hThread); }
             if (job) CloseHandle(job);
             CloseHandle(reader); release();
-            finish(false, "Windows could not start or contain the build process."); return;
+            finish(false, "Windows could not start the build with its required limits."); return;
         }
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -153,10 +208,9 @@ class CollectionBuild {
         CloseHandle(reader); WaitForSingleObject(process.hProcess, INFINITE);
         DWORD code = 1; GetExitCodeProcess(process.hProcess, &code); CloseHandle(process.hProcess);
         { std::lock_guard<std::mutex> lock(mutex_); job_ = nullptr; CloseHandle(job); }
+        complete(code == 0);
         release();
-        bool ok = code == 0 && (!player || done);
 #else
-        (void)choice; (void)player;
         int serial = open((collection / "local" / "collection-build.lock").c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
         if (serial < 0 || flock(serial, LOCK_EX | LOCK_NB) != 0) {
             if (serial >= 0) close(serial);
@@ -171,11 +225,26 @@ class CollectionBuild {
             finish(false, "Could not secure the build output pipe."); return;
         }
         const std::string program = executable.string(), cwd = directory.string(), romarg = rom.string();
+        const auto resources = reduced ? build_resources() : BuildResources{};
+        if (reduced && (!resources.ram || !resources.cpus)) {
+            close(pipefd[0]); close(pipefd[1]); close(serial);
+            finish(false, "Could not read CPU and RAM limits. The build was not started."); return;
+        }
+        const std::string quota = "CPUQuota=" + std::to_string(std::uint64_t(resources.cpus) * 50) + "%";
+        const std::string memory = "MemoryMax=" + std::to_string(resources.ram / 2);
+        const pid_t parent = getpid();
         pid_t child = fork();
         if (child == 0) {
+            if (prctl(PR_SET_PDEATHSIG, SIGTERM) != 0 || getppid() != parent) _exit(127);
             setpgid(0, 0); close(pipefd[0]);
             dup2(pipefd[1], STDOUT_FILENO); dup2(pipefd[1], STDERR_FILENO); close(pipefd[1]);
-            if (chdir(cwd.c_str()) == 0) execl(program.c_str(), program.c_str(), "--rom", romarg.c_str(), static_cast<char*>(nullptr));
+            if (chdir(cwd.c_str()) == 0) {
+                if (reduced) execlp("systemd-run", "systemd-run", "--user", "--scope", "--quiet", "--collect",
+                    "--no-ask-password", "--expand-environment=no", "--property", quota.c_str(),
+                    "--property", memory.c_str(), "--", program.c_str(), "--rom", romarg.c_str(),
+                    "--low-resources", static_cast<char*>(nullptr));
+                else execl(program.c_str(), program.c_str(), "--rom", romarg.c_str(), static_cast<char*>(nullptr));
+            }
             _exit(127);
         }
         close(pipefd[1]);
@@ -190,24 +259,26 @@ class CollectionBuild {
         close(pipefd[0]); int status = 0; pid_t waited;
         do { waited = waitpid(child, &status, 0); } while (waited < 0 && errno == EINTR);
         { std::lock_guard<std::mutex> lock(mutex_); pid_ = 0; kill(-child, SIGKILL); }
+        complete(waited == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
         close(serial);
-        bool ok = waited == child && WIFEXITED(status) && WEXITSTATUS(status) == 0 && done;
 #endif
-        if (!pending.empty() && !discarding) line(pending);
-        // A final protocol line may arrive without its terminating newline.
-#ifdef _WIN32
-        ok = code == 0 && (!player || done);
-#else
-        ok = waited == child && WIFEXITED(status) && WEXITSTATUS(status) == 0 && done;
-#endif
-        finish(ok, ok ? std::string() : (reported.empty() ? "The build failed. See local/collection-build.log." : reported));
     }
 public:
     CollectionBuild() = default;
     CollectionBuild(const CollectionBuild&) = delete;
     CollectionBuild& operator=(const CollectionBuild&) = delete;
-    ~CollectionBuild() { cancel(); if (worker_.joinable()) worker_.join(); }
+    ~CollectionBuild() { stop(); }
     BuildSnapshot snapshot() { std::lock_guard<std::mutex> lock(mutex_); return state_; }
+    BuildSnapshot poll() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto state = state_;
+        state_.finished = false;
+        return state;
+    }
+    void stop() {
+        cancel();
+        if (worker_.joinable()) worker_.join();
+    }
     void cancel() {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!state_.running) return;
@@ -218,7 +289,7 @@ public:
         if (pid_) kill(-pid_, SIGKILL);
 #endif
     }
-    bool start(const fs::path& collection, int choice, const fs::path& rom, std::string& error) {
+    bool start(const fs::path& collection, int choice, const fs::path& rom, std::string& error, bool reduced = false) {
         error.clear();
         if (snapshot().running) { error = "A build is already running."; return false; }
         if (worker_.joinable()) worker_.join();
@@ -243,8 +314,8 @@ public:
             if (player && !fs::is_regular_file(rom, ec)) { error = "Choose a valid game ROM."; return false; }
             fs::create_directories(collection / "local");
             { std::lock_guard<std::mutex> lock(mutex_); state_ = {}; state_.running = true; state_.stage = player ? "Starting build" : "Building game"; cancelled_ = false; }
-            worker_ = std::thread([this, collection, executable, root, rom, choice, player] {
-                try { run(collection, executable, player ? executable.parent_path() : collection, rom, choice, player); }
+            worker_ = std::thread([this, collection, executable, root, rom, choice, player, reduced] {
+                try { run(collection, executable, root, rom, choice, player, reduced); }
                 catch (const std::exception& e) { finish(false, e.what()); }
             });
             return true;

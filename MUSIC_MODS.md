@@ -15,6 +15,49 @@ the loop points. Everything below was worked out on his recordings.
   `loops.txt`, ready to unzip next to the launcher).
 * The original albums: [Juste-D's Google Drive](https://drive.google.com/drive/folders/1Q2MWzb_uSvXp0Z3vWthvErnzM3xyL6Em).
 
+## Choosing music by area
+
+Both games have **F1 → Music**. Enable **area music choices** to use your
+saved selections. The page lists every named area, including World Map,
+followed by the battle themes and victory/defeat music. Search narrows the
+list. Every row has a track dropdown and its own **Reset** button.
+While search is focused, typing takes priority over game/menu shortcuts;
+Escape leaves the editor before closing the menu.
+
+Area dropdowns start on **Default (game music)**: the game keeps choosing
+its normal themes as the story and location change. Pick another track to
+use it throughout that area. Battle rows start on their original tracks;
+their choices apply wherever that battle theme plays. Area choices leave
+battle music separate. Changes apply once any fade, pause or jingle duck
+has finished; stopped music waits for the game to start it again.
+
+This works with the original soundtrack and with **Enable Music Mod**
+(F1 → Audio). With the mod on, the chosen track's recording plays if
+available; otherwise its original music plays. Each track keeps its own
+loop or play-once behaviour.
+
+**Randomize all** at the top shuffles every original theme to a different
+track, including story music, and enables the saved choices. Each original
+has its own replacement, so the music can still change during a scene.
+The shuffle is saved; restarting the game keeps it. **Reset all**, beside
+it, restores every music choice without changing other settings or the
+Music Mod switch.
+
+The dice button on each row rerolls only that entry. For an area, it
+shuffles that area's original themes separately; its dropdown then says
+**Randomized**. Battle and earlier track-specific rows choose another
+track, excluding their original and current choices. You can always select
+a specific track from the dropdown instead, or use the row's **Reset**.
+
+Choices are saved separately for each game. **Reset** restores just that
+row's default. Turning **Enable area music choices** off retains your
+selections for later; the launcher has the same switch.
+
+Earlier track-specific swaps remain visible as extra rows beneath their
+area, with individual Reset buttons. Choosing or resetting the main area
+row replaces that area's earlier rules; other areas and battle rows stay
+unchanged.
+
 ## Using a music mod
 
 1. Next to `GoldenSunLauncher.exe`, make a folder `Music` with a folder

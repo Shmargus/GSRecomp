@@ -14,31 +14,11 @@
 #include "frame_history.h"
 #include "runtime_bus_bridge.h"
 #include "tla.h"
-#include "../../The Broken Seal/src/unpacker_guard.h"
-
-#if defined(_WIN32)
-extern "C" short __stdcall GetAsyncKeyState(int virtual_key);
-#elif defined(GBARECOMP_HAVE_SDL2)
-#include <SDL.h>
-#endif
+#include "../../shared_game/unpacker_guard.h"
 
 namespace {
 
-constexpr unsigned long long kNoticeFrames = 180;
-
 gbarecomp::FrameHistory g_history("tla_rewind_");
-bool g_key_was_down = false;
-unsigned long long g_notice_until = 0;
-
-bool f12_down() {
-#if defined(_WIN32)
-    return (GetAsyncKeyState(0x7B) & 0x8000) != 0;  // VK_F12
-#elif defined(GBARECOMP_HAVE_SDL2)
-    return SDL_GetKeyboardFocus() && SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_F12];
-#else
-    return false;
-#endif
-}
 
 bool present(uint8_t* rgb, uint32_t width, uint32_t height) {
     // A backwards guest clock (a state load) starts a new history in
@@ -46,7 +26,6 @@ bool present(uint8_t* rgb, uint32_t width, uint32_t height) {
     // setup hold below.
     const bool have_last = g_history.count() &&
         runtime_current_frame() >= g_history.back(0).guest_frame;
-    if (!have_last) g_notice_until = 0;
     auto frame = gbarecomp::FrameHistory::capture();
     frame.battle_2x = tla_battle_speed_active();
     try {
@@ -80,21 +59,14 @@ bool present(uint8_t* rgb, uint32_t width, uint32_t height) {
     drawn = tla_gs_save_import_paint(rgb, width, height) || drawn;
     drawn = tla_enemy_hp_bar_paint(rgb, width, height) || drawn;
     drawn = tla_custom_battle_paint(rgb, width, height) || drawn;
+    drawn = tla_retreat_travel_paint(rgb, width, height) || drawn;
     g_history.record(rgb, width, height, std::move(frame));
 
-    // The unpacker safety net saves these frames 30 frames after a catch.
     std::string unpacker_note;
-    if (gsr::unpacker_guard_capture_due(&unpacker_note) &&
-        !g_history.write(unpacker_note).empty())
-        g_notice_until = runtime_current_frame() + kNoticeFrames;
-
-    const bool down = f12_down();
-    if (down && !g_key_was_down && !g_history.write().empty())
-        g_notice_until = runtime_current_frame() + kNoticeFrames;
-    g_key_was_down = down;
-
+    const auto notice = g_history.update_report(
+        gsr::unpacker_guard_capture_due(&unpacker_note) ? &unpacker_note : nullptr);
     // After recording, so the notice is not in the saved frames.
-    if (runtime_current_frame() <= g_notice_until) {
+    if (notice != gbarecomp::FrameHistory::ReportNotice::None) {
         tla_paint_text(rgb, width, height, static_cast<int>(width) / 2 - 9 * 6 / 2,
                        4, "F12 SAVED");
         drawn = true;
@@ -143,7 +115,6 @@ void tla_paint_text(uint8_t* rgb, uint32_t width, uint32_t height, int x0,
 
 void tla_rewind_reset() {
     g_history.clear();
-    g_notice_until = 0;
 }
 
 void tla_install_rewind() {

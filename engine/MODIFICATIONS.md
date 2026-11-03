@@ -14,6 +14,13 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
 
 ## What this copy changes
 
+- **David's OG GBA Colours preset (2 November 2026).** Shared F1 colour
+  choice, persisted as `david_og_gba`, reproduces Jimmy's settings photo:
+  58% saturation, -19 hue, 75% brightness, 20% warmth, 10% darkening. Uses
+  the existing Custom colour-mix/hue calculation with fixed values;
+  existing Custom sliders and enum values are preserved. Both games
+  rebuild their runtime; no runtime_arm.h change or regeneration.
+
 ### Recompiler and generated code
 
 - **Interpreter handoffs through import veneers.** An interpreted call can
@@ -283,6 +290,15 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
 
 ### Audio and music mods
 
+- **Area soundtrack integration (2 November 2026).** The host exposes an
+  optional game-owned F1 Music page (hidden unless registered), and a shared
+  `AreaMusic` enable key. Integer options support batch edits and prefix resets under
+  one lock and one atomic file replacement (including whole-music shuffles). Recording metadata accepts a display title; m4a replacement
+  accepts a requested-header/playing-header pair, so game-owned native song
+  substitutions select the matching recording and fall back to those native
+  tracks when it is missing. All area identity, native driver redirection
+  and per-game addresses live in the games' source, not the engine.
+
 - The primary music folder may override a borrowed recording's qualified
   loop ID in its loops.txt. Its entry wins over the fallback folder's own
   entry. This lets a game repeat a shared recording which the other game
@@ -320,6 +336,14 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
   that run.
 
 ### Host window, input, hotkeys and menus
+
+- **Text editing takes input priority (2 November 2026).** A shared active-
+  editor predicate combines ImGui's requested text capture with its immediate
+  active InputText state. Menu/Cheats overrides, held Turbo, global paging/
+  close and game-owned text editors use it; both games' raw F12 polls consult
+  the same predicate. Captured gameplay keys are tracked until release so
+  leaving an editor cannot leak a held key. Normal shortcuts and binding
+  capture remain available outside text editing; no-ImGui stub returns false.
 
 - **Pace before the visible present.** `runtime.cpp` waits for a 1x frame's
   pacing deadline immediately before the frame is shown (`pay_present_pace`

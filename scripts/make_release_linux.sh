@@ -246,15 +246,7 @@ for language in es it fr de; do
     done
     cp "$localized"/overlays/*.toml "$localized_data/overlays/"
 done
-cp "$engine/src/armv4t/runtime_arm.h" "$engine/src/armv4t/runtime_arm_types.h" \
-    "$builder/engine/include/"
-
-# Self-heal: the overlay shim headers the engine's runtime compile includes.
-mkdir -p "$out/overlay_toolchain/include"
-for h in src/runtime/overlay_runtime_arm.h src/runtime/overlay_abi.h src/armv4t/runtime_arm_types.h; do
-    [ -f "$engine/$h" ] || { echo "Overlay header missing: $h" >&2; exit 1; }
-    cp "$engine/$h" "$out/overlay_toolchain/include/"
-done
+python3 "$collection_root/scripts/stage_release_headers.py" "$engine" "$out"
 
 # ---- 3. Trimmed GCC ----------------------------------------------------------
 # This machine's GCC, relocated: GCC finds its programs, its own headers and
@@ -430,11 +422,7 @@ for language in es it fr de; do
     cp "$tla_repo/config/$language/main.toml" "$tla_builder/data/$language/"
     cp "$tla_repo"/config/"$language"/reloc/*.toml "$tla_builder/data/$language/reloc/"
 done
-cp "$engine/src/armv4t/runtime_arm.h" "$engine/src/armv4t/runtime_arm_types.h" "$tla_builder/engine/include/"
-mkdir -p "$tla_out/overlay_toolchain/include"
-for h in src/runtime/overlay_runtime_arm.h src/runtime/overlay_abi.h src/armv4t/runtime_arm_types.h; do
-    cp "$engine/$h" "$tla_out/overlay_toolchain/include/"
-done
+python3 "$collection_root/scripts/stage_release_headers.py" "$engine" "$tla_out"
 cp -r "$tc" "$tla_builder/"
 cp "$out/THIRD_PARTY_NOTICES.txt" "$collection/"
 mkdir -p "$collection/licenses"

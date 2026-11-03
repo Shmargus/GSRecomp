@@ -4,12 +4,12 @@
 #include <map>
 #include <vector>
 
-#include "battle_sprite_memory.h"
-#include "custom_battle.h"
+#include "../../shared_game/battle_sprite_memory.h"
+#include "../../shared_game/custom_battle.h"
 #include "settings_page.h"
 #include "gba_bus.h"
 #include "game_options.h"
-#include "gs_text_encode.h"
+#include "../../shared_game/gs_text_encode.h"
 #include "runtime.h"
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
@@ -254,6 +254,11 @@ const Game kGame = {
     .party_ids = 0x02000438u,
     .battle_context_ptr = gs::ram(0x03001E74u),
     .byte_flag_pc = gs::rom(0x080770E0u),
+    // The room backdrop asset is cached at context +0x648 (080B6498),
+    // then passed to the graphics loader at 080B6680.
+    .arena_table = gs::rom(0x0809E270u),
+    .arena_offset = 0x648u,
+    .arena_variant = 0,
     .formations = gs::rom(0x080C5C38u),
     .formation_count = kFormationCount,
     .formation_row = 16u,

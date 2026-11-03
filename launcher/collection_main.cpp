@@ -26,7 +26,7 @@
 #include "../engine/src/runtime/cartridge_art.h"
 #include "../engine/src/runtime/handover.h"
 #include "../engine/src/runtime/seamless.h"
-#include "../The Broken Seal/src/custom_battle_option.h"
+#include "../shared_game/custom_battle_option.h"
 #include "../engine/src/runtime/soft_reset.h"
 
 #include <algorithm>
@@ -260,16 +260,6 @@ bool game_built(const fs::path& root, int choice, std::stop_token stop = {}) {
         return gsr_launcher::game_code_ready(root, gsr_launcher::kGames[choice],
                                              gsr_session::load_launcher_audio_settings(root).any_rom);
     return gsr_collection::developer_build_ready(root, choice, gsr_session::engine(root, choice), stop);
-}
-
-// A finished packaged build: record which release it was built for, so
-// game_built accepts it.
-void stamp_packaged_build(const fs::path& root, int choice) {
-    std::error_code ec;
-    if (!fs::is_directory(root / "builder", ec) && root.parent_path().filename() != "games") return;
-    const auto& game = gsr_launcher::kGames[choice];
-    std::ofstream(root / game.release_stamp, std::ios::binary | std::ios::trunc)
-        << gsr_launcher::release_fingerprint(root, game);
 }
 
 // Hashing the generated game code can take seconds on a cold disk. Keep the
@@ -734,6 +724,8 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
     int building_choice = -1;
     int building_language = -1;
     int build_choice = -1;
+    int confirm_build = -1;
+    bool request_build_dialog = false, offer_both_builds = false, reduced_build = false;
     bool play_after_build = false;
     // When both games need building, the player may build the other one
     // too: it is built straight after, then play_game starts.
@@ -751,13 +743,15 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
     const auto options_file = [&](int game) {
         return gsr_session::engine(gsr_session::game_root(root, game), game).parent_path() / "game_options.ini";
     };
-    std::array<bool, 2> music_found{}, music_on{}, music_ask{};
+    std::array<bool, 2> music_found{}, music_on{}, music_ask{}, area_music_on{};
     const auto refresh_music = [&] {
         for (int game = 0; game < 2; ++game) {
             music_found[game] = gsr_collection::music_mod_available(root, game);
             const auto choice = gsr_collection::music_mod_choice(options_file(game));
             music_on[game] = music_found[game] && choice.value_or(false);
             music_ask[game] = music_found[game] && !choice;
+            area_music_on[game] = gsr_collection::music_mod_choice(
+                options_file(game), gbarecomp::kOptionAreaMusic).value_or(false);
         }
     };
     if (preview.empty()) refresh_music();
@@ -794,6 +788,25 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
     float window_opacity = 1;
     bool alive = true, hidden = false;
     std::string error;
+    const auto fullscreen_file = root / "local" / "launcher-fullscreen.txt";
+    const auto launcher_fullscreen = [&] {
+        return (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
+    };
+    const auto set_launcher_fullscreen = [&](bool on) {
+        if (SDL_SetWindowFullscreen(window, on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0) != 0) {
+            error = std::string("Could not change launcher fullscreen: ") + SDL_GetError();
+            return false;
+        }
+        return true;
+    };
+    const auto remember_launcher_fullscreen = [&](bool on) {
+        if (!set_launcher_fullscreen(on) || !preview.empty()) return;
+        const std::string value = on ? "1\n" : "0\n";
+        if (!gba::replace_file(fullscreen_file, value.data(), value.size(), nullptr))
+            error = "Could not save the launcher fullscreen setting.";
+    };
+    if (preview.empty() && gsr_launcher::read_text(fullscreen_file) == "1\n")
+        set_launcher_fullscreen(true);
     Box cartridge_boxes[2]{};
     // The Broken Seal's language flags (make_flag); clicking one picks it.
     int rom_language[2] = {preview.empty() ? gsr_collection::rom_language(root,0) : 0,
@@ -811,7 +824,6 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
         if (building_choice >= 0 && build.finished) {
             const int choice = building_choice;
             if (!checking_build_result) {
-                if (build.succeeded) stamp_packaged_build(gsr_session::game_root(root, choice), choice);
                 refresh_builds(); checking_build_result = true;
             }
             if (!build.succeeded || !checking_builds[choice]) {
@@ -890,6 +902,11 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 }), controllers.end());
             }
             if (hidden) continue;
+            if (event.type == SDL_KEYDOWN && !event.key.repeat &&
+                event.key.keysym.sym == SDLK_F11) {
+                remember_launcher_fullscreen(!launcher_fullscreen());
+                continue;
+            }
             if (build.running || building_choice >= 0) {
                 if ((event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) ||
                     (event.type == SDL_CONTROLLERBUTTONDOWN && event.cbutton.button == SDL_CONTROLLER_BUTTON_B))
@@ -897,6 +914,14 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 continue;
             }
             if (music_prompt_open) continue;
+            if (confirm_build >= 0) {
+                if ((event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) ||
+                    (event.type == SDL_CONTROLLERBUTTONDOWN && event.cbutton.button == SDL_CONTROLLER_BUTTON_B)) {
+                    confirm_build = -1; request_build_dialog = false;
+                    play_after_build = false; then_build = play_game = -1;
+                }
+                continue;
+            }
             if (notes_open) {
                 if ((event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) ||
                     (event.type == SDL_CONTROLLERBUTTONDOWN && event.cbutton.button == SDL_CONTROLLER_BUTTON_B)) {
@@ -1008,21 +1033,11 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             const int choice = pending_choice; pending_choice = -1;
             const auto game = gsr_session::game_root(root, choice);
             if (!built[choice]) {
-                build_choice = play_game = choice;
+                confirm_build = play_game = choice;
                 play_after_build = true;
                 then_build = -1;
-                if (!built[1 - choice]) {
-                    const auto& text = gsr_collection::collection_popup_text(rom_language[choice]);
-                    const auto message = gsr_collection::build_games_message(choice, rom_language[choice]);
-                    const SDL_MessageBoxButtonData buttons[] = {
-                        {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, text.build_both},
-                        {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, text.build_one}
-                    };
-                    const SDL_MessageBoxData dialog{SDL_MESSAGEBOX_INFORMATION, window, text.build_title,
-                                                   message.c_str(), 2, buttons, nullptr};
-                    int answer = 0;
-                    if (SDL_ShowMessageBox(&dialog, &answer) == 0 && answer == 1) then_build = 1 - choice;
-                }
+                offer_both_builds = !built[1 - choice];
+                reduced_build = false; request_build_dialog = true;
             } else {
                 fs::path rom;
                 if (gsr_collection::prepare_rom(window, root, choice, rom, error) &&
@@ -1040,7 +1055,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             fs::path rom;
             error.clear();
             if (gsr_collection::prepare_rom(window, root, choice, rom, error)) {
-                if (builder.start(root, choice, rom, error)) {
+                if (builder.start(root, choice, rom, error, reduced_build)) {
                     building_language = gsr_collection::rom_language(root, choice);
                     building_choice = selected = choice;
                     continue;
@@ -1314,6 +1329,11 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
         ImGui::PushFont(body);
         if (ImGui::BeginPopupModal("Settings", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings)) {
             if (!settings_open) ImGui::CloseCurrentPopup();
+            bool fullscreen = launcher_fullscreen();
+            if (ImGui::Checkbox("Fullscreen launcher", &fullscreen))
+                remember_launcher_fullscreen(fullscreen);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("F11");
+            ImGui::Separator();
             ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "Adventure settings");
             for (int game = 0; game < 2; ++game) {
                 if (game) ImGui::SameLine();
@@ -1400,6 +1420,11 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 ImGui::TextWrapped(settings_game == 1
                     ? "No music found. Put recordings in Music/TLA (or Music/TBS) next to the launcher to use a music mod."
                     : "No music found. Put recordings in Music/TBS next to the launcher to use a music mod.");
+            if (ImGui::Checkbox("Enable area music choices", &area_music_on[settings_game]) && preview.empty() &&
+                !gsr_collection::set_music_mod(options_file(settings_game), area_music_on[settings_game],
+                                               gbarecomp::kOptionAreaMusic))
+                error = "Could not save area music choices.";
+            ImGui::TextWrapped("Use the track choices saved under F1 > Music for each area. Works with original music and the Music Mod. Off keeps your choices for later.");
             ImGui::Separator();
 #ifdef _WIN32
             ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "Graphics");
@@ -1490,7 +1515,8 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             ImGui::Separator();
             ImGui::BeginDisabled(checking_builds[settings_game] || building_choice >= 0);
             if (ImGui::Button(built[settings_game] ? "Rebuild game" : "Build game")) {
-                build_choice = settings_game;
+                confirm_build = settings_game;
+                offer_both_builds = false; reduced_build = false; request_build_dialog = true;
                 play_after_build = false;
                 settings_open = false; ImGui::CloseCurrentPopup();
             }
@@ -1501,6 +1527,46 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             ImGui::EndPopup();
         }
         settings_open = ImGui::IsPopupOpen("Settings");
+        if (request_build_dialog) {
+            ImGui::OpenPopup("Game build"); request_build_dialog = false;
+        }
+        ImGui::SetNextWindowPos({center, height / 2}, ImGuiCond_Always, {0.5f, 0.5f});
+        ImGui::SetNextWindowSize({std::min(width - 32, 550 * scale), 0}, ImGuiCond_Always);
+        if (ImGui::BeginPopupModal("Game build", nullptr, ImGuiWindowFlags_NoTitleBar |
+                ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize)) {
+            if (confirm_build < 0) ImGui::CloseCurrentPopup();
+            else {
+                const auto& text = gsr_collection::collection_popup_text(rom_language[confirm_build]);
+                ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "%s", text.build_title);
+                ImGui::Separator();
+                const auto message = gsr_collection::popup_game_names(offer_both_builds ?
+                    text.build_question : text.build_single_question, confirm_build);
+                ImGui::TextWrapped("%s", message.c_str());
+                ImGui::Spacing();
+                ImGui::Checkbox(text.build_less_resources, &reduced_build);
+                ImGui::TextWrapped("%s", text.build_resource_notice);
+                ImGui::Spacing();
+                bool start_build = ImGui::Button(offer_both_builds ? text.build_both : text.build_start);
+                ImGui::SetItemDefaultFocus();
+                bool both = offer_both_builds;
+                if (offer_both_builds) {
+                    ImGui::SameLine();
+                    if (ImGui::Button(text.build_one)) { start_build = true; both = false; }
+                }
+                ImGui::SameLine();
+                const bool cancel = ImGui::Button(text.build_cancel);
+                if (start_build) {
+                    build_choice = confirm_build;
+                    then_build = both ? 1 - confirm_build : -1;
+                }
+                if (start_build || cancel) {
+                    confirm_build = -1;
+                    if (cancel) { play_after_build = false; then_build = play_game = -1; }
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            ImGui::EndPopup();
+        }
         if (request_notes) { ImGui::OpenPopup("What's New"); request_notes = false; }
         ImGui::SetNextWindowPos({center, height / 2}, ImGuiCond_Always, {0.5f, 0.5f});
         ImGui::SetNextWindowSize({std::min(width - 32, 470 * scale), std::min(height - 32, 400 * scale)}, ImGuiCond_Always);

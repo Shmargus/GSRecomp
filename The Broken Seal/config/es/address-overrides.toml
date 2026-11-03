@@ -162,3 +162,13 @@ evidence = "Huffman tree table: literal pair; decoding with it reproduces the li
 usa = 0x08032224
 spain = 0x080314B4
 evidence = "Shaded description font: unique S glyph anchor, all 224 advance words validated, and explicit native font/width routine literals. F12 0192; FACTS 2026-11-01."
+
+[[rom]]
+usa = 0x0809E270
+spain = 0x080A33C8
+evidence = "Battle backdrop room table, unique and byte-identical through its zero sentinel (FACTS, 3 November)."
+
+[[rom]]
+usa = 0x0800AA0C
+spain = 0x0800A20C
+evidence = "Native sprite animation updater: unique matching 28-byte prologue in the SHA-1-verified ROM. Layer layout verified in disassembly."

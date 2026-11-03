@@ -21,6 +21,7 @@
 #include "launcher_widescreen_diagnostics_policy.h"
 #include "launcher_logo.h"  // generated from assets/launcher_logo.png
 #include "launcher_common.h"
+#include "collection_build.h"
 #include "launcher_build_progress.h"
 #include "collection_storage.h"
 #include "collection_settings.h"
@@ -79,34 +80,13 @@ fs::path g_collection_root;
 bool g_collection_update_checked = false;
 bool g_collection_activation_pending = false;
 
-// ── Release: first-run game build ─────────────────────────────────────
-// A release holds no game code. The first time the player picks their ROM
-// the launcher runs builder\gsr_builder.exe, which translates the ROM and
-// compiles the game library (GoldenSunGame.dll, TLAGame.dll) beside the game
-// (player_builder). Its progress lines (@stage / @progress / @done / @error)
-// drive the text and bar drawn over the splash. The build stamp
-// (GoldenSunGame.build.txt, TLAGame.build.txt) records what the DLL was built
-// from; a different ROM, builder or engine means building again.
-constexpr UINT kBuildUpdateMessage = WM_APP + 1;
-constexpr UINT kBuildFinishedMessage = WM_APP + 2;
 // Updates (launcher_online.h): the start-up check found a newer release.
 constexpr UINT kUpdateFoundMessage = WM_APP + 3;
 // ...and read the newest release's notes (shown whether or not it is newer).
 constexpr UINT kReleaseNotesMessage = WM_APP + 4;
 
-struct BuildStatus {
-    std::mutex mutex;
-    bool running = false;
-    bool ready = false;          // the game library matches this release
-    std::wstring stage;
-    int done = 0;
-    int total = 0;
-    std::wstring error;
-    bool succeeded = false;
-};
-BuildStatus g_build;
-std::thread g_build_thread;
-HANDLE g_build_job = nullptr;
+gsr_collection::CollectionBuild g_build;
+bool g_build_ready = false;
 std::wstring g_build_rom;
 
 // Diagnostic variables are deliberately opt-in. run_game copies the test
@@ -805,42 +785,24 @@ std::vector<fs::path> make_bug_report(const fs::path& root, const fs::path& game
                                       const std::vector<std::wstring>& rewinds,
                                       bool crashed, DWORD exit_code) {
     const fs::path logs_dir = root / L"logs";
-    const fs::path reports = logs_dir / L"bug_reports";
     std::error_code ec;
-    fs::create_directories(reports, ec);
-    std::wstring name = fs::path(log_path).stem().wstring();
-    if (name.rfind(L"session_", 0) == 0) name = name.substr(8);
-    if (name.empty()) name = L"latest";
-    name = L"bug_report_" + name;
-    const fs::path staging = reports / name;
-    fs::remove_all(staging, ec);
-    fs::create_directories(staging, ec);
-    if (ec) return {};
-
-    // The session log and anything written beside it under the same name.
-    if (!log_path.empty()) {
-        const fs::path log(log_path);
-        const std::wstring stem = log.stem().wstring();
-        for (const auto& entry : fs::directory_iterator(logs_dir, ec)) {
-            if (entry.path().filename().wstring().rfind(stem, 0) == 0)
-                copy_into_report(entry.path(), staging);
-        }
-    }
-    copy_into_report(logs_dir / L"launcher.log", staging);
-    // Include the actual active save so the problem can be replayed.
-    if (!rom.empty())
-        copy_into_report(active_save_path(root), staging);
-    copy_report_files(game_dir, crash_dir, root, crashed, staging);
     const bool unpacker_caught =
         fs::is_regular_file(root / L"unpacker_recovered.txt", ec);
-    {
-        std::ofstream info(staging / L"report_info.txt", std::ios::binary);
-        info << report_info_text(
+    const auto staged = stage_bug_report(
+        {root, game_dir, crash_dir, fs::path(log_path),
+         rom.empty() ? fs::path() : active_save_path(root), crashed},
+        report_info_text(
             "Windows: " + registry_text(L"ProductName") + " " +
                 registry_text(L"DisplayVersion") + " (build " +
                 registry_text(L"CurrentBuild") + ")",
-            rewinds.size(), crashed, unpacker_caught, exit_code);
+            rewinds.size(), crashed, unpacker_caught, exit_code));
+    const auto& staging = staged.folder;
+    if (!staged.errors.empty()) {
+        launcher_log(L"Bug report incomplete: " + utf8_to_wide(staged.errors));
+        return {staging};
     }
+    const auto reports = staging.parent_path();
+    const auto name = staging.filename().wstring();
 
     std::vector<fs::path> zips;
     const std::size_t parts = std::max<std::size_t>(1, rewinds.size());
@@ -1093,7 +1055,7 @@ LRESULT CALLBACK report_window_proc(HWND window, UINT message, WPARAM w_param,
 }
 
 // The report window's opening sentence. `unpacker` is the unpacker guard's
-// unpacker_recovered.txt (src/unpacker_guard.h).
+// unpacker_recovered.txt (shared_game/unpacker_guard.h).
 std::wstring report_heading(bool crashed, bool unpacker) {
     if (unpacker && crashed)
         return L"The game's data unpacker hit a crash and could not recover. A bug "
@@ -1113,12 +1075,12 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed, bool u
     state.crashed = crashed;
     state.zipped = reports.front().extension() == L".zip";
     if (!state.zipped) {
-        // Zipping failed: nothing to upload, only the folder to point at.
+        // The loose files remain available when staging or packing fails.
         const std::wstring text =
-            L"A bug report was saved, but it could not be zipped:\n\n" +
+            L"A complete bug report could not be prepared:\n\n" +
             reports.front().wstring() +
-            L"\n\nPress OK to open the bug report form and this folder; zip the folder "
-            L"(and any gpu_rewind folders next to it) and add it to the form.";
+            L"\n\nCheck report_info.txt or launcher.log for details. Press OK to open "
+            L"the report form and this folder.";
         if (MessageBoxW(nullptr, text.c_str(), session_game().title_w,
                         MB_OKCANCEL | MB_SETFOREGROUND | MB_ICONWARNING) == IDOK) {
             ShellExecuteW(nullptr, L"open", kBugReportFormUrl, nullptr, nullptr, SW_SHOWNORMAL);
@@ -1587,7 +1549,7 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
         // game's working folder: at most one pair ever exists, from this run.
         fs::remove(root / L"unpacker_catch.txt", stale_ec);
         fs::remove(root / L"unpacker_catch.bin", stale_ec);
-        // The unpacker guard's pair (src/unpacker_guard.h), the same way.
+        // The unpacker guard's pair (shared_game/unpacker_guard.h), the same way.
         fs::remove(root / L"unpacker_recovered.txt", stale_ec);
         fs::remove(root / L"unpacker_recovered.bin", stale_ec);
         fs::remove(root / L"unpacker_journal.csv", stale_ec);  // Unpacker audit
@@ -1707,9 +1669,11 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
             if (kReleaseLauncher && (!new_rewinds.empty() || crashed || unpacker)) {
                 const auto reports = make_bug_report(root, game.parent_path(), crash_dir, rom,
                                                      log_path, new_rewinds, crashed, exit_code);
-                keep_seamless_reports(reports);
-                launcher_log(L"Seamless: bug report kept for the end of The Lost Age (" +
-                             std::to_wstring(reports.size()) + L" file(s)).");
+                if (!reports.empty() && reports.front().extension() == L".zip") {
+                    keep_seamless_reports(reports);
+                    launcher_log(L"Seamless: bug report kept for the end of The Lost Age (" +
+                                 std::to_wstring(reports.size()) + L" file(s)).");
+                }
             }
             g_session_exit_code = static_cast<int>(exit_code);
             return 0;
@@ -1729,9 +1693,7 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
             if (answer == IDYES) {
                 const auto reports = make_bug_report(root, game.parent_path(), crash_dir, rom,
                                                      log_path, new_rewinds, crashed, exit_code);
-                for (const auto& report : reports)
-                    launcher_log(L"OpenGL startup crash archived: " + report.wstring());
-                if (reports.empty()) {
+                if (reports.empty() || reports.front().extension() != L".zip") {
                     launcher_log(L"OpenGL startup crash archive could not be created; preserving loose evidence before retry.");
                     const std::wstring stem = fs::path(log_path).stem().wstring();
                     if (crashed) for (const wchar_t* file : {L"crash_report.txt", L"crash_dump.dmp",
@@ -1742,6 +1704,9 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
                                       fs::copy_options::none, copy_ec);
                         if (!copy_ec) launcher_log(L"OpenGL crash evidence: " + preserved.wstring());
                     }
+                } else {
+                    for (const auto& report : reports)
+                        launcher_log(L"OpenGL startup crash archived: " + report.wstring());
                 }
                 return run_game(root, rom, nullptr, true);
             }
@@ -1901,8 +1866,6 @@ void rounded_rect_path(Gdiplus::GraphicsPath& path, float x, float y, float w,
     path.CloseFigure();
 }
 
-// The area the progress animation repaints (WM_TIMER), set by the painter.
-RECT g_progress_rect{};
 constexpr UINT_PTR kProgressTimer = 1;
 
 // The first-start build's progress: a glowing purple bar with a light
@@ -1914,9 +1877,6 @@ void paint_progress_bar(Gdiplus::Graphics& g, int width, int height, int done,
     const float bar_h = progress_height;
     const float bar_x = (width - bar_w) / 2.0f;
     const float bar_y = static_cast<float>(height - 100);
-    g_progress_rect = {static_cast<LONG>(bar_x) - 8, static_cast<LONG>(bar_y) - 8,
-                       static_cast<LONG>(bar_x + bar_w) + 70,
-                       static_cast<LONG>(bar_y + bar_h) + 8};
     const double t = static_cast<double>(GetTickCount64() % 1000000u) / 1000.0;
     const bool known = total > 0;
     const float frac = progress_fraction(done, total);
@@ -2076,34 +2036,29 @@ void paint_splash(HWND window, HDC dc, int origin_x = 0, int origin_y = 0) {
 
     if (kReleaseLauncher) {
         std::wstring text, note;
-        int done = 0, total = 0;
-        bool running = false;
-        {
-            std::lock_guard<std::mutex> lock(g_build.mutex);
-            running = g_build.running;
-            done = g_build.done;
-            total = g_build.total;
-            if (running) {
-                // The builder's stages (player_builder): checking the ROM
-                // and translating are step 1, compiling and linking step 2.
-                const std::wstring& stage = g_build.stage;
-                const bool step_two =
-                    stage.find(L"Compiling") != std::wstring::npos ||
-                    stage.find(L"Linking") != std::wstring::npos;
-                text = std::wstring(step_two ? L"Step 2 of 2: " : L"Step 1 of 2: ") +
-                       stage;
-                if (total > 0)
-                    text += L"  (" + std::to_wstring(done) + L" of " +
-                            std::to_wstring(total) + L")";
-                note = L"Step 1 translates the game from your ROM, step 2 "
-                       L"compiles it. This can take several minutes, and the "
-                       L"game starts by itself when it's done.";
-            } else if (!g_build.ready) {
-                text = L"First start: pick your Golden Sun ROM. The game is "
-                       L"prepared from it once, which takes a few minutes.";
-                note = L"Step 1 translates the game from your ROM, step 2 "
-                       L"compiles it. After an update this happens again.";
-            }
+        const auto build = g_build.snapshot();
+        const bool running = build.running;
+        const int done = build.done, total = build.total;
+        if (running) {
+            // The builder's stages (player_builder): checking the ROM
+            // and translating are step 1, compiling and linking step 2.
+            const std::wstring stage = utf8_to_wide(build.stage);
+            const bool step_two =
+                stage.find(L"Compiling") != std::wstring::npos ||
+                stage.find(L"Linking") != std::wstring::npos;
+            text = std::wstring(step_two ? L"Step 2 of 2: " : L"Step 1 of 2: ") +
+                   stage;
+            if (total > 0)
+                text += L"  (" + std::to_wstring(done) + L" of " +
+                        std::to_wstring(total) + L")";
+            note = L"Step 1 translates the game from your ROM, step 2 "
+                   L"compiles it. This can take several minutes, and the "
+                   L"game starts by itself when it's done.";
+        } else if (!g_build_ready) {
+            text = L"First start: pick your Golden Sun ROM. The game is "
+                   L"prepared from it once, which takes a few minutes.";
+            note = L"Step 1 translates the game from your ROM, step 2 "
+                   L"compiles it. After an update this happens again.";
         }
         graphics.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
         Gdiplus::StringFormat format;
@@ -2247,125 +2202,6 @@ void draw_action_button(const DRAWITEMSTRUCT& item) {
     DeleteDC(dc);
 }
 
-// Run builder\gsr_builder.exe for `rom` in the background; progress arrives
-// as kBuildUpdateMessage, the end as kBuildFinishedMessage.
-void start_game_build(HWND window, const std::wstring& rom) {
-    const fs::path builder = g_launcher_root / L"builder" / L"gsr_builder.exe";
-    std::error_code ec;
-    if (!fs::is_regular_file(builder, ec)) {
-        launcher_log(L"Build: builder\\gsr_builder.exe is missing.");
-        MessageBoxW(window,
-                    L"Part of Golden Sun Recompiled is missing (builder\\gsr_builder.exe).\n\n"
-                    L"Please unzip the whole download again.",
-                    session_game().title_w, MB_OK | MB_ICONERROR);
-        return;
-    }
-    SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
-    HANDLE read_end = nullptr, write_end = nullptr;
-    if (!CreatePipe(&read_end, &write_end, &sa, 0)) {
-        launcher_log(L"Build: no pipe for the builder (error " +
-                     std::to_wstring(GetLastError()) + L").");
-        MessageBoxW(window, L"The game builder could not start.",
-                    session_game().title_w, MB_OK | MB_ICONERROR);
-        return;
-    }
-    SetHandleInformation(read_end, HANDLE_FLAG_INHERIT, 0);
-    std::wstring cmd = L"\"" + builder.wstring() + L"\" --rom \"" + rom + L"\"";
-    STARTUPINFOW si{};
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdOutput = write_end;
-    si.hStdError = write_end;
-    PROCESS_INFORMATION pi{};
-    std::vector<wchar_t> cmd_buf(cmd.begin(), cmd.end());
-    cmd_buf.push_back(L'\0');
-    const BOOL started = CreateProcessW(
-        nullptr, cmd_buf.data(), nullptr, nullptr, TRUE,
-        CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr,
-        builder.parent_path().c_str(), &si, &pi);
-    const DWORD start_error = started ? 0 : GetLastError();
-    CloseHandle(write_end);
-    if (!started) {
-        CloseHandle(read_end);
-        // Error 225 or 5 here usually means antivirus blocked or removed it.
-        launcher_log(L"Build: Windows could not start the builder (error " +
-                     std::to_wstring(start_error) + L").");
-        MessageBoxW(window, L"The game builder could not start.",
-                    session_game().title_w, MB_OK | MB_ICONERROR);
-        return;
-    }
-    // Closing the launcher mid-build stops the builder and its compilers.
-    if (!g_build_job) {
-        g_build_job = CreateJobObjectW(nullptr, nullptr);
-        JOBOBJECT_EXTENDED_LIMIT_INFORMATION info{};
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        if (g_build_job)
-            SetInformationJobObject(g_build_job, JobObjectExtendedLimitInformation,
-                                    &info, sizeof(info));
-    }
-    if (g_build_job) AssignProcessToJobObject(g_build_job, pi.hProcess);
-    launcher_log(L"Build: started (log: builder\\work\\build-log.txt).");
-    ResumeThread(pi.hThread);
-    CloseHandle(pi.hThread);
-    {
-        std::lock_guard<std::mutex> lock(g_build.mutex);
-        g_build.running = true;
-        g_build.stage = L"Starting";
-        g_build.done = g_build.total = 0;
-        g_build.error.clear();
-        g_build.succeeded = false;
-    }
-    g_build_rom = rom;
-    InvalidateRect(window, nullptr, FALSE);
-
-    if (g_build_thread.joinable()) g_build_thread.join();
-    g_build_thread = std::thread([window, read_end, process = pi.hProcess] {
-        std::string pending;
-        char buf[4096];
-        DWORD n = 0;
-        bool done = false;
-        std::string error;
-        auto handle = [&](const std::string& line) {
-            std::lock_guard<std::mutex> lock(g_build.mutex);
-            if (line.rfind("@stage ", 0) == 0) {
-                g_build.stage = utf8_to_wide(line.substr(7));
-                g_build.done = g_build.total = 0;
-            } else if (line.rfind("@progress ", 0) == 0) {
-                std::sscanf(line.c_str() + 10, "%d %d", &g_build.done, &g_build.total);
-            } else if (line == "@done") {
-                done = true;
-            } else if (line.rfind("@error ", 0) == 0) {
-                error = line.substr(7);
-            }
-        };
-        while (ReadFile(read_end, buf, sizeof(buf), &n, nullptr) && n > 0) {
-            pending.append(buf, n);
-            std::size_t nl;
-            while ((nl = pending.find('\n')) != std::string::npos) {
-                std::string line = pending.substr(0, nl);
-                if (!line.empty() && line.back() == '\r') line.pop_back();
-                pending.erase(0, nl + 1);
-                handle(line);
-                PostMessageW(window, kBuildUpdateMessage, 0, 0);
-            }
-        }
-        CloseHandle(read_end);
-        WaitForSingleObject(process, INFINITE);
-        DWORD code = 1;
-        GetExitCodeProcess(process, &code);
-        CloseHandle(process);
-        {
-            std::lock_guard<std::mutex> lock(g_build.mutex);
-            g_build.running = false;
-            g_build.succeeded = done && code == 0;
-            g_build.error = utf8_to_wide(
-                error.empty() && !g_build.succeeded
-                    ? std::string("The build stopped unexpectedly.") : error);
-        }
-        PostMessageW(window, kBuildFinishedMessage, 0, 0);
-    });
-}
-
 // ── Updates ────────────────────────────────────────────────────────────
 // A release launcher asks GitHub for the newest release when it starts
 // (launcher_online.h). When it differs from this launcher's version, the
@@ -2435,6 +2271,29 @@ void check_for_update(HWND window) {
     }).detach();
 }
 
+void finish_game_build(HWND window, const gsr_collection::BuildSnapshot& build) {
+    const bool ok = build.succeeded;
+    const auto error = utf8_to_wide(build.error);
+    const bool ready = ok && game_code_ready(g_launcher_root);
+    g_build_ready = ready;
+    launcher_log(ready ? std::wstring(L"Build: finished, the game is ready.")
+                 : ok  ? std::wstring(L"Build: finished, but the game files do not "
+                                      L"match this release.")
+                       : L"Build: failed: " + error);
+    InvalidateRect(window, nullptr, FALSE);
+    if (!ready) {
+        std::wstring msg = L"The game could not be prepared.\n\n" + error +
+            L"\n\nThe full log is local/collection-build.log.";
+        MessageBoxW(window, msg.c_str(), session_game().title_w,
+                    MB_OK | MB_ICONERROR);
+        DestroyWindow(window);
+        return;
+    }
+    ShowWindow(window, SW_HIDE);
+    run_game(g_launcher_root, g_build_rom, window);
+    DestroyWindow(window);
+}
+
 LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
                                       WPARAM w_param, LPARAM l_param) {
     switch (message) {
@@ -2487,13 +2346,15 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
                 g_collection_activation_pending = false;
                 PostMessageW(window, WM_COMMAND, kPickRomButton, 0);
             }
-            bool running = false;
-            {
-                std::lock_guard<std::mutex> lock(g_build.mutex);
-                running = g_build.running;
+            const auto build = g_build.poll();
+            if (build.finished) {
+                finish_game_build(window, build);
+            } else if (build.running) {
+                RECT client{};
+                GetClientRect(window, &client);
+                RECT status{0, client.bottom - 164, client.right, client.bottom};
+                InvalidateRect(window, &status, FALSE);
             }
-            if (running && g_progress_rect.right > g_progress_rect.left)
-                InvalidateRect(window, &g_progress_rect, FALSE);
             return 0;
         }
         break;
@@ -2536,15 +2397,14 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
                 launcher_log(L"The game is not built yet (or is out of date): building it.");
                 ShowWindow(window, SW_SHOW);
                 UpdateWindow(window);
-                start_game_build(window, rom);
-                bool running = false;
-                {
-                    std::lock_guard<std::mutex> lock(g_build.mutex);
-                    running = g_build.running;
+                std::string error;
+                if (g_build.start(g_collection_root, session_game_index, fs::path(rom), error)) {
+                    g_build_rom = rom;
+                } else {
+                    MessageBoxW(window, utf8_to_wide(error).c_str(), session_game().title_w,
+                                MB_OK | MB_ICONERROR);
+                    DestroyWindow(window);
                 }
-                // Start failures already displayed their error. A completed
-                // worker has queued kBuildFinishedMessage, so keep it alive.
-                if (!running && !g_build_thread.joinable()) DestroyWindow(window);
                 return 0;
             }
             launcher_log(L"Starting the game.");
@@ -2554,14 +2414,6 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             return 0;
         }
         break;
-    case kBuildUpdateMessage: {
-        // Only the status line and the bar change.
-        RECT client{};
-        GetClientRect(window, &client);
-        RECT status{0, client.bottom - 164, client.right, client.bottom};
-        InvalidateRect(window, &status, FALSE);
-        return 0;
-    }
     case kReleaseNotesMessage: {
         std::wstring notes;
         {
@@ -2600,10 +2452,7 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             std::lock_guard<std::mutex> lock(g_update_mutex);
             release = g_update;
         }
-        {
-            std::lock_guard<std::mutex> lock(g_build.mutex);
-            if (g_build.running) return 0;  // asked again on the next start
-        }
+        if (g_build.snapshot().running) return 0;  // asked again on the next start
         // The start must not fire behind the question: the message box's own
         // loop would still deliver the timer.
         const bool collection_was_pending = g_collection_activation_pending;
@@ -2629,55 +2478,12 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
         g_collection_activation_pending = collection_was_pending;
         return 0;
     }
-    case kBuildFinishedMessage: {
-        if (g_build_thread.joinable()) g_build_thread.join();
-        bool ok = false;
-        std::wstring error;
-        {
-            std::lock_guard<std::mutex> lock(g_build.mutex);
-            ok = g_build.succeeded;
-            error = g_build.error;
-        }
-        if (ok) {
-            std::ofstream stamp(g_launcher_root / session_game().release_stamp_w,
-                                std::ios::binary | std::ios::trunc);
-            stamp << release_fingerprint(g_launcher_root);
-        }
-        const bool ready = ok && game_code_ready(g_launcher_root);
-        {
-            std::lock_guard<std::mutex> lock(g_build.mutex);
-            g_build.ready = ready;
-        }
-        launcher_log(ready ? std::wstring(L"Build: finished, the game is ready.")
-                     : ok  ? std::wstring(L"Build: finished, but the game files do not "
-                                          L"match this release.")
-                           : L"Build: failed: " + error);
-        InvalidateRect(window, nullptr, FALSE);
-        if (!ready) {
-            std::wstring msg = L"The game could not be prepared.\n\n" + error +
-                L"\n\nThe full log is builder\\work\\build-log.txt.";
-            MessageBoxW(window, msg.c_str(), session_game().title_w,
-                        MB_OK | MB_ICONERROR);
-            DestroyWindow(window);
-            return 0;
-        }
-        ShowWindow(window, SW_HIDE);
-        run_game(g_launcher_root, g_build_rom, window);
-        DestroyWindow(window);
-        return 0;
-    }
     case WM_CLOSE:
         DestroyWindow(window);
         return 0;
     case WM_DESTROY:
         KillTimer(window, kProgressTimer);
-        // Quit mid-build: closing the job stops the builder and its
-        // compilers, which ends the reader thread.
-        if (g_build_job) {
-            CloseHandle(g_build_job);
-            g_build_job = nullptr;
-        }
-        if (g_build_thread.joinable()) g_build_thread.join();
+        g_build.stop();
         PostQuitMessage(0);
         return 0;
     default:
@@ -2698,7 +2504,7 @@ int show_launcher(const fs::path& root) {
 
     g_launcher_root = root;
     open_launcher_log(root);
-    if (kReleaseLauncher) g_build.ready = game_code_ready(root);
+    if (kReleaseLauncher) g_build_ready = game_code_ready(root);
     g_audio_settings = kReleaseLauncher ? release_launch_settings(root)
                                         : load_launcher_audio_settings(root);
     g_strict_static_route = inherited_environment_truthy(

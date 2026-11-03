@@ -26,6 +26,7 @@
 #include "cartridge_art.h"
 #include "color_lut.h"
 #include "env_flag.h"
+#include "game_options.h"
 #include "host_config_ui.h"
 #include "game_hotkeys.h"
 #include "host_local_music.h"
@@ -40,6 +41,7 @@
 #include "../armv4t/runtime_arm.h"
 // gba::g_hide_bg0..g_hide_bg3: live BG-layer visibility toggle.
 #include "../gba/gba_ppu.h"
+#include "../gba/file_replace.h"
 
 #if defined(GBARECOMP_HAVE_SDL2)
 
@@ -481,6 +483,7 @@ struct Backend {
     bool           stick_down[8] = {};
     int          scale = 3;             // current integer window scale
     bool         fullscreen = false;
+    bool         preferred_fullscreen = false;
     // The window came from give_window(): never destroyed here, and its
     // size, position and fullscreen state are not changed automatically.
     bool         given_window = false;
@@ -2196,7 +2199,7 @@ void HostWindow::load_input_config(const char* dir) {
 
     // Missing video keys retain the window's startup defaults.
     b->cfg.scale = b->scale;
-    b->cfg.fullscreen = b->fullscreen;
+    b->cfg.fullscreen = b->preferred_fullscreen;
     b->cfg.show_fps = b->fps_readout;
     ini_scan_section((base + "config.ini").c_str(), "Video",
                      [b](const char* key, const char* val) {
@@ -2437,6 +2440,7 @@ void HostWindow::load_input_config(const char* dir) {
     // The window opened before this file was read: size it for a saved 4:3.
     // (A later set_surface_size sizes it the same way if the view changes.)
     if (b->aspect == ViewAspectFourThree) apply_aspect_window_size(b);
+    b->preferred_fullscreen = b->cfg.fullscreen;
     if (b->given_window) {
         // A given window keeps its geometry; show what it really is.
         b->cfg.scale = b->scale;
@@ -3161,19 +3165,22 @@ bool write_video_ini(const Backend* b) {
         "IntegerScale", "ScreenFilter", "ShowFPS"
     };
     const std::string values[] = {
-        std::to_string(b->scale), b->fullscreen ? "true" : "false",
+        std::to_string(b->scale), b->preferred_fullscreen ? "true" : "false",
         b->vsync ? "true" : "false", b->linear_filter ? "true" : "false",
         b->integer_scale ? "true" : "false",
         std::to_string(static_cast<int>(b->preferred_screen_filter)),
         b->fps_readout ? "true" : "false"
     };
     rewrite_ini_section(lines, "Video", names, values, static_cast<int>(std::size(names)));
-    std::FILE* out = std::fopen(path.c_str(), "wb");
-    if (!out) return false;
-    bool ok = true;
-    for (const std::string& line : lines)
-        if (std::fprintf(out, "%s\n", line.c_str()) < 0) ok = false;
-    return std::fclose(out) == 0 && ok;
+    std::string text;
+    for (const auto& line : lines) text += line + '\n';
+    return gba::replace_file(path, text.data(), text.size(), nullptr);
+}
+
+void persist_video(Backend* b) {
+    if (!write_video_ini(b))
+        std::fprintf(stderr, "host_window: could not write %s/config.ini\n",
+                     b->config_dir.c_str());
 }
 
 // Update only [Speed], preserving launcher settings and unknown sections.
@@ -3531,12 +3538,9 @@ bool write_audio_ini(const std::string& dir, int volume, bool mute) {
                                   mute ? "true" : "false"};
     rewrite_ini_section(lines, "Audio", kNames, values, 2);
 
-    std::FILE* out = std::fopen(path.c_str(), "wb");
-    if (!out) return false;
-    for (const std::string& line : lines)
-        std::fprintf(out, "%s\n", line.c_str());
-    std::fclose(out);
-    return true;
+    std::string text;
+    for (const auto& line : lines) text += line + '\n';
+    return gba::replace_file(path, text.data(), text.size(), nullptr);
 }
 
 // Write [Audio] when it differs from what config.ini last recorded.
@@ -3646,12 +3650,40 @@ bool write_debug_overlay_ini(const std::string& dir, bool debug_overlay) {
 
 }  // namespace
 
+void HostWindow::apply_preference_hotkeys(const Events& ev) {
+    if (!open_ || !impl_) return;
+    auto* b = static_cast<Backend*>(impl_);
+    const bool was_fullscreen = b->fullscreen;
+    const int old_scale = b->scale;
+    if (ev.toggle_fullscreen) {
+        set_fullscreen(!was_fullscreen);
+        if (b->fullscreen != was_fullscreen) b->preferred_fullscreen = b->fullscreen;
+    }
+    if (ev.window_bigger) adjust_scale(+1);
+    if (ev.window_smaller) adjust_scale(-1);
+    if (ev.toggle_fps) set_fps_readout(!b->fps_readout);
+    if (b->fullscreen != was_fullscreen || b->scale != old_scale || ev.toggle_fps)
+        persist_video(b);
+    if (ev.volume_up || ev.volume_down) {
+        const int old_volume = volume();
+        if (ev.volume_up) set_volume(volume() + 10);
+        if (ev.volume_down) set_volume(volume() - 10);
+        if (volume() != old_volume) {
+            b->cfg.volume = volume();
+            b->cfg.mute = false;
+            persist_audio(b);
+        }
+    }
+}
+
 HostWindow::Events HostWindow::pump() {
     Events ev{};
     if (!open_) { ev.quit = true; return ev; }
     auto* b = static_cast<Backend*>(impl_);
     const bool pump_timing = host_pump_timing_enabled();
     const uint64_t pump_t0 = pump_timing ? host_pump_now_ns() : 0;
+    using Confirmation = ConfigUiState::QuitConfirmation;
+    const bool quit_modal = b->cfg.quit_confirmation != Confirmation::Closed;
 
     // Harness switch: open the menu at startup. Lets a capture run verify the
     // UI renders without a human at the keyboard (and makes screenshots of it
@@ -3677,6 +3709,7 @@ HostWindow::Events HostWindow::pump() {
         {static_cast<int>(runtime::ScreenKind::Natural), "Natural", false},
         {static_cast<int>(runtime::ScreenKind::Warm), "Warm", false},
         {static_cast<int>(runtime::ScreenKind::Deep), "Deep", false},
+        {static_cast<int>(runtime::ScreenKind::DavidOgGba), "David's OG GBA Colours", false},
         {static_cast<int>(runtime::ScreenKind::Custom), "Custom", true},
     };
     b->cfg.colour_choices = colour_choices;
@@ -3730,11 +3763,8 @@ HostWindow::Events HostWindow::pump() {
         b->cfg.screen_filters_available = b->screen_filters_on;
         b->cfg.screen_filter = static_cast<int>(b->preferred_screen_filter);
     }
-    if (!b->cfg.audio_changed && !b->cfg.mute) {
+    if (!b->cfg.audio_changed && !b->cfg.mute)
         b->cfg.volume = b->volume;
-        // The Volume Up/Down hotkeys change it outside the menu: save that too.
-        persist_audio(b);
-    }
     if (!b->cfg.enhancements_changed) {
         b->cfg.fixed_view_modes_available = b->fixed_view_modes_allowed;
         b->cfg.fixed_view_mode = b->fixed_view_mode;
@@ -3890,7 +3920,14 @@ HostWindow::Events HostWindow::pump() {
         // The config UI gets first refusal on every event. When a bind box is
         // armed it consumes the raw press; when merely visible it owns the
         // mouse and keyboard so typing in the UI never reaches the guest.
-        if (b->cfg_ready) {
+        if (quit_modal) {
+            config_ui_handle_event(&e, true);
+            // Keep device bookkeeping active while the modal owns input.
+            if (e.type != SDL_CONTROLLERDEVICEADDED && e.type != SDL_CONTROLLERDEVICEREMOVED) {
+                finish_event();
+                continue;
+            }
+        } else if (b->cfg_ready) {
             if (e.type == SDL_KEYDOWN && e.key.repeat == 0 &&
                 config_ui_capture_key(&b->cfg,
                                       static_cast<int>(e.key.keysym.scancode),
@@ -3910,13 +3947,15 @@ HostWindow::Events HostWindow::pump() {
                 continue;
             }
             if (config_ui_handle_event(&e)) {
-                // Still honour the menu key so it can close itself.
-                if (e.type == SDL_KEYDOWN && e.key.repeat == 0 &&
+                // Menu shortcuts normally remain usable inside F1, but an
+                // active text editor gets every character (e.g. O/CheatMenu).
+                const bool shortcuts_allowed = !config_ui_text_input_active();
+                if (shortcuts_allowed && e.type == SDL_KEYDOWN && e.key.repeat == 0 &&
                     b->hotkeys[HK_MENU].key != SDLK_UNKNOWN &&
                     e.key.keysym.sym == b->hotkeys[HK_MENU].key &&
                     hotkey_mods_ok(b->hotkeys[HK_MENU], e.key.keysym.mod)) {
                     config_ui_toggle();
-                } else if (e.type == SDL_KEYDOWN && e.key.repeat == 0 &&
+                } else if (shortcuts_allowed && e.type == SDL_KEYDOWN && e.key.repeat == 0 &&
                     b->hotkeys[HK_GAME_MENU].key != SDLK_UNKNOWN &&
                     e.key.keysym.sym == b->hotkeys[HK_GAME_MENU].key &&
                     hotkey_mods_ok(b->hotkeys[HK_GAME_MENU], e.key.keysym.mod)) {
@@ -3967,12 +4006,12 @@ HostWindow::Events HostWindow::pump() {
                     fire_hotkey(h, b, ev);
                 }
             }
-        } else if (e.type == SDL_CONTROLLERBUTTONDOWN && config_ui_visible()) {
+        } else if (e.type == SDL_CONTROLLERBUTTONDOWN && config_ui_visible() && !config_ui_text_input_active()) {
             if (b->hotkeys[HK_MENU].pad_button == e.cbutton.button)
                 config_ui_toggle();
             else if (b->hotkeys[HK_GAME_MENU].pad_button == e.cbutton.button)
                 config_ui_open_cheats();
-        } else if (e.type == SDL_CONTROLLERBUTTONDOWN && !config_ui_visible()) {
+        } else if (e.type == SDL_CONTROLLERBUTTONDOWN && !config_ui_visible() && !config_ui_text_input_active()) {
             // Controller half of the same edge-triggered hotkeys. Gated by
             // !config_ui_visible() like the gameplay pad read below.
             for (int h = 0; h < hotkey_count(); ++h) {
@@ -3981,7 +4020,7 @@ HostWindow::Events HostWindow::pump() {
                     continue;
                 fire_hotkey(h, b, ev);
             }
-        } else if (synth_pad_down && !config_ui_visible()) {
+        } else if (synth_pad_down && !config_ui_visible() && !config_ui_text_input_active()) {
             // Trigger and stick half of the same edge-triggered hotkeys, fired
             // on the debounced press edge computed above, so a trigger bound
             // to Fast Forward (toggle) latches once per pull, not once per
@@ -3995,6 +4034,43 @@ HostWindow::Events HostWindow::pump() {
         finish_event();
     }
 
+    if (b->cfg.request_quit) {
+        ev.quit = true;
+        b->cfg.request_quit = false;
+    }
+    if (ev.quit && game_option_get(kOptionConfirmQuit, 1) != 0) {
+        if (b->cfg_ready) {
+            b->cfg.quit_dont_ask_again = false;
+            b->cfg.quit_confirmation = Confirmation::Open;
+            ev.quit = false;
+        } else {
+            const SDL_MessageBoxButtonData buttons[] = {
+                {SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT | SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT,
+                 0, ui_text("Cancel")},
+                {0, 1, ui_text("Quit Game")},
+            };
+            const SDL_MessageBoxData dialog{
+                SDL_MESSAGEBOX_WARNING, b->window, ui_text("Quit Game"),
+                ui_text(kQuitWarning),
+                2, buttons, nullptr
+            };
+            int answer = 0;
+            const int result = SDL_ShowMessageBox(&dialog, &answer);
+            if (result != 0)
+                std::fprintf(stderr, "host_window: quit dialog: %s\n", SDL_GetError());
+            ev.quit = result == 0 && answer == 1;
+        }
+    }
+    const Confirmation response = b->cfg.quit_confirmation;
+    ev.quit_confirmation_pending = response == Confirmation::Open;
+    if (response == Confirmation::QuitAndDisable)
+        game_option_set(kOptionConfirmQuit, 0);
+    if (response == Confirmation::Quit || response == Confirmation::QuitAndDisable)
+        ev.quit = true;
+    if (!ev.quit_confirmation_pending)
+        b->cfg.quit_confirmation = Confirmation::Closed;
+    const bool quit_owns_input = quit_modal || ev.quit_confirmation_pending;
+
     const uint64_t pump_input_start = pump_timing ? host_pump_now_ns() : 0;
 
     // Build the GBA KEYINPUT value from current keyboard state via the
@@ -4005,9 +4081,12 @@ HostWindow::Events HostWindow::pump() {
     // function-call tracer label box) -- see g_config_ui_extra_wants_keyboard
     // (host_config_ui.h). Symmetrical with the config_ui_visible() check.
     const bool extra_wants_keyboard =
-        gbarecomp::g_config_ui_extra_wants_keyboard &&
-        gbarecomp::g_config_ui_extra_wants_keyboard();
-    if (!extra_wants_keyboard) {
+        config_ui_text_input_active() ||
+        (gbarecomp::g_config_ui_extra_wants_keyboard &&
+         gbarecomp::g_config_ui_extra_wants_keyboard());
+    // Sample held controls even while an editor owns them, so a key held
+    // across focus loss remains suppressed until released below.
+    {
         for (int bit = 0; bit < 10; ++bit) {
             SDL_Scancode sc = b->bind_sc[bit];
             if (sc != SDL_SCANCODE_UNKNOWN && ks[sc])
@@ -4039,7 +4118,7 @@ HostWindow::Events HostWindow::pump() {
         // Auto Fire: two frames pressed, two released, so the game sees a
         // fresh press every fourth frame. Keyed to the guest frame so the
         // rhythm does not change with the paused/idle pump rate.
-        const bool fire_phase = !config_ui_visible() &&
+        const bool fire_phase = !quit_owns_input && !config_ui_visible() && !extra_wants_keyboard &&
             ((b->cfg.guest_frame >> 1) & 1u) == 0;
         if (fire_phase && hotkey_held(b, b->hotkeys[HK_AUTOFIRE_A], ks))
             keys &= static_cast<uint16_t>(~(1u << 0));
@@ -4049,7 +4128,7 @@ HostWindow::Events HostWindow::pump() {
     // In particular, closing with controller B must not also cancel in-game.
     const uint16_t held = static_cast<uint16_t>(~keys & 0x03FFu);
     b->menu_held_keys &= held;
-    if (menu_was_visible || config_ui_visible()) {
+    if (quit_owns_input || menu_was_visible || config_ui_visible() || extra_wants_keyboard) {
         b->menu_held_keys |= held;
         keys = 0x03FFu;
     } else {
@@ -4096,8 +4175,11 @@ HostWindow::Events HostWindow::pump() {
                 b->cfg.linear_filter != b->linear_filter ||
                 b->cfg.integer_scale != b->integer_scale ||
                 b->cfg.screen_filter != static_cast<int>(b->preferred_screen_filter);
-            if (b->cfg.fullscreen != b->fullscreen)
+            if (b->cfg.fullscreen != b->fullscreen) {
                 set_fullscreen(b->cfg.fullscreen);
+                if (b->fullscreen == b->cfg.fullscreen) b->preferred_fullscreen = b->fullscreen;
+                else b->cfg.fullscreen = b->fullscreen;
+            }
             if (b->cfg.scale != b->scale)
                 adjust_scale(b->cfg.scale - b->scale);
             set_fps_readout(b->cfg.show_fps);
@@ -4132,7 +4214,7 @@ HostWindow::Events HostWindow::pump() {
             if (kind_changed || custom_changed || vision_changed) {
                 b->cfg.screen_kind = std::clamp(
                     b->cfg.screen_kind, 0,
-                    static_cast<int>(runtime::ScreenKind::Custom));
+                    runtime::kScreenKindCount - 1);
                 b->screen_kind = static_cast<runtime::ScreenKind>(
                     b->cfg.screen_kind);
                 rebuild_color_lut(b);
@@ -4154,9 +4236,7 @@ HostWindow::Events HostWindow::pump() {
                 b->cfg.screen_filter, 0, static_cast<int>(ScreenFilter::ScaleFx)));
             b->screen_filter = b->screen_filters_on ? b->preferred_screen_filter
                                                   : ScreenFilter::Off;
-            if (video_settings_changed && !write_video_ini(b))
-                std::fprintf(stderr, "host_window: could not write %s/config.ini\n",
-                             b->config_dir.c_str());
+            if (video_settings_changed) persist_video(b);
             if (kind_changed || aspect_changed || vision_changed ||
                 b->cfg.color_save) {
                 b->cfg.color_save = !write_picture_ini(
@@ -4312,7 +4392,6 @@ HostWindow::Events HostWindow::pump() {
             }
             b->cfg.debug_overlay_changed = false;
         }
-        if (b->cfg.request_quit) { ev.quit = true; b->cfg.request_quit = false; }
     }
 
     const uint64_t pump_finalize_start = pump_timing ? host_pump_now_ns() : 0;
@@ -4328,12 +4407,13 @@ HostWindow::Events HostWindow::pump() {
         b->cfg.frame_interpolation_available && b->cfg.frame_interpolation_2x;
     ev.enhanced_timing =
         b->cfg.enhanced_timing_available && b->cfg.enhanced_timing;
-    const bool game_hotkeys_active = !config_ui_visible() && !extra_wants_keyboard && SDL_GetKeyboardFocus();
+    const bool game_hotkeys_active = !quit_owns_input && !config_ui_visible() &&
+        !extra_wants_keyboard && SDL_GetKeyboardFocus();
     for (int h = HK_COUNT; h < hotkey_count(); ++h)
         if (const auto callback = game_hotkeys()[h - HK_COUNT].held)
             callback(game_hotkeys_active && hotkey_held(b, b->hotkeys[h], ks));
-    const bool turbo_held = hotkey_held(b, b->hotkeys[HK_TURBO], ks);
-    ev.fast_forward = turbo_held || b->turbo_toggle_on;
+    const bool turbo_held = !config_ui_text_input_active() && hotkey_held(b, b->hotkeys[HK_TURBO], ks);
+    ev.fast_forward = !quit_owns_input && (turbo_held || b->turbo_toggle_on);
     // Record transitions, including their source, so a captured hitch can be
     // distinguished from fast-forward without inferring it from frame gaps.
     const unsigned turbo_sources = (turbo_held ? 1u : 0u) |
@@ -4416,6 +4496,7 @@ void HostWindow::present_native(const uint8_t* /*rgb888*/, int /*width*/, int /*
 void HostWindow::load_input_config(const char* /*dir*/) {}
 void HostWindow::set_fullscreen(bool /*on*/) {}
 bool HostWindow::fullscreen() const { return false; }
+void HostWindow::apply_preference_hotkeys(const Events&) {}
 void HostWindow::adjust_scale(int /*delta*/) {}
 void HostWindow::set_volume(int /*pct*/) {}
 int  HostWindow::volume() const { return 100; }

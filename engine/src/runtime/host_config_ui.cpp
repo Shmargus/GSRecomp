@@ -22,6 +22,7 @@ namespace {
 const GameOptionSwitch* g_game_switches = nullptr;
 int g_game_switch_count = 0;
 void (*g_game_page_draw)() = nullptr;
+void (*g_music_page_draw)() = nullptr;
 std::mutex g_menu_art_mutex;
 std::array<uint8_t, 256 * 32> g_menu_tiles{};
 std::array<uint8_t, 224> g_menu_widths{};
@@ -58,6 +59,7 @@ const char* ui_text(const char* english) {
     return english;
 }
 void config_ui_set_game_page(void (*draw)()) { g_game_page_draw = draw; }
+void config_ui_set_music_page(void (*draw)()) { g_music_page_draw = draw; }
 void config_ui_set_game_switches(const GameOptionSwitch* switches, int count) {
     g_game_switches = switches;
     g_game_switch_count = switches ? count : 0;
@@ -1301,6 +1303,9 @@ void draw_troubleshooting_page(ConfigUiState* st) {
 
 void draw_game_page() {
     section("Game");
+    bool confirm_quit = game_option_get(kOptionConfirmQuit, 1) != 0;
+    if (setting_checkbox("Confirm before quitting", &confirm_quit))
+        game_option_set(kOptionConfirmQuit, confirm_quit ? 1 : 0);
     for (int i = 0; i < g_game_switch_count; ++i) {
         const GameOptionSwitch& s = g_game_switches[i];
         if (std::strcmp(s.key, walk_through_walls::kOptionKey) == 0) continue;
@@ -1309,6 +1314,81 @@ void draw_game_page() {
         caption(s.caption);
     }
     if (g_game_page_draw) g_game_page_draw();
+}
+
+void draw_quit_confirmation(ConfigUiState* st) {
+    using Confirmation = ConfigUiState::QuitConfirmation;
+    if (st->quit_confirmation != Confirmation::Open) return;
+    const char* title = ui_text("Quit Game###QuitConfirmation");
+    if (!ImGui::IsPopupOpen(title)) {
+        g_capture = Capture::None;
+        ImGui::OpenPopup(title);
+    }
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowViewport(viewport->ID);
+    ImGui::SetNextWindowPos(viewport->GetWorkCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    const ImGuiStyle& style = ImGui::GetStyle();
+    // The entire prompt, including both choices, must fit in the 1x window.
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, style.FramePadding);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+                        ImVec2(style.FramePadding.x, style.ItemInnerSpacing.y));
+    const char* opt_out = ui_text("Don't ask again");
+    const char* warning = ui_text(kQuitWarning);
+    const ImVec2 maximum_size(
+        std::max(1.0f, viewport->WorkSize.x - 2 * style.DisplaySafeAreaPadding.x),
+        std::max(1.0f, viewport->WorkSize.y - 2 * style.DisplaySafeAreaPadding.y));
+    const float available = std::max(1.0f, maximum_size.x -
+        2 * (style.WindowPadding.x + style.PopupBorderSize));
+    const float font_size = ImGui::GetFontSize();
+    const float button_padding = 4 * style.FramePadding.x + style.ItemSpacing.x;
+    const float button_text = ImGui::CalcTextSize(ui_text("Cancel")).x +
+        ImGui::CalcTextSize(ui_text("Quit Game")).x;
+    const float checkbox_padding = 2 * style.FramePadding.y + style.ItemInnerSpacing.x;
+    const float checkbox_text = ImGui::CalcTextSize(opt_out).x + font_size;
+    const float fixed_height = 2 * (style.WindowPadding.y +
+        style.PopupBorderSize + style.ItemSpacing.y) +
+        6 * style.FramePadding.y;
+    float font_scale = 1.0f;
+    if (available > std::max(button_padding, checkbox_padding) &&
+        maximum_size.y > fixed_height) {
+        font_scale = std::min({font_scale, (available - button_padding) / button_text,
+                               (available - checkbox_padding) / checkbox_text});
+        const float warning_height = ImGui::GetFont()->CalcTextSizeA(
+            font_size * font_scale, FLT_MAX, available, warning).y;
+        const float text_height = warning_height + 3 * font_size * font_scale;
+        font_scale *= std::min(1.0f, (maximum_size.y - fixed_height) / text_height);
+        // Fractional line heights can leave a scrollbar on an auto-sized
+        // popup when ImGui rounds its window dimensions to whole pixels.
+        font_scale = std::max(1.0f, std::floor(font_size * font_scale)) / font_size;
+    }
+
+    ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), maximum_size);
+    const bool open = ImGui::BeginPopupModal(title, nullptr,
+        ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings);
+    if (!open) {
+        ImGui::PopStyleVar(2);
+        return;
+    }
+
+    ImGui::SetWindowFontScale(font_scale);
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + available);
+    ImGui::TextUnformatted(warning);
+    ImGui::PopTextWrapPos();
+    ImGui::Checkbox(opt_out, &st->quit_dont_ask_again);
+
+    const bool cancel = native_button("Cancel") ||
+        (!ImGui::IsWindowAppearing() &&
+         (ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+          ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)));
+    ImGui::SetItemDefaultFocus();
+    ImGui::SameLine();
+    const bool quit = native_button("Quit Game");
+    if (cancel) st->quit_confirmation = Confirmation::Cancel;
+    else if (quit) st->quit_confirmation = st->quit_dont_ask_again
+        ? Confirmation::QuitAndDisable : Confirmation::Quit;
+    if (st->quit_confirmation != Confirmation::Open) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    ImGui::PopStyleVar(2);
 }
 
 void draw_cheats_page(ConfigUiState* st) {
@@ -1608,6 +1688,14 @@ void config_ui_set_edition_badge(const char* bitmap_path, const char* caption,
 
 bool config_ui_visible() { return g_ready && g_visible; }
 
+bool config_ui_text_input_active() {
+    if (!g_ready || !ImGui::GetCurrentContext()) return false;
+    // WantTextInput is updated on NewFrame; inspect the active editor too
+    // so a shortcut cannot steal the first character after a mouse click.
+    return ImGui::GetIO().WantTextInput ||
+        ImGui::GetInputTextState(ImGui::GetActiveID()) != nullptr;
+}
+
 void config_ui_draw_menu_frame(float x, float y, float width, float height) {
     draw_menu_frame(ImVec2(x, y), ImVec2(width, height));
 }
@@ -1621,18 +1709,19 @@ void config_ui_set_visible(bool on) {
 
 void config_ui_toggle() { config_ui_set_visible(!g_visible); }
 
-bool config_ui_handle_event(const SDL_Event* e) {
+bool config_ui_handle_event(const SDL_Event* e, bool quit_modal) {
     if (!g_ready || !e) return false;
 
     // A live capture outranks everything: the very next key or pad press is
     // the binding and must not reach ImGui (which would treat it as UI input)
     // or the guest (which would treat it as gameplay).
-    if (g_visible && g_capture != Capture::None) {
+    if (!quit_modal && g_visible && g_capture != Capture::None) {
         if (e->type == SDL_KEYDOWN && e->key.repeat == 0) return true;
         if (e->type == SDL_CONTROLLERBUTTONDOWN) return true;
     }
 
-    if (g_visible && g_capture == Capture::None &&
+    if (!quit_modal && g_visible && g_capture == Capture::None &&
+        !config_ui_text_input_active() &&
         e->type == SDL_CONTROLLERBUTTONDOWN &&
         e->cbutton.button == SDL_CONTROLLER_BUTTON_B &&
         !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) {
@@ -1663,7 +1752,8 @@ bool config_ui_handle_event(const SDL_Event* e) {
         // g_config_ui_extra_wants_keyboard (host_config_ui.h). ImGui already
         // has the event via ProcessEvent above; consume it here too so the
         // host doesn't ALSO feed it to guest keyinput or a hotkey.
-        if (!g_config_ui_extra_wants_keyboard || !g_config_ui_extra_wants_keyboard())
+        if (!config_ui_text_input_active() &&
+            (!g_config_ui_extra_wants_keyboard || !g_config_ui_extra_wants_keyboard()))
             return false;
         switch (e->type) {
             case SDL_KEYDOWN: case SDL_KEYUP: case SDL_TEXTINPUT:
@@ -1746,6 +1836,8 @@ void config_ui_draw(ConfigUiState* st) {
     if (!g_ready || !st) return;
     // Escape backs out of a popup before closing the whole settings window.
     const bool popup_was_open = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
+    // Remember focus before NewFrame/InputText handles Escape and releases it.
+    const bool text_input_was_active = config_ui_text_input_active();
 
     {
         std::lock_guard<std::mutex> lock(g_menu_art_mutex);
@@ -1778,7 +1870,7 @@ void config_ui_draw(ConfigUiState* st) {
         const ImGuiStyle& style = ImGui::GetStyle();
         const float margin = style.WindowPadding.x;
         float preferred_w = margin * 2;
-        for (const char* name : {"Video", "Audio", "Controls", "Hotkeys",
+        for (const char* name : {"Video", "Audio", "Music", "Controls", "Hotkeys",
                                 "Speed", "Game", "Cheats", "Help"})
             preferred_w += ImGui::CalcTextSize(ui_text(name)).x + style.FramePadding.x * 2 +
                 style.ItemSpacing.x;
@@ -1868,22 +1960,21 @@ void config_ui_draw(ConfigUiState* st) {
             }
             ImGui::Spacing();
 
-            // Horizontal tab strip and one scrollable page. Game is present
-            // only when this game registered game-owned options.
+            // Horizontal tab strip and one scrollable page. Music is optional.
             struct Page { const char* name; int id; };
             const Page kPages[] = {
-                {"Video", 0}, {"Audio", 1}, {"Controls", 2},
+                {"Video", 0}, {"Audio", 1}, {"Music", 8}, {"Controls", 2},
                 {"Hotkeys", 3}, {"Speed", 4},
                 {"Game", 5}, {"Cheats", 6}, {"Help", 7},
             };
-            const bool show_game = g_game_switch_count > 0 || g_game_page_draw;
-            Page pages[8];
+            Page pages[std::size(kPages)];
             int page_count = 0;
             for (const Page& p : kPages)
-                if (p.id != 5 || show_game) pages[page_count++] = p;
-            if (g_selected_page == 5 && !show_game) g_selected_page = 6;
+                if (p.id != 8 || g_music_page_draw)
+                    pages[page_count++] = p;
+            if (g_selected_page == 8 && !g_music_page_draw) g_selected_page = 1;
             if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
-                g_capture == Capture::None) {
+                g_capture == Capture::None && !text_input_was_active) {
                 const bool left = ImGui::IsKeyPressed(ImGuiKey_GamepadL1, false) ||
                     ImGui::IsKeyPressed(ImGuiKey_PageUp, false);
                 const bool right = ImGui::IsKeyPressed(ImGuiKey_GamepadR1, false) ||
@@ -1897,7 +1988,7 @@ void config_ui_draw(ConfigUiState* st) {
                     g_scroll_to_selected_tab = true;
                 }
             }
-            const char* tab_names[8];
+            const char* tab_names[std::size(kPages)];
             int active_tab = 0;
             for (int i = 0; i < page_count; ++i) {
                 tab_names[i] = pages[i].name;
@@ -1915,7 +2006,8 @@ void config_ui_draw(ConfigUiState* st) {
                 "Set the fast-forward speed. Hold or Toggle bindings are on the Hotkeys tab.",
                 "Adjust game options. Changes take effect as you play.",
                 "Change battle cheats and rewards. Normal reward rates are 1x.",
-                "Turn on crash logging only when investigating a crash or freeze."
+                "Turn on crash logging only when investigating a crash or freeze.",
+                "Adjust game-specific music settings."
             };
             const bool page_changed = g_help_page != g_selected_page;
             if (page_changed) {
@@ -1965,6 +2057,7 @@ void config_ui_draw(ConfigUiState* st) {
                 case 4: draw_turbo_page(st); break;
                 case 5: draw_game_page(); break;
                 case 6: draw_cheats_page(st); break;
+                case 8: if (g_music_page_draw) g_music_page_draw(); break;
                 default: draw_troubleshooting_page(st); break;
             }
             const ImGuiWindow* content_window = ImGui::GetCurrentWindow();
@@ -2060,7 +2153,8 @@ void config_ui_draw(ConfigUiState* st) {
             }
 
             // Esc closes the menu, unless it is cancelling a bind capture.
-            if (!popup_was_open && g_capture == Capture::None &&
+            if (st->quit_confirmation != ConfigUiState::QuitConfirmation::Open &&
+                !popup_was_open && !text_input_was_active && g_capture == Capture::None &&
                 ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
                 ImGui::IsKeyPressed(ImGuiKey_Escape, false))
                 window_open = false;
@@ -2078,6 +2172,7 @@ void config_ui_draw(ConfigUiState* st) {
     // Game-owned extra ImGui content (see host_config_ui.h). Drawn every
     // frame, independent of g_visible, same as the debug overlay above.
     if (g_config_ui_extra_draw) g_config_ui_extra_draw();
+    draw_quit_confirmation(st);
 
     ImGui::Render();
     if (g_use_opengl) {
@@ -2106,8 +2201,9 @@ namespace gbarecomp {
 bool config_ui_init(SDL_Window*, SDL_Renderer*, bool) { return false; }
 void config_ui_shutdown() {}
 void config_ui_set_edition_badge(const char*, const char*, const char*) {}
-bool config_ui_handle_event(const SDL_Event*) { return false; }
+bool config_ui_handle_event(const SDL_Event*, bool) { return false; }
 bool config_ui_visible() { return false; }
+bool config_ui_text_input_active() { return false; }
 void config_ui_draw_menu_frame(float, float, float, float) {}
 void config_ui_toggle() {}
 void config_ui_set_visible(bool) {}

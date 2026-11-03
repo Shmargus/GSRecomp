@@ -14,6 +14,9 @@
 // Golden Sun 1 features are brought over one at a time, each re-measured on
 // this ROM; none of GS1's addresses apply here.
 
+// The engine plug-in calls this runner's main directly.
+#define SDL_MAIN_HANDLED
+
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -27,14 +30,17 @@
 #include "view_config.h"
 #include "tla.h"
 #include "host_config_ui.h"
-#include "../../The Broken Seal/src/spanish_menu.h"
-#include "../../The Broken Seal/src/italian_menu.h"
-#include "../../The Broken Seal/src/french_menu.h"
-#include "../../The Broken Seal/src/german_menu.h"
+#include "../../shared_game/field_character.h"
+#include "../../shared_game/spanish_menu.h"
+#include "../../shared_game/italian_menu.h"
+#include "../../shared_game/french_menu.h"
+#include "../../shared_game/german_menu.h"
 
 namespace {
 
 void on_function_entry(std::uint32_t pc) {
+    if (tla_retreat_travel_on_entry(pc)) return;
+    gsr::field_character::on_entry(pc);
     tla_publish_menu_art();
     tla_text_on_entry(pc);
     tla_gpu_field_on_entry(pc);
@@ -120,6 +126,16 @@ int main(int argc, char** argv) {
     tla_install_text(options);
     tla_install_rewind();
     tla_install_gpu_field();
+    tla_install_retreat_travel(options);
+    {
+        namespace field = gsr::field_character;
+        static const field::Game walking_character{
+            TLA_ROM(0x08021A84u), TLA_ROM(0x08300000u), 0x0300006Cu,
+            0x02000458u, 0x18u, 0x19u, 0x1Cu,
+            field::kHeroes, {},
+        };
+        field::install(walking_character);
+    }
     options.function_entry_observer = on_function_entry;
     options.builtin_game_name = "Golden Sun: The Lost Age";
     options.builtin_rom_sha1 = tla_rom::sha1();

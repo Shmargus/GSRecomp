@@ -11,8 +11,8 @@
 // party's strength. Off by default (launcher switch, custom_battle_option.h).
 // The game's own dialogue window, Yes/No menu and battle setup do the work;
 // the runner asks the extra questions, shows the opponent panel (number, then
-// each monster from a list with its battle picture) and hands the game the
-// chosen list.
+// each monster from a list with its battle picture, plus an Arena tab that
+// picks the battle backdrop) and hands the game the chosen list and arena.
 //
 // One copy of the rules; each game installs its measured addresses (Game)
 // and its own catalogue: custom_battle_tbs.cpp (FACTS.md "Custom Battle
@@ -109,6 +109,14 @@ struct Game {
     std::uint32_t stat_adjust_pc, stat_adjust_return;
     std::uint32_t small_enemy_pc, enemy_data_pc;
     std::uint32_t party_count_pc, party_ids, battle_context_ptr, byte_flag_pc;
+    // Arena tab. arena_table: the game's room-to-backdrop table, u32 entries
+    // ending at 0; an entry with bit 31 set names a backdrop asset in its low
+    // 16 bits. arena_offset: where the battle context caches the room's
+    // backdrop asset (u16) before the graphics loader reads it; a chosen
+    // arena is written there. arena_variant: a backdrop the game can pick
+    // that the table does not list (0 for none).
+    std::uint32_t arena_table;
+    unsigned arena_offset, arena_variant;
     // Formations: rows of `formation_row` bytes, five members (ID - 8) as
     // bytes or halfwords, minimum counts (all zero: Battle Mode refuses the
     // row) and maximum counts as bytes.
@@ -153,10 +161,12 @@ bool read_flag(unsigned flag);
 
 // What the opponent panel shows, for the runner's painter
 // (custom_battle_panel.h).
+enum class Page { Monsters, Bosses, Arena, Count };
+
 struct PanelView {
     bool open = false;
     int tile_y = 0;              // the panel's top tile row
-    bool bosses = false;         // the Bosses page, else Monsters
+    Page page = Page::Monsters;
     std::vector<std::string> rows;  // the visible names, empty when none fit
     int selected = 0;            // into rows
     bool more_above = false, more_below = false;

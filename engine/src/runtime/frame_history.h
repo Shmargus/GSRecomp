@@ -60,6 +60,7 @@ struct HistoryFrame {
 
 class FrameHistory {
 public:
+    enum class ReportNotice { None, Manual, Automatic };
     static constexpr std::size_t kFrames = 120;
 
     explicit FrameHistory(const char* folder_prefix) : prefix_(folder_prefix) {}
@@ -86,6 +87,10 @@ public:
     std::string write(const std::string& note = {},
                       const char* note_file = "note.txt") const;
 
+    // Call after recording the picture, before painting any report notice.
+    ReportNotice update_report(const std::string* automatic_note,
+                               const char* note_file = "note.txt");
+
 private:
     const HistoryFrame& oldest_first(std::size_t i) const;
 
@@ -94,6 +99,9 @@ private:
     std::size_t next_ = 0, count_ = 0;
     double last_present_ms_ = -1.0;
     unsigned long long last_live_guest_ = 0;
+    bool f12_was_down_ = false;
+    ReportNotice report_notice_ = ReportNotice::None;
+    unsigned long long report_notice_until_ = 0;
 };
 
 }  // namespace gbarecomp

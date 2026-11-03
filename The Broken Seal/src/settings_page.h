@@ -1,6 +1,6 @@
 #pragma once
 
-#include "settings_page_labels.h"
+#include "../../shared_game/settings_page_labels.h"
 #include "view_config.h"
 
 #include <cstdint>
@@ -130,7 +130,7 @@ inline constexpr auto& kScreenWords = gbarecomp::kViewModeLabels;
 constexpr const char* kOnOffWords[2] = {"Off", "On"};
 // Better Field Psy (docs/features/IN_GAME_QOL.md): On runs a field
 // Psynergy cast at battle 2x and opens Reveal's circle to the whole view
-// (FieldSceneRenderer::set_reveal_full).
+// (FieldSceneRenderer::set_reveal_full), and adds overworld Retreat travel.
 constexpr const char* kFieldPsynergyWords[2] = {"Off", "On"};
 
 // Random encounters (FACTS.md, 2026-09-23). The field's encounter step

@@ -53,8 +53,8 @@
 #include "runtime.h"
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
-#include "../../The Broken Seal/src/enemy_hp_bar.h"
-#include "../../The Broken Seal/src/trackers.h"
+#include "../../shared_game/enemy_hp_bar.h"
+#include "../../shared_game/trackers.h"
 #include "tla.h"
 
 namespace {

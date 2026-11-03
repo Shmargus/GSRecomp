@@ -742,6 +742,7 @@ if(GSR_BUILD_LOCAL_RUNNER)
 
     set(GSR_ENGINE_SOURCES
         src/runner_main.cpp
+        src/frame_capture.cpp
         src/map_recorder.cpp
         src/obj_recorder.cpp
         src/room_buffer.cpp
@@ -752,15 +753,15 @@ if(GSR_BUILD_LOCAL_RUNNER)
         "${GBARECOMP_ROOT}/src/field/effect_particles.cpp"
         src/effect_sources.cpp
         "${GBARECOMP_ROOT}/src/field/effect_capture.cpp"
-        src/gs_text_encode.cpp
-        src/custom_battle.cpp
+        "${CMAKE_SOURCE_DIR}/../shared_game/gs_text_encode.cpp"
+        "${CMAKE_SOURCE_DIR}/../shared_game/custom_battle.cpp"
         src/custom_battle_tbs.cpp
-        src/enemy_hp_bar.cpp
+        "${CMAKE_SOURCE_DIR}/../shared_game/enemy_hp_bar.cpp"
         src/unpacker_catch.cpp
-        src/unpacker_guard.cpp
+        "${CMAKE_SOURCE_DIR}/../shared_game/unpacker_guard.cpp"
         # Which ROM revision runs; USA addresses -> that revision (src/rom_version.h).
         src/rom_version.cpp
-        # The Unpacker audit test option's sandbox (src/unpacker_guard.h).
+        # The Unpacker audit test option's sandbox (shared_game/unpacker_guard.h).
         "${GSR_PLAYER_BUILDER_DIR}/guest_call.cpp"
         "${GBARECOMP_ROOT}/src/field/effect_burst.cpp"
         "${GBARECOMP_ROOT}/src/runtime/gpu_surface.cpp")
@@ -981,39 +982,6 @@ if(GSR_BUILD_LOCAL_RUNNER)
             BUILD_WITH_INSTALL_RPATH ON INSTALL_RPATH "$ORIGIN")
         target_link_options(GoldenSunRecomp PRIVATE -static-libstdc++ -static-libgcc)
     elseif(GSR_SPLIT_GAME_CODE AND NOT MSVC)
-        # The tables the engine reads from the game code, by name. Every
-        # dispatch_table*.cpp (and the stamps' stamp_registry.cpp) defines
-        # them as `extern "C" const ... NAME`.
-        set(GSR_GAME_DEF "${CMAKE_BINARY_DIR}/GoldenSunGame.def")
-        set(GSR_GAME_DEF_TEXT "LIBRARY GoldenSunGame.dll\nEXPORTS\n")
-        set(GSR_GAME_TABLE_FILES ${GSR_GAME_SOURCES})
-        list(FILTER GSR_GAME_TABLE_FILES INCLUDE REGEX "/(dispatch_table|stamp_registry|rom_identity)[^/]*\\.cpp$")
-        foreach(GSR_TABLE_FILE IN LISTS GSR_GAME_TABLE_FILES)
-            file(STRINGS "${GSR_TABLE_FILE}" GSR_TABLE_LINES
-                REGEX "^extern \"C\" const ")
-            foreach(GSR_TABLE_LINE IN LISTS GSR_TABLE_LINES)
-                if(GSR_TABLE_LINE MATCHES "([A-Za-z_][A-Za-z0-9_]*)(\\[\\])? =")
-                    string(APPEND GSR_GAME_DEF_TEXT "    ${CMAKE_MATCH_1} DATA\n")
-                endif()
-            endforeach()
-        endforeach()
-        file(WRITE "${GSR_GAME_DEF}.tmp" "${GSR_GAME_DEF_TEXT}")
-        file(COPY_FILE "${GSR_GAME_DEF}.tmp" "${GSR_GAME_DEF}" ONLY_IF_DIFFERENT)
-
-        # The exe imports those tables from GoldenSunGame.dll through an
-        # import library made from the .def alone, so the exe never waits
-        # on (or depends on) the DLL being built.
-        set(GSR_GAME_IMPLIB "${CMAKE_BINARY_DIR}/libGoldenSunGame_tables.a")
-        find_program(GSR_DLLTOOL dlltool REQUIRED)
-        add_custom_command(OUTPUT "${GSR_GAME_IMPLIB}"
-            COMMAND "${GSR_DLLTOOL}" -d "${GSR_GAME_DEF}" -l "${GSR_GAME_IMPLIB}"
-                    -D GoldenSunGame.dll
-            DEPENDS "${GSR_GAME_DEF}"
-            COMMENT "Import library for GoldenSunGame.dll's tables")
-        add_custom_target(gsr_game_tables_implib DEPENDS "${GSR_GAME_IMPLIB}")
-        add_dependencies(GoldenSunRecomp gsr_game_tables_implib)
-        target_link_libraries(GoldenSunRecomp PRIVATE "${GSR_GAME_IMPLIB}")
-
         # The game code: no LTO (it calls shared engine helpers, which is
         # what LTO used to copy into it), compiled once and reused until the
         # translated code changes. Objects first, so the exe's export list
@@ -1036,49 +1004,12 @@ if(GSR_BUILD_LOCAL_RUNNER)
             "${GBARECOMP_ROOT}/src/runtime"
             "${GBARECOMP_ROOT}/src/debug"
             "${CMAKE_SOURCE_DIR}/config/usa")
-        add_library(GoldenSunGame SHARED $<TARGET_OBJECTS:gsr_game_objects>)
-        set_target_properties(GoldenSunGame PROPERTIES
-            PREFIX ""
-            INTERPROCEDURAL_OPTIMIZATION FALSE
-            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
-        set(GSR_ENGINE_API_IMPLIB "${CMAKE_BINARY_DIR}/libGoldenSunRecomp_api.a")
-        add_dependencies(GoldenSunGame GoldenSunRecomp)
-        target_link_libraries(GoldenSunGame PRIVATE "${GSR_ENGINE_API_IMPLIB}")
-        target_link_options(GoldenSunGame PRIVATE "${GSR_GAME_DEF}")
 
-        # What the exe exports: every symbol the game objects use that the
-        # engine defines (cmake/gsr_engine_exports.cmake), worked out right
-        # before the exe links. Exporting everything instead fails under
-        # LTO ("cannot export ...: symbol wrong type").
-        # gcc-nm, not nm: the engine objects hold LTO bytecode, which only
-        # the compiler's plugin can list.
-        find_program(GSR_GCC_NM gcc-nm REQUIRED)
-        set(GSR_ENGINE_EXPORTS "${CMAKE_BINARY_DIR}/GoldenSunRecomp_exports.def")
-        set(GSR_ENGINE_EXPORTS_RSP "${CMAKE_BINARY_DIR}/GoldenSunRecomp_exports.rsp")
-        file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/gsr_game_objects.txt"
-            CONTENT "$<JOIN:$<TARGET_OBJECTS:gsr_game_objects>,\n>\n")
-        file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/gsr_engine_inputs.txt"
-            CONTENT "$<TARGET_FILE:gbarecomp_runtime>\n$<TARGET_FILE:gbarecomp_debug>\n$<TARGET_FILE:gbarecomp_gba>\n$<TARGET_FILE:gbarecomp_armv4t>\n$<JOIN:$<TARGET_OBJECTS:GoldenSunRecomp>,\n>\n")
-        add_dependencies(GoldenSunRecomp gsr_game_objects)
-        add_custom_command(TARGET GoldenSunRecomp PRE_LINK
-            COMMAND "${CMAKE_COMMAND}"
-                "-DNM=${GSR_GCC_NM}"
-                "-DGAME_LIST=${CMAKE_BINARY_DIR}/gsr_game_objects.txt"
-                "-DENGINE_LIST=${CMAKE_BINARY_DIR}/gsr_engine_inputs.txt"
-                "-DOUT=${GSR_ENGINE_EXPORTS}"
-                "-DOUT_RSP=${GSR_ENGINE_EXPORTS_RSP}"
-                -P "${CMAKE_SOURCE_DIR}/cmake/gsr_engine_exports.cmake"
-            # The DLL's import library comes from the same list. The one ld
-            # writes with --out-implib under LTO leaves out exports the
-            # engine itself never calls (2026-09-26).
-            COMMAND "${GSR_DLLTOOL}" -d "${GSR_ENGINE_EXPORTS}"
-                -l "${GSR_ENGINE_API_IMPLIB}" -D GoldenSunEngine.dll
-            BYPRODUCTS "${GSR_ENGINE_EXPORTS}" "${GSR_ENGINE_EXPORTS_RSP}"
-                       "${GSR_ENGINE_API_IMPLIB}"
-            WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
-            VERBATIM)
-        target_link_options(GoldenSunRecomp PRIVATE "${GSR_ENGINE_EXPORTS}"
-            "@${GSR_ENGINE_EXPORTS_RSP}")
+        set(GSR_GAME_TABLE_FILES ${GSR_GAME_SOURCES})
+        list(FILTER GSR_GAME_TABLE_FILES INCLUDE REGEX "/(dispatch_table|stamp_registry|rom_identity)[^/]*\\.cpp$")
+        include("${CMAKE_SOURCE_DIR}/../scripts/windows_split_game.cmake")
+        gsr_windows_split_game(gsr GoldenSunRecomp GoldenSunGame GoldenSunEngine.dll
+            "${GSR_GAME_TABLE_FILES}")
     endif()
 
     if(TARGET GoldenSunPlayer)

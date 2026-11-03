@@ -44,12 +44,12 @@
 
 #include <fcntl.h>
 #include <signal.h>
-#include <sys/prctl.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include "crash_handler.h"
 #include "launcher_common.h"
+#include "collection_build.h"
 #include "launcher_build_progress.h"
 #include "launcher_logo.h"
 #include "collection_session.h"
@@ -196,121 +196,8 @@ std::string pick_rom_with_dialog(const std::string& start_dir, bool* no_dialog) 
 
 // ---------------------------------------------------------------- game code
 
-// The builder runs in the background; the window shows its progress lines.
-struct BuildState {
-    std::mutex mutex;
-    bool running = false;
-    bool finished = false;
-    bool succeeded = false;
-    std::string stage;
-    int done = 0, total = 0;
-    std::string error;
-    pid_t pid = 0;
-} g_build;
-std::thread g_build_thread;
+gsr_collection::CollectionBuild g_build;
 std::string g_build_rom;
-
-void show_message(const std::string& title, const std::string& message, bool error);
-
-void start_game_build(const std::string& rom) {
-    const fs::path builder = g_root / "builder" / "gsr_builder";
-    std::error_code exists_ec;
-    if (!fs::is_regular_file(builder, exists_ec)) {
-        launcher_log("Build: builder/gsr_builder is missing.");
-        show_message("Part of Golden Sun Recompiled is missing",
-                     "builder/gsr_builder was not found.\n\nPlease unpack the whole "
-                     "download again.", true);
-        return;
-    }
-    int pipe_fd[2];
-    if (pipe(pipe_fd) != 0) {
-        launcher_log(std::string("Build: no pipe for the builder: ") + std::strerror(errno));
-        show_message("The game builder could not start", std::strerror(errno), true);
-        return;
-    }
-    const std::string builder_s = builder.string(), dir_s = builder.parent_path().string();
-    std::string rom_arg = rom;
-    std::vector<char*> argv = {const_cast<char*>(builder_s.c_str()),
-                               const_cast<char*>("--rom"), rom_arg.data(), nullptr};
-    const pid_t parent = getpid();
-    const pid_t pid = fork();
-    if (pid < 0) {
-        const std::string why = std::strerror(errno);
-        close(pipe_fd[0]);
-        close(pipe_fd[1]);
-        launcher_log("Build: the builder could not start: " + why);
-        show_message("The game builder could not start", why, true);
-        return;
-    }
-    if (pid == 0) {
-        // Closing the launcher mid-build stops the builder (and it stops
-        // its compilers the same way).
-        prctl(PR_SET_PDEATHSIG, SIGTERM);
-        if (getppid() != parent) _exit(127);
-        dup2(pipe_fd[1], 1);
-        dup2(pipe_fd[1], 2);
-        close(pipe_fd[0]);
-        close(pipe_fd[1]);
-        if (chdir(dir_s.c_str()) != 0) _exit(127);
-        execv(builder_s.c_str(), argv.data());
-        _exit(127);
-    }
-    close(pipe_fd[1]);
-    launcher_log("Build: started (log: builder/work/build-log.txt).");
-    {
-        std::lock_guard<std::mutex> lock(g_build.mutex);
-        g_build.running = true;
-        g_build.finished = false;
-        g_build.succeeded = false;
-        g_build.stage = "Starting";
-        g_build.done = g_build.total = 0;
-        g_build.error.clear();
-        g_build.pid = pid;
-    }
-    g_build_rom = rom;
-    if (g_build_thread.joinable()) g_build_thread.join();
-    g_build_thread = std::thread([read_fd = pipe_fd[0], pid] {
-        std::string pending;
-        char buf[4096];
-        bool done = false;
-        std::string error;
-        ssize_t n;
-        while ((n = read(read_fd, buf, sizeof(buf))) > 0 ||
-               (n < 0 && errno == EINTR)) {
-            if (n < 0) continue;
-            pending.append(buf, static_cast<std::size_t>(n));
-            std::size_t nl;
-            while ((nl = pending.find('\n')) != std::string::npos) {
-                const std::string line = trim(pending.substr(0, nl));
-                pending.erase(0, nl + 1);
-                std::lock_guard<std::mutex> lock(g_build.mutex);
-                if (line.rfind("@stage ", 0) == 0) {
-                    g_build.stage = line.substr(7);
-                    g_build.done = g_build.total = 0;
-                } else if (line.rfind("@progress ", 0) == 0) {
-                    std::sscanf(line.c_str() + 10, "%d %d", &g_build.done,
-                                &g_build.total);
-                } else if (line == "@done") {
-                    done = true;
-                } else if (line.rfind("@error ", 0) == 0) {
-                    error = line.substr(7);
-                }
-            }
-        }
-        close(read_fd);
-        int status = 0;
-        waitpid(pid, &status, 0);
-        const bool exited_ok = WIFEXITED(status) && WEXITSTATUS(status) == 0;
-        std::lock_guard<std::mutex> lock(g_build.mutex);
-        g_build.running = false;
-        g_build.finished = true;
-        g_build.succeeded = done && exited_ok;
-        g_build.error = error.empty() && !g_build.succeeded
-                            ? std::string("The build stopped unexpectedly.")
-                            : error;
-        g_build.pid = 0;
-    });
-}
 
 // ---------------------------------------------------------------- the game
 
@@ -358,7 +245,7 @@ struct GameResult {
     bool started = false;
     bool crashed = false;
     // The unpacker guard caught its crash (unpacker_recovered.txt,
-    // src/unpacker_guard.h).
+    // shared_game/unpacker_guard.h).
     bool unpacker = false;
     int exit_code = 0;
     std::string rom;
@@ -600,31 +487,22 @@ namespace {
 // folder when packing failed.
 std::vector<fs::path> make_bug_report(const GameResult& game) {
     const fs::path logs_dir = g_root / "logs";
-    const fs::path reports = logs_dir / "bug_reports";
-    std::error_code ec;
-    fs::create_directories(reports, ec);
-    std::string name = fs::path(game.log_path).stem().string();
-    if (name.rfind("session_", 0) == 0) name = name.substr(8);
-    if (name.empty()) name = "latest";
-    name = "bug_report_" + name;
-    const fs::path staging = reports / name;
-    fs::remove_all(staging, ec);
-    fs::create_directories(staging, ec);
-    const std::string stem = fs::path(game.log_path).stem().string();
-    for (const auto& entry : fs::directory_iterator(logs_dir, ec))
-        if (entry.path().filename().string().rfind(stem, 0) == 0)
-            copy_into_report(entry.path(), staging);
-    copy_into_report(logs_dir / "launcher.log", staging);
-    // The game's save (the managed one in collection play, else beside the ROM:
-    // runtime.cpp uses the ROM path with .sav), so the problem can be replayed.
+    fs::path save;
     if (!game.rom.empty())
-        copy_into_report(!g_test_progress.save.empty() ? g_test_progress.save : g_collection_play ? g_managed.save :
-            fs::path(game.rom).replace_extension(".sav"), staging);
-    copy_report_files(g_root, g_root, g_root, game.crashed, staging);
-    write_text(staging / "report_info.txt",
-               report_info_text("System: Linux, " + os_release_name(),
-                                game.new_rewinds.size(), game.crashed,
-                                game.unpacker, game.exit_code));
+        save = !g_test_progress.save.empty() ? g_test_progress.save : g_collection_play ? g_managed.save :
+            fs::path(game.rom).replace_extension(".sav");
+    const auto staged = stage_bug_report(
+        {g_root, g_root, g_root, game.log_path, save, game.crashed},
+        report_info_text("System: Linux, " + os_release_name(), game.new_rewinds.size(),
+                         game.crashed, game.unpacker, game.exit_code));
+    const auto& staging = staged.folder;
+    if (!staged.errors.empty()) {
+        launcher_log("Bug report incomplete: " + staged.errors);
+        return {staging};
+    }
+    const auto reports = staging.parent_path();
+    const auto name = staging.filename().string();
+    std::error_code ec;
 
     std::vector<fs::path> archives;
     const std::size_t parts = std::max<std::size_t>(1, game.new_rewinds.size());
@@ -998,7 +876,11 @@ void use_rom(const std::string& selected_rom) {
     g_ui.pending_rom.clear();
     if (preparation != PreparationState::Ready) {
         launcher_log("The game needs preparation: building it.");
-        start_game_build(rom);
+        if (g_build.start(g_collection_root, session_game_index, rom, error)) {
+            g_build_rom = rom;
+        } else {
+            show_message("The game builder could not start", error, true);
+        }
         return;
     }
     launcher_log("Starting the game.");
@@ -1154,23 +1036,13 @@ int gsr_session_main(int game, int argc, char** argv) {
         }
 
         // A build that just finished: play, or say why not.
-        bool build_running = false, build_finished = false, build_ok = false;
-        std::string build_error, stage;
-        int done = 0, total = 0;
-        {
-            std::lock_guard<std::mutex> lock(g_build.mutex);
-            build_running = g_build.running;
-            build_finished = g_build.finished;
-            build_ok = g_build.succeeded;
-            build_error = g_build.error;
-            stage = g_build.stage;
-            done = g_build.done;
-            total = g_build.total;
-            g_build.finished = false;
-        }
-        if (build_finished) {
-            if (g_build_thread.joinable()) g_build_thread.join();
-            if (build_ok) write_text(g_root / session_game().release_stamp, release_fingerprint(g_root));
+        const auto build = g_build.poll();
+        const auto& stage = build.stage;
+        const auto& build_error = build.error;
+        const int done = build.done, total = build.total;
+        const bool build_running = build.running;
+        if (build.finished) {
+            const bool build_ok = build.succeeded;
             ready = build_ok && session_ready();
             launcher_log(ready      ? std::string("Build: finished, the game is ready.")
                          : build_ok ? std::string("Build: finished, but the game files do "
@@ -1189,7 +1061,7 @@ int gsr_session_main(int game, int argc, char** argv) {
                 }
             } else {
                 show_message("The game could not be prepared",
-                             build_error + "\n\nThe full log is builder/work/build-log.txt.",
+                             build_error + "\n\nThe full log is local/collection-build.log.",
                              true);
             }
         }
@@ -1600,10 +1472,9 @@ int gsr_session_main(int game, int argc, char** argv) {
                             "username above only if you typed one. Your user name is taken out. "
                             "Nothing is sent unless you press Send report.";
                     } else {
-                        g_ui.message = "It could not be packed: " +
+                        g_ui.message = "A complete report could not be prepared: " +
                                        g_ui.reports.front().string() +
-                                       "\nPlease pack this folder (and any gpu_rewind folders "
-                                       "next to it) and add it to the report form.";
+                                       "\nCheck report_info.txt or launcher.log for details.";
                     }
                     g_ui.dialog = Dialog::BugReport;
                 } else {
@@ -1615,11 +1486,7 @@ int gsr_session_main(int game, int argc, char** argv) {
         }
     }
 
-    {
-        std::lock_guard<std::mutex> lock(g_build.mutex);
-        if (g_build.pid > 0) kill(g_build.pid, SIGTERM);
-    }
-    if (g_build_thread.joinable()) g_build_thread.join();
+    g_build.stop();
     if (g_ui.sender.joinable()) g_ui.sender.join();
     ImGui_ImplSDLRenderer2_Shutdown();
     ImGui_ImplSDL2_Shutdown();

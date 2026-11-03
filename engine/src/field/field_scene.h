@@ -224,6 +224,21 @@ struct FieldScene {
     // Four int32 per row: BG2 x/y then BG3 x/y, as latched for that row.
     std::array<std::array<std::int32_t, 4>, kRows> row_affine{};
     std::array<bool, kRows> row_affine_valid{};
+
+    const std::uint8_t* registers_for_row(int y) const {
+        return row_io_valid[y] ? row_io[y].data() : io_bytes.data();
+    }
+
+    std::array<std::int32_t, 2> affine_reference_for_row(int y, int bg) const {
+        if (row_affine_valid[y]) {
+            const int slot = (bg - 2) * 2;
+            return {row_affine[y][slot], row_affine[y][slot + 1]};
+        }
+        const SceneLayer& layer = layers[bg];
+        return {layer.affine_ref_x + y * layer.affine_pb,
+                layer.affine_ref_y + y * layer.affine_pd};
+    }
+
     // True when no row differs from row 0 in any field a draw call depends on.
     // Golden Sun's battle frames measure this way (FACTS.md, 2026-09-12).
     // The renderer no longer needs this to decide whether it can draw a

@@ -26,6 +26,12 @@ bool tla_custom_battle_text(std::uint32_t text_id, std::string& out);
 bool tla_custom_battle_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
 void tla_custom_battle_reset();
 
+// Overworld Retreat's visited-town picker, under Better Field Psy.
+void tla_install_retreat_travel(gbarecomp::RunOptions& options);
+bool tla_retreat_travel_on_entry(std::uint32_t pc);
+void tla_retreat_travel_reset();
+bool tla_retreat_travel_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
+
 // src/tla_enemy_hp_bar.cpp: the enemy's HP over its name while choosing a
 // target (F1 switch; one copy with The Broken Seal, enemy_hp_bar.h).
 void tla_install_enemy_hp_bar();

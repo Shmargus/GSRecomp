@@ -140,3 +140,13 @@ evidence = "Receptionist r6 base literal 02008D68 = 0x2912; same additions +5/+6
 usa = 0x08032224
 italy = 0x0803236C
 evidence = "Shaded description font: unique S glyph anchor, all 224 advance words validated, and explicit native font/width routine literals. F12 0192; FACTS 2026-11-01."
+
+[[rom]]
+usa = 0x0809E270
+italy = 0x0809E3C8
+evidence = "Battle backdrop room table, unique and byte-identical through its zero sentinel (FACTS, 3 November)."
+
+[[rom]]
+usa = 0x0800AA0C
+italy = 0x0800AA0C
+evidence = "Native sprite animation updater: unique matching 28-byte prologue in the SHA-1-verified ROM. Layer layout verified in disassembly."

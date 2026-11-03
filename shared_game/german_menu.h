@@ -14,6 +14,9 @@
 
 namespace gsr::german_menu {
 inline constexpr gbarecomp::UiTranslation kTable[] = {
+    {"Travel to", "Reisen nach"},
+    {"No visited towns.", "Keine besuchten Städte."},
+    {"A: travel  B: cancel", "A: Reisen  B: Abbrechen"},
     {"Settings", "Optionen"},
     {"Changes saved automatically", "Änderungen automatisch gespeichert"},
     {"Video", "Video"},
@@ -26,6 +29,14 @@ inline constexpr gbarecomp::UiTranslation kTable[] = {
     {"Help", "Hilfe"},
     {"Back", "Zurück"},
     {"Quit Game", "Spiel beenden"},
+    {"Confirm before quitting", "Beenden bestätigen"},
+    {"Walking character", "Spielfigur"},
+    {"Party leader", "Gruppenführer"},
+    {"Original character", "Ursprüngliche Figur"},
+    {"Sheba", "Cosma"},
+    {"Piers", "Aaron"},
+    {"Are you sure you want to quit?\nUnsaved progress will be lost.", "Möchtest du das Spiel wirklich beenden?\nNicht gespeicherter Fortschritt geht verloren."},
+    {"Don't ask again", "Nicht mehr fragen"},
     {"Restore defaults", "Standard wiederherstellen"},
     {"Esc/B: Back   Enter/A: Select", "Esc/B: Zurück   Eingabe/A: Wählen"},
     {"L/R or PgUp/PgDn: Categories\nArrows/D-pad: Move\nEsc/B: Back   Enter/A: Select", "L/R oder Bild auf/ab: Kategorien\nPfeile/Steuerkreuz: Bewegen\nEsc/B: Zurück   Eingabe/A: Wählen"},
@@ -37,6 +48,41 @@ inline constexpr gbarecomp::UiTranslation kTable[] = {
     {"Adjust game options. Changes take effect as you play.", "Passe die Spieloptionen an. Änderungen wirken sofort."},
     {"Change battle cheats and rewards. Normal reward rates are 1x.", "Passe Kampf-Cheats und Belohnungen an. Der normale Faktor ist 1x."},
     {"Turn on crash logging only when investigating a crash or freeze.", "Aktiviere das Absturzprotokoll nur, wenn du einen Absturz oder Stillstand untersuchst."},
+    {"Music", "Musik"},
+    {"Enable area music choices", "Musikauswahl für Gebiete aktivieren"},
+    {"Choose an area, the track it normally plays, and its replacement. Other areas keep their own music.", "Wähle ein Gebiet, seine übliche Musik und den Ersatz. Andere Gebiete behalten ihre eigene Musik."},
+    {"Music Mod uses the chosen track's recording when available; otherwise its original music plays. Changes apply when you resume, after any fade or jingle.", "Der Musik-Mod verwendet die Aufnahme des gewählten Titels, sofern verfügbar; sonst spielt die Originalmusik. Änderungen gelten nach dem Fortsetzen, nach einem Fade oder Jingle."},
+    {"Load a game to choose area music.", "Lade einen Spielstand, um Gebietsmusik auszuwählen."},
+    {"Unlisted area", "Nicht aufgeführtes Gebiet"},
+    {"Current area", "Aktuelles Gebiet"},
+    {"Current track", "Aktueller Titel"},
+    {"No named track playing", "Kein benannter Titel wird abgespielt"},
+    {"Use current area and track", "Aktuelles Gebiet und Titel verwenden"},
+    {"Area", "Gebiet"},
+    {"Original track", "Originaltitel"},
+    {"Choose a track", "Titel auswählen"},
+    {"Replacement track", "Ersatztitel"},
+    {"Default (original track)", "Standard (Originaltitel)"},
+    {"Reset this area", "Gebiet zurücksetzen"},
+    {"Choices are saved. Enable area music choices to hear them.", "Die Auswahl wird gespeichert. Aktiviere die Gebietsmusik, um sie zu hören."},
+    {"Adjust game-specific music settings.", "Spielbezogene Musikeinstellungen anpassen."},
+    {"Areas", "Gebiete"},
+    {"Battle music", "Kampfmusik"},
+    {"Search", "Suchen"},
+    {"Reset", "Zurücksetzen"},
+    {"Default (game music)", "Standard (Spielmusik)"},
+    {"Choose a track for each area or battle theme. Reset restores that entry's game music.", "Wähle für jedes Gebiet oder Kampfthema einen Titel. Zurücksetzen stellt die Spielmusik für diesen Eintrag wieder her."},
+    {"Area choices leave battle music separate. Default follows the game's normal story and location changes.", "Gebietsauswahl und Kampfmusik bleiben getrennt. Die Standardeinstellung folgt dem normalen Spielverlauf und den Ortswechseln."},
+    {"Specific track choices", "Gezielte Titelauswahl"},
+    {"Choose a replacement for this track only.", "Wähle nur für diesen Titel einen Ersatz."},
+    {"Randomize all", "Alles mischen"},
+    {"Reset all", "Alles zurück"},
+    {"Randomize this entry", "Diesen Eintrag mischen"},
+    {"Randomized", "Zufällig"},
+    {"Each original theme has its own replacement.", "Jeder Originaltitel hat einen eigenen Ersatz."},
+    {"Randomize all music, including story themes. Reset all restores every music choice.", "Mischt die gesamte Musik, auch Story-Themen. Alles zurück setzt sämtliche Musikauswahlen zurück."},
+    {"Randomize this area's themes", "Themen dieses Gebiets mischen"},
+    {"Reset all music choices.", "Alle Musikauswahlen zurücksetzen."},
     {"Checked. Select to clear.", "Aktiviert. Zum Ausschalten wählen."},
     {"Unchecked. Select to enable.", "Deaktiviert. Zum Einschalten wählen."},
     {"%.0f%% speed", "%.0f%% Tempo"},
@@ -183,7 +229,7 @@ inline constexpr gbarecomp::UiTranslation kTable[] = {
     {"Set encounter frequency.", "Häufigkeit der Zufallskämpfe."},
     {"Set the view size.", "Ansichtsgröße einstellen."},
     {"Remove in-game slowdown.", "Verhindert Verlangsamung."},
-    {"Faster Psynergy, wider Reveal.", "Psynergy rascher, Enthüllung weiter."},
+    {"Faster Psynergy, wider Reveal, Retreat travel.", "Psynergy schneller, Enthüllung weiter, Reisen per Rückzug."},
     {"Normal", "Normal"},
     {"Half", "Halb"},
     {"Double", "Doppelt"},
@@ -417,6 +463,8 @@ inline constexpr gbarecomp::UiTranslation kTable[] = {
     {"and", "und"},
     {"Monsters", "Monster"},
     {"Bosses", "Bosse"},
+    {"Arena", "Arena"},
+    {"Default", "Standard"},
     {"L/R: page", "L/R: Seite"},
     {"No boss fits.", "Kein Boss passt."},
     {"No monster fits.", "Kein Monster passt."},
@@ -430,8 +478,8 @@ inline constexpr auto kTlaTable = [] {
     std::array<gbarecomp::UiTranslation, std::size(kTable)> result{};
     for (std::size_t i = 0; i < result.size(); ++i) {
         result[i] = kTable[i];
-        if (std::string_view(result[i].english) == "Faster Psynergy, wider Reveal.")
-            result[i].text = "Psynergy schneller, Enthüller weiter.";
+        if (std::string_view(result[i].english) == "Faster Psynergy, wider Reveal, Retreat travel.")
+            result[i].text = "Psynergy schneller, Enthüllung weiter, Reisen per Rückzug.";
     }
     return result;
 }();

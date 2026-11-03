@@ -54,9 +54,10 @@ inline std::string music_folder_list(const std::filesystem::path& collection, in
 }
 
 // The player's choice, or nothing if they were never asked.
-inline std::optional<bool> music_mod_choice(const std::filesystem::path& options_file) {
+inline std::optional<bool> music_mod_choice(const std::filesystem::path& options_file,
+                                           const char* option = gbarecomp::kOptionMusicMod) {
     std::ifstream input(options_file);
-    const std::string key = std::string(gbarecomp::kOptionMusicMod) + "=";
+    const std::string key = std::string(option) + "=";
     std::string line;
     std::optional<bool> choice;
     while (std::getline(input, line))
@@ -65,8 +66,9 @@ inline std::optional<bool> music_mod_choice(const std::filesystem::path& options
 }
 
 // Rewrites the one key and keeps every other line of the game's file.
-inline bool set_music_mod(const std::filesystem::path& options_file, bool on) {
-    const std::string key = std::string(gbarecomp::kOptionMusicMod) + "=";
+inline bool set_music_mod(const std::filesystem::path& options_file, bool on,
+                          const char* option = gbarecomp::kOptionMusicMod) {
+    const std::string key = std::string(option) + "=";
     std::vector<std::string> lines;
     {
         std::ifstream input(options_file);

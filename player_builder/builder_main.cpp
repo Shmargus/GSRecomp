@@ -56,9 +56,11 @@
 #include <vector>
 
 #include "block_timing.h"
+#include "build_record.h"
 #include "guest_call.h"
 #include "sha1.h"
 #include "any_rom.h"
+#include "../launcher/build_resources.h"
 #ifdef _WIN32
 #include "bundled_toolchain.h"
 #endif
@@ -103,7 +105,6 @@ constexpr const char* kGameName = "Golden Sun (USA, Europe)";
 constexpr const char* kBuilderName = "gsr_builder";
 #endif
 #undef GSR_ROM_REVISION
-constexpr const char* kBuilderVersion = "2";  // 2: block timing (block_timing.cpp)
 
 // File names that differ between the Windows and Linux releases. The engine
 // is a plug-in beside the game program on Windows, the program on Linux.
@@ -1003,7 +1004,7 @@ bool apply_block_timing(const Setup& s, std::string* error) {
     return true;
 }
 
-bool compile_and_link(const Setup& s, std::string* error) {
+bool compile_and_link(const Setup& s, std::string* library_sha1, std::string* error) {
     const fs::path gen = gen_dir(s), obj = s.work / "obj";
     fs::create_directories(obj);
     const auto sources = game_sources(gen);
@@ -1100,6 +1101,17 @@ bool compile_and_link(const Setup& s, std::string* error) {
     const fs::path dll = s.out_dir / kGameLibrary;
     fs::path staged = dll;
     staged += ".new";
+    const auto linked_size = fs::file_size(dll_tmp, ec);
+    if (ec || linked_size == 0) {
+        *error = "The linker did not produce a nonempty game library.";
+        return false;
+    }
+    const auto linked = read_bytes(dll_tmp);
+    if (linked.size() != linked_size) {
+        *error = "Could not read the complete linked game library.";
+        return false;
+    }
+    *library_sha1 = sha1_hex(linked.data(), linked.size());
     fs::copy_file(dll_tmp, staged, fs::copy_options::overwrite_existing, ec);
     if (!ec) fs::rename(staged, dll, ec);
     if (ec) {
@@ -1129,7 +1141,7 @@ int usage() {
         "%s --rom <Golden Sun ROM> [--out <dir>] [--work <dir>]\n"
         "            [--data <dir>] [--engine <dir>] [--toolchain <dir>]\n"
         "            [--recompiler <gba_recompile.exe>] [--jobs N]\n"
-        "            [--keep-work] [--generate-only]\n", kBuilderName);
+        "            [--keep-work] [--generate-only] [--low-resources]\n", kBuilderName);
     return 2;
 }
 
@@ -1214,6 +1226,7 @@ int main(int argc, char** cargv) {
     s.recompiler = here / (std::string("gba_recompile") + kExeSuffix);
     s.work = here / "work";
     s.out_dir = here.parent_path();
+    bool reduced = false;
     for (std::size_t i = 1; i < argv.size(); ++i) {
         auto next = [&]() -> fs::path {
             return i + 1 < argv.size() ? fs::u8path(argv[++i]) : fs::path();
@@ -1229,6 +1242,7 @@ int main(int argc, char** cargv) {
         else if (a == "--jobs" && i + 1 < argv.size()) s.jobs = std::stoi(argv[++i]);
         else if (a == "--keep-work") s.keep_work = true;
         else if (a == "--generate-only") s.generate_only = true;
+        else if (a == "--low-resources") reduced = true;
         else return usage();
     }
     if (s.rom.empty()) return usage();
@@ -1236,20 +1250,14 @@ int main(int argc, char** cargv) {
                         &s.out_dir}) {
         *p = fs::absolute(*p).lexically_normal().make_preferred();
     }
-    if (s.jobs <= 0) {
-        // One job per core, but at least ~700 MB of RAM each.
-#ifdef _WIN32
-        MEMORYSTATUSEX mem{sizeof(mem)};
-        GlobalMemoryStatusEx(&mem);
-        const unsigned long long total_ram = mem.ullTotalPhys;
-#else
-        const unsigned long long total_ram =
-            static_cast<unsigned long long>(sysconf(_SC_PHYS_PAGES)) *
-            static_cast<unsigned long long>(sysconf(_SC_PAGE_SIZE));
-#endif
-        const int by_ram = static_cast<int>(total_ram / (700ull << 20));
-        s.jobs = std::max(1, std::min<int>(static_cast<int>(std::thread::hardware_concurrency()), by_ram));
+    const auto resources = gsr_collection::build_resources();
+    if (reduced && !gsr_collection::build_limits_active(resources)) {
+        emit("@error The 50%% CPU/RAM limits could not be verified. The build was not started. Start the build from the collection launcher; Linux needs user CPU and memory controls.");
+        return 1;
     }
+    const int budget_jobs = gsr_collection::player_build_jobs(resources, reduced);
+    if (s.jobs <= 0) s.jobs = budget_jobs;
+    else if (reduced) s.jobs = std::min(s.jobs, budget_jobs);
 
 #ifdef _WIN32
     g_job = CreateJobObjectW(nullptr, nullptr);
@@ -1319,17 +1327,14 @@ int main(int argc, char** cargv) {
 #endif
     if (!s.generate_only) {
         if (!apply_block_timing(s, &error)) return fail(error);
-        if (!compile_and_link(s, &error)) return fail(error);
-        // The launcher rebuilds when any of these change: a different ROM,
-        // a new builder, or a new engine (an update may change what the
-        // game code calls).
+        std::string library_sha1;
+        if (!compile_and_link(s, &library_sha1, &error)) return fail(error);
+        // Record the build inputs and the exact library produced by the linker.
         const auto engine = read_bytes(s.out_dir / kEngineFile);
-        const std::string stamp = std::string("rom_sha1=") + rom_sha1 +
-                                  "\nbuilder=" + kBuilderVersion +
-                                  "\nengine_sha1=" +
-                                  (engine.empty() ? std::string("none")
-                                                  : sha1_hex(engine.data(), engine.size())) +
-                                  "\n";
+        const std::string stamp = gsr_player::write_build_record({
+            rom_sha1, gsr_player::kBuilderVersion,
+            engine.empty() ? "none" : sha1_hex(engine.data(), engine.size()),
+            library_sha1});
         if (!write_text(s.out_dir / kBuildStamp, stamp))
             return fail("Could not save the build record in " + s.out_dir.string() + ".");
         if (!s.keep_work) {

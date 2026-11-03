@@ -28,7 +28,7 @@
 // the records at 0x080EF4A4, room keys 0x080F17A8 + room * 8 + 2; current
 // room/entrance 0x02000420/0x02000422.
 
-#include "../../The Broken Seal/src/trackers.h"
+#include "../../shared_game/trackers.h"
 #include "tla_treasure_tracker_data.h"
 #include "tla_tracker_name_ids.h"
 #include "gba_bus.h"

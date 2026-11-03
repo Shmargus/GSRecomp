@@ -48,7 +48,7 @@
 #include "tla.h"
 // One copy for both games (TLA's CMakeLists.txt): the data unpacker's
 // safety net and its test options.
-#include "../../The Broken Seal/src/unpacker_guard.h"
+#include "../../shared_game/unpacker_guard.h"
 
 struct DispatchEntry { uint32_t addr; uint8_t thumb; void (*fn)(void); };
 
@@ -581,7 +581,8 @@ RuntimeGuestFn tla_ram_dispatch(uint32_t pc, int thumb) {
 
 // The data unpackers (The Broken Seal's Func_2808 and Func_2544, 0x08012B74
 // and 0x080128AC here) are copied behind a `bx pc` stub; their ARM entries
-// are watched like The Broken Seal's (src/unpacker_guard.h). The guard's own
+// are watched by the shared unpacker guard (shared_game/unpacker_guard.h),
+// as in The Broken Seal. The guard's own
 // first-word test keeps this cheap.
 void unpacker_watch_return(uint32_t return_pc, uint32_t) {
     gsr::unpacker_guard_note_return(return_pc);

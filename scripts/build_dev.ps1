@@ -7,7 +7,9 @@ param(
     [ValidateSet('Both', 'BrokenSeal', 'LostAge', 'None')][string]$Game = 'Both',
     [switch]$CheckOnly,
     [int]$LauncherProcessId = 0,
-    [switch]$SkipLauncher
+    [switch]$SkipLauncher,
+    # The collection launcher already caps the complete process tree.
+    [switch]$CpuCapInherited
 )
 $ErrorActionPreference = 'Stop'
 $collectionRoot = Split-Path -Parent $PSScriptRoot
@@ -231,6 +233,8 @@ try {
     Require-File (Join-Path $PSScriptRoot 'developer_build_inputs.txt') 'Developer build input specification'
     $powershell = Join-Path $PSHOME 'powershell.exe'
     $buildGameScript = Join-Path $PSScriptRoot 'build_game.ps1'
+    $inheritedCpuArgs = @()
+    if ($CpuCapInherited) { $inheritedCpuArgs += '-CpuCapInherited' }
     $gsBuild = Join-Path $gsRoot 'build/gs011_opt'
     $tlaBuild = Join-Path $tlaRoot 'build/tla'
     $gsCache = Read-Cache (Join-Path $gsBuild 'CMakeCache.txt')
@@ -290,22 +294,22 @@ try {
     if ($buildGs) {
     # Picks (and if needed makes) the game code for the collection's ROM
     # before its inputs are recorded.
-    & $powershell -NoProfile -ExecutionPolicy Bypass -File $buildGameScript -Game BrokenSeal -PrepareOnly -PythonExecutable $python -CpuPercent $CpuPercent -RamPercent $RamPercent -LogFile (Join-Path $runDir 'gs-prepare.log')
+    & $powershell -NoProfile -ExecutionPolicy Bypass -File $buildGameScript -Game BrokenSeal -PrepareOnly -PythonExecutable $python -CpuPercent $CpuPercent -RamPercent $RamPercent @inheritedCpuArgs -LogFile (Join-Path $runDir 'gs-prepare.log')
     if ($LASTEXITCODE -ne 0) { throw "Preparing The Broken Seal's game code failed ($LASTEXITCODE)." }
     & $python $buildStampScript --root $collectionRoot --game BrokenSeal --build-dir $gsBuild --begin --snapshot (Join-Path $runDir 'gs-inputs.txt')
     if ($LASTEXITCODE -ne 0) { throw "The Broken Seal input snapshot failed ($LASTEXITCODE)." }
-    & $powershell -NoProfile -ExecutionPolicy Bypass -File $buildGameScript -Game BrokenSeal -PythonExecutable $python -CpuPercent $CpuPercent -RamPercent $RamPercent -LogFile (Join-Path $runDir 'gs-build.log')
+    & $powershell -NoProfile -ExecutionPolicy Bypass -File $buildGameScript -Game BrokenSeal -PythonExecutable $python -CpuPercent $CpuPercent -RamPercent $RamPercent @inheritedCpuArgs -LogFile (Join-Path $runDir 'gs-build.log')
     if ($LASTEXITCODE -ne 0) { throw "The Broken Seal build failed ($LASTEXITCODE)." }
     & $python $buildStampScript --root $collectionRoot --game BrokenSeal --build-dir $gsBuild --finish --snapshot (Join-Path $runDir 'gs-inputs.txt')
     if ($LASTEXITCODE -ne 0) { throw "The Broken Seal build record failed ($LASTEXITCODE)." }
     }
     if ($buildTla) {
     Configure-Plan $tlaPlan $runDir
-    & $powershell -NoProfile -ExecutionPolicy Bypass -File $buildGameScript -Game LostAge -PrepareOnly -PythonExecutable $python -CpuPercent $CpuPercent -RamPercent $RamPercent -LogFile (Join-Path $runDir 'tla-prepare.log')
+    & $powershell -NoProfile -ExecutionPolicy Bypass -File $buildGameScript -Game LostAge -PrepareOnly -PythonExecutable $python -CpuPercent $CpuPercent -RamPercent $RamPercent @inheritedCpuArgs -LogFile (Join-Path $runDir 'tla-prepare.log')
     if ($LASTEXITCODE -ne 0) { throw "Preparing The Lost Age's game code failed ($LASTEXITCODE)." }
     & $python $buildStampScript --root $collectionRoot --game LostAge --build-dir $tlaBuild --begin --snapshot (Join-Path $runDir 'tla-inputs.txt')
     if ($LASTEXITCODE -ne 0) { throw "The Lost Age input snapshot failed ($LASTEXITCODE)." }
-    & $powershell -NoProfile -ExecutionPolicy Bypass -File $buildGameScript -Game LostAge -PythonExecutable $python -CpuPercent $CpuPercent -RamPercent $RamPercent -LogFile (Join-Path $runDir 'tla-build.log')
+    & $powershell -NoProfile -ExecutionPolicy Bypass -File $buildGameScript -Game LostAge -PythonExecutable $python -CpuPercent $CpuPercent -RamPercent $RamPercent @inheritedCpuArgs -LogFile (Join-Path $runDir 'tla-build.log')
     if ($LASTEXITCODE -ne 0) { throw "The Lost Age build failed ($LASTEXITCODE)." }
     & $python $buildStampScript --root $collectionRoot --game LostAge --build-dir $tlaBuild --finish --snapshot (Join-Path $runDir 'tla-inputs.txt')
     if ($LASTEXITCODE -ne 0) { throw "The Lost Age build record failed ($LASTEXITCODE)." }

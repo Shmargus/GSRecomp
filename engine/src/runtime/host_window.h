@@ -188,6 +188,7 @@ public:
 
     struct Events {
         bool     quit = false;
+        bool     quit_confirmation_pending = false;
         // GBA KEYINPUT layout. Active-low: 1 = released, 0 = pressed.
         // Bits: 0=A 1=B 2=Sel 3=Sta 4=Right 5=Left 6=Up 7=Down 8=R 9=L.
         uint16_t keyinput = 0x03FF;
@@ -219,10 +220,8 @@ public:
         bool     widescreen_changed = false;
         bool     widescreen = false;
         // Edge-triggered system hotkeys (config.ini [KeyMap] bindings; see
-        // load_input_config). The caller owns the semantics: fullscreen and
-        // window scale route back into this window, pause gates stepping in
-        // the run loop, volume adjusts pushed-sample gain, FPS toggles the
-        // title-bar readout.
+        // load_input_config). Display and audio shortcuts go through
+        // apply_preference_hotkeys(); pause gates stepping in the run loop.
         bool     toggle_fullscreen = false;
         bool     toggle_pause = false;
         bool     soft_reset = false;
@@ -258,6 +257,7 @@ public:
         uint32_t pump_event_max_subtype = 0;
     };
     Events pump();
+    void apply_preference_hotkeys(const Events& events);
 
 private:
     bool open_ = false;

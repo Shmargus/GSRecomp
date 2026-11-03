@@ -1548,6 +1548,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     // the run loop stops stepping the guest but keeps pumping input and
     // re-presenting the last frame.
     bool host_paused = false;
+    bool quit_confirmation_pending = false;
 
     // Cost-attribution probe (GBARECOMP_COST_PROBE=1), see
     // runtime_bus_bridge.cpp. Times the runtime_dispatch call itself, which
@@ -2945,6 +2946,8 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
             input_record_last_value = ev.keyinput;
         }
         if (ev.quit) host_quit = true;
+        const bool was_paused = host_paused || quit_confirmation_pending;
+        quit_confirmation_pending = ev.quit_confirmation_pending;
         if (fast_forward_active != ev.fast_forward) {
             // Never interpolate across omitted Turbo frames. On release the
             // next callback presents the current canonical endpoint.
@@ -3008,41 +3011,26 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
             host_quit = true;
             host_paused = false;
         }
-        if (ev.toggle_fullscreen) win.set_fullscreen(!win.fullscreen());
-        if (ev.window_bigger)  win.adjust_scale(+1);
-        if (ev.window_smaller) win.adjust_scale(-1);
-        if (ev.volume_up)   win.set_volume(win.volume() + 10);
-        if (ev.volume_down) win.set_volume(win.volume() - 10);
-        if (ev.toggle_fps)  win.set_fps_readout(!win.fps_readout());
-        if (ev.toggle_pause) {
-            host_paused = !host_paused;
-            win.set_local_music_paused(host_paused);
-            if (host_paused) {
-                discard_canonical_audio();
-                win.reset_audio();
-            }
-            // Realign the pacer on unpause so it doesn't burn the
-            // accumulated wall-clock lag catching up.
-            if (!host_paused && pacer) pacer->reset();
-            if (!host_paused && interpolation_pacer)
-                interpolation_pacer->reset();
-        }
+        win.apply_preference_hotkeys(ev);
+        if (ev.toggle_pause) host_paused = !host_paused;
         // Game-owned pause request (see RunOptions::pause_request_poll):
-        // same host_paused gate and side effects as the hotkey above, just
-        // driven by tooling instead of a keypress.
+        // same host_paused gate as the hotkey, driven by game tooling.
         bool requested_paused = host_paused;
         if (opts.pause_request_poll &&
-            opts.pause_request_poll(&requested_paused) &&
-            requested_paused != host_paused) {
+            opts.pause_request_poll(&requested_paused)) {
             host_paused = requested_paused;
-            win.set_local_music_paused(host_paused);
-            if (host_paused) {
+        }
+        const bool paused = host_paused || quit_confirmation_pending;
+        if (paused != was_paused) {
+            win.set_local_music_paused(paused);
+            if (paused) {
                 discard_canonical_audio();
                 win.reset_audio();
+            } else {
+                // Realign the pacers after the time spent paused.
+                if (pacer) pacer->reset();
+                if (interpolation_pacer) interpolation_pacer->reset();
             }
-            if (!host_paused && pacer) pacer->reset();
-            if (!host_paused && interpolation_pacer)
-                interpolation_pacer->reset();
         }
         if (ev.save_slot) {
             std::string path = slot_path(ev.save_slot);
@@ -3668,7 +3656,8 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     for (int i = 0; i < step_budget && !host_quit; ++i) {
         // Paused: hold the guest still, keep the window alive (input pump,
         // re-present, ~100 Hz idle). Applies to windowed play only.
-        while (host_paused && !host_quit && args.window) {
+        while ((host_paused || quit_confirmation_pending) && !host_quit && args.window &&
+               g_requested_exit_code.load() < 0) {
             pump_host_input();
             sync_resize_driven_view();
             if (view_redraw_pending) {

@@ -7,7 +7,7 @@
 // it defaults to Raw (exact passthrough), so default behavior and every
 // hashed/verified frame are byte-identical unless a screen model is opted in
 // via GBARECOMP_SCREEN={raw,unlit,frontlit,backlit,classic,handheld,
-// handheld_light,soft,natural,warm,deep,custom}.
+// handheld_light,soft,natural,warm,deep,custom,david_og_gba}.
 //
 // The math is first-principles CIE colorimetry (xyY→XYZ, primaries→matrix,
 // Bradford adaptation, sRGB OETF) over published colorimeter measurements;
@@ -43,8 +43,9 @@ enum class ScreenKind {
     Warm,      // less saturated, greens toward yellow
     Deep,      // a little less saturated, darker
     Custom,    // the player's own saturation and hue (ColorSettings)
+    DavidOgGba,  // David's OG GBA Colours, from the supplied settings photo
 };
-constexpr int kScreenKindCount = static_cast<int>(ScreenKind::Custom) + 1;
+constexpr int kScreenKindCount = static_cast<int>(ScreenKind::DavidOgGba) + 1;
 
 // Colour-vision correction, applied after the screen model (F1 > Video >
 // Colour vision). It shifts what a player with that colour blindness cannot

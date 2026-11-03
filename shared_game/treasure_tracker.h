@@ -59,7 +59,8 @@ inline std::atomic<int> current_place{-1};
 
 // The game's location lookup: the name offset for (room, entrance), 0 if none.
 inline std::uint32_t location(const Game& g, const std::uint8_t* rom, std::size_t size, unsigned room,
-                              unsigned entrance) {
+                              unsigned entrance, bool* found = nullptr) {
+    if (found) *found = false;
     const auto u16 = [&](std::uint32_t at) -> unsigned { return at + 1 < size ? rom[at] | (rom[at + 1] << 8) : 0xFFFFu; };
     if (g.room_records + room * 8 + 2 >= size) return 0;
     const int room_key = std::int8_t(rom[g.room_records + room * 8 + 2]);
@@ -70,8 +71,10 @@ inline std::uint32_t location(const Game& g, const std::uint8_t* rom, std::size_
         const unsigned door_bits = u16(at + 2);
         if (key != ((door_bits & 0x8000u) ? int(room) : room_key)) continue;
         const unsigned low = door_bits & 0x7FFFu;
-        if (low == 0x7FFFu || int((low ^ 0x4000u)) - 0x4000 == door)
+        if (low == 0x7FFFu || int((low ^ 0x4000u)) - 0x4000 == door) {
+            if (found) *found = true;
             return u16(at + 4) | (std::uint32_t(u16(at + 6)) << 16);
+        }
     }
     return 0;
 }

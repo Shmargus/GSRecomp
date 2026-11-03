@@ -10,6 +10,8 @@
 #include "seamless.h"
 #include "host_config_ui.h"
 #include "tla_save_update.h"
+#include "../../shared_game/field_character.h"
+
 #ifdef GBARECOMP_HAVE_IMGUI
 #include "imgui.h"
 #endif
@@ -442,7 +444,8 @@ void close_update() {
     ImGui::CloseCurrentPopup();
 }
 
-void draw_update_action() {
+void draw_game_page() {
+    gsr::field_character::draw();
     ImGui::BeginDisabled(g_import_menu.stage != ImportStage::Idle || update_active());
     if (ImGui::Button(gbarecomp::ui_text("Update from The Broken Seal..."))) {
         g_update_menu = {};
@@ -605,7 +608,7 @@ void tla_install_gs_save_import(gbarecomp::RunOptions& options, bool headless) {
         g_next_extra_keyboard = gbarecomp::g_config_ui_extra_wants_keyboard;
         gbarecomp::g_config_ui_extra_draw = draw_update_dialog;
         gbarecomp::g_config_ui_extra_wants_keyboard = update_wants_keyboard;
-        gbarecomp::config_ui_set_game_page(draw_update_action);
+        gbarecomp::config_ui_set_game_page(draw_game_page);
     }
 #endif
 }

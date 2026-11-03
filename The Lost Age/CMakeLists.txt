@@ -137,6 +137,7 @@ set(TLA_ENGINE_SOURCES
     src/tla_sprite_memory.cpp
     src/tla_gpu_field.cpp
     src/tla_custom_battle.cpp
+    src/tla_retreat_travel.cpp
     src/tla_enemy_hp_bar.cpp
     src/tla_trackers.cpp
     "${GBARECOMP_ROOT}/src/field/field_scene.cpp"
@@ -151,13 +152,13 @@ set(TLA_ENGINE_SOURCES
     # The Broken Seal's Func_2808 byte for byte (FACTS.md 2026-10-14), so
     # both runners compile this one copy; the audit's sandbox is the player
     # builder's guest_call.
-    "${CMAKE_SOURCE_DIR}/../The Broken Seal/src/unpacker_guard.cpp"
+    "${CMAKE_SOURCE_DIR}/../shared_game/unpacker_guard.cpp"
     "${GSR_PLAYER_BUILDER_DIR}/guest_call.cpp"
     # Custom Battle Mode: one copy of the rules for both games
     # (src/tla_custom_battle.cpp holds this game's table).
-    "${CMAKE_SOURCE_DIR}/../The Broken Seal/src/custom_battle.cpp"
-    "${CMAKE_SOURCE_DIR}/../The Broken Seal/src/gs_text_encode.cpp"
-    "${CMAKE_SOURCE_DIR}/../The Broken Seal/src/enemy_hp_bar.cpp")
+    "${CMAKE_SOURCE_DIR}/../shared_game/custom_battle.cpp"
+    "${CMAKE_SOURCE_DIR}/../shared_game/gs_text_encode.cpp"
+    "${CMAKE_SOURCE_DIR}/../shared_game/enemy_hp_bar.cpp")
 set(TLA_GAME_INCLUDE_DIRS
     "${TLA_GENERATED_DIR}"
     "${TLA_GENERATED_DIR}/../reloc"
@@ -240,9 +241,8 @@ if(WIN32)
 endif()
 
 target_include_directories(TLARecomp PRIVATE ${TLA_GAME_INCLUDE_DIRS})
-# Only the unpacker guard reaches the player builder's header; The Broken
-# Seal's src/ is never on TLA's include path (same-named headers).
-set_property(SOURCE "${CMAKE_SOURCE_DIR}/../The Broken Seal/src/unpacker_guard.cpp"
+# Only the unpacker guard reaches the player builder's header.
+set_property(SOURCE "${CMAKE_SOURCE_DIR}/../shared_game/unpacker_guard.cpp"
     APPEND PROPERTY INCLUDE_DIRECTORIES "${GSR_PLAYER_BUILDER_DIR}")
 if(TLA_NO_HARVEST)
     target_compile_definitions(TLARecomp PRIVATE TLA_NO_HARVEST=1)
@@ -308,83 +308,11 @@ if(TLA_SPLIT_GAME_CODE AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set_target_properties(TLARecomp PROPERTIES
         BUILD_WITH_INSTALL_RPATH ON INSTALL_RPATH "$ORIGIN")
 elseif(TLA_SPLIT_GAME_CODE)
-    # The tables the engine reads from the game code, by name: every
-    # dispatch_table.cpp and expected.cpp defines them as
-    # `extern "C" const ... NAME`.
-    set(TLA_GAME_DEF "${CMAKE_BINARY_DIR}/TLAGame.def")
-    set(TLA_GAME_DEF_TEXT "LIBRARY TLAGame.dll\nEXPORTS\n")
     set(TLA_GAME_TABLE_FILES ${TLA_GAME_SOURCES})
     list(FILTER TLA_GAME_TABLE_FILES INCLUDE REGEX "/(dispatch_table|expected|rom_identity)\\.cpp$")
-    foreach(TLA_TABLE_FILE IN LISTS TLA_GAME_TABLE_FILES)
-        file(STRINGS "${TLA_TABLE_FILE}" TLA_TABLE_LINES
-            REGEX "^extern \"C\" const ")
-        foreach(TLA_TABLE_LINE IN LISTS TLA_TABLE_LINES)
-            if(TLA_TABLE_LINE MATCHES "([A-Za-z_][A-Za-z0-9_]*)(\\[\\])? =")
-                string(APPEND TLA_GAME_DEF_TEXT "    ${CMAKE_MATCH_1} DATA\n")
-            endif()
-        endforeach()
-    endforeach()
-    file(WRITE "${TLA_GAME_DEF}.tmp" "${TLA_GAME_DEF_TEXT}")
-    file(COPY_FILE "${TLA_GAME_DEF}.tmp" "${TLA_GAME_DEF}" ONLY_IF_DIFFERENT)
-
-    # The exe imports those tables from TLAGame.dll through an import
-    # library made from the .def alone, so the exe never waits on the DLL.
-    set(TLA_GAME_IMPLIB "${CMAKE_BINARY_DIR}/libTLAGame_tables.a")
-    find_program(TLA_DLLTOOL dlltool REQUIRED)
-    add_custom_command(OUTPUT "${TLA_GAME_IMPLIB}"
-        COMMAND "${TLA_DLLTOOL}" -d "${TLA_GAME_DEF}" -l "${TLA_GAME_IMPLIB}"
-                -D TLAGame.dll
-        DEPENDS "${TLA_GAME_DEF}"
-        COMMENT "Import library for TLAGame.dll's tables")
-    add_custom_target(tla_game_tables_implib DEPENDS "${TLA_GAME_IMPLIB}")
-    add_dependencies(TLARecomp tla_game_tables_implib)
-    target_link_libraries(TLARecomp PRIVATE "${TLA_GAME_IMPLIB}")
-
-    # The game code: no LTO, compiled once and reused until the translated
-    # code changes. Objects first, so the exe's export list can be read from
-    # them before the exe links.
-    # -Og and no debug information: Golden Sun Recompiled's measured choice
-    # for the compile a player's PC waits for.
-    add_library(TLAGame SHARED $<TARGET_OBJECTS:tla_game_objects>)
-    set_target_properties(TLAGame PROPERTIES
-        PREFIX ""
-        INTERPROCEDURAL_OPTIMIZATION FALSE
-        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
-    set(TLA_ENGINE_API_IMPLIB "${CMAKE_BINARY_DIR}/libTLARecomp_api.a")
-    add_dependencies(TLAGame TLARecomp)
-    target_link_libraries(TLAGame PRIVATE "${TLA_ENGINE_API_IMPLIB}")
-    target_link_options(TLAGame PRIVATE "${TLA_GAME_DEF}")
-
-    # What the exe exports: every symbol the game objects use that the
-    # engine defines (cmake/gsr_engine_exports.cmake), worked out right
-    # before the exe links. gcc-nm reads the engine's LTO objects.
-    find_program(TLA_GCC_NM gcc-nm REQUIRED)
-    set(TLA_ENGINE_EXPORTS "${CMAKE_BINARY_DIR}/TLARecomp_exports.def")
-    set(TLA_ENGINE_EXPORTS_RSP "${CMAKE_BINARY_DIR}/TLARecomp_exports.rsp")
-    file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/tla_game_objects.txt"
-        CONTENT "$<JOIN:$<TARGET_OBJECTS:tla_game_objects>,\n>\n")
-    file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/tla_engine_inputs.txt"
-        CONTENT "$<TARGET_FILE:gbarecomp_runtime>\n$<TARGET_FILE:gbarecomp_debug>\n$<TARGET_FILE:gbarecomp_gba>\n$<TARGET_FILE:gbarecomp_armv4t>\n$<JOIN:$<TARGET_OBJECTS:TLARecomp>,\n>\n")
-    add_dependencies(TLARecomp tla_game_objects)
-    add_custom_command(TARGET TLARecomp PRE_LINK
-        COMMAND "${CMAKE_COMMAND}"
-            "-DNM=${TLA_GCC_NM}"
-            "-DGAME_LIST=${CMAKE_BINARY_DIR}/tla_game_objects.txt"
-            "-DENGINE_LIST=${CMAKE_BINARY_DIR}/tla_engine_inputs.txt"
-            "-DOUT=${TLA_ENGINE_EXPORTS}"
-            "-DOUT_RSP=${TLA_ENGINE_EXPORTS_RSP}"
-            -P "${CMAKE_SOURCE_DIR}/cmake/gsr_engine_exports.cmake"
-        # The DLL's import library comes from the same list: the one ld
-        # writes with --out-implib under LTO leaves out exports the engine
-        # itself never calls.
-        COMMAND "${TLA_DLLTOOL}" -d "${TLA_ENGINE_EXPORTS}"
-            -l "${TLA_ENGINE_API_IMPLIB}" -D TLAEngine.dll
-        BYPRODUCTS "${TLA_ENGINE_EXPORTS}" "${TLA_ENGINE_EXPORTS_RSP}"
-                   "${TLA_ENGINE_API_IMPLIB}"
-        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
-        VERBATIM)
-    target_link_options(TLARecomp PRIVATE "${TLA_ENGINE_EXPORTS}"
-        "@${TLA_ENGINE_EXPORTS_RSP}")
+    include("${CMAKE_SOURCE_DIR}/../scripts/windows_split_game.cmake")
+    gsr_windows_split_game(tla TLARecomp TLAGame TLAEngine.dll
+        "${TLA_GAME_TABLE_FILES}")
 endif()
 
 # gs_save_check: synthetic parser checks; optional read-only .sav inspection.

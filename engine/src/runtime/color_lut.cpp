@@ -212,7 +212,7 @@ void correct_vision(ColorVision vision, std::array<uint8_t, 3>& entry) {
 static constexpr const char* kScreenKindNames[] = {
     "raw",     "unlit",    "frontlit",       "backlit",
     "classic", "handheld", "handheld_light", "soft",
-    "natural", "warm",     "deep",           "custom"};
+    "natural", "warm",     "deep",           "custom", "david_og_gba"};
 static_assert(sizeof(kScreenKindNames) / sizeof(kScreenKindNames[0]) ==
                   static_cast<size_t>(kScreenKindCount),
               "kScreenKindNames must list every ScreenKind");
@@ -291,7 +291,7 @@ bool ColorLut::fill(const ColorSettings& settings) {
                                             {0.00, 0.08, 0.86}};
         double mix[3][3];
         double saturation = 1.0, curve = 1.0, handheld = 0.0;
-        double warmth = 0.0, brightness = 1.0;
+        double warmth = 0.0, brightness = 1.0, hue_degrees = 0.0;
         switch (settings.screen) {
             case ScreenKind::Handheld:      handheld = 1.0; break;
             case ScreenKind::HandheldLight: handheld = 0.6; break;
@@ -302,9 +302,20 @@ bool ColorLut::fill(const ColorSettings& settings) {
             case ScreenKind::Deep:     saturation = 0.88; curve = 1.25; break;
             case ScreenKind::Custom:
                 saturation = settings.saturation;
+                hue_degrees = settings.hue_degrees;
                 brightness = settings.brightness;
                 warmth = settings.warmth;
                 curve = settings.curve;
+                break;
+            case ScreenKind::DavidOgGba:
+                // From the settings photo Jimmy supplied, as Custom's sliders:
+                // Saturation 58%, Hue -19, Brightness 75%, Warmth 20%,
+                // Darkening 10% (curve 1 + 10/100, as host_window.cpp maps it).
+                saturation = 0.58;
+                hue_degrees = -19.0;
+                brightness = 0.75;
+                warmth = 0.20;
+                curve = 1.10;
                 break;
             default: break;
         }
@@ -315,11 +326,10 @@ bool ColorLut::fill(const ColorSettings& settings) {
                                  (1.0 - saturation) * kLuma[j];
                 mix[i][j] = handheld * kHandheld[i][j] + (1.0 - handheld) * s;
             }
-        if (settings.screen == ScreenKind::Custom &&
-            settings.hue_degrees != 0.0) {
+        if (hue_degrees != 0.0) {
             // Hue rotation that keeps brightness (the SVG/CSS hue-rotate
             // matrix); like the rest, no offset, so black stays black.
-            const double a = settings.hue_degrees * 3.14159265358979 / 180.0;
+            const double a = hue_degrees * 3.14159265358979 / 180.0;
             const double cs = std::cos(a), sn = std::sin(a);
             const double rot[3][3] = {
                 {0.213 + cs * 0.787 - sn * 0.213, 0.715 - cs * 0.715 - sn * 0.715,

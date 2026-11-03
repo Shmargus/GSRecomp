@@ -22,7 +22,6 @@ struct GameIdentity {
     const char* build_stamp;
     const wchar_t* build_stamp_w;
     const char* release_stamp;
-    const wchar_t* release_stamp_w;
     // The ROMs this game accepts, from the game's revision list (The Broken
     // Seal src/rom_revisions.inc, The Lost Age src/tla_rom_revisions.inc);
     // the first is USA/Europe. Each is its own game build (player_builder
@@ -56,7 +55,7 @@ inline constexpr GameIdentity kGames[2] = {
      L"Select the Golden Sun ROM (USA/Europe, Spain, Italy, France or Germany)",
      GSR_GAME_BINARIES("GoldenSunRecomp", "GoldenSunGame", "GoldenSunEngine"),
      "GoldenSunGame.build.txt", L"GoldenSunGame.build.txt",
-     "GoldenSunGame.release.txt", L"GoldenSunGame.release.txt",
+     "GoldenSunGame.release.txt",
 #define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator) sha1,
      {
 #include "../The Broken Seal/src/rom_revisions.inc"
@@ -78,7 +77,7 @@ inline constexpr GameIdentity kGames[2] = {
      L"Select the Golden Sun: The Lost Age ROM (USA/Europe, Spain, Italy, France or Germany)",
      GSR_GAME_BINARIES("TLARecomp", "TLAGame", "TLAEngine"),
      "TLAGame.build.txt", L"TLAGame.build.txt",
-     "TLAGame.release.txt", L"TLAGame.release.txt",
+     "TLAGame.release.txt",
 #define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator) sha1,
      {
 #include "../The Lost Age/src/tla_rom_revisions.inc"

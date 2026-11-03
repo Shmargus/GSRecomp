@@ -20,7 +20,7 @@
 // 02000400/02000402.
 #pragma once
 #include "rom_version.h"
-#include "trackers.h"
+#include "../../shared_game/trackers.h"
 #include "treasure_tracker_data.h"
 #include "tracker_name_ids.h"
 

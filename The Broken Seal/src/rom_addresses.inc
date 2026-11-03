@@ -49,6 +49,7 @@ GS_ROM_ADDR(0x08009E7Cu, 0x0800967Cu, 0x08009E7Cu, 0x0800967Cu, 0x0800967Cu)  //
 GS_ROM_ADDR(0x0800A0F8u, 0x080098F8u, 0x0800A0F8u, 0x080098F8u, 0x080098F8u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x0800A37Cu, 0x08009B7Cu, 0x0800A37Cu, 0x08009B7Cu, 0x08009B7Cu)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x0800A418u, 0x08009C18u, 0x0800A418u, 0x08009C18u, 0x08009C18u)  // spain: code; italy: code; france: code; germany: code
+GS_ROM_ADDR(0x0800AA0Cu, 0x0800A20Cu, 0x0800AA0Cu, 0x0800A20Cu, 0x0800A20Cu)  // spain: reviewed: Native sprite animation updater: unique matching 28-byte prologue in the SHA-1-verified ROM. Layer layout verified in disassembly.; italy: reviewed: Native sprite animation updater: unique matching 28-byte prologue in the SHA-1-verified ROM. Layer layout verified in disassembly.; france: reviewed: Native sprite animation updater: unique matching 28-byte prologue in the SHA-1-verified ROM. Layer layout verified in disassembly.; germany: reviewed: Native sprite animation updater: unique matching 28-byte prologue in the SHA-1-verified ROM. Layer layout verified in disassembly.
 GS_ROM_ADDR(0x0800AFFCu, 0x0800A7FCu, 0x0800AFFCu, 0x0800A7FCu, 0x0800A7FCu)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x0800B042u, 0x0800A842u, 0x0800B042u, 0x0800A842u, 0x0800A842u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x0800B27Eu, 0x0800AA7Eu, 0x0800B27Eu, 0x0800AA7Eu, 0x0800AA7Eu)  // spain: code; italy: code; france: code; germany: code
@@ -94,6 +95,9 @@ GS_ROM_ADDR(0x08010424u, 0x0800FC24u, 0x08010424u, 0x0800FC24u, 0x0800FC24u)  //
 GS_ROM_ADDR(0x08010560u, 0x0800FD60u, 0x08010560u, 0x0800FD60u, 0x0800FD60u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x08010788u, 0x0800FF88u, 0x08010788u, 0x0800FF88u, 0x0800FF88u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x08012FA0u, 0x080127A0u, 0x08012FA0u, 0x080127A0u, 0x080127A0u)  // spain: data: literal pair; italy: data: literal pair; france: data: literal pair; germany: data: literal pair
+GS_ROM_ADDR(0x08015040u, 0x08014040u, 0x08015040u, 0x08014040u, 0x08013D40u)  // spain: code; italy: code; france: code; germany: code
+GS_ROM_ADDR(0x08015120u, 0x08014120u, 0x08015120u, 0x08014120u, 0x08013E20u)  // spain: code; italy: code; france: code; germany: code
+GS_ROM_ADDR(0x08015140u, 0x08014140u, 0x08015140u, 0x08014140u, 0x08013E40u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x08015430u, 0x08014430u, 0x08015430u, 0x08014430u, 0x08014130u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x08015570u, 0x08014570u, 0x08015570u, 0x08014570u, 0x08014270u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x080155D0u, 0x080145D0u, 0x080155D0u, 0x080145D0u, 0x080142D0u)  // spain: code in changed Func_155d0: aligned, same instruction; italy: code in changed Func_155d0: aligned, same instruction; france: code in changed Func_155d0: aligned, same instruction; germany: code in changed Func_155d0: aligned, same instruction
@@ -138,14 +142,20 @@ GS_ROM_ADDR(0x0803842Cu, 0x08037884u, 0x08038504u, 0x08037634u, 0x080374A8u)  //
 GS_ROM_ADDR(0x080736B8u, 0x08073210u, 0x08072B20u, 0x08073914u, 0x0807A618u)  // spain: reviewed: text table (data, lengths per 256-line block): literal pair; decoding with it reproduces the lines above; italy: data: literal pair; france: data: literal pair; germany: data: literal pair
 GS_ROM_ADDR(0x08073808u, 0x08073368u, 0x08072D85u, 0x08073A6Cu, 0x0807A87Du)  // spain: reviewed: Message speed delay table: the literal loaded at Spain 0x08015E1A (see 0x08016E56); its first 16 bytes equal USA's; italy: reviewed: Delay table loaded by 08016E00 through literal 08016E54; its nine bytes (three speed tables) equal the USA table.; france: reviewed: Delay table loaded by 08015E00 through literal 08015E54; its nine bytes (three speed tables) equal the USA table.; germany: reviewed: Delay table loaded by 08015AF0 through literal 08015B44; its nine bytes (three speed tables) equal the USA table.
 GS_ROM_ADDR(0x08077008u, 0x0807C008u, 0x08077008u, 0x0807C008u, 0x0807AE08u)  // spain: code; italy: code; france: code; germany: code
+GS_ROM_ADDR(0x08077080u, 0x0807C080u, 0x08077080u, 0x0807C080u, 0x0807AE80u)  // spain: code; italy: code; france: code; germany: code
+GS_ROM_ADDR(0x080770C0u, 0x0807C0C0u, 0x080770C0u, 0x0807C0C0u, 0x0807AEC0u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x080770E0u, 0x0807C0E0u, 0x080770E0u, 0x0807C0E0u, 0x0807AEE0u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x08077148u, 0x0807C148u, 0x08077148u, 0x0807C148u, 0x0807AF48u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x08077198u, 0x0807C198u, 0x08077198u, 0x0807C198u, 0x0807AF98u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x08077428u, 0x0807C428u, 0x08077428u, 0x0807C428u, 0x0807B228u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x08077F40u, 0x0807CF40u, 0x08077F40u, 0x0807CF40u, 0x0807BD40u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x080795C0u, 0x0807E5C0u, 0x080795C0u, 0x0807E5C0u, 0x0807D3C0u)  // spain: code in changed Func_79460: aligned, same instruction; italy: code in changed Func_79460: aligned, same instruction; france: code in changed Func_79460: aligned, same instruction; germany: code in changed Func_79460: aligned, same instruction
+GS_ROM_ADDR(0x0808A5F8u, 0x0808F600u, 0x0808A600u, 0x0808F600u, 0x0808DC00u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x0808AB48u, 0x0808FB50u, 0x0808AB50u, 0x0808FB50u, 0x0808E150u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x0808AF84u, 0x0808FF8Cu, 0x0808AF8Cu, 0x0808FF8Cu, 0x0808E58Cu)  // spain: code; italy: code; france: code; germany: code
+GS_ROM_ADDR(0x0808CC43u, 0x08091C4Bu, 0x0808CC4Bu, 0x08091C4Bu, 0x0809024Bu)  // spain: code in changed Func_8c4f8: aligned, same instruction; italy: code in changed Func_8c4f8: aligned, same instruction; france: code in changed Func_8c4f8: aligned, same instruction; germany: code in changed Func_8c4f8: aligned, same instruction
+GS_ROM_ADDR(0x0808E680u, 0x08093688u, 0x0808E688u, 0x08093688u, 0x08091C88u)  // spain: code in changed Func_8e680: aligned, same instruction; italy: code in changed Func_8e680: aligned, same instruction; france: code in changed Func_8e680: aligned, same instruction; germany: code in changed Func_8e680: aligned, same instruction
+GS_ROM_ADDR(0x0808E7ADu, 0x080937B5u, 0x0808E7B5u, 0x080937B5u, 0x08091DB5u)  // spain: code in changed Func_8e680: aligned, same instruction; italy: code in changed Func_8e680: aligned, same instruction; france: code in changed Func_8e680: aligned, same instruction; germany: code in changed Func_8e680: aligned, same instruction
 GS_ROM_ADDR(0x0808E8CFu, 0x080938D7u, 0x0808E8D7u, 0x080938D7u, 0x08091ED7u)  // spain: code in changed Func_8e680: aligned, same instruction; italy: code in changed Func_8e680: aligned, same instruction; france: code in changed Func_8e680: aligned, same instruction; germany: code in changed Func_8e680: aligned, same instruction
 GS_ROM_ADDR(0x0808E8D5u, 0x080938DDu, 0x0808E8DDu, 0x080938DDu, 0x08091EDDu)  // spain: code in changed Func_8e680: aligned, same instruction; italy: code in changed Func_8e680: aligned, same instruction; france: code in changed Func_8e680: aligned, same instruction; germany: code in changed Func_8e680: aligned, same instruction
 GS_ROM_ADDR(0x0808FAF4u, 0x08094B60u, 0x0808FB60u, 0x08094B60u, 0x08093160u)  // spain: code; italy: code; france: code; germany: code
@@ -153,6 +163,7 @@ GS_ROM_ADDR(0x0808FBCAu, 0x08094C36u, 0x0808FC36u, 0x08094C36u, 0x08093236u)  //
 GS_ROM_ADDR(0x0808FCC6u, 0x08094D32u, 0x0808FD32u, 0x08094D32u, 0x08093332u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x0808FDCAu, 0x08094E36u, 0x0808FE36u, 0x08094E36u, 0x08093436u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x08091C7Cu, 0x08096D08u, 0x08091D08u, 0x08096D08u, 0x08095318u)  // spain: code; italy: code; france: code; germany: code
+GS_ROM_ADDR(0x08091D84u, 0x08096E10u, 0x08091E10u, 0x08096E10u, 0x08095420u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x08092B94u, 0x08097C20u, 0x08092C20u, 0x08097C20u, 0x08096230u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x08093332u, 0x080983BEu, 0x080933BEu, 0x080983BEu, 0x080969CEu)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x080948BCu, 0x08099948u, 0x08094948u, 0x08099948u, 0x08097F58u)  // spain: code; italy: code; france: code; germany: code
@@ -169,11 +180,13 @@ GS_ROM_ADDR(0x08094C5Eu, 0x08099CEAu, 0x08094CEAu, 0x08099CEAu, 0x080982FAu)  //
 GS_ROM_ADDR(0x08094F26u, 0x08099FB2u, 0x08094FB2u, 0x08099FB2u, 0x080985C2u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x08094F2Eu, 0x08099FBAu, 0x08094FBAu, 0x08099FBAu, 0x080985CAu)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x08098370u, 0x0809D3FCu, 0x080983FCu, 0x0809D3FCu, 0x0809BA0Cu)  // spain: code; italy: code; france: code; germany: code
+GS_ROM_ADDR(0x0809B208u, 0x080A02A0u, 0x0809B2A0u, 0x080A02A0u, 0x0809E8B0u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x0809C610u, 0x080A1768u, 0x0809C768u, 0x080A1768u, 0x0809FD78u)  // spain: data: literal pair; italy: data: literal pair; france: data: literal pair; germany: data: literal pair
 GS_ROM_ADDR(0x0809D170u, 0x080A22C8u, 0x0809D2C8u, 0x080A22C8u, 0x080A08D8u)  // spain: data: literal pair; italy: data: literal pair; france: data: literal pair; germany: data: literal pair
 GS_ROM_ADDR(0x0809D7A8u, 0x080A2900u, 0x0809D900u, 0x080A2900u, 0x080A0F10u)  // spain: data: literal pair; italy: data: literal pair; france: data: literal pair; germany: data: literal pair
 GS_ROM_ADDR(0x0809D8B0u, 0x080A2A08u, 0x0809DA08u, 0x080A2A08u, 0x080A1018u)  // spain: data: literal pair; italy: data: literal pair; france: data: literal pair; germany: data: literal pair
 GS_ROM_ADDR(0x0809DDD8u, 0x080A2F30u, 0x0809DF30u, 0x080A2F30u, 0x080A1540u)  // spain: data: literal pair; italy: data: literal pair; france: data: literal pair; germany: data: literal pair
+GS_ROM_ADDR(0x0809E270u, 0x080A33C8u, 0x0809E3C8u, 0x080A33C8u, 0x080A19D8u)  // spain: reviewed: Battle backdrop room table, unique and byte-identical through its zero sentinel (FACTS, 3 November).; italy: reviewed: Battle backdrop room table, unique and byte-identical through its zero sentinel (FACTS, 3 November).; france: reviewed: Battle backdrop room table, unique and byte-identical through its zero sentinel (FACTS, 3 November).; germany: reviewed: Battle backdrop room table, unique and byte-identical through its zero sentinel (FACTS, 3 November).
 GS_ROM_ADDR(0x0809F1A8u, 0x080A4300u, 0x0809F300u, 0x080A4300u, 0x080A2910u)  // spain: data: literal pair; italy: data: literal pair; france: data: literal pair; germany: data: literal pair
 GS_ROM_ADDR(0x0809FC28u, 0x080A4D80u, 0x0809FD80u, 0x080A4D80u, 0x080A3390u)  // spain: data: literal pair; italy: data: literal pair; france: data: literal pair; germany: data: literal pair
 GS_ROM_ADDR(0x080B5138u, 0x080B9138u, 0x080B5138u, 0x080B9138u, 0x080B7738u)  // spain: code; italy: code; france: code; germany: code

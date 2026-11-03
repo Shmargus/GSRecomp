@@ -7,16 +7,41 @@ game starts when it is ready. Escape/B cancels the build. The gold cog also
 offers **Build game / Rebuild game**, which finishes without starting the game.
 Builds run one at a time.
 
+The build dialogue includes **Use fewer system resources**, off by default.
+Checking it caps the complete build and its child processes at 50% of CPU
+capacity and 50% of installed RAM; building may take longer. The choice
+applies to both games when **Build both** is selected, and is offered again
+for the next build or rebuild. Leaving it unchecked keeps normal behaviour.
+Other applications use additional resources. A hard memory limit can cause
+a build to fail if it cannot fit; it does not merely slow memory allocation.
+
+Windows uses job limits for both developer and player builds. Linux player
+builds use systemd 254+ user scopes with CPU and memory controllers enabled;
+the builder verifies the actual cgroup limits before touching its work folder.
+If those controls are unavailable, the limited build stops with an error;
+normal builds remain available. The existing Linux developer-build entry
+points are unchanged. Titles, checkbox, warning and buttons follow the
+selected game's flag in all five languages.
+Player packages need the updated launcher and both updated builders; a
+launcher-only update does not include the new builder support.
+
+After a launcher-only update, a player build record without a library
+checksum needs one rebuild. The launcher records the checksum after the
+older version-2 builder successfully rebuilds and its output is verified.
+
 ## Readiness
 
 Developer games show **Needs rebuilding** when their build record is missing,
 their sources or build settings have changed, or their built files no longer
 match. The inputs are listed in `scripts/developer_build_inputs.txt`:
 
-- `engine/` changes affect both games;
-- `launcher/` and `The Broken Seal/` changes affect The Broken Seal (its build
-  also produces the launcher);
+- `engine/` and `shared_game/` changes affect both games;
+- `The Broken Seal/` changes affect The Broken Seal;
 - `The Lost Age/` changes affect The Lost Age.
+
+The cartridge indicators track game builds. The launcher cog builds the
+selected game. After changing `launcher/`, close the launcher and run
+`build_launcher.bat` to rebuild it.
 
 Checks run once in the background when the launcher opens (**Checking
 build...**) and after a build. Cartridge clicks and returning from a game
