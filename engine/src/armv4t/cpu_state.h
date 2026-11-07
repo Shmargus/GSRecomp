@@ -69,6 +69,14 @@ struct CPSR {
     bool f : 1;  // FIQ disable
     bool t : 1;  // THUMB state
     uint8_t mode : 5;
+
+    // The 32-bit register value (SPSR, MSR, debugger).
+    uint32_t word() const {
+        return (n ? 1u << 31 : 0u) | (z ? 1u << 30 : 0u) |
+               (c ? 1u << 29 : 0u) | (v ? 1u << 28 : 0u) |
+               (i ? 1u << 7 : 0u) | (f ? 1u << 6 : 0u) |
+               (t ? 1u << 5 : 0u) | (mode & 0x1Fu);
+    }
 };
 
 struct CPUState {

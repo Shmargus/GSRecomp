@@ -939,6 +939,16 @@ void on_entry(std::uint32_t pc) {
         g_in_picker = true;
         publish();
         g_in_picker = false;
+    } else if (pc == g_game.slot_getter_pc && lr == g_game.scale_getter_return && !g_fight.armed &&
+               g_game.scaled && bus_read_u32(g_cpu.R[13] + kLevelsOffset) == 0 && g_game.scaled()) {
+        // Scaled difficulty: only up, to the Arena's target.
+        const std::uint32_t slot = g_cpu.R[0];
+        g_in_picker = true;
+        g_abort = false;
+        const int level = bus_read_u8(call(g_game.slot_getter_pc, slot) + kLevelOffset);
+        const int target = target_level();
+        if (target > level) call(g_game.stat_adjust_pc, slot, static_cast<std::uint32_t>(target - level));
+        g_in_picker = false;
     } else if (pc == g_game.slot_getter_pc && lr == g_game.clear_slots_return &&
                g_cpu.R[0] == kFirstEnemySlot) {
         g_fight.armed = false;

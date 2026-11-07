@@ -38,6 +38,7 @@
 #include "tla_flat_map.h"
 #include "tla_room_palette.h"
 #include "effect_capture.h"
+#include "env_flag.h"
 #include "field_scene_renderer.h"
 #include "gba_bus.h"
 #include "gba_io.h"
@@ -50,14 +51,10 @@
 #include "runtime_bus_bridge.h"
 #include "tla.h"
 #include "tla_world_map.h"
+#include "../../shared_game/autosave.h"
 #include "../../shared_game/held_palette_effect.h"
 
 namespace {
-
-bool env_on(const char* name) {
-    const char* e = std::getenv(name);
-    return e != nullptr && e[0] != '\0' && e[0] != '0';
-}
 
 bool g_enabled = false;
 bool g_only = false;
@@ -934,10 +931,25 @@ void tla_gpu_field_on_entry(std::uint32_t pc) {
                                      bus->rom_size(), runtime_current_frame());
 }
 
+bool tla_flat_map_on_entry(std::uint32_t pc) {
+    // The unpack wrapper, called from one of the map's two row loaders.
+    if (pc != TLA_ROM(0x0801587Cu)) return false;
+    const std::uint32_t back = g_cpu.R[14] & ~1u;
+    if (back != TLA_ROM(0x080ECF1Cu) && back != TLA_ROM(0x080ECFD4u)) return false;
+    gba::GbaBus* bus = gbarecomp::active_bus();
+    if (!bus) return false;
+    const unsigned file = bus->read16(0x02000000u + tla_flat_map::kFileSwitch) ? 0x23u : 0x24u;
+    if (!tla_flat_map::past_table(bus->rom_ptr(), bus->rom_size(), file, g_cpu.R[0]))
+        return false;
+    // A row past the map's table (tla_flat_map::past_table): unpack nothing.
+    gbarecomp::guest_return_now(pc, 0u);
+    return true;
+}
+
 void tla_install_gpu_field() {
-    g_enabled = env_on("GSR_GPU_FIELD");
-    g_only = g_enabled && env_on("GSR_GPU_FIELD_ONLY");
-    g_check = g_enabled && env_on("TLA_GPU_FIELD_CHECK");
+    g_enabled = gbarecomp::env_flag("GSR_GPU_FIELD");
+    g_only = g_enabled && gbarecomp::env_flag("GSR_GPU_FIELD_ONLY");
+    g_check = g_enabled && gbarecomp::env_flag("TLA_GPU_FIELD_CHECK");
     // F12 captures hardware/room state even with the GPU renderer disabled.
     gbarecomp::set_scene_capture_hook(capture);
     gbarecomp::set_savestate_load_hook([] {
@@ -951,6 +963,9 @@ void tla_install_gpu_field() {
         tla_local_music_on_savestate_load();
         tla_custom_battle_reset();
         tla_retreat_travel_reset();
+        tla_radial_psynergy_reset();
+        gsr::autosave::reset();
+        tla_new_game_reset();
         tla_sprite_memory_restore();
     });
     if (g_enabled)

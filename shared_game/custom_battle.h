@@ -109,6 +109,14 @@ struct Game {
     std::uint32_t stat_adjust_pc, stat_adjust_return;
     std::uint32_t small_enemy_pc, enemy_data_pc;
     std::uint32_t party_count_pc, party_ids, battle_context_ptr, byte_flag_pc;
+    // Scaled difficulty (Jimmy, 7 November 2026): every battle's builder
+    // fetches each new enemy with slot_getter_pc returning to
+    // `scale_getter_return`, just before its own "raise by the word at sp +
+    // 0x20" step, which ordinary battles skip (word 0). There an enemy below
+    // the Arena's target level is raised to it with stat_adjust_pc; stronger
+    // ones stay. `scaled` says whether the loaded file has it on.
+    std::uint32_t scale_getter_return;
+    bool (*scaled)();
     // Arena tab. arena_table: the game's room-to-backdrop table, u32 entries
     // ending at 0; an entry with bit 31 set names a backdrop asset in its low
     // 16 bits. arena_offset: where the battle context caches the room's

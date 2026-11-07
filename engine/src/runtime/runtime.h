@@ -33,6 +33,11 @@ struct RunOptions {
     // (GBARECOMP_LINK_BIOS off) always runs without one.
     bool no_bios_by_default = false;
 
+    // Game-owned host-only save storage kept beside the cartridge chip, in
+    // bytes (Golden Sun files 4-9). 0 = none. Persisted next to the .sav and
+    // carried in save states; see gba/save_extension.h.
+    std::size_t save_extension_bytes = 0;
+
     // Optional read-only game observer for exact, hash-gated function-entry
     // research. Installed only when the loaded ROM SHA-1 equals
     // builtin_rom_sha1, and chained with the runtime's existing debug hook.
@@ -179,6 +184,15 @@ void request_exit(int code);
 bool update_flash_save(const std::vector<std::uint8_t>& expected,
                        const std::vector<std::uint8_t>& replacement,
                        std::string& error);
+// The same for the battery extension (files 4-9), backed up beside its
+// companion file.
+bool update_extension_save(const std::vector<std::uint8_t>& expected,
+                           const std::vector<std::uint8_t>& replacement,
+                           std::string& error);
+
+// True while the last attempt to store the battery save on the PC failed
+// (full disk, unwritable folder); cleared once a retry stores everything.
+bool save_write_failing();
 
 // Covers the game's picture with black, for steps a game takes by itself that
 // the player should not watch (Seamless mode). It fades over kVeilFadeMs, or

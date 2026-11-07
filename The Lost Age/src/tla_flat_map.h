@@ -52,6 +52,32 @@ constexpr std::size_t kRing = 0x10000u;             // EWRAM 0x02010000
 constexpr int kRingSlots = 24;
 constexpr std::size_t kFileSwitch = 0x2A640u;       // EWRAM 0x0202A640
 
+// Whether `src` is NOT the start of any of the map file's rows: file + [file + 4
+// + r * 4] for r below (word 0 - 4) / 4 (48 rows in file 0x24, 22 in file
+// 0x23, in all five ROMs). The map's two row loaders, the opening one
+// (0x080ECE40's loop over rows (BG1VOFS / 8) + 0..20, BL at 0x080ECF18) and
+// the scrolling one (0x080ECF74, row (BG1VOFS / 8) + 20, BL at 0x080ECFD0),
+// both ask for row 48 when the view sits at the bottom edge (VOFS 0xE0; bug
+// reports 2026-11-02 and 2026-11-03). That row is past the table: the game
+// unpacks from file + its first data word (0x3EB90000), an unmapped address,
+// into ring slot 24, past the 24-slot ring; the console decodes open bus
+// there. The row is never on screen. False when the table cannot be read.
+inline bool past_table(const std::uint8_t* rom, std::size_t rom_bytes, unsigned file,
+                       std::uint32_t src) {
+    std::size_t at = 0;
+    std::uint32_t first = 0, piece = 0;
+    if (!tla_rom::asset_offset(rom, rom_bytes, file, &at) ||
+        !tla_rom::word(rom, rom_bytes, std::uint32_t(0x08000000u + at), &first) ||
+        first < 4u || (first & 3u))
+        return false;
+    for (std::uint32_t r = 0; r < (first - 4u) / 4u; ++r) {
+        if (!tla_rom::word(rom, rom_bytes, std::uint32_t(0x08000000u + at + 4u + r * 4u), &piece))
+            return false;
+        if (src == std::uint32_t(0x08000000u + at + piece)) return false;
+    }
+    return true;
+}
+
 // File 0x24's 48 rows, unpacked once per ROM; empty when any row fails.
 inline const std::vector<std::uint8_t>& map_rows(const std::uint8_t* rom,
                                                  std::size_t rom_bytes) {

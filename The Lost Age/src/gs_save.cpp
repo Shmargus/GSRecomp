@@ -1,4 +1,8 @@
 #include "gs_save.h"
+#include "../../shared_game/challenge_format.h"
+#include "../../shared_game/random_psynergy_format.h"
+#include "../../shared_game/random_weapons_format.h"
+#include "../../shared_game/save_files.h"
 #include <algorithm>
 #include <cstring>
 #include <utility>
@@ -24,9 +28,39 @@ bool character_name(const std::uint8_t* p) {
     }
     return false;
 }
+
+// File `number` from its two blocks (GS1 loads blocks i and i+3, 0x0802092C).
+void add_cleared(std::vector<ClearSlot>& out, unsigned number,
+                 const std::uint8_t* p, const std::uint8_t* second) {
+    if (!p || !second || p[0x31] == 0) return;
+    const auto* body = p + kHeaderBytes;
+    bool names_ok = true;
+    for (unsigned c = 0; c < 4; ++c)
+        names_ok &= character_name(body + 0x500 + c * 0x14C);
+    if (!names_ok) return;
+    // Challenge Mode files stay in The Broken Seal (Jimmy, 5 November 2026);
+    // its bytes are payload +0x28 (runner_main.cpp's Challenge Mode install).
+    // A randomized run (payload +0x30, +0x38) goes on (7 November 2026).
+    if (gsr::challenge::decode(body + 0x28).size > 0) return;
+    ClearSlot slot{};
+    slot.slot = number;
+    slot.level = p[0x1C];
+    for (unsigned n = 0; n < 12 && p[0x10 + n]; ++n) {
+        const auto ch = p[0x10 + n];
+        slot.name += ch >= 0x20 && ch < 0x7F ? char(ch) : '?';
+    }
+    // Exactly TLA's link receiver (0x02008D0E): flags/coins keep their
+    // GS1 offsets; the following block moves forward 0x20 bytes.
+    // Its four character records then land at +0x520, as expected by
+    // TLA's common importer 0x080AE410. The game rebuilds their stats.
+    std::copy_n(body, 0x254, slot.transfer.begin());
+    std::copy_n(body + 0x240, 0xD20, slot.transfer.begin() + 0x260);
+    out.push_back(std::move(slot));
+}
 }  // namespace
 
-std::vector<ClearSlot> cleared_slots(const std::vector<std::uint8_t>& bytes) {
+std::vector<ClearSlot> cleared_slots(const std::vector<std::uint8_t>& bytes,
+                                     const std::vector<std::uint8_t>& more) {
     std::vector<ClearSlot> out;
     if (bytes.size() != kFileBytes) return out;
     std::array<const std::uint8_t*, 16> latest{};
@@ -37,29 +71,20 @@ std::vector<ClearSlot> cleared_slots(const std::vector<std::uint8_t>& bytes) {
         // Match GS1 0x080057C8: larger generation wins; ties keep first.
         if (!previous || halfword(p + 10) > halfword(previous + 10)) previous = p;
     }
-    for (unsigned i = 0; i < 3; ++i) {
-        const auto* p = latest[i];
-        // GS1 loads both logical blocks i and i+3 (0x0802092C).
-        if (!p || !latest[i + 3] || p[0x31] == 0) continue;
-        const auto* body = p + kHeaderBytes;
-        bool names_ok = true;
-        for (unsigned c = 0; c < 4; ++c)
-            names_ok &= character_name(body + 0x500 + c * 0x14C);
-        if (!names_ok) continue;
-        ClearSlot slot{};
-        slot.slot = i + 1;
-        slot.level = p[0x1C];
-        for (unsigned n = 0; n < 12 && p[0x10 + n]; ++n) {
-            const auto ch = p[0x10 + n];
-            slot.name += ch >= 0x20 && ch < 0x7F ? char(ch) : '?';
+    for (unsigned i = 0; i < 3; ++i) add_cleared(out, i + 1, latest[i], latest[i + 3]);
+    // Files 4..9: a 16-byte header, then each file's two blocks as sector
+    // images, in file order.
+    // (The Broken Seal's save_files_tbs.h writes them; save_files.h the header.)
+    namespace sf = gsr::save_files;
+    constexpr std::size_t kMoreFiles = sf::kFiles - sf::kRows;
+    if (more.size() >= sf::kHeaderBytes + kMoreFiles * 2 * kSectorBytes &&
+        sf::header_valid(more.data())) {
+        for (std::size_t f = 0; f < kMoreFiles; ++f) {
+            const auto* first = more.data() + sf::kHeaderBytes + f * 2 * kSectorBytes;
+            const auto* second = first + kSectorBytes;
+            add_cleared(out, unsigned(f + sf::kRows + 1), valid_sector(first) ? first : nullptr,
+                        valid_sector(second) ? second : nullptr);
         }
-        // Exactly TLA's link receiver (0x02008D0E): flags/coins keep their
-        // GS1 offsets; the following block moves forward 0x20 bytes.
-        // Its four character records then land at +0x520, as expected by
-        // TLA's common importer 0x080AE410. The game rebuilds their stats.
-        std::copy_n(body, 0x254, slot.transfer.begin());
-        std::copy_n(body + 0x240, 0xD20, slot.transfer.begin() + 0x260);
-        out.push_back(std::move(slot));
     }
     return out;
 }

@@ -51,6 +51,7 @@ constexpr uint32_t TAG_PPU   = fourcc('P', 'P', 'U', '0');
 constexpr uint32_t TAG_AFFINE = fourcc('A', 'F', 'R', 'F');
 constexpr uint32_t TAG_META  = fourcc('M', 'E', 'T', 'A');
 constexpr uint32_t TAG_OBJX  = fourcc('O', 'B', 'J', 'X');
+constexpr uint32_t TAG_SAVX  = fourcc('S', 'A', 'V', 'X');
 
 constexpr std::size_t kRomSha1Len = 40;
 
@@ -115,7 +116,8 @@ void build_state(const SnapshotContext& ctx, SnapshotWriter& w) {
     w.bytes(kMagic, 4);
     w.u32(kSnapshotVersion);
     w.bytes(sha1, kRomSha1Len);
-    w.u32(9);  // section_count
+    const bool has_save_ext = ctx.bus->save().extension_size() > 0;
+    w.u32(has_save_ext ? 10 : 9);  // section_count
 
     add_section(w, TAG_CPU,   [&](SnapshotWriter& s) { serialize_cpu(s); });
     add_section(w, TAG_BUS,   [&](SnapshotWriter& s) { ctx.bus->serialize(s); });
@@ -132,6 +134,14 @@ void build_state(const SnapshotContext& ctx, SnapshotWriter& w) {
         s.bytes(ctx.bus->vram_ptr() + gba::GbaBus::kNativeVram,
                 gba::GbaBus::kObjExtraVram);
     });
+    // The game's battery extension (gba_save.h), only when it has one.
+    if (has_save_ext) {
+        add_section(w, TAG_SAVX, [&](SnapshotWriter& s) {
+            const gba::GbaSave& sv = ctx.bus->save();
+            s.u32(static_cast<uint32_t>(sv.extension_size()));
+            s.bytes(sv.extension_data(), sv.extension_size());
+        });
+    }
 }
 
 struct Span { std::size_t off; std::size_t len; };
@@ -235,6 +245,20 @@ bool apply_state(const std::vector<uint8_t>& blob, const SectionMap& sections,
     std::uint8_t* extra = ctx.bus->vram_ptr() + gba::GbaBus::kNativeVram;
     std::memset(extra, 0, gba::GbaBus::kObjExtraVram);
     apply(TAG_OBJX,  [&](SnapshotReader& r) { r.bytes(extra, gba::GbaBus::kObjExtraVram); });
+    // Optional: a state rolls the battery extension back like the chip; one
+    // from before it (or another size) leaves it untouched.
+    apply(TAG_SAVX, [&](SnapshotReader& r) {
+        gba::GbaSave& sv = ctx.bus->save();
+        const uint32_t len = r.u32();
+        if (!r.ok()) return;
+        if (len != sv.extension_size()) {
+            std::fprintf(stderr, "[snapshot] SAVX length %u != extension size "
+                                 "%zu, skipped\n", len, sv.extension_size());
+            return;
+        }
+        if (len > 0) r.bytes(sv.extension_data(), len);
+        if (r.ok()) sv.mark_extension_dirty();
+    });
     return ok;
 }
 

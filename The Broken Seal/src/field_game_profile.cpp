@@ -52,6 +52,7 @@ const FieldGameProfile& field_game_profile() {
         p.solid_object_strips = true;
         p.margin_scroll_rows = false;
         p.agreement_autoscroll_wrap = false;
+        p.hide_objects_off_room = true;
         return p;
     }();
     return profile;

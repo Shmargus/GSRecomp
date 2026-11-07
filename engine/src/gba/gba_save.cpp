@@ -319,12 +319,34 @@ bool GbaSave::load_flash_bytes(const uint8_t* data, std::size_t bytes) {
     return true;
 }
 
+void GbaSave::configure_extension(std::size_t bytes) {
+    extension_data_.assign(bytes, 0);
+    extension_dirty_ = false;
+}
+
+bool GbaSave::load_extension_bytes(const uint8_t* data, std::size_t bytes) {
+    if ((!data && bytes != 0) || bytes > extension_data_.size()) return false;
+    std::fill(extension_data_.begin(), extension_data_.end(), uint8_t{0});
+    if (bytes != 0) std::copy(data, data + bytes, extension_data_.begin());
+    extension_dirty_ = false;
+    return true;
+}
+
 bool GbaSave::replace_flash_bytes(const std::vector<uint8_t>& expected,
                                  const std::vector<uint8_t>& replacement) {
     if (!flash_enabled_ || flash_state_ != FlashState::Idle || flash_id_mode_ ||
         replacement.size() != flash_size_ || flash_data_ != expected) return false;
     flash_data_ = replacement;
     dirty_ = true;
+    return true;
+}
+
+bool GbaSave::replace_extension_bytes(const std::vector<uint8_t>& expected,
+                                      const std::vector<uint8_t>& replacement) {
+    if (extension_data_.empty() || replacement.size() != extension_data_.size() ||
+        extension_data_ != expected) return false;
+    extension_data_ = replacement;
+    extension_dirty_ = true;
     return true;
 }
 

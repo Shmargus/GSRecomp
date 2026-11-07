@@ -1,5 +1,5 @@
 # GENERATED CANDIDATE: tools/build_localized_main_toml.py; requires recompiler review.
-# English config SHA-256 9e72e30e02fe5705218c6db8e4a68906e0af79b05ee829e2aa63e531da17bc09
+# English config SHA-256 fcd5be248675953bc764ef40f4a34c61642b83b13980a8b879dd2bf58b15e68f
 # Address map SHA-256 7ad14ed7aa5dc655fbb8a41d9cef2b8bd3196680118eda753cce8fae62d3e2e9
 
 [program]
@@ -69,6 +69,46 @@ note = "Measured Germany counterpart; English evidence: beq past the auto-sleep 
 [[conditional_branch_override]]
 addr = 0x08040526
 note = "Measured Germany counterpart; English evidence: settings close: bne past the Sleep Mode notice 0x1161"
+
+[[conditional_branch_override]]
+addr = 0x080441ca
+note = "Measured Germany counterpart; English evidence: SHA-1 verified ROM: nine save files, file box 0x08043CD8 Up: empty file BEQ to the row step at 0x080441E0: stop on every file (src/tla_save_files.cpp)"
+
+[[conditional_branch_override]]
+addr = 0x080441e0
+note = "Measured Germany counterpart; English evidence: SHA-1 verified ROM: nine save files, file box 0x08043CD8 Up: mode 1 Clear Data BNE to the row step at 0x080441E0: stop on every file (src/tla_save_files.cpp)"
+
+[[conditional_branch_override]]
+addr = 0x080441fa
+note = "Measured Germany counterpart; English evidence: SHA-1 verified ROM: nine save files, file box 0x08043CD8 Up: mode 4 unmarked BEQ to the row step at 0x080441E0: stop on every file (src/tla_save_files.cpp)"
+
+[[conditional_branch_override]]
+addr = 0x08044214
+note = "Measured Germany counterpart; English evidence: SHA-1 verified ROM: nine save files, file box 0x08043CD8 Up: mode 5 not Clear Data BEQ to the row step at 0x080441E0: stop on every file (src/tla_save_files.cpp)"
+
+[[conditional_branch_override]]
+addr = 0x08044230
+note = "Measured Germany counterpart; English evidence: SHA-1 verified ROM: nine save files, file box 0x08043CD8 Up: mode 6 after reunion BNE to the row step at 0x080441E0: stop on every file (src/tla_save_files.cpp)"
+
+[[conditional_branch_override]]
+addr = 0x08044294
+note = "Measured Germany counterpart; English evidence: SHA-1 verified ROM: nine save files, file box 0x08043CD8 Down: empty file BEQ to the row step at 0x080442AA: stop on every file (src/tla_save_files.cpp)"
+
+[[conditional_branch_override]]
+addr = 0x080442aa
+note = "Measured Germany counterpart; English evidence: SHA-1 verified ROM: nine save files, file box 0x08043CD8 Down: mode 1 Clear Data BNE to the row step at 0x080442AA: stop on every file (src/tla_save_files.cpp)"
+
+[[conditional_branch_override]]
+addr = 0x080442c4
+note = "Measured Germany counterpart; English evidence: SHA-1 verified ROM: nine save files, file box 0x08043CD8 Down: mode 4 unmarked BEQ to the row step at 0x080442AA: stop on every file (src/tla_save_files.cpp)"
+
+[[conditional_branch_override]]
+addr = 0x080442de
+note = "Measured Germany counterpart; English evidence: SHA-1 verified ROM: nine save files, file box 0x08043CD8 Down: mode 5 not Clear Data BEQ to the row step at 0x080442AA: stop on every file (src/tla_save_files.cpp)"
+
+[[conditional_branch_override]]
+addr = 0x080442fa
+note = "Measured Germany counterpart; English evidence: SHA-1 verified ROM: nine save files, file box 0x08043CD8 Down: mode 6 after reunion BNE to the row step at 0x080442AA: stop on every file (src/tla_save_files.cpp)"
 
 [[conditional_branch_override]]
 addr = 0x08128486

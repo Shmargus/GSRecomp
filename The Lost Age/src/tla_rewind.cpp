@@ -60,6 +60,9 @@ bool present(uint8_t* rgb, uint32_t width, uint32_t height) {
     drawn = tla_enemy_hp_bar_paint(rgb, width, height) || drawn;
     drawn = tla_custom_battle_paint(rgb, width, height) || drawn;
     drawn = tla_retreat_travel_paint(rgb, width, height) || drawn;
+    drawn = tla_radial_psynergy_paint(rgb, width, height) || drawn;
+    drawn = tla_save_files_paint(rgb, width, height) || drawn;
+    drawn = tla_new_game_paint(rgb, width, height) || drawn;
     g_history.record(rgb, width, height, std::move(frame));
 
     std::string unpacker_note;

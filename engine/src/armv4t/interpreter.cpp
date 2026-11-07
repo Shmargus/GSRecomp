@@ -133,15 +133,7 @@ uint32_t stm_pc_store_value(const CPUState& cpu, const Instr& i) {
 
 void Interpreter::enter_irq(CPUState& cpu, uint32_t return_address) {
     // Pack CPSR into a uint32 view for SPSR storage.
-    uint32_t cpsr_u32 = 0;
-    if (cpu.cpsr.n) cpsr_u32 |= 1u << 31;
-    if (cpu.cpsr.z) cpsr_u32 |= 1u << 30;
-    if (cpu.cpsr.c) cpsr_u32 |= 1u << 29;
-    if (cpu.cpsr.v) cpsr_u32 |= 1u << 28;
-    if (cpu.cpsr.i) cpsr_u32 |= 1u << 7;
-    if (cpu.cpsr.f) cpsr_u32 |= 1u << 6;
-    if (cpu.cpsr.t) cpsr_u32 |= 1u << 5;
-    cpsr_u32 |= cpu.cpsr.mode & 0x1Fu;
+    uint32_t cpsr_u32 = cpu.cpsr.word();
 
     // Bank out the current mode's R13/R14 into its banked slot.
     auto mode_to_bank = [](uint8_t m) -> BankedSlot {
@@ -180,15 +172,7 @@ void Interpreter::enter_irq(CPUState& cpu, uint32_t return_address) {
 void Interpreter::enter_swi(CPUState& cpu, uint32_t return_address,
                             bool /*from_thumb*/) {
     // Pack CPSR for SPSR_svc.
-    uint32_t cpsr_u32 = 0;
-    if (cpu.cpsr.n) cpsr_u32 |= 1u << 31;
-    if (cpu.cpsr.z) cpsr_u32 |= 1u << 30;
-    if (cpu.cpsr.c) cpsr_u32 |= 1u << 29;
-    if (cpu.cpsr.v) cpsr_u32 |= 1u << 28;
-    if (cpu.cpsr.i) cpsr_u32 |= 1u << 7;
-    if (cpu.cpsr.f) cpsr_u32 |= 1u << 6;
-    if (cpu.cpsr.t) cpsr_u32 |= 1u << 5;
-    cpsr_u32 |= cpu.cpsr.mode & 0x1Fu;
+    uint32_t cpsr_u32 = cpu.cpsr.word();
 
     // Bank out current mode's R13/R14.
     auto mode_to_bank = [](uint8_t m) -> BankedSlot {
@@ -1040,15 +1024,7 @@ Interpreter::Result Interpreter::step(CPUState& cpu, Bus& bus, const Instr& i,
             if (!privileged) byte_mask &= 0xFF000000u;
 
             // Build the candidate new CPSR as a uint32.
-            uint32_t old = 0;
-            if (cpu.cpsr.n) old |= 1u << 31;
-            if (cpu.cpsr.z) old |= 1u << 30;
-            if (cpu.cpsr.c) old |= 1u << 29;
-            if (cpu.cpsr.v) old |= 1u << 28;
-            if (cpu.cpsr.i) old |= 1u << 7;
-            if (cpu.cpsr.f) old |= 1u << 6;
-            if (cpu.cpsr.t) old |= 1u << 5;
-            old |= (cpu.cpsr.mode & 0x1Fu);
+            uint32_t old = cpu.cpsr.word();
 
             uint32_t newv = (old & ~byte_mask) | (src & byte_mask);
 

@@ -4037,6 +4037,22 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         // A mode-2 object never draws a visible pixel; it only shapes the
         // object window, which the mask pass below already used it for.
         if (!O.present || O.window) return;
+        // Off the console's screen and off the room the margins draw: no
+        // console frame shows it here, and our margins are black there
+        // (FieldGameProfile::hide_objects_off_room). Field rooms only, the
+        // same gate the margins' room lookup uses.
+        if (!extra && prof().hide_objects_off_room && room_source_enabled_ &&
+            room_valid_ && scene.video_mode == 0) {
+            const int w = O.affine && O.double_size ? O.width * 2 : O.width;
+            const int h = O.affine && O.double_size ? O.height * 2 : O.height;
+            const bool on_console =
+                O.x + w > 0 && O.x < 240 && O.y + h > 0 && O.y < 160;
+            const int rx = room_camera_x_ + O.x;
+            const int ry = room_camera_y_ + O.y;
+            const bool in_room = rx + w > room_min_x_ && rx < room_max_x_ &&
+                                 ry + h > room_min_y_ && ry < room_max_y_;
+            if (!on_console && !in_room) return;
+        }
         const SceneObject* L = lifter >= 0 ? &scene.objects[lifter] : nullptr;
         // The lifted copy sorts behind every object of the lifter's priority
         // (rank 127), so where the lifter itself is opaque it still wins.

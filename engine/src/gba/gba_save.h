@@ -73,6 +73,24 @@ public:
     bool replace_flash_bytes(const std::vector<uint8_t>& expected,
                              const std::vector<uint8_t>& replacement);
 
+    // Battery extension: host-only bytes a game keeps beside the cartridge
+    // chip (Golden Sun's save files 4-9 do not fit the 64 KB flash). Not
+    // guest-addressable and not part of serialize(); the runtime persists it
+    // to a companion file (gba/save_extension.h) and savestates carry it in
+    // their own SAVX section. Own dirty flag, separate from the chip's.
+    void configure_extension(std::size_t bytes);  // zero-filled; 0 = none
+    std::size_t extension_size() const { return extension_data_.size(); }
+    uint8_t* extension_data() { return extension_data_.data(); }
+    const uint8_t* extension_data() const { return extension_data_.data(); }
+    bool load_extension_bytes(const uint8_t* data, std::size_t bytes);
+    void mark_extension_dirty() { extension_dirty_ = true; }
+    bool extension_dirty() const { return extension_dirty_; }
+    void clear_extension_dirty() { extension_dirty_ = false; }
+    // Paused save editing of the extension: rejects a stale snapshot or a
+    // different size. Marks the replacement dirty.
+    bool replace_extension_bytes(const std::vector<uint8_t>& expected,
+                                 const std::vector<uint8_t>& replacement);
+
     // Save-state serialization (chip config + EEPROM bytes + in-flight
     // serial command/read state). See debug/snapshot.h.
     void serialize(gbarecomp::debug::SnapshotWriter& w) const;
@@ -123,6 +141,9 @@ private:
     bool flash_id_mode_ = false;
     uint8_t flash_bank_ = 0;
     std::vector<uint8_t> flash_data_;
+
+    std::vector<uint8_t> extension_data_;
+    bool extension_dirty_ = false;
 };
 
 }  // namespace gba

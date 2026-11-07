@@ -6,6 +6,7 @@
 
 #include "../../shared_game/battle_sprite_memory.h"
 #include "../../shared_game/custom_battle.h"
+#include "random_psynergy_tbs.h"
 #include "settings_page.h"
 #include "gba_bus.h"
 #include "game_options.h"
@@ -254,6 +255,10 @@ const Game kGame = {
     .party_ids = 0x02000438u,
     .battle_context_ptr = gs::ram(0x03001E74u),
     .byte_flag_pc = gs::rom(0x080770E0u),
+    // The builder's enemy loop fetches each new enemy at 080C232C (return
+    // 080C2330), before its test of the word at sp + 0x20.
+    .scale_getter_return = gs::rom(0x080C2330u),
+    .scaled = [] { return gsr::random_psynergy::tbs::current().scaled; },
     // The room backdrop asset is cached at context +0x648 (080B6498),
     // then passed to the graphics loader at 080B6680.
     .arena_table = gs::rom(0x0809E270u),

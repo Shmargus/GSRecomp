@@ -66,8 +66,7 @@ playable from the start to the ending credits.
 - **Git**. During configuration CMake downloads Dear ImGui, toml++ and
   dr_flac at pinned commits (unless `../engine/third_party/` holds them), so
   internet access is needed the first time.
-- **Python 3.10+**, with the `unicorn` package (`pip install unicorn`) for
-  `tools/build_stamp_variants.py`.
+- **Python 3.10+** for the helper scripts in `tools/`.
 - **Golden Sun disassembly**, [gsret/goldensun](https://github.com/gsret/goldensun)
   at revision `84a80693003439acdbb78dd84538b0532461ad4b`, built into
   `goldensun.elf` and its overlay binaries. Symbols and overlay code come from it.
@@ -115,10 +114,8 @@ folder:
    - RAM-copied code: one `gba_recompile` run per `config/usa/transient-*.toml`,
      into the matching `local/gs011/transient_*` directory named in
      `CMakeLists.txt`. **This step is not scripted yet.**
-   - Generated variants: `tools/build_synthesized_dc8_variant.py`,
-     `tools/build_synthesized_dc8_slot2_variant.py`,
-     `tools/build_synthesized_dc8_slot3_variant.py` and
-     `tools/build_stamp_variants.py` (each takes `--rom`; see `--help`).
+   - Generated variants: the `synth_dc8`, `synth_dc8b`, `synth_dc8c` and `stamps` steps of
+     `player_builder/builder_main.cpp` (run by `gsr_builder.exe`).
 
    CMake stops with a clear message naming any directory that is missing.
 

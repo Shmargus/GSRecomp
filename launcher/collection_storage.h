@@ -93,7 +93,8 @@ inline bool native_slot(const std::string& suffix) {
         std::all_of(suffix.begin() + 6, suffix.end(), [](char c) { return c >= '0' && c <= '9'; });
 }
 inline bool progress_suffix(const std::string& suffix) {
-    return suffix == ".sav" || suffix == ".state" || suffix == ".sgm" || native_slot(suffix) ||
+    // .sav4-9: save files 4..9 beside the battery save (engine gba/save_extension.h).
+    return suffix == ".sav" || suffix == ".sav4-9" || suffix == ".state" || suffix == ".sgm" || native_slot(suffix) ||
         (suffix.size() == 4 && suffix.compare(0, 3, ".ss") == 0 && suffix[3] >= '0' && suffix[3] <= '9');
 }
 inline std::string associated_suffix(const fs::path& file, const fs::path& rom) {

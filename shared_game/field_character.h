@@ -157,11 +157,17 @@ inline void on_entry(std::uint32_t pc) {
     // Isaac, TLA Isaac/Felix) have 6-8 (jump; the game raises the actor for
     // the bounce) and 9 (a pose-1 idle); the others hold unrelated animations
     // there, so use their walk and stand. Field Psynergy casts 20 then 21
-    // (F12 TBS 0069, TLA 0208/0209), the ring cast every hero has. Every
-    // other pose (pushing, story gestures) walks, so the original body never
-    // shows (Jimmy, 3 Nov).
+    // (F12 TBS 0069, TLA 0208/0209), the ring cast every hero has. Ladder
+    // and vine poses 10-13 walk (below), and so do the room-exit stair
+    // poses 23-26 (only Isaac draws them, sinking into or rising out of the
+    // stairs; F12 TBS 0093/0094 Ivan: 26 climbing out under the facing
+    // 0xC000, 24 arriving under 0x4000; TLA Isaac's 23-26 are the same ROM
+    // drawings). Every other pose (pushing, story
+    // gestures) stands, so the original body never shows and a held story
+    // pose does not walk in place (Jimmy, 4 Nov; F12 TBS 0081 Sanctum pose 22).
     constexpr unsigned kSharedPose[] = {0, 1, 2, 3, 4, 5, 2, 2, 2, 1};
     constexpr unsigned kWalkPose = 2;
+    constexpr unsigned kStandPose = 1;
     auto target = original;
     auto script = pose_script(*bus, original, pose);
     if (chosen != body) {
@@ -170,7 +176,9 @@ inline void on_entry(std::uint32_t pc) {
             const auto replacement = record(chosen);
             const auto wanted = pose_script(*bus, replacement,
                 pose < std::size(kSharedPose) ? kSharedPose[pose]
-                : pose == 20 || pose == 21 ? pose : kWalkPose);
+                : pose == 20 || pose == 21 ? pose
+                : pose <= 13 || (pose >= 23 && pose <= 26) ? kWalkPose
+                : kStandPose);
             if (wanted) {
                 target = replacement;
                 script = wanted;

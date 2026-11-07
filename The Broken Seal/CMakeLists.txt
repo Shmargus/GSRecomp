@@ -251,7 +251,7 @@ set(GSR_SYNTH_DC8_030008EC_DIR
     CACHE PATH "Private identity-prefixed second synthesized Func_dc8 AOT output")
 set(GSR_STAMPS_DIR
     "${GSR_GAME_CODE_ROOT}/stamps"
-    CACHE PATH "Private position-independent Func_ed408 stamp routines (tools/build_stamp_variants.py)")
+    CACHE PATH "Private position-independent Func_ed408 stamp routines (player_builder/builder_main.cpp)")
 foreach(GSR_SLOT3_VARIANT 0 1 2 3 4)
     set(GSR_SYNTH_DC8C_${GSR_SLOT3_VARIANT}_DIR
         "${GSR_GAME_CODE_ROOT}/synth_dc8c_${GSR_SLOT3_VARIANT}"
@@ -510,14 +510,14 @@ if(GSR_BUILD_LOCAL_RUNNER)
        NOT EXISTS "${GSR_STAMPS_DIR}/stamp_registry.cpp")
         message(FATAL_ERROR
             "GSR_STAMPS_DIR is not a complete private corpus (run "
-            "tools/build_stamp_variants.py --recompile): ${GSR_STAMPS_DIR}")
+            "player_builder/builder_main.cpp stamps step): ${GSR_STAMPS_DIR}")
     endif()
     file(GLOB GSR_STAMPS_SOURCES CONFIGURE_DEPENDS
         "${GSR_STAMPS_DIR}/recompiled.cpp"
         "${GSR_STAMPS_DIR}/recompiled_*.cpp"
         "${GSR_STAMPS_DIR}/dispatch_table.cpp"
         "${GSR_STAMPS_DIR}/stamp_registry.cpp")
-    # tools/build_synthesized_dc8_slot2_variant.py --variant 0..3, then
+    # player_builder/builder_main.cpp (synth_dc8b) variant 0..3, then
     # gba_recompile --symbol-prefix gsr_synth_dc8b_<n>_.
     set(GSR_SYNTH_DC8B_SOURCES)
     foreach(GSR_SLOT2_VARIANT 0 1 2 3)
@@ -534,7 +534,7 @@ if(GSR_BUILD_LOCAL_RUNNER)
             "${GSR_SLOT2_DIR}/dispatch_table.cpp")
         list(APPEND GSR_SYNTH_DC8B_SOURCES ${GSR_SLOT2_SOURCES})
     endforeach()
-    # tools/build_synthesized_dc8_slot3_variant.py --variant 0..4, then
+    # player_builder/builder_main.cpp (synth_dc8c) variant 0..4, then
     # gba_recompile --symbol-prefix gsr_synth_dc8c_<n>_.
     foreach(GSR_SLOT3_VARIANT 0 1 2 3 4)
         set(GSR_SLOT3_DIR "${GSR_SYNTH_DC8C_${GSR_SLOT3_VARIANT}_DIR}")
@@ -742,6 +742,9 @@ if(GSR_BUILD_LOCAL_RUNNER)
 
     set(GSR_ENGINE_SOURCES
         src/runner_main.cpp
+        src/runner_cheats.cpp
+        src/runner_ram_code.cpp
+        src/runner_settings.cpp
         src/frame_capture.cpp
         src/map_recorder.cpp
         src/obj_recorder.cpp

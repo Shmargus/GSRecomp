@@ -11,12 +11,13 @@ namespace gbarecomp::seamless {
 // question and the launcher's switch all read and write this one value.
 inline constexpr const char* kOptionKey = "Seamless";
 
-// The Broken Seal exits with kExitCodeBase + the saved slot (0..2) once its
+// The Broken Seal exits with kExitCodeBase + the saved file (0..8, nine save
+// files: shared_game/save_files.h) once its
 // Clear Data is written; the launcher then starts The Lost Age at once. Any
 // value the game never returns otherwise works (it returns 0, or 1 when the
 // save could not be written); the launcher reports 127 itself.
 inline constexpr int kExitCodeBase = 75;
-inline constexpr int kSlotCount = 3;
+inline constexpr int kSlotCount = 9;
 
 // The slot a Seamless exit code names, or -1 for any other code.
 inline constexpr int slot_of_exit_code(int code) {
@@ -34,7 +35,7 @@ inline int parse_slot(const Char* text) {
 // Set by the launcher on The Lost Age: The Broken Seal's save file on every
 // launch where it exists (Seamless mode imports it; a new game started by
 // hand offers it first in the file browser), and in
-// Seamless mode also the slot to import (1..3, as the import lists them).
+// Seamless mode also the slot to import (1..9, as the import lists them).
 inline constexpr const char* kSaveEnv = "GSR_SEAMLESS_GS_SAVE";
 inline constexpr const char* kSlotEnv = "GSR_SEAMLESS_GS_SLOT";
 

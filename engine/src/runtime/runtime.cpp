@@ -40,6 +40,7 @@ extern "C" unsigned long long g_cost_irq_handler_calls;
 #include "crc32.h"
 #include "env_flag.h"
 #include "file_replace.h"
+#include "save_extension.h"
 #include "any_rom.h"
 #include "bios_hle.h"
 #include "gba_bios.h"
@@ -848,17 +849,28 @@ extern "C" unsigned g_ws_view_height = 160;
 
 namespace {
 std::atomic<int> g_requested_exit_code{-1};
-std::function<bool(const std::vector<std::uint8_t>&,
-                   const std::vector<std::uint8_t>&, std::string&)> g_update_flash_save;
+std::function<bool(bool extension, const std::vector<std::uint8_t>&,
+                   const std::vector<std::uint8_t>&, std::string&)> g_update_save;
+std::atomic<bool> g_save_write_failing{false};
+bool update_save(bool extension, const std::vector<std::uint8_t>& expected,
+                 const std::vector<std::uint8_t>& replacement, std::string& error) {
+    if (g_update_save) return g_update_save(extension, expected, replacement, error);
+    error = "The game's save file is unavailable.";
+    return false;
+}
 }  // namespace
 void request_exit(int code) { g_requested_exit_code.store(code); }
 bool update_flash_save(const std::vector<std::uint8_t>& expected,
                        const std::vector<std::uint8_t>& replacement,
                        std::string& error) {
-    if (g_update_flash_save) return g_update_flash_save(expected, replacement, error);
-    error = "The game's save file is unavailable.";
-    return false;
+    return update_save(false, expected, replacement, error);
 }
+bool update_extension_save(const std::vector<std::uint8_t>& expected,
+                           const std::vector<std::uint8_t>& replacement,
+                           std::string& error) {
+    return update_save(true, expected, replacement, error);
+}
+bool save_write_failing() { return g_save_write_failing.load(); }
 
 int run_game(int argc, char** argv, const RunOptions& opts) {
     // Game runners install this before entering run_game(). Clear it on every
@@ -1411,61 +1423,120 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
             }
         }
     }
+    // Battery extension (gba_save.h): a companion file beside the .sav.
+    if (opts.save_extension_bytes > 0 && !args.save_path.empty()) {
+        bus.save().configure_extension(opts.save_extension_bytes);
+        const std::string ext_path = gba::save_extension_path(args.save_path);
+        std::error_code ext_ec;
+        if (std::filesystem::exists(ext_path, ext_ec)) {
+            std::vector<uint8_t> ext_bytes;
+            if (!read_file(ext_path, &ext_bytes, &err)) {
+                std::fprintf(stderr, "[gbarecomp:runtime] %s\n", err.c_str());
+                return 1;
+            }
+            if (ext_bytes.size() > bus.save().extension_size()) {
+                std::fprintf(stderr,
+                             "[gbarecomp:runtime] save extension too large: %s "
+                             "(%zu bytes, limit is %zu bytes)\n",
+                             ext_path.c_str(), ext_bytes.size(),
+                             bus.save().extension_size());
+                return 1;
+            }
+            if (!bus.save().load_extension_bytes(ext_bytes.data(),
+                                                 ext_bytes.size())) {
+                std::fprintf(stderr,
+                             "[gbarecomp:runtime] failed to load save "
+                             "extension %s\n", ext_path.c_str());
+                return 1;
+            }
+            if (!args.quiet) {
+                std::printf("save_extension_loaded path=\"%s\" size=%zu\n",
+                            ext_path.c_str(), ext_bytes.size());
+            }
+        }
+    }
     bus.io().set_ppu(&ppu);
     bus.io().set_bus(&bus);
 
-    auto flush_save = [&]() -> bool {
-        const bool has_save =
-            bus.save().sram_enabled() || bus.save().eeprom_enabled() ||
-            bus.save().flash_enabled();
-        if (!has_save || args.save_path.empty() || !bus.save().dirty()) {
-            return true;
-        }
-        std::vector<uint8_t> save_bytes = bus.save().sram_enabled()
-            ? bus.save().sram_bytes()
-            : (bus.save().flash_enabled() ? bus.save().flash_bytes()
-                                          : bus.save().eeprom_bytes());
-        // The save file is only ever replaced whole (file_replace.h): a crash
-        // or failed write keeps the previous save. We flush periodically
-        // during play (see the loop), not just once on exit. On failure the
-        // save stays dirty, so the next flush tries again.
-        if (!gba::replace_file(args.save_path, save_bytes.data(),
-                               save_bytes.size(), &err)) {
-            std::fprintf(stderr, "[gbarecomp:runtime] save: %s\n", err.c_str());
+    // A save file is only ever replaced whole (file_replace.h): a crash or
+    // failed write keeps the previous save. We flush periodically during
+    // play (see the loop), not just once on exit. On failure the save stays
+    // dirty, so the next flush tries again.
+    auto write_save = [&](const std::string& path, const uint8_t* data,
+                          std::size_t size, const char* what) -> bool {
+        if (!gba::replace_file(path, data, size, &err)) {
+            std::fprintf(stderr, "[gbarecomp:runtime] %s: %s\n", what,
+                         err.c_str());
             return false;
         }
-        bus.save().clear_dirty();
         if (!args.quiet) {
-            std::printf("save_flushed path=\"%s\" size=%zu\n",
-                        args.save_path.c_str(), save_bytes.size());
+            std::printf("%s_flushed path=\"%s\" size=%zu\n", what,
+                        path.c_str(), size);
         }
         return true;
     };
+    auto flush_save = [&]() -> bool {
+        if (args.save_path.empty()) return true;
+        bool all_ok = true;
+        const bool has_save =
+            bus.save().sram_enabled() || bus.save().eeprom_enabled() ||
+            bus.save().flash_enabled();
+        if (has_save && bus.save().dirty()) {
+            const std::vector<uint8_t> save_bytes = bus.save().sram_enabled()
+                ? bus.save().sram_bytes()
+                : (bus.save().flash_enabled() ? bus.save().flash_bytes()
+                                              : bus.save().eeprom_bytes());
+            if (write_save(args.save_path, save_bytes.data(), save_bytes.size(), "save"))
+                bus.save().clear_dirty();
+            else
+                all_ok = false;
+        }
+        // The battery extension goes to its own companion file.
+        if (bus.save().extension_dirty()) {
+            if (write_save(gba::save_extension_path(args.save_path),
+                           bus.save().extension_data(),
+                           bus.save().extension_size(), "save_extension"))
+                bus.save().clear_extension_dirty();
+            else
+                all_ok = false;
+        }
+        // Shown in game until a later flush stores everything (the dirty
+        // parts are retried; see the loop).
+        g_save_write_failing.store(!all_ok);
+        return all_ok;
+    };
 
-    g_update_flash_save = [&](const auto& expected, const auto& replacement,
-                             std::string& error) {
-        if (args.save_path.empty() || !bus.save().replace_flash_bytes(expected, replacement)) {
+    g_update_save = [&](bool extension, const auto& expected, const auto& replacement,
+                        std::string& error) {
+        auto swap = [&](const auto& from, const auto& to) {
+            return extension ? bus.save().replace_extension_bytes(from, to)
+                             : bus.save().replace_flash_bytes(from, to);
+        };
+        if (args.save_path.empty() || !swap(expected, replacement)) {
             error = "The save changed or is still being written. Please try again.";
             return false;
         }
-        // Keep the complete pre-edit battery image, including every slot.
-        // Never reuse an existing backup name.
-        std::string backup = args.save_path + ".before-update.bak";
+        // Keep the complete pre-edit image (the battery file, or the
+        // companion holding files 4-9), including every slot. Never reuse
+        // an existing backup name.
+        const std::string path = extension ? gba::save_extension_path(args.save_path)
+                                           : args.save_path;
+        std::string backup = path + ".before-update.bak";
         std::error_code backup_ec;
         for (unsigned n = 1; std::filesystem::exists(backup, backup_ec) && !backup_ec; ++n)
-            backup = args.save_path + ".before-update-" + std::to_string(n) + ".bak";
+            backup = path + ".before-update-" + std::to_string(n) + ".bak";
         if (backup_ec || !gba::replace_file(backup, expected.data(), expected.size(), &error)) {
-            bus.save().replace_flash_bytes(replacement, expected);
+            swap(replacement, expected);
             error = "The backup could not be written. Nothing was updated.";
             return false;
         }
         if (flush_save()) return true;
-        bus.save().replace_flash_bytes(replacement, expected);
+        swap(replacement, expected);
         error = "The update could not be written. The previous save is backed up beside the save file.";
         return false;
     };
     struct SaveEditorScope {
-        ~SaveEditorScope() { g_update_flash_save = {}; }
+        ~SaveEditorScope() { g_update_save = {}; }
     } save_editor_scope;
 
     set_active_bus(&bus);
@@ -3819,7 +3890,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         // isn't hammered every frame. flush_save() writes atomically and clears
         // the dirty flag. Runs on the game/step thread in both windowed and
         // headless loops; the separate TCP debug path keeps exit-only flush.
-        if (bus.save().dirty()) {
+        if (bus.save().dirty() || bus.save().extension_dirty()) {
             uint64_t fc_now = ppu.frame_count();
             if (fc_now - save_last_flush_frame >= kSaveFlushIntervalFrames) {
                 flush_save();

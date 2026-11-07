@@ -31,16 +31,7 @@ void load_arm_cpu_into_interp(const ArmCpuState& g, armv4t::CPUState& cpu) {
 void store_interp_into_arm_cpu(const armv4t::CPUState& cpu, ArmCpuState& g) {
     for (int i = 0; i < 16; ++i) g.R[i] = cpu.R[i];
 
-    uint32_t v = 0;
-    if (cpu.cpsr.n) v |= 1u << 31;
-    if (cpu.cpsr.z) v |= 1u << 30;
-    if (cpu.cpsr.c) v |= 1u << 29;
-    if (cpu.cpsr.v) v |= 1u << 28;
-    if (cpu.cpsr.i) v |= 1u <<  7;
-    if (cpu.cpsr.f) v |= 1u <<  6;
-    if (cpu.cpsr.t) v |= 1u <<  5;
-    v |= static_cast<uint32_t>(cpu.cpsr.mode) & 0x1Fu;
-    g.cpsr = v;
+    g.cpsr = cpu.cpsr.word();
 
     for (int i = 0; i < armv4t::Bank_Count; ++i) {
         g.banked_sp[i]   = cpu.banked_sp[i];

@@ -6,10 +6,11 @@
 // (FACTS.md, 2026-10-07), and nothing in the game ever reads the byte
 // (FACTS.md, 2026-10-08), so Hard alone changes nothing. The runner makes it
 // Golden Sun 1's Hard Mode: enemies get 1.5x HP and 1.25x Attack and
-// Defence. It offers Hard Mode on every new game, with the game's own
-// questions, and turns the settings screen's Auto-Sleep row into a Hard Mode
-// switch. That one byte is the only switch, so answering Hard on a Clear
-// Data file and turning the row on are the same thing and never stack.
+// Defence. Every new game offers Hard Mode on the New Game checklist
+// (src/tla_new_game.cpp), and the settings screen's Auto-Sleep row becomes a
+// Hard Mode switch. That one byte is the only switch, so answering Hard on a
+// Clear Data file, the checklist row and the settings row are the same thing
+// and never stack.
 //
 // Enemies. Setup 0x080AFBEC copies the monster's table entry into its unit
 // (r5): base HP +0x10, also max HP +0x34 and HP +0x38; base Attack +0x18;
@@ -24,12 +25,9 @@
 // 0x02003860 (any slot with Clear Data, set by 0x080432A4) is non-zero:
 // "Play on EASY level?" (text 0x25, at 0x020085B2), "Play on HARD level?"
 // (0x27, at 0x02008648; Yes stores 2) and "Play on Normal level?" (0x28; No
-// asks again from Easy). Easy needs Clear Data, so without it the runner
-// sets the flag just before the check (on entry to 0x080382F8 called from
-// 0x02008580), and when the Easy question is about to show (entry to
-// 0x08038040 with r0 = 0x25, called from 0x020085B8) clears it again and
-// shows the Hard question in its place: r0 = 0x27 and the return address of
-// the Hard question's own call (0x0200864C), so the game carries on there.
+// asks again from Easy). Those stay the game's own; the checklist follows
+// them and shows Hard ticked when Hard was answered. (Until 5 November 2026
+// the runner forced the Hard question on files without Clear Data.)
 //
 // Settings. Setup 0x0803FC38 copies Auto-Sleep [0x0200048A] into the screen;
 // A stores it back there and into the live flag 0x03001200 and branches
@@ -61,7 +59,6 @@ namespace {
 
 constexpr uint32_t kDifficulty = 0x020004C7u;
 constexpr uint8_t kHard = 2u;
-constexpr uint32_t kClearDataFlag = 0x02003860u;
 
 // Enemy stats: rebuild entered from setup's `bl` at 0x080AFD60.
 const uint32_t kStatRebuildEntry = TLA_ROM(0x080AD3F8u);
@@ -69,14 +66,6 @@ const uint32_t kEnemySetupReturn = TLA_ROM(0x080AFD65u);
 constexpr uint32_t kBaseHp = 0x10u, kMaxHp = 0x34u, kHp = 0x38u;
 constexpr uint32_t kBaseAttack = 0x18u, kBaseDefence = 0x1Au;
 constexpr uint32_t kStatMax = 0x7FFFu;
-
-const uint32_t kChoiceEntry = TLA_ROM(0x080382F8u);
-const uint32_t kBeforeLevelCheckReturn = TLA_OVL("title", 0x02008585u);
-const uint32_t kShowTextEntry = TLA_ROM(0x08038040u);
-const uint32_t kEasyQuestionReturn = TLA_OVL("title", 0x020085BDu);
-const uint32_t kEasyQuestionText = TLA_TEXT(0x25u);
-const uint32_t kHardQuestionText = TLA_TEXT(0x27u);
-const uint32_t kHardQuestionReturn = TLA_OVL("title", 0x02008651u);
 
 constexpr uint32_t kAutoSleepSaved = 0x0200048Au;
 constexpr uint32_t kAutoSleepLive = 0x03001200u;
@@ -96,9 +85,6 @@ const uint32_t kValueDrawXPc = TLA_ROM(0x08040360u);
 constexpr uint32_t kHardModeRow = 4u;
 constexpr const char* kWords[2] = {"No", "Yes"};
 TlaValueCaption g_caption;
-
-// The flag 0x02003860 was set by the runner for this new game.
-bool g_forced = false;
 
 int (*g_next_branch)(uint32_t, uint32_t, uint32_t*) = nullptr;
 
@@ -153,14 +139,6 @@ void tla_hard_mode_on_entry(uint32_t pc) {
         scale(b, unit + kHp, 3u, 2u);
         scale(b, unit + kBaseAttack, 5u, 4u);
         scale(b, unit + kBaseDefence, 5u, 4u);
-    } else if (pc == kChoiceEntry && lr == kBeforeLevelCheckReturn) {
-        g_forced = b->read16(kClearDataFlag) == 0u;
-        if (g_forced) b->write16(kClearDataFlag, 1u);
-    } else if (pc == kShowTextEntry && lr == kEasyQuestionReturn &&
-               g_cpu.R[0] == kEasyQuestionText && g_forced) {
-        b->write16(kClearDataFlag, 0u);
-        g_cpu.R[0] = kHardQuestionText;
-        g_cpu.R[14] = kHardQuestionReturn;
     } else if (pc == kSettingsSetupEntry) {
         b->write8(kAutoSleepSaved, b->read8(kDifficulty) == kHard ? 1u : 0u);
     } else if (pc == kSettingsCloseEntry && lr == kSettingsCloseReturn) {

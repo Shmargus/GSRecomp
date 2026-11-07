@@ -14,6 +14,13 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
 
 ## What this copy changes
 
+- **F1 binding conflicts ask first (4 November 2026).** Binding a key or
+  controller button that another Controls or Hotkeys row already uses opens
+  an "Already in use" prompt listing those rows: Remove it there, Keep both
+  or Cancel. Previously Controls rows moved silently and hotkeys shared
+  silently. Keyboard compares key and modifiers (Controls keys by their key
+  code); controller compares button ids. host_config_ui.cpp only; both games
+  rebuild their runtime, no runtime_arm.h change.
 - **David's OG GBA Colours preset (2 November 2026).** Shared F1 colour
   choice, persisted as `david_og_gba`, reproduces Jimmy's settings photo:
   58% saturation, -19 hue, 75% brightness, 20% warmth, 10% darkening. Uses
@@ -589,6 +596,19 @@ All null or off by default and installed by the game's runner. `RunOptions`:
   `BusWriteObserver` hook.
 - `PRINCIPLES.md` references to upstream's Minish Cap and template paths were
   replaced with this collection's equivalents.
+
+- **Battery extension** (`src/gba/gba_save.*`, `src/gba/save_extension.h`,
+  `src/debug/snapshot.cpp` section `SAVX`, `RunOptions::save_extension_bytes`,
+  `flush_save` in `src/runtime/runtime.cpp`): a game-owned byte buffer beside
+  the save chip, never guest-addressable, written to `<save>.sav4-9` and
+  carried in save states. Golden Sun keeps save files 4-9 there. Seamless
+  mode's slot range (`src/runtime/seamless.h`) is now 0..8.
+
+- **Cheats held off by a game rule** (`src/runtime/runtime_bus_bridge.*`
+  `set_cheats_blocked` / `cheats_blocked`, `host_config_ui.cpp` cheats page):
+  while a game sets it, the VBlank Infinite HP/PP pass is skipped and F1
+  shows both switches unavailable; the player's own choice is kept. Golden
+  Sun's Challenge Mode sets it.
 
 ## What was left out of this copy
 

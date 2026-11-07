@@ -104,6 +104,12 @@ void runtime_set_guest_step_boundary_hook(std::function<void()> hook);
 void runtime_set_frame_render_gate_hook(
     std::function<bool(unsigned long long)> hook);
 
+// A game rule can hold the F1 Infinite HP / Infinite PP cheats off (the
+// player's choice is kept, not applied; F1 shows them unavailable). Set by
+// the game each frame; false by default.
+void set_cheats_blocked(bool blocked);
+bool cheats_blocked();
+
 // Retrieve the currently-bound bus / ppu, or nullptr if none.
 gba::GbaBus* active_bus();
 gba::GbaPpu* active_ppu();

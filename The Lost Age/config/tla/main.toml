@@ -8388,6 +8388,46 @@ note = "settings redraw: Auto-Sleep icon table 0x0805EA81"
 # & 0xFFFF, then `cmp r5, r0; ble 0x081284B2` (taken = no drop). FACTS.md,
 # 2026-10-08.
 [[conditional_branch_override]]
+addr = 0x08044176
+note = "SHA-1 verified ROM: nine save files, file box 0x08043CD8 Up: empty file BEQ to the row step at 0x080441E0: stop on every file (src/tla_save_files.cpp)"
+
+[[conditional_branch_override]]
+addr = 0x0804418C
+note = "SHA-1 verified ROM: nine save files, file box 0x08043CD8 Up: mode 1 Clear Data BNE to the row step at 0x080441E0: stop on every file (src/tla_save_files.cpp)"
+
+[[conditional_branch_override]]
+addr = 0x080441A6
+note = "SHA-1 verified ROM: nine save files, file box 0x08043CD8 Up: mode 4 unmarked BEQ to the row step at 0x080441E0: stop on every file (src/tla_save_files.cpp)"
+
+[[conditional_branch_override]]
+addr = 0x080441C0
+note = "SHA-1 verified ROM: nine save files, file box 0x08043CD8 Up: mode 5 not Clear Data BEQ to the row step at 0x080441E0: stop on every file (src/tla_save_files.cpp)"
+
+[[conditional_branch_override]]
+addr = 0x080441DC
+note = "SHA-1 verified ROM: nine save files, file box 0x08043CD8 Up: mode 6 after reunion BNE to the row step at 0x080441E0: stop on every file (src/tla_save_files.cpp)"
+
+[[conditional_branch_override]]
+addr = 0x08044240
+note = "SHA-1 verified ROM: nine save files, file box 0x08043CD8 Down: empty file BEQ to the row step at 0x080442AA: stop on every file (src/tla_save_files.cpp)"
+
+[[conditional_branch_override]]
+addr = 0x08044256
+note = "SHA-1 verified ROM: nine save files, file box 0x08043CD8 Down: mode 1 Clear Data BNE to the row step at 0x080442AA: stop on every file (src/tla_save_files.cpp)"
+
+[[conditional_branch_override]]
+addr = 0x08044270
+note = "SHA-1 verified ROM: nine save files, file box 0x08043CD8 Down: mode 4 unmarked BEQ to the row step at 0x080442AA: stop on every file (src/tla_save_files.cpp)"
+
+[[conditional_branch_override]]
+addr = 0x0804428A
+note = "SHA-1 verified ROM: nine save files, file box 0x08043CD8 Down: mode 5 not Clear Data BEQ to the row step at 0x080442AA: stop on every file (src/tla_save_files.cpp)"
+
+[[conditional_branch_override]]
+addr = 0x080442A6
+note = "SHA-1 verified ROM: nine save files, file box 0x08043CD8 Down: mode 6 after reunion BNE to the row step at 0x080442AA: stop on every file (src/tla_save_files.cpp)"
+
+[[conditional_branch_override]]
 addr = 0x0812846E
 note = "reward tally: ble past the item drop when r5 <= r0"
 

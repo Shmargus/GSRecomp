@@ -1,6 +1,10 @@
 #include "tla_rom_version.h"
 #include "tla_save_update.h"
 #include "../../player_builder/guest_call.h"
+#include "../../shared_game/save_files.h"
+#include "../../shared_game/challenge_format.h"
+#include "../../shared_game/random_psynergy_format.h"
+#include "../../shared_game/random_weapons_format.h"
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -18,6 +22,18 @@ unsigned checksum(const std::uint8_t* group) {
     unsigned sum = 0;
     for (std::size_t i = kHeaderBytes; i < kGroupBytes; ++i) sum += group[i];
     return sum & 0xFFFFu;
+}
+// A listed adventure; a group with none is not listed (native picker).
+void describe(const std::uint8_t* p, unsigned file, std::size_t offset, bool extension,
+              std::vector<Slot>& out) {
+    if (p[0x1C] == 0) return;
+    Slot slot{file, p[0x1C], {}, p[0x33] != 0, offset, extension};
+    slot.locked = gsr::challenge::decode(p + kHeaderBytes + 0x28).size > 0;
+    for (unsigned n = 0; n < 12 && p[0x10 + n]; ++n) {
+        const auto c = p[0x10 + n];
+        slot.name += c >= 0x20 && c < 0x7F ? char(c) : '?';
+    }
+    out.push_back(std::move(slot));
 }
 }
 
@@ -37,14 +53,23 @@ std::vector<Slot> slots(const std::vector<std::uint8_t>& flash) {
     std::vector<Slot> out;
     for (unsigned i = 0; i < latest.size(); ++i) {
         if (latest[i] == flash.size()) continue;
-        const auto* p = flash.data() + latest[i];
-        if (p[0x1C] == 0) continue;  // Native picker: no saved adventure.
-        Slot slot{i + 1, p[0x1C], {}, p[0x33] != 0, latest[i]};
-        for (unsigned n = 0; n < 12 && p[0x10 + n]; ++n) {
-            const auto c = p[0x10 + n];
-            slot.name += c >= 0x20 && c < 0x7F ? char(c) : '?';
-        }
-        out.push_back(std::move(slot));
+        describe(flash.data() + latest[i], i + 1, latest[i], false, out);
+    }
+    return out;
+}
+
+std::vector<Slot> extension_slots(const std::vector<std::uint8_t>& extension) {
+    namespace sf = gsr::save_files;
+    std::vector<Slot> out;
+    // One group per file after the header, as tla_save_files.cpp keeps them;
+    // a group passes the same checks as a cartridge group.
+    for (int file = sf::kRows; file < sf::kFiles; ++file) {
+        const std::size_t off = sf::kHeaderBytes + (file - sf::kRows) * kGroupBytes;
+        if (off + kGroupBytes > extension.size()) break;
+        const auto* p = extension.data() + off;
+        if (std::memcmp(p, "CAMELOT", 7) || checksum(p) != halfword(p + 8) ||
+            halfword(p + 10) == 0) continue;
+        describe(p, unsigned(file + 1), off, true, out);
     }
     return out;
 }
@@ -52,15 +77,20 @@ std::vector<Slot> slots(const std::vector<std::uint8_t>& flash) {
 bool prepare(const std::vector<std::uint8_t>& rom,
              const std::vector<std::uint8_t>& ewram,
              const std::vector<std::uint8_t>& iwram,
-             const std::vector<std::uint8_t>& flash, unsigned destination,
+             const std::vector<std::uint8_t>& image, unsigned destination,
              const gs_save::ClearSlot& source,
              std::vector<std::uint8_t>& updated, std::string& error) {
     updated.clear();
-    const auto destinations = slots(flash);
+    const auto destinations = destination > unsigned(gsr::save_files::kRows)
+        ? extension_slots(image) : slots(image);
     const auto it = std::find_if(destinations.begin(), destinations.end(),
         [destination](const Slot& s) { return s.slot == destination; });
     if (it == destinations.end() || it->post_reunion) {
         error = "Choose a saved adventure from before the reunion.";
+        return false;
+    }
+    if (it->locked) {
+        error = "Challenge Mode adventures cannot be updated.";
         return false;
     }
     if (ewram.size() != 0x40000 || iwram.size() != 0x8000) {
@@ -74,7 +104,7 @@ bool prepare(const std::vector<std::uint8_t>& rom,
     // This call only applies the menu's colours/font, not transferred data.
     // The same UI-only exclusion is used by the measured importer oracle.
     machine.stub_returning(TLA_ROM(0x08038348u), 0);
-    const auto* payload = flash.data() + it->offset + kHeaderBytes;
+    const auto* payload = image.data() + it->offset + kHeaderBytes;
     std::copy_n(payload, kPayloadBytes, machine.ewram().begin());
     std::copy(source.transfer.begin(), source.transfer.end(), machine.ewram().begin() + 0x13000);
     // The original slot loader's globals (0x080437C6..0x080437E0).
@@ -89,7 +119,7 @@ bool prepare(const std::vector<std::uint8_t>& rom,
     // The original importer recalculates party data, including Felix's
     // records in some saves. Keep its result; only this private machine
     // has run, so the current game's party and unsaved progress are intact.
-    updated = flash;
+    updated = image;
     auto* group = updated.data() + it->offset;
     std::copy_n(machine.ewram().begin(), kPayloadBytes, group + kHeaderBytes);
     const auto sum = checksum(group);

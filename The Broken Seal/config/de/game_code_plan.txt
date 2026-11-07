@@ -6,10 +6,10 @@
 #   main      <dir> <toml> <max functions>
 #   transient <dir> <toml> <symbol prefix> [<relocatable ORIGIN:SIZE>]
 #   overlays                         every overlay in overlay-registry.inc
-#   synth_dc8 <template address>     tools/build_synthesized_dc8_variant.py
-#   synth_dc8b <variant>             ..._slot2_variant.py
-#   synth_dc8c <variant>             ..._slot3_variant.py
-#   stamps                           tools/build_stamp_variants.py
+#   synth_dc8 <template address>     player_builder/builder_main.cpp
+#   synth_dc8b <variant>             player_builder/builder_main.cpp
+#   synth_dc8c <variant>             player_builder/builder_main.cpp
+#   stamps                           player_builder/builder_main.cpp
 
 main main main.toml 40000
 

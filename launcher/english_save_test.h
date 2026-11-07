@@ -1,5 +1,6 @@
 #pragma once
 #include "collection_storage.h"
+#include "../engine/src/gba/save_extension.h"
 
 namespace gsr_collection {
 // Only the developer collection launcher creates these copies. The ROM and
@@ -31,6 +32,11 @@ inline bool create_english_save_test(const fs::path& collection, int game,
         const auto state_base = directory / normal.state_base.filename();
         const auto save = fs::path(state_base.native() + fs::path(".sav").native());
         storage_detail::copy_preserving_time(source, save);
+        // Save files 4..9 too (engine gba/save_extension.h), when there are any.
+        const fs::path more = gba::save_extension_path(source);
+        std::error_code more_ec;
+        if (fs::is_regular_file(more, more_ec))
+            storage_detail::copy_preserving_time(more, gba::save_extension_path(save));
         result = {save, state_base};
         return true;
     } catch (const std::exception& failure) {

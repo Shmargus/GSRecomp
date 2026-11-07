@@ -1,6 +1,7 @@
 #pragma once
 #include "collection_storage.h"
 #include "collection_popup_text.h"
+#include "../engine/src/gba/save_extension.h"
 #include <optional>
 
 namespace gsr_collection {
@@ -46,6 +47,13 @@ inline bool finish_save_language_import(const SaveLanguageImport& offer, bool co
             // Never replace progress created while the question was open.
             if (storage_detail::path_present(offer.destination))
                 throw std::runtime_error("A save for this language already exists. It was left unchanged.");
+            // Save files 4..9 go with it when there are any.
+            const fs::path more_source(gba::save_extension_path(offer.source));
+            const fs::path more_destination(gba::save_extension_path(offer.destination));
+            std::error_code more_ec;
+            if (fs::is_regular_file(more_source, more_ec) &&
+                !storage_detail::path_present(more_destination))
+                storage_detail::copy_preserving_time(more_source, more_destination);
             storage_detail::copy_preserving_time(offer.source, offer.destination);
         } else {
             fs::create_directories(offer.declined.parent_path());

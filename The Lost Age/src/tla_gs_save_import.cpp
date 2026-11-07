@@ -3,6 +3,7 @@
 #include "tla.h"
 #include "env_flag.h"
 #include "gs_save.h"
+#include "save_extension.h"
 #include "gba_bus.h"
 #include "runtime.h"
 #include "runtime_arm.h"
@@ -11,6 +12,7 @@
 #include "host_config_ui.h"
 #include "tla_save_update.h"
 #include "../../shared_game/field_character.h"
+#include "../../shared_game/save_files.h"
 
 #ifdef GBARECOMP_HAVE_IMGUI
 #include "imgui.h"
@@ -21,6 +23,7 @@
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
+#include <iterator>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -63,7 +66,7 @@ struct UpdateMenu {
     UpdateStage stage = UpdateStage::Idle;
     SaveSelection source;
     std::string error;
-    std::vector<std::uint8_t> flash;
+    std::vector<std::uint8_t> flash, extension;  // files 1-3 and 4-9 as listed
     std::vector<tla_save_update::Slot> destinations;
     unsigned destination = 0;
     unsigned viewport = 0;
@@ -134,7 +137,11 @@ std::vector<gs_save::ClearSlot> read_slots(const fs::path& path) {
     std::vector<std::uint8_t> bytes(gs_save::kFileBytes);
     input.seekg(0);
     if (!input.read(reinterpret_cast<char*>(bytes.data()), std::streamsize(bytes.size()))) return {};
-    return gs_save::cleared_slots(bytes);
+    // Files 4..9 live in the companion file beside it (gba/save_extension.h).
+    std::vector<std::uint8_t> more;
+    std::ifstream companion(gba::save_extension_path(path), std::ios::binary);
+    if (companion) more.assign(std::istreambuf_iterator<char>(companion), {});
+    return gs_save::cleared_slots(bytes, more);
 }
 
 fs::path detect_save(const fs::path& base) {
@@ -400,6 +407,8 @@ int import_alu(std::uint32_t pc, std::uint32_t original, std::uint32_t* value) {
                 if (menu.accepted) {
                     const auto& slot = menu.source.slots[menu.source.row];
                     std::memcpy(bus->ewram_ptr() + 0x13000, slot.transfer.data(), slot.transfer.size());
+                    // A randomized run goes on (the transfer starts at payload +0).
+                    tla_new_game_imported_run(slot.transfer.data() + 0x30);
                     bus->write32(g_cpu.R[13] + 4, 0xFFFFFFFFu);
                     std::fprintf(stderr, "[gs-save-import] Imported Clear Data slot %u (level %u).\n", slot.slot, slot.level);
                 }
@@ -446,6 +455,7 @@ void close_update() {
 
 void draw_game_page() {
     gsr::field_character::draw();
+    tla_new_game_draw_page();
     ImGui::BeginDisabled(g_import_menu.stage != ImportStage::Idle || update_active());
     if (ImGui::Button(gbarecomp::ui_text("Update from The Broken Seal..."))) {
         g_update_menu = {};
@@ -469,7 +479,13 @@ void read_destinations() {
     auto& menu = g_update_menu;
     auto* bus = gbarecomp::active_bus();
     menu.flash = bus ? bus->save().flash_bytes() : std::vector<std::uint8_t>{};
+    menu.extension.clear();
+    if (bus && bus->save().extension_size() > 0)
+        menu.extension.assign(bus->save().extension_data(),
+                              bus->save().extension_data() + bus->save().extension_size());
     menu.destinations = tla_save_update::slots(menu.flash);
+    for (auto& s : tla_save_update::extension_slots(menu.extension))
+        menu.destinations.push_back(std::move(s));
     if (menu.destinations.empty()) {
         menu.error = "No saved TLA adventures were found. Save in the game first.";
         menu.stage = UpdateStage::Error;
@@ -483,14 +499,20 @@ void commit_update() {
         std::vector<std::uint8_t> updated;
         if (!bus || !g_update_pause_owned) {
             menu.error = "The game could not be paused. Nothing was changed.";
-        } else if (bus->save().flash_bytes() != menu.flash) {
+        } else if (bus->save().flash_bytes() != menu.flash ||
+                   !std::equal(menu.extension.begin(), menu.extension.end(),
+                               bus->save().extension_data(),
+                               bus->save().extension_data() + bus->save().extension_size())) {
             menu.error = "The save changed. Please choose the destination again.";
-        } else if (tla_save_update::prepare(
+        } else if (const bool extension = menu.destination > unsigned(gsr::save_files::kRows);
+                   tla_save_update::prepare(
                        {bus->rom_ptr(), bus->rom_ptr() + bus->rom_size()},
                        {bus->ewram_ptr(), bus->ewram_ptr() + 0x40000},
                        {bus->iwram_ptr(), bus->iwram_ptr() + 0x8000},
-                       menu.flash, menu.destination, menu.source.slots[menu.source.row], updated, menu.error) &&
-                   gbarecomp::update_flash_save(menu.flash, updated, menu.error)) {
+                       extension ? menu.extension : menu.flash, menu.destination,
+                       menu.source.slots[menu.source.row], updated, menu.error) &&
+                   (extension ? gbarecomp::update_extension_save(menu.extension, updated, menu.error)
+                              : gbarecomp::update_flash_save(menu.flash, updated, menu.error))) {
             menu.stage = UpdateStage::Updated;
             return;
         }
@@ -533,6 +555,7 @@ void draw_update_dialog() {
         ImGui::TextUnformatted(gbarecomp::ui_text("Choose your TBS .sav file in the file browser."));
     } else if (menu.stage == UpdateStage::Slots) {
         ImGui::TextUnformatted(gbarecomp::ui_text("Which TBS Clear Data slot should be imported?"));
+        ImGui::TextUnformatted(gbarecomp::ui_text("Challenge Mode files cannot be imported."));
         for (unsigned i = 0; i < menu.source.slots.size(); ++i) {
             const auto& s = menu.source.slots[i];
             const auto label = std::string(gbarecomp::ui_text("TBS Slot ")) + std::to_string(s.slot) + ": " +
@@ -544,8 +567,9 @@ void draw_update_dialog() {
         ImGui::TextUnformatted(gbarecomp::ui_text("Which saved TLA adventure should receive it?"));
         for (const auto& s : menu.destinations) {
             const auto label = std::string(gbarecomp::ui_text("TLA Slot ")) + std::to_string(s.slot) + ": " + s.name +
-                gbarecomp::ui_text("  Lv.") + std::to_string(s.level) + (s.post_reunion ? gbarecomp::ui_text(" (Post-Reunion Data)") : "");
-            ImGui::BeginDisabled(s.post_reunion);
+                gbarecomp::ui_text("  Lv.") + std::to_string(s.level) + (s.post_reunion ? gbarecomp::ui_text(" (Post-Reunion Data)") : "") +
+                (s.locked ? gbarecomp::ui_text(" (Challenge/Random)") : "");
+            ImGui::BeginDisabled(s.post_reunion || s.locked);
             if (ImGui::Selectable(label.c_str())) {
                 menu.destination = s.slot;
                 menu.stage = UpdateStage::Confirm;
@@ -553,6 +577,7 @@ void draw_update_dialog() {
             ImGui::EndDisabled();
         }
         ImGui::TextUnformatted(gbarecomp::ui_text("Post-Reunion Data cannot be updated."));
+        ImGui::TextUnformatted(gbarecomp::ui_text("Challenge Mode adventures cannot be updated."));
         if (ImGui::Button(gbarecomp::ui_text("Back"))) menu.stage = UpdateStage::Slots;
     } else if (menu.stage == UpdateStage::Confirm) {
         ImGui::Text(gbarecomp::ui_text("Import TBS Slot %u into TLA Slot %u?"), menu.source.slots[menu.source.row].slot, menu.destination);
@@ -626,6 +651,8 @@ void tla_gs_save_import_on_entry(std::uint32_t pc) {
         g_seamless = Seamless::Off;
         return;
     }
+    if (g_enabled && !g_headless && g_seamless == Seamless::Off &&
+        tla_new_game_import_question(pc)) return;
     switch (g_seamless) {
     case Seamless::Intro:
         if (pc == kStartRoomSetPc && bus_read_u16(kRoomAddr) == kIntroRoom &&

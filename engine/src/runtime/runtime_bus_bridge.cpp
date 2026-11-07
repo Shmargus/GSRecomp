@@ -864,6 +864,18 @@ void runtime_set_frame_render_gate_hook(
     g_frame_render_gate_hook = std::move(hook);
 }
 
+namespace {
+std::atomic<bool> g_cheats_blocked{false};
+}  // namespace
+
+void set_cheats_blocked(bool blocked) {
+    g_cheats_blocked.store(blocked, std::memory_order_relaxed);
+}
+
+bool cheats_blocked() {
+    return g_cheats_blocked.load(std::memory_order_relaxed);
+}
+
 gba::GbaBus* active_bus() {
     return g_active_bus;
 }
@@ -1474,8 +1486,9 @@ static void tick_devices(gba::GbaBus* bus, gba::GbaPpu* ppu, uint32_t cycles) {
             ++g_runtime_vblank_starts;
             // Host-controlled cheats run at the same stable boundary as the
             // frame counter. They touch only the confirmed party RAM fields
-            // and are a no-op while both options are off.
-            runtime_apply_infinite_hp_pp();
+            // and are a no-op while both options are off or a game rule
+            // blocks them.
+            if (!gbarecomp::cheats_blocked()) runtime_apply_infinite_hp_pp();
             {
                 CostTimer _ct(&g_cost_dma_ns, &g_cost_dma_calls);
                 bus->io().run_timed_dma(1);   // VBlank-timed DMA

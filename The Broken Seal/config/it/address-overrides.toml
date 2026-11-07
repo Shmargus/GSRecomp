@@ -150,3 +150,24 @@ evidence = "Battle backdrop room table, unique and byte-identical through its ze
 usa = 0x0800AA0C
 italy = 0x0800AA0C
 evidence = "Native sprite animation updater: unique matching 28-byte prologue in the SHA-1-verified ROM. Layer layout verified in disassembly."
+
+[[text]]
+usa = 0x333
+italy = 0x42A
+evidence = "Psynergy name base (radial Psynergy menu): USA literal 0x0802314C = 0x333, the same instructions' literal = 0x42A; base + 0x0C/0x8C/0x95 decode Crescita, Spostamento, Ritirata (USA Growth, Move, Retreat)"
+
+[[text]]
+usa = 0x75
+italy = 0x5F
+evidence = "item description base (Random Weapons): decoded with the Italy text tables, base + 1 = 'Spada lunga' (USA 0x76 'Long Sword') and base + id names the weapon's own unleash (ability name 0x42A + item +0xE) for 26 of the 29 weapons with one (the rest word it differently); same item ids, records byte-identical to USA"
+
+[[text]]
+usa = 0x182
+italy = 0x16C
+evidence = "item name base (Random Equipment spoiler sheet, 6 November 2026): decoded with the Italy text tables, base + 1 = 'Spada lunga' (USA 0x183 'Long Sword'), base + 75 = 'Corazza cuoio' (USA Leather Armor); base + 269 is no longer an item (???); same item ids, records byte-identical to USA"
+
+[[overlay]]
+overlay = "rom_7795e8"
+usa = 0x020096B2
+italy = 0x020096A2
+evidence = "name-more-heroes halfword (New Game onboarding, 7 November 2026): the naming loop's ldr r3,=0x020096A2; ldrsh; cmp #0; beq; movs r5,#4 at 0x02008536 in this ROM's own unpacked title overlay (5898 bytes; USA 0x02008540 = 0x020096B2, 5914 bytes); the title secret code stores 1 there"

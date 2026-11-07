@@ -9,6 +9,7 @@
 #include <memory>
 #include <vector>
 
+#include "env_flag.h"
 #include "gba_bus.h"
 #include "guest_call.h"
 #include "memory_snapshot.h"
@@ -175,11 +176,6 @@ const char* format0_impossible(std::uint32_t pc) {
     return nullptr;
 }
 
-bool env_on(const char* name) {
-    const char* v = std::getenv(name);
-    return v && v[0] == '1';
-}
-
 void journal_reset() {
     g_journal = Journal{};
 }
@@ -335,8 +331,8 @@ int recover(std::uint32_t at, std::uint32_t frames, const char* early_why);
 
 void unpacker_guard_install(std::uint32_t rom_address) {
     g_rom_2808 = rom_address;
-    g_force_fault = env_on("GSR_UNPACKER_FORCE_FAULT");
-    g_audit = env_on("GSR_UNPACKER_AUDIT");
+    g_force_fault = gbarecomp::env_flag("GSR_UNPACKER_FORCE_FAULT");
+    g_audit = gbarecomp::env_flag("GSR_UNPACKER_AUDIT");
     g_runtime_unmatched_return_hook = &unmatched_return;
     if (g_force_fault || g_audit)
         std::fprintf(stderr, "[unpacker-guard] test options: force fault %s, "

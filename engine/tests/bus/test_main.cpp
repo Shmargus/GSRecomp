@@ -6,11 +6,14 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <vector>
 
 #include "gba_rom_header.h"
 #include "gba_bus.h"
+#include "gba_ppu.h"
+#include "save_extension.h"
 #include "../gs1_test_layout.h"
 #include "gba_save.h"
 #include "snapshot.h"
@@ -503,6 +506,78 @@ void test_ram_image_common_bus_writer() {
     g_runtime_ram_image_write_probe = nullptr;
 }
 
+// Battery extension: host-only buffer beside the chip, outside SAV0, carried
+// in its own optional SAVX state section.
+void test_save_extension() {
+    check_str("save_extension", "path_replace",
+              gba::save_extension_path("Saves/Game (France).sav"),
+              "Saves/Game (France).sav4-9");
+    check_str("save_extension", "path_append",
+              gba::save_extension_path("Saves/Game"), "Saves/Game.sav4-9");
+
+    gba::GbaSave save;
+    check_eq("save_extension", "none", save.extension_size(), std::size_t{0});
+    save.configure_extension(16);
+    check_eq("save_extension", "size", save.extension_size(), std::size_t{16});
+    check_eq("save_extension", "zeroed", save.extension_data()[5], 0u);
+    std::array<uint8_t, 3> in{{1, 2, 3}};
+    check_bool("save_extension", "load", save.load_extension_bytes(in.data(), 3), true);
+    check_eq("save_extension", "prefix", save.extension_data()[2], 3u);
+    check_eq("save_extension", "rest_zero", save.extension_data()[3], 0u);
+    check_bool("save_extension", "load_clean", save.extension_dirty(), false);
+    std::array<uint8_t, 17> big{};
+    check_bool("save_extension", "too_large",
+               save.load_extension_bytes(big.data(), big.size()), false);
+    save.mark_extension_dirty();
+    check_bool("save_extension", "dirty", save.extension_dirty(), true);
+    check_bool("save_extension", "chip_dirty_separate", save.dirty(), false);
+    save.clear_extension_dirty();
+    check_bool("save_extension", "cleared", save.extension_dirty(), false);
+
+    // SAV0 layout is unchanged by the extension.
+    gbarecomp::debug::SnapshotWriter with_ext, without_ext;
+    save.serialize(with_ext);
+    gba::GbaSave plain;
+    plain.serialize(without_ext);
+    check_eq("save_extension", "sav0_same_size", with_ext.size(), without_ext.size());
+
+    // State round trip through the real save_state/load_state.
+    gba::GbaBus bus;
+    gba::GbaPpu ppu;
+    bus.save().configure_extension(8);
+    const std::array<uint8_t, 8> a{{9, 8, 7, 6, 5, 4, 3, 2}};
+    bus.save().load_extension_bytes(a.data(), a.size());
+    gbarecomp::debug::SnapshotContext ctx;
+    ctx.bus = &bus;
+    ctx.ppu = &ppu;
+    const std::string path =
+        (std::filesystem::temp_directory_path() / "gba_save_ext_test.state").string();
+    std::string err;
+    check_bool("save_extension", "state_saved",
+               gbarecomp::debug::save_state(path.c_str(), ctx, &err), true);
+    const std::array<uint8_t, 8> b{{1, 1, 1, 1, 1, 1, 1, 1}};
+    bus.save().load_extension_bytes(b.data(), b.size());
+    check_bool("save_extension", "state_loaded",
+               gbarecomp::debug::load_state(path.c_str(), ctx, &err), true);
+    check_eq("save_extension", "state_bytes", bus.save().extension_data()[0], 9u);
+    check_eq("save_extension", "state_bytes_end", bus.save().extension_data()[7], 2u);
+    check_bool("save_extension", "state_marks_dirty", bus.save().extension_dirty(), true);
+
+    // A state taken without an extension leaves a later one untouched.
+    gba::GbaBus bare;
+    ctx.bus = &bare;
+    check_bool("save_extension", "bare_saved",
+               gbarecomp::debug::save_state(path.c_str(), ctx, &err), true);
+    bare.save().configure_extension(8);
+    bare.save().load_extension_bytes(a.data(), a.size());
+    check_bool("save_extension", "bare_loaded",
+               gbarecomp::debug::load_state(path.c_str(), ctx, &err), true);
+    check_eq("save_extension", "absent_untouched", bare.save().extension_data()[0], 9u);
+    check_bool("save_extension", "absent_clean", bare.save().extension_dirty(), false);
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
 }  // namespace
 
 int main() {
@@ -513,6 +588,7 @@ int main() {
     test_sram_signature();
     test_sram_controller_and_snapshot();
     test_sram_snapshot_rejects_size_mismatch();
+    test_save_extension();
     test_audio_snapshot_rejects_ring_index();
     test_sram_bus_width_and_region_mirroring();
     test_bios_undocumented_io_write();

@@ -1424,7 +1424,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
 // include. ~0 during async play; >0 means the game thread is compiling.
 uint64_t overlay_game_thread_compile_ns();
 
-static void probe_stereo_audio_push(Backend* b, std::size_t count) {
+static void probe_audio_push(Backend* b, std::size_t count) {
     static int s_probe = -1;
     if (s_probe < 0) {
         s_probe = env_flag("GBARECOMP_AUDIO_PROBE") ? 1 : 0;
@@ -1496,37 +1496,9 @@ void HostWindow::push_audio_samples(const int16_t* samples, std::size_t count) {
     rab_push(&b->bridge, samples, static_cast<int>(count)); // mono: count == frames
     SDL_UnlockMutex(b->audio_mtx);
 
-    // Audio probe: GBARECOMP_AUDIO_PROBE=1 reports the bridge's underrun and
-    // overflow counters. Expect ~0 underruns once primed.
-    static int s_probe = -1;
-    if (s_probe < 0) { s_probe = env_flag("GBARECOMP_AUDIO_PROBE") ? 1 : 0; }
-    if (s_probe) {
-        static unsigned long long s_pushes = 0, s_samples = 0;
-        s_pushes++; s_samples += count;
-        if ((s_pushes % 120ULL) == 0ULL) {
-            rab_stats st; rab_get_stats(&b->bridge, &st);
-            double secs = static_cast<double>(s_samples) / 65536.0;
-            double stretch_ms = st.stretch_frames * 1000.0
-                              / static_cast<double>(b->bridge.cfg.host_rate);
-            // Game-thread codegen time: cumulative + this-window delta. Async
-            // play holds the delta at 0; sync play grows it.
-            static unsigned long long s_prev_cc_ns = 0;
-            unsigned long long cc_ns = overlay_game_thread_compile_ns();
-            double gt_ms      = cc_ns / 1e6;
-            double gt_dms     = (cc_ns - s_prev_cc_ns) / 1e6;
-            s_prev_cc_ns = cc_ns;
-            std::fprintf(stderr,
-                "[gba-audio-probe] pushes=%llu audio=%.1fs bridge_underrun=%llu(%.2f/s) "
-                "stretch=%.0fms(ev=%llu) overflow_drops=%llu fill_ms=%.1f corr=%+.3f%% "
-                "gt_compile=%.1fms(+%.1fms)\n",
-                s_pushes, secs, (unsigned long long)st.underrun_events,
-                secs > 0 ? st.underrun_events / secs : 0.0,
-                stretch_ms, (unsigned long long)st.stretch_events,
-                (unsigned long long)st.overflow_drops, rab_fill_ms(&b->bridge),
-                st.last_correction * 100.0, gt_ms, gt_dms);
-            std::fflush(stderr);
-        }
-    }
+    // GBARECOMP_AUDIO_PROBE=1 reports the bridge's underrun and overflow
+    // counters. Expect ~0 underruns once primed.
+    probe_audio_push(b, count);
 }
 
 namespace { void release_cover_art(); }  // the cover's cartridge, below
@@ -2719,7 +2691,7 @@ void HostWindow::push_audio_samples_stereo(const int16_t* samples,
     SDL_LockMutex(b->audio_mtx);
     rab_push(&b->bridge, input, static_cast<int>(count));
     SDL_UnlockMutex(b->audio_mtx);
-    probe_stereo_audio_push(b, count);
+    probe_audio_push(b, count);
 }
 
 void HostWindow::reset_audio() {

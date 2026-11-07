@@ -196,6 +196,10 @@ const cb::Game kGame = {
     .party_ids = 0x02000458u,
     .battle_context_ptr = 0x03000024u,
     .byte_flag_pc = TLA_ROM(0x08016D5Cu),
+    // The builder's enemy loop fetches each new enemy at 08128020 (return
+    // 08128024), before its test of the word at sp + 0x20.
+    .scale_getter_return = TLA_ROM(0x08128024u),
+    .scaled = [] { return tla_scaled_difficulty(); },
     // The room backdrop asset is cached at context +0x670 (081198C4).
     // The room selector can also return the 0x69 story variant (080CA4F4).
     .arena_table = TLA_ROM(0x080EF984u),

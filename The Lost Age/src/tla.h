@@ -26,11 +26,24 @@ bool tla_custom_battle_text(std::uint32_t text_id, std::string& out);
 bool tla_custom_battle_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
 void tla_custom_battle_reset();
 
+// src/tla_save_files.cpp: nine save files on the game's own file screens
+// (one copy with The Broken Seal, shared_game/save_files_picker.h).
+void tla_install_save_files(gbarecomp::RunOptions& options);
+void tla_save_files_on_entry(std::uint32_t pc);
+bool tla_save_files_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
+
 // Overworld Retreat's visited-town picker, under Better Field Psy.
 void tla_install_retreat_travel(gbarecomp::RunOptions& options);
 bool tla_retreat_travel_on_entry(std::uint32_t pc);
 void tla_retreat_travel_reset();
 bool tla_retreat_travel_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
+
+// Radial Psynergy menu and the L2/R2 field shortcuts (hotkeys; one copy with
+// The Broken Seal, shared_game/radial_psynergy.h).
+void tla_install_radial_psynergy(gbarecomp::RunOptions& options);
+bool tla_radial_psynergy_on_entry(std::uint32_t pc);
+void tla_radial_psynergy_reset();
+bool tla_radial_psynergy_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
 
 // src/tla_enemy_hp_bar.cpp: the enemy's HP over its name while choosing a
 // target (F1 switch; one copy with The Broken Seal, enemy_hp_bar.h).
@@ -97,8 +110,30 @@ bool tla_settings_page_overlay_visible();
 bool tla_settings_page_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
 bool tla_settings_page_text(std::uint32_t text_id, std::string& out);
 
-// src/tla_hard_mode.cpp: Hard Mode (tougher enemies) on every new game and in
-// place of Auto-Sleep.
+// src/tla_new_game.cpp: the New Game checklist (Hard Mode, Challenge Mode,
+// Random Psynergy) and the two modes' hooks (one copy of their rules with
+// The Broken Seal, shared_game/challenge_mode.h and random_psynergy.h).
+void tla_install_new_game(gbarecomp::RunOptions& options);
+// True when the routine was answered (the caller stops there).
+bool tla_new_game_on_entry(std::uint32_t pc);
+bool tla_new_game_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
+void tla_new_game_reset();
+// The import took a Broken Seal file; `bytes` = its payload +0x30..+0x3F (the
+// run's blocks). A randomized run then goes on in this game.
+void tla_new_game_imported_run(const std::uint8_t* bytes);
+void tla_new_game_draw_page();
+// Scaled difficulty is on for the loaded file (tla_new_game.cpp).
+bool tla_scaled_difficulty();
+// Show the checklist before the transfer question; fresh-only modes take
+// the game's No path. True when this entry was answered by the hook.
+bool tla_new_game_import_question(std::uint32_t pc);
+// Random Weapons: a weapon's description, naming its new unleash.
+bool tla_random_weapons_text(std::uint32_t text_id, std::string& out);
+// A file's four Challenge Mode bytes (payload +0x28): a Challenge file.
+bool tla_challenge_bytes(const std::uint8_t* bytes);
+
+// src/tla_hard_mode.cpp: Hard Mode (tougher enemies), chosen on the New Game
+// checklist and in place of Auto-Sleep.
 void tla_install_hard_mode(gbarecomp::RunOptions& options);
 void tla_hard_mode_on_entry(std::uint32_t pc);
 bool tla_hard_mode_text(std::uint32_t text_id, std::string& out);
@@ -138,6 +173,9 @@ void tla_menu_paint_window(std::uint8_t* rgb, std::uint32_t width, std::uint32_t
                            int tile_x, int tile_y, int tiles_w, int tiles_h);
 // The menu window's 16 colours (live bank 15, else the last seen).
 const std::uint16_t* tla_menu_window_palette();
+// put(x, y, index): one native pixel in those colours (0 transparent).
+std::function<void(int, int, std::uint8_t)> tla_menu_pixel_writer(
+    std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
 void tla_menu_paint_text(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height,
                          const std::string& text, int x, int y);
 
@@ -192,6 +230,9 @@ void tla_sprite_memory_restore();
 // src/tla_gpu_field.cpp: draw the field with the graphics card.
 void tla_install_gpu_field();
 void tla_gpu_field_on_entry(std::uint32_t pc);
+// Select map: skips the game's unpack of a map row past its table (see
+// tla_flat_map::past_table). True when that call was answered.
+bool tla_flat_map_on_entry(std::uint32_t pc);
 bool tla_gpu_field_present(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height,
                            gbarecomp::HistoryFrame& frame, bool synchronous);
 void tla_rewind_reset();

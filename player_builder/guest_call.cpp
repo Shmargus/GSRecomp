@@ -62,7 +62,7 @@ public:
         // ROM and unmapped writes are dropped.
         if (m_.instant_dma3_ && (addr >> 24) == 0x04u) {
             // The count/control word, or its control half, with the enable
-            // bit set: copy now (emulate_stamp_builder.py's measured model).
+            // bit set: copy now (the measured model of the ROM's stamp builder).
             if ((addr == kDma3 + 8 && n == 4) || (addr == kDma3 + 10 && n == 2))
                 run_dma3();
         }

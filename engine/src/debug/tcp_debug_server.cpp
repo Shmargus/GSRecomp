@@ -700,15 +700,7 @@ void dispatch(const TcpDebugServer::Context& ctx, std::string_view req,
                               i, static_cast<unsigned>(ctx.cpu->R[i]));
                 body += f;
             }
-            uint32_t cpsr = 0;
-            if (ctx.cpu->cpsr.n) cpsr |= 1u << 31;
-            if (ctx.cpu->cpsr.z) cpsr |= 1u << 30;
-            if (ctx.cpu->cpsr.c) cpsr |= 1u << 29;
-            if (ctx.cpu->cpsr.v) cpsr |= 1u << 28;
-            if (ctx.cpu->cpsr.i) cpsr |= 1u << 7;
-            if (ctx.cpu->cpsr.f) cpsr |= 1u << 6;
-            if (ctx.cpu->cpsr.t) cpsr |= 1u << 5;
-            cpsr |= ctx.cpu->cpsr.mode & 0x1Fu;
+            uint32_t cpsr = ctx.cpu->cpsr.word();
             char cpsr_field[48];
             std::snprintf(cpsr_field, sizeof(cpsr_field), ",\"cpsr\":%u",
                           static_cast<unsigned>(cpsr));
@@ -968,15 +960,7 @@ void dispatch(const TcpDebugServer::Context& ctx, std::string_view req,
                               i, static_cast<unsigned>(ctx.cpu->R[i]));
                 body += field;
             }
-            // Pack CPSR the same way enter_irq does.
-            if (ctx.cpu->cpsr.n) cpsr |= 1u << 31;
-            if (ctx.cpu->cpsr.z) cpsr |= 1u << 30;
-            if (ctx.cpu->cpsr.c) cpsr |= 1u << 29;
-            if (ctx.cpu->cpsr.v) cpsr |= 1u << 28;
-            if (ctx.cpu->cpsr.i) cpsr |= 1u << 7;
-            if (ctx.cpu->cpsr.f) cpsr |= 1u << 6;
-            if (ctx.cpu->cpsr.t) cpsr |= 1u << 5;
-            cpsr |= ctx.cpu->cpsr.mode & 0x1Fu;
+            cpsr = ctx.cpu->cpsr.word();
         }
         char tail[64];
         std::snprintf(tail, sizeof(tail), ",\"cpsr\":%u}",

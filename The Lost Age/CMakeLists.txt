@@ -140,6 +140,9 @@ set(TLA_ENGINE_SOURCES
     src/tla_retreat_travel.cpp
     src/tla_enemy_hp_bar.cpp
     src/tla_trackers.cpp
+    src/tla_save_files.cpp
+    src/tla_radial_psynergy.cpp
+    src/tla_new_game.cpp
     "${GBARECOMP_ROOT}/src/field/field_scene.cpp"
     "${GBARECOMP_ROOT}/src/field/field_scene_renderer.cpp"
     src/field_game_profile.cpp

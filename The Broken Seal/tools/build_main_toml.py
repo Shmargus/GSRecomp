@@ -114,6 +114,14 @@ REVIEWED_CONDITIONAL_BRANCH_OVERRIDES = (
     (0x080ECD98, "Spell spark loop (stamp 0x080ECDDA) x < 0 BLT: observe the skipped spark"),
     (0x080ECD9E, "Spell spark loop (stamp 0x080ECDDA) x > 126 BGT: observe the skipped spark"),
     (0x080ECDA2, "Spell spark loop (stamp 0x080ECDDA) y < 0 BLT: observe the skipped spark"),
+    (0x0802064E, "Nine save files: file box Up: empty file BEQ: stop on every file (save_files_tbs.h)"),
+    (0x08020664, "Nine save files: file box Up: Continue Clear Data BNE: stop on every file (save_files_tbs.h)"),
+    (0x0802067A, "Nine save files: file box Up: mode 4 unmarked BEQ: stop on every file (save_files_tbs.h)"),
+    (0x08020692, "Nine save files: file box Up: mode 5 not Clear Data BEQ: stop on every file (save_files_tbs.h)"),
+    (0x080206CC, "Nine save files: file box Down: empty file BEQ: stop on every file (save_files_tbs.h)"),
+    (0x080206E2, "Nine save files: file box Down: Continue Clear Data BNE: stop on every file (save_files_tbs.h)"),
+    (0x080206F8, "Nine save files: file box Down: mode 4 unmarked BEQ: stop on every file (save_files_tbs.h)"),
+    (0x08020710, "Nine save files: file box Down: mode 5 not Clear Data BEQ: stop on every file (save_files_tbs.h)"),
 )
 
 # Instant text as a fourth Message-speed choice (value 3). The settings screen
