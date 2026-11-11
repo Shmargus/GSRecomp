@@ -1,7 +1,7 @@
 // host_config_ui.h — Dear ImGui configuration UI for the host window.
 //
-// One Settings window with horizontal tabs (Video, Audio, Controls, Hotkeys,
-// Speed, optional Game, Cheats and Troubleshooting), usable by mouse,
+// One Settings window with horizontal tabs (Video, Audio, optional Music, Controls,
+// Hotkeys, Speed, optional Game, Cheats and Help), usable by mouse,
 // keyboard or controller. To bind, click a box then press a key or pad button.
 //
 // Strictly host-side. It runs at present time, after the guest frame has been
@@ -227,7 +227,7 @@ struct ConfigUiState {
     // etc. stay on regardless). Off by default. See runtime_arm.h
     // gsr_set_additional_debug_logging / gsr_additional_debug_logging.
     bool  additional_debug_logging = false;
-    // Enhancements > Troubleshooting: record the game's last instructions
+    // Help > Troubleshooting: record the game's last instructions
     // for crash and freeze reports (runtime_set_crash_log). Saved in
     // [Logging] as CrashLog; off by default because it costs speed.
     bool  crash_log = false;

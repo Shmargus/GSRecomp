@@ -15,6 +15,7 @@
 #include "../gba/gba_irq.h"
 #include "../gba/gba_ppu.h"
 #include "host_prof_phase.h"
+#include "game_options.h"
 #include "runtime.h"  // guest_call, guest_return_now
 
 #ifdef GBA_COSIM
@@ -876,6 +877,10 @@ bool cheats_blocked() {
     return g_cheats_blocked.load(std::memory_order_relaxed);
 }
 
+int cheat_option_get(const char* key, int normal) {
+    return cheats_blocked() ? normal : game_option_get(key, normal);
+}
+
 gba::GbaBus* active_bus() {
     return g_active_bus;
 }
@@ -1132,7 +1137,7 @@ extern "C" void bus_write_u8_slow(uint32_t addr, uint8_t val) {
 extern "C" uint32_t g_runtime_deferred_cycles = 0;
 // Set while a deferred debt is paid in the middle of an instruction (before
 // an I/O, palette, VRAM or OAM access): the clock and devices advance, but
-// an interrupt waits for the next instruction boundary, as it would today.
+// an interrupt waits for the next instruction boundary.
 static bool g_tick_irq_held = false;
 
 extern "C" void runtime_flush_deferred(void) {

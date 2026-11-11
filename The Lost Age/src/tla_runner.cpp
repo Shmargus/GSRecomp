@@ -29,6 +29,7 @@
 #include "runtime.h"
 #include "view_config.h"
 #include "tla.h"
+#include "../../shared_game/quality_of_life.h"
 #include "host_config_ui.h"
 #include "../../shared_game/autosave.h"
 #include "../../shared_game/field_character.h"
@@ -44,6 +45,7 @@ void on_function_entry(std::uint32_t pc) {
     gsr::autosave::on_entry(pc);
     // The radial first: it notes every dispatcher entry, Retreat's included.
     if (tla_radial_psynergy_on_entry(pc)) return;
+    if (gsr::qol::on_entry(pc)) return;
     if (tla_retreat_travel_on_entry(pc)) return;
     if (tla_new_game_on_entry(pc)) return;
     if (tla_flat_map_on_entry(pc)) return;

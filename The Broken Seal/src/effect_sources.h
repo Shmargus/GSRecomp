@@ -10,13 +10,14 @@
 //   | Func_c11ec    | [0x03001EEC] + 0x11C0   | 16    | (v >> 10) + 64   |
 //   | Func_cbc0c    | [0x03001EEC] + 0x7080   | 33    | 16.16 pixels     |
 //   | Func_cc5d8    | [0x03001EEC] + 0x7080   | 64    | 16.16 pixels     |
-//   | Func_cb7f8    | 0x02010000              | 128   | POLAR, not read  |
+//   | Func_cb7f8    | 0x02010000              | 128   | POLAR, scaled    |
 //
 // The polar one stores `rand & 0xFFFF` as an angle and a separate distance,
-// and runs both through the game's sine and cosine. Until that is read it is
-// deliberately absent here rather than guessed at -- three separate attempts
-// to fit a position out of those records failed, because an angle is not a
-// coordinate however you shift it.
+// and runs both through the game's sine and cosine. It is read separately
+// (read_polar_sparks) and only accepted through the canvas agreement test
+// below, because the distance scale has not been read out of the game's code.
+// Treating those records as plain coordinates failed three times: an angle is
+// not a coordinate however you shift it.
 //
 // EVERY READ IS VALIDATED. A source is accepted only when its records actually
 // look like live particles; otherwise the caller must fall back to the game's
@@ -101,9 +102,10 @@ EffectRead read_sparks(const GuestMemory& memory, EffectSource source,
 EffectRead read_polar_sparks(const GuestMemory& memory, int canvas_width,
                              int canvas_height, int distance_shift);
 
-// Try the known systems and return the first that validates. Returns a read
-// with `source == EffectSource::None` when nothing does, which is the signal
-// to leave the frame to the game.
+// Try the table-driven systems (not the polar one) and return the first that
+// passes the position and count rules, without the canvas agreement test.
+// Returns a read with `source == EffectSource::None` when nothing does, which
+// is the signal to leave the frame to the game.
 EffectRead detect_and_read(const GuestMemory& memory, int canvas_width,
                            int canvas_height);
 

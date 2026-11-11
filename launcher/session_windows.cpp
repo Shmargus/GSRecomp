@@ -1,6 +1,6 @@
 // Internal Windows game session, embedded in the collection launcher.
 //
-// Select and verify the exact USA/Europe ROM before preparing or starting it.
+// Select and verify the chosen revision's ROM before preparing or starting it.
 // Collection entry keeps the user's ROM and saves in the collection folder.
 
 #include <windows.h>
@@ -59,7 +59,7 @@ namespace fs = std::filesystem;
 using namespace gsr_launcher;
 
 // GSR_RELEASE_LAUNCHER (CMake option of the same name, used by
-// make_release.bat): a player build with only a Cancel button. No
+// make_release.ps1): a player build with only a Cancel button. No
 // diagnostics, no settings file, and the game is looked for next to the
 // launcher. The play settings are fixed to the ones the game ships with.
 #ifdef GSR_RELEASE_LAUNCHER
@@ -128,7 +128,6 @@ bool g_handover_next = false;
 // developer sessions). Everything experimental or diagnostic stays off.
 LauncherAudioSettings release_launch_settings(const fs::path& root) {
     LauncherAudioSettings settings{};
-    settings.enhanced_options = true;
     settings.gpu_field = true;
     settings.gpu_field_only = true;
     const LauncherAudioSettings saved = load_launcher_audio_settings(root);
@@ -1334,11 +1333,8 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
         common.heal_toolchain = wide_to_utf8(toolchain.wstring());
     if (session_game_index == 1)  // The Lost Age imports Golden Sun saves.
         common.save_import = g_audio_settings.gs_save_import;
-    // Enhanced Options: experimental fixes, room-buffer rendering and host
-    // spell effects (session_environment.h).
-    common.enhanced_options = g_audio_settings.enhanced_options;
     // Drawing the field with the graphics card is a persistent player
-    // setting like Enhanced Options. It falls back to the console compositor
+    // setting. It falls back to the console compositor
     // for any frame it cannot reproduce. The GPU field check forces the card
     // on and the fallback on.
     common.gpu_field = collection_gpu_check || g_audio_settings.gpu_field;

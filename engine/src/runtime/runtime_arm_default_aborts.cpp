@@ -621,8 +621,8 @@ extern "C" void runtime_mutable_ram_code_miss(uint32_t entry_pc, int thumb) {
     // A direct call into stale fixed RAM code did not pass through
     // runtime_dispatch, so the game's verified RAM-image resolver has not
     // seen it. Prefer an already-prebuilt variant before runtime healing.
-    // TLA intro190343 missed03000CEC despite its exact16-byte variant being
-    // present in the harvested corpus, then interpreted7.6 million insns.
+    // TLA intro 190343 missed 03000CEC despite its exact 16-byte variant being
+    // present in the harvested corpus, then interpreted 7.6 million insns.
     // A resolved function can reach other stale RAM entries before returning.
     // Reject only a repeated PC/mode with no guest progress: a resolved body
     // may legitimately loop back here before its host call returns. Include

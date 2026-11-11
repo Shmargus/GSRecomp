@@ -959,8 +959,8 @@ int16_t GbaAudio::mix_one_sample(uint32_t direct_slot, bool include_direct,
             uint8_t digit = (abs_digit & 1u) ? (byte & 0x0Fu)
                                              : static_cast<uint8_t>(byte >> 4);
             // GBA wave output is an unsigned 4-bit DAC value. mGBA applies
-            // the register's 3-bit volume encoding as shifts: 0=mute,
-            // 1=100%, 2=50%, 3=25%, and 7=forced 75%.
+            // the volume code as shifts: 0=mute, 1=100%, 2=50%, 3=25%;
+            // the force-volume bit (SOUND3CNT_H bit 15) overrides it with 75%.
             if (ch3_.force_volume) {
                 ch3_sample = (static_cast<int32_t>(digit) * 3) >> 2;
             } else {
@@ -977,9 +977,9 @@ int16_t GbaAudio::mix_one_sample(uint32_t direct_slot, bool include_direct,
     // ── Channel 4 (noise, LFSR) ──────────────────────────────────
     int32_t ch4_sample = 0;
     if (ch4_.active) {
-        // This is the GBA polynomial used by mGBA: ratio 0 has a base period
-        // of 32 system cycles, other ratios use 64, 128, ...; the feedback
-        // taps are 0x6000 (15-bit) or 0x60 (7-bit).
+        // This is the GBA polynomial used by mGBA: divisor code 0 has a base
+        // period of 32 system cycles, code r > 0 has 64*r (before the shift);
+        // the feedback taps are 0x6000 (15-bit) or 0x60 (7-bit).
         static constexpr uint32_t kNoiseDiv[8] =
             {8u, 16u, 32u, 48u, 64u, 80u, 96u, 112u};
         uint32_t step_period =

@@ -127,6 +127,10 @@ addr = 0x080226b4
 note = "Measured Italy counterpart; English evidence: affine builder: after the record store [r7+4] (placement recorded)"
 
 [[conditional_branch_override]]
+addr = 0x08022760
+note = "Measured Italy counterpart; English evidence: affine builder: shadow stored (record r7+0x1C, ground point [sl]/[sl+4], size r4); bne on [sp+0x48] after 0x0802275A"
+
+[[conditional_branch_override]]
 addr = 0x080157c8
 note = "Measured Italy counterpart; English evidence: world-map projection: blt hides near points; r1 is signed 16.16 depth, reciprocal denominator r1 >> 11 at 0x080157AE; expanded view retains positive nonzero denominators and culls projected positions in the affine builder"
 

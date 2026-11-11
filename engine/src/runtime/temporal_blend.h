@@ -1,5 +1,5 @@
-// temporal_blend.h — VFX-FLICKER-02: optional whole-frame temporal blend
-// ("LCD ghosting"), applied to the final presented RGB888 frame.
+// temporal_blend.h — VFX-FLICKER-02/03: optional temporal blend ("LCD
+// ghosting") of the final presented RGB888 frame, whole-frame or flicker-only.
 //
 // Real GBA hardware's LCD has a slow pixel response, so two frames drawn in
 // quick succession visibly blend together. Some Golden Sun effects (the
@@ -14,8 +14,7 @@
 // Host-side and presentation-only: nothing here is read by the guest, and it
 // runs after the PPU has produced the frame, so it never affects emulation,
 // verify/frame-hash paths, or timing. Header-only and SDL-free so it can be
-// unit-tested against synthetic buffers without a display or a ROM (see
-// tests/temporal_blend/test_main.cpp).
+// unit-tested against synthetic buffers without a display or a ROM.
 
 #pragma once
 

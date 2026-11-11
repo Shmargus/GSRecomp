@@ -1,6 +1,6 @@
 // RAM-code identity and verified/relocatable/stamp dispatch.
-// Split out of runner_main.cpp; the code is moved unchanged. Names shared with the
-// other runner_*.cpp files are declared in runner_shared.h.
+// Split out of runner_main.cpp. Names shared with the other runner_*.cpp files
+// are declared in runner_shared.h.
 
 #include <algorithm>
 #include <array>
@@ -96,6 +96,7 @@
 #include "field_game_profile.h"
 #include "rom_version.h"
 #include "runner_shared.h"
+#include "../../shared_game/quality_of_life.h"
 
 extern "C" unsigned g_ws_active;
 extern "C" unsigned long long runtime_current_frame();
@@ -747,7 +748,7 @@ std::array<RelocatableCodeImage, 29> kRelocatableCodeImages{{
      &gsr_func2098_pic_kImageSize,
      gsr_func2098_pic_kDispatchTable,
      &gsr_func2098_pic_kDispatchTableLen},
-    // A NEW pooled routine, found only by the 5,400-frame campaign run. It
+    // A pooled routine, found only by the 5,400-frame campaign run. It
     // aborted as an unknown identity at 0x0300387c, 208 bytes different from
     // the Func_1dc8 image that address had been hosting; a DMA3 watch on that
     // address records ch=3 src=0x08001b70 word=0/150 (150 words = 0x258 bytes)
@@ -1815,23 +1816,32 @@ void hard_mode_scale_enemy() {
     scale(kBaseDefenceOffset, kStatNumerator, kStatDenominator);
 }
 
-// Settings screen translation (hard_mode.h): the screen knows 0/1 only.
+// The Difficulty row (hard_mode.h, shared_game/difficulty_row.h): the
+// screen's own byte only flips; the row's choice is kept beside it.
 std::uint8_t g_hard_mode_saved_byte = 0;
 void hard_mode_settings_setup() {
     using namespace gsr::hard_mode;
     g_hard_mode_saved_byte = bus_read_u8(kSavedFlag);
-    bus_write_u8(kSavedFlag, g_hard_mode_saved_byte == kHardModeValue ? 1u : 0u);
+    gsr::difficulty_row::open(g_hard_mode_saved_byte == kHardModeValue,
+                              gsr::random_psynergy::tbs::current().scaled);
+    bus_write_u8(kSavedFlag, 0u);
 }
 void hard_mode_settings_teardown() {
     using namespace gsr::hard_mode;
     if (g_cpu.R[5] != 0u) {
+        // B: nothing stored.
         bus_write_u8(kSavedFlag, g_hard_mode_saved_byte);
         return;
     }
-    const std::uint8_t value =
-        bus_read_u8(kSavedFlag) == 1u ? kHardModeValue : 0u;
+    const int choice = gsr::difficulty_row::g_choice;
+    const std::uint8_t value = gsr::difficulty_row::hard(choice) ? kHardModeValue : 0u;
     bus_write_u8(kSavedFlag, value);
     bus_write_u8(kAutoSleepFlag, value);
+    auto run = gsr::random_psynergy::tbs::current();
+    if (run.scaled != gsr::difficulty_row::scaled(choice)) {
+        run.scaled = gsr::difficulty_row::scaled(choice);
+        gsr::random_psynergy::tbs::store(run);
+    }
 }
 
 // Djinn on a left-out hero go to the first pick once, at the first battle
@@ -1971,6 +1981,7 @@ void challenge_on_entry(std::uint32_t pc) {
 }  // namespace
 namespace gsr_runner {
 void golden_sun_function_entry_observer(std::uint32_t entry_pc) {
+    if (gsr::qol::on_entry(entry_pc)) return;
     // Autosave notes the field poll before the radial may answer it.
     gsr::autosave::on_entry(entry_pc);
     // The radial first: it notes every dispatcher entry, Retreat's included.
@@ -1993,8 +2004,11 @@ void golden_sun_function_entry_observer(std::uint32_t entry_pc) {
     gsr::intro_music::music.on_entry(entry_pc);
     gsr::custom_battle::tbs::on_entry(entry_pc);
     if (entry_pc == gsr::text_speed_cheat::kLineStartPc &&
-        (g_cpu.R[14] & ~1u) == gsr::text_speed_cheat::kLineStartReturn)
+        (g_cpu.R[14] & ~1u) == gsr::text_speed_cheat::kLineStartReturn) {
         g_decoder_text_id = g_cpu.R[1];
+        gsr::qol::text_pos = 0;
+        gsr::qol::text_id = g_decoder_text_id;
+    }
     if (entry_pc == gsr::hard_mode::kSettingsSetupEntryPc) {
         g_settings_screen_text = true;
         hard_mode_settings_setup();

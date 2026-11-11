@@ -1,5 +1,5 @@
 // The Treasure Tracker's table types (treasure_tracker.h); each game's
-// generated table (tools/build_treasure_tracker.py) fills them.
+// generated table (The Broken Seal/tools/build_treasure_tracker.py) fills them.
 #pragma once
 
 namespace gsr::treasure_tracker {

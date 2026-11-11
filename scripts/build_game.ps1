@@ -192,24 +192,6 @@ public static class GoldenSunBuildLimits {
         Write-Host ('Build memory limit: {0:N1} GiB ({1}% of installed RAM).' -f ($memoryLimit / 1GB), $RamPercent)
     }
 
-    if ($Game -eq 'LostAge') {
-        # The launcher's "Pre-built RAM code" setting (launcher
-        # collection_preferences.h, PrebuiltRamCode; off when unset).
-        $prebuiltRamCode = 'OFF'
-        $settingsFile = Join-Path $repo 'local/launcher-settings.ini'
-        if (Test-Path -LiteralPath $settingsFile -PathType Leaf) {
-            $section = ''
-            foreach ($line in Get-Content -LiteralPath $settingsFile) {
-                $line = $line.Trim()
-                if ($line -match '^\[.*\]$') { $section = $line; continue }
-                if ($section -eq '[Launcher]' -and $line -match '^PrebuiltRamCode\s*=\s*(.*)$') {
-                    $prebuiltRamCode = if ($Matches[1].Trim() -cin @('1', 'true', 'TRUE', 'yes', 'on')) { 'ON' } else { 'OFF' }
-                }
-            }
-        }
-        Write-Host ('Pre-built RAM code: {0}.' -f $(if ($prebuiltRamCode -eq 'ON') { 'included' } else { 'skipped (compiled while playing)' }))
-    }
-
     # Each game plays the collection's ROM for the language the flag under
     # its cartridge picks (local\<LanguageFile>, launcher collection_storage.h:
     # separate ROM files per language). Every revision in the game's list
@@ -259,7 +241,9 @@ public static class GoldenSunBuildLimits {
             & $cmake --build $buildDir --target gba_recompile
             $built = $LASTEXITCODE
             $recompiler = Join-Path $buildDir 'gbarecomp_build/gba_recompile.exe'
-            $inputs = @("harvest $prebuiltRamCode") + @(Get-InputLines $repo (
+            # "harvest OFF": The Lost Age's RAM code always compiles while
+            # playing, as in player releases (the line keeps existing stamps valid).
+            $inputs = @("harvest OFF") + @(Get-InputLines $repo (
                 Get-ChildItem -LiteralPath $configDir, (Join-Path $repo 'tools') -Recurse -File |
                     Where-Object { $_.Extension -in @('.toml', '.py') }))
         }
@@ -280,8 +264,7 @@ public static class GoldenSunBuildLimits {
                 if (Test-Path -LiteralPath $corpusDir) { Remove-Item -LiteralPath $corpusDir -Recurse -Force }
                 Move-Item -LiteralPath (Join-Path $work 'gen') -Destination $corpusDir
             } else {
-                $generationArgs = @((Join-Path $repo 'tools/tla_recompile.py'), '--rom', $rom, '--recompile', $recompiler, '--out', $corpusDir)
-                if ($prebuiltRamCode -eq 'OFF') { $generationArgs += '--no-harvest' }
+                $generationArgs = @((Join-Path $repo 'tools/tla_recompile.py'), '--rom', $rom, '--recompile', $recompiler, '--out', $corpusDir, '--no-harvest')
                 & $python @generationArgs
                 if ($LASTEXITCODE -ne 0) { throw "Making the $($revision.Name) game code failed ($LASTEXITCODE)." }
             }
@@ -333,7 +316,7 @@ public static class GoldenSunBuildLimits {
             [int][Math]::Floor($memoryLimit / ($cfg.GameCodeCompileGiB * 1GB))))
         Write-Host "Game-code files compiled at once: $gameCodeJobs."
         $configureArgs += @('-DTLA_SPLIT_GAME_CODE=ON', "-DTLA_LTO_JOBS=$jobs", "-DTLA_GAME_CODE_OPT=-$GameCodeOpt",
-            "-DTLA_GAME_CODE_COMPILE_JOBS=$gameCodeJobs", "-DTLA_PREBUILT_RAM_CODE=$prebuiltRamCode",
+            "-DTLA_GAME_CODE_COMPILE_JOBS=$gameCodeJobs",
             "-DTLA_GENERATED_DIR:PATH=$codeRoot/main", "-DTLA_GAME_ROM_SHA1=$romSha1")
     }
     $configureOutput = & $cmake @configureArgs 2>&1

@@ -585,7 +585,7 @@ void GbaIo::tick_timers(uint32_t cycles) {
     for (int t = 0; t < 4; ++t) {
         uint16_t ctrl = timer_control_[t];
         if ((ctrl & 0x0080u) == 0) continue;
-        if (ctrl & 0x0004u) continue;  // cascade timers are not needed by BIOS audio
+        if (ctrl & 0x0004u) continue;  // cascade (count-up) timers are not modelled
 
         uint32_t prescale = kPrescale[ctrl & 0x3u];
         timer_accum_[t] += cycles;

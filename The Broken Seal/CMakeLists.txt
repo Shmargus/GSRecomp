@@ -760,6 +760,7 @@ if(GSR_BUILD_LOCAL_RUNNER)
         "${CMAKE_SOURCE_DIR}/../shared_game/custom_battle.cpp"
         src/custom_battle_tbs.cpp
         "${CMAKE_SOURCE_DIR}/../shared_game/enemy_hp_bar.cpp"
+        "${CMAKE_SOURCE_DIR}/../shared_game/code_box.cpp"
         src/unpacker_catch.cpp
         "${CMAKE_SOURCE_DIR}/../shared_game/unpacker_guard.cpp"
         # Which ROM revision runs; USA addresses -> that revision (src/rom_version.h).

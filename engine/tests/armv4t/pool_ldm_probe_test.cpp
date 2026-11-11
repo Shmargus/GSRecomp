@@ -1,5 +1,5 @@
 // pool_ldm_probe_test.cpp — CRASH-03 provenance seam coverage (synthetic,
-// no ROM/BIOS). Proves the bounded diagnostic added to the pool-LDM probe:
+// no ROM/BIOS). Proves the bounded diagnostic in the pool-LDM probe:
 //   1. probe arming emits exactly one payload-free [pool-ldm-crc] reason=arm
 //      line whose CRC matches an independent IEEE CRC-32 of the tracked
 //      window bytes;
@@ -78,8 +78,8 @@ uint32_t ref_crc32(const uint8_t* data, size_t len) {
     return ~crc;
 }
 
-// In the system temp folder, not wherever the test runs (the collection root
-// under build_dev).
+// Capture file lives in the system temp folder, not in the working directory
+// the test happens to run from.
 std::string capture_path() {
     std::error_code ec;
     const auto dir = std::filesystem::temp_directory_path(ec);

@@ -8498,6 +8498,10 @@ note = "affine builder: bls keeps y + 0x20 <= 0xF0"
 addr = 0x080226B4
 note = "affine builder: after the record store [r7+4] (placement recorded)"
 
+[[conditional_branch_override]]
+addr = 0x08022760
+note = "affine builder: shadow stored (record r7+0x1C, ground point [sl]/[sl+4], size r4); bne on [sp+0x48] after 0x0802275A"
+
 # World-map projection 0x08015778: -depth compared with near [0x030011E4]
 # (`blt` 0x0801579C) and far [0x030011E8] (`bgt` 0x080157A2), both hide the
 # point. Far 1020 ends at about the console's top row (F12 0064/0065).

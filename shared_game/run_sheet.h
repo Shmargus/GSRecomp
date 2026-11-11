@@ -1,5 +1,5 @@
 // F1 > Game for a randomizer run, both games (Jimmy, 6 November 2026;
-// docs/NEXT_PRIORITY_MODES.md section 5): the run's code (run_code.h), to
+// docs/NEXT_PRIORITY_MODES.md section 5): the run's seed (run_code.h), to
 // share, and the spoiler sheet, hidden until Show is pressed: each hero's
 // Psynergy by level and what every weapon and armour piece became.
 //
@@ -49,10 +49,12 @@ inline run_code::Run run_of(const random_psynergy::Config& p, const random_weapo
     rc::Run r;
     r.seed = p.seed ? p.seed : e.seed;
     if (p.psynergy) r.choices |= rc::kPsynergy;
-    if (p.fair_play) r.choices |= rc::kFairPlay;
+    if (p.psynergy && p.fair_psynergy) r.choices |= rc::kFairPsynergy;
+    if (p.treasure && p.fair_items) r.choices |= rc::kFairItems;
+    if (p.treasure && p.fair_shops) r.choices |= rc::kFairShops;
+    if (p.coins && p.fair_coins) r.choices |= rc::kFairCoins;
     if (p.treasure) r.choices |= rc::kItems;
     if (p.treasure && p.bargains) r.choices |= rc::kBargains;
-    if (p.treasure && p.key_items) r.choices |= rc::kKeyItems;
     if (p.coins) r.choices |= rc::kCoins;
     // Weapons and Armor: the finds (The Broken Seal) or the stat shuffle;
     // Stats: the stat shuffle with finds. A stat shuffle without finds is
@@ -117,7 +119,7 @@ inline Sheet write(gba::GbaBus& b, const Game& g, const random_psynergy::Config&
     Sheet sheet;
     const run_code::Run run = run_of(p, e);
     // A run with no random choice (Scaled difficulty alone) has no code.
-    if (run.seed == 0 || (run.choices & ~run_code::kFairPlay) == 0 || !b.rom_ptr()) return sheet;
+    if (run.seed == 0 || (run.choices & ~run_code::kFairBits) == 0 || !b.rom_ptr()) return sheet;
     sheet.code = run_code::spaced(run_code::encode(run));
     const random_weapons::Game& eg = *g.equipment;
     mods::TextEncoder text({b.rom_ptr(), b.rom_size()}, eg.text_table, eg.tree_table);
@@ -130,7 +132,7 @@ inline Sheet write(gba::GbaBus& b, const Game& g, const random_psynergy::Config&
 
     if (p.psynergy) {
         const random_psynergy::Plan plan =
-            random_psynergy::make_plan(*g.psynergy, p.seed, challenge, p.fair_play);
+            random_psynergy::make_plan(*g.psynergy, p.seed, challenge, p.fair_psynergy);
         for (int hero = 0; hero < g.psynergy->heroes; ++hero) {
             if (challenge.size > 0 && !gsr::challenge::picked(challenge, static_cast<std::uint8_t>(hero)))
                 continue;
@@ -220,7 +222,7 @@ inline void draw() {
     }
     static bool shown = false;
     ImGui::Spacing();
-    ImGui::Text("%s: %s", gbarecomp::ui_text("Run code"), sheet.code.c_str());
+    ImGui::Text("%s: %s", gbarecomp::ui_text("Seed"), sheet.code.c_str());
     ImGui::TextWrapped("%s", gbarecomp::ui_text(
         "Share it: typed on the New Game list, it gives the same run."));
     if (ImGui::Button(gbarecomp::ui_text(shown ? "Hide spoilers" : "Show spoilers"))) shown = !shown;

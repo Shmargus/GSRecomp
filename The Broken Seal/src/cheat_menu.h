@@ -8,7 +8,7 @@
 // The cheat menu: a window in Golden Sun's own style, opened with the F1
 // menu's rebindable "Cheat Menu" hotkey (default F11) anywhere in the game.
 // Every key goes to the window while it is open (keyinput_filter). The
-// new-game questions run over the live game (runner_main.cpp
+// new-game questions run over the live game (runner_cheats.cpp
 // question_hold_new_game_entry); paused_overlay still draws them during a
 // host pause.
 //

@@ -273,7 +273,7 @@ inline unsigned text_width(const std::string& s, std::span<const std::uint8_t> a
     return w;
 }
 
-// Weapons' new lines (weapon_descriptions) into `out`; a weapon whose
+// The weapons' new description lines, written into `out`; a weapon whose
 // wording cannot be learnt keeps the game's own line (absent from the map).
 inline void weapon_descriptions(mods::TextEncoder& decoder, const Texts& t,
                                 const std::vector<Weapon>& weapons,

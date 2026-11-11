@@ -7,7 +7,7 @@
 //     has a download for this platform, the player is told and can open the
 //     release's GitHub page. Nothing is downloaded by the launcher.
 //   * Bug reports: the "Send report" button uploads a report archive to the
-//     project's report service (tools/report_service/worker.js). Its address
+//     project's report service (The Broken Seal/tools/report_service/worker.js). Its address
 //     is not in the source: only the official release scripts build it in
 //     (GSR_REPORT_HOST). A launcher built without it has no Send button and
 //     offers the bug report form instead, so a fork never sends reports to

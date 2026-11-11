@@ -14,6 +14,8 @@
 // CLI:
 //   bios_smoke [--bios <path>] [--steps N] [--quiet]
 //             [--rom <path>] [--frames N] [--emit-target-seeds <out.tsv>]
+//             [--window] [--scale N] [--tcp <port>] [--dump-bmp <path>]
+//             [--snapshot <prefix>]
 
 #include <cstdint>
 #include <cstdio>

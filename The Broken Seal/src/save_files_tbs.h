@@ -70,6 +70,11 @@ inline const Game& game() {
         // Clear Data for Continue, ...): config/<lang>/main.toml overrides.
         {0x40Au, 0x420u, 0x436u, 0x44Eu, 0x488u, 0x49Eu, 0x4B4u, 0x4CCu},
         extension_entry, set_flags, challenge_file,
+        // The party leader's name (save_files_picker.h show_leaders):
+        // records payload +0x500, 0x14C each (lookup 0x08077394); a file's
+        // first block, one sector.
+        0x500u, 0x14Cu, kRecordBytes,
+        [](int file) -> const std::uint8_t* { return record(file, 0); },
     };
     return g;
 }

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include "rom_version.h"
+#include "../../shared_game/difficulty_row.h"
 
 // Hard Mode: enemies get 1.5x HP and 1.25x Attack and Defence. The switch is
 // the settings screen's fourth row, the game's own Auto-Sleep row, kept with
@@ -64,17 +65,17 @@ const std::uint32_t kSettingsTeardownEntryPc = gs::rom(0x0801D0F0u);
 
 // Text: label 0xC12 ("Auto-Sleep"), help 0xC19 ("Turn auto-sleep on or off.")
 // and the caption 0xC13 + value are replaced character by character. The
-// caption is written whole, to add the arrows around the cursor's row.
+// row is the Difficulty row (shared_game/difficulty_row.h); its caption is
+// the row's choice, written whole, with arrows around the cursor's row.
 const std::uint32_t kLabelTextId = gs::text(0x00000C12u);
 const std::uint32_t kHelpTextId = gs::text(0x00000C19u);
 const std::uint32_t kCaptionBase = gs::text(0x00000C13u);
-constexpr const char* kLabelText = "Hard Mode";
-constexpr const char* kHelpText = "Make enemies tougher.";
+constexpr const char* kLabelText = gsr::difficulty_row::kLabel;
+constexpr const char* kHelpText = gsr::difficulty_row::kHelp;
 constexpr const char* kPromptTitle = "Hard Mode?";
 constexpr const char* kPromptLines[3] = {
     "Enemies get more HP,", "Attack and Defence.", "Change it in Options."};
 constexpr const char* kPromptRows[2] = {"No", "Yes"};
-constexpr const char* kWords[2] = {"Off", "On"};
 
 // The row is text only, like Message speed. Icon table 0x080367CE = {0x27,
 // 0x28}: loaded at setup (two icons) and once per icon in the redraw loop.

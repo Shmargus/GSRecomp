@@ -8,7 +8,7 @@
 // Golden Sun 1's Hard Mode: enemies get 1.5x HP and 1.25x Attack and
 // Defence. Every new game offers Hard Mode on the New Game checklist
 // (src/tla_new_game.cpp), and the settings screen's Auto-Sleep row becomes a
-// Hard Mode switch. That one byte is the only switch, so answering Hard on a
+// Difficulty row (Normal, Scaled, Hard, Hard Scaled). That one byte is the only switch, so answering Hard on a
 // Clear Data file, the checklist row and the settings row are the same thing
 // and never stack.
 //
@@ -54,6 +54,7 @@
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
 #include "tla.h"
+#include "../../shared_game/difficulty_row.h"
 
 namespace {
 
@@ -83,7 +84,6 @@ const uint32_t kValueTextLiteralPc = TLA_ROM(0x08040346u);
 const uint32_t kValueTextBase = TLA_TEXT(0x1144u);
 const uint32_t kValueDrawXPc = TLA_ROM(0x08040360u);
 constexpr uint32_t kHardModeRow = 4u;
-constexpr const char* kWords[2] = {"No", "Yes"};
 TlaValueCaption g_caption;
 
 int (*g_next_branch)(uint32_t, uint32_t, uint32_t*) = nullptr;
@@ -108,17 +108,15 @@ int hard_mode_literal(uint32_t pc, uint32_t original, uint32_t* out_value) {
     if (pc == kValueTextLiteralPc && original == kValueTextBase) {
         gba::GbaBus* b = gbarecomp::active_bus();
         const uint32_t value = g_cpu.R[2] != 0u ? 1u : 0u;
-        g_caption.arm(kValueTextBase + value, kWords[value],
+        g_caption.arm(kValueTextBase + value, gsr::difficulty_row::word(),
                       b && b->read16(g_cpu.R[7] + kTlaSettingsCursorRowOffset) == kHardModeRow);
         return 0;
     }
     return g_next_literal ? g_next_literal(pc, original, out_value) : 0;
 }
 
-// On settings page two the value is not drawn (src/tla_settings_page.cpp).
 int hard_mode_alu_immediate(uint32_t pc, uint32_t original, uint32_t* out_value) {
-    if ((pc == kTlaAutoSleepClearXPc || pc == kValueDrawXPc) &&
-        !tla_settings_page_two_showing()) {
+    if (pc == kTlaAutoSleepClearXPc || pc == kValueDrawXPc) {
         *out_value = pc == kTlaAutoSleepClearXPc ? kTlaValueClearX : g_caption.draw_x();
         return 1;
     }
@@ -140,22 +138,37 @@ void tla_hard_mode_on_entry(uint32_t pc) {
         scale(b, unit + kBaseAttack, 5u, 4u);
         scale(b, unit + kBaseDefence, 5u, 4u);
     } else if (pc == kSettingsSetupEntry) {
-        b->write8(kAutoSleepSaved, b->read8(kDifficulty) == kHard ? 1u : 0u);
+        // The Difficulty row (shared_game/difficulty_row.h): the screen's
+        // own byte only flips; the row's choice is kept beside it.
+        gsr::difficulty_row::open(b->read8(kDifficulty) == kHard, tla_scaled_difficulty());
+        b->write8(kAutoSleepSaved, 0u);
     } else if (pc == kSettingsCloseEntry && lr == kSettingsCloseReturn) {
-        if (b->read8(kAutoSleepSaved) != 0u)
-            b->write8(kDifficulty, kHard);
-        else if (b->read8(kDifficulty) == kHard)
-            b->write8(kDifficulty, 0u);
+        // r6 = 0 after A, -1 after B (0x08040536 / 0x0804052A), kept across
+        // the B path's call.
+        if (g_cpu.R[6] == 0u) {
+            const int choice = gsr::difficulty_row::g_choice;
+            // Easy (Clear Data) stays Easy unless Hard is chosen.
+            if (gsr::difficulty_row::hard(choice)) b->write8(kDifficulty, kHard);
+            else if (b->read8(kDifficulty) == kHard) b->write8(kDifficulty, 0u);
+            tla_set_scaled_difficulty(gsr::difficulty_row::scaled(choice));
+        }
         b->write8(kAutoSleepSaved, 0u);
         b->write8(kAutoSleepLive, 0u);
     }
 }
 
+void tla_difficulty_row_keys(uint32_t row, uint32_t repeat) {
+    // Up (0x40) and Down (0x80) are tested first and end the frame's input;
+    // then Left (0x20) and Right (0x10).
+    if (row == kHardModeRow && !(repeat & 0xC0u))
+        gsr::difficulty_row::keys((repeat & 0x20u) != 0u, (repeat & 0x10u) != 0u);
+}
+
 // The Auto-Sleep row's label, help line and armed value (src/tla_text.cpp).
 bool tla_hard_mode_text(uint32_t text_id, std::string& out) {
     if (g_caption.take(text_id, out)) return true;
-    if (text_id == kLabelText) out = "Hard Mode";
-    else if (text_id == kHelpText) out = "Make enemies tougher.";
+    if (text_id == kLabelText) out = gsr::difficulty_row::kLabel;
+    else if (text_id == kHelpText) out = gsr::difficulty_row::kHelp;
     else return false;
     return true;
 }

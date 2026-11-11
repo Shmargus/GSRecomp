@@ -80,7 +80,7 @@ public:
         // the debug lib stays independent of the runtime lib.
         std::function<std::string()> misses_query;
         // Free-run control (game core on its own thread; server on the main
-        // thread). `resume` frees the server to answer OBSERVATION commands
+        // thread). `continue` (alias `resume`) frees the server to answer OBSERVATION commands
         // while the game thread is busy/wedged — the whole point: a hung core
         // stays introspectable. `pause` parks the game at a frame boundary
         // (waits, best-effort). `run_status` reports the live run-state. `step`

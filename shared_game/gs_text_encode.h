@@ -1,6 +1,6 @@
 // Encoder for Golden Sun's Huffman-coded text, and the block rebuild that
 // swaps edited lines into an extension of the in-memory ROM. C++ port of the
-// reference tools/gs_text_encode.py (format: see its docstring; FACTS.md
+// reference The Broken Seal/tools/gs_text_encode.py (format: see its docstring; FACTS.md
 // 2026-09-30). Pure functions over a ROM byte vector: no game state, no I/O.
 #pragma once
 

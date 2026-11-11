@@ -2,7 +2,7 @@
 // random_weapons.h and random_weapons_plan.h, one copy with The Lost Age).
 //
 // Measured, verified ROMs (FACTS.md "Random Weapons", 5 November 2026):
-// - Item records 0x0807B6A8 + id * 0x2C, ids 0..268 (269 on is enemy text);
+// - Item records 0x0807B6A8 + id * 0x2C, ids 0..268 (269 and up are enemy text);
 //   51 weapons (type 1), byte-identical in all five ROMs (each revision's
 //   mapped table).
 // - Descriptions are text 0x75 + id (Spain, Italy, France, Germany 0x5F),

@@ -20,13 +20,13 @@ std::vector<unsigned char> read_file(const std::string& path,
 // Wall-clock frame limiter. Emulation speed must be governed by the
 // GBA's real frame rate (59.7275 Hz), NOT by the host monitor's refresh
 // rate — relying on SDL's PRESENTVSYNC made the game run at monitor
-// speed (e.g. 2.75x on a 164 Hz panel; see MinishCapRecomp MC-HP-004).
+// speed (e.g. 2.75x on a 164 Hz panel).
 //
 // Maintains a monotonic deadline advanced by exactly one GBA frame
-// period each call. wait() blocks until that deadline using a hybrid
+// period each call. wait_for_next_frame() blocks until that deadline using a hybrid
 // sleep-then-spin (Windows' default ~15.6 ms timer granularity is too
 // coarse for a 16.74 ms target, so the pacer raises timer resolution to
-// 1 ms for its lifetime and spins the final ~1 ms). If the host falls
+// 1 ms for its lifetime and spins the final 1.2 ms). If the host falls
 // more than a frame behind, the deadline resyncs to now rather than
 // trying to catch up (no death spiral). Uncapping enables fast-forward.
 class FramePacer {

@@ -5,7 +5,7 @@
 // - Field pickups all pass 0x0808D9A4(actor). The room's records are 12
 //   bytes at [[0x03001EBC] + 0x10] up to 0xFFFFFFFF (0x0808D48C): +0 low
 //   nibble 3 = an actor's interaction, +4 actor, +6 flag (s16), +8 payload;
-//   payload & 0xFFF00000 0x100000 gives the item (low 16 bits) with
+//   payload & 0xFFF00000 == 0x100000 gives the item (low 16 bits) with
 //   0x08077030, 0x200000 the coins (low 16 bits) with 0x08077230 ->
 //   0x08079700 (capped at 999,999, 0x08079706). Availability is the flag
 //   alone for both (0x0808D458 only answers for 0x500000). So a planned
@@ -102,7 +102,7 @@ inline void build(const random_psynergy::Config& c) {
     s.gifts.clear();
     s.shops.assign(kShops, {});
     if (!any(c)) return;
-    s.plan = make_plan(tbs_data::spots, s.items, c.seed, c.fair_play, c.treasure, c.coins, c.key_items);
+    s.plan = make_plan(tbs_data::spots, s.items, c.seed, c.fair_items, c.treasure, c.coins, c.fair_coins);
     new_finds(s.plan, tbs_data::spots, s.items, c.weapon_finds, c.armour_finds, tbs_data::shop_weapons,
               tbs_data::shop_armour);
     for (std::size_t i = 0; i < std::size(tbs_data::spots); ++i) {
@@ -119,7 +119,7 @@ inline void build(const random_psynergy::Config& c) {
             original.push_back(static_cast<std::uint16_t>(rec[k * 2] | rec[k * 2 + 1] << 8));
         if (original.empty()) continue;
         s.shops[id] = shop_stock(original, {tbs_data::shop_items, tbs_data::shop_weapons, tbs_data::shop_armour},
-                                 s.items, rng);
+                                 s.items, rng, c.fair_shops);
     }
 }
 
@@ -165,7 +165,7 @@ inline void frame() {
     apply(*b, current());
 }
 
-// Entry to the field pickup routine: the room's planned records now.
+// Entry to the field pickup routine: apply the room's planned records.
 inline void on_pickup(gba::GbaBus& b) {
     State& s = state;
     if (s.field.empty() || !active()) return;

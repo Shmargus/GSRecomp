@@ -128,6 +128,9 @@ const uint32_t kBodyX2 = TLA_ROM(0x080224ECu), kBodyY2 = TLA_ROM(0x080224F0u), k
 // Affine builder tests (r3 = x + 0x20, y + 0x20) and its record store.
 const uint32_t kAffineX = TLA_ROM(0x08022592u), kAffineY = TLA_ROM(0x0802259Cu);
 const uint32_t kAffinePlaced = TLA_ROM(0x080226B4u);
+// Its ground shadow (record r7+0x1C, bit 0 of [r7+0x1A]) is projected again
+// at 0x080226FC and stored by 0x0802272C; `bne` 0x08022760 follows.
+const uint32_t kAffineShadowPlaced = TLA_ROM(0x08022760u);
 const uint32_t kNearClip = TLA_ROM(0x0801579Cu);
 const uint32_t kFarClip = TLA_ROM(0x080157A2u);
 
@@ -381,7 +384,7 @@ int32_t held_camera(gba::GbaBus* b, bool x, int32_t requested, int32_t ruled,
     }
     // Preserve the cutscene offset within the expanded view's existing room
     // limits. Native-only limits let a hold with zero offset bypass the
-    // margin rule entirely (0082: right edge1075 beyond room edge1024).
+    // margin rule entirely (0082: right edge 1075 beyond room edge 1024).
     return camera_value(b, x, requested + h.offset, v);
 }
 
@@ -563,7 +566,15 @@ int world_range_branch(uint32_t pc, uint32_t original, uint32_t* out) {
 int affine_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
     const View v = view();
     gba::GbaBus* b = bus();
-    if (!expanded(v) || !b || !field_running(b)) return 0;
+    if (!b || !field_running(b)) return 0;
+    // Back at the console's size, as builder_branch: a second-page grant
+    // stays until the game grants again, so placements are still recorded
+    // for the tile lookup; the culls below stay the console's own. F12
+    // tla_rewind_0216: View size changed in the Quality of Life menu on the
+    // world map, the hero (owner 0, page 0x8000) then drew console tile 0,
+    // the Pause menu's help letters.
+    const bool wide = expanded(v);
+    if (!wide && !b->obj_extra()) return 0;
     if (pc == kAffinePlaced) {
         const uint32_t sl = g_cpu.R[10];
         const int x = static_cast<int32_t>(b->read32(sl)) -
@@ -577,6 +588,23 @@ int affine_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
         note_placed(g_cpu.R[7], x, y, -1, true);
         return 0;
     }
+    if (pc == kAffineShadowPlaced) {
+        // The shadow's ground point at [sl] (x) / [sl+4] (y), size r4 (8, or
+        // 16 for the double-size kind): attr1 x = [sl] - r4, attr0 y =
+        // [sl+4] - r4/2 + 2 (0x0802270A..0x0802272C), record r0 = r7+0x1C.
+        // Unrecorded, it fell back to the console's 8-bit Y: in the Venus
+        // quake (F12 tla_rewind_0213, 2026-11-08) the party is placed ~110
+        // rows below the console's screen (bodies recorded at y 268, raw
+        // 12), so the bodies left the view and their shadows stayed on the
+        // river at the wrapped rows 30/53.
+        const uint32_t sl = g_cpu.R[10];
+        const int size = static_cast<int32_t>(g_cpu.R[4]);
+        const int x = static_cast<int32_t>(b->read32(sl)) - size;
+        const int y = static_cast<int32_t>(b->read32(sl + 4u)) - size / 2 + 2;
+        note_placed(g_cpu.R[0], x, y);
+        return 0;
+    }
+    if (!wide) return 0;
     const int at = static_cast<int32_t>(g_cpu.R[3]) - 0x20;
     const bool keep = pc == kAffineX
         ? at >= -(32 + v.left + kSlack) && at <= 272 + v.right + kSlack
@@ -930,7 +958,8 @@ int builder_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
     }
     if (pc == kDepthClampCharacters || pc == kDepthClampAll)
         return depth_branch(original, out_decision);
-    if (pc == kAffineX || pc == kAffineY || pc == kAffinePlaced)
+    if (pc == kAffineX || pc == kAffineY || pc == kAffinePlaced ||
+        pc == kAffineShadowPlaced)
         return affine_branch(pc, original, out_decision);
     if (pc == kRopePlaced || pc == kCoilPlaced || pc == kVinePlaced) {
         gba::GbaBus* b = bus();

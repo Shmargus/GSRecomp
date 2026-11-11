@@ -5,22 +5,22 @@
 //  - field treasures and NPC gifts trade contents; coin spots and item spots
 //    mix, and every coin spot gets a new amount (small ones common, thousands
 //    sometimes, the coin cap a rare jackpot);
-//  - Psynergy items (type 6) move with logic when Key Items is on (Jimmy, 7
-//    November 2026: an option), else stay; story items stay;
+//  - key items never move (Jimmy, 8 November 2026: "Disable key item
+//    shuffling entirely in both games"): story items (`fixed`) and Psynergy
+//    items (type 6) stay at their own spots, whatever the options;
 //  - shops sell a random selection of their own kind; Bargains prices every
 //    item by tier, 5 to 1000 coins;
-//  - Fair Play spreads healing items and gear evenly through the story;
+//  - Fair Play (a switch per thing, 10 November 2026) strives for a fair
+//    progression: Items spreads healing items and gear evenly through the
+//    story, with gear loosely stronger as it goes; Coins gives amounts that
+//    grow with the story as the game's own do; Shops draws new stock near
+//    each shop's own level;
 //  - Random Weapons / Armor finds (7 November 2026): every spot that holds a
 //    weapon (or armour) once the rest is dealt gives a random one from the
 //    whole game instead, any strength anywhere (Jimmy's choice).
 //
-// Logic (Jimmy's choice: the archived guide's story order). A Psynergy item
-// moves only to a field spot the guide collects ("exact") in an earlier
-// section than its own spot, or stays. Induction on sections: a spot of
-// section n needs only Psynergy items the guide had by then, each now at its
-// own spot or at one of an earlier section, so every spot stays reachable,
-// as long as the guide's order holds. Gifts never receive Psynergy items, and
-// cannot hold coins (the gift routine gives items only).
+// With every key item at home, every spot stays as reachable as in the
+// normal game. Gifts cannot hold coins (the gift routine gives items only).
 #pragma once
 #include <algorithm>
 #include <array>
@@ -114,15 +114,95 @@ inline Category category(std::span<const Item> items, const Content& c) {
 
 struct Plan {
     std::uint32_t seed = 0;
-    bool fair_play = false;
+    bool fair_play = false;         // Fair Items
     std::vector<Content> contents;  // per spot, in the table's order
 };
 
+// How fast likelihood falls with distance in price order: weight
+// (1 - distance / count)^kStrengthFalloff. Shops and Fair Play's gear pacing
+// share it. A first guess, not measured; Jimmy judges it in play.
+constexpr double kStrengthFalloff = 2.0;
+
+// The index drawn from `weight` (summing to `total` > 0); the last one with
+// weight, should rounding run past the end.
+inline std::size_t pick_weighted(const std::vector<double>& weight, double total, Rng& rng) {
+    double at = rng.unit() * total;
+    std::size_t picked = 0;
+    for (std::size_t k = 0; k < weight.size(); ++k) {
+        if (weight[k] <= 0) continue;
+        picked = k;
+        if ((at -= weight[k]) < 0) break;
+    }
+    return picked;
+}
+
+// Fair Items' gear pacing (Jimmy, 10 November 2026: loose). `gear` comes
+// back in the order it will be dealt through the story: for each place in
+// turn, a piece is drawn from those left, likeliest the one whose place in
+// the price order matches and rarer the further off. So gear is mostly
+// around the level of where you are, with an occasional surprise either way.
+inline void pace_gear(std::vector<Content>& gear, std::span<const Item> items, Rng& rng) {
+    const auto price = [&](const Content& c) { return c.value < items.size() ? items[c.value].price : 0; };
+    std::vector<std::uint16_t> prices;
+    for (const Content& c : gear) prices.push_back(price(c));
+    std::sort(prices.begin(), prices.end());
+    std::vector<Content> left;
+    left.swap(gear);
+    const auto count = static_cast<double>(left.size());
+    std::vector<double> weight;
+    for (std::ptrdiff_t turn = 0; !left.empty(); ++turn) {
+        weight.assign(left.size(), 0.0);
+        double total = 0;
+        for (std::size_t k = 0; k < left.size(); ++k) {
+            const auto place = std::lower_bound(prices.begin(), prices.end(), price(left[k])) - prices.begin();
+            weight[k] = std::pow(1.0 - static_cast<double>(std::abs(place - turn)) / count, kStrengthFalloff);
+            total += weight[k];
+        }
+        const std::size_t k = pick_weighted(weight, total, rng);
+        gear.push_back(left[k]);
+        left.erase(left.begin() + static_cast<std::ptrdiff_t>(k));
+    }
+}
+
+// New amounts for the spots that now hold coins. Without Fair Coins: any
+// amount anywhere (coin_amount), in table order. With it: the amounts grow
+// with the story as the normal game's do. The game's own coin amounts, in
+// rising order, are the scale; the coin spots, in story order, walk up it,
+// each taking an amount between its neighbours on the scale. No jackpots.
+inline void new_coin_amounts(Plan& plan, std::span<const Spot> spots, bool fair) {
+    Rng coins(plan.seed, 3);
+    const std::size_t n = std::min(spots.size(), plan.contents.size());
+    if (!fair) {
+        for (std::size_t i = 0; i < n; ++i)
+            if (!spots[i].fixed && plan.contents[i].coins) plan.contents[i].value = coin_amount(coins);
+        return;
+    }
+    std::vector<std::uint32_t> scale;
+    std::vector<std::size_t> order;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (spots[i].fixed) continue;
+        if (spots[i].coins) scale.push_back(std::max<std::uint32_t>(1, spots[i].value));
+        if (plan.contents[i].coins) order.push_back(i);
+    }
+    if (scale.empty()) return;
+    std::sort(scale.begin(), scale.end());
+    std::stable_sort(order.begin(), order.end(),
+                     [&](std::size_t a, std::size_t b) { return spots[a].section < spots[b].section; });
+    for (std::size_t j = 0; j < order.size(); ++j) {
+        const std::size_t at = j * scale.size() / order.size();
+        const double lo = scale[at ? at - 1 : 0], hi = scale[std::min(at + 1, scale.size() - 1)];
+        plan.contents[order[j]].value = static_cast<std::uint32_t>(
+            std::lround(std::exp(std::log(lo) + coins.unit() * (std::log(hi) - std::log(lo)))));
+    }
+}
+
 // `shuffle_items`: chests, gifts (and shops) trade contents; `new_coins`:
 // every coin spot a new amount; with both, coin and item spots also mix
-// (Jimmy, 7 November 2026). `move_keys`: Psynergy items move (Key Items).
+// (Jimmy, 7 November 2026). Key items stay home in every mode. `fair_play`
+// is Fair Items, `fair_coins` Fair Coins.
 inline Plan make_plan(std::span<const Spot> spots, std::span<const Item> items, std::uint32_t seed,
-                      bool fair_play, bool shuffle_items = true, bool new_coins = true, bool move_keys = true) {
+                      bool fair_play, bool shuffle_items = true, bool new_coins = true,
+                      bool fair_coins = false) {
     Plan plan;
     plan.seed = seed;
     plan.fair_play = fair_play;
@@ -136,9 +216,7 @@ inline Plan make_plan(std::span<const Spot> spots, std::span<const Item> items, 
     if (seed == 0) return plan;
     if (!shuffle_items) {
         // Coins only: every coin spot a new amount, nothing moves.
-        Rng coins(seed, 3);
-        for (std::size_t i = 0; i < n; ++i)
-            if (new_coins && !spots[i].fixed && plan.contents[i].coins) plan.contents[i].value = coin_amount(coins);
+        if (new_coins) new_coin_amounts(plan, spots, fair_coins);
         return plan;
     }
     // Items without Coins: coin spots keep their coins and stay out of the deal.
@@ -146,43 +224,18 @@ inline Plan make_plan(std::span<const Spot> spots, std::span<const Item> items, 
         for (std::size_t i = 0; i < n; ++i)
             if (spots[i].coins) taken[i] = true;
 
-    // Psynergy items first: their own spot, or (Key Items) an exact field
-    // spot of an earlier section.
-    Rng keys(seed, 1);
-    std::vector<std::size_t> key_spots;
+    // Psynergy items (key items) keep their own spots.
     for (std::size_t i = 0; i < n; ++i)
-        if (!spots[i].fixed && psynergy_item(items, {spots[i].coins, spots[i].value})) key_spots.push_back(i);
-    shuffle(key_spots, keys);
-    std::vector<std::size_t> home_free;  // a moved item's own spot joins the pool
-    for (const std::size_t k : key_spots) {
-        std::vector<std::size_t> can{k};
-        if (move_keys && spots[k].section != kNoSection)
-            for (std::size_t j = 0; j < n; ++j)
-                if (!taken[j] && j != k && spots[j].kind == SpotKind::Field && spots[j].exact &&
-                    spots[j].section < spots[k].section &&
-                    !psynergy_item(items, {spots[j].coins, spots[j].value}))
-                    can.push_back(j);
-        const std::size_t to = can[keys.below(can.size())];
-        taken[to] = true;
-        if (to != k) {
-            plan.contents[to] = {false, spots[k].value};
-            // Its own spot is free now; the item that was at `to` joins the pool.
-        }
-    }
+        if (psynergy_item(items, {spots[i].coins, spots[i].value})) taken[i] = true;
 
     // Everything else: the originals of the spots left, dealt again.
     std::vector<std::size_t> free;
     std::vector<Content> pool;
-    for (std::size_t i = 0; i < n; ++i) {
-        const Content original{spots[i].coins, spots[i].value};
-        const bool key_home = !spots[i].fixed && psynergy_item(items, original);
-        if (!taken[i]) free.push_back(i);
-        // Pool: every non-fixed original except the Psynergy items (placed).
-        if (!spots[i].fixed && !key_home && (new_coins || !original.coins)) pool.push_back(original);
-    }
-    // A Psynergy item that stayed home took its own spot and is not in the
-    // pool; one that moved displaced an original that is in the pool, and
-    // left its own spot free: the counts match.
+    for (std::size_t i = 0; i < n; ++i)
+        if (!taken[i]) {
+            free.push_back(i);
+            pool.push_back({spots[i].coins, spots[i].value});
+        }
     Rng deal(seed, 2);
     shuffle(pool, deal);
     std::sort(free.begin(), free.end(), [&](std::size_t a, std::size_t b) {
@@ -194,6 +247,7 @@ inline Plan make_plan(std::span<const Spot> spots, std::span<const Item> items, 
         // its share comes next.
         std::array<std::vector<Content>, kCategories> by;
         for (const Content& c : pool) by[category(items, c)].push_back(c);
+        pace_gear(by[kGear], items, deal);
         std::array<std::size_t, kCategories> total{}, given{};
         for (int c = 0; c < kCategories; ++c) total[c] = by[c].size();
         for (std::size_t k = 0; k < pool.size(); ++k) {
@@ -231,10 +285,7 @@ inline Plan make_plan(std::span<const Spot> spots, std::span<const Item> items, 
             if (done) break;
         }
     }
-    // New coin amounts, in table order.
-    Rng coins(seed, 3);
-    for (std::size_t i = 0; i < n; ++i)
-        if (new_coins && !spots[i].fixed && plan.contents[i].coins) plan.contents[i].value = coin_amount(coins);
+    if (new_coins) new_coin_amounts(plan, spots, fair_coins);
     return plan;
 }
 
@@ -317,24 +368,58 @@ struct ShopPools {
     std::span<const std::uint16_t> items, weapons, armour;
 };
 
-// New stock for one shop: each item it sold becomes a distinct item of the
-// same group (weapons, armour, items), so a mixed shop (The Lost Age's kind
-// 3) stays mixed; sorted by group, then price.
+// New stock for one shop (Jimmy, 7 November 2026: a chance of something new,
+// not a guarantee, and strong gear should be rare).
+//  - Each item the shop sold is replaced only some of the time
+//    (kShopReplaceChance); the rest stay as they are.
+//  - A replacement comes from the same group (weapons, armour, items), so a
+//    mixed shop (The Lost Age's kind 3) stays mixed, and it is never
+//    something the shop already stocks.
+//  - Cheaper means likelier. An item's weight is
+//    (1 - place / count)^kStrengthFalloff, where place is its position
+//    in its group's price order (equal prices share a place): the cheapest
+//    weighs 1, the middle one 1/4 and the dearest almost nothing.
+//  - Fair Shops (Jimmy, 10 November 2026) measures that from the shop's own
+//    level instead: place becomes the distance, in the same price order,
+//    from the item being replaced. Something about as dear as what the shop
+//    sold is likeliest, and the further off (cheaper or dearer) the rarer,
+//    so a late shop is not filled with beginner gear.
+// The chance is a first guess, not measured; Jimmy judges it in play.
+// The result is sorted by group, then price.
+constexpr double kShopReplaceChance = 1.0 / 3.0;
+
 inline std::vector<std::uint16_t> shop_stock(std::span<const std::uint16_t> original, const ShopPools& pools,
-                                             std::span<const Item> table, Rng& rng) {
+                                             std::span<const Item> table, Rng& rng, bool fair_play = false) {
     const auto group = [&](std::uint16_t id) {
         const std::uint8_t type = id < table.size() ? table[id].type : 0;
         return type == random_weapons::kWeapon ? 0 : random_weapons::armour_type(type) ? 1 : 2;
     };
+    const auto price = [&](std::uint16_t id) { return id < table.size() ? table[id].price : 0; };
     const std::span<const std::uint16_t> by_group[3] = {pools.weapons, pools.armour, pools.items};
-    std::size_t want[3] = {};
-    for (const std::uint16_t id : original) ++want[group(id)];
-    std::vector<std::uint16_t> out;
-    for (int g = 0; g < 3; ++g) {
-        std::vector<std::uint16_t> left(by_group[g].begin(), by_group[g].end());
-        shuffle(left, rng);
-        left.resize(std::min(want[g], left.size()));
-        out.insert(out.end(), left.begin(), left.end());
+    std::vector<std::uint16_t> out(original.begin(), original.end());
+    const auto stocked = [&](std::uint16_t id) { return std::find(out.begin(), out.end(), id) != out.end(); };
+    std::vector<double> weight;
+    for (std::uint16_t& slot : out) {
+        if (rng.unit() >= kShopReplaceChance) continue;
+        const std::span<const std::uint16_t> pool = by_group[group(slot)];
+        std::vector<std::uint16_t> prices;
+        for (const std::uint16_t id : pool) prices.push_back(price(id));
+        std::sort(prices.begin(), prices.end());
+        weight.assign(pool.size(), 0.0);
+        double total = 0;
+        const auto place_of = [&](std::uint16_t id) {
+            return std::lower_bound(prices.begin(), prices.end(), price(id)) - prices.begin();
+        };
+        const auto own = fair_play ? place_of(slot) : 0;  // Fair Play: the replaced item's place
+        for (std::size_t k = 0; k < pool.size(); ++k) {
+            if (stocked(pool[k])) continue;
+            const auto place = std::abs(place_of(pool[k]) - own);
+            weight[k] = std::pow(1.0 - static_cast<double>(place) / static_cast<double>(prices.size()),
+                                 kStrengthFalloff);
+            total += weight[k];
+        }
+        if (total <= 0) continue;
+        slot = pool[pick_weighted(weight, total, rng)];
     }
     std::sort(out.begin(), out.end(), [&](std::uint16_t a, std::uint16_t b) {
         const auto pa = a < table.size() ? table[a].price : 0, pb = b < table.size() ? table[b].price : 0;

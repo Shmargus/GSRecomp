@@ -44,6 +44,7 @@ constexpr std::size_t kRecordBytes = 0x3000;  // one group
 constexpr std::size_t kExtensionBytes =
     sf::kHeaderBytes + (sf::kFiles - sf::kRows) * kRecordBytes;
 
+std::uint8_t* record(int file);
 sf::Entry extension_entry(int file);
 void set_flags(const sf::Entries& all);
 bool challenge_file(int file);
@@ -67,6 +68,11 @@ const sf::Game& game() {
         // config/tla/main.toml overrides.
         {0x49Eu, 0x4B4u, 0x4CEu, 0x4E8u, 0x504u, 0x568u, 0x57Eu, 0x598u, 0x5B2u, 0x5CEu},
         extension_entry, set_flags, challenge_file,
+        // The party leader's name (save_files_picker.h show_leaders):
+        // records payload +0x520, 0x14C each (lookup 0x08016CA4); a file is
+        // one group.
+        0x520u, 0x14Cu, kRecordBytes,
+        [](int file) -> const std::uint8_t* { return record(file); },
     };
     return g;
 }
@@ -192,6 +198,10 @@ void tla_save_files_on_entry(std::uint32_t pc) {
     if (pc == TLA_ROM(0x08015E44u) || pc == TLA_ROM(0x08015CA4u) || pc == TLA_ROM(0x08015E8Cu))
         return slot_call(pc);
     sf::on_entry(game(), pc);
+}
+
+bool tla_save_files_text(std::uint32_t text_id, std::string& out) {
+    return sf::autosave_line(text_id, out);
 }
 
 bool tla_save_files_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height) {

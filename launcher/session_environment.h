@@ -1,6 +1,6 @@
 // The game's environment variables that the Windows and Linux sessions set
 // the same way. Each session fills in what differs between the platforms
-// (a path, the Enhanced Options / graphics-card choice) and applies the
+// (a path, the graphics-card choice) and applies the
 // resulting plan to the child its own way. Plain std::string on purpose: no
 // Win32 or POSIX types, so both sessions can include it.
 #pragma once
@@ -56,7 +56,6 @@ struct CommonEnvironment {
     std::string heal_cache;       // GBARECOMP_HEAL_CACHE
     std::string heal_toolchain;   // bundled g++ folder; empty when there is none
     std::optional<bool> save_import;  // TLA_GS_SAVE_IMPORT; empty on The Broken Seal
-    bool enhanced_options = true; // experimental fixes, room buffer, host effects
     bool gpu_field = true;        // GSR_GPU_FIELD
     bool gpu_field_only = true;   // GSR_GPU_FIELD_ONLY
     bool developer = false;       // developer launcher: developer-only F1 cheats
@@ -78,14 +77,11 @@ inline void add_common_environment(ChildEnvironmentPlan& plan, const CommonEnvir
     plan.put("GSR_MOD_FIELD_TEST", "0");
     plan.put("GBARECOMP_HEAL_CACHE", c.heal_cache);
     if (!c.heal_toolchain.empty()) plan.put("GBARECOMP_HEAL_TOOLCHAIN", c.heal_toolchain);
-    plan.put("GBARECOMP_EXPERIMENTAL_FIXES", c.enhanced_options ? "1" : "0");
-    if (c.enhanced_options) {
-        plan.put("GSR_ROOM_BUFFER_RENDER", "1");
-        plan.put("GSR_HOST_EFFECTS", "1");
-    } else {
-        plan.remove("GSR_ROOM_BUFFER_RENDER");
-        plan.remove("GSR_HOST_EFFECTS");
-    }
+    // Enhanced Options (expanded-view fixes, room-buffer drawing and host
+    // spell effects) are part of every launch.
+    plan.put("GBARECOMP_EXPERIMENTAL_FIXES", "1");
+    plan.put("GSR_ROOM_BUFFER_RENDER", "1");
+    plan.put("GSR_HOST_EFFECTS", "1");
     plan.put("GSR_GPU_FIELD", c.gpu_field ? "1" : "0");
     plan.put("GSR_GPU_FIELD_ONLY", c.gpu_field_only ? "1" : "0");
     // Only the developer launcher's games offer the developer-only cheats;

@@ -59,11 +59,6 @@ TlaValueCaption g_caption;
 // caption is centred on 0x7C (kTlaValueClearX / kTlaValueCentreX).
 const uint32_t kCaptionClearXPc = TLA_ROM(0x080402FEu);
 const uint32_t kCaptionDrawXPc = TLA_ROM(0x0804030Cu);
-// While settings page two shows, the game still redraws this caption on
-// every cursor move, on the line page two's Screen row uses; it showed
-// through as "Instant" for a frame or two (F12 0025, 2026-10-05). Then the
-// caption is empty and the clear starts at its own end, so nothing is drawn.
-constexpr uint32_t kCaptionNoneX = 0xC8u;
 
 // Rows drawn as words instead of icons: Message speed here and Hard Mode on
 // the Auto-Sleep row (src/tla_hard_mode.cpp). Each row's icon table is
@@ -113,13 +108,11 @@ int text_speed_store(uint32_t pc, uint32_t, uint32_t requested, uint32_t width,
 int text_speed_alu_immediate(uint32_t pc, uint32_t original,
                              uint32_t* out_value) {
     if (pc == kCaptionClearXPc) {
-        *out_value = tla_settings_page_two_showing() ? kCaptionNoneX : kTlaValueClearX;
+        *out_value = kTlaValueClearX;
         return 1;
     }
     if (pc == kCaptionDrawXPc) {
-        *out_value = tla_settings_page_two_showing() ? kCaptionNoneX
-                     : g_caption.armed ? g_caption.draw_x()
-                                       : kTlaValueClearX;
+        *out_value = g_caption.armed ? g_caption.draw_x() : kTlaValueClearX;
         return 1;
     }
     if (pc == kIconSourcePc) {
@@ -177,7 +170,6 @@ int text_speed_literal(uint32_t pc, uint32_t original, uint32_t* out_value) {
         if (original == kCaptionBase && value <= kInstant) {
             g_caption.arm(kCaptionBase + value, kSpeedWords[value],
                           read_u16(screen + kTlaSettingsCursorRowOffset) == kMessageSpeedRow);
-            if (tla_settings_page_two_showing()) g_caption.text.clear();
         }
         return 0;
     }

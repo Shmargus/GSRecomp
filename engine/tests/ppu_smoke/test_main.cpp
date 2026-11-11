@@ -659,7 +659,7 @@ void test_expanded_view_vertical_ppu_paths() {
                  f.oam.data(), f.pal.data());
     expect_pixel(wide.data() + 8u * wide_stride + 60u * 3u, 255, 0, 0,
                  "top vertical margin did not render signed OBJ Y");
-    store16(&f.oam[0], 150u); // 64px sprite reaches logical Y=199.
+    store16(&f.oam[0], 150u); // 64px sprite covers logical Y=150..213, including 199 (output row 239).
     std::fill(wide.begin(), wide.end(), 0);
     f.ppu.render(wide.data(), 0x1040u, f.io.data(), f.vram.data(),
                  f.oam.data(), f.pal.data());

@@ -158,7 +158,7 @@ inline void tla_weather_sprite_margins(gsr::FieldScene& scene,
 // (0x5180) above Air's Rock's screen, black stripes in the margin; rows one
 // step out of the cycle in the Yampi cave (0036 f119: rows 2..11 one row
 // behind), seams at the old screen edge. The haze, mist and Champa's
-// sunlight are now continued by the shared repeating-layer rule
+// sunlight are continued by the shared repeating-layer rule
 // (engine/src/field/scene_repeat.h), which draws margins only from shown
 // rows. This copy-in of the cycle remains for the port water below, whose
 // wave moves rows up and down so the shared rule does not apply.

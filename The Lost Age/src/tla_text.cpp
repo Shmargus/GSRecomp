@@ -24,6 +24,7 @@
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
 #include "tla.h"
+#include "../../shared_game/quality_of_life.h"
 #include "../../shared_game/menu_text.h"
 
 namespace {
@@ -39,7 +40,8 @@ const uint32_t kLineStartPc = TLA_ROM(0x0803D178u);
 uint32_t g_line_id = 0;
 
 bool replacement(uint32_t text_id, std::string& out) {
-    return tla_settings_page_text(text_id, out) ||
+    return gsr::qol::text(text_id, out) ||
+           tla_save_files_text(text_id, out) ||
            tla_text_speed_text(text_id, out) ||
            tla_hard_mode_text(text_id, out) ||
            tla_gs_save_import_text(text_id, out) ||

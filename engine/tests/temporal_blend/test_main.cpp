@@ -33,7 +33,7 @@ void test_off_is_passthrough() {
     std::vector<uint8_t> reference = frame;
 
     // Level 0 == Off: host_window.cpp's blend_engaged gate is false whenever
-    // blend_index == 0, so present() never touches the buffer — model that
+    // the blend index (temporal_blend_index) is 0, so present() never touches the buffer — model that
     // by simply not invoking the blend and comparing against the original.
     const int level = 0;
     const bool blend_engaged = (level != 0);
@@ -99,7 +99,7 @@ void test_strong_converges_on_exact_alternation() {
 
 // (c) The persistent previous-frame buffer is correctly initialized on the
 // very first frame: no previous frame exists yet, so the sane behavior
-// (mirroring host_window.cpp's temporal_blend_prev_valid gate) is to pass
+// (mirroring host_window.cpp's temporal_blend_history_count gate) is to pass
 // the first frame through unblended rather than blending against
 // zero-initialized/stale memory. Model the same two-phase contract
 // (validity flag, then blend) that Backend::present() implements.
@@ -110,7 +110,7 @@ void test_first_frame_no_previous_is_passthrough() {
         frame[i] = static_cast<uint8_t>(0x40 + i);
     std::vector<uint8_t> reference = frame;
 
-    bool prev_valid = false;  // Backend::temporal_blend_prev_valid at boot
+    bool prev_valid = false;  // Backend::temporal_blend_history_count == 0 at boot
     std::vector<uint8_t> prev(kBytes, 0);  // zero-initialized, as at startup
     std::vector<uint8_t> out(kBytes);
 

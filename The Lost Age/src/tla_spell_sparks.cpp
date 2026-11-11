@@ -1,7 +1,7 @@
 // Golden Sun: The Lost Age -- spell sparks past the console's canvas.
 //
 // Golden Sun 1's skipped-spark capture (its FACTS.md, 2026-10-02), re-found
-// on this ROM (FACTS.md, 2026-10-08). Eleven battle spell routines move a
+// on this ROM (FACTS.md, 2026-10-08). Twelve battle spell routines (kLoops) move a
 // particle record, then bounds tests (x past the canvas, y < 0) jump
 // straight to the instruction after the stamp call, so a spark that left
 // the 128x128 canvas keeps moving but is not drawn. Here the stamp call is

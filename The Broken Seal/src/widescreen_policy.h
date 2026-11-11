@@ -300,9 +300,9 @@ inline constexpr bool golden_sun_expanded_viewport_branch_override(
 // A rejected B27E does not reject that body: its computed Y may still be in
 // the expanded view (session 20260906_162111: 225 -> 199, down to 222 -> 196).
 // Require the same current execution identity, not acceptance of the parent.
-// Keep this predicate pure: the
-// runner supplies the current execution identity and the exact parent record,
-// while diagnostics remain observational and are not required for behavior.
+// Keep this predicate pure: the runner supplies the current execution identity
+// and the exact parent record, while diagnostics remain observational and are
+// not required for behavior.
 struct GoldenSunObjB328ParentMatch {
     bool valid = false;
     std::uint32_t staging_address = 0;
@@ -455,9 +455,6 @@ inline constexpr bool golden_sun_obj_y_provenance_address(
     return true;
 }
 
-// Func_b168's widened writer stores ATTR1 at R7+6 on the B324/B328 route,
-// immediately after ATTR0 at R7+4. Resolve the owning ATTR0 base so the
-// address can be mapped to an aligned OAM slot while retaining X from r4.
 // Golden Sun hides an unused sprite by moving it off the visible screen
 // rather than clearing its enable bit, and it parks every one of them at a
 // SINGLE position: raw `attr1 & 0x1FF == 192`, `attr0 & 0xFF == 192`, which
@@ -474,6 +471,9 @@ inline constexpr bool golden_sun_obj_y_provenance_address(
 inline constexpr unsigned kGoldenSunObjParkRawX = 192u;
 inline constexpr unsigned kGoldenSunObjParkRawY = 192u;
 
+// Func_b168's widened writer stores ATTR1 at R7+6 on the B324/B328 route,
+// immediately after ATTR0 at R7+4. Resolve the owning ATTR0 base so the
+// address can be mapped to an aligned OAM slot while retaining X from r4.
 inline constexpr bool golden_sun_obj_x_provenance_address(
     std::uint32_t branch_pc, std::uint32_t r7,
     std::uint32_t* out_attr0_address) {
@@ -1024,8 +1024,8 @@ inline constexpr bool golden_sun_palace_out_of_room(
 }
 // State1's complete 128x128 field table proves metatile 0x017/raw 0xF200 is
 // the un-authored fill (raw 0xF200 is the fill on any id: also seen at id
-// 0x000 in Bilibin, gpu_frame_0084, 2026-09-29): it occupies 13,531/16,384 cells and forms the solid
-// rows/columns outside the active 32x32 room. Metatile 0x003 is authored room
+// 0x000 in Bilibin, gpu_frame_0084, 2026-09-29): it occupies 13,531/16,384
+// cells and forms the solid rows/columns outside the active 32x32 room. Metatile 0x003 is authored room
 // data and must not be suppressed. The equal-scroll field uses BG3 as the
 // coordinate-level boundary and suppresses BG1/BG2 there too; the separate
 // split-scroll Palace path does not use BG3 as a cross-layer boundary.
@@ -1683,8 +1683,8 @@ inline constexpr bool golden_sun_obj_resolve_oam_y(
 }
 
 // Standard GBA OBJ shape (ATTR0 bits 14-15) x size (ATTR1 bits 14-15) pixel
-// table. WIDE-01_NPC_IDENTITY.md's "Sprite extent" section observed exactly
-// four combinations across every session mined for that document
+// table. The archived WIDE-01_NPC_IDENTITY.md's "Sprite extent" section
+// observed exactly four combinations across every session mined for it
 // (shape=0,size=1 -> 16x16; shape=0,size=2 -> 32x32; shape=1,size=0 -> 16x8;
 // shape=2,size=3 -> 32x64); the full standard table is included so any
 // shape/size decode stays well-defined, not just the observed four.

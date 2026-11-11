@@ -39,7 +39,7 @@ if [ "$ashley_edition" = 1 ] && [ "$launcher_only" = 1 ]; then
     exit 2
 fi
 
-# The bug report service's address (tools/report_service) stays out of the
+# The bug report service's address (The Broken Seal/tools/report_service) stays out of the
 # public source, as in make_release.ps1: it is read from local/report_host.txt
 # (one line, not in git) or $GSR_REPORT_HOST. Without it the launcher is built
 # without Send report.

@@ -308,7 +308,7 @@ bool ColorLut::fill(const ColorSettings& settings) {
                 curve = settings.curve;
                 break;
             case ScreenKind::DavidOgGba:
-                // From the settings photo Jimmy supplied, as Custom's sliders:
+                // From the supplied settings photo, as Custom's sliders:
                 // Saturation 58%, Hue -19, Brightness 75%, Warmth 20%,
                 // Darkening 10% (curve 1 + 10/100, as host_window.cpp maps it).
                 saturation = 0.58;

@@ -8,7 +8,7 @@
 // from the player's ROM, here:
 //
 //   1. check the ROM (SHA-1),
-//   2. translate it into C++ (config/usa/game_code_plan.txt: the main
+//   2. translate it into C++ (data/game_code_plan.txt, copied from config/usa: the main
 //      program, the RAM-copied routines, the overlays, which the game's own
 //      decompressor unpacks via guest_call.h, the synthesized variants and
 //      the particle stamps),
@@ -72,7 +72,7 @@ namespace {
 
 // A ROM revision this release builds, from the game's revision list: its
 // language code (its folder under data/, configs from
-// tools/build_localized_*.py; USA/Europe uses data/ itself) and the two ROM
+// The Broken Seal/tools/build_localized_*.py; USA/Europe uses data/ itself) and the two ROM
 // routines the stamp step runs, measured per revision.
 struct RomRevision {
     const char* code;

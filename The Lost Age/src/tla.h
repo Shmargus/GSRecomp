@@ -31,6 +31,8 @@ void tla_custom_battle_reset();
 void tla_install_save_files(gbarecomp::RunOptions& options);
 void tla_save_files_on_entry(std::uint32_t pc);
 bool tla_save_files_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
+// "No autosaved data" on an empty Autosave row (save_files_picker.h).
+bool tla_save_files_text(std::uint32_t text_id, std::string& out);
 
 // Overworld Retreat's visited-town picker, under Better Field Psy.
 void tla_install_retreat_travel(gbarecomp::RunOptions& options);
@@ -103,12 +105,10 @@ int tla_encounter_rate();
 int tla_encounter_rate_count();
 void tla_set_encounter_rate(int rate);
 
-// src/tla_settings_page.cpp: settings page two.
+// src/tla_settings_page.cpp: the Pause menu's Quality of Life menu.
 void tla_install_settings_page(gbarecomp::RunOptions& options);
-bool tla_settings_page_two_showing();
 bool tla_settings_page_overlay_visible();
 bool tla_settings_page_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
-bool tla_settings_page_text(std::uint32_t text_id, std::string& out);
 
 // src/tla_new_game.cpp: the New Game checklist (Hard Mode, Challenge Mode,
 // Random Psynergy) and the two modes' hooks (one copy of their rules with
@@ -124,6 +124,10 @@ void tla_new_game_imported_run(const std::uint8_t* bytes);
 void tla_new_game_draw_page();
 // Scaled difficulty is on for the loaded file (tla_new_game.cpp).
 bool tla_scaled_difficulty();
+// Sets it (the settings screen's Difficulty row, tla_hard_mode.cpp).
+void tla_set_scaled_difficulty(bool on);
+// Left/Right on the settings screen's Difficulty row (tla_hard_mode.cpp).
+void tla_difficulty_row_keys(std::uint32_t row, std::uint32_t repeat);
 // Show the checklist before the transfer question; fresh-only modes take
 // the game's No path. True when this entry was answered by the hook.
 bool tla_new_game_import_question(std::uint32_t pc);

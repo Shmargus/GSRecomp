@@ -65,7 +65,7 @@ std::string sha1_excluding(std::uint32_t size, ByteReader&& read_byte,
 // callers who already proved it true for the current (image, base) pay a
 // full SHA-1 again on every dispatch even when nothing changed. The
 // fixed-address sibling mechanism (verified_ram_dispatch /
-// g_verified_identity_cache in runner_main.cpp) solves the equivalent
+// g_verified_identity_cache in runner_ram_code.cpp) solves the equivalent
 // problem with a monotonic per-4KiB-page write counter: skip the hash while
 // every page the image occupies still reads the same generation it did at
 // the last verified hash.
@@ -80,7 +80,7 @@ std::string sha1_excluding(std::uint32_t size, ByteReader&& read_byte,
 // compare against. Golden Sun's relocatable images are copied to stack-
 // relative or allocator-relative IWRAM addresses that are NOT enumerable in
 // advance (see kRelocatableCodeImages' "bounded only by the call graph"
-// comments in runner_main.cpp), so the mask cannot be computed once at
+// comments in runner_ram_code.cpp), so the mask cannot be computed once at
 // startup the way it is for the ~19 fixed-address images. The functions
 // below let a caller register exactly the pages a base is about to be
 // cached at, at the moment it starts trusting the cache for it - so mask

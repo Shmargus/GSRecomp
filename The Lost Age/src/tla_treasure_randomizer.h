@@ -87,7 +87,7 @@ inline void build(const random_psynergy::Config& c) {
     s.gifts.clear();
     s.shops.assign(kShops, {});
     if (!any(c)) return;
-    s.plan = make_plan(tla_data::spots, s.items, c.seed, c.fair_play, c.treasure, c.coins, c.key_items);
+    s.plan = make_plan(tla_data::spots, s.items, c.seed, c.fair_items, c.treasure, c.coins, c.fair_coins);
     new_finds(s.plan, tla_data::spots, s.items, c.weapon_finds, c.armour_finds, tla_data::shop_weapons,
               tla_data::shop_armour);
     for (std::size_t i = 0; i < std::size(tla_data::spots); ++i) {
@@ -106,7 +106,7 @@ inline void build(const random_psynergy::Config& c) {
             original.push_back(static_cast<std::uint16_t>(rec[k * 2] | rec[k * 2 + 1] << 8));
         if (original.empty()) continue;
         s.shops[id] = shop_stock(original, {tla_data::shop_items, tla_data::shop_weapons, tla_data::shop_armour},
-                                 s.items, rng);
+                                 s.items, rng, c.fair_shops);
     }
 }
 

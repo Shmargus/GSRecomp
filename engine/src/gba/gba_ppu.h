@@ -493,7 +493,7 @@ extern "C" int g_ws_pillarbox_bottom;
 // Generic, game-owned per-frame world-space pixel shift for the expanded
 // (wide) renderer only. When nonzero, every regular-BG sample (native columns
 // and margins alike) and every OBJ's screen position moves by this amount in
-// hardware pixels before any wrap/native-window math, so the whole 360x240
+// hardware pixels before any wrap/native-window math, so the whole expanded
 // canvas pans as one rigid unit instead of the native window and its margins
 // drifting apart. Zero (default) leaves rendering byte-for-byte unchanged.
 // The narrow (240x160 / non-wide) renderer never reads these.

@@ -386,8 +386,7 @@ private:
     void ch2_trigger();
     void ch3_trigger();
     void ch4_trigger();
-    // include_direct=false omits the Direct Sound FIFO contribution (PSG
-    // only).
+    // include_direct=false omits the Direct Sound FIFO contribution (PSG only).
     // `tap`, if non-null, receives the raw per-channel breakdown for the
     // always-on capture ring (does not affect the returned mixed sample).
     struct ChannelTap {

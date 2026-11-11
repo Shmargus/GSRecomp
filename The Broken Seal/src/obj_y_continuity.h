@@ -17,8 +17,9 @@
 //
 // Only GUESSED answers change: the providers' band rule, or the hardware
 // sign rule when no provider answered. A position taken from the game's own
-// record (provenance) or our position table stands. Not on the world map,
-// whose actor table already says which side a sprite is on.
+// record (provenance) or our position table stands, and so does a world-map
+// town the actor table placed. Other world-map sprites (a Psynergy's
+// sparkles rising off the top, gpu_rewind_0096) follow this rule too.
 #pragma once
 
 #include <array>

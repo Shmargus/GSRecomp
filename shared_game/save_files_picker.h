@@ -14,6 +14,9 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <string>
+#include <vector>
+#include "menu_text.h"
 #include "save_files.h"
 #include "gba_bus.h"
 #include "runtime.h"
@@ -56,6 +59,12 @@ struct Game {
     void (*set_flags)(const Entries& all);
     // A Challenge Mode file (challenge_mode.h), shown red; null = none.
     bool (*challenge)(int file) = nullptr;
+    // The party leader's name on a file's row (see show_leaders): character
+    // record 0's payload offset and the record size; a cartridge record's
+    // size (sector or group); a file's first record in the extension.
+    std::uint32_t characters = 0, character_size = 0;
+    std::size_t flash_record = 0;
+    const std::uint8_t* (*first_record)(int file) = nullptr;
 };
 
 struct Picker {
@@ -172,12 +181,104 @@ inline std::uint32_t call(std::uint32_t pc, std::uint32_t r0 = 0, std::uint32_t 
 // The file a row of the box stores (the save layers' answer).
 inline int row_file(const Game& g, int row) { return stored_file(base(g) + row); }
 
-// The Autosave's row shows "Autosave" where the hero's name goes; the name
-// field is 12 bytes from +0x10, plain letters, 0-terminated (every save in
-// Saves/). Drawn 47 px wide in the menu font (USA width table 0x080370D4),
-// inside the 50 px before the area name (TBS x 0xC..0x3E; TLA 0xC..0x48).
-constexpr char kAutosaveName[] = "Autosave";
-static_assert(sizeof kAutosaveName <= 12);
+// The Autosave's row shows "Auto" where the hero's name goes (Jimmy, 11
+// November 2026: "Autosave" ran into the text beside it); the name field is
+// 12 bytes from +0x10, plain letters, 0-terminated (every save in Saves/).
+constexpr std::size_t kNameAt = 0x10, kNameBytes = 12;
+constexpr char kAutosaveName[] = "Auto";
+static_assert(sizeof kAutosaveName <= kNameBytes);
+
+// An empty Autosave row reads "No autosaved data" (Jimmy, 8 November 2026)
+// instead of the game's usual empty-file line.
+//
+// How: the file box draws each row's line by calling the game's text routine
+// (Game::text) with the text id in r0 and the row's y (row * 16) in r3. For
+// an empty row that id is the literal at picker + empty_text (0 in both
+// games), and the routine then starts decoding the line under the same id
+// (TLA 0x08041FA4 -> 0x0803B094(id, 1); The Broken Seal 0x0801E74C ->
+// 0x08018038(id, 1)). When such a call is for the Autosave's row (row 0 of
+// the first window) we remember the id, and each game's text hook swaps in
+// our line for it. The next text call, or the box closing, forgets it again.
+// Only the letters drawn change: no save is read or written.
+constexpr char kNoAutosave[] = "No autosaved data";
+struct AutosaveLine {
+    bool armed = false;
+    std::uint32_t id = 0;
+    int pos = -1;  // The Broken Seal's per-character position
+};
+inline AutosaveLine g_autosave_line;
+inline void note_text_call(const Game& g, int shown, std::uint32_t id) {
+    g_autosave_line = {};
+    g_autosave_line.armed = g_picker.open && g.empty_text && shown == kAutosaveShown &&
+                            id == literal_at(g.picker + g.empty_text);
+    g_autosave_line.id = id;
+}
+// The whole line in English (The Lost Age's replacement translates it).
+inline bool autosave_line(std::uint32_t text_id, std::string& out) {
+    if (!g_autosave_line.armed || !g_picker.open || text_id != g_autosave_line.id) return false;
+    out = kNoAutosave;
+    return true;
+}
+// A character at a time in the player's language (The Broken Seal's decoder
+// hook): the letters, then the 0 that ends the line; the same line again
+// starts over.
+inline bool autosave_character(std::uint32_t text_id, std::uint32_t* character) {
+    std::string line;
+    if (!autosave_line(text_id, line)) return false;
+    line = menu_text(line.c_str());
+    AutosaveLine& a = g_autosave_line;
+    if (a.pos < 0) a.pos = 0;
+    const auto pos = static_cast<std::size_t>(a.pos);
+    *character = pos < line.size() ? static_cast<unsigned char>(line[pos]) : 0u;
+    a.pos = pos < line.size() ? a.pos + 1 : -1;
+    return true;
+}
+
+// Each file's row names the party leader (Jimmy, 11 November 2026), not the
+// game's own choice. The header builder (TBS 0x0801F818, TLA 0x08043358; the
+// same bytes in all ten ROMs) copies the 12-byte name of the field identity's
+// record (word 0x02000434 / 0x02000454: Isaac / Felix, even when he is not
+// in the party) to summary +0x10, and the party order's first four ids
+// (0x080796C4 / 0x080AFE78 from 0x02000438 / 0x02000458; 0xFF ends) to
+// +0x2C. So the leader is +0x2C, and his name is in the file's own character
+// records (ids 0..7, as the record lookups 0x08077394 / 0x08016CA4 take
+// them). Only the row's letters change; no save is read differently or
+// written. A cartridge file's record is the one the summary was copied from.
+// The builders take the level from record +0xF to summary +0x1C and the
+// class from record +0x129 to +0x1D (TBS 0x0801F890, TLA 0x080433CE).
+constexpr std::size_t kLeaderAt = 0x2C, kSummaryOwnBytes = 0x38;
+constexpr std::size_t kLevelAt = 0x1C, kRecordLevel = 0xF;
+constexpr std::size_t kClassAt = 0x1D, kRecordClass = 0x129;
+constexpr unsigned kCharacters = 8;
+inline void show_leaders(const Game& g, Entries& stored) {
+    if (!g.first_record) return;
+    std::vector<std::uint8_t> flash;
+    if (gba::GbaBus* b = bus(); b && b->save().flash_enabled()) flash = b->save().flash_bytes();
+    for (int f = 0; f < kFiles; ++f) {
+        Entry& e = stored[f];
+        const unsigned leader = e[kLeaderAt];
+        if (!present(e.data()) || leader >= kCharacters) continue;
+        const std::uint8_t* r = nullptr;
+        if (f >= kRows) r = extension(g) ? g.first_record(f) : nullptr;
+        else
+            for (std::size_t s = 0; !r && s + g.flash_record <= flash.size(); s += g.flash_record)
+                if (std::memcmp(flash.data() + s, e.data(), kSummaryOwnBytes) == 0) r = flash.data() + s;
+        if (!r || !present(r)) continue;
+        const std::uint8_t* hero = r + kRecordHeader + g.characters + leader * g.character_size;
+        std::memcpy(e.data() + kNameAt, hero, kNameBytes);
+        // The level too (Jimmy, 11 November). +0x1C is also "file in use":
+        // every reader in both ROMs (pickers, detail panels, first-empty and
+        // Clear Data questions) and ours only test it for zero or draw it,
+        // so a nonzero level only ever replaces a nonzero one.
+        // The class (+0x1D, record +0x129) is only drawn by the detail
+        // panels (TBS 0x080201E4, TLA 0x08043C7C); 0 is a class, so it
+        // follows the level's test.
+        if (e[kLevelAt] != 0 && hero[kRecordLevel] != 0) {
+            e[kLevelAt] = hero[kRecordLevel];
+            e[kClassAt] = hero[kRecordClass];
+        }
+    }
+}
 
 // All nine summaries, in the order the box shows them. The cartridge's come
 // from the game's own routine (the flash scan must be open); the table it
@@ -194,12 +295,13 @@ inline Entries all_entries(const Game& g) {
     for (std::size_t i = 0; i < sizeof saved; ++i) b->write8(table + i, saved[i]);
     if (extension(g))
         for (int f = kRows; f < kFiles; ++f) stored[f] = g.extension_entry(f);
+    show_leaders(g, stored);
     Entries out{};
     for (int shown = 0; shown < kFiles; ++shown) out[shown] = stored[stored_file(shown)];
     Entry& autosave = out[kAutosaveShown];
     if (present(autosave.data())) {
-        std::memset(autosave.data() + 0x10, 0, 12);
-        std::memcpy(autosave.data() + 0x10, kAutosaveName, sizeof kAutosaveName);
+        std::memset(autosave.data() + kNameAt, 0, kNameBytes);
+        std::memcpy(autosave.data() + kNameAt, kAutosaveName, sizeof kAutosaveName);
     }
     return out;
 }
@@ -248,7 +350,9 @@ inline void draw_rows(const Game& g) {
         else if (mode == 5 && b->read8(at + 0x15) == 0) text = g.not_clear_text;
         else if (mode == 6 && g.reunion_text && b->read8(at + 0x17) != 0) text = g.reunion_text;
         if (text) {
+            note_text_call(g, base(g) + row, literal_at(pk + text));
             call(g.text, literal_at(pk + text), window, immediate_at(pk + g.text_x), y);
+            g_autosave_line = {};
             continue;
         }
         call(g.name, e + 0x10, window, immediate_at(pk + g.name_x), y);
@@ -349,8 +453,16 @@ inline void on_entry(const Game& g, std::uint32_t pc) {
         g_picker.mode = mode;
         const int row = std::clamp(static_cast<int>(g_cpu.R[0]), 0, kRows - 1);
         const auto all = all_entries(g);
-        const int file = first_from(base(g) + row,
+        int file = first_from(base(g) + row,
             [&](int f) { return eligible(mode, all[f], f); });
+        // Saving from the Autosave (Jimmy, 8 November 2026): start on the
+        // first empty file, not file 1; with all eight full, file 1 as
+        // before (the game still asks before saving over a file).
+        if (mode == 0 && base(g) + row == kAutosaveShown) {
+            const auto empty = std::find_if(all.begin() + kAutosaveShown + 1, all.end(),
+                [](const Entry& e) { return e[0x1C] == 0; });
+            if (empty != all.end()) file = static_cast<int>(empty - all.begin());
+        }
         if (file < 0) return;
         // In the window: start there (Save's own search takes every row,
         // so it would stay on the Autosave).
@@ -390,10 +502,14 @@ inline void on_entry(const Game& g, std::uint32_t pc) {
         g_picker.usable = eligible(g_picker.mode, e, shown);
     } else if (pc == g.wait && lr == pk + g.wait_return) {
         if (g_picker.redraw_in > 0 && --g_picker.redraw_in == 0) draw_rows(g);
+    } else if (pc == g.text) {
+        // A row's line, or any other text: see AutosaveLine.
+        note_text_call(g, base(g) + static_cast<int>(g_cpu.R[3] / 16u), g_cpu.R[0]);
     } else if (pc == g.exit && lr == pk + g.exit_return) {
         // Cancelled: back to the window the game's slot number belongs to.
         if (static_cast<std::int32_t>(g_cpu.R[5]) == -1) set_base(g, g_picker.entry_base);
         g_picker = {};
+        g_autosave_line = {};
     }
 }
 

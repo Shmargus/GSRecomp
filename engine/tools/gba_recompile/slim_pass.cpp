@@ -1,5 +1,5 @@
 // slim_pass.cpp -- see slim_pass.h. Each pass mirrors one rule of
-// tools/slim_corpus.py, in the same order, with the same "leave anything
+// scripts/slim_corpus.py, in the same order, with the same "leave anything
 // that does not match exactly alone" policy. Plain string matching instead
 // of std::regex: the corpus is ~500 MB of text.
 #include "slim_pass.h"

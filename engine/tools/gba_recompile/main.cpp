@@ -1191,9 +1191,10 @@ int main(int argc, char** argv) {
     //    collision here is proof the guess mis-modeled some packed/offset
     //    THUMB switch (case handlers that each branch to a shared address
     //    inside the table bytes, which are data). The data_range itself is
-    //    correct; only the decoded branches are artifacts. Downgrade to a WARNING: keep
-    //    the bytes as data and let the residual indirect branches resolve
-    //    through the runtime's honest self-heal path. Never a build failure.
+    //    correct; only the decoded branches are artifacts. Downgrade to a
+    //    WARNING: keep the bytes as data and let the residual indirect
+    //    branches resolve through the runtime's honest self-heal path.
+    //    Never a build failure.
     const auto& cols = finder.collisions();
     std::size_t fatal = 0, auto_jt = 0;
     for (const auto& c : cols) {

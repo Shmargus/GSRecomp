@@ -168,8 +168,8 @@ if (Test-Stage 'recompile') {
 
     # cmd.exe does the redirect. Piping a native exe's stderr through
     # PowerShell wraps each line in an ErrorRecord (NativeCommandError) and
-    # sets $? false even on exit 0 - which previously lost this log entirely
-    # on the one run where it mattered.
+    # sets $? false even on exit 0 - which loses this log entirely
+    # (seen on a real run).
     $quoted = '"{0}" --rom "{1}" --config "{2}" --out "{3}" --max-functions 40000 > "{4}" 2>&1' -f `
         $Config.recompile, $Config.rom, $MainToml, $CorpusDir, $log
     & cmd.exe /c $quoted

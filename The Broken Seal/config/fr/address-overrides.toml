@@ -166,3 +166,13 @@ overlay = "rom_7795e8"
 usa = 0x020096B2
 france = 0x020096B2
 evidence = "name-more-heroes halfword (New Game onboarding, 7 November 2026): the naming loop's ldr r3,=0x020096B2; ldrsh; cmp #0; beq; movs r5,#4 at 0x02008540 in this ROM's own unpacked title overlay (5914 bytes; USA 0x02008540 = 0x020096B2, 5914 bytes); the title secret code stores 1 there"
+
+[[text]]
+usa = 0x0C24
+france = 0xbd7
+evidence = "Pause constructor paired label/help literal plus selected Sleep row 1; verified matching control flow and all direct calls. local/qol-menu-20261110/sleep-language-measurements.json, 11 November 2026."
+
+[[text]]
+usa = 0x0C28
+france = 0xbdb
+evidence = "Pause constructor paired label/help literal plus selected Sleep row 1; verified matching control flow and all direct calls. local/qol-menu-20261110/sleep-language-measurements.json, 11 November 2026."

@@ -375,10 +375,7 @@ extern gsr::TileRingRedraw g_tile_ring_redraw;
 
 // ---- Variables defined in runner_settings.cpp ----
 extern SettingsPageFont g_settings_font;
-extern gsr::settings_help::Line g_settings_help;
 extern std::atomic<bool> g_settings_font_loaded;
-extern std::atomic<int> g_settings_page;
-extern std::atomic<bool> g_settings_closing;
 extern bool g_settings_screen_text;
 extern std::atomic<bool> g_settings_open;
 extern std::atomic<int> g_encounter_rate;
@@ -422,12 +419,7 @@ void load_menu_font();
 void note_settings_loop_frame();
 void play_menu_sounds();
 int settings_page_repeat_keys(std::uint32_t* out_value);
-bool settings_overlay_visible();
-void paint_settings_page(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
-void native_page_end(bool restore);
 std::string settings_text(const char* english);
-void native_page_frame_end(bool at_capture = false);
-void native_page_patch_capture(std::vector<std::uint8_t>& vram, std::vector<std::uint8_t>& oam, gsr::FieldScene& scene);
 int battle_speed_wait_mask(std::uint32_t* out_value);
 int golden_sun_swi_override(std::uint32_t return_pc, std::uint32_t swi_num);
 bool battle_speed_indicator_visible();
@@ -579,3 +571,5 @@ void menu_window_paint(std::uint8_t* rgb, std::uint32_t width,
 }
 
 }  // namespace gsr_runner
+
+namespace gsr_runner { void install_quality_of_life(); }

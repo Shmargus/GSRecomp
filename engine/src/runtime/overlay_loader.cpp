@@ -236,7 +236,7 @@ bool                     s_ever_active = false;   // ever inited this session (s
 // ROM/BIOS by default; opt in for experiments with GBARECOMP_SELFHEAL_RAM=1.
 bool                     s_ram_heal_enabled = false;
 std::string              s_cache_base;            // cache_root/<image_sha1>
-std::string              s_active_cache_dir;      // base/<backend>/<arch> (worker writes here)
+std::string              s_active_cache_dir;      // base/engine-v2/<backend>/<arch> (worker writes here)
 HealBackend              s_backend = HealBackend::Gcc;  // resolved producer
 std::vector<uint8_t>     s_bios_bytes;            // 16 KB BIOS snapshot (base 0)
 GbaOverlayCallbacks      g_callbacks{};

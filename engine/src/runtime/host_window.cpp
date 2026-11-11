@@ -48,9 +48,9 @@
 #include <SDL.h>
 
 // Shared ecosystem clock-domain bridge (callback-driven DRC). Replaces the
-// SDL_QueueAudio push path, which silence-filled on queue underrun (~3.4/s
-// measured on Minish Cap) and hard-flushed on overflow — the same output-side
-// crackle fixed on NES. IMPL is defined in exactly this one translation unit.
+// SDL_QueueAudio push path, which silence-filled on queue underrun and
+// hard-flushed on overflow (audible crackle). IMPL is defined in exactly this
+// one translation unit.
 #define RECOMP_AUDIO_DRC_IMPL
 #include "recomp_audio_drc.h"
 
@@ -117,9 +117,10 @@ void save_menu_layout(Backend* b);
 // Soft Reset asks the launcher for a fresh game process.
 //
 // HK_TURBO ("Fast Forward (hold)" in the UI) is level-triggered: on only while the
-// binding is down. HK_TURBO_TOGGLE is an edge-triggered latch. Both drive Events::fast_forward (see host_window.h). New ids are
-// appended so existing HostHotkey values, and therefore existing config.ini
-// [KeyMap] rows, keep their meaning.
+// binding is down. HK_TURBO_TOGGLE is an edge-triggered latch. Both drive
+// Events::fast_forward (see host_window.h). New ids are appended so existing
+// HostHotkey values, and therefore existing config.ini [KeyMap] rows, keep
+// their meaning.
 enum HostHotkey {
     HK_FULLSCREEN = 0, HK_PAUSE, HK_TURBO,
     HK_WINDOW_BIGGER, HK_WINDOW_SMALLER,
@@ -181,7 +182,7 @@ constexpr float kStickSectorSin = 0.38268343f;
 // unconditionally (~24 B/present); GBARECOMP_PRESENT_CADENCE=1 adds a
 // periodic stderr summary and a full CSV dump at close
 // (GBARECOMP_PRESENT_CADENCE_DUMP=path overrides ./_present_cadence.csv).
-// Interpretation (tools/analyze_present_cadence.py automates this):
+// Interpretation:
 //   block_us ≈ 0 on every present → vsync is NOT blocking (tear-prone);
 //   rdelta 1,1,1… at ~16.74 ms gaps on a high-Hz VRR panel → VRR engaged;
 //   rdelta 2/3 alternation on 164 Hz → 59.73→164 pulldown (cadence judder);
@@ -503,7 +504,7 @@ struct Backend {
     bool         view_mode_config_present = false;
     bool         widescreen_game_allowed = false;
     bool         widescreen = false;
-    // Legacy [Enhancements] Widescreen=true/false state. A new ViewMode key
+    // Legacy [Enhancements] Widescreen=true/false state. A ViewMode key
     // takes precedence; the bool is retained on write for older builds.
     bool         widescreen_config_present = false;
     // Fast Forward (toggle) latch (see Events::fast_forward). Runtime-only: only the
@@ -1001,7 +1002,7 @@ void rebuild_color_lut(Backend* b) {
 
 // SDL audio pull callback: render exactly `len` bytes of device-rate mono S16
 // from the bridge ring. The bridge emits faded silence (not raw zeros) before
-// prime / on underrun, so a momentarily-starved producer no longer clicks.
+// prime / on underrun, so a momentarily-starved producer does not click.
 void gba_audio_callback(void* userdata, Uint8* stream, int len) {
     auto* b = static_cast<Backend*>(userdata);
     int frames = len / static_cast<int>(sizeof(int16_t) *
@@ -1809,9 +1810,10 @@ void HostWindow::present(const uint8_t* rgb888) {
         !b->native_fb.empty() && b->native_scene_w > 0 && b->native_scene_h > 0;
     if (!rgb888 && !supplied_native) return;
 
-    // VFX-FLICKER-02: temporal frame blend ("LCD ghosting"), opt-in, off by
-    // default. Runs first, directly on the PPU frame and before colour
-    // grading and scaling, like the pixels blending on a real GBA screen.
+    // VFX-FLICKER-02: temporal frame blend ("LCD ghosting"), selectable in
+    // the F1 menu (default: Flicker only, Strong). Runs first, directly on the PPU
+    // frame and before colour grading and scaling, like the pixels blending
+    // on a real GBA screen.
     // Skipped for the native-compositor path (supplied_native is a separately
     // scaled buffer this feature does not reach) and disabled while 2x scene
     // interpolation is on: interpolation sends a synthesized midpoint frame

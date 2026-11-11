@@ -50,6 +50,8 @@
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
 #include "tla.h"
+#include "../../shared_game/quality_of_life.h"
+#include "../../shared_game/world_margin_live.h"
 #include "tla_world_map.h"
 #include "../../shared_game/autosave.h"
 #include "../../shared_game/held_palette_effect.h"
@@ -677,6 +679,74 @@ bool paint_shutter_rows(std::uint8_t* rgb, std::uint32_t width,
     return true;
 }
 
+// True when BG0, as a text layer, has an opaque pixel at console (x, y).
+bool bg0_opaque(const std::vector<std::uint8_t>& io,
+                const std::vector<std::uint8_t>& vram, int x, int y) {
+    const unsigned dispcnt = io[0] | (unsigned(io[1]) << 8);
+    if (!(dispcnt & 0x0100u)) return false;
+    const unsigned cnt = io[8] | (unsigned(io[9]) << 8);
+    const unsigned char_base = ((cnt >> 2) & 3u) * 0x4000u;
+    const unsigned screen_base = ((cnt >> 8) & 0x1Fu) * 0x800u;
+    const bool colours256 = (cnt & 0x80u) != 0;
+    const unsigned w = (cnt & 0x4000u) ? 512u : 256u;
+    const unsigned h = (cnt & 0x8000u) ? 512u : 256u;
+    const unsigned mx = unsigned(x + int((io[0x10] | (unsigned(io[0x11]) << 8)) & 0x1FFu)) % w;
+    const unsigned my = unsigned(y + int((io[0x12] | (unsigned(io[0x13]) << 8)) & 0x1FFu)) % h;
+    const unsigned block = (my / 256u) * (w / 256u) + mx / 256u;
+    const unsigned at = screen_base + block * 0x800u +
+                        ((my % 256u) / 8u * 32u + (mx % 256u) / 8u) * 2u;
+    if (at + 1u >= vram.size()) return false;
+    const unsigned entry = vram[at] | (unsigned(vram[at + 1u]) << 8);
+    const unsigned tile = entry & 0x3FFu;
+    const unsigned px = (entry & 0x400u) ? 7u - (mx & 7u) : mx & 7u;
+    const unsigned py = (entry & 0x800u) ? 7u - (my & 7u) : my & 7u;
+    if (colours256) {
+        const unsigned p = char_base + tile * 64u + py * 8u + px;
+        return p < 0x10000u && p < vram.size() && vram[p] != 0u;
+    }
+    const unsigned p = char_base + tile * 32u + py * 4u + px / 2u;
+    if (p >= 0x10000u || p >= vram.size()) return false;
+    return ((px & 1u) ? vram[p] >> 4 : vram[p] & 0xFu) != 0u;
+}
+
+// A quake scrolls BG1, the 240x160 snapshot of the map, by -3..3 pixels, so
+// the console shows BG1 past the snapshot (wrapped columns, other video
+// memory) in a strip along the edges it moves away from. On the console that
+// strip is the screen's edge; in the expanded view it outlined the native
+// window on every shake (F12 tla_rewind_0213, 2026-11-08: offsets (-3,-3) a
+// noise column on the left and a repeated strip on top, (+2,0) a column on
+// the right, (0,+3) a line at the bottom). Those pixels take the held map
+// at the same shake, as the margins do, unless the text box (BG0) or a
+// sprite's box covers them.
+void cover_shake_strips(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height,
+                        const Capture& capture, const std::vector<std::uint8_t>& map,
+                        int shake_x, int shake_y) {
+    if (capture.io.size() < 0x400u) return;
+    const int x0 = int(width - 240u) / 2, y0 = int(height - 160u) / 2;
+    for (int ny = 0; ny < 160; ++ny) {
+        const bool row_strip = ny + shake_y < 0 || ny + shake_y >= 160;
+        for (int nx = 0; nx < 240; ++nx) {
+            if (!row_strip && nx + shake_x >= 0 && nx + shake_x < 240) continue;
+            if (bg0_opaque(capture.io, capture.vram, nx, ny)) continue;
+            bool sprite = false;
+            for (const gsr::SceneObject& o : capture.scene.objects) {
+                if (!o.present || o.parked || o.window) continue;
+                const int w = o.double_size ? 2 * o.width : o.width;
+                const int h = o.double_size ? 2 * o.height : o.height;
+                if (nx >= o.x && nx < o.x + w && ny >= o.y && ny < o.y + h) {
+                    sprite = true;
+                    break;
+                }
+            }
+            if (sprite) continue;
+            const int sx = std::clamp(x0 + nx + shake_x, 0, int(width) - 1);
+            const int sy = std::clamp(y0 + ny + shake_y, 0, int(height) - 1);
+            std::memcpy(rgb + (std::size_t(y0 + ny) * width + std::size_t(x0 + nx)) * 3u,
+                        map.data() + (std::size_t(sy) * width + std::size_t(sx)) * 3u, 3);
+        }
+    }
+}
+
 void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
                            std::uint32_t height, const Capture& capture) {
     const std::vector<std::uint8_t>& io = capture.io;
@@ -747,6 +817,17 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     }
     const bool held = !flat && g_world_margin_w == width &&
                       g_world_margin_h == height && !g_world_margin.empty();
+    // LIVE margins (shared_game/world_margin_live.h): the settled world map
+    // drawn every frame with this frame's sprites; the held photo is the
+    // fallback.
+    static std::vector<std::uint8_t> live_margins;
+    static Capture mix;
+    const std::vector<std::uint8_t>* margin_src = &g_world_margin;
+    if (held && gsr::live_world_margin_capture(g_world_settled, capture, mix)) {
+        live_margins.resize(std::size_t(width) * height * 3u);
+        if (draw_capture(mix, live_margins.data(), width, height))
+            margin_src = &live_margins;
+    }
     // A quake shakes the map picture by scrolling BG1, the 256-colour layer
     // that holds it on these screens (F12 tla_rewind_0151, 2026-10-24:
     // BG1CNT 0x0682, offsets -1..2 every frame; the edges meet the picture
@@ -773,7 +854,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
         std::uint8_t* dst = rgb + std::size_t{y} * width * 3u;
         const int sy = std::clamp(int(y) + shake_y, 0, int(height) - 1);
         const std::uint8_t* src =
-            held ? g_world_margin.data() + std::size_t(sy) * width * 3u : nullptr;
+            held ? margin_src->data() + std::size_t(sy) * width * 3u : nullptr;
         for (std::uint32_t x = 0; x < width; ++x) {
             if (native_row && x >= x0 && x < x0 + 240u) continue;
             const int sx = std::clamp(int(x) + shake_x, 0, int(width) - 1);
@@ -789,8 +870,10 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
             std::memcpy(dst + x * 3u, held ? src + std::size_t(sx) * 3u : colour, 3);
         }
     }
+    if (held && !glow && (shake_x || shake_y))
+        cover_shake_strips(rgb, width, height, capture, *margin_src, shake_x, shake_y);
     if (held && !glow)
-        g_world_palette_effect.apply(rgb, width, height, g_world_margin, capture.pal);
+        g_world_palette_effect.apply(rgb, width, height, *margin_src, capture.pal);
     paint_shutter_rows(rgb, width, height, capture.scene);
 }
 
@@ -905,7 +988,7 @@ std::string tla_gpu_field_snapshot(std::uint32_t width, std::uint32_t height,
         part("CAMHOLD", camera), part("KEPT", kept), part("IRIS", iris)});
 }
 
-// Compatibility name for the current single-frame report, now TLAGPUF2.
+// Compatibility name for the single-frame report (format TLAGPUF2).
 void tla_gpu_field_dump(const std::string& path) {
     const auto* ppu = gbarecomp::active_ppu();
     if (!ppu) return;
@@ -963,6 +1046,7 @@ void tla_install_gpu_field() {
         tla_local_music_on_savestate_load();
         tla_custom_battle_reset();
         tla_retreat_travel_reset();
+        gsr::qol::reset();
         tla_radial_psynergy_reset();
         gsr::autosave::reset();
         tla_new_game_reset();

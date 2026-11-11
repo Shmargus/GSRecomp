@@ -606,8 +606,10 @@ All null or off by default and installed by the game's runner. `RunOptions`:
 
 - **Cheats held off by a game rule** (`src/runtime/runtime_bus_bridge.*`
   `set_cheats_blocked` / `cheats_blocked`, `host_config_ui.cpp` cheats page):
-  while a game sets it, the VBlank Infinite HP/PP pass is skipped and F1
-  shows both switches unavailable; the player's own choice is kept. Golden
+  while a game sets it, the VBlank Infinite HP/PP pass is skipped, every
+  cheat option read through `cheat_option_get` (reward multipliers, walk
+  through walls) gives its normal value, and F1 shows the whole Cheats page
+  at normal values, unavailable; the player's own choices are kept. Golden
   Sun's Challenge Mode sets it.
 
 ## What was left out of this copy

@@ -4,10 +4,9 @@
 // can boot with a region/revision we haven't catalogued yet, but a
 // wrong size hard-fails.
 //
-// Mirrors the psxrecomp / TombaRecomp pattern (CRC32 with warn) and
-// adds SHA-1 since the existing BIOS / ROM configs already carry it.
-// So end users don't have to type --bios / --rom every launch, the first
-// validated pick is cached next to the executable.
+// Checks both CRC32 and SHA-1 (the BIOS / ROM configs already carry the
+// latter). So end users don't have to type --bios / --rom every launch, the
+// first validated pick is cached next to the executable.
 
 #pragma once
 
@@ -18,7 +17,7 @@
 namespace gbarecomp {
 
 struct AssetSpec {
-    // Human-facing label, e.g. "GBA BIOS" or "Minish Cap ROM".
+    // Human-facing label, e.g. "GBA BIOS" or "Golden Sun ROM".
     const char* display_name = "asset";
     // Win32 OPENFILENAMEA filter, a double-null-terminated pair list:
     // "GBA BIOS\0*.bin;*.BIN\0All Files\0*.*\0".

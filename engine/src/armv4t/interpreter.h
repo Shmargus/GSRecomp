@@ -50,9 +50,9 @@ public:
         NotImplemented, // op shape not yet handled
     };
 
-    // `cycles_out` (optional) receives the number of host cycles this
-    // instruction consumed. Approximation only — see interpreter.cpp's
-    // `instr_cycle_base` (arm_ir.cpp) for the model. Pass nullptr to ignore.
+    // `cycles_out` (optional) receives the number of guest cycles this
+    // instruction consumed: `instr_cycle_base` (arm_ir.cpp) plus memory-access
+    // cycles. Pass nullptr to ignore.
     static Result step(CPUState& cpu, Bus& bus, const Instr& i,
                        uint32_t* cycles_out = nullptr);
 

@@ -478,8 +478,8 @@ void test_write_then_execute_same_invocation(gba::GbaBus& bus) {
 //    baked CRC, EVERY later call re-derives the same "not the AOT body"
 //    verdict from runtime_ram_code_guard and would pay for a fresh
 //    interpreter bridge on every single occurrence — even though the exact
-//    same bytes had already healed to native the first time. This proves: (1) the first sighting of a variant still bridges
-//    and heals, (2) a later call with UNCHANGED bytes reuses the healed
+//    same bytes had already healed to native the first time. This proves:
+//    (1) the first sighting of a variant still bridges and heals, (2) a later call with UNCHANGED bytes reuses the healed
 //    native entry instead of re-interpreting, (3) a genuine content change
 //    still bridges + re-heals (the fast path never masks a real miss —
 //    overlay_try_dispatch independently re-verifies the live bytes' CRC
@@ -652,8 +652,7 @@ void test_bridge_handoff_to_already_healed_callee(gba::GbaBus& bus) {
          std::to_string(g_cpu.R[1]) + ")");
     // B alone is 5 interpreted instructions (mov/bl/mov/mov/bx). A's own 2
     // instructions must NOT be added -- that is the entire point of the
-    // handoff. Before the fix this delta was 7 (the bridge single-stepped
-    // through A's body too).
+    // handoff. Single-stepping through A's body too would make the delta 7.
     check(insns_after - insns_before == 5u,
          "the bridge interpreted the callee's body instead of handing off "
          "to its native code (insns " + std::to_string(insns_before) +
@@ -884,8 +883,8 @@ void test_ram_cap_eviction_lru(gba::GbaBus& bus) {
 
     // Touch variants 2..9 once more so variants 0 and 1 are the two least
     // recently used entries before overflow. Push past the cap: sightings
-    // 11 and 12 (0-indexed 10 and 11) must
-    // evict variants 0 and 1 respectively -- the two least recently touched.
+    // 11 and 12 (0-indexed 10 and 11) must evict variants 0 and 1
+    // respectively -- the two least recently touched.
     for (int i = 2; i < 10; ++i) {
         write_variant(i);
         dispatch_ram_guard_miss(kPc, expect_r0(i));
@@ -1061,7 +1060,7 @@ fs::path find_cache_sidecar(const std::string& cache_root, uint32_t pc,
     return {};
 }
 
-// A fresh session can reuse an ABI5 RAM PIC DLL at another address using only
+// A fresh session can reuse a RAM PIC DLL at another address using only
 // exact persisted bytes. Bad metadata, another ISA, or changed bytes refuse.
 void test_disk_pic_cross_address_reuse(gba::GbaBus& bus,
                                        const std::string& cache_root) {

@@ -104,7 +104,7 @@ inline void store(const Game& g, const Config& c) {
     for (int i = 0; i < 8; ++i) b->write8(g.config + i, raw[i]);
 }
 
-// A new seed for a new game: never 0, which means Off; 28 bits, as the run
+// A new seed for a new game: never 0, which means Off; 25 bits, as the run
 // code carries (run_code.h).
 inline std::uint32_t fresh_seed() {
     std::random_device device;
@@ -259,9 +259,9 @@ inline Plan make_plan(const Game& g, std::uint32_t seed, const gsr::challenge::C
 
 inline const Plan& plan_for(const Game& g, const Config& c, const gsr::challenge::Config& challenge) {
     static Plan cached;
-    if (cached.game != &g || cached.seed != c.seed || cached.fair_play != c.fair_play ||
+    if (cached.game != &g || cached.seed != c.seed || cached.fair_play != c.fair_psynergy ||
         !same(cached.challenge, challenge))
-        cached = make_plan(g, c.seed, challenge, c.fair_play);
+        cached = make_plan(g, c.seed, challenge, c.fair_psynergy);
     return cached;
 }
 
@@ -325,8 +325,8 @@ inline bool on_entry(const Game& g, std::uint32_t pc, std::uint32_t id) {
     return b && rebuild(g, *b, id);
 }
 
-// After the new-game questions: the heroes' lists follow the new plan now
-// (the game built them before the questions, from their classes).
+// After the new-game questions: rebuilds every hero's list from the plan (the
+// game built them before the questions, from their classes).
 inline void apply_new_game(const Game& g) {
     gba::GbaBus* b = gbarecomp::active_bus();
     if (!b) return;

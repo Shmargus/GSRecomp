@@ -622,12 +622,8 @@ std::uint16_t g_prev_dispcnt_mode = 0;
 std::uint16_t g_prev_dispcnt_enable = 0;
 bool g_took_first_snapshot = false;
 
-// b) periodic cadence while a scene is active. 300 is an ARBITRARY starting
-// value, not a measured threshold -- there is no data yet to tune it from
-// (the same situation function_tracer.cpp's own thresholds were in before
-// their first session; see its "there is no real per-frame register data
-// to tune any of these constants from" comment). Expected to be revisited
-// once the first map-recorder session's data exists.
+// b) periodic cadence while a scene is active. 300 frames is an arbitrary
+// interval, not a measured threshold.
 constexpr std::uint64_t kPeriodicSnapshotFrames = 300;
 
 void take_snapshot(const std::string& reason_tag, const gba::GbaBus& bus) {

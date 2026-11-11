@@ -480,7 +480,7 @@ bool overlay_compile_one(const OverlayWorkItem& w,
         if (backend == HealBackend::Tcc) {
             // tcc: a self-contained C compiler (own linker + headers), so it
             // needs no host toolchain. The overlay is emitted C-clean (the
-            // extern \"C\" wrappers are __cplusplus-guarded), so tcc builds it
+            // extern "C" wrappers are __cplusplus-guarded), so tcc builds it
             // as C; `tcc -shared` exports the global overlay_abi / overlay_init
             // / func_<pc> symbols the loader resolves. No -O (tcc has no real
             // optimizer) and no -x c++ (it is a C compiler).

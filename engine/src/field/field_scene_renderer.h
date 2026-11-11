@@ -220,8 +220,8 @@ public:
     // "EWRAM" section (The Broken Seal's src/map_recorder.cpp). The four
     // addresses this reads and the per-layer rule draw() applies with them are
     // documented in The Broken Seal's src/room_buffer.h, with their evidence
-    // in FACTS.md; nothing here is a new address. Safe to call every frame. Returns false ("not known")
-    // when the rect does not describe a real room -- draw() then falls back
+    // in FACTS.md; nothing here is a new address. Safe to call every frame.
+    // Returns false ("not known") when the rect does not describe a real room -- draw() then falls back
     // to video memory for every pixel of every field layer, same as any
     // other per-pixel miss.
     bool upload_room(const std::uint8_t* ewram, std::size_t ewram_bytes);
@@ -231,8 +231,8 @@ public:
     // SceneMargins); the renderer keeps the pointer, not a copy. Null: none.
     void set_scene_margins(const SceneMargins* margins) { margins_ = margins; }
 
-    // False until the game has loaded its first room -- the map number at
-    // 0x02000408 is still 0. Nothing on screen then belongs to a world, so no
+    // False until the game has loaded its first room -- the map number
+    // (FieldGameProfile::map_id_addr) is still 0. Nothing on screen then belongs to a world, so no
     // layer may be widened into the margins. Set by upload_room(), which reads
     // that address whether or not the room rect itself is usable.
     bool world_loaded() const { return world_loaded_; }
@@ -372,7 +372,7 @@ private:
     bool shake_failed_ = false;
     bool ensure_shake_target();
     // Default true: a caller that never uploads a room (the offline checks)
-    // must behave exactly as before this flag existed.
+    // is not held back from drawing.
     bool world_loaded_ = true;
     int room_min_x_ = 0, room_max_x_ = 0, room_min_y_ = 0, room_max_y_ = 0;
     int room_camera_x_ = 0, room_camera_y_ = 0;

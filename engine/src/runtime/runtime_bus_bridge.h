@@ -104,11 +104,16 @@ void runtime_set_guest_step_boundary_hook(std::function<void()> hook);
 void runtime_set_frame_render_gate_hook(
     std::function<bool(unsigned long long)> hook);
 
-// A game rule can hold the F1 Infinite HP / Infinite PP cheats off (the
-// player's choice is kept, not applied; F1 shows them unavailable). Set by
-// the game each frame; false by default.
+// A game rule can hold every F1 cheat off (Golden Sun's Challenge Mode):
+// Infinite HP / PP are not applied and each cheat option reads as its normal
+// value. The player's choices are kept, not applied; F1 shows the Cheats page
+// at its normal values, unavailable. Set by the game each frame; false by
+// default.
 void set_cheats_blocked(bool blocked);
 bool cheats_blocked();
+// A cheat's game_options.ini value, or `normal` while cheats are blocked.
+// Every cheat option reads through this.
+int cheat_option_get(const char* key, int normal);
 
 // Retrieve the currently-bound bus / ppu, or nullptr if none.
 gba::GbaBus* active_bus();

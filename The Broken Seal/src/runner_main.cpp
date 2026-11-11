@@ -95,6 +95,8 @@
 #include "field_game_profile.h"
 #include "rom_version.h"
 #include "runner_shared.h"
+#include "../../shared_game/quality_of_life.h"
+#include "../../shared_game/world_margin_live.h"
 
 extern "C" unsigned g_ws_active;
 extern "C" unsigned long long runtime_current_frame();
@@ -108,7 +110,8 @@ extern "C" void runtime_unpacker_slot_dump(const char* why);
 namespace {
 using namespace gsr_runner;
 
-// View sizes and aspect rules are shared with The Lost Age in view_config.h.
+// View sizes and aspect rules are shared with The Lost Age in the engine's
+// view_config.h (engine/src/runtime).
 
 // These are the two object-source spans measured by the bounded writer
 // census. Their endpoints are inclusive observed source addresses, not an
@@ -2107,7 +2110,7 @@ void report_golden_sun_obj_context_near_misses() {
 struct GoldenSunObjPlacement {
     gsr::ObjLifetimeSample diagnostic{};
     // False for an entry that is disabled, empty or dormant -- not a sprite,
-    // so neither the culler nor the census should count it.
+    // so neither the expanded-view renderer nor the census should count it.
     bool considered = false;
     gsr::widescreen::GoldenSunObjPlacementOutcome outcome =
         gsr::widescreen::GoldenSunObjPlacementOutcome::SourceUnavailable;
@@ -2118,9 +2121,9 @@ struct GoldenSunObjPlacement {
     bool shadow = false;
     // Rotation/scaling sprite. Independent of `outcome`: its POSITION is
     // recoverable like any other sprite's, but its on-screen BOUNDS need the
-    // affine transform, so the off-screen culler must still refuse it. Kept
+    // affine transform, so any off-screen test must still refuse it. Kept
     // as its own flag rather than an outcome so the two questions -- "can we
-    // place it?" and "can we cull it?" -- stop being answered by one bit.
+    // place it?" and "can we cull it?" -- are not answered by one bit.
     bool affine = false;
     // Valid only when golden_sun_obj_placement_is_exact(outcome).
     // For a shadow these are the SHADOW's own coordinates, recovered from its
@@ -2140,8 +2143,8 @@ struct GoldenSunObjPlacement {
 // Recover a committed sprite's position from the guest's own pre-truncation
 // coordinate rather than from OAM.
 //
-// Shared by the experimental off-screen culler and the GSR_OBJ_RECORD census
-// (obj_recorder.h): the census has to measure exactly the lookup the
+// Shared by the expanded-view sprite placement (pending provenance) and the
+// GSR_OBJ_RECORD census (obj_recorder.h): the census has to measure exactly the lookup the
 // renderer would depend on. Read-only: it inspects guest memory and the
 // per-frame F0 context table and changes neither.
 GoldenSunObjPlacement golden_sun_obj_resolve_placement(
@@ -2167,7 +2170,7 @@ GoldenSunObjPlacement golden_sun_obj_resolve_placement(
     // Affine sprites are resolved like any other: Golden Sun scales sprites
     // constantly (walk squash, shadows), and refusing them left half the
     // sprites on the 8-bit byte, which wraps. `out.affine` carries the
-    // restriction to the culler instead.
+    // restriction to any off-screen test instead.
     const auto* context = find_golden_sun_obj_f0_context(
         writer_frame, writer_depth, writer_return_pc, attr0, attr1, attr2,
         &out.diagnostic.reason);
@@ -2653,10 +2656,10 @@ void golden_sun_oam_shadow_write_observer(std::uint32_t writer_pc,
     // its entry; on a resumed call the entry hook is skipped, so use only a
     // same-frame source pointer captured before that LDM. Both routes remain
     // image- and identity-authenticated.
-    // This function is also the WIDE-01 experimental off-screen cull safety
-    // net's hook point (see below), so it must run when either diagnostics
-    // or the "Enhanced Options" toggle is on -- not diagnostics alone. All
-    // diagnostics-only work inside self-gates on
+    // This function also feeds the F0 placement lookup below, so it must run
+    // when diagnostics, the Enhanced Options fixes
+    // (GBARECOMP_EXPERIMENTAL_FIXES) or the recorder is on -- not diagnostics
+    // alone. All diagnostics-only work inside self-gates on
     // golden_sun_wide_diagnostics_enabled() independently.
     const bool d4_store = size != 0u &&
         golden_sun_func1dc8_d4_store_pc(writer_pc);
@@ -2739,20 +2742,18 @@ void golden_sun_oam_shadow_write_observer(std::uint32_t writer_pc,
         slot, slot_address, writer_pc, writer_frame, writer_depth,
         writer_return_pc, committed_attr0, committed_attr1, committed_attr2);
     if (golden_sun_wide_diagnostics_enabled()) {
-        // Capture the committed ATTR payload before the optional experimental
-        // culler can mark it hidden; diagnostics must describe the guest
-        // write, not our later presentation-only change.
+        // Capture the committed ATTR payload as the guest wrote it; diagnostics
+        // must describe the guest write, not any later presentation-only change.
         link_golden_sun_b328_parentless_f0(
             writer_frame, writer_depth, writer_return_pc, writer_pc,
             slot_address, slot, bus_read_u16(slot_address),
             bus_read_u16(slot_address + 2u),
             bus_read_u16(slot_address + 4u));
     }
-    // Placement lookup, shared by the GSR_OBJ_RECORD census and the
-    // experimental off-screen culler. The census has to run without the
-    // culler being armed -- it measures, it must not change what is drawn --
-    // so the gate is either toggle while the culler's guest write below
-    // stays inside its own.
+    // Placement lookup, shared by the GSR_OBJ_RECORD census and the Enhanced
+    // Options sprite placement. The census has to run without the fixes being
+    // on -- it measures, it must not change what is drawn -- so the gate is
+    // either toggle.
     if (gsr::obj_recorder_enabled() ||
         golden_sun_experimental_fixes_enabled()) {
         ++g_golden_sun_obj_f0_placement_calls;
@@ -2766,7 +2767,7 @@ void golden_sun_oam_shadow_write_observer(std::uint32_t writer_pc,
             committed_attr0, committed_attr1, committed_attr2);
         if (placement.record_identified) ++g_golden_sun_obj_f0_identified;
         // Disabled, empty and dormant entries are not sprites: neither the
-        // culler nor the census counts them.
+        // renderer nor the census counts them.
         if (placement.considered) {
             // Coverage of the seam that matters on screen: how many
             // committed sprites ended up with a trusted full-precision
@@ -3686,8 +3687,8 @@ bool golden_sun_wide_diagnostics_enabled() {
 }  // namespace gsr_runner
 namespace {
 
-// The launcher's "Enhanced Options" checkbox (launcher/collection_main.cpp),
-// always sent explicitly (0 or 1). Default off; normal play is unaffected. It
+// Enhanced Options: the launcher sets GBARECOMP_EXPERIMENTAL_FIXES to 1 on
+// every launch (launcher/session_environment.h); unset or 0 leaves it off. It
 // gates the expanded-sprite and shadow guards below.
 bool golden_sun_experimental_fixes_enabled() {
     static const bool enabled = [] {
@@ -4126,8 +4127,9 @@ void report_golden_sun_field_producers(const char* reason) {
 // widescreen diagnostics are enabled; never consulted by gameplay/render code.
 constexpr std::uint32_t kGoldenSunObjRecordCensusStart = 0x03002000u;
 constexpr std::uint32_t kGoldenSunObjRecordCensusEnd = 0x030022E0u;
-// CRASH-03 pool-LDM probe's stack window [base,end), 16 words (the engine
-// probe's layout, set at startup, and the fast-IWRAM watch below).
+// CRASH-03 pool-LDM probe's stack window [base,end), 16 words. It is passed to
+// the engine probe as its layout at startup and also used by the fast-IWRAM
+// write watch.
 constexpr std::uint32_t kGoldenSunPoolLdmWindowBase = 0x03007E00u;
 constexpr std::uint32_t kGoldenSunPoolLdmWindowEnd = 0x03007E40u;
 // A 64-entry cap overflowed (Bilibin ~20005, Palace ~2912 write events; the
@@ -4391,8 +4393,8 @@ void note_golden_sun_obj_commit_order(GoldenSunObjCommitOrderRoute route,
         static_cast<std::size_t>(route)][dedupe_index];
     // D4 fires only on a gated, successful commit (already low-volume), so
     // it keeps the fine-grained equality check (logs every real coordinate
-    // change). EC/F0 are restricted to the shadow-candidate signature at
-    // their call sites, but a moving shadow's raw ATTR0/ATTR1 (Y/X) still
+    // change). EC/F0 are restricted at their call sites to the shadow
+    // signature or the first few body slots, but a moving object's raw ATTR0/ATTR1 (Y/X) still
     // changes almost every frame, which would flood the cap and stall scene
     // transitions. So EC/F0 dedupe coarsely on (route, dedupe_index) alone:
     // log only the first frame this object is seen in the epoch (or the first
@@ -5818,9 +5820,9 @@ void golden_sun_update_battle_backdrop(std::uint16_t dispcnt,
     // streaming path for battle and field frames alike.
     gba::g_ws_defer_native_rows = 0;
 
-    // Alongside the renderer's own row dump (armed by the same launcher
-    // toggle): what this rule decided, once per frame. Without it a capture
-    // shows what the game did but not what we did about it.
+    // Alongside the renderer's own row dump (armed by the same setting,
+    // g_ws_row_state_dump_mode): what this rule decided, once per frame.
+    // Without it a capture shows what the game did but not what we did about it.
     if (gba::g_ws_row_state_dump_mode >= 0) {
         static std::uint64_t last_frame = ~std::uint64_t{0};
         static unsigned long long lines = 0;
@@ -6171,8 +6173,9 @@ int golden_sun_wide_obj_x_provider(int raw_x, int* out_x) {
     // The GBA OBJ X field is nine bits and normally decodes 0x100..0x1FF as
     // -256..-1.  Golden Sun's town field is already scene-authenticated by
     // the margin policy; reinterpret only the raw values needed to cover the
-    // widened right edge.  Values outside that exact 24px envelope retain the
-    // hardware signed decode, and non-field scenes never opt into this hook.
+    // widened right edge: raw X from 0x100 up to 240 plus the right margin.
+    // Values outside that envelope keep the hardware signed decode, and
+    // non-field scenes never opt into this hook.
     if (!g_ws_active || !out_x ||
         !gsr::widescreen::golden_sun_field_obj_x_authorized(
             g_golden_sun_expanded_obj_scene, raw_x,
@@ -7447,7 +7450,9 @@ bool game_window_open_this_frame() {
 // through a single shared function guarantees that.
 bool golden_sun_wide_obj_fallback_position(std::uint16_t attr0,
                                            std::uint16_t attr1,
-                                           int* out_x, int* out_y) {
+                                           int* out_x, int* out_y,
+                                           bool* by_world_side = nullptr) {
+    if (by_world_side) *by_world_side = false;
     if (!golden_sun_expanded_obj_view_active() || !out_x || !out_y)
         return false;
     const int raw_x = static_cast<int>(attr1 & 0x01FFu);
@@ -7489,6 +7494,7 @@ bool golden_sun_wide_obj_fallback_position(std::uint16_t attr0,
     if (world_side != 0) {
         *out_x = resolved_x;
         *out_y = world_side > 0 ? raw_y : raw_y - 256;
+        if (by_world_side) *by_world_side = true;
         return true;
     }
     const int alias_last = std::min(255,
@@ -7700,7 +7706,7 @@ bool golden_sun_obj_track_lookup(int oam_index, std::uint16_t attr0,
     // is used purely to rule out the wrong reading, and the surviving
     // candidate, which is this frame's true position with the wrap resolved,
     // is what we return. A frozen character gets the same answer either way;
-    // a moving one now gets the correct one.
+    // a moving one gets the correct one.
     //
     // Candidates are 512px (X) and 256px (Y) apart while the match radius is a
     // few pixels, so at most one candidate combination can fall near any one
@@ -7942,6 +7948,9 @@ int golden_sun_wide_obj_attr_x_provider(int oam_index,
 // guess) since the field capture last cleared it; read by the sprite edge
 // continuity rule (src/obj_y_continuity.h).
 std::array<bool, gsr::FieldScene::kObjects> g_obj_y_from_fallback{};
+// Slots whose Y the world map's actor table decided (a town's side): not a
+// guess, so the continuity rule leaves them alone.
+std::array<bool, gsr::FieldScene::kObjects> g_obj_y_from_world_side{};
 
 int golden_sun_wide_obj_attr_y_provider(int oam_index,
                                         std::uint16_t attr0,
@@ -8147,12 +8156,15 @@ int golden_sun_wide_obj_attr_y_provider(int oam_index,
         // before giving up.
         {
             int fallback_x = 0, fallback_y = 0;
+            bool by_world_side = false;
             if (golden_sun_wide_obj_fallback_position(
-                    attr0, attr1, &fallback_x, &fallback_y)) {
+                    attr0, attr1, &fallback_x, &fallback_y, &by_world_side)) {
+                // The world map's actor table is evidence, not a guess.
                 if (static_cast<std::size_t>(oam_index) <
                     g_obj_y_from_fallback.size())
-                    g_obj_y_from_fallback[static_cast<std::size_t>(
-                        oam_index)] = true;
+                    (by_world_side ? g_obj_y_from_world_side
+                                   : g_obj_y_from_fallback)[
+                        static_cast<std::size_t>(oam_index)] = true;
                 *out_y = fallback_y;
                 return 1;
             }
@@ -8167,7 +8179,7 @@ int golden_sun_wide_obj_attr_y_provider(int oam_index,
 struct GoldenSunCullTrace {
     std::uint32_t pc;
     // `calls` is the raw routed-PC count. It is intentionally recorded before
-    // the strict 360x240 policy guard so inactive modes remain visible.
+    // the expanded-view guard so inactive modes remain visible.
     std::uint64_t calls = 0;
     std::uint64_t bypasses = 0;
     std::uint64_t inactive_rejects = 0;
@@ -8929,7 +8941,7 @@ void install_golden_sun_widescreen(std::uint32_t extra_left,
     gba::vram_trace::set_oam_shadow_write_observer(
         oam_shadow_observer_enabled
             ? golden_sun_oam_shadow_write_observer : nullptr);
-    gba::g_ws_bg_x_provider_layers = 0xFu; // BG0 + Mode0 field layers.
+    gba::g_ws_bg_x_provider_layers = 0xFu; // BG0-BG3 (mask of layers).
     g_runtime_thumb_alu_imm_override = golden_sun_thumb_alu_immediate;
     g_runtime_thumb_literal_override = golden_sun_thumb_literal;
     g_runtime_conditional_branch_override = golden_sun_conditional_branch;
@@ -9006,7 +9018,6 @@ constexpr std::uint32_t kBgAreaBytes = 0x10000u;
 
 bool game_window_open() {
     using namespace gsr::settings_page;
-    if (g_settings_page.load() == 2) return true;
     const std::uint32_t block = bus_read_u32(kWindowBlockSlot);
     if ((block >> 24) != 0x02u) return false;
     if (bus_read_u8(block + kTileBankFlagOffset) != 0u) return true;
@@ -9340,11 +9351,26 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
         }
         return;
     }
+    // LIVE margins (shared_game/world_margin_live.h): the flat picture only
+    // covers the console's screen, so the margins draw the settled world map
+    // through the main renderer every frame with this frame's sprites.
+    static std::vector<std::uint8_t> live_margins;
+    static gsr::GpuFieldCapture mix;
+    const std::vector<std::uint8_t>* margin_src = &g_world_margin_rgb;
+    if (gsr::live_world_margin_capture(g_world_settled_capture, capture, mix)) {
+        live_margins.resize(std::size_t{width} * height * 3u);
+        if (draw_gpu_field_capture(renderer, mix, width, height) &&
+            surface.read_texture_rgb(renderer.output_texture(),
+                                     static_cast<int>(width),
+                                     static_cast<int>(height),
+                                     live_margins.data()))
+            margin_src = &live_margins;
+    }
     for (std::uint32_t y = 0; y < height; ++y) {
         const bool native_row = y >= y0 && y < y0 + 160u;
         std::uint8_t* dst = rgb + std::size_t{y} * width * 3u;
         const std::uint8_t* src =
-            g_world_margin_rgb.data() + std::size_t{y} * width * 3u;
+            margin_src->data() + std::size_t{y} * width * 3u;
         if (!native_row) {
             std::memcpy(dst, src, std::size_t{width} * 3u);
             continue;
@@ -9354,7 +9380,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
         std::memcpy(dst + std::size_t{right} * 3u, src + std::size_t{right} * 3u,
                     std::size_t{width - right} * 3u);
     }
-    g_world_palette_effect.apply(rgb, width, height, g_world_margin_rgb, capture.pal);
+    g_world_palette_effect.apply(rgb, width, height, *margin_src, capture.pal);
 }
 
 
@@ -9363,18 +9389,21 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
 // 400 changes; normal play must not fill the launcher's pipe with these
 // per-sprite diagnostics (Djinn menu report 190853).
 void apply_obj_y_continuity_if_enabled(gsr::FieldScene* scene,
-                                       const std::uint8_t* oam,
-                                       const std::vector<std::uint8_t>& io) {
+                                       const std::uint8_t* oam) {
     static gsr::ObjYContinuity state;
     static unsigned reported = 0;
+    // The world map too (2026-11-08, gpu_rewind_0096): its actor table
+    // places towns, but a Psynergy's sparkles rising off the top (raw Y
+    // 216..233, really -40..-23) have no actor and vanished at the old top
+    // edge. Towns the table placed are not guesses and stay as they are.
     const bool field = scene->video_mode == 0 &&
                        !g_golden_sun_battle_backdrop_state.active &&
-                       golden_sun_expanded_obj_view_active() &&
-                       !world_map_blocks(io);
+                       golden_sun_expanded_obj_view_active();
     bool guessed[gsr::FieldScene::kObjects];
     for (int i = 0; i < gsr::FieldScene::kObjects; ++i)
-        guessed[i] = !scene->objects[i].trusted ||
-                     g_obj_y_from_fallback[static_cast<std::size_t>(i)];
+        guessed[i] = (!scene->objects[i].trusted ||
+                      g_obj_y_from_fallback[static_cast<std::size_t>(i)]) &&
+                     !g_obj_y_from_world_side[static_cast<std::size_t>(i)];
     gsr::apply_obj_y_continuity(
         scene, oam, guessed, field, &state,
         [&](const gsr::ObjYContinuityChange& c) {
@@ -9401,8 +9430,6 @@ void gpu_field_capture_hook() {
     load_menu_font();
     if (const auto* bus = gbarecomp::active_bus())
         gsr::trackers::sample(bus->ewram_ptr(), bus->rom_ptr(), bus->rom_size());
-    // Page two of Settings, before anything copies this frame (see there).
-    native_page_frame_end(true);
     if (!gpu_field_enabled()) return;
     // Snapshot the latest completed effect copy, including fading history.
     g_gpu_field_capture.effects = gsr::effect_capture_take();
@@ -9468,6 +9495,7 @@ void gpu_field_capture_hook() {
 
     gsr::FieldScene scene{};
     g_obj_y_from_fallback.fill(false);
+    g_obj_y_from_world_side.fill(false);
     gsr::field_scene_capture(
         &scene, ppu->frame_count(), frame_io.data(), bus->oam_ptr(),
         bus->pal_ptr(), ppu->latched_native_line_io(),
@@ -9481,7 +9509,7 @@ void gpu_field_capture_hook() {
         g_gpu_field_capture.valid = false;
         return;
     }
-    apply_obj_y_continuity_if_enabled(&scene, bus->oam_ptr(), frame_io);
+    apply_obj_y_continuity_if_enabled(&scene, bus->oam_ptr());
     g_gpu_field_capture.scene = scene;
     g_gpu_field_capture.vram.assign(bus->vram_ptr(), bus->vram_ptr() +
         gba::GbaBus::kNativeVram + (bus->obj_extra() ? gba::GbaBus::kObjExtraVram : 0));
@@ -9500,9 +9528,6 @@ void gpu_field_capture_hook() {
         g_gpu_field_capture.effects = {};
     g_gpu_field_capture.io = frame_io;
     g_gpu_field_capture.oam.assign(bus->oam_ptr(), bus->oam_ptr() + 1024);
-    // Settings page two where the repaint above could not reach (see there).
-    native_page_patch_capture(g_gpu_field_capture.vram, g_gpu_field_capture.oam,
-                              g_gpu_field_capture.scene);
     g_gpu_field_capture.pal.assign(bus->pal_ptr(), bus->pal_ptr() + 1024);
     g_gpu_field_capture.window_open = game_window_open();
     g_gpu_field_capture.valid = true;
@@ -9863,13 +9888,12 @@ void paint_enemy_hp_bar(std::uint8_t* rgb, std::uint32_t width,
                              put, draw_number);
 }
 
-// The settings page marker and the battle ">>" go over whatever picture was
+// The battle ">>" go over whatever picture was
 // going to be shown, the GPU renderer's or the emulated hardware's.
 bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
                                  std::uint32_t height) {
     auto frame = gbarecomp::FrameHistory::capture();
     frame.battle_2x = battle_speed_indicator_visible();
-    const bool settings = settings_overlay_visible();
     const gba::GbaPpu* ppu = gbarecomp::active_ppu();
     const bool held = ppu && g_history.count() &&
         runtime_current_frame() >= g_history.back(0).guest_frame &&
@@ -9877,9 +9901,9 @@ bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
         bus_read_u32(gsr::battle_speed::kBattleHeapSlot) != 0u &&
         (gbarecomp::spell_setup_torn_frame(*ppu) ||
          battle_spell_position_pending(*ppu));
-    // Settings paint reads live window/font state. A torn spell picture and
-    // settings therefore form explicit synchronous boundaries.
-    bool drawn = gpu_field_present_override(rgb, width, height, frame, settings || held);
+    // A torn spell picture and the Quality of Life menu form explicit
+    // synchronous boundaries.
+    bool drawn = gpu_field_present_override(rgb, width, height, frame, held || gsr::qol::menu.showing);
     if (frame.scene.empty() && g_gpu_field_capture.valid) {
         frame.scene = gsr::gpu_field_dump_bytes(g_gpu_field_capture);
         frame.scene_frame = g_gpu_field_capture.scene.frame;
@@ -9892,8 +9916,6 @@ bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
         frame.held_frame = true;
         drawn = true;
     }
-    if (settings) paint_settings_page(rgb, width, height);
-    else g_settings_help.reset();
     const bool battle = frame.battle_2x;
     if (battle) paint_battle_speed_indicator(rgb, width, height);
     g_history.record(rgb, width, height, std::move(frame));
@@ -9904,7 +9926,7 @@ bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
     // After the recording, so the HP bar, the Custom Battle panel and the
     // notice are not in the saved frames.
     gsr::enemy_hp_bar::Bar enemy_bar;
-    const bool hp_bar = !settings && gsr::enemy_hp_bar::bar(&enemy_bar);
+    const bool hp_bar = gsr::enemy_hp_bar::bar(&enemy_bar);
     if (hp_bar) paint_enemy_hp_bar(rgb, width, height, enemy_bar);
     const auto panel = gsr::custom_battle::panel_view();
     if (panel.open) paint_custom_battle_panel(rgb, width, height, panel);
@@ -9914,6 +9936,15 @@ bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
         auto put = window_pixel_painter(rgb, width, height);
         auto pixel = native_pixel_at(rgb, width, height);
         gsr::save_files::tbs::paint(put, pixel);
+    }
+    const bool quality = gsr::qol::menu.showing;
+    if (quality) {
+        namespace qm = gsr::qol_menu;
+        menu_window_paint(rgb, width, height, qm::kTileX, qm::kTileY, qm::kTiles, qm::kRows,
+            [](auto& draw, auto& text_width, int x, int y, auto&) {
+                gsr::qol_menu::paint(gsr::qol::menu, draw, text_width, x, y);
+            });
+        drawn = true;
     }
     const bool travel = gsr::retreat_travel::showing;
     if (travel) {
@@ -9939,7 +9970,7 @@ bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
     // The new-game questions, over the running game.
     const bool question = g_hard_prompt_open;
     if (question) cheat_menu_paint(rgb, width, height);
-    return drawn || settings || battle || hp_bar || panel.open || files || travel || radial || notice || question;
+    return drawn || battle || hp_bar || panel.open || files || travel || radial || notice || question;
 }
 
 // Instant text is the settings screen's fourth Message-speed choice.
@@ -9976,22 +10007,8 @@ std::uint32_t g_decoder_text_id = 0;
 }  // namespace gsr_runner
 namespace {
 
-bool settings_help_character(std::uint32_t original, std::uint32_t* out_value) {
-    using namespace gsr::settings_page;
-    const std::uint32_t text_id = g_decoder_text_id;
-    const bool help = g_settings_page.load() == 2 &&
-                      text_id >= kHelpTextBase &&
-                      text_id < kHelpTextBase + static_cast<std::uint32_t>(kRowCount);
-    if (!help) return false;
-    // The clipped description painter owns this line. Keep the game's
-    // sprite-text pass empty so no unscrolled letters escape the frame.
-    *out_value = original - g_cpu.R[0];
-    return true;
-}
-
 // Hard Mode's label and help line, written the same way while the settings
-// screen is open. Page two's help is tried first and keeps 0xC19 while it
-// shows.
+// screen is open.
 int g_hard_text_pos = -1;
 std::uint32_t g_hard_text_id = 0;
 
@@ -10414,21 +10431,25 @@ int golden_sun_thumb_alu_immediate(std::uint32_t pc, std::uint32_t original,
         *out_value = kBlankIconSource - g_cpu.R[5];
         return 1;
     }
-    if (pc == kDecodedCharPc &&
-        gsr::custom_battle::text_character(
-            g_decoder_text_id, original,
-            out_value))
-        return 1;
     if (pc == kDecodedCharPc) {
-        // Random Weapons: a weapon's description names its new unleash.
+        // Lines replaced a character at a time: the decoded character in r0
+        // becomes `wanted`.
         std::uint32_t wanted = 0u;
-        if (gsr::random_weapons::tbs::text_character(g_decoder_text_id, &wanted)) {
+        const auto put = [&] {
             *out_value = original + (wanted - g_cpu.R[0]);
             return 1;
-        }
+        };
+        // The Pause menu's Quality of Life row; "No autosaved data" on an
+        // empty Autosave row (save_files_picker.h).
+        if (gsr::qol::character(g_decoder_text_id, &wanted) ||
+            gsr::save_files::autosave_character(g_decoder_text_id, &wanted))
+            return put();
+        if (gsr::custom_battle::text_character(g_decoder_text_id, original, out_value))
+            return 1;
+        // Random Weapons: a weapon's description names its new unleash.
+        if (gsr::random_weapons::tbs::text_character(g_decoder_text_id, &wanted))
+            return put();
     }
-    if (pc == kDecodedCharPc && settings_help_character(original, out_value))
-        return 1;
     if (pc == kDecodedCharPc && hard_mode_text_character(original, out_value))
         return 1;
     if (pc != kDecodedCharPc || !g_speed_caption_armed) return 0;
@@ -10493,18 +10514,8 @@ int golden_sun_thumb_literal(std::uint32_t pc, std::uint32_t original,
         original == gsr::settings_page::kPressedKeys) {
         using namespace gsr::settings_page;
         note_settings_loop_frame();
-        if (g_settings_page.load() == 2) {
-            const std::uint32_t keys = bus_read_u32(kPressedKeys);
-            if (keys & kKeySelect) {
-                *out_value = kZeroWord;
-                return 1;
-            }
-            // The screen closes this frame; stop covering it now.
-            if (keys & (kKeyA | kKeyB | kKeyStart)) g_settings_page.store(1);
-        }
         if (bus_read_u32(kPressedKeys) & (kKeyA | kKeyB | kKeyStart)) {
-            // Closing (both pages): draw nothing over the closing window.
-            g_settings_closing.store(true);
+            // Closing: the Difficulty row's text is ours no longer.
             g_settings_screen_text = false;
         }
         return 0;
@@ -10515,7 +10526,6 @@ int golden_sun_thumb_literal(std::uint32_t pc, std::uint32_t original,
     }
     if (pc == gsr::battle_speed::kWaitMaskLiteralPc &&
         original == gsr::battle_speed::kWaitMask) {
-        native_page_frame_end();
         seamless_frame_end();
         challenge_spare_for_lesson();
         gsr::challenge::frame();
@@ -10559,9 +10569,7 @@ int golden_sun_thumb_literal(std::uint32_t pc, std::uint32_t original,
     }
     if (pc == kSetupIconTableLiteralPc || pc == kRedrawIconTableLiteralPc) {
         if (pc == kSetupIconTableLiteralPc) {
-            g_settings_page.store(1);
             g_settings_open.store(false);
-            g_settings_closing.store(false);
         }
         if (original == kMessageSpeedIconTable) {
             g_blank_icons_pending =
@@ -10588,7 +10596,7 @@ int golden_sun_thumb_literal(std::uint32_t pc, std::uint32_t original,
         const std::uint32_t value = g_cpu.R[2];
         g_speed_caption_armed = original == hm::kCaptionBase && value <= 1u;
         if (g_speed_caption_armed) {
-            g_speed_caption = settings_text(hm::kWords[value]);
+            g_speed_caption = settings_text(gsr::difficulty_row::word());
             if (g_cpu.R[9] == gsr::settings_page::kAutoSleepRow) {
                 g_speed_caption = gsr::text_speed_cheat::kArrowLeft +
                                   g_speed_caption +
@@ -10959,6 +10967,7 @@ int main(int argc, char** argv) {
     // gbarecomp keeps one savestate-load hook.
     gbarecomp::set_savestate_load_hook([] {
         gsr::retreat_travel::reset();
+        gsr::qol::reset();
         gsr::radial_psynergy::reset();
         gsr::autosave::reset();
         gsr::custom_battle::tbs::reset();
@@ -10979,8 +10988,6 @@ int main(int argc, char** argv) {
         g_hard_prompt_open = false;
         g_seamless_phase = SeamlessPhase::Off;
         gbarecomp::set_screen_veil(false, true);
-        g_settings_page.store(1);
-        native_page_end(false);
         // The camera inset keys off the map number taken at the last room
         // setup; a state loaded from the title screen skips that setup, so
         // the inset would stay off and the view show 60/40 px past the room's
@@ -10990,8 +10997,8 @@ int main(int argc, char** argv) {
     // Two fresh, single-purpose gbarecomp hooks (nothing else installs
     // either), so no chaining is needed: gpu_field_capture_hook copies this
     // frame's description out at VBlank start, gpu_field_present_override
-    // draws it at present time. Both are cheap no-ops whenever
-    // GSR_GPU_FIELD is off.
+    // draws it at present time. With GSR_GPU_FIELD off, the capture hook
+    // skips the copy and the present override declines the frame.
     gbarecomp::set_scene_capture_hook(gpu_field_capture_hook);
     gbarecomp::set_frame_present_override_hook(golden_sun_present_override);
     options.max_view_width = 480;
@@ -11010,10 +11017,14 @@ int main(int argc, char** argv) {
     options.keyinput_filter = cheat_menu_keyinput_filter;
     options.paused_overlay = cheat_menu_paint;
     options.save_extension_bytes = gsr::save_files::tbs::kExtensionBytes;
+    gsr::qol::switches = kGameSwitches;
+    // The player's switches are Quality of Life rows; F1 keeps only the
+    // developer-only one after them.
+    gsr::qol::switch_count = kPlayerGameSwitchCount;
+    install_quality_of_life();
     gbarecomp::config_ui_set_game_switches(
-        kGameSwitches, gbarecomp::developer_session()
-                           ? kGameSwitchCount
-                           : kPlayerGameSwitchCount);
+        kGameSwitches + kPlayerGameSwitchCount,
+        gbarecomp::developer_session() ? kGameSwitchCount - kPlayerGameSwitchCount : 0);
     // Localized ROMs get their own F1 menu and settings page two.
     if (gs::rom_version() == gs::RomVersion::Spain)
         gbarecomp::config_ui_set_translations(

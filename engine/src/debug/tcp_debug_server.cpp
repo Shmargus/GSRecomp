@@ -726,7 +726,7 @@ void dispatch(const TcpDebugServer::Context& ctx, std::string_view req,
         out = buf;
         return;
     }
-    // Free-run control. `continue`/`pause` are NON-BLOCKING: they set the game
+    // Free-run control. `continue`/`resume` and `pause` are NON-BLOCKING: they set the game
     // thread's run-state and return immediately, so the server (this thread)
     // stays free to answer observation commands while the game free-runs — even
     // while it is wedged in a busy-spin freeze (observe-the-hung-core). Place

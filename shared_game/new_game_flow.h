@@ -2,9 +2,11 @@
 // docs/NEXT_PRIORITY_MODES.md section 6): one question at a time, each
 // highlighted option explained by the scrolling help bar.
 //   Names (after the hero's name) -> Difficulty -> Randomize -> Stats ->
-//   Scaling -> Shop prices -> Key items -> Fair Play -> Code (letter grid) ->
+//   Scaling -> Shop prices -> Fair Play (a tick per randomized thing) ->
+//   Code (text box, else letter grid) ->
 //   Challenge -> picks ->
-//   The Broken Seal's Last choices (Seamless Mode, Skip Prologue) ->
+//   Last choices (The Broken Seal: Seamless Mode, Skip Prologue; The Lost
+//   Age: skip Venus Lighthouse and Idejima) ->
 //   Autosave, the last question in both games.
 // Follow-ups appear only when they matter. B goes back one question. The
 // logic is here; each game paints View with its own window and font and
@@ -21,11 +23,21 @@
 namespace gsr::new_game {
 
 enum class Stage {
-    Names, Difficulty, Randomize, Stats, Scaling, Prices, KeyItems, FairPlay, Code, CodeEntry, Challenge, Picks,
+    Names, Difficulty, Randomize, Stats, Scaling, Prices, FairPlay, Code, CodeEntry, Challenge, Picks,
     Extras, Autosave, Done
 };
 enum Difficulty { kNormal, kHard, kScaled, kHardScaled };
 enum Random { kWeapons, kArmor, kItems, kCoins, kPsynergy, kRandomCount };
+// Fair Play's switches (Jimmy, 10 November 2026): each strives for a fair
+// progression in its own thing, and shows only when that thing is randomized.
+enum Fair { kFairItems, kFairCoins, kFairShops, kFairPsynergy, kFairCount };
+constexpr const char* kFairLabels[kFairCount] = {"Items", "Coins", "Shops", "Psynergy"};
+constexpr const char* kFairHelp[kFairCount] = {
+    "Healing items and gear are spread through the journey, and gear gets stronger as you go.",
+    "Coin spots grow with the journey, as the game's own do; no jackpots.",
+    "New stock is around each shop's usual level.",
+    "A starting hero learns Cure or Ply at level 1.",
+};
 
 // What differs between the games.
 struct Options {
@@ -34,7 +46,11 @@ struct Options {
     // shuffle a follow-up (Jimmy, 7 November 2026). Without it (The Lost
     // Age, for now) Weapons and Armor are the stat shuffle.
     bool items_and_coins = true;
-    bool extras = false;           // Seamless and Skip Prologue on the last page (The Broken Seal)
+    bool extras = false;           // the Last choices page
+    // Its rows: Seamless Mode (The Broken Seal only), then the game's skip.
+    bool extras_seamless = true;
+    const char* skip_label = "Skip Prologue and Sol Sanctum";
+    const char* skip_help = "Begin on the world map outside Vale, with Garet, as the journey starts.";
     bool seamless = false;         // Seamless Mode's current setting
     bool autosave = false;         // Autosave's current setting (autosave.h)
     bool transferred = false;      // data from Golden Sun: no randomizing, no challenge
@@ -43,14 +59,23 @@ struct Options {
     std::function<std::string(unsigned)> hero_name;
     std::function<std::uint32_t()> fresh_seed;
     std::function<std::string(const char*)> text;  // the game's translation
+    // "Type a seed" in the system's text box (code_box.h): true with a valid
+    // code, false on Cancel. Unset: the letter grid.
+    std::function<bool(run_code::Run*)> ask_code;
 };
 
 struct Result {
     int difficulty = kNormal;
     bool random[kRandomCount] = {};
     bool stats = false;  // the ticked pieces' stats shuffle too
-    bool scaling = false, bargains = false, fair_play = false;
-    bool key_items = false;  // Psynergy items move too (with Items)
+    bool scaling = false, bargains = false;
+    bool fair[kFairCount] = {true, true, true, true};  // Fair Play's ticks, all on to start
+    // A switch shows, and its tick counts, only while its thing is
+    // randomized (shops go with Items).
+    bool fair_shown(Fair f) const {
+        return f == kFairPsynergy ? random[kPsynergy] : f == kFairCoins ? random[kCoins] : random[kItems];
+    }
+    bool fair_on(Fair f) const { return fair_shown(f) && fair[f]; }
     std::uint32_t seed = 0;
     gsr::challenge::Config challenge;
     bool seamless = false, skip_opening = false;
@@ -74,8 +99,10 @@ struct Result {
         if (equip && stats) r.choices |= rc::kStats;
         if (equip && stats && scaling) r.choices |= rc::kScaling;
         if (random[kItems] && bargains) r.choices |= rc::kBargains;
-        if (random[kItems] && key_items) r.choices |= rc::kKeyItems;
-        if (fair_play) r.choices |= rc::kFairPlay;
+        if (fair_on(kFairPsynergy)) r.choices |= rc::kFairPsynergy;
+        if (fair_on(kFairItems)) r.choices |= rc::kFairItems;
+        if (fair_on(kFairCoins)) r.choices |= rc::kFairCoins;
+        if (fair_on(kFairShops)) r.choices |= rc::kFairShops;
         return r;
     }
     void take(const run_code::Run& r) {
@@ -89,8 +116,10 @@ struct Result {
         stats = r.choices & rc::kStats;
         scaling = r.choices & rc::kScaling;
         bargains = r.choices & rc::kBargains;
-        key_items = r.choices & rc::kKeyItems;
-        fair_play = r.choices & rc::kFairPlay;
+        fair[kFairPsynergy] = r.choices & rc::kFairPsynergy;
+        fair[kFairItems] = r.choices & rc::kFairItems;
+        fair[kFairCoins] = r.choices & rc::kFairCoins;
+        fair[kFairShops] = r.choices & rc::kFairShops;
     }
 };
 
@@ -241,22 +270,18 @@ public:
             row("Normal", "Shops charge the game's own prices.");
             row("Bargains", "Every item costs 5 to 1000 coins, cheaper the earlier it usually appears.");
             break;
-        case Stage::KeyItems:
-            v.title = t("Key items");
-            row("Stay", "Psynergy items stay where they always are.");
-            row("Move", "Psynergy items move too, always somewhere you reach before you need them.");
-            break;
         case Stage::FairPlay:
             v.title = t("Fair Play");
-            row("Off", "Anything goes.");
-            row("On", "A starting hero learns Cure or Ply at level 1; treasure spreads healing items and gear through the journey.");
+            for (const Fair f : fair_rows()) row(kFairLabels[f], kFairHelp[f], result_.fair[f]);
+            row("Continue", "Go on with these choices.");
+            v.gap_before = static_cast<int>(v.rows.size()) - 1;
             break;
         case Stage::Code:
-            v.title = t("Run code");
+            v.title = t("Seed");
             v.subtitle = run_code::spaced(run_code::encode(result_.run()));
-            row("Play this code", "Share it: anyone who types it at New Game gets the same run.");
-            row("Type a code", "Type a friend's code to play their run.");
-            row("New code", "Roll a different run with the same choices.");
+            row("Play this seed", "Share it: anyone who types it at New Game gets the same run.");
+            row("Type a seed", "Type a friend's seed to play their run.");
+            row("New seed", "Roll a different run with the same choices.");
             break;
         case Stage::CodeEntry:
             v.entry = &entry_;
@@ -290,12 +315,12 @@ public:
         }
         case Stage::Extras:
             v.title = t("Last choices");
-            row("Seamless Mode", "At the end, save and go straight on to The Lost Age. Change it with F1.",
-                result_.seamless);
-            row("Skip Prologue and Sol Sanctum", "Begin on the world map outside Vale, with Garet, as the journey starts.",
-                result_.skip_opening);
+            if (options_.extras_seamless)
+                row("Seamless Mode", "At the end, save and go straight on to The Lost Age. Change it with F1.",
+                    result_.seamless);
+            row(options_.skip_label, options_.skip_help, result_.skip_opening);
             row("Continue", "Go on with these choices.");
-            v.gap_before = 2;
+            v.gap_before = static_cast<int>(v.rows.size()) - 1;  // above Continue
             break;
         case Stage::Autosave:
             v.title = t("Autosave");
@@ -320,8 +345,6 @@ private:
         case Stage::Stats: cursor_ = result_.stats; break;
         case Stage::Scaling: cursor_ = result_.scaling; break;
         case Stage::Prices: cursor_ = result_.bargains; break;
-        case Stage::KeyItems: cursor_ = result_.key_items; break;
-        case Stage::FairPlay: cursor_ = result_.fair_play; break;
         case Stage::Difficulty: cursor_ = result_.difficulty; break;
         case Stage::Autosave: cursor_ = result_.autosave; break;
         default: break;
@@ -343,6 +366,13 @@ private:
         cursor_ = c;
         moved_ = true;
     }
+    // Fair Play's rows: the switches whose thing is randomized.
+    std::vector<Fair> fair_rows() const {
+        std::vector<Fair> rows;
+        for (int f = 0; f < kFairCount; ++f)
+            if (result_.fair_shown(static_cast<Fair>(f))) rows.push_back(static_cast<Fair>(f));
+        return rows;
+    }
     // The question after `from`, skipping the ones that do not matter.
     Stage next(Stage from) const {
         const bool equip = result_.random[kWeapons] || result_.random[kArmor];
@@ -358,10 +388,7 @@ private:
             if (result_.random[kItems]) return Stage::Prices;
             [[fallthrough]];
         case Stage::Prices:
-            if (result_.random[kItems]) return Stage::KeyItems;
-            [[fallthrough]];
-        case Stage::KeyItems:
-            if (result_.random[kPsynergy] || result_.random[kItems]) return Stage::FairPlay;
+            if (!fair_rows().empty()) return Stage::FairPlay;
             [[fallthrough]];
         case Stage::FairPlay:
             if (random_any()) return Stage::Code;
@@ -398,7 +425,6 @@ private:
                 result_.random[r] = !result_.random[r];
                 return;
             }
-            if (!random_any()) result_.fair_play = false;
             // Without Random Treasure the ticks are the stat shuffle.
             if (!options_.items_and_coins) result_.stats = result_.random[kWeapons] || result_.random[kArmor];
             return advance();
@@ -406,10 +432,21 @@ private:
         case Stage::Stats: result_.stats = c == 1; return advance();
         case Stage::Scaling: result_.scaling = c == 1; return advance();
         case Stage::Prices: result_.bargains = c == 1; return advance();
-        case Stage::KeyItems: result_.key_items = c == 1; return advance();
-        case Stage::FairPlay: result_.fair_play = c == 1; return advance();
+        case Stage::FairPlay: {
+            const std::vector<Fair> rows = fair_rows();
+            if (c >= static_cast<int>(rows.size())) return advance();
+            result_.fair[rows[static_cast<std::size_t>(c)]] = !result_.fair[rows[static_cast<std::size_t>(c)]];
+            return;
+        }
         case Stage::Code:
-            if (c == 1) return go(Stage::CodeEntry);
+            if (c == 1) {
+                if (!options_.ask_code) return go(Stage::CodeEntry);
+                run_code::Run run;
+                moved_ = true;
+                if (!options_.ask_code(&run)) return;
+                result_.take(run);
+                return go(Stage::Challenge);  // the code holds the follow-ups' answers
+            }
             if (c == 2) {
                 if (options_.fresh_seed) result_.seed = options_.fresh_seed();
                 moved_ = true;
@@ -431,15 +468,17 @@ private:
             if (ch.size == size_) return advance();
             return;
         }
-        case Stage::Extras:
-            if (c == 0) {
+        case Stage::Extras: {
+            const int skip = options_.extras_seamless ? 1 : 0;
+            if (c < skip) {
                 result_.seamless = !result_.seamless;
                 // A challenge cannot go on to The Lost Age.
                 if (result_.seamless && result_.challenge.size > 0) result_.seamless = false;
                 return;
             }
-            if (c == 1) { result_.skip_opening = !result_.skip_opening; return; }
+            if (c == skip) { result_.skip_opening = !result_.skip_opening; return; }
             return advance();
+        }
         case Stage::Autosave:
             result_.autosave = c == 1;
             return finish();

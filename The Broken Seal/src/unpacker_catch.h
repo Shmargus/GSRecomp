@@ -1,8 +1,7 @@
 #pragma once
 
-// Diagnostic "unpacker catcher" (env GSR_UNPACKER_CATCH): on for players
-// (both release launchers), a test toggle "Catch unpacker faults" in the
-// developer launcher. While Golden Sun's data unpacker (Func_2808, copied to
+// Diagnostic "unpacker catcher" (env GSR_UNPACKER_CATCH): always set by the
+// launcher (no toggle). While Golden Sun's data unpacker (Func_2808, copied to
 // 0x03006000..0x030064EC) is resident, the first time our engine falls back
 // to the interpreter at a pc inside it, this saves the moment before anything
 // runs, in the game's working folder: unpacker_catch.txt (registers, the last

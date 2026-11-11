@@ -96,7 +96,8 @@ bool rect_is_room(const Rect& r) {
 // ---- field tilemap writers ----------------------------------------------
 //
 // The six writers take the grid cell as arguments; slot 0/1/2 selects the
-// destination screenblock (BG3/BG2/BG1 in screen-base order), and the caller
+// destination screenblock (0x2800/0x3000/0x3800 = BG3/BG2/BG1, FACTS.md
+// "Field register signature"), and the caller
 // passes a different cell per slot. room_buffer_on_function_args currently
 // only recognises them; the offsets used for drawing come from the scroll
 // registers (layer_offset).
@@ -105,8 +106,6 @@ const std::uint32_t kFieldTilemapWriters[6] = {
     gs::rom(0x08010424u), gs::rom(0x08010560u), gs::rom(0x08010788u),
 };
 
-// Slot 0/1/2 maps to the screenblock at 0x2800/0x3000/0x3800, i.e. BG3/BG2/BG1
-// in the field's screen-base assignment (FACTS.md, "Field register signature").
 // The room the last checked frame was in, so the render path knows the
 // bounds without re-reading them per pixel. Cleared implicitly by the check
 // refusing to run outside a Mode 0 room.
@@ -401,10 +400,11 @@ void note_bad_offset(unsigned layer, std::int32_t rx, std::int32_t ry) {
     ++g_remainder_used;
 }
 
-// The draw path takes BG3's scroll register AS the camera (see
-// room_buffer_supply). That is measured true in the rooms that work; if it is
-// false in Goma the room test is being applied in the wrong space, which is
-// what "outside-room" would then be counting. One row per distinct delta.
+// The check passes BG3's scroll register to layer_offset() as the camera. This
+// records how far that sits from the EWRAM camera, which the draw path uses
+// for the room test (room_buffer_supply). A nonzero delta means the two spaces
+// differ, which is what "outside-room" refusals would then be counting. One row
+// per distinct delta.
 struct CameraDelta {
     std::int32_t dx, dy;
     std::uint64_t frames;

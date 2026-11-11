@@ -1,6 +1,6 @@
 // Cheat menu, new-game checklist, Hard Mode prompt.
-// Split out of runner_main.cpp; the code is moved unchanged. Names shared with the
-// other runner_*.cpp files are declared in runner_shared.h.
+// Split out of runner_main.cpp. Names shared with the other runner_*.cpp files
+// are declared in runner_shared.h.
 
 #include <algorithm>
 #include <array>
@@ -53,6 +53,7 @@
 #include "random_psynergy_tbs.h"
 #include "random_weapons_tbs.h"
 #include "../../shared_game/run_code.h"
+#include "../../shared_game/code_box.h"
 #include "../../shared_game/new_game_flow.h"
 #include "../../shared_game/held_palette_effect.h"
 #include "host_config_ui.h"
@@ -97,6 +98,7 @@
 #include "field_game_profile.h"
 #include "rom_version.h"
 #include "runner_shared.h"
+#include "../../shared_game/quality_of_life.h"
 
 extern "C" unsigned g_ws_active;
 extern "C" unsigned long long runtime_current_frame();
@@ -177,6 +179,7 @@ gsr::new_game::Options flow_options() {
     o.hero_name = challenge_hero_name;
     o.fresh_seed = [] { return gsr::random_psynergy::tbs::fresh_seed(); };
     o.text = [](const char* s) { return settings_text(s); };
+    o.ask_code = gsr::code_box::asker(o.text);
     return o;
 }
 
@@ -218,8 +221,9 @@ void prompt_finish() {
     const bool weapons = r.random[ng::kWeapons], armour = r.random[ng::kArmor];
     const bool stat_weapons = weapons && r.stats, stat_armour = armour && r.stats;
     const bool run = psynergy || items || coins || scaled || weapons || armour;
-    rp::store({run ? r.seed : 0u, psynergy, r.fair_play, items, items && r.bargains, coins, scaled, weapons,
-               armour, items && r.key_items});
+    rp::store({run ? r.seed : 0u, psynergy, r.fair_on(ng::kFairPsynergy), items, items && r.bargains, coins,
+               scaled, weapons, armour, r.fair_on(ng::kFairItems), r.fair_on(ng::kFairCoins),
+               r.fair_on(ng::kFairShops)});
     g_random_psynergy_pending = psynergy;
     const bool stats = stat_weapons || stat_armour;
     rw::store({stats ? r.seed : 0u, stats && r.scaling, stat_armour, stat_weapons});
@@ -458,6 +462,8 @@ void seamless_frame_end() {
 
 // Developer sessions also list the developer-only cheats after these.
 const gbarecomp::GameOptionSwitch kGameSwitches[] = {
+    {gsr::auto_field_psynergy::kSwitchLabel, gsr::auto_field_psynergy::kSwitchCaption,
+     gsr::auto_field_psynergy::kOptionKey},
     {gsr::seamless::kSwitchLabel, gsr::seamless::kSwitchCaption,
      gbarecomp::seamless::kOptionKey},
     {gsr::autosave::kSwitchLabel, gsr::autosave::kSwitchCaption,
@@ -470,8 +476,6 @@ const gbarecomp::GameOptionSwitch kGameSwitches[] = {
      gsr::djinn_tracker::kShowAllKey},
     {gsr::treasure_tracker::kSwitchLabel, gsr::treasure_tracker::kSwitchCaption,
      gsr::treasure_tracker::kOptionKey},
-    {gsr::auto_field_psynergy::kSwitchLabel, gsr::auto_field_psynergy::kSwitchCaption,
-     gsr::auto_field_psynergy::kOptionKey},
     {gbarecomp::walk_through_walls::kSwitchLabel,
      gbarecomp::walk_through_walls::kSwitchCaption,
      gbarecomp::walk_through_walls::kOptionKey}};
@@ -480,6 +484,7 @@ const int kGameSwitchCount = static_cast<int>(std::size(kGameSwitches));
 constexpr int kPlayerGameSwitchCount = static_cast<int>(std::size(kGameSwitches)) - 1;
 
 std::uint16_t cheat_menu_keyinput_filter(std::uint16_t keyinput) {
+    keyinput = gsr::qol::menu.keyinput(keyinput);
     keyinput = gsr::radial_psynergy::keyinput(keyinput);
     keyinput = gsr::retreat_travel::keyinput(keyinput);
     keyinput = gsr::save_files::tbs::keyinput(keyinput);
@@ -576,7 +581,7 @@ void paint_new_game_flow(std::uint8_t* rgb, std::uint32_t width, std::uint32_t h
             // Title (or the refusal), the typed code, four rows of eight
             // symbols, the three actions; ">" marks the cursor.
             const auto& e = *view.entry;
-            centred(settings_text(e.invalid ? "Not a valid code." : "Type a code"), 0);
+            centred(settings_text(e.invalid ? "Not a valid seed." : "Type a seed"), 0);
             centred(e.shown(), 16);
             const int column_width = kInnerWidth / rc::kColumns;
             for (int row = 0; row < rc::kGridRows; ++row)
@@ -667,7 +672,7 @@ int cheat_reward_write(std::uint32_t pc, std::uint32_t addr,
     using namespace gsr::cheat_menu;
     if (pc != kCoinBonusStorePc && pc != kCoinStorePc && pc != kExpStorePc)
         return -1;
-    int step = gbarecomp::game_option_get(
+    int step = gbarecomp::cheat_option_get(
         pc == kExpStorePc ? kExpKey : kCoinKey, kNormalStep);
     if (step < 0 || step >= kStepCount) step = kNormalStep;
     if (!out_value || width != 4u || step == kNormalStep) return 0;
@@ -685,7 +690,7 @@ int cheat_drop_branch(std::uint32_t pc, std::uint32_t original,
                       std::uint32_t* out_decision) {
     using namespace gsr::cheat_menu;
     if (pc != kDropBranchPc) return -1;
-    int step = gbarecomp::game_option_get(kDropKey, kNormalStep);
+    int step = gbarecomp::cheat_option_get(kDropKey, kNormalStep);
     if (step < 0 || step >= kDropStepCount) step = kNormalStep;
     if (step == kNormalStep) return 0;
     const std::int64_t threshold =

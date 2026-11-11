@@ -101,8 +101,8 @@ void capture_layers(FieldScene* s, const std::uint8_t* io) {
 // for the two frames the menu takes to open, while no provider vouched for
 // it (TBS gpu_rewind_0020 frames 13-14, 0024 frames 116-117, 2026-10-14);
 // Extra Wide's top margin reaches raw 145..159 (y -111..-97), so that band
-// gets the same test. The
-// same sprite a frame earlier says which reading is meant. Known by its tile,
+// gets the same test. The same sprite a frame earlier says which
+// reading is meant. Known by its tile,
 // shape, size, colour depth and palette: slots are re-sorted every frame and
 // the affine bits toggle while a battler runs (same capture), but each keeps
 // its tiles.

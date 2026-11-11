@@ -2079,8 +2079,9 @@ extern "C" uint32_t runtime_irq_log_copy_recent(RuntimeIrqLogEntry* out,
 // SWI 5; it runs once per main-loop iteration, so its sequence IS the main-loop
 // cadence. We capture cycle + caller(ret) + r0/r1 args + the BIOS IntrWait
 // flags at 0x03007FF8, so a recomp-vs-interp SWI-5 sequence diff shows an extra
-// main-loop iteration and the IntrWait flag state that produced it. The route column records whether the call used
-// the recompiled BIOS (LLE), was serviced by HLE, or fell through HLE to LLE.
+// main-loop iteration and the IntrWait flag state that produced it. The route
+// column records whether the call used the recompiled BIOS (LLE), was serviced
+// by HLE, or fell through HLE to LLE.
 // Armed by env GBARECOMP_SWI_LOG; CSV on exit.
 namespace {
 constexpr uint32_t kSwiLogSize = 1u << 17;
@@ -2309,7 +2310,7 @@ constexpr uint32_t kBiosRegionEnd = 0x00004000u;
 // unarmed run is BYTE-IDENTICAL to one built without this feature at all.
 //
 // A direct BL uses the host C stack and never goes through runtime_dispatch
-// (see runtime_call_push_return's doc comment above), so hooking
+// (see runtime_call_push_return below), so hooking
 // runtime_dispatch alone would miss most function executions — the vast
 // majority of calls in a real run are direct. The function-entry hook fires
 // for EVERY generated function body regardless of how it was reached, which
@@ -3143,8 +3144,8 @@ extern "C" void runtime_swi(uint32_t swi_imm) {
     // 2S+1N). Ticked here — AFTER CPSR.I is masked above — so a VBlank/
     // timer IRQ that becomes pending during these 3 cycles stays masked
     // until the handler re-enables it, matching the interpreter oracle
-    // (enter_swi sets I=1, then pump_step(3), then the next-boundary IRQ
-    // check sees I=1). The recompiled SWI codegen does not tick this op.
+    // (enter_swi sets I=1, the 3 cycles are then pumped, and the
+    // next-boundary IRQ check sees I=1). The recompiled SWI codegen does not tick this op.
     runtime_tick(3u);
 
     runtime_dispatch(0x00000008u);

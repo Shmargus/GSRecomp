@@ -31,7 +31,7 @@ inline std::optional<SaveLanguageImport> pending_save_language_import(
         return std::nullopt;
     // Use the same battery-save file the English game uses, not a savestate.
     // Loading the copy in the other language invokes the game's own sanctuary
-    // recovery (confirmed by Jimmy in both games); no save bytes are patched.
+    // recovery (checked in both games); no save bytes are patched.
     return SaveLanguageImport{source, target.save, declined, game, language};
 }
 

@@ -549,7 +549,7 @@ bool make_background(SDL_Renderer* renderer, Texture& background) {
     return true;
 }
 
-// The flags under The Broken Seal's cartridge, one button per language: which
+// The language flags under each cartridge, one button per language: which
 // language ROM the launcher expects (collection_storage.h rom_language). USA/Europe is the US and UK
 // flags split on the diagonal; Spain, Italy, France and Germany their own. Drawn here, 4x4 samples a
 // pixel, on a 300x200 design grid.
@@ -808,7 +808,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
     if (preview.empty() && gsr_launcher::read_text(fullscreen_file) == "1\n")
         set_launcher_fullscreen(true);
     Box cartridge_boxes[2]{};
-    // The Broken Seal's language flags (make_flag); clicking one picks it.
+    // Each game's language flags (make_flag); clicking one picks it.
     int rom_language[2] = {preview.empty() ? gsr_collection::rom_language(root,0) : 0,
                            preview.empty() ? gsr_collection::rom_language(root,1) : 0};
     Box flag_boxes[2][5]{};
@@ -1469,25 +1469,16 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
 #ifdef _WIN32
             ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "Game options");
             auto& preference = preferences[settings_game];
-            bool preferences_changed = ImGui::Checkbox("Enhanced Options", &preference.enhanced_options);
             ImGui::BeginDisabled(game.direct3d);
-            preferences_changed |= ImGui::Checkbox("Draw the field with the graphics card", &preference.gpu_field);
+            bool preferences_changed = ImGui::Checkbox("Draw the field with the graphics card", &preference.gpu_field);
             ImGui::BeginDisabled(!preference.gpu_field);
             preferences_changed |= ImGui::Checkbox("Graphics card only", &preference.gpu_field_only);
             ImGui::EndDisabled(); ImGui::EndDisabled();
             if (!preference.gpu_field) preference.gpu_field_only = false;
             preferences_changed |= ImGui::Checkbox("Copy session ID to clipboard", &preference.copy_session_id_to_clipboard);
-            bool build_changed = false;
-            if (settings_game == 1) {
-                build_changed = ImGui::Checkbox("Pre-built RAM code", &preference.prebuilt_ram_code);
-                ImGui::TextWrapped("Off skips about 90%% of the game-code compile: RAM code the game ran in "
-                                   "play sessions then compiles while playing, as in player releases. "
-                                   "Changing it needs a rebuild.");
-            }
-            if ((preferences_changed || build_changed) && preview.empty() &&
+            if (preferences_changed && preview.empty() &&
                 !gsr_session::save_launcher_audio_settings(gsr_session::game_root(root, settings_game), preference))
                 error = "Could not save game options.";
-            else if (build_changed && preview.empty() && building_choice < 0) refresh_builds();
             ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
 #endif
             ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "Developer diagnostics");

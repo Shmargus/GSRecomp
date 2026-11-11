@@ -14,7 +14,7 @@
 namespace gbarecomp {
 
 // Per-game built-in defaults baked into a game runner at compile time.
-// Lets a standalone release .exe (e.g. MinishCapRecomp.exe) ship
+// Lets a standalone release .exe ship
 // without a sibling game.toml — the runtime falls back to these
 // values when no TOML is found and no CLI override is supplied.
 //
@@ -120,13 +120,12 @@ struct RunOptions {
     // because the translated code has those built in.
     void (*rom_patch)(std::vector<std::uint8_t>* rom) = nullptr;
 
-    // ---- pre-boot launcher identity (launcher_seam.h, RECOMP_LAUNCHER builds) --
-    // Consumed by the recomp-ui launcher seam a game's main() runs BEFORE
-    // run_game(); the runtime itself never reads these. All optional.
+    // ---- launcher-facing options, all optional ----
+    // Games set these for the launcher. The engine itself reads only the
+    // launcher_aspect_* vocabulary below (the old launcher seam that consumed
+    // the rest is gone).
     const char* launcher_region = nullptr;      // display region, e.g. "USA"
-    // The game's default game.toml path (GBARECOMP_DEFAULT_GAME_CONFIG). The
-    // seam reads its [rom].path / [bios].path to PREFILL the launcher when no
-    // rom.cfg / bios.cfg sidecar exists yet, so a first run isn't blank.
+    // The game's default game.toml path.
     const char* launcher_game_config = nullptr;
     const char* launcher_save_path = nullptr;   // explicit save file (game.toml
                                                 // [save].path); null => <rom>.sav
@@ -159,8 +158,8 @@ struct RunOptions {
     // (EXPERIMENTAL-tagged). labels/view_widths/view_heights are parallel
     // arrays of num_aspects entries; index 0 must be the native 240x160 view.
     // The committed index maps to --view-width/--view-height at that index.
-    // e.g. Mega Man Zero: {"3:2 (Native)","9:5 (288 px)","12:5 (384 px)",
-    // "6:2 (480 px)"} / {240, 288, 384, 480}.
+    // e.g. {"3:2 (Native)","9:5 (288 px)","12:5 (384 px)","6:2 (480 px)"}
+    // with widths {240, 288, 384, 480}.
     const char* const*   launcher_aspect_labels = nullptr;
     const std::uint16_t* launcher_aspect_view_widths = nullptr;
     const std::uint16_t* launcher_aspect_view_heights = nullptr;

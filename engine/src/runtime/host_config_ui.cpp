@@ -1514,22 +1514,24 @@ void draw_bind_conflict(ConfigUiState* st) {
     ImGui::EndPopup();
 }
 
+// In Challenge Mode (cheats_blocked) every cheat shows its normal value,
+// unavailable; the player's own choices stay saved for other files.
 void draw_cheats_page(ConfigUiState* st) {
-    section("Battle cheats");
     const bool blocked = cheats_blocked();
+    if (blocked) caption("Not available in Challenge Mode.");
     if (blocked) ImGui::BeginDisabled();
-    if (setting_checkbox("Infinite HP", &st->infinite_hp)) st->cheats_changed = true;
-    if (setting_checkbox("Infinite PP", &st->infinite_pp)) st->cheats_changed = true;
-    if (blocked) ImGui::EndDisabled();
-    caption(blocked ? "Not available in Challenge Mode."
-                    : "Party HP and PP are restored as the game uses them.");
+    section("Battle cheats");
+    bool off = false;
+    if (setting_checkbox("Infinite HP", blocked ? &off : &st->infinite_hp)) st->cheats_changed = true;
+    if (setting_checkbox("Infinite PP", blocked ? &off : &st->infinite_pp)) st->cheats_changed = true;
+    caption("Party HP and PP are restored as the game uses them.");
     static const char* const steps[] = {
         "0x", "0.5x", "1x", "2x", "5x", "10x", "25x", "50x", "100x"};
     static const char* const drop_steps[] = {
         "0x", "0.5x", "1x", "2x", "5x", "10x"};
     auto reward_combo = [](const char* label, const char* key,
                           const char* const* labels, int count) {
-        int value = game_option_get(key, 2);
+        int value = cheat_option_get(key, 2);
         if (value < 0 || value >= count) value = 2;
             if (setting_combo(label, labels[value])) {
             for (int i = 0; i < count; ++i) {
@@ -1549,10 +1551,11 @@ void draw_cheats_page(ConfigUiState* st) {
         const GameOptionSwitch& s = g_game_switches[i];
         if (std::strcmp(s.key, walk_through_walls::kOptionKey) != 0) continue;
         section("Field cheats");
-        bool on = game_option_get(s.key, 0) != 0;
+        bool on = cheat_option_get(s.key, 0) != 0;
         if (setting_checkbox(s.label, &on)) game_option_set(s.key, on ? 1 : 0);
         caption(s.caption);
     }
+    if (blocked) ImGui::EndDisabled();
 }
 
 void draw_fps_overlay(const ConfigUiState* st) {

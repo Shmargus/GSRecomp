@@ -16,8 +16,8 @@
 // view (golden_sun_rain_spawn_offset, runner_main.cpp); the game alone put
 // its landings 128..383 rows below the camera top (F12 0053): a dry top. The
 // drops below the screen are the game's own (the upper-Y override at
-// 0x080948C8). A copy that would reach into
-// the console's window is left out whole, so no streak is cut at its edge.
+// 0x080948C8). A copy that would reach into the console's window is left out
+// whole, so no streak is cut at its edge.
 //
 // Recognised by artwork, not tile slot: the streak (16x32) and its four
 // splash frames (16x16) hash the same in 0050 (tiles 260, 268..280) and

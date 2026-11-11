@@ -53,7 +53,7 @@ void check(bool cond, const std::string& what) {
 // exercised, and so no immediate operand or memory offset coincidentally
 // equals a guest address (which would make the literal scan below ambiguous).
 //
-//   +0x00  e59f0010   ldr  r0, [pc, #16]     ; PC-relative literal pool read
+//   +0x00  e59f0010   ldr  r0, [pc, #16]     ; PC-relative read (pc+8+16 = +0x18)
 //   +0x04  e1a0100f   mov  r1, pc            ; PC in operand position
 //   +0x08  e5801000   str  r1, [r0]          ; trace_event carries the PC
 //   +0x0c  eb000004   bl   +0x24             ; link register + return check

@@ -289,7 +289,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
     constexpr std::size_t kMaxInstrs = 4096;
     std::size_t count = 0;
 
-    // Fix (long-branch BL): the guest PC that immediately follows a DIRECT
+    // Long-branch BL: the guest PC that immediately follows a DIRECT
     // call (BL) we just decoded, set only when that continuation lands
     // inside a declared data_range. A *returning* call cannot have a
     // literal pool as its return address, so a data_range collision at
@@ -2117,7 +2117,7 @@ void FunctionFinder::run(std::size_t max_functions) {
         // addresses (42x duplication, a 205 MB translation unit from 22 KB of
         // guest code).
         //
-        // Fix: the lowest unhosted candidate of a contiguous run IS the
+        // The lowest unhosted candidate of a contiguous run IS the
         // function the range describes. Promote it to the host and roll the
         // rest of the run into it. Same emitted instruction stream — the
         // interior entries become labels reached through the host's resume

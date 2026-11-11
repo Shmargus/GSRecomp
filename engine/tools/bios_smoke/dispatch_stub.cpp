@@ -6,8 +6,9 @@
 //   extern "C" const DispatchEntry kDispatchTable[];
 //   extern "C" const unsigned kDispatchTableLen;
 // Those symbols are normally supplied by a game's generated
-// dispatch_table.cpp; the engine alone has none. Provide an empty table so the linker is satisfied. kLen=0 means
-// any (never-taken) dispatch would fall through to runtime_dispatch_miss.
+// dispatch_table.cpp; the engine alone has none. Provide a table with only a
+// sentinel entry so the linker is satisfied. kDispatchTableLen=0 means any
+// (never-taken) dispatch would fall through to runtime_dispatch_miss.
 //
 // kBiosDispatchTable is NOT defined here — gbarecomp_runtime already
 // provides it (bios_dispatch_table.cpp or no_bios_dispatch_table.cpp).

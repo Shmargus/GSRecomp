@@ -3,8 +3,8 @@
 // Rewrites fixed multi-call sequences in emitted recompiled*.cpp text into
 // one call to a combined runtime helper whose body is that same sequence
 // (runtime_arm.h, "Combined per-instruction helpers"). Same behaviour, about
-// half the machine code. A line-for-line port of the game repository's
-// tools/slim_corpus.py, which it must match byte for byte.
+// half the machine code. A line-for-line port of the collection's
+// scripts/slim_corpus.py, which it must match byte for byte.
 #pragma once
 
 #include <map>

@@ -1015,10 +1015,9 @@ Interpreter::Result Interpreter::step(CPUState& cpu, Bus& bus, const Instr& i,
             }
 
             // CPSR write. Privileged fields (bits 7..0: I, F, T, mode)
-            // are writable only in privileged modes. User mode can
-            // only touch the flags byte. We're permissive — only
-            // applying the masked bits — but in User mode we
-            // additionally zero out the control byte from the mask.
+            // are writable only in privileged modes. Only the masked
+            // bytes are applied, and in User mode the mask is cut down
+            // to the flags byte.
             bool privileged = (static_cast<Mode>(cpu.cpsr.mode) !=
                                Mode::User);
             if (!privileged) byte_mask &= 0xFF000000u;

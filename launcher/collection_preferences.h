@@ -9,7 +9,6 @@ namespace fs = std::filesystem;
 struct LauncherAudioSettings {
     bool gs_save_import = true;
     bool copy_session_id_to_clipboard = false;
-    bool enhanced_options = false;
     bool gpu_field = false;
     // Draw ONLY with the graphics card: no fallback to the console
     // compositor, which is also then not run at all. Meaningless with
@@ -18,10 +17,6 @@ struct LauncherAudioSettings {
     // Skip the ROM check: take a ROM that is not the supported one
     // (engine any_rom.h). Off by default.
     bool any_rom = false;
-    // The Lost Age developer builds: compile the harvested RAM code ahead
-    // of time (scripts/build_game.ps1 reads this key). Off by default: it
-    // is left out, as player releases do, for a much shorter build.
-    bool prebuilt_ram_code = false;
 };
 
 inline bool parse_bool_setting(const std::string& value) {
@@ -60,8 +55,6 @@ inline LauncherAudioSettings load_launcher_audio_settings(const fs::path& root) 
             trim_setting(line.substr(equals + 1)));
         if (in_launcher && key == "CopySessionIdToClipboard") {
             settings.copy_session_id_to_clipboard = value;
-        } else if (in_launcher && key == "EnhancedOptions") {
-            settings.enhanced_options = value;
         } else if (in_launcher && key == "GpuFieldRenderer") {
             settings.gpu_field = value;
         } else if (in_launcher && key == "GpuFieldOnly") {
@@ -70,8 +63,6 @@ inline LauncherAudioSettings load_launcher_audio_settings(const fs::path& root) 
             settings.gs_save_import = value;
         } else if (in_launcher && key == "AnyRom") {
             settings.any_rom = value;
-        } else if (in_launcher && key == "PrebuiltRamCode") {
-            settings.prebuilt_ram_code = value;
         }
     }
     if (!settings.gpu_field) settings.gpu_field_only = false;
@@ -101,6 +92,9 @@ inline bool save_launcher_audio_settings(const fs::path& root,
         const std::string key = trim_setting(trimmed.substr(0, equals));
         if (section == "[Audio]" &&
             (key == "NativeMp2kAudio" || key == "TurboAudioDecoupled")) continue;
+        // EnhancedOptions and PrebuiltRamCode are retired settings (Enhanced
+        // Options is always on; RAM code always compiles while playing):
+        // dropped from older files here.
         if (section == "[Launcher]" &&
             (key == "CopySessionIdToClipboard" || key == "EnhancedOptions" ||
              key == "GpuFieldRenderer" || key == "GpuFieldOnly" ||
@@ -112,12 +106,10 @@ inline bool save_launcher_audio_settings(const fs::path& root,
 
     std::vector<std::string> managed = {
         "CopySessionIdToClipboard=" + std::string(settings.copy_session_id_to_clipboard ? "true" : "false"),
-        "EnhancedOptions=" + std::string(settings.enhanced_options ? "true" : "false"),
         "GpuFieldRenderer=" + std::string(settings.gpu_field ? "true" : "false"),
         "GpuFieldOnly=" + std::string(settings.gpu_field_only ? "true" : "false"),
         "GoldenSunSaveImport=" + std::string(settings.gs_save_import ? "true" : "false"),
-        "AnyRom=" + std::string(settings.any_rom ? "true" : "false"),
-        "PrebuiltRamCode=" + std::string(settings.prebuilt_ram_code ? "true" : "false")};
+        "AnyRom=" + std::string(settings.any_rom ? "true" : "false")};
     std::size_t insertion = kept.size();
     bool found_launcher = false;
     for (std::size_t i = 0; i < kept.size(); ++i) {

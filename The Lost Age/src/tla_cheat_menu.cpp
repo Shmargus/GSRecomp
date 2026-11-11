@@ -42,7 +42,7 @@ int reward_store(uint32_t pc, uint32_t addr, uint32_t requested, uint32_t width,
         return g_next_write_override
                    ? g_next_write_override(pc, addr, requested, width, out_value)
                    : 0;
-    int step = gbarecomp::game_option_get(
+    int step = gbarecomp::cheat_option_get(
         pc == kExpStorePc ? gbarecomp::kOptionExpMultiplier : gbarecomp::kOptionCoinMultiplier,
         kNormalStep);
     if (step < 0 || step >= kStepCount) step = kNormalStep;
@@ -60,7 +60,7 @@ int reward_store(uint32_t pc, uint32_t addr, uint32_t requested, uint32_t width,
 int drop_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
     if (pc != kDropBranchPc)
         return g_next_branch ? g_next_branch(pc, original, out_decision) : 0;
-    int step = gbarecomp::game_option_get(gbarecomp::kOptionDropMultiplier, kNormalStep);
+    int step = gbarecomp::cheat_option_get(gbarecomp::kOptionDropMultiplier, kNormalStep);
     if (step < 0 || step >= kDropStepCount) step = kNormalStep;
     if (step == kNormalStep) return 0;
     const int64_t threshold =

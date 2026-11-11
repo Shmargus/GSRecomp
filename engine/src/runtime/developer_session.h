@@ -16,6 +16,10 @@
 
 namespace gbarecomp {
 
+// runtime_bus_bridge.h: a cheat option, at its normal value while a game
+// rule (Challenge Mode) blocks cheats.
+int cheat_option_get(const char* key, int normal);
+
 inline constexpr const char* kDeveloperSessionEnv = "GSR_DEVELOPER_SESSION";
 
 inline bool developer_session() {
@@ -38,7 +42,7 @@ inline constexpr const char* kSwitchCaption =
     "Only developer builds show it.";
 
 inline bool enabled() {
-    return developer_session() && game_option_get(kOptionKey, 0) != 0;
+    return developer_session() && cheat_option_get(kOptionKey, 0) != 0;
 }
 
 // The decision for either `beq` that guards a game's debug path (the debug

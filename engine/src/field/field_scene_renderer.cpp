@@ -103,7 +103,7 @@ std::uint16_t ewram_u16(const std::uint8_t* ewram, std::size_t bytes,
 // frame 1451, reported 2026-09-17): the room source then answered with
 // whatever was in the tables and drew yellow stripes over a screen the
 // hardware draws black -- 10,038 of 38,400 pixels, INSIDE the authentic
-// 240x160, not only in the margins. The map number at kMapIdAddr is the
+// 240x160, not only in the margins. The map number (profile map_id_addr) is the
 // missing discriminator; upload_room checks it.
 bool room_rect_is_room(std::uint16_t min_x, std::uint16_t max_x,
                        std::uint16_t min_y, std::uint16_t max_y) {
@@ -163,7 +163,7 @@ const char* kBackgroundFragment =
     "uniform int u_world_loaded;\n"
     "uniform int u_layer;\n"            // 0-3: this background's window bit
     "uniform int u_layer_striped;\n"    // 1: enable bit varies line by line
-    "uniform int u_rest_dy;\n"          // rows from now to the rest position
+    "uniform int u_rest_dy;\n"          // rows from its current region to the rest position
     "uniform int u_compare_top;\n"      // 0 = first pass, 1 = second pass
     "uniform int u_use_room;\n"         // 1: source this layer from the room
     "uniform int u_room_grid_wrap;\n"
@@ -210,7 +210,7 @@ const char* kBackgroundFragment =
     // because the game clips every spark to a canvas as wide as the console
     // screen, and that limit cannot be widened in place (effect_sources.h).
     // u_use_effect is 0 on every frame we have not verified, and the path
-    // below is then exactly what it was.
+    // below is then unchanged.
     "uniform usampler2D u_effect;\n"
     "uniform int u_effect_extra;\n"   // our sparks fill where the game drew nothing
     "uniform vec2 u_effect_size;\n"
@@ -333,11 +333,14 @@ const char* kBackgroundFragment =
     "\n"
     // The same question for a 256x256 affine background (one tile byte per
     // entry, 8-bit pixels), at a map pixel that wraps.
-    "bool affine_lit(int mx, int my, int screen_base, int char_base) {\n"
+    "uint affine_index(int mx, int my, int screen_base, int char_base) {\n"
     "  mx &= 255;\n"
     "  my &= 255;\n"
     "  int tile = int(vram_byte(screen_base + (my >> 3) * 32 + (mx >> 3)));\n"
-    "  return vram_byte(char_base + tile * 64 + (my & 7) * 8 + (mx & 7)) != 0u;\n"
+    "  return vram_byte(char_base + tile * 64 + (my & 7) * 8 + (mx & 7));\n"
+    "}\n"
+    "bool affine_lit(int mx, int my, int screen_base, int char_base) {\n"
+    "  return affine_index(mx, my, screen_base, char_base) != 0u;\n"
     "}\n"
     "\n"
     // This layer's own HOFS/VOFS, as THIS row's copy of the registers held
@@ -345,7 +348,7 @@ const char* kBackgroundFragment =
     // lets a frame that rewrites scroll mid-frame draw correctly. A row the
     // game never captured its own copy of falls back to the frame's
     // end-of-frame registers (see field_scene.h, `io_bytes`), which is
-    // exactly the single value every row used before this existed.
+    // the single value every row then reads.
     "uint row_u16(int row, int offset) {\n"
     "  ivec2 lo = ivec2(offset, row);\n"
     "  ivec2 hi = ivec2(offset + 1, row);\n"
@@ -391,8 +394,8 @@ const char* kBackgroundFragment =
     "  ivec2 console_px = ivec2(floor(v_screen + u_camera));\n"
     // Rows outside the console's own 0..159 have no real per-row register
     // state (there was no scanline there); the nearest real row's own
-    // registers extend into that margin, same as the frame-level uniform
-    // this replaced did for the whole picture.
+    // registers extend into that margin, as a frame-level value would
+    // do for the whole picture.
     "  int reg_row = clamp(console_px.y, 0, 159);\n"
     // This layer's own control register, as THIS row's copy of it held it,
     // never the frame's. Golden Sun rewrites BGxCNT mid-frame: on the live
@@ -431,7 +434,7 @@ const char* kBackgroundFragment =
     // render_affine_bg reads one byte per pixel unconditionally.
     "  int bg_eight_bit = (u_affine != 0 || (bgcnt & 128u) != 0u) ? 1 : 0;\n"
     "  int bg_wraps = ((bgcnt & 8192u) != 0u) ? 1 : 0;\n"
-    // The same sort key the C++ side used to compute once per frame:
+    // The sort key:
     // priority first, then background index, smaller wins (GL_LESS).
     "  int bg_key = int(bgcnt & 3u) * 256 + 128 + u_layer;\n"
     // ...and this row's own DISPCNT enable bit. The draw is issued whenever
@@ -440,7 +443,7 @@ const char* kBackgroundFragment =
     // row -- the same read the reference makes, which takes each row's
     // DISPCNT from that row's own registers.
     // A layer the game stripes line by line (draw_background's
-    // layer_striped) carries the stripes into the margins: rows outside
+    // layer_striped in draw()) carries the stripes into the margins: rows outside
     // 0..159 take the enable bit of row (y mod 160).
     "  int enable_row = reg_row;\n"
     "  if (u_layer_striped != 0 && (console_px.y < 0 || console_px.y > 159))\n"
@@ -594,11 +597,10 @@ const char* kBackgroundFragment =
     //     period, wrapping into the margins off the wrong edges, which is
     //     what that exclusion had been written to prevent.
     //
-    // So it reaches the margin, but is sampled with its source column HELD at
-    // the console's own edge instead of wrapped (see clamp_effect below).
-    // Nothing out there is invented and nothing repeats: the boundary column
-    // extends outward, so the effect stretches off the side of the picture
-    // rather than being cut off square or starting over.
+    // So it reaches the margin through the map's own unseen strip, shared
+    // between the two margins, and our captured sparks (see below). Nothing
+    // out there is invented, nothing repeats and no edge column is held:
+    // holding one stretched particles into streaks (2026-11-08).
     "      uint bldcnt = row_u16(reg_row, 0x50);\n"
     // Priority 1, or a layer the CPU has found showing the spell canvas:
     // TLA's critical-hit sparkles are on BG1 at priority 0 (BG1CNT 0x1F80,
@@ -632,7 +634,7 @@ const char* kBackgroundFragment =
     // there is black -- see the discard below.
     "  bool room_covers = false;\n"
     "  ivec2 room_source = ivec2(-1);\n"
-    // True when the GAMEs own canvas has no pixel for this position: the
+    // True when the game's own canvas has no pixel for this position: the
     // affine sample fell outside its map. That is precisely where a spark
     // it clipped belongs, and the only place we add one.
     "  bool beyond_game_canvas = false;\n"
@@ -789,10 +791,12 @@ const char* kBackgroundFragment =
     // layer starts over. Same rule as the text-layer effect strip below:
     // each margin continues into the 16 columns the console never shows
     // (240..255), shared out by what runs into them from each edge, and
-    // never past them. A row lit across the whole strip (Ray's full-screen
-    // tint) holds the strip's far column outward on BOTH sides, so the tint
-    // reaches the edges without the bolts coming round again (FACTS.md,
-    // 2026-09-25).
+    // never past them. Past its share a margin draws nothing: a margin
+    // pixel is never a copy of an edge column, which stretched particles
+    // into streaks (Soothing Star, 2026-11-08). The one continuation is a
+    // FLAT row: the whole strip one colour (Ray's full-screen tint) carries
+    // that colour to the edges, since a uniform colour has nothing to
+    // stretch (FACTS.md, 2026-09-25 and 2026-11-08).
     "    if (hold_edge && outside_native && bg_wraps != 0 &&\n"
     "        u_effect_wrap_canvas == 0 &&\n"
     "        bg_size_code == 1 && pa == 256 && pc == 0) {\n"
@@ -813,15 +817,19 @@ const char* kBackgroundFragment =
     "      bool right = aff_px.x >= 240;\n"
     "      int step = right ? aff_px.x - 240 : -1 - aff_px.x;\n"
     "      if (run_right == 16) {\n"
-    "        step = min(step, 15);\n"
+    "        if (step > 15) {\n"
+    "          uint tint = affine_index(base_x + 240, row_y, bg_screen_base,\n"
+    "                                   bg_char_base);\n"
+    "          for (int i = 1; i < 16; ++i)\n"
+    "            if (affine_index(base_x + 240 + i, row_y, bg_screen_base,\n"
+    "                             bg_char_base) != tint) discard;\n"
+    "          step = 15;\n"
+    "        }\n"
     "      } else {\n"
     "        int gap = 16 - run_right - run_left;\n"
     "        int share = right ? run_right + gap / 2\n"
     "                          : 16 - (run_right + gap / 2);\n"
-    "        if (step >= share) {\n"
-    "          if (gap > 0 || share <= 0) discard;\n"
-    "          step = share - 1;\n"
-    "        }\n"
+    "        if (step >= share) discard;\n"
     "      }\n"
     "      tex_x = base_x + (right ? 240 + step : -1 - step);\n"
     "    }\n"
@@ -952,9 +960,19 @@ const char* kBackgroundFragment =
     // the strip did the same to a spark 9 pixels wide (gpu_rewind_0020,
     // frame 102). FACTS.md, 2026-09-24. A 512-wide map's strip (272) is
     // wider than both margins, so only its first 16 columns are examined.
+    //
+    // NO MARGIN PIXEL IS A COPY OF AN EDGE (2026-11-08). Past its share a
+    // margin draws nothing; holding the share's last column stretched
+    // particles into streaks. Above and below, the same holds for rows:
+    // each vertical margin reads the map's own unseen rows (half the
+    // hidden strip each way), never row 0 or 159 repeated.
     "    ivec2 src_px = console_px;\n"
     "    if (hold_edge && outside_native && !text_canvas) {\n"
-    "      src_px.y = clamp(src_px.y, 0, 159);\n"
+    "      if (src_px.y < 0 || src_px.y > 159) {\n"
+    "        int vstrip = (((bg_size_code & 2) != 0) ? 512 : 256) - 160;\n"
+    "        int vstep = src_px.y < 0 ? -1 - src_px.y : src_px.y - 160;\n"
+    "        if (vstep >= vstrip / 2) discard;\n"
+    "      }\n"
     "      int strip = (((bg_size_code & 1) != 0) ? 512 : 256) - 240;\n"
     "      ivec2 scroll = ivec2(int(hofs_raw) & 0x1FF, int(vofs_raw) & 0x1FF);\n"
     "      int run_right = 0;\n"
@@ -975,10 +993,7 @@ const char* kBackgroundFragment =
     "        if (strip == 16) {\n"
     "          int gap = strip - run_right - run_left;\n"
     "          int share = right ? run_right + gap / 2 : strip - (run_right + gap / 2);\n"
-    "          if (step >= share) {\n"
-    "            if (gap > 0 || share <= 0) discard;\n"
-    "            step = share - 1;\n"
-    "          }\n"
+    "          if (step >= share) discard;\n"
     "        } else if (step >= strip / 2) {\n"
     "          discard;\n"
     "        }\n"
@@ -1086,9 +1101,12 @@ const char* kBackgroundFragment =
     "          room_scroll += ivec2(u_split_offset);\n"
     "        ivec2 source = console_px + room_scroll;\n"
     // The crow's nest sky (gpu_rewind_0093): above the sky art its region
-    // holds one filler tile (the brown band); carry the art's top row up.
-    "        if (u_hold_top != 0 && !continue_bg3_sky)\n"
-    "          source.y = max(source.y, u_hold_floor);\n"
+    // holds one filler tile (the brown band). Nothing is drawn there:
+    // carrying the art's top row up stretched it into streaks, and no
+    // margin pixel is a copy of an edge (2026-11-08).
+    "        if (u_hold_top != 0 && !continue_bg3_sky &&\n"
+    "            source.y < u_hold_floor)\n"
+    "          drop_pixel = true;\n"
     // An auto-scrolling layer wraps inside its own region, as the game
     // streams it (the sandstorm: 256 x 256 at x 1024, gpu_rewind_0097).
     "        if (u_room_wrap.z > 0.0) {\n"
@@ -1105,7 +1123,7 @@ const char* kBackgroundFragment =
     // A game can expose a measured horizontal scenery repeat to fill the
     // margins where a slower layer runs out before the room does. Any width
     // (TLA map 248's backdrop is 480): a floored modulo, since GLSL leaves
-    // % of a negative undefined; for a power of two it equals the old mask.
+    // % of a negative undefined; for a power of two it equals a mask.
     "        if (!vram_margin && u_margin_repeat.x > 0.0 &&\n"
     "            (source.x < 0 || u_margin_repeat.y == 0.0)) {\n"
     "          int repeat_x = int(u_margin_repeat.x);\n"
@@ -1261,7 +1279,7 @@ const char* kBackgroundFragment =
     "\n"
     "  uint c = texelFetch(u_palette, ivec2(u_palette_half + index,\n"
     "                                        room_colours ? 1 : world_colour_row), 0).r;\n"
-    // Priority is a per-row value now, so the depth the two-layer peel sorts
+    // Priority is a per-row value, so the depth the two-layer peel sorts
     // by cannot come from the quad any more. This reproduces exactly what the
     // vertex path produced for a quad of depth key/1024: ortho() leaves clip
     // z equal to that value with w = 1, and the default depth range maps
@@ -1749,7 +1767,7 @@ const char* kWindowFragment =
 // that INCREASES with depth, because the depth test that makes the two-layer
 // peel work relies on GL's default GL_LESS: a smaller stored depth wins,
 // which must mean a smaller sort key. Depth is unused elsewhere in this file
-// (always the vertex default of 0), so this row was never exercised before.
+// (always the vertex default of 0), so this row is not exercised elsewhere.
 void ortho(float* m, float width, float height) {
     std::memset(m, 0, sizeof(float) * 16);
     m[0]  =  2.0f / width;
@@ -2064,8 +2082,8 @@ int FieldSceneRenderer::room_layer_agreement(const FieldScene& scene, int bg,
             : rec.pos_x + (((scroll_x - rec.pos_x + 512) & 1023) - 512);
         const int room_sy = !from_record ? scroll_y
             : rec.pos_y + (((scroll_y - rec.pos_y + 512) & 1023) - 512);
-        // The Lost Age: an auto-scrolling layer wraps inside its region, as
-        // the shader's u_room_wrap: Madra's rays (BG1, region y 1024, scroll y
+        // The Lost Age: an auto-scrolling layer wraps inside its region, as in
+        // the shader (u_room_wrap). Madra's rays (BG1, region y 1024, scroll y
         // 951) read the grid above their region on the top 73 rows and agreed
         // 55%, so the margins dropped them on such frames (F12 0104).
         const bool wrap = prof().agreement_autoscroll_wrap;
@@ -2102,7 +2120,7 @@ int FieldSceneRenderer::room_layer_agreement(const FieldScene& scene, int bg,
 // its heat-haze rows hand BG1 and BG3 each other's +1024 (logs/
 // gpu_frame_0105/0107.bin, 2026-09-30), so the scroll's own region matched
 // 0% of the console's tiles. The game's own record of the layer's position
-// (kLayerRecordAddr, region included) plus the row's small offset from it
+// (profile layer_record_addr, region included) plus the row's small offset from it
 // (the haze, -1 as 0xFFFF at a left edge: gpu_rewind_0055) matches. Until
 // 2026-10-01 this searched four fixed 1024-px regions around the camera
 // instead, which cannot express regions such as the ship's 960. Try the
@@ -2417,9 +2435,14 @@ bool FieldSceneRenderer::upload_effect_sparks(const EffectSpark* sparks,
     effect_hold_right_ = content + 1;
     for (int y = 0; y < height && (hold_left || hold_right); ++y) {
         std::uint8_t* row = effect_pixels_.pixels.data() + std::size_t(y) * width;
+        // FLAT runs only: the run counts pixels equal to the edge pixel, so
+        // only a single-colour band continues. Holding any lit edge pixel
+        // stretched particles across the margin (Soothing Star, 2026-11-08);
+        // a uniform colour has nothing to stretch.
+        const std::uint8_t first = row[1], last = row[content];
         int run_left = 0, run_right = 0;
-        while (run_left < content && row[1 + run_left] != 0) ++run_left;
-        while (run_right < content && row[content - run_right] != 0) ++run_right;
+        while (first != 0 && run_left < content && row[1 + run_left] == first) ++run_left;
+        while (last != 0 && run_right < content && row[content - run_right] == last) ++run_right;
         if (hold_left && run_left * 2 >= content) row[0] = row[1];
         if (hold_right && run_right * 2 >= content) row[content + 1] = row[content];
     }
@@ -3363,7 +3386,8 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
     // margin actually opens on a given row is decided in the shader from that
     // row's own registers.
     //
-    // A battle's arena rides BG1 or BG2 (battle_view.h). Anywhere else, a rotated or scaled
+    // A battle's arena rides BG1 or BG2 (battle_view.h).
+    // Anywhere else, a rotated or scaled
     // background is the overworld's own map: its transform is defined for
     // every column, so widening it simply evaluates the same walk further out
     // and shows more world, which is why the world map was coming out
@@ -3485,7 +3509,7 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
 
     // WIN0/WIN1/object-window setup for the window pass. The rectangles,
     // WININ/WINOUT and the window-enable bits themselves are read per row
-    // from u_row_io inside the shader now (see kWindowFragment), so only the
+    // from u_row_io inside the shader (see kWindowFragment), so only the
     // object-window mask and the camera are set here.
     surface_->set_uniform_mat4(window_, "u_transform", transform);
     surface_->set_uniform_int(window_, "u_obj_window_mask", 0);
@@ -3734,12 +3758,12 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         static const SceneMarginLayer kNoMargin;
         const SceneMarginLayer& margin = margins_ ? margins_->layers[bg] : kNoMargin;
         // Only the quad's own depth, which gl_FragDepth overrides per
-        // fragment now; kept so the draw still carries a sane value.
+        // fragment; kept so the draw still carries a sane value.
         const int key = L.priority * 256 + 128 + bg;
         surface_->set_uniform_int(background_, "u_layer", bg);
         surface_->set_uniform_int(background_, "u_layer_striped",
                                   layer_striped[bg] ? 1 : 0);
-        // Rows from the layer's region now to its rest region (upload_room;
+        // Rows from the layer's region to its rest region (upload_room;
         // at most 32, a larger move resets the rest position there). Field
         // rooms only, and not a wobble under 4 rows: over the capture corpus
         // the rule then fires only on Altin's drain (map 79), not on map
@@ -4329,7 +4353,7 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
     surface_->set_uniform_int(resolve_, "u_top", 0);
     surface_->set_uniform_int(resolve_, "u_second", 1);
     surface_->set_uniform_int(resolve_, "u_window", 2);
-    // The blend registers are read per row inside the shader now (see
+    // The blend registers are read per row inside the shader (see
     // kResolveFragment), so nothing about the colour effect is set here.
     surface_->set_uniform_int(resolve_, "u_row_io", 3);
     surface_->set_uniform_vec2(resolve_, "u_camera", camera_x, camera_y);

@@ -43,6 +43,13 @@
 // leaves message 0xD (revive on the living) at [0x030000DC] + 0x25E and
 // returns -1. Djinn grant 0x080B0AB8 hands (id, element, index) to 0x080B0B78
 // (call 0x080B0B50), keeping the id in r9; counts at record +0x118.
+// Djinn menu give check 0x0810498C(from slot, to slot), only caller
+// 0x0810495E in the target list 0x08104928: totals from 0x081049C8 (menu
+// [0x030000DC] +0x215 count, +0x204 u16 ids; bits 0..19 of +0xF8 | +0x108
+// per element, as The Broken Seal), one moved, returns 1 when the
+// receiver's new total is at most the giver's + 1 (only the two compared,
+// unlike The Broken Seal's every pair). Byte-identical in all five ROMs
+// (8 November 2026).
 //
 // Random Psynergy. The rebuild 0x080AF4E4(id) (only from the class update
 // 0x080B0298) has The Broken Seal's rules: class table 0x080C15F4 + class *
@@ -70,6 +77,7 @@
 #include "../../shared_game/random_psynergy.h"
 #include "../../shared_game/random_weapons.h"
 #include "../../shared_game/run_code.h"
+#include "../../shared_game/code_box.h"
 #include "../../shared_game/run_sheet.h"
 #include "../../shared_game/new_game_flow.h"
 #include "tla_treasure_randomizer.h"
@@ -189,17 +197,21 @@ unsigned long long g_row_since = 0;
 std::uint16_t g_keys_down = 0;   // pressed now (KEYINPUT inverted)
 std::uint16_t g_keys_held = 0;   // seen last frame
 bool g_levels_pending = false, g_random_pending = false, g_weapons_pending = false;
+bool g_skip_opening_pending = false;
 // The questions open before the Golden Sun transfer question, after naming,
 // so a fresh-only choice can refuse the import. Their answers wait here until
 // the usual place (the hold below) applies them.
 bool g_early = false, g_chosen = false;
 gsr::new_game::Result g_chosen_result{};
 
-// The naming loop (FACTS "New Game onboarding"): the title overlay names
-// heroes 0..r7-1 with 0x080382F8(index); r7 becomes 4 when the overlay
-// halfword 0x0200A4F8 (Spain 0x0200A4EC, Italy/France/Germany 0x0200A4F0)
-// is set, as the title's own button code does. Set when Felix is named; the
-// question comes before the second; No answers the rest at once.
+// The naming loops (FACTS "New Game onboarding"): the title overlay names
+// heroes with 0x080382F8(index) in two loops, Felix's party 4..r7-1 before
+// the transfer question (0x0200847C; r7 5, becoming 8) and, without a
+// transfer, Isaac's 0..r7-1 after it (0x02008578; r7 1, becoming 4). Both
+// grow when the overlay halfword 0x0200A4F8 (Spain 0x0200A4EC,
+// Italy/France/Germany 0x0200A4F0) is set, as the title's own button code
+// does. Set when Felix is named; the question comes before Jenna; No
+// answers every other hero at once, except Isaac, whom the game always names.
 enum class Names { Unasked, Yes, No };
 Names g_names = Names::Unasked;
 bool g_names_open = false;
@@ -232,7 +244,10 @@ std::string hero_name(unsigned id) {
 gsr::new_game::Options flow_options() {
     gsr::new_game::Options o;
     o.items_and_coins = true;
-    o.extras = false;
+    o.extras = true;
+    o.extras_seamless = false;
+    o.skip_label = "Skip the opening";
+    o.skip_help = "Begin on the world map outside Idejima, with Jenna and Sheba, as the journey starts.";
     o.autosave = gbarecomp::game_option_get(gsr::autosave::kOptionKey, 0) != 0;
     o.transferred = g_transferred;
     o.challenge_sizes = 4;
@@ -240,6 +255,7 @@ gsr::new_game::Options flow_options() {
     o.hero_name = hero_name;
     o.fresh_seed = [] { return rp::fresh_seed(); };
     o.text = [](const char* s) { return tla_menu_label(s); };
+    o.ask_code = gsr::code_box::asker(o.text);
     return o;
 }
 
@@ -276,8 +292,9 @@ void apply_choices(const gsr::new_game::Result& r) {
     const bool finds_weapons = r.random[ng::kWeapons], finds_armour = r.random[ng::kArmor];
     const bool weapons = finds_weapons && r.stats, armour = finds_armour && r.stats;
     const bool run = psynergy || items || coins || scaled || finds_weapons || finds_armour;
-    rp::store(rp_game(), {run ? r.seed : 0u, psynergy, r.fair_play, items, items && r.bargains, coins, scaled,
-                          finds_weapons, finds_armour, items && r.key_items});
+    rp::store(rp_game(), {run ? r.seed : 0u, psynergy, r.fair_on(ng::kFairPsynergy), items, items && r.bargains,
+                          coins, scaled, finds_weapons, finds_armour, r.fair_on(ng::kFairItems),
+                          r.fair_on(ng::kFairCoins), r.fair_on(ng::kFairShops)});
     rw::store(rw_game(), {weapons || armour ? r.seed : 0u, (weapons || armour) && r.scaling, armour, weapons});
     if (g_imported_run_set) {
         // A randomized Broken Seal run goes on as it was, with this game's
@@ -293,6 +310,7 @@ void apply_choices(const gsr::new_game::Result& r) {
     g_random_pending = rp::current(rp_game()).psynergy;
     g_weapons_pending = rw::current(rw_game()).seed != 0;
     g_levels_pending = r.challenge.size > 0;
+    g_skip_opening_pending = r.skip_opening;
 }
 
 void finish_flow() {
@@ -391,6 +409,45 @@ void apply_levels() {
     }
 }
 
+// Skip the opening (Jimmy, 8 November 2026: start where his F12 0215 stands,
+// on the world map just outside Idejima; FACTS "Skip the opening"). At the
+// opening's room request 0x080D2AA4(0, 8), the new game already built and
+// the choices applied, it leaves what Venus Lighthouse and Idejima would:
+//  - Sheba joins through the game's join 0x080AFDD8 (Challenge Mode's rules
+//    apply as when the story adds her); Felix and Jenna the new game joined;
+//  - the story flags 0215 holds from 8 up are set; none is cleared, so a
+//    transfer from Golden Sun keeps its flags;
+//  - room 2 (the world map) entrance 1 is requested instead, and the room
+//    history 0x02000424..0x0200042D is 0215's (Idejima, room 0xC, left).
+// Levels, items, coins and the rest are the new game's own (0215's Felix,
+// Jenna and Sheba are at the builder's level 5 with its items).
+constexpr std::uint16_t kSkipOpeningFlags[] = {
+    0x02E, 0x144, 0x169, 0x1F8, 0x644, 0x647, 0x800, 0x801, 0x804, 0x805,
+    0x807, 0x808, 0x809, 0x80B, 0x80E, 0x80F, 0x810, 0x811, 0x812, 0x815,
+    0x817, 0x819, 0x81A, 0x81B, 0x844, 0x863, 0x864, 0x865, 0x867, 0x890,
+    0x891, 0x892, 0x893, 0x894, 0x895, 0x896,
+};
+constexpr std::uint32_t kRoom = 0x02000420u;
+constexpr std::uint16_t kOpeningRoom = 0, kOpeningEntrance = 8;
+constexpr std::uint16_t kSkipRoom = 2, kSkipEntrance = 1;
+constexpr std::uint16_t kSkipRoomHistory[] = {0xC, 1, 2, 1, 2};  // 0x02000424..
+
+void skip_opening(std::uint32_t args[4]) {
+    if (!g_skip_opening_pending) return;
+    g_skip_opening_pending = false;
+    gba::GbaBus* b = bus();
+    if (!b || args[0] != kOpeningRoom || args[1] != kOpeningEntrance) return;
+    call(TLA_ROM(0x080AFDD8u), kSheba);
+    for (const std::uint16_t flag : kSkipOpeningFlags) {
+        const std::uint32_t at = kStoryFlags + (flag >> 3);
+        b->write8(at, static_cast<std::uint8_t>(b->read8(at) | (1u << (flag & 7u))));
+    }
+    for (std::uint32_t i = 0; i < std::size(kSkipRoomHistory); ++i)
+        b->write16(kRoom + 4u + i * 2u, kSkipRoomHistory[i]);
+    args[0] = kSkipRoom;
+    args[1] = kSkipEntrance;
+}
+
 // --- the hold ----------------------------------------------------------------------
 // Entry to `pc` (the naming routine, the transfer question or 0x080D2AA4 from
 // the title's new game): return at once into the frame routine, which comes
@@ -441,12 +498,13 @@ bool naming_entry(std::uint32_t pc) {
     gba::GbaBus* b = bus();
     if (!b) return false;
     const std::uint32_t index = g_cpu.R[0];
-    if (index == 0) {
+    if (index == kFelix) {
         g_names = Names::Unasked;
         b->write16(TLA_OVL("title", 0x0200A4F8u), 1u);
         return false;
     }
-    if (index > 3) return false;
+    // Isaac is always named, as in the game (Jimmy, 10 November 2026).
+    if (index == 0 || index > 7) return false;
     if (g_names == Names::No) {
         gbarecomp::guest_return_now(pc, 0u);
         return true;
@@ -482,6 +540,8 @@ void hold_frame_entry() {
     // The new equipment, and the stats of the heroes wearing any.
     if (g_weapons_pending) rw::apply_new_game(rw_game(), kHp, kMaxHp, kPp, kMaxPp);
     g_weapons_pending = false;
+    // Last: "Skip the opening", if chosen (Sheba joins, flags, room).
+    skip_opening(g_args);
     g_cpu.R[0] = 1u;
     g_cpu.R[14] = TLA_ROM(0x080D2AA4u) | 1u;
     g_hold = Hold::Resuming;
@@ -537,7 +597,7 @@ void paint_flow(std::uint8_t* rgb, std::uint32_t w, std::uint32_t h) {
     };
     if (view.entry) {
         const auto& e = *view.entry;
-        centred(tla_menu_label(e.invalid ? "Not a valid code." : "Type a code"), top);
+        centred(tla_menu_label(e.invalid ? "Not a valid seed." : "Type a seed"), top);
         centred(e.shown(), top + 16);
         const int column_width = kInnerWidth / rc::kColumns;
         for (int row = 0; row < rc::kGridRows; ++row)
@@ -669,6 +729,20 @@ bool tla_new_game_on_entry(std::uint32_t pc) {
         b->write16(b->read32(0x030000DCu) + 0x25Eu, 0xDu);
         gbarecomp::guest_return_now(pc, 0xFFFFFFFFu);
         return true;
+    } else if (pc == TLA_ROM(0x0810498Cu)) {
+        // Djinn menu give check (from slot, to slot): in a Challenge file a
+        // left-out hero may hand over or take any number (Jimmy's rule for
+        // The Broken Seal, 5 November); between picks the game's own rule.
+        gba::GbaBus* b = bus();
+        if (!b || ch::current().size == 0) return false;
+        const std::uint32_t menu = b->read32(0x030000DCu);
+        const std::uint32_t count = b->read8(menu + 0x215u);
+        if (g_cpu.R[0] >= count || g_cpu.R[1] >= count) return false;
+        const unsigned from = b->read16(menu + 0x204u + g_cpu.R[0] * 2u);
+        const unsigned to = b->read16(menu + 0x204u + g_cpu.R[1] * 2u);
+        if (!ch::excluded(from) && !ch::excluded(to)) return false;
+        gbarecomp::guest_return_now(pc, 1u);
+        return true;
     } else if (pc == kGrantHandover && lr == kGrantHandoverReturn) {
         // Djinn grant (character, element, index): a left-out member gets
         // none; a living pick instead (the grant keeps the id in r9).
@@ -691,6 +765,7 @@ void tla_new_game_reset() {
     g_hold = Hold::Off;
     g_before_import = g_skip_import_question = false;
     g_levels_pending = g_random_pending = g_weapons_pending = false;
+    g_skip_opening_pending = false;
     g_imported_run_set = false;
     g_names = Names::Unasked;
     rw::reset();
@@ -752,6 +827,12 @@ bool tla_random_weapons_text(std::uint32_t text_id, std::string& out) {
 
 // A Challenge Mode file's four bytes (red on the file screens).
 bool tla_scaled_difficulty() { return rp::current(rp_game()).scaled; }
+void tla_set_scaled_difficulty(bool on) {
+    rp::Config c = rp::current(rp_game());
+    if (c.scaled == on) return;
+    c.scaled = on;
+    rp::store(rp_game(), c);
+}
 
 bool tla_challenge_bytes(const std::uint8_t* bytes) {
     return bytes && ch::decode(bytes).size > 0;

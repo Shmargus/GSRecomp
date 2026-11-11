@@ -75,7 +75,8 @@ fs::path g_english_test_base;
 gsr_collection::TestProgress g_test_progress;
 bool g_collection_update_checked = false;
 bool g_collection_activation_pending = false;
-// Forward Seamless handovers to the collection window; Soft Reset stays here.
+// Exit code handed to the collection window after a Seamless handover. A Soft
+// Reset restarts the game inside this session instead.
 int g_session_exit_code = 0;
 
 // Where players can still upload a report by hand when sending fails: the

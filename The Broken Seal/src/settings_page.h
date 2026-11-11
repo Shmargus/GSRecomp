@@ -63,9 +63,6 @@ constexpr std::uint32_t kKeyStart = 0x08u;
 
 constexpr std::uint32_t kAutoSleepRow = 4u;
 
-// The help window above (text ID 0xC15 + row at (0, 0), 0x0801D758) is kept
-// by the loop at [sp+0x10].
-constexpr std::uint32_t kHelpWindowStackOffset = 0x10u;
 constexpr int kRowCount = 5;
 constexpr int kWalkSpeedRow = 0;
 constexpr int kEncounterRow = 1;
@@ -75,27 +72,11 @@ constexpr int kFieldPsynergyRow = 4;
 inline constexpr auto& kRowLabels = gsr::settings_labels::kRows;
 inline constexpr auto& kRowHelp = gsr::settings_labels::kHelp;
 
-// Text line of each row, matching the cursor hand (above). Page one's five
-// rows sit on lines 0, 0x10, 0x28, 0x40 and 0x58 (FACTS.md, 2026-09-23), so
-// page two's fifth row uses page one's last line.
-constexpr int kRowLineY[kRowCount] = {0x00, 0x10, 0x28, 0x40, 0x58};
-// Page number and a chevron (down on page one, up on page two),
-// right-aligned just below the settings window on both pages. The chevron
-// is the font's '^', flipped for down; its shadow is redrawn one pixel down
-// and right of the letter pixels, which is how the font's own shadow sits.
-constexpr const char* kPageOneMarker = "1/2 ";
-constexpr const char* kPageTwoMarker = "2/2 ";
-constexpr unsigned char kChevronGlyph = '^';
-constexpr int kChevronRows = 4;  // '^' uses glyph rows 0..3
 
 // The window's inside reaches 4 pixel rows into its top and bottom border
 // tiles (font tiles 0x11 rows 4..7 and 0x14 rows 0..3: a shaded edge).
 constexpr int kFrameInnerRows = 4;
 
-constexpr std::uint32_t kWindowWidth = 0x8u;
-constexpr std::uint32_t kWindowHeight = 0xAu;
-constexpr std::uint32_t kWindowX = 0xCu;
-constexpr std::uint32_t kWindowY = 0xEu;
 
 const std::uint32_t kAssetTable = gs::rom(0x08320000u);
 constexpr std::uint32_t kFontAsset = 0x13u;
@@ -103,14 +84,6 @@ const std::uint32_t kGlyphWidthTable = gs::rom(0x080370D4u);
 constexpr std::uint8_t kGlyphLetter = 1u;
 constexpr std::uint8_t kGlyphShadow = 3u;
 
-// Page-two layout, in window text coordinates: labels at x 8 like page
-// one's, values centred on 0x7C like Message speed's, with "< " / " >" on
-// the cursor's row.
-constexpr int kLabelX = 8;
-constexpr int kValueCentreX = 0x7C;
-// Page one's "Window color" label starts at (8, 0); its first letter
-// supplies the exact letter and shadow colours.
-constexpr char kColourSampleLetter = 'W';
 
 // Walk Speed steps, in the engine's halves (2 = 1x ... 6 = 3x).
 constexpr int kWalkSpeedCount = 4;
@@ -178,14 +151,6 @@ constexpr int kEncounterRateCount = 4;
 const std::uint32_t kWindowBlockSlot = gs::ram(0x03001E8Cu);
 constexpr std::uint32_t kTileUsageOffset = 0xDA0u;
 constexpr std::uint32_t kTileBankFlagOffset = 0xEA2u;
-constexpr std::uint32_t kBg0CharBase = 0x06000000u;
-constexpr std::uint32_t kBg0ScreenBase = 0x06002000u;
-constexpr std::uint16_t kBlankTile = 0x20u;
-constexpr std::uint16_t kTextBankFirst = 0x80u;
-constexpr std::uint16_t kTextBankLast = 0xFFu;
-constexpr std::uint8_t kGlyphBackground = 4u;
-const std::uint32_t kOamShadowSlot = gs::ram(0x03001F20u);
-const std::uint32_t kHelpTextBase = gs::text(0xC15u);
 
 // The game's sound effect call 0x080F9010(id). The settings screen plays
 // 0x6F for Up, Down, Left and Right (0x0801D7D8, 0x0801D7F4, 0x0801D80C,

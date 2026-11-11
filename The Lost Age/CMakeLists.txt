@@ -8,16 +8,9 @@ set(GSR_PLAYER_BUILDER_DIR "${CMAKE_SOURCE_DIR}/../player_builder")
 # GoldenSunCollection target in the Broken Seal tree.
 option(TLA_RELEASE_LAUNCHER "Collection player release configuration" OFF)
 option(TLA_PLAYER_RELEASE "Exclude private harvested RAM code from player engine" OFF)
-# Developer builds: the harvested RAM code is ~90% of the game-code compile
-# (2026-10-23). OFF (the default) leaves it out as a player release does;
-# that code then compiles while the game runs. Set from the launcher
-# (scripts/build_game.ps1).
-option(TLA_PREBUILT_RAM_CODE "Compile the harvested RAM code ahead of time" OFF)
-if(TLA_PLAYER_RELEASE OR NOT TLA_PREBUILT_RAM_CODE)
-    set(TLA_NO_HARVEST ON)
-else()
-    set(TLA_NO_HARVEST OFF)
-endif()
+# The harvested RAM code is never compiled ahead of time (it was ~90% of the
+# game-code compile, 2026-10-23, and player releases cannot ship it): it
+# compiles while the game runs, in every build.
 set(GSR_RELEASE_VERSION "dev" CACHE STRING "Collection release version")
 set(GSR_RELEASE_REPOSITORY "Shmargus/GSRecomp" CACHE STRING
     "Shared GitHub owner/repository for collection releases")
@@ -103,12 +96,9 @@ file(GLOB TLA_RELOC_SOURCES CONFIGURE_DEPENDS
     "${TLA_GENERATED_DIR}/../reloc/*/recompiled*.cpp"
     "${TLA_GENERATED_DIR}/../reloc/*/dispatch_table.cpp"
     "${TLA_GENERATED_DIR}/../reloc/*/expected.cpp")
-if(TLA_NO_HARVEST)
-    # tla_ram_images.cpp disables TLA_HARVEST (player releases, or the
-    # launcher's cache toggle off). Do not compile those play-cache families
-    # just to discard them later.
-    list(FILTER TLA_RELOC_SOURCES EXCLUDE REGEX "/harv[0-9]+/")
-endif()
+# The harvested play-cache families are never compiled in (see the top of
+# this file); tla_ram_images.cpp leaves them out to match (TLA_NO_HARVEST).
+list(FILTER TLA_RELOC_SOURCES EXCLUDE REGEX "/harv[0-9]+/")
 list(APPEND TLA_GAME_SOURCES ${TLA_RELOC_SOURCES})
 # tla_reloc_images.inc is regenerated with the images; rerun the glob too.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
@@ -161,7 +151,9 @@ set(TLA_ENGINE_SOURCES
     # (src/tla_custom_battle.cpp holds this game's table).
     "${CMAKE_SOURCE_DIR}/../shared_game/custom_battle.cpp"
     "${CMAKE_SOURCE_DIR}/../shared_game/gs_text_encode.cpp"
-    "${CMAKE_SOURCE_DIR}/../shared_game/enemy_hp_bar.cpp")
+    "${CMAKE_SOURCE_DIR}/../shared_game/enemy_hp_bar.cpp"
+    # New Game's run code text box (shared_game/code_box.h).
+    "${CMAKE_SOURCE_DIR}/../shared_game/code_box.cpp")
 set(TLA_GAME_INCLUDE_DIRS
     "${TLA_GENERATED_DIR}"
     "${TLA_GENERATED_DIR}/../reloc"
@@ -247,9 +239,7 @@ target_include_directories(TLARecomp PRIVATE ${TLA_GAME_INCLUDE_DIRS})
 # Only the unpacker guard reaches the player builder's header.
 set_property(SOURCE "${CMAKE_SOURCE_DIR}/../shared_game/unpacker_guard.cpp"
     APPEND PROPERTY INCLUDE_DIRECTORIES "${GSR_PLAYER_BUILDER_DIR}")
-if(TLA_NO_HARVEST)
-    target_compile_definitions(TLARecomp PRIVATE TLA_NO_HARVEST=1)
-endif()
+target_compile_definitions(TLARecomp PRIVATE TLA_NO_HARVEST=1)
 target_compile_definitions(TLARecomp PRIVATE
     GBARECOMP_DEFAULT_DEBUG_PORT=19843
     GBARECOMP_DEFAULT_GAME_CONFIG="game.toml")

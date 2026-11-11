@@ -1,13 +1,14 @@
 // The run code, both games (Jimmy, 6 November 2026; docs/NEXT_PRIORITY_MODES.md
 // section 5): one eight-character code carries a randomizer run's seed and
 // its choices (Weapons, Armor, Items, Coins, Psynergy, Stats, Scaling,
-// Bargains, Fair Play, Key Items), so a friend who types it at New Game
+// Bargains, Fair Play), so a friend who types it at New Game
 // plays the same run. Difficulty and Challenge Mode are separate choices,
 // not in it. Weapons and Armor are the ticks; Stats says the pieces' stats
-// shuffle too. Key Items: Psynergy items move with Random Items (Jimmy, 7
-// November 2026: an option).
+// shuffle too. Fair Play is four choices, one per randomized thing (10
+// November 2026): Psynergy, Items, Coins, Shops. They took two bits from the
+// seed, so codes made before that day no longer read.
 //
-// 40 bits: seed (27, never 0), choices (10), check (3), mixed by a reversible
+// 40 bits: seed (25, never 0), choices (12), check (3), mixed by a reversible
 // 40-bit scramble so neighbouring seeds give unrelated codes; eight symbols
 // of five bits from an alphabet without look-alikes (no I, O, 0, 1).
 //
@@ -20,12 +21,13 @@
 namespace gsr::run_code {
 
 enum Choice : std::uint8_t {
-    kPsynergy = 1u, kWeapons = 2u, kScaling = 4u, kFairPlay = 8u, kItems = 16u, kBargains = 32u,
+    kPsynergy = 1u, kWeapons = 2u, kScaling = 4u, kFairPsynergy = 8u, kItems = 16u, kBargains = 32u,
     kArmor = 64u, kCoins = 128u,
 };
-constexpr std::uint16_t kStats = 256u, kKeyItems = 512u;
-constexpr std::uint16_t kChoiceBits = 0x3FFu;
-constexpr std::uint32_t kSeedBits = 0x07FFFFFFu;
+constexpr std::uint16_t kStats = 256u, kFairItems = 512u, kFairCoins = 1024u, kFairShops = 2048u;
+constexpr std::uint16_t kFairBits = kFairPsynergy | kFairItems | kFairCoins | kFairShops;
+constexpr std::uint16_t kChoiceBits = 0xFFFu;
+constexpr std::uint32_t kSeedBits = 0x01FFFFFFu;
 
 struct Run {
     std::uint32_t seed = 0;
@@ -70,7 +72,7 @@ constexpr std::uint64_t unscramble(std::uint64_t v) {
 inline std::string encode(const Run& r) {
     const std::uint16_t choices = r.choices & kChoiceBits;
     const std::uint32_t seed = r.seed & kSeedBits;
-    std::uint64_t v = std::uint64_t{seed} << 13 | std::uint64_t{choices} << 3 | check_of(seed, choices);
+    std::uint64_t v = std::uint64_t{seed} << 15 | std::uint64_t{choices} << 3 | check_of(seed, choices);
     v = scramble(v);
     std::string out;
     for (int i = kLength - 1; i >= 0; --i) out += kAlphabet[(v >> (i * 5)) & 31u];
@@ -95,11 +97,20 @@ inline bool decode(const std::string& code, Run* out) {
         v = v << 5 | static_cast<std::uint64_t>(s);
     }
     v = unscramble(v);
-    const auto seed = static_cast<std::uint32_t>(v >> 13);
+    const auto seed = static_cast<std::uint32_t>(v >> 15);
     const auto choices = static_cast<std::uint16_t>((v >> 3) & kChoiceBits);
     if (seed == 0 || check_of(seed, choices) != (v & 7u)) return false;
     if (out) *out = {seed, choices};
     return true;
+}
+
+// A code as people type or paste it: spaces, dashes and line breaks are
+// ignored, so "ABCD EFGH" copied from the screen reads as ABCDEFGH.
+inline bool decode_typed(const std::string& text, Run* out) {
+    std::string code;
+    for (const char c : text)
+        if (c != ' ' && c != '-' && c != '\t' && c != '\r' && c != '\n') code += c;
+    return decode(code, out);
 }
 
 // "ABCD EFGH": the code in two halves, as the screens show it.
@@ -113,7 +124,7 @@ inline std::string spaced(const std::string& code) {
 // symbol (or, with none typed, leaves without a change), Start is OK.
 constexpr int kColumns = 8, kGridRows = 4, kActions = 3;
 enum Action { kDelete, kRandom, kOk };
-constexpr const char* kActionLabels[kActions] = {"Erase", "New code", "OK"};
+constexpr const char* kActionLabels[kActions] = {"Erase", "New seed", "OK"};
 
 enum class Result { None, Typed, Cancel, Accepted, Random, Invalid };
 
