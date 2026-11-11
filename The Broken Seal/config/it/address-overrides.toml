@@ -181,3 +181,8 @@ evidence = "Pause constructor paired label/help literal plus selected Sleep row 
 usa = 0x0C28
 italy = 0xbdb
 evidence = "Pause constructor paired label/help literal plus selected Sleep row 1; verified matching control flow and all direct calls. local/qol-menu-20261110/sleep-language-measurements.json, 11 November 2026."
+
+[[rom]]
+usa = 0x08084B1C
+italy = 0x08084B1C
+evidence = "Random Psynergy class table (85 classes x 0x54 bytes): the USA table's 7140 bytes occur exactly once in this ROM, at this address (measured against the verified ROMs, 11 November 2026); FACTS.md 2026-11-04 Random Psynergy."

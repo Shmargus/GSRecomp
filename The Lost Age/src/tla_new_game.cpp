@@ -106,30 +106,13 @@ bool story_flag(gba::GbaBus& b, std::uint32_t flag) {
 }
 
 // --- Random Psynergy: this game's pool ------------------------------------------
-constexpr rp::Spell kPool[] = {
-    {  3,  2}, {  4,  4}, {  5, 14}, {  6,  6}, {  7, 20}, {  8, 42}, {  9,  6},
-    { 10, 24}, { 11, 54}, { 12,  1}, { 13, 12}, { 14, 28}, { 15,  4}, { 16, 14},
-    { 17, 36}, { 24,  1}, { 25,  8}, { 26, 24}, { 27,  4}, { 28, 17}, { 29, 42},
-    { 30,  6}, { 31, 20}, { 32, 52}, { 33,  1}, { 34, 12}, { 35, 30}, { 36,  2},
-    { 37, 14}, { 38, 40}, { 39,  4}, { 40, 21}, { 41, 48}, { 45,  1}, { 46,  6},
-    { 47, 18}, { 48,  4}, { 49, 14}, { 50, 36}, { 51,  8}, { 52, 22}, { 53, 48},
-    { 54,  2}, { 55, 10}, { 56, 27}, { 57,  6}, { 58, 16}, { 59, 40}, { 60,  5},
-    { 61, 26}, { 62, 47}, { 63,  7}, { 64, 21}, { 65, 41}, { 66,  1}, { 67,  6},
-    { 68, 22}, { 69,  4}, { 70, 14}, { 71, 36}, { 72,  8}, { 73, 26}, { 74, 46},
-    { 75,  1}, { 76, 10}, { 77, 30}, { 78,  1}, { 79, 18}, { 80, 44}, { 87,  9},
-    { 88, 16}, { 89, 33}, { 90,  1}, { 91, 10}, { 92, 26}, { 93,  1}, { 94, 16},
-    { 95, 34}, { 96,  8}, { 97, 22}, { 98, 46}, { 99,  1}, {100, 13}, {101, 17},
-    {102,  1}, {103, 21}, {104, 11}, {105, 37}, {106,  3}, {107, 15}, {108,  9},
-    {109, 23}, {110,  6}, {111, 22}, {112,  9}, {113, 25}, {116,  1}, {120, 12},
-    {121, 17}, {122, 17}, {123, 20}, {124, 29}, {125, 31}, {126, 36}, {127, 30},
-    {150,  6}, {160, 12}, {161, 18}, {162, 33}, {163, 40}, {164,  6}, {165, 24},
-    {166, 54}, {167,  8}, {168, 22}, {169, 48}, {170,  5}, {171, 21}, {172,  3},
-    {173, 15}, {174, 10}, {175, 27}, {176, 12}, {177, 21}, {178, 31}, {179,  4},
-    {180, 15}, {181, 36}, {182,  6}, {183, 16}, {184, 40}, {185,  1}, {186, 18},
-    {187, 44}, {188,  8}, {189, 26}, {190, 50}, {191,  7}, {192, 13}, {193, 11},
-    {194, 12}, {195, 11}, {196, 13}, {197, 12}, {198, 13}, {199, 12}, {200, 11},
-    {201, 11}, {202, 13}, {203, 12}, {204, 12}, {205, 12}, {206, 18}, {207, 33},
-};
+// The pool: every ability a character class (type 1..14) of the 244
+// teaches, with the earliest level any of them teaches it (154 abilities,
+// the latest at 54), read from the player's ROM (shared_game/
+// random_psynergy.h pool()); FACTS "Challenge Mode and Random Psynergy".
+// The class table is byte-identical in all five ROMs (Spain 0x080CA600,
+// Italy 0x080C1600, France 0x080C65F4, Germany 0x080CE5F4): English 0x080C15F4.
+constexpr int kClasses = 244;
 
 // The class-taught field Psynergy that opens puzzles: held by Felix or Jenna,
 // in the party from the first scene, and known from the start.
@@ -143,7 +126,7 @@ const rp::Game& rp_game() {
     // story levels (hero table +0x96).
     static const rp::Game g{
         0x02000030u, kRecords, kRecordSize, TLA_ROM(0x080AF4E4u), TLA_ROM(0x080B2364u),
-        kPool, static_cast<int>(std::size(kPool)), 54,
+        {TLA_ROM(0x080C15F4u), kClasses, true},
         8, {28, 28, 28, 28, 5, 5, 5, 18},
         kKeys, static_cast<int>(std::size(kKeys)),
         kStarters,  // Felix and Jenna, there from the first scene

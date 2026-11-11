@@ -28,6 +28,7 @@
 #include <chrono>
 #include <cstdint>
 #include <iterator>
+#include <map>
 #include <random>
 #include <vector>
 
@@ -47,6 +48,20 @@ namespace gsr::random_psynergy {
 // (the strength ranking: the normal game's own order).
 struct Spell { std::uint16_t id; std::uint8_t level; };
 
+// Where the game's classes keep their learn lists; the pool is read from the
+// player's ROM (pool() below), never shipped. `count` class records of 0x54
+// bytes from `address`: type word +0 (1..14 a character class, The Lost
+// Age's 15..17 item classes), 16 entries at +0x10 of 4 bytes, the ability
+// (one byte in The Broken Seal, a halfword in The Lost Age) then the level
+// byte. Each game's FACTS.md "Random Psynergy".
+struct ClassTable {
+    std::uint32_t address;
+    int count;
+    bool wide_ability;
+};
+constexpr std::uint32_t kClassBytes = 0x54u, kLearnList = 0x10u;
+constexpr int kLearnEntries = 16;
+
 // A Psynergy that opens puzzles: whoever holds it knows it by the time they
 // join. `holders`: bit per hero id who may hold it. In a challenge only picks
 // hold them, from level 1.
@@ -60,9 +75,7 @@ struct Game {
     std::uint32_t records, record_size;
     std::uint32_t rebuild_pc;    // the game's list rebuild (character)
     std::uint32_t item_table;    // item records, 0x2C bytes each
-    const Spell* pool;
-    int pool_size;
-    int top_level;               // the latest level any class teaches a spell
+    ClassTable classes;          // the pool's source (pool() below)
     int heroes;                  // character ids 0..heroes-1
     std::array<int, kMaxHeroes> join_level;  // the level each hero joins at
     const Key* keys;
@@ -185,9 +198,48 @@ inline std::uint16_t draw(Rng& rng, std::vector<Spell>& left, int level, int las
     return id;
 }
 
+// Every ability a character class teaches, by id, with the earliest level
+// any class teaches it, and the latest such level: read once from the
+// running ROM's class table. Empty without a ROM.
+struct Pool {
+    std::vector<Spell> spells;
+    int top_level = 0;
+};
+inline const Pool& pool(const Game& g) {
+    static const Game* built_for = nullptr;
+    static Pool cached;
+    if (built_for == &g && !cached.spells.empty()) return cached;
+    cached = {};
+    gba::GbaBus* b = gbarecomp::active_bus();
+    const std::uint8_t* rom = b ? b->rom_ptr() : nullptr;
+    const std::size_t at = g.classes.address - 0x08000000u;
+    if (!rom || at + std::size_t{kClassBytes} * g.classes.count > b->rom_size()) return cached;
+    std::map<std::uint16_t, std::uint8_t> earliest;
+    for (int c = 0; c < g.classes.count; ++c) {
+        const std::uint8_t* record = rom + at + std::size_t{kClassBytes} * c;
+        const std::uint32_t type = record[0] | record[1] << 8 | record[2] << 16 |
+                                   static_cast<std::uint32_t>(record[3]) << 24;
+        if (type < 1 || type > 14) continue;
+        for (int k = 0; k < kLearnEntries; ++k) {
+            const std::uint8_t* entry = record + kLearnList + 4 * k;
+            const std::uint16_t id = g.classes.wide_ability ? entry[0] | entry[1] << 8 : entry[0];
+            const std::uint8_t level = g.classes.wide_ability ? entry[2] : entry[1];
+            if (id == 0) continue;
+            const auto [it, added] = earliest.try_emplace(id, level);
+            if (!added) it->second = std::min(it->second, level);
+        }
+    }
+    for (const auto& [id, level] : earliest) {
+        cached.spells.push_back({id, level});
+        cached.top_level = std::max<int>(cached.top_level, level);
+    }
+    built_for = &g;
+    return cached;
+}
+
 inline int pool_level(const Game& g, std::uint16_t id) {
-    for (int i = 0; i < g.pool_size; ++i)
-        if (g.pool[i].id == id) return g.pool[i].level;
+    for (const Spell& s : pool(g).spells)
+        if (s.id == id) return s.level;
     return 0;
 }
 
@@ -244,13 +296,13 @@ inline Plan make_plan(const Game& g, std::uint32_t seed, const gsr::challenge::C
         for (int i = 0; i < plan.count; ++i)
             levels.push_back(1 + static_cast<int>(rng.below(static_cast<unsigned>(plan.last_level))));
         std::sort(levels.begin(), levels.end());
-        std::vector<Spell> left(g.pool, g.pool + g.pool_size);
+        std::vector<Spell> left = pool(g).spells;
         for (const Grant& grant : plan.grants[hero])
             left.erase(std::remove_if(left.begin(), left.end(),
                                       [&](const Spell& s) { return s.id == grant.id; }),
                        left.end());
         for (const int level : levels)
-            plan.grants[hero].push_back({level, draw(rng, left, level, plan.last_level, g.top_level)});
+            plan.grants[hero].push_back({level, draw(rng, left, level, plan.last_level, pool(g).top_level)});
         std::stable_sort(plan.grants[hero].begin(), plan.grants[hero].end(),
                          [](const Grant& a, const Grant& b) { return a.level < b.level; });
     }

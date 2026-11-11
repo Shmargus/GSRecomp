@@ -30,20 +30,12 @@
 
 namespace gsr::random_psynergy::tbs {
 
-// Every ability a class teaches, with the earliest level any class teaches it.
-constexpr Spell kPool[] = {
-    {  3,  2}, {  4,  4}, {  5, 14}, {  6,  6}, {  7, 20}, {  8, 42}, {  9,  6},
-    { 10, 24}, { 11, 54}, { 15,  4}, { 16, 14}, { 17, 36}, { 24,  2}, { 25,  9},
-    { 26, 24}, { 27,  4}, { 28, 17}, { 29, 42}, { 45,  1}, { 46,  6}, { 47, 18},
-    { 48,  4}, { 49, 14}, { 50, 36}, { 51,  8}, { 52, 22}, { 53, 48}, { 54,  2},
-    { 55, 10}, { 56, 27}, { 69,  4}, { 70, 14}, { 71, 36}, { 72,  8}, { 73, 26},
-    { 74, 50}, { 78,  1}, { 79, 18}, { 80, 44}, { 90,  1}, { 91, 10}, { 92, 26},
-    { 93,  1}, { 94, 16}, { 95, 34}, { 96,  8}, { 97, 22}, { 98, 46}, { 99,  5},
-    {100, 13}, {101, 19}, {102,  5}, {103, 21}, {106,  3}, {107, 15}, {108,  9},
-    {109, 26}, {110,  6}, {111, 22}, {112,  9}, {113, 25}, {116,  1}, {120, 12},
-    {121, 17}, {122, 17}, {123, 20}, {125, 31}, {126, 39}, {127, 30}, {150,  6},
-    {192, 13}, {193, 11}, {194, 12}, {195, 11},
-};
+// The pool: every ability classes 0..84 teach, with the earliest level any
+// of them teaches it (74 abilities, the latest at 54), read from the
+// player's ROM (shared_game/random_psynergy.h pool()). The class table is
+// byte-identical in all five ROMs; each revision's address is a reviewed
+// override (config/<lang>/address-overrides.toml).
+constexpr int kClasses = 85;
 
 // Fair Play's early heals, Cure 90 and Ply 93, are in this pool at level 1.
 // Frost and Whirlwind open puzzles (Jimmy: learned before they are needed,
@@ -56,7 +48,7 @@ inline const Game& game() {
     // (the new game's hero builder, FACTS "Challenge Mode": 1, 1, 4, 10).
     static const Game g{
         0x02000030u, 0x02000500u, 0x14Cu, GS_ROM(0x08078BF0u), GS_ROM(0x0807B6A8u),
-        kPool, static_cast<int>(std::size(kPool)), 54,
+        {GS_ROM(0x08084B1Cu), kClasses, false},
         4, {1, 1, 4, 10},
         kKeys, static_cast<int>(std::size(kKeys)),
         0x3u,  // Isaac and Garet, there from the start
