@@ -8795,3 +8795,5999 @@ note = "SHA-1 verified ROM: movs r0,#0xff (left gain cap, reached only from bgt 
 [[thumb_alu_immediate_override]]
 addr = 0x081C0776
 note = "SHA-1 verified ROM: movs r0,#0xff (right gain cap, reached only from bgt 0x081C079C). Local music gives 0 for player 1's tracks while a recording plays"
+
+# ---------------------------------------------------------------------------
+# Function entries from Alchemy, a matching decompilation of this ROM
+# (https://github.com/PascalPixel/alchemy). Its build of this edition is
+# byte-identical (SHA-1 b500663220cb9bf56b9f8e8c0c544f1d6fa3a824), so each
+# address below is the first instruction of a function in its linked image.
+#
+# Listed here: every Thumb function in the main image that (a) is not in this
+# file already, (b) is not reached by following direct BL calls from the
+# reset vector and the entries above, and (c) has its address, with the Thumb
+# bit set, stored as a word somewhere in the ROM, which the note gives. They
+# are callbacks and table entries: event commands, script handlers, task and
+# window routines. ARM routines and code the game copies into RAM are left
+# out. Names are Alchemy's own, not original ones.
+
+[[extra_func]]
+addr = 0x0800180c
+mode = "thumb"
+name = "AlchemyUncredited_0800180c"
+note = "Alchemy: address stored at 0x08253850"
+
+[[extra_func]]
+addr = 0x0801319c
+mode = "thumb"
+name = "Func_0801319c"
+note = "Alchemy: address stored at 0x08000468"
+
+[[extra_func]]
+addr = 0x080132b8
+mode = "thumb"
+name = "Func_080132b8"
+note = "Alchemy: address stored at 0x080002dc"
+
+[[extra_func]]
+addr = 0x080132bc
+mode = "thumb"
+name = "Func_080132bc"
+note = "Alchemy: address stored at 0x080002e4"
+
+[[extra_func]]
+addr = 0x080132c0
+mode = "thumb"
+name = "Func_080132c0"
+note = "Alchemy: address stored at 0x080002ec"
+
+[[extra_func]]
+addr = 0x080132c4
+mode = "thumb"
+name = "Func_080132c4"
+note = "Alchemy: address stored at 0x080002f4"
+
+[[extra_func]]
+addr = 0x080132c8
+mode = "thumb"
+name = "Func_080132c8"
+note = "Alchemy: address stored at 0x080002fc"
+
+[[extra_func]]
+addr = 0x080132cc
+mode = "thumb"
+name = "System_ReturnZero"
+note = "Alchemy: address stored at 0x0800028c"
+
+[[extra_func]]
+addr = 0x080132d0
+mode = "thumb"
+name = "Func_080132d0"
+note = "Alchemy: address stored at 0x08000284"
+
+[[extra_func]]
+addr = 0x080132fc
+mode = "thumb"
+name = "Resource_ReservedNoOp"
+note = "Alchemy: address stored at 0x0800029c"
+
+[[extra_func]]
+addr = 0x0801336c
+mode = "thumb"
+name = "Resource_LoadCode"
+note = "Alchemy: address stored at 0x080002a4"
+
+[[extra_func]]
+addr = 0x080138a8
+mode = "thumb"
+name = "Input_ResetKeyRepeat"
+note = "Alchemy: address stored at 0x0800035c"
+
+[[extra_func]]
+addr = 0x08013b30
+mode = "thumb"
+name = "Sound_LoadPresetParameters"
+note = "Alchemy: address stored at 0x0800037c"
+
+[[extra_func]]
+addr = 0x08013b68
+mode = "thumb"
+name = "QueueIoWriteDelay1"
+note = "Alchemy: address stored at 0x08000314"
+
+[[extra_func]]
+addr = 0x08013ba4
+mode = "thumb"
+name = "QueueIoWriteDelay2"
+note = "Alchemy: address stored at 0x0800031c"
+
+[[extra_func]]
+addr = 0x08013be0
+mode = "thumb"
+name = "QueueIoWriteDelay3"
+note = "Alchemy: address stored at 0x08000324"
+
+[[extra_func]]
+addr = 0x08013c1c
+mode = "thumb"
+name = "QueueIoWriteDelay5"
+note = "Alchemy: address stored at 0x0800032c"
+
+[[extra_func]]
+addr = 0x08013c94
+mode = "thumb"
+name = "QueueIoWriteDelay7"
+note = "Alchemy: address stored at 0x0800033c"
+
+[[extra_func]]
+addr = 0x08013cd0
+mode = "thumb"
+name = "QueueIoWriteDelay9"
+note = "Alchemy: address stored at 0x08000344"
+
+[[extra_func]]
+addr = 0x08013d48
+mode = "thumb"
+name = "QueueIoWriteDelay11"
+note = "Alchemy: address stored at 0x08000354"
+
+[[extra_func]]
+addr = 0x08013e70
+mode = "thumb"
+name = "Fade_ToBlack"
+note = "Alchemy: address stored at 0x080002ac"
+
+[[extra_func]]
+addr = 0x08013eb4
+mode = "thumb"
+name = "Fade_FromBlack"
+note = "Alchemy: address stored at 0x080002b4"
+
+[[extra_func]]
+addr = 0x08013ef8
+mode = "thumb"
+name = "Fade_ToWhite"
+note = "Alchemy: address stored at 0x080002bc"
+
+[[extra_func]]
+addr = 0x08013f3c
+mode = "thumb"
+name = "Fade_FromWhite"
+note = "Alchemy: address stored at 0x080002c4"
+
+[[extra_func]]
+addr = 0x08013f80
+mode = "thumb"
+name = "Fade_Start"
+note = "Alchemy: address stored at 0x080002cc"
+
+[[extra_func]]
+addr = 0x08013fdc
+mode = "thumb"
+name = "Fade_Wait"
+note = "Alchemy: address stored at 0x080002d4"
+
+[[extra_func]]
+addr = 0x08014220
+mode = "thumb"
+name = "Func_08014220"
+note = "Alchemy: address stored at 0x08000424"
+
+[[extra_func]]
+addr = 0x08014368
+mode = "thumb"
+name = "VramCache_Reset"
+note = "Alchemy: address stored at 0x080001b4"
+
+[[extra_func]]
+addr = 0x080144c0
+mode = "thumb"
+name = "Task_ResetAll"
+note = "Alchemy: address stored at 0x080000cc"
+
+[[extra_func]]
+addr = 0x0801456c
+mode = "thumb"
+name = "Task_Find"
+note = "Alchemy: address stored at 0x0800041c"
+
+[[extra_func]]
+addr = 0x08014694
+mode = "thumb"
+name = "Task_SuspendAll"
+note = "Alchemy: address stored at 0x080000e4"
+
+[[extra_func]]
+addr = 0x0801471c
+mode = "thumb"
+name = "Task_SetFlags"
+note = "Alchemy: address stored at 0x080003bc"
+
+[[extra_func]]
+addr = 0x0801475c
+mode = "thumb"
+name = "Task_ResumeAll"
+note = "Alchemy: address stored at 0x080000ec"
+
+[[extra_func]]
+addr = 0x080149b4
+mode = "thumb"
+name = "Math_IntegerSqrt"
+note = "Alchemy: address stored at 0x0800010c"
+
+[[extra_func]]
+addr = 0x08014aa8
+mode = "thumb"
+name = "Func_08014aa8"
+note = "Alchemy: address stored at 0x0800019c"
+
+[[extra_func]]
+addr = 0x08014ae0
+mode = "thumb"
+name = "DebugText_Print"
+note = "Alchemy: address stored at 0x08000184"
+
+[[extra_func]]
+addr = 0x08014b30
+mode = "thumb"
+name = "DebugText_PrintHex"
+note = "Alchemy: address stored at 0x0800018c"
+
+[[extra_func]]
+addr = 0x08014b50
+mode = "thumb"
+name = "DebugText_PrintDecimal"
+note = "Alchemy: address stored at 0x08000194"
+
+[[extra_func]]
+addr = 0x08014b70
+mode = "thumb"
+name = "Func_08014b70"
+note = "Alchemy: address stored at 0x080001dc"
+
+[[extra_func]]
+addr = 0x08014bac
+mode = "thumb"
+name = "Window_LoadGraphics"
+note = "Alchemy: address stored at 0x080001f4"
+
+[[extra_func]]
+addr = 0x08014c6c
+mode = "thumb"
+name = "Heap_Initialize"
+note = "Alchemy: address stored at 0x0800013c"
+
+[[extra_func]]
+addr = 0x08014cb0
+mode = "thumb"
+name = "Heap_GetRemainingEwram"
+note = "Alchemy: address stored at 0x08000164"
+
+[[extra_func]]
+addr = 0x08014ee0
+mode = "thumb"
+name = "SceneTransform_ResetMatrix"
+note = "Alchemy: address stored at 0x0800020c"
+
+[[extra_func]]
+addr = 0x08014efc
+mode = "thumb"
+name = "SceneTransform_ApplyRotation"
+note = "Alchemy: address stored at 0x08000224"
+
+[[extra_func]]
+addr = 0x0801524c
+mode = "thumb"
+name = "SceneTransform_ApplyRotationTranslation"
+note = "Alchemy: address stored at 0x08000254"
+
+[[extra_func]]
+addr = 0x08015384
+mode = "thumb"
+name = "SceneTransform_ApplyScaledRotation"
+note = "Alchemy: address stored at 0x0800025c"
+
+[[extra_func]]
+addr = 0x08015714
+mode = "thumb"
+name = "Projection_SetFieldOfView"
+note = "Alchemy: address stored at 0x08000274"
+
+[[extra_func]]
+addr = 0x08016180
+mode = "thumb"
+name = "Serial_Initialize"
+note = "Alchemy: address stored at 0x08000304"
+
+[[extra_func]]
+addr = 0x08016348
+mode = "thumb"
+name = "Serial_PollAndTransfer"
+note = "Alchemy: address stored at 0x0800030c"
+
+[[extra_func]]
+addr = 0x08016694
+mode = "thumb"
+name = "Serial_HandleTransferInterrupt"
+note = "Alchemy: address stored at 0x080161d0"
+
+[[extra_func]]
+addr = 0x080167ac
+mode = "thumb"
+name = "Serial_RemoveIrqHandlers"
+note = "Alchemy: address stored at 0x08000374"
+
+[[extra_func]]
+addr = 0x080167d8
+mode = "thumb"
+name = "Serial_WaitForStatusMask"
+note = "Alchemy: address stored at 0x0800036c"
+
+[[extra_func]]
+addr = 0x0801680c
+mode = "thumb"
+name = "Serial_StartSend"
+note = "Alchemy: address stored at 0x08000384"
+
+[[extra_func]]
+addr = 0x08016854
+mode = "thumb"
+name = "Serial_StartReceive"
+note = "Alchemy: address stored at 0x0800038c"
+
+[[extra_func]]
+addr = 0x080168a0
+mode = "thumb"
+name = "Serial_WaitForSend"
+note = "Alchemy: address stored at 0x08000394"
+
+[[extra_func]]
+addr = 0x080168cc
+mode = "thumb"
+name = "Serial_WaitForReceive"
+note = "Alchemy: address stored at 0x0800039c"
+
+[[extra_func]]
+addr = 0x080168f8
+mode = "thumb"
+name = "Serial_WaitForTransfers"
+note = "Alchemy: address stored at 0x080003a4"
+
+[[extra_func]]
+addr = 0x0801692c
+mode = "thumb"
+name = "Serial_GetActiveTransfers"
+note = "Alchemy: address stored at 0x080003ac"
+
+[[extra_func]]
+addr = 0x08016d34
+mode = "thumb"
+name = "GameFlag_Toggle"
+note = "Alchemy: address stored at 0x080003e4"
+
+[[extra_func]]
+addr = 0x08016d6c
+mode = "thumb"
+name = "GameFlag_SetByte"
+note = "Alchemy: address stored at 0x080003f4"
+
+[[extra_func]]
+addr = 0x08016d7c
+mode = "thumb"
+name = "Func_08016d7c"
+note = "Alchemy: address stored at 0x080003fc"
+
+[[extra_func]]
+addr = 0x08016d98
+mode = "thumb"
+name = "Func_08016d98"
+note = "Alchemy: address stored at 0x08000404"
+
+[[extra_func]]
+addr = 0x08016db4
+mode = "thumb"
+name = "GameFlag_GetNibble"
+note = "Alchemy: address stored at 0x0800040c"
+
+[[extra_func]]
+addr = 0x08016dd0
+mode = "thumb"
+name = "Func_08016dd0"
+note = "Alchemy: address stored at 0x08000414"
+
+[[extra_func]]
+addr = 0x08016f38
+mode = "thumb"
+name = "FlashTimerIntr"
+note = "Alchemy: address stored at 0x08016f8c"
+
+[[extra_func]]
+addr = 0x08017050
+mode = "thumb"
+name = "ReadFlashByte"
+note = "Alchemy: address stored at 0x08017070"
+
+[[extra_func]]
+addr = 0x08017118
+mode = "thumb"
+name = "ReadFlashCore"
+note = "Alchemy: address stored at 0x08017174"
+
+[[extra_func]]
+addr = 0x0801713c
+mode = "thumb"
+name = "ReadFlash"
+note = "Alchemy: address stored at 0x08017178"
+
+[[extra_func]]
+addr = 0x080171b8
+mode = "thumb"
+name = "VerifyFlashCore"
+note = "Alchemy: address stored at 0x08017230"
+
+[[extra_func]]
+addr = 0x080171fc
+mode = "thumb"
+name = "Flash_VerifySector"
+note = "Alchemy: address stored at 0x08017234"
+
+[[extra_func]]
+addr = 0x080219cc
+mode = "thumb"
+name = "Func_080219cc"
+note = "Alchemy: address stored at 0x08020374"
+
+[[extra_func]]
+addr = 0x08022010
+mode = "thumb"
+name = "Func_08022010"
+note = "Alchemy: address stored at 0x08020054"
+
+[[extra_func]]
+addr = 0x080227a0
+mode = "thumb"
+name = "Animation_ApplyChildValueToFirst"
+note = "Alchemy: address stored at 0x0802028c"
+
+[[extra_func]]
+addr = 0x080227b0
+mode = "thumb"
+name = "Animation_ApplyChildValuesToRecord"
+note = "Alchemy: address stored at 0x08020284"
+
+[[extra_func]]
+addr = 0x080227e0
+mode = "thumb"
+name = "ResourceSlot_Load"
+note = "Alchemy: address stored at 0x080202bc"
+
+[[extra_func]]
+addr = 0x080228e0
+mode = "thumb"
+name = "InitializeAnimationObjects"
+note = "Alchemy: address stored at 0x0802002c"
+
+[[extra_func]]
+addr = 0x0802296c
+mode = "thumb"
+name = "Animation_InitializeWorkFromMetadata"
+note = "Alchemy: address stored at 0x0802007c"
+
+[[extra_func]]
+addr = 0x080229ac
+mode = "thumb"
+name = "ResourceMetadata_Register"
+note = "Alchemy: address stored at 0x0802005c"
+
+[[extra_func]]
+addr = 0x08022a24
+mode = "thumb"
+name = "ResourceMetadata_Unregister"
+note = "Alchemy: address stored at 0x08020064"
+
+[[extra_func]]
+addr = 0x08022a84
+mode = "thumb"
+name = "ResourceMetadata_ReleaseSlot"
+note = "Alchemy: address stored at 0x0802006c"
+
+[[extra_func]]
+addr = 0x08022b04
+mode = "thumb"
+name = "Animation_ApplyChildArgument"
+note = "Alchemy: address stored at 0x08020034"
+
+[[extra_func]]
+addr = 0x08022b80
+mode = "thumb"
+name = "Func_08022b80"
+note = "Alchemy: address stored at 0x0802003c"
+
+[[extra_func]]
+addr = 0x08022bac
+mode = "thumb"
+name = "Animation_ApplyChildValue"
+note = "Alchemy: address stored at 0x080202cc"
+
+[[extra_func]]
+addr = 0x08022bd8
+mode = "thumb"
+name = "ObjectSystem_Configure"
+note = "Alchemy: address stored at 0x0802000c"
+
+[[extra_func]]
+addr = 0x08022c78
+mode = "thumb"
+name = "VramBlock_Reset93"
+note = "Alchemy: address stored at 0x08020384"
+
+[[extra_func]]
+addr = 0x08022c84
+mode = "thumb"
+name = "VramBlock_Load93"
+note = "Alchemy: address stored at 0x0802038c"
+
+[[extra_func]]
+addr = 0x08022d1c
+mode = "thumb"
+name = "ResourceMetadata_ClearRecord"
+note = "Alchemy: address stored at 0x08020074"
+
+[[extra_func]]
+addr = 0x08022d40
+mode = "thumb"
+name = "ResourceObject_Create"
+note = "Alchemy: address stored at 0x08020044"
+
+[[extra_func]]
+addr = 0x08022e90
+mode = "thumb"
+name = "ResourceObject_Release"
+note = "Alchemy: address stored at 0x0802004c"
+
+[[extra_func]]
+addr = 0x08022ed8
+mode = "thumb"
+name = "ResourceMetadata_SumCommandLengths"
+note = "Alchemy: address stored at 0x080202ac"
+
+[[extra_func]]
+addr = 0x08022f24
+mode = "thumb"
+name = "Animation_WaitForTrackEnd"
+note = "Alchemy: address stored at 0x0802033c"
+
+[[extra_func]]
+addr = 0x08022f64
+mode = "thumb"
+name = "Map_RenderAnimatedTilePicture"
+note = "Alchemy: address stored at 0x080200f4"
+
+[[extra_func]]
+addr = 0x08022fe8
+mode = "thumb"
+name = "Map_RenderAnimatedTilePicturesForObject"
+note = "Alchemy: address stored at 0x080200fc"
+
+[[extra_func]]
+addr = 0x0802301c
+mode = "thumb"
+name = "Map_RenderAllAnimatedTilePictures"
+note = "Alchemy: address stored at 0x08020104"
+
+[[extra_func]]
+addr = 0x08023088
+mode = "thumb"
+name = "Map_GetScreenRelativePosition"
+note = "Alchemy: address stored at 0x0802015c"
+
+[[extra_func]]
+addr = 0x080230e0
+mode = "thumb"
+name = "Func_080230e0"
+note = "Alchemy: address stored at 0x0802008c"
+
+[[extra_func]]
+addr = 0x080231a4
+mode = "thumb"
+name = "Actor_FindFreeObject"
+note = "Alchemy: address stored at 0x080200bc"
+
+[[extra_func]]
+addr = 0x080231c8
+mode = "thumb"
+name = "Actor_Release"
+note = "Alchemy: address stored at 0x080200cc"
+
+[[extra_func]]
+addr = 0x08023220
+mode = "thumb"
+name = "Func_08023220"
+note = "Alchemy: address stored at 0x080200c4"
+
+[[extra_func]]
+addr = 0x080233a8
+mode = "thumb"
+name = "Actor_StartScript"
+note = "Alchemy: address stored at 0x080200ac"
+
+[[extra_func]]
+addr = 0x080233d0
+mode = "thumb"
+name = "Actor_SelectAnimation"
+note = "Alchemy: address stored at 0x08020094"
+
+[[extra_func]]
+addr = 0x08023410
+mode = "thumb"
+name = "Actor_SetAnimationSpeed"
+note = "Alchemy: address stored at 0x0802009c"
+
+[[extra_func]]
+addr = 0x08023450
+mode = "thumb"
+name = "Actor_SetAnimationAndSpeed"
+note = "Alchemy: address stored at 0x080200a4"
+
+[[extra_func]]
+addr = 0x080234b0
+mode = "thumb"
+name = "Actor_SetSpriteRotation"
+note = "Alchemy: address stored at 0x080200d4"
+
+[[extra_func]]
+addr = 0x080234cc
+mode = "thumb"
+name = "Animation_SetIndexAndInitializeObjects"
+note = "Alchemy: address stored at 0x0802023c"
+
+[[extra_func]]
+addr = 0x080234f0
+mode = "thumb"
+name = "Actor_RegisterSpriteMetadata"
+note = "Alchemy: address stored at 0x08020264"
+
+[[extra_func]]
+addr = 0x08023510
+mode = "thumb"
+name = "Func_08023510"
+note = "Alchemy: address stored at 0x080200e4"
+
+[[extra_func]]
+addr = 0x08023524
+mode = "thumb"
+name = "Func_08023524"
+note = "Alchemy: address stored at 0x080200b4"
+
+[[extra_func]]
+addr = 0x080235f8
+mode = "thumb"
+name = "Actor_StartIdle"
+note = "Alchemy: address stored at 0x0802013c"
+
+[[extra_func]]
+addr = 0x08023608
+mode = "thumb"
+name = "Actor_StartCamera"
+note = "Alchemy: address stored at 0x080200dc"
+
+[[extra_func]]
+addr = 0x08023634
+mode = "thumb"
+name = "Actor_WaitForCommandEnd"
+note = "Alchemy: address stored at 0x08020144"
+
+[[extra_func]]
+addr = 0x08023664
+mode = "thumb"
+name = "Actor_SetChildByteValue"
+note = "Alchemy: address stored at 0x0802021c"
+
+[[extra_func]]
+addr = 0x08023680
+mode = "thumb"
+name = "Animation_SetStateFlags"
+note = "Alchemy: address stored at 0x08020224"
+
+[[extra_func]]
+addr = 0x080236a8
+mode = "thumb"
+name = "Animation_SetDisplayFlag"
+note = "Alchemy: address stored at 0x08020254"
+
+[[extra_func]]
+addr = 0x080236d0
+mode = "thumb"
+name = "Animation_ApplyChildValues"
+note = "Alchemy: address stored at 0x0802027c"
+
+[[extra_func]]
+addr = 0x080236e8
+mode = "thumb"
+name = "Actor_SetSpritePriorityDirect"
+note = "Alchemy: address stored at 0x08020294"
+
+[[extra_func]]
+addr = 0x0802372c
+mode = "thumb"
+name = "Func_0802372c"
+note = "Alchemy: address stored at 0x08020304"
+
+[[extra_func]]
+addr = 0x080237c8
+mode = "thumb"
+name = "Func_080237c8"
+note = "Alchemy: address stored at 0x08020334"
+
+[[extra_func]]
+addr = 0x080237e8
+mode = "thumb"
+name = "Func_080237e8"
+note = "Alchemy: address stored at 0x08020344"
+
+[[extra_func]]
+addr = 0x080237f8
+mode = "thumb"
+name = "Graphics_EnableObjLayerAndCallbacks"
+note = "Alchemy: address stored at 0x08020244"
+
+[[extra_func]]
+addr = 0x08023840
+mode = "thumb"
+name = "ActorSystem_ResumeProjectionAndHideLayers"
+note = "Alchemy: address stored at 0x0802024c"
+
+[[extra_func]]
+addr = 0x08023efc
+mode = "thumb"
+name = "Script_JumpToNextOperandPointer"
+note = "Alchemy: address stored at 0x0802f2b0"
+
+[[extra_func]]
+addr = 0x08023f14
+mode = "thumb"
+name = "Script_ClearByte54"
+note = "Alchemy: address stored at 0x0802f2b4"
+
+[[extra_func]]
+addr = 0x08023f28
+mode = "thumb"
+name = "Script_SetByte54"
+note = "Alchemy: address stored at 0x0802f2b8"
+
+[[extra_func]]
+addr = 0x08023f3c
+mode = "thumb"
+name = "Script_WaitForEventTimeout"
+note = "Alchemy: address stored at 0x08020154"
+
+[[extra_func]]
+addr = 0x08023f94
+mode = "thumb"
+name = "Func_08023f94"
+note = "Alchemy: address stored at 0x080202fc"
+
+[[extra_func]]
+addr = 0x0802471c
+mode = "thumb"
+name = "Actor_SetPositionAndResetMotion"
+note = "Alchemy: address stored at 0x080200ec"
+
+[[extra_func]]
+addr = 0x08024c50
+mode = "thumb"
+name = "Script_Wait"
+note = "Alchemy: address stored at 0x0802f204"
+
+[[extra_func]]
+addr = 0x08024c70
+mode = "thumb"
+name = "Script_WaitForArrival"
+note = "Alchemy: address stored at 0x0802f208"
+
+[[extra_func]]
+addr = 0x08024cac
+mode = "thumb"
+name = "Script_InvokeCallback"
+note = "Alchemy: address stored at 0x0802f2bc"
+
+[[extra_func]]
+addr = 0x08024d14
+mode = "thumb"
+name = "Script_RepeatOrJump"
+note = "Alchemy: address stored at 0x0802f238"
+
+[[extra_func]]
+addr = 0x08024d60
+mode = "thumb"
+name = "Script_JumpToLabel"
+note = "Alchemy: address stored at 0x0802f23c"
+
+[[extra_func]]
+addr = 0x08024d7c
+mode = "thumb"
+name = "Script_JumpIfTrue"
+note = "Alchemy: address stored at 0x0802f240"
+
+[[extra_func]]
+addr = 0x08024dac
+mode = "thumb"
+name = "Script_JumpIfFalse"
+note = "Alchemy: address stored at 0x0802f244"
+
+[[extra_func]]
+addr = 0x08024ddc
+mode = "thumb"
+name = "Script_End"
+note = "Alchemy: address stored at 0x0802f248"
+
+[[extra_func]]
+addr = 0x08024dec
+mode = "thumb"
+name = "Script_TestFlag"
+note = "Alchemy: address stored at 0x0802f24c"
+
+[[extra_func]]
+addr = 0x08024e10
+mode = "thumb"
+name = "Script_SetFlagAndTest"
+note = "Alchemy: address stored at 0x0802f250"
+
+[[extra_func]]
+addr = 0x08024e3c
+mode = "thumb"
+name = "Script_ClearFlagAndTest"
+note = "Alchemy: address stored at 0x0802f254"
+
+[[extra_func]]
+addr = 0x08024e68
+mode = "thumb"
+name = "Script_ToggleFlag"
+note = "Alchemy: address stored at 0x0802f258"
+
+[[extra_func]]
+addr = 0x08024ea8
+mode = "thumb"
+name = "Script_SetAnimation"
+note = "Alchemy: address stored at 0x0802f2a0"
+
+[[extra_func]]
+addr = 0x08024ec8
+mode = "thumb"
+name = "Actor_ReleaseAndClear"
+note = "Alchemy: address stored at 0x0802f29c"
+
+[[extra_func]]
+addr = 0x08024ed4
+mode = "thumb"
+name = "Script_Nop"
+note = "Alchemy: address stored at 0x0802f2a4"
+
+[[extra_func]]
+addr = 0x08024ee0
+mode = "thumb"
+name = "Script_PlaySound"
+note = "Alchemy: address stored at 0x0802f2a8"
+
+[[extra_func]]
+addr = 0x08024f00
+mode = "thumb"
+name = "Script_CallWithOperand"
+note = "Alchemy: address stored at 0x0802f2ac"
+
+[[extra_func]]
+addr = 0x08024f80
+mode = "thumb"
+name = "ScriptObject_FindOverlappingEntry"
+note = "Alchemy: address stored at 0x080202ec"
+
+[[extra_func]]
+addr = 0x08024fe0
+mode = "thumb"
+name = "Func_08024fe0"
+note = "Alchemy: address stored at 0x0802f20c"
+
+[[extra_func]]
+addr = 0x08025038
+mode = "thumb"
+name = "Func_08025038"
+note = "Alchemy: address stored at 0x0802f210"
+
+[[extra_func]]
+addr = 0x08025078
+mode = "thumb"
+name = "Func_08025078"
+note = "Alchemy: address stored at 0x0802f214"
+
+[[extra_func]]
+addr = 0x0802509c
+mode = "thumb"
+name = "Func_0802509c"
+note = "Alchemy: address stored at 0x0802f2c4"
+
+[[extra_func]]
+addr = 0x080250c0
+mode = "thumb"
+name = "Script_ApplyRelativePosition"
+note = "Alchemy: address stored at 0x0802f218"
+
+[[extra_func]]
+addr = 0x080250f4
+mode = "thumb"
+name = "Script_StoreAngleToWatchedObject"
+note = "Alchemy: address stored at 0x0802f21c"
+
+[[extra_func]]
+addr = 0x08025118
+mode = "thumb"
+name = "Script_ApplyWatchedObjectPosition"
+note = "Alchemy: address stored at 0x0802f220"
+
+[[extra_func]]
+addr = 0x08025134
+mode = "thumb"
+name = "Script_ApplyLocalOffsetPosition"
+note = "Alchemy: address stored at 0x0802f224"
+
+[[extra_func]]
+addr = 0x08025160
+mode = "thumb"
+name = "Func_08025160"
+note = "Alchemy: address stored at 0x0802f234"
+
+[[extra_func]]
+addr = 0x08025428
+mode = "thumb"
+name = "Func_08025428"
+note = "Alchemy: address stored at 0x0802f2c0"
+
+[[extra_func]]
+addr = 0x08025608
+mode = "thumb"
+name = "Actor_ApproachWatchedActor"
+note = "Alchemy: address stored at 0x0802f230"
+
+[[extra_func]]
+addr = 0x08025698
+mode = "thumb"
+name = "Func_08025698"
+note = "Alchemy: address stored at 0x0802f228"
+
+[[extra_func]]
+addr = 0x08025830
+mode = "thumb"
+name = "Func_08025830"
+note = "Alchemy: address stored at 0x0802f22c"
+
+[[extra_func]]
+addr = 0x08025b58
+mode = "thumb"
+name = "Script_SetOrCompareAddress"
+note = "Alchemy: address stored at 0x0802f2dc"
+
+[[extra_func]]
+addr = 0x08025b84
+mode = "thumb"
+name = "Script_SetOrCompareCursor"
+note = "Alchemy: address stored at 0x0802f2e0"
+
+[[extra_func]]
+addr = 0x08025bb4
+mode = "thumb"
+name = "Script_SetOrCompareUnsignedHalfword"
+note = "Alchemy: address stored at 0x0802f2e4"
+
+[[extra_func]]
+addr = 0x08025be4
+mode = "thumb"
+name = "Script_SetOrCompareX"
+note = "Alchemy: address stored at 0x0802f2f0"
+
+[[extra_func]]
+addr = 0x08025c0c
+mode = "thumb"
+name = "Script_SetOrCompareY"
+note = "Alchemy: address stored at 0x0802f2f4"
+
+[[extra_func]]
+addr = 0x08025c34
+mode = "thumb"
+name = "Script_SetOrCompareZ"
+note = "Alchemy: address stored at 0x0802f2f8"
+
+[[extra_func]]
+addr = 0x08025c5c
+mode = "thumb"
+name = "Script_SetOrCompareRadius"
+note = "Alchemy: address stored at 0x0802f2fc"
+
+[[extra_func]]
+addr = 0x08025c8c
+mode = "thumb"
+name = "Script_SetOrCompareScaleX"
+note = "Alchemy: address stored at 0x0802f300"
+
+[[extra_func]]
+addr = 0x08025cb4
+mode = "thumb"
+name = "Script_SetOrCompareScaleY"
+note = "Alchemy: address stored at 0x0802f304"
+
+[[extra_func]]
+addr = 0x08025cdc
+mode = "thumb"
+name = "Script_SetOrCompareVelocityX"
+note = "Alchemy: address stored at 0x0802f30c"
+
+[[extra_func]]
+addr = 0x08025d04
+mode = "thumb"
+name = "Script_SetOrCompareVelocityY"
+note = "Alchemy: address stored at 0x0802f310"
+
+[[extra_func]]
+addr = 0x08025d2c
+mode = "thumb"
+name = "Script_SetOrCompareVelocityZ"
+note = "Alchemy: address stored at 0x0802f314"
+
+[[extra_func]]
+addr = 0x08025d54
+mode = "thumb"
+name = "Script_SetOrCompareSpeedLimit"
+note = "Alchemy: address stored at 0x0802f318"
+
+[[extra_func]]
+addr = 0x08025d7c
+mode = "thumb"
+name = "Script_SetOrCompareAcceleration"
+note = "Alchemy: address stored at 0x0802f31c"
+
+[[extra_func]]
+addr = 0x08025da4
+mode = "thumb"
+name = "Script_SetOrCompareTargetX"
+note = "Alchemy: address stored at 0x0802f320"
+
+[[extra_func]]
+addr = 0x08025dcc
+mode = "thumb"
+name = "Script_SetOrCompareTargetY"
+note = "Alchemy: address stored at 0x0802f324"
+
+[[extra_func]]
+addr = 0x08025df4
+mode = "thumb"
+name = "Script_SetOrCompareTargetZ"
+note = "Alchemy: address stored at 0x0802f328"
+
+[[extra_func]]
+addr = 0x08025e1c
+mode = "thumb"
+name = "Script_SetOrCompareVerticalMotion"
+note = "Alchemy: address stored at 0x0802f32c"
+
+[[extra_func]]
+addr = 0x08025e44
+mode = "thumb"
+name = "Script_SetOrCompareGravity"
+note = "Alchemy: address stored at 0x0802f330"
+
+[[extra_func]]
+addr = 0x08025e6c
+mode = "thumb"
+name = "Script_SetOrCompareTerrainHeight"
+note = "Alchemy: address stored at 0x0802f334"
+
+[[extra_func]]
+addr = 0x08025e94
+mode = "thumb"
+name = "Script_SetOrCompareWord4c"
+note = "Alchemy: address stored at 0x0802f338"
+
+[[extra_func]]
+addr = 0x08025ebc
+mode = "thumb"
+name = "Script_SetOrCompareAddress50"
+note = "Alchemy: address stored at 0x0802f33c"
+
+[[extra_func]]
+addr = 0x08025ee8
+mode = "thumb"
+name = "Script_SetOrCompareByte54"
+note = "Alchemy: address stored at 0x0802f340"
+
+[[extra_func]]
+addr = 0x08025f24
+mode = "thumb"
+name = "Script_SetOrCompareMotionFlags"
+note = "Alchemy: address stored at 0x0802f344"
+
+[[extra_func]]
+addr = 0x08025f60
+mode = "thumb"
+name = "Script_SetOrCompareArrivalAxis"
+note = "Alchemy: address stored at 0x0802f348"
+
+[[extra_func]]
+addr = 0x08025f9c
+mode = "thumb"
+name = "Script_SetOrCompareComparisonResult"
+note = "Alchemy: address stored at 0x0802f34c"
+
+[[extra_func]]
+addr = 0x08025fd0
+mode = "thumb"
+name = "Script_SetOrCompareSnapToTarget"
+note = "Alchemy: address stored at 0x0802f350"
+
+[[extra_func]]
+addr = 0x0802600c
+mode = "thumb"
+name = "Script_SetOrCompareCollisionFlags"
+note = "Alchemy: address stored at 0x0802f354"
+
+[[extra_func]]
+addr = 0x08026048
+mode = "thumb"
+name = "Script_SetOrCompareSteeringFlags"
+note = "Alchemy: address stored at 0x0802f358"
+
+[[extra_func]]
+addr = 0x08026084
+mode = "thumb"
+name = "Script_SetOrComparePaused"
+note = "Alchemy: address stored at 0x0802f35c"
+
+[[extra_func]]
+addr = 0x080260c0
+mode = "thumb"
+name = "Script_SetOrCompareRepeatCount"
+note = "Alchemy: address stored at 0x0802f360"
+
+[[extra_func]]
+addr = 0x080260fc
+mode = "thumb"
+name = "Script_SetOrCompareHalfword5e"
+note = "Alchemy: address stored at 0x0802f364"
+
+[[extra_func]]
+addr = 0x08026138
+mode = "thumb"
+name = "Script_SetOrCompareSignedHalfword64"
+note = "Alchemy: address stored at 0x0802f368"
+
+[[extra_func]]
+addr = 0x08026174
+mode = "thumb"
+name = "Script_SetOrCompareSignedHalfword66"
+note = "Alchemy: address stored at 0x0802f36c"
+
+[[extra_func]]
+addr = 0x080261b0
+mode = "thumb"
+name = "Script_SetOrCompareWord68"
+note = "Alchemy: address stored at 0x0802f370"
+
+[[extra_func]]
+addr = 0x080261d8
+mode = "thumb"
+name = "Script_SetOrCompareUpdateAddress"
+note = "Alchemy: address stored at 0x0802f374"
+
+[[extra_func]]
+addr = 0x08026200
+mode = "thumb"
+name = "Script_SetOrCompareByte62"
+note = "Alchemy: address stored at 0x0802f378"
+
+[[extra_func]]
+addr = 0x0802623c
+mode = "thumb"
+name = "Script_SetOrCompareByte63"
+note = "Alchemy: address stored at 0x0802f37c"
+
+[[extra_func]]
+addr = 0x08026278
+mode = "thumb"
+name = "Script_ApplyOperandSet"
+note = "Alchemy: address stored at 0x0802f25c"
+
+[[extra_func]]
+addr = 0x080262b0
+mode = "thumb"
+name = "Script_ApplyOperandAdd"
+note = "Alchemy: address stored at 0x0802f260"
+
+[[extra_func]]
+addr = 0x080262e8
+mode = "thumb"
+name = "Script_ApplyOperandCompare"
+note = "Alchemy: address stored at 0x0802f264"
+
+[[extra_func]]
+addr = 0x0802632c
+mode = "thumb"
+name = "Func_0802632c"
+note = "Alchemy: address stored at 0x0802f290"
+
+[[extra_func]]
+addr = 0x080267bc
+mode = "thumb"
+name = "Func_080267bc"
+note = "Alchemy: address stored at 0x0802f294"
+
+[[extra_func]]
+addr = 0x08026fc8
+mode = "thumb"
+name = "Func_08026fc8"
+note = "Alchemy: address stored at 0x080203a4"
+
+[[extra_func]]
+addr = 0x08027064
+mode = "thumb"
+name = "Func_08027064"
+note = "Alchemy: address stored at 0x0802f268"
+
+[[extra_func]]
+addr = 0x080279b0
+mode = "thumb"
+name = "Func_080279b0"
+note = "Alchemy: address stored at 0x0802f26c"
+
+[[extra_func]]
+addr = 0x08027e0c
+mode = "thumb"
+name = "Func_08027e0c"
+note = "Alchemy: address stored at 0x0802f298"
+
+[[extra_func]]
+addr = 0x08027e20
+mode = "thumb"
+name = "Func_08027e20"
+note = "Alchemy: address stored at 0x0802f280"
+
+[[extra_func]]
+addr = 0x08028534
+mode = "thumb"
+name = "Func_08028534"
+note = "Alchemy: address stored at 0x0802f284"
+
+[[extra_func]]
+addr = 0x08028aac
+mode = "thumb"
+name = "Func_08028aac"
+note = "Alchemy: address stored at 0x0802f288"
+
+[[extra_func]]
+addr = 0x080290f4
+mode = "thumb"
+name = "Actor_MoveByKeys"
+note = "Alchemy: address stored at 0x0802f270"
+
+[[extra_func]]
+addr = 0x080292fc
+mode = "thumb"
+name = "Func_080292fc"
+note = "Alchemy: address stored at 0x0802f274"
+
+[[extra_func]]
+addr = 0x08029570
+mode = "thumb"
+name = "Func_08029570"
+note = "Alchemy: address stored at 0x0802f278"
+
+[[extra_func]]
+addr = 0x08029810
+mode = "thumb"
+name = "Func_08029810"
+note = "Alchemy: address stored at 0x08029c78"
+
+[[extra_func]]
+addr = 0x080298c0
+mode = "thumb"
+name = "Func_080298c0"
+note = "Alchemy: address stored at 0x0802f27c"
+
+[[extra_func]]
+addr = 0x0802a124
+mode = "thumb"
+name = "Func_0802a124"
+note = "Alchemy: address stored at 0x0802f28c"
+
+[[extra_func]]
+addr = 0x0802a52c
+mode = "thumb"
+name = "SpriteColor_RemapPixels"
+note = "Alchemy: address stored at 0x080202d4"
+
+[[extra_func]]
+addr = 0x0802a650
+mode = "thumb"
+name = "Func_0802a650"
+note = "Alchemy: address stored at 0x08020394"
+
+[[extra_func]]
+addr = 0x0802a6b8
+mode = "thumb"
+name = "Func_0802a6b8"
+note = "Alchemy: address stored at 0x0802010c"
+
+[[extra_func]]
+addr = 0x0802aa74
+mode = "thumb"
+name = "Func_0802aa74"
+note = "Alchemy: address stored at 0x08020124"
+
+[[extra_func]]
+addr = 0x0802af9c
+mode = "thumb"
+name = "Func_0802af9c"
+note = "Alchemy: address stored at 0x0802011c"
+
+[[extra_func]]
+addr = 0x0802b1a0
+mode = "thumb"
+name = "Map_CopyCellPictureIndicesRect"
+note = "Alchemy: address stored at 0x0802017c"
+
+[[extra_func]]
+addr = 0x0802b2d4
+mode = "thumb"
+name = "Map_PlayMapEdit"
+note = "Alchemy: address stored at 0x08020174"
+
+[[extra_func]]
+addr = 0x0802b344
+mode = "thumb"
+name = "Map_CopyCellsRect"
+note = "Alchemy: address stored at 0x080201e4"
+
+[[extra_func]]
+addr = 0x0802b38c
+mode = "thumb"
+name = "Map_CopyCellAttributeRect"
+note = "Alchemy: address stored at 0x080201ec"
+
+[[extra_func]]
+addr = 0x0802b450
+mode = "thumb"
+name = "Func_0802b450"
+note = "Alchemy: address stored at 0x080201f4"
+
+[[extra_func]]
+addr = 0x0802b590
+mode = "thumb"
+name = "Func_0802b590"
+note = "Alchemy: address stored at 0x080201fc"
+
+[[extra_func]]
+addr = 0x0802b620
+mode = "thumb"
+name = "Map_SetShownLayers"
+note = "Alchemy: address stored at 0x080202a4"
+
+[[extra_func]]
+addr = 0x0802b63c
+mode = "thumb"
+name = "Map_ApplySetFlagEdits"
+note = "Alchemy: address stored at 0x08020184"
+
+[[extra_func]]
+addr = 0x0802b700
+mode = "thumb"
+name = "Map_SetFlagAndApplyEdits"
+note = "Alchemy: address stored at 0x0802018c"
+
+[[extra_func]]
+addr = 0x0802b71c
+mode = "thumb"
+name = "Map_SetFlagAndApplyAttributeEdits"
+note = "Alchemy: address stored at 0x08020194"
+
+[[extra_func]]
+addr = 0x0802b7e0
+mode = "thumb"
+name = "Map_GetHeaderSize"
+note = "Alchemy: address stored at 0x0802032c"
+
+[[extra_func]]
+addr = 0x0802b828
+mode = "thumb"
+name = "Map_LoadCellsAndShapes"
+note = "Alchemy: address stored at 0x0802037c"
+
+[[extra_func]]
+addr = 0x0802b998
+mode = "thumb"
+name = "Func_0802b998"
+note = "Alchemy: address stored at 0x08020114"
+
+[[extra_func]]
+addr = 0x0802bd08
+mode = "thumb"
+name = "Map_SetWindowCellTile"
+note = "Alchemy: address stored at 0x08020204"
+
+[[extra_func]]
+addr = 0x0802bdd0
+mode = "thumb"
+name = "Func_0802bdd0"
+note = "Alchemy: address stored at 0x0802020c"
+
+[[extra_func]]
+addr = 0x0802be4c
+mode = "thumb"
+name = "Func_0802be4c"
+note = "Alchemy: address stored at 0x08020134"
+
+[[extra_func]]
+addr = 0x0802c240
+mode = "thumb"
+name = "Func_0802c240"
+note = "Alchemy: address stored at 0x08020164"
+
+[[extra_func]]
+addr = 0x0802c4d8
+mode = "thumb"
+name = "Map_UpdateCurrentTileBlock"
+note = "Alchemy: address stored at 0x0802012c"
+
+[[extra_func]]
+addr = 0x0802c864
+mode = "thumb"
+name = "MapAnimation_PresentPicture"
+note = "Alchemy: address stored at 0x0802c988"
+
+[[extra_func]]
+addr = 0x0802c8a0
+mode = "thumb"
+name = "MapAnimation_Start"
+note = "Alchemy: address stored at 0x0802026c"
+
+[[extra_func]]
+addr = 0x0802c98c
+mode = "thumb"
+name = "Map_ShowBg1FromBuffer"
+note = "Alchemy: address stored at 0x0802caec"
+
+[[extra_func]]
+addr = 0x0802c9c8
+mode = "thumb"
+name = "Func_0802c9c8"
+note = "Alchemy: address stored at 0x08020274"
+
+[[extra_func]]
+addr = 0x0802cb08
+mode = "thumb"
+name = "Map_LoadDefaultCellsAndUpdateBlock"
+note = "Alchemy: address stored at 0x0802016c"
+
+[[extra_func]]
+addr = 0x0802cc74
+mode = "thumb"
+name = "Map_ClearLayerEntryFlag"
+note = "Alchemy: address stored at 0x0802019c"
+
+[[extra_func]]
+addr = 0x0802cc88
+mode = "thumb"
+name = "Map_SetLayerEntryFlag"
+note = "Alchemy: address stored at 0x080201a4"
+
+[[extra_func]]
+addr = 0x0802cd4c
+mode = "thumb"
+name = "Map_EnableUpdateCallback"
+note = "Alchemy: address stored at 0x080202dc"
+
+[[extra_func]]
+addr = 0x0802cd70
+mode = "thumb"
+name = "Map_DisableUpdateCallback"
+note = "Alchemy: address stored at 0x080202e4"
+
+[[extra_func]]
+addr = 0x0802ce4c
+mode = "thumb"
+name = "DisplayBlend_StartScript"
+note = "Alchemy: address stored at 0x080201bc"
+
+[[extra_func]]
+addr = 0x0802cea0
+mode = "thumb"
+name = "DisplayBlend_EnableRunScript"
+note = "Alchemy: address stored at 0x080201b4"
+
+[[extra_func]]
+addr = 0x0802ceb0
+mode = "thumb"
+name = "DisplayBlend_DisableRunScript"
+note = "Alchemy: address stored at 0x080201ac"
+
+[[extra_func]]
+addr = 0x0802cfa4
+mode = "thumb"
+name = "PaletteQueue_StepCycles"
+note = "Alchemy: address stored at 0x0802cf8c"
+
+[[extra_func]]
+addr = 0x0802d248
+mode = "thumb"
+name = "Curve_LerpTwoSamples"
+note = "Alchemy: address stored at 0x0802efc8"
+
+[[extra_func]]
+addr = 0x0802d268
+mode = "thumb"
+name = "Curve_LerpTwoSamplesB"
+note = "Alchemy: address stored at 0x0802efcc"
+
+[[extra_func]]
+addr = 0x0802d288
+mode = "thumb"
+name = "Curve_StepAtSummedPosition"
+note = "Alchemy: address stored at 0x0802efd0"
+
+[[extra_func]]
+addr = 0x0802d2b0
+mode = "thumb"
+name = "Curve_StepAtDifferencePosition"
+note = "Alchemy: address stored at 0x0802efd4"
+
+[[extra_func]]
+addr = 0x0802d2e0
+mode = "thumb"
+name = "Curve_LerpThreeSamplesByRatio"
+note = "Alchemy: address stored at 0x0802efd8"
+
+[[extra_func]]
+addr = 0x0802d324
+mode = "thumb"
+name = "Curve_LerpThreeSamplesAtDifference"
+note = "Alchemy: address stored at 0x0802efdc"
+
+[[extra_func]]
+addr = 0x0802d370
+mode = "thumb"
+name = "Curve_LerpTwoSamplesByTable"
+note = "Alchemy: address stored at 0x0802efe0"
+
+[[extra_func]]
+addr = 0x0802d394
+mode = "thumb"
+name = "Curve_StepAtHalf"
+note = "Alchemy: address stored at 0x0802efe4"
+
+[[extra_func]]
+addr = 0x0802d3ac
+mode = "thumb"
+name = "Curve_StepAtHalfB"
+note = "Alchemy: address stored at 0x0802efe8"
+
+[[extra_func]]
+addr = 0x0802d3c4
+mode = "thumb"
+name = "Func_0802d3c4"
+note = "Alchemy: address stored at 0x0802efec"
+
+[[extra_func]]
+addr = 0x0802d3d8
+mode = "thumb"
+name = "Func_0802d3d8"
+note = "Alchemy: address stored at 0x0802eff0"
+
+[[extra_func]]
+addr = 0x0802d3ec
+mode = "thumb"
+name = "Curve_LookupSampleByTable"
+note = "Alchemy: address stored at 0x0802eff4"
+
+[[extra_func]]
+addr = 0x0802d400
+mode = "thumb"
+name = "Curve_LookupSampleByTableReversed"
+note = "Alchemy: address stored at 0x0802eff8"
+
+[[extra_func]]
+addr = 0x0802d414
+mode = "thumb"
+name = "Func_0802d414"
+note = "Alchemy: address stored at 0x0802effc"
+
+[[extra_func]]
+addr = 0x0802d438
+mode = "thumb"
+name = "Func_0802d438"
+note = "Alchemy: address stored at 0x0802f000"
+
+[[extra_func]]
+addr = 0x0802d4d8
+mode = "thumb"
+name = "Func_0802d4d8"
+note = "Alchemy: address stored at 0x080201d4"
+
+[[extra_func]]
+addr = 0x0802d530
+mode = "thumb"
+name = "Func_0802d530"
+note = "Alchemy: address stored at 0x080201dc"
+
+[[extra_func]]
+addr = 0x0802d600
+mode = "thumb"
+name = "Func_0802d600"
+note = "Alchemy: address stored at 0x08020364"
+
+[[extra_func]]
+addr = 0x0802d644
+mode = "thumb"
+name = "Func_0802d644"
+note = "Alchemy: address stored at 0x0802036c"
+
+[[extra_func]]
+addr = 0x0802d658
+mode = "thumb"
+name = "Func_0802d658"
+note = "Alchemy: address stored at 0x080202f4"
+
+[[extra_func]]
+addr = 0x0802d6b0
+mode = "thumb"
+name = "GetMapCellCollision"
+note = "Alchemy: address stored at 0x080201cc"
+
+[[extra_func]]
+addr = 0x0802d6e8
+mode = "thumb"
+name = "SetMapCellCollision"
+note = "Alchemy: address stored at 0x080202c4"
+
+[[extra_func]]
+addr = 0x0802d71c
+mode = "thumb"
+name = "Func_0802d71c"
+note = "Alchemy: address stored at 0x08020314"
+
+[[extra_func]]
+addr = 0x0802d7b0
+mode = "thumb"
+name = "Func_0802d7b0"
+note = "Alchemy: address stored at 0x0802030c"
+
+[[extra_func]]
+addr = 0x0802da24
+mode = "thumb"
+name = "Func_0802da24"
+note = "Alchemy: address stored at 0x0802025c"
+
+[[extra_func]]
+addr = 0x0802da88
+mode = "thumb"
+name = "Func_0802da88"
+note = "Alchemy: address stored at 0x08020354"
+
+[[extra_func]]
+addr = 0x0802dac0
+mode = "thumb"
+name = "GetWorldMapCollision"
+note = "Alchemy: address stored at 0x0802035c"
+
+[[extra_func]]
+addr = 0x0802db64
+mode = "thumb"
+name = "Func_0802db64"
+note = "Alchemy: address stored at 0x0802031c"
+
+[[extra_func]]
+addr = 0x0802db88
+mode = "thumb"
+name = "Func_0802db88"
+note = "Alchemy: address stored at 0x08020324"
+
+[[extra_func]]
+addr = 0x0802dc48
+mode = "thumb"
+name = "GetWorldMapTerrainBehavior"
+note = "Alchemy: address stored at 0x080202b4"
+
+[[extra_func]]
+addr = 0x0802dcbc
+mode = "thumb"
+name = "Map_SetScreenShake"
+note = "Alchemy: address stored at 0x0802022c"
+
+[[extra_func]]
+addr = 0x0802dcd8
+mode = "thumb"
+name = "Map_WaitForShakeToSettle"
+note = "Alchemy: address stored at 0x08020234"
+
+[[extra_func]]
+addr = 0x0802de8c
+mode = "thumb"
+name = "Func_0802de8c"
+note = "Alchemy: address stored at 0x0802039c"
+
+[[extra_func]]
+addr = 0x08038f40
+mode = "thumb"
+name = "WindowSystem_InitField"
+note = "Alchemy: address stored at 0x08038004"
+
+[[extra_func]]
+addr = 0x08039004
+mode = "thumb"
+name = "WindowSystem_InitBattle"
+note = "Alchemy: address stored at 0x0803800c"
+
+[[extra_func]]
+addr = 0x080396dc
+mode = "thumb"
+name = "Message_ResetIdle"
+note = "Alchemy: address stored at 0x08038224"
+
+[[extra_func]]
+addr = 0x0803a3b8
+mode = "thumb"
+name = "Message_AllTyped"
+note = "Alchemy: address stored at 0x0803804c"
+
+[[extra_func]]
+addr = 0x0803a3e4
+mode = "thumb"
+name = "Window_IsClosed"
+note = "Alchemy: address stored at 0x08038054"
+
+[[extra_func]]
+addr = 0x0803a530
+mode = "thumb"
+name = "Message_Close"
+note = "Alchemy: address stored at 0x0803821c"
+
+[[extra_func]]
+addr = 0x0803a54c
+mode = "thumb"
+name = "Message_Show"
+note = "Alchemy: address stored at 0x080381d4"
+
+[[extra_func]]
+addr = 0x0803a5e0
+mode = "thumb"
+name = "Message_ShowAndWaitCore"
+note = "Alchemy: address stored at 0x080381cc"
+
+[[extra_func]]
+addr = 0x0803a60c
+mode = "thumb"
+name = "Message_OpenDecoded"
+note = "Alchemy: address stored at 0x080383dc"
+
+[[extra_func]]
+addr = 0x0803a668
+mode = "thumb"
+name = "Window_SetBusyFlags"
+note = "Alchemy: address stored at 0x0803805c"
+
+[[extra_func]]
+addr = 0x0803a69c
+mode = "thumb"
+name = "Message_OpenWindow"
+note = "Alchemy: address stored at 0x0803803c"
+
+[[extra_func]]
+addr = 0x0803a7ac
+mode = "thumb"
+name = "FieldMessage_Show"
+note = "Alchemy: address stored at 0x08038044"
+
+[[extra_func]]
+addr = 0x0803b868
+mode = "thumb"
+name = "Text_MeasureMessage"
+note = "Alchemy: address stored at 0x080383a4"
+
+[[extra_func]]
+addr = 0x0803b880
+mode = "thumb"
+name = "Text_GetMessageSize"
+note = "Alchemy: address stored at 0x0803810c"
+
+[[extra_func]]
+addr = 0x0803b8cc
+mode = "thumb"
+name = "Text_GetMessageSizeAlt"
+note = "Alchemy: address stored at 0x08038114"
+
+[[extra_func]]
+addr = 0x0803c068
+mode = "thumb"
+name = "Func_0803c068"
+note = "Alchemy: address stored at 0x08038424"
+
+[[extra_func]]
+addr = 0x0803c170
+mode = "thumb"
+name = "Func_0803c170"
+note = "Alchemy: address stored at 0x0803842c"
+
+[[extra_func]]
+addr = 0x0803c198
+mode = "thumb"
+name = "Func_0803c198"
+note = "Alchemy: address stored at 0x08038434"
+
+[[extra_func]]
+addr = 0x0803c378
+mode = "thumb"
+name = "Window_SetTilemapEntry"
+note = "Alchemy: address stored at 0x08038274"
+
+[[extra_func]]
+addr = 0x0803c9ac
+mode = "thumb"
+name = "Message_DecodeRawUnbounded"
+note = "Alchemy: address stored at 0x08038024"
+
+[[extra_func]]
+addr = 0x0803c9bc
+mode = "thumb"
+name = "Message_CopyExpanded"
+note = "Alchemy: address stored at 0x08038034"
+
+[[extra_func]]
+addr = 0x0803cb1c
+mode = "thumb"
+name = "Window_CloseAll"
+note = "Alchemy: address stored at 0x0803814c"
+
+[[extra_func]]
+addr = 0x0803ccd0
+mode = "thumb"
+name = "MessageArgument_Push"
+note = "Alchemy: address stored at 0x08038124"
+
+[[extra_func]]
+addr = 0x0803ce1c
+mode = "thumb"
+name = "Message_CloseFinishedWindows"
+note = "Alchemy: address stored at 0x08038144"
+
+[[extra_func]]
+addr = 0x0803ce64
+mode = "thumb"
+name = "Func_0803ce64"
+note = "Alchemy: address stored at 0x08038214"
+
+[[extra_func]]
+addr = 0x0803d020
+mode = "thumb"
+name = "Func_0803d020"
+note = "Alchemy: address stored at 0x0803841c"
+
+[[extra_func]]
+addr = 0x0803d2f0
+mode = "thumb"
+name = "Portrait_GetForSpeaker"
+note = "Alchemy: address stored at 0x080381e4"
+
+[[extra_func]]
+addr = 0x0803d3c0
+mode = "thumb"
+name = "Func_0803d3c0"
+note = "Alchemy: address stored at 0x080380fc"
+
+[[extra_func]]
+addr = 0x0803d450
+mode = "thumb"
+name = "Func_0803d450"
+note = "Alchemy: address stored at 0x08038104"
+
+[[extra_func]]
+addr = 0x0803d5c4
+mode = "thumb"
+name = "Icon_BuildItemIconTiles"
+note = "Alchemy: address stored at 0x080382ac"
+
+[[extra_func]]
+addr = 0x0803d680
+mode = "thumb"
+name = "ItemIcon_Compose"
+note = "Alchemy: address stored at 0x0803829c"
+
+[[extra_func]]
+addr = 0x0803d8ac
+mode = "thumb"
+name = "Icon_CopyResourceToSlot"
+note = "Alchemy: address stored at 0x08038414"
+
+[[extra_func]]
+addr = 0x0803d92c
+mode = "thumb"
+name = "Icon_DrawItem"
+note = "Alchemy: address stored at 0x0803824c"
+
+[[extra_func]]
+addr = 0x0803d98c
+mode = "thumb"
+name = "Ability_LoadGlyph"
+note = "Alchemy: address stored at 0x080383b4"
+
+[[extra_func]]
+addr = 0x0803d9bc
+mode = "thumb"
+name = "Icon_BuildAbilityIconTiles"
+note = "Alchemy: address stored at 0x080382b4"
+
+[[extra_func]]
+addr = 0x0803dc1c
+mode = "thumb"
+name = "Func_0803dc1c"
+note = "Alchemy: address stored at 0x08038154"
+
+[[extra_func]]
+addr = 0x0803dd24
+mode = "thumb"
+name = "Resource_ClearOwnerListAndCounters"
+note = "Alchemy: address stored at 0x0803815c"
+
+[[extra_func]]
+addr = 0x0803dd68
+mode = "thumb"
+name = "Resource_PushPendingPair"
+note = "Alchemy: address stored at 0x08038164"
+
+[[extra_func]]
+addr = 0x0803dd98
+mode = "thumb"
+name = "SelectionScreen_BuildEntries"
+note = "Alchemy: address stored at 0x080381b4"
+
+[[extra_func]]
+addr = 0x0803dea8
+mode = "thumb"
+name = "Window_ReservedNoOp"
+note = "Alchemy: address stored at 0x080381bc"
+
+[[extra_func]]
+addr = 0x0803df00
+mode = "thumb"
+name = "Func_0803df00"
+note = "Alchemy: address stored at 0x0803816c"
+
+[[extra_func]]
+addr = 0x0803df14
+mode = "thumb"
+name = "Resource_ScheduleOwnerReset"
+note = "Alchemy: address stored at 0x08038174"
+
+[[extra_func]]
+addr = 0x0803e5a8
+mode = "thumb"
+name = "Menu_OpenSelectionWindow"
+note = "Alchemy: address stored at 0x0803817c"
+
+[[extra_func]]
+addr = 0x0803e6d8
+mode = "thumb"
+name = "Resource_ResetOwnerEntries"
+note = "Alchemy: address stored at 0x08038184"
+
+[[extra_func]]
+addr = 0x0803e774
+mode = "thumb"
+name = "Menu_SetNodeCoordinates"
+note = "Alchemy: address stored at 0x08038314"
+
+[[extra_func]]
+addr = 0x0803e7ac
+mode = "thumb"
+name = "Func_0803e7ac"
+note = "Alchemy: address stored at 0x0803818c"
+
+[[extra_func]]
+addr = 0x0803e918
+mode = "thumb"
+name = "Menu_SelectionLoop"
+note = "Alchemy: address stored at 0x08038194"
+
+[[extra_func]]
+addr = 0x0803e998
+mode = "thumb"
+name = "Menu_WaitForSelectionInput"
+note = "Alchemy: address stored at 0x0803819c"
+
+[[extra_func]]
+addr = 0x0803f234
+mode = "thumb"
+name = "Resource_LoadByModeIntoSlot"
+note = "Alchemy: address stored at 0x0803828c"
+
+[[extra_func]]
+addr = 0x0803f610
+mode = "thumb"
+name = "Func_0803f610"
+note = "Alchemy: address stored at 0x080381a4"
+
+[[extra_func]]
+addr = 0x0803f614
+mode = "thumb"
+name = "Func_0803f614"
+note = "Alchemy: address stored at 0x080381ac"
+
+[[extra_func]]
+addr = 0x0803f620
+mode = "thumb"
+name = "Func_0803f620"
+note = "Alchemy: address stored at 0x080381dc"
+
+[[extra_func]]
+addr = 0x0803f624
+mode = "thumb"
+name = "UiTextResource_Initialize"
+note = "Alchemy: address stored at 0x0803822c"
+
+[[extra_func]]
+addr = 0x0803f698
+mode = "thumb"
+name = "UiTextResource_SetPosition"
+note = "Alchemy: address stored at 0x08038234"
+
+[[extra_func]]
+addr = 0x0803f6c0
+mode = "thumb"
+name = "UiTextResource_Release"
+note = "Alchemy: address stored at 0x0803823c"
+
+[[extra_func]]
+addr = 0x0803f778
+mode = "thumb"
+name = "Menu_RunTopSelection"
+note = "Alchemy: address stored at 0x080381ec"
+
+[[extra_func]]
+addr = 0x0803f86c
+mode = "thumb"
+name = "UiTimedNotice_Create"
+note = "Alchemy: address stored at 0x08038204"
+
+[[extra_func]]
+addr = 0x0803f93c
+mode = "thumb"
+name = "UiTimedNotice_CloseIfActive"
+note = "Alchemy: address stored at 0x0803820c"
+
+[[extra_func]]
+addr = 0x0803f968
+mode = "thumb"
+name = "Func_0803f968"
+note = "Alchemy: address stored at 0x08038244"
+
+[[extra_func]]
+addr = 0x0803f9c0
+mode = "thumb"
+name = "Func_0803f9c0"
+note = "Alchemy: address stored at 0x0803834c"
+
+[[extra_func]]
+addr = 0x080400e8
+mode = "thumb"
+name = "Func_080400e8"
+note = "Alchemy: address stored at 0x08038354"
+
+[[extra_func]]
+addr = 0x0804098c
+mode = "thumb"
+name = "Func_0804098c"
+note = "Alchemy: address stored at 0x080409d8"
+
+[[extra_func]]
+addr = 0x08040c60
+mode = "thumb"
+name = "Func_08040c60"
+note = "Alchemy: address stored at 0x08040cac"
+
+[[extra_func]]
+addr = 0x08040e64
+mode = "thumb"
+name = "Func_08040e64"
+note = "Alchemy: address stored at 0x080aa12c"
+
+[[extra_func]]
+addr = 0x08040e84
+mode = "thumb"
+name = "Func_08040e84"
+note = "Alchemy: address stored at 0x080aa134"
+
+[[extra_func]]
+addr = 0x08040ed0
+mode = "thumb"
+name = "Func_08040ed0"
+note = "Alchemy: address stored at 0x080aa13c"
+
+[[extra_func]]
+addr = 0x08040ed4
+mode = "thumb"
+name = "Func_08040ed4"
+note = "Alchemy: address stored at 0x080aa144"
+
+[[extra_func]]
+addr = 0x08040f14
+mode = "thumb"
+name = "Func_08040f14"
+note = "Alchemy: address stored at 0x080aa14c"
+
+[[extra_func]]
+addr = 0x08040f58
+mode = "thumb"
+name = "Func_08040f58"
+note = "Alchemy: address stored at 0x080aa154"
+
+[[extra_func]]
+addr = 0x08040f90
+mode = "thumb"
+name = "Func_08040f90"
+note = "Alchemy: address stored at 0x080aa15c"
+
+[[extra_func]]
+addr = 0x08040fe4
+mode = "thumb"
+name = "Func_08040fe4"
+note = "Alchemy: address stored at 0x080aa164"
+
+[[extra_func]]
+addr = 0x08040ff4
+mode = "thumb"
+name = "Func_08040ff4"
+note = "Alchemy: address stored at 0x080aa16c"
+
+[[extra_func]]
+addr = 0x08041004
+mode = "thumb"
+name = "Func_08041004"
+note = "Alchemy: address stored at 0x08041050"
+
+[[extra_func]]
+addr = 0x08041204
+mode = "thumb"
+name = "Func_08041204"
+note = "Alchemy: address stored at 0x08041250"
+
+[[extra_func]]
+addr = 0x08041b68
+mode = "thumb"
+name = "Func_08041b68"
+note = "Alchemy: address stored at 0x08038294"
+
+[[extra_func]]
+addr = 0x08041c0c
+mode = "thumb"
+name = "Text_UseExtraTiles"
+note = "Alchemy: address stored at 0x080383c4"
+
+[[extra_func]]
+addr = 0x08041c54
+mode = "thumb"
+name = "Window_DrawDividerLine"
+note = "Alchemy: address stored at 0x08038074"
+
+[[extra_func]]
+addr = 0x08041f70
+mode = "thumb"
+name = "Func_08041f70"
+note = "Alchemy: address stored at 0x080380bc"
+
+[[extra_func]]
+addr = 0x08041f90
+mode = "thumb"
+name = "Func_08041f90"
+note = "Alchemy: address stored at 0x080380c4"
+
+[[extra_func]]
+addr = 0x080420a8
+mode = "thumb"
+name = "Text_DrawString"
+note = "Alchemy: address stored at 0x0803808c"
+
+[[extra_func]]
+addr = 0x080420fc
+mode = "thumb"
+name = "Text_DrawStringAtOffset"
+note = "Alchemy: address stored at 0x08038094"
+
+[[extra_func]]
+addr = 0x080421e4
+mode = "thumb"
+name = "Text_DrawNumber"
+note = "Alchemy: address stored at 0x080380a4"
+
+[[extra_func]]
+addr = 0x08042214
+mode = "thumb"
+name = "Text_DrawNumberAtOffset"
+note = "Alchemy: address stored at 0x080380ac"
+
+[[extra_func]]
+addr = 0x08042314
+mode = "thumb"
+name = "WindowSprite_Create"
+note = "Alchemy: address stored at 0x080380cc"
+
+[[extra_func]]
+addr = 0x0804239c
+mode = "thumb"
+name = "WindowSprite_CreateFromResource"
+note = "Alchemy: address stored at 0x080380d4"
+
+[[extra_func]]
+addr = 0x080423c4
+mode = "thumb"
+name = "WindowSprite_CreateLoaded"
+note = "Alchemy: address stored at 0x080382bc"
+
+[[extra_func]]
+addr = 0x08042450
+mode = "thumb"
+name = "CreateSideObject"
+note = "Alchemy: address stored at 0x080380dc"
+
+[[extra_func]]
+addr = 0x08042508
+mode = "thumb"
+name = "Portrait_Reload"
+note = "Alchemy: address stored at 0x080380e4"
+
+[[extra_func]]
+addr = 0x0804256c
+mode = "thumb"
+name = "WindowSprite_SetMotion"
+note = "Alchemy: address stored at 0x080380ec"
+
+[[extra_func]]
+addr = 0x0804257c
+mode = "thumb"
+name = "Func_0804257c"
+note = "Alchemy: address stored at 0x080380f4"
+
+[[extra_func]]
+addr = 0x08042588
+mode = "thumb"
+name = "Window_FillFromScene"
+note = "Alchemy: address stored at 0x0803825c"
+
+[[extra_func]]
+addr = 0x080425fc
+mode = "thumb"
+name = "BgScreen_FillRect"
+note = "Alchemy: address stored at 0x08038364"
+
+[[extra_func]]
+addr = 0x08042690
+mode = "thumb"
+name = "PartyStatus_CreateWindow"
+note = "Alchemy: address stored at 0x0803812c"
+
+[[extra_func]]
+addr = 0x0804297c
+mode = "thumb"
+name = "PartyStatus_Draw"
+note = "Alchemy: address stored at 0x08038134"
+
+[[extra_func]]
+addr = 0x08042dac
+mode = "thumb"
+name = "PartyStatus_Close"
+note = "Alchemy: address stored at 0x0803813c"
+
+[[extra_func]]
+addr = 0x080430c4
+mode = "thumb"
+name = "Func_080430c4"
+note = "Alchemy: address stored at 0x08038404"
+
+[[extra_func]]
+addr = 0x0804325c
+mode = "thumb"
+name = "Save_CountFilesExcludingSent"
+note = "Alchemy: address stored at 0x080383e4"
+
+[[extra_func]]
+addr = 0x080432a4
+mode = "thumb"
+name = "Func_080432a4"
+note = "Alchemy: address stored at 0x080382f4"
+
+[[extra_func]]
+addr = 0x080434ec
+mode = "thumb"
+name = "Save_WriteFile"
+note = "Alchemy: address stored at 0x080382ec"
+
+[[extra_func]]
+addr = 0x08043534
+mode = "thumb"
+name = "Func_08043534"
+note = "Alchemy: address stored at 0x080382e4"
+
+[[extra_func]]
+addr = 0x080435fc
+mode = "thumb"
+name = "Save_ToFile"
+note = "Alchemy: address stored at 0x0803840c"
+
+[[extra_func]]
+addr = 0x08043690
+mode = "thumb"
+name = "Func_08043690"
+note = "Alchemy: address stored at 0x080382c4"
+
+[[extra_func]]
+addr = 0x08043774
+mode = "thumb"
+name = "Save_ChooseAndLoadFile"
+note = "Alchemy: address stored at 0x080382cc"
+
+[[extra_func]]
+addr = 0x0804380c
+mode = "thumb"
+name = "Save_CopyFile"
+note = "Alchemy: address stored at 0x080382d4"
+
+[[extra_func]]
+addr = 0x080438c8
+mode = "thumb"
+name = "Save_EraseSelectedFile"
+note = "Alchemy: address stored at 0x080382dc"
+
+[[extra_func]]
+addr = 0x08044460
+mode = "thumb"
+name = "Resource_LoadFixedBlockBIntoFreeSlot"
+note = "Alchemy: address stored at 0x0803839c"
+
+[[extra_func]]
+addr = 0x08044478
+mode = "thumb"
+name = "Resource_CopyFixedBlockB"
+note = "Alchemy: address stored at 0x08038304"
+
+[[extra_func]]
+addr = 0x08044488
+mode = "thumb"
+name = "Resource_CopyFixedBlockA"
+note = "Alchemy: address stored at 0x0803830c"
+
+[[extra_func]]
+addr = 0x08044558
+mode = "thumb"
+name = "Func_08044558"
+note = "Alchemy: address stored at 0x080382fc"
+
+[[extra_func]]
+addr = 0x08044a54
+mode = "thumb"
+name = "Func_08044a54"
+note = "Alchemy: address stored at 0x0803838c"
+
+[[extra_func]]
+addr = 0x08044a58
+mode = "thumb"
+name = "Func_08044a58"
+note = "Alchemy: address stored at 0x0803832c"
+
+[[extra_func]]
+addr = 0x08044b98
+mode = "thumb"
+name = "Func_08044b98"
+note = "Alchemy: address stored at 0x08038334"
+
+[[extra_func]]
+addr = 0x08044c80
+mode = "thumb"
+name = "Party_ShowPairJoinedMessage"
+note = "Alchemy: address stored at 0x0803833c"
+
+[[extra_func]]
+addr = 0x08044dc8
+mode = "thumb"
+name = "Func_08044dc8"
+note = "Alchemy: address stored at 0x08038344"
+
+[[extra_func]]
+addr = 0x080453d0
+mode = "thumb"
+name = "Graphics_ExpandVramTilesByColorTable"
+note = "Alchemy: address stored at 0x080383bc"
+
+[[extra_func]]
+addr = 0x08045550
+mode = "thumb"
+name = "WindowSprite_GetPointerTiles"
+note = "Alchemy: address stored at 0x080383d4"
+
+[[extra_func]]
+addr = 0x08046134
+mode = "thumb"
+name = "Window_HighlightRect"
+note = "Alchemy: address stored at 0x080383ac"
+
+[[extra_func]]
+addr = 0x080461c8
+mode = "thumb"
+name = "BattleLayout_HighlightPartyPanels"
+note = "Alchemy: address stored at 0x080382a4"
+
+[[extra_func]]
+addr = 0x0804bc08
+mode = "thumb"
+name = "Func_0804bc08"
+note = "Alchemy: address stored at 0x080381c4"
+
+[[extra_func]]
+addr = 0x0804d570
+mode = "thumb"
+name = "Menu_AnimateSelectionToEntry"
+note = "Alchemy: address stored at 0x080383cc"
+
+[[extra_func]]
+addr = 0x0804d5ac
+mode = "thumb"
+name = "Menu_SelectSaveSlotAction"
+note = "Alchemy: address stored at 0x080381f4"
+
+[[extra_func]]
+addr = 0x0804d7fc
+mode = "thumb"
+name = "Func_0804d7fc"
+note = "Alchemy: address stored at 0x080381fc"
+
+[[extra_func]]
+addr = 0x0804d968
+mode = "thumb"
+name = "Menu_SelectShopCommand"
+note = "Alchemy: address stored at 0x0803836c"
+
+[[extra_func]]
+addr = 0x0804d9a4
+mode = "thumb"
+name = "Menu_SelectSanctumService"
+note = "Alchemy: address stored at 0x08038374"
+
+[[extra_func]]
+addr = 0x0804d9e0
+mode = "thumb"
+name = "Menu_RunConfirmSelection"
+note = "Alchemy: address stored at 0x0803837c"
+
+[[extra_func]]
+addr = 0x0804da3c
+mode = "thumb"
+name = "Menu_RunConfirmSelectionAt"
+note = "Alchemy: address stored at 0x08038394"
+
+[[extra_func]]
+addr = 0x0804da8c
+mode = "thumb"
+name = "Menu_SelectCoinsOrMedals"
+note = "Alchemy: address stored at 0x08038384"
+
+[[extra_func]]
+addr = 0x0804db74
+mode = "thumb"
+name = "Menu_RunSelection"
+note = "Alchemy: address stored at 0x0803827c"
+
+[[extra_func]]
+addr = 0x0804ddc8
+mode = "thumb"
+name = "Menu_RunSelectionWithCursorObject"
+note = "Alchemy: address stored at 0x08038284"
+
+[[extra_func]]
+addr = 0x0804e0d0
+mode = "thumb"
+name = "Func_0804e0d0"
+note = "Alchemy: address stored at 0x0803835c"
+
+[[extra_func]]
+addr = 0x0804e1d8
+mode = "thumb"
+name = "Func_0804e1d8"
+note = "Alchemy: address stored at 0x0803831c"
+
+[[extra_func]]
+addr = 0x0804e3f4
+mode = "thumb"
+name = "Func_0804e3f4"
+note = "Alchemy: address stored at 0x08038324"
+
+[[extra_func]]
+addr = 0x080ad338
+mode = "thumb"
+name = "Func_080ad338"
+note = "Alchemy: address stored at 0x080ad0bc"
+
+[[extra_func]]
+addr = 0x080ad348
+mode = "thumb"
+name = "Djinn_GetRecoveryTable"
+note = "Alchemy: address stored at 0x080ad004"
+
+[[extra_func]]
+addr = 0x080ad360
+mode = "thumb"
+name = "Party_GetAverageLevel"
+note = "Alchemy: address stored at 0x080ad294"
+
+[[extra_func]]
+addr = 0x080ad3a8
+mode = "thumb"
+name = "Enemy_GetDefinition"
+note = "Alchemy: address stored at 0x080ad144"
+
+[[extra_func]]
+addr = 0x080ad3f8
+mode = "thumb"
+name = "Unit_Calculate"
+note = "Alchemy: address stored at 0x080ad00c"
+
+[[extra_func]]
+addr = 0x080adbec
+mode = "thumb"
+name = "GameFlag_RefreshLureCap"
+note = "Alchemy: address stored at 0x080ad2bc"
+
+[[extra_func]]
+addr = 0x080adc90
+mode = "thumb"
+name = "Func_080adc90"
+note = "Alchemy: address stored at 0x080ad31c"
+
+[[extra_func]]
+addr = 0x080add5c
+mode = "thumb"
+name = "Func_080add5c"
+note = "Alchemy: address stored at 0x080ad314"
+
+[[extra_func]]
+addr = 0x080add74
+mode = "thumb"
+name = "BuildStamp_GetTime"
+note = "Alchemy: address stored at 0x080ad2cc"
+
+[[extra_func]]
+addr = 0x080addf0
+mode = "thumb"
+name = "Func_080addf0"
+note = "Alchemy: address stored at 0x080ad094"
+
+[[extra_func]]
+addr = 0x080ae0dc
+mode = "thumb"
+name = "Party_SetLeaderJenna"
+note = "Alchemy: address stored at 0x080ad21c"
+
+[[extra_func]]
+addr = 0x080ae0f0
+mode = "thumb"
+name = "Party_SetLeaderFelix"
+note = "Alchemy: address stored at 0x080ad224"
+
+[[extra_func]]
+addr = 0x080ae118
+mode = "thumb"
+name = "Func_080ae118"
+note = "Alchemy: address stored at 0x080ad22c"
+
+[[extra_func]]
+addr = 0x080ae16c
+mode = "thumb"
+name = "Func_080ae16c"
+note = "Alchemy: address stored at 0x080ad20c"
+
+[[extra_func]]
+addr = 0x080ae220
+mode = "thumb"
+name = "Func_080ae220"
+note = "Alchemy: address stored at 0x080ad214"
+
+[[extra_func]]
+addr = 0x080ae410
+mode = "thumb"
+name = "Func_080ae410"
+note = "Alchemy: address stored at 0x080ad23c"
+
+[[extra_func]]
+addr = 0x080ae5fc
+mode = "thumb"
+name = "Func_080ae5fc"
+note = "Alchemy: address stored at 0x080ad334"
+
+[[extra_func]]
+addr = 0x080ae6e4
+mode = "thumb"
+name = "Func_080ae6e4"
+note = "Alchemy: address stored at 0x080ad244"
+
+[[extra_func]]
+addr = 0x080ae830
+mode = "thumb"
+name = "Func_080ae830"
+note = "Alchemy: address stored at 0x080ad234"
+
+[[extra_func]]
+addr = 0x080ae868
+mode = "thumb"
+name = "Func_080ae868"
+note = "Alchemy: address stored at 0x080ad324"
+
+[[extra_func]]
+addr = 0x080aea30
+mode = "thumb"
+name = "Unit_UpdateRatios"
+note = "Alchemy: address stored at 0x080ad0d4"
+
+[[extra_func]]
+addr = 0x080aeaa0
+mode = "thumb"
+name = "Unit_SetHp"
+note = "Alchemy: address stored at 0x080ad0dc"
+
+[[extra_func]]
+addr = 0x080aeb1c
+mode = "thumb"
+name = "Unit_SetPp"
+note = "Alchemy: address stored at 0x080ad0e4"
+
+[[extra_func]]
+addr = 0x080aeb9c
+mode = "thumb"
+name = "Unit_AddHp"
+note = "Alchemy: address stored at 0x080ad0c4"
+
+[[extra_func]]
+addr = 0x080aebd0
+mode = "thumb"
+name = "Unit_AddPp"
+note = "Alchemy: address stored at 0x080ad0cc"
+
+[[extra_func]]
+addr = 0x080aec04
+mode = "thumb"
+name = "Item_GetDirect"
+note = "Alchemy: address stored at 0x080ad014"
+
+[[extra_func]]
+addr = 0x080aec1c
+mode = "thumb"
+name = "Item_CanOwnerEquipDirect"
+note = "Alchemy: address stored at 0x080ad1c4"
+
+[[extra_func]]
+addr = 0x080aec48
+mode = "thumb"
+name = "Item_IsCompatibleWithOwner"
+note = "Alchemy: address stored at 0x080ad1cc"
+
+[[extra_func]]
+addr = 0x080aec68
+mode = "thumb"
+name = "Item_GetEquipmentGroup"
+note = "Alchemy: address stored at 0x080ad1e4"
+
+[[extra_func]]
+addr = 0x080aeca4
+mode = "thumb"
+name = "Inventory_GetQuantity"
+note = "Alchemy: address stored at 0x080ad01c"
+
+[[extra_func]]
+addr = 0x080aecc8
+mode = "thumb"
+name = "Inventory_Count"
+note = "Alchemy: address stored at 0x080ad1f4"
+
+[[extra_func]]
+addr = 0x080aecec
+mode = "thumb"
+name = "PartyInventory_HasSpace"
+note = "Alchemy: address stored at 0x080ad1fc"
+
+[[extra_func]]
+addr = 0x080aed38
+mode = "thumb"
+name = "PartyInventory_CountFreeSlots"
+note = "Alchemy: address stored at 0x080ad2d4"
+
+[[extra_func]]
+addr = 0x080aed6c
+mode = "thumb"
+name = "Inventory_AddItem"
+note = "Alchemy: address stored at 0x080ad024"
+
+[[extra_func]]
+addr = 0x080aedf8
+mode = "thumb"
+name = "PartyInventory_Add"
+note = "Alchemy: address stored at 0x080ad02c"
+
+[[extra_func]]
+addr = 0x080aee40
+mode = "thumb"
+name = "PartyInventory_FindRoom"
+note = "Alchemy: address stored at 0x080ad2f4"
+
+[[extra_func]]
+addr = 0x080aee98
+mode = "thumb"
+name = "Inventory_Find"
+note = "Alchemy: address stored at 0x080ad034"
+
+[[extra_func]]
+addr = 0x080aeec8
+mode = "thumb"
+name = "PartyInventory_FindOwner"
+note = "Alchemy: address stored at 0x080ad03c"
+
+[[extra_func]]
+addr = 0x080aef34
+mode = "thumb"
+name = "Inventory_Equip"
+note = "Alchemy: address stored at 0x080ad04c"
+
+[[extra_func]]
+addr = 0x080af008
+mode = "thumb"
+name = "Inventory_FindEquipped"
+note = "Alchemy: address stored at 0x080ad1d4"
+
+[[extra_func]]
+addr = 0x080af094
+mode = "thumb"
+name = "Inventory_GetEquippedItem"
+note = "Alchemy: address stored at 0x080ad074"
+
+[[extra_func]]
+addr = 0x080af0e4
+mode = "thumb"
+name = "Func_080af0e4"
+note = "Alchemy: address stored at 0x080ad30c"
+
+[[extra_func]]
+addr = 0x080af148
+mode = "thumb"
+name = "Inventory_Remove"
+note = "Alchemy: address stored at 0x080ad054"
+
+[[extra_func]]
+addr = 0x080af1c8
+mode = "thumb"
+name = "Inventory_Discard"
+note = "Alchemy: address stored at 0x080ad27c"
+
+[[extra_func]]
+addr = 0x080af1fc
+mode = "thumb"
+name = "Inventory_CheckUnequip"
+note = "Alchemy: address stored at 0x080ad274"
+
+[[extra_func]]
+addr = 0x080af244
+mode = "thumb"
+name = "Inventory_CheckDiscard"
+note = "Alchemy: address stored at 0x080ad26c"
+
+[[extra_func]]
+addr = 0x080af298
+mode = "thumb"
+name = "PartyInventory_Remove"
+note = "Alchemy: address stored at 0x080ad044"
+
+[[extra_func]]
+addr = 0x080af2c0
+mode = "thumb"
+name = "PartyInventory_Discard"
+note = "Alchemy: address stored at 0x080ad2b4"
+
+[[extra_func]]
+addr = 0x080af2e8
+mode = "thumb"
+name = "Inventory_Break"
+note = "Alchemy: address stored at 0x080ad05c"
+
+[[extra_func]]
+addr = 0x080af310
+mode = "thumb"
+name = "Inventory_Repair"
+note = "Alchemy: address stored at 0x080ad064"
+
+[[extra_func]]
+addr = 0x080af338
+mode = "thumb"
+name = "Item_GetTargetMode"
+note = "Alchemy: address stored at 0x080ad06c"
+
+[[extra_func]]
+addr = 0x080af378
+mode = "thumb"
+name = "Item_AdjustCounter"
+note = "Alchemy: address stored at 0x080ad1ec"
+
+[[extra_func]]
+addr = 0x080af3a0
+mode = "thumb"
+name = "Inventory_CountItem"
+note = "Alchemy: address stored at 0x080ad2a4"
+
+[[extra_func]]
+addr = 0x080af404
+mode = "thumb"
+name = "PartyInventory_CountItem"
+note = "Alchemy: address stored at 0x080ad2ac"
+
+[[extra_func]]
+addr = 0x080af43c
+mode = "thumb"
+name = "BattleAction_GetDirect"
+note = "Alchemy: address stored at 0x080ad07c"
+
+[[extra_func]]
+addr = 0x080af464
+mode = "thumb"
+name = "Party_FindOwnerWithAction"
+note = "Alchemy: address stored at 0x080ad2ec"
+
+[[extra_func]]
+addr = 0x080af4b8
+mode = "thumb"
+name = "Unit_KnowsAction"
+note = "Alchemy: address stored at 0x080ad08c"
+
+[[extra_func]]
+addr = 0x080af6f4
+mode = "thumb"
+name = "Unit_LearnPsynergy"
+note = "Alchemy: address stored at 0x080ad084"
+
+[[extra_func]]
+addr = 0x080af794
+mode = "thumb"
+name = "Func_080af794"
+note = "Alchemy: address stored at 0x080ad09c"
+
+[[extra_func]]
+addr = 0x080af7ac
+mode = "thumb"
+name = "Func_080af7ac"
+note = "Alchemy: address stored at 0x080ad0a4"
+
+[[extra_func]]
+addr = 0x080af8cc
+mode = "thumb"
+name = "Func_080af8cc"
+note = "Alchemy: address stored at 0x080ad0ac"
+
+[[extra_func]]
+addr = 0x080af8d0
+mode = "thumb"
+name = "Unit_GetExperienceForLevel"
+note = "Alchemy: address stored at 0x080ad204"
+
+[[extra_func]]
+addr = 0x080afb80
+mode = "thumb"
+name = "Func_080afb80"
+note = "Alchemy: address stored at 0x080ad0b4"
+
+[[extra_func]]
+addr = 0x080afbb4
+mode = "thumb"
+name = "Unit_LevelUpTo"
+note = "Alchemy: address stored at 0x080ad19c"
+
+[[extra_func]]
+addr = 0x080afbec
+mode = "thumb"
+name = "Func_080afbec"
+note = "Alchemy: address stored at 0x080ad0ec"
+
+[[extra_func]]
+addr = 0x080afdbc
+mode = "thumb"
+name = "Party_CountActiveOwners"
+note = "Alchemy: address stored at 0x080ad0f4"
+
+[[extra_func]]
+addr = 0x080afdd8
+mode = "thumb"
+name = "Party_AddActiveOwner"
+note = "Alchemy: address stored at 0x080ad0fc"
+
+[[extra_func]]
+addr = 0x080afe1c
+mode = "thumb"
+name = "Party_RemoveActiveOwner"
+note = "Alchemy: address stored at 0x080ad114"
+
+[[extra_func]]
+addr = 0x080afe78
+mode = "thumb"
+name = "Party_ListActiveOwners"
+note = "Alchemy: address stored at 0x080ad104"
+
+[[extra_func]]
+addr = 0x080afeb0
+mode = "thumb"
+name = "Party_AdjustCoins"
+note = "Alchemy: address stored at 0x080ad1dc"
+
+[[extra_func]]
+addr = 0x080afed4
+mode = "thumb"
+name = "Party_AdjustShopCredit"
+note = "Alchemy: address stored at 0x080ad25c"
+
+[[extra_func]]
+addr = 0x080aff00
+mode = "thumb"
+name = "Party_AdjustShopGifts"
+note = "Alchemy: address stored at 0x080ad264"
+
+[[extra_func]]
+addr = 0x080aff28
+mode = "thumb"
+name = "Summon_ListLearned"
+note = "Alchemy: address stored at 0x080ad184"
+
+[[extra_func]]
+addr = 0x080aff7c
+mode = "thumb"
+name = "SummonDefinition_GetNear"
+note = "Alchemy: address stored at 0x080ad18c"
+
+[[extra_func]]
+addr = 0x080aff94
+mode = "thumb"
+name = "Func_080aff94"
+note = "Alchemy: address stored at 0x080ad2fc"
+
+[[extra_func]]
+addr = 0x080b0028
+mode = "thumb"
+name = "Unit_GetElementLevel"
+note = "Alchemy: address stored at 0x080ad1a4"
+
+[[extra_func]]
+addr = 0x080b0298
+mode = "thumb"
+name = "Unit_UpdateClass"
+note = "Alchemy: address stored at 0x080ad29c"
+
+[[extra_func]]
+addr = 0x080b02d4
+mode = "thumb"
+name = "Unit_RefreshPsynergy"
+note = "Alchemy: address stored at 0x080ad28c"
+
+[[extra_func]]
+addr = 0x080b0378
+mode = "thumb"
+name = "Battle_Random"
+note = "Alchemy: address stored at 0x080ad14c"
+
+[[extra_func]]
+addr = 0x080b03ac
+mode = "thumb"
+name = "Battle_CalculateAttackDamage"
+note = "Alchemy: address stored at 0x080ad12c"
+
+[[extra_func]]
+addr = 0x080b03e0
+mode = "thumb"
+name = "Battle_CalculatePsynergyPower"
+note = "Alchemy: address stored at 0x080ad134"
+
+[[extra_func]]
+addr = 0x080b0408
+mode = "thumb"
+name = "Battle_CalculateRecovery"
+note = "Alchemy: address stored at 0x080ad13c"
+
+[[extra_func]]
+addr = 0x080b0434
+mode = "thumb"
+name = "Item_GetEquippedElement"
+note = "Alchemy: address stored at 0x080ad11c"
+
+[[extra_func]]
+addr = 0x080b0460
+mode = "thumb"
+name = "Equipment_GetUnleashRateBonus"
+note = "Alchemy: address stored at 0x080ad2c4"
+
+[[extra_func]]
+addr = 0x080b04bc
+mode = "thumb"
+name = "RollWeaponUnleash"
+note = "Alchemy: address stored at 0x080ad10c"
+
+[[extra_func]]
+addr = 0x080b0740
+mode = "thumb"
+name = "Battle_IsReviveEffect"
+note = "Alchemy: address stored at 0x080ad284"
+
+[[extra_func]]
+addr = 0x080b075c
+mode = "thumb"
+name = "BattleEffect_RollSuccess"
+note = "Alchemy: address stored at 0x080ad124"
+
+[[extra_func]]
+addr = 0x080b0ab8
+mode = "thumb"
+name = "Djinn_AddToLeastLoadedOwner"
+note = "Alchemy: address stored at 0x080ad24c"
+
+[[extra_func]]
+addr = 0x080b0b78
+mode = "thumb"
+name = "Djinn_AddToOwner"
+note = "Alchemy: address stored at 0x080ad154"
+
+[[extra_func]]
+addr = 0x080b0bb8
+mode = "thumb"
+name = "Djinn_IsReady"
+note = "Alchemy: address stored at 0x080ad1bc"
+
+[[extra_func]]
+addr = 0x080b0c78
+mode = "thumb"
+name = "Djinn_IsActive"
+note = "Alchemy: address stored at 0x080ad1b4"
+
+[[extra_func]]
+addr = 0x080b0c9c
+mode = "thumb"
+name = "Djinn_Activate"
+note = "Alchemy: address stored at 0x080ad15c"
+
+[[extra_func]]
+addr = 0x080b0d04
+mode = "thumb"
+name = "Djinn_Deactivate"
+note = "Alchemy: address stored at 0x080ad164"
+
+[[extra_func]]
+addr = 0x080b0d58
+mode = "thumb"
+name = "DjinnRecovery_Remove"
+note = "Alchemy: address stored at 0x080ad16c"
+
+[[extra_func]]
+addr = 0x080b0e04
+mode = "thumb"
+name = "DjinnRecovery_AddStandby"
+note = "Alchemy: address stored at 0x080ad174"
+
+[[extra_func]]
+addr = 0x080b0e40
+mode = "thumb"
+name = "Djinn_Transfer"
+note = "Alchemy: address stored at 0x080ad17c"
+
+[[extra_func]]
+addr = 0x080b0ef4
+mode = "thumb"
+name = "DjinnRecovery_CountStandby"
+note = "Alchemy: address stored at 0x080ad1ac"
+
+[[extra_func]]
+addr = 0x080b0f50
+mode = "thumb"
+name = "Djinn_GetDefinitionHeader"
+note = "Alchemy: address stored at 0x080ad194"
+
+[[extra_func]]
+addr = 0x080b0f5c
+mode = "thumb"
+name = "Owner_SumDjinnCounts"
+note = "Alchemy: address stored at 0x080ad32c"
+
+[[extra_func]]
+addr = 0x080b0f9c
+mode = "thumb"
+name = "Party_SumDjinnCounts"
+note = "Alchemy: address stored at 0x080ad254"
+
+[[extra_func]]
+addr = 0x080b1004
+mode = "thumb"
+name = "Djinn_ActivateOfferedForParty"
+note = "Alchemy: address stored at 0x080ad304"
+
+[[extra_func]]
+addr = 0x080b1088
+mode = "thumb"
+name = "Func_080b1088"
+note = "Alchemy: address stored at 0x080ad2dc"
+
+[[extra_func]]
+addr = 0x080b11f8
+mode = "thumb"
+name = "Func_080b11f8"
+note = "Alchemy: address stored at 0x080ad2e4"
+
+[[extra_func]]
+addr = 0x080c9944
+mode = "thumb"
+name = "MainRoutine_Run"
+note = "Alchemy: address stored at 0x080c800c"
+
+[[extra_func]]
+addr = 0x080c9dc8
+mode = "thumb"
+name = "Party_PlaySavedMusic"
+note = "Alchemy: address stored at 0x080c8574"
+
+[[extra_func]]
+addr = 0x080ca18c
+mode = "thumb"
+name = "Encounter_GetEnemyGroupAtSlot"
+note = "Alchemy: address stored at 0x080c8564"
+
+[[extra_func]]
+addr = 0x080ca1a4
+mode = "thumb"
+name = "Encounter_GetDjinnEnemyGroup"
+note = "Alchemy: address stored at 0x080c856c"
+
+[[extra_func]]
+addr = 0x080ca1bc
+mode = "thumb"
+name = "Scene_ResolveInteractionResult"
+note = "Alchemy: address stored at 0x080c857c"
+
+[[extra_func]]
+addr = 0x080ca280
+mode = "thumb"
+name = "Scene_GetAreaNameIndex"
+note = "Alchemy: address stored at 0x080c864c"
+
+[[extra_func]]
+addr = 0x080ca368
+mode = "thumb"
+name = "Func_080ca368"
+note = "Alchemy: address stored at 0x080c893c"
+
+[[extra_func]]
+addr = 0x080ca3f4
+mode = "thumb"
+name = "Func_080ca3f4"
+note = "Alchemy: address stored at 0x080c8944"
+
+[[extra_func]]
+addr = 0x080ca494
+mode = "thumb"
+name = "Event_GetSpecialValue"
+note = "Alchemy: address stored at 0x080c8524"
+
+[[extra_func]]
+addr = 0x080ca6a4
+mode = "thumb"
+name = "Party_RemapCharacterIdByFlags"
+note = "Alchemy: address stored at 0x080c82bc"
+
+[[extra_func]]
+addr = 0x080ca6e4
+mode = "thumb"
+name = "Func_080ca6e4"
+note = "Alchemy: address stored at 0x080c86a4"
+
+[[extra_func]]
+addr = 0x080ca6e8
+mode = "thumb"
+name = "Event_SpawnObjectTable"
+note = "Alchemy: address stored at 0x080c844c"
+
+[[extra_func]]
+addr = 0x080ca9cc
+mode = "thumb"
+name = "Func_080ca9cc"
+note = "Alchemy: address stored at 0x080c8464"
+
+[[extra_func]]
+addr = 0x080caa2c
+mode = "thumb"
+name = "Func_080caa2c"
+note = "Alchemy: address stored at 0x080c8454"
+
+[[extra_func]]
+addr = 0x080caa4c
+mode = "thumb"
+name = "Func_080caa4c"
+note = "Alchemy: address stored at 0x080c8444"
+
+[[extra_func]]
+addr = 0x080cacec
+mode = "thumb"
+name = "Scene_AssignViewFlags"
+note = "Alchemy: address stored at 0x080c803c"
+
+[[extra_func]]
+addr = 0x080cad9c
+mode = "thumb"
+name = "ObjectTable_Snapshot"
+note = "Alchemy: address stored at 0x080c862c"
+
+[[extra_func]]
+addr = 0x080cae5c
+mode = "thumb"
+name = "ObjectTable_Restore"
+note = "Alchemy: address stored at 0x080c8634"
+
+[[extra_func]]
+addr = 0x080cb6c8
+mode = "thumb"
+name = "BattleParty_ApplyDrain"
+note = "Alchemy: address stored at 0x080c8544"
+
+[[extra_func]]
+addr = 0x080cb6f4
+mode = "thumb"
+name = "BattleParty_ApplyHealthDelta"
+note = "Alchemy: address stored at 0x080c854c"
+
+[[extra_func]]
+addr = 0x080cb82c
+mode = "thumb"
+name = "Func_080cb82c"
+note = "Alchemy: address stored at 0x080c8434"
+
+[[extra_func]]
+addr = 0x080cb8a4
+mode = "thumb"
+name = "Func_080cb8a4"
+note = "Alchemy: address stored at 0x080c843c"
+
+[[extra_func]]
+addr = 0x080cb91c
+mode = "thumb"
+name = "FieldSequence_Run"
+note = "Alchemy: address stored at 0x080c8004"
+
+[[extra_func]]
+addr = 0x080cc54c
+mode = "thumb"
+name = "Func_080cc54c"
+note = "Alchemy: address stored at 0x080c82b4"
+
+[[extra_func]]
+addr = 0x080ccd78
+mode = "thumb"
+name = "Func_080ccd78"
+note = "Alchemy: address stored at 0x080c8964"
+
+[[extra_func]]
+addr = 0x080ccec8
+mode = "thumb"
+name = "Func_080ccec8"
+note = "Alchemy: address stored at 0x080c836c"
+
+[[extra_func]]
+addr = 0x080cdbf8
+mode = "thumb"
+name = "BattleEffect_FindNearestObject"
+note = "Alchemy: address stored at 0x080c82dc"
+
+[[extra_func]]
+addr = 0x080cdc40
+mode = "thumb"
+name = "BattleEffect_PlayCueAndStartEmitterOnTarget"
+note = "Alchemy: address stored at 0x080c83d4"
+
+[[extra_func]]
+addr = 0x080cdc74
+mode = "thumb"
+name = "Func_080cdc74"
+note = "Alchemy: address stored at 0x080c8744"
+
+[[extra_func]]
+addr = 0x080cdd80
+mode = "thumb"
+name = "Func_080cdd80"
+note = "Alchemy: address stored at 0x080c874c"
+
+[[extra_func]]
+addr = 0x080cdec8
+mode = "thumb"
+name = "Event_ResolveAllPendingActions"
+note = "Alchemy: address stored at 0x080c84dc"
+
+[[extra_func]]
+addr = 0x080cded4
+mode = "thumb"
+name = "Event_ResolvePendingActions"
+note = "Alchemy: address stored at 0x080c84e4"
+
+[[extra_func]]
+addr = 0x080ce458
+mode = "thumb"
+name = "Func_080ce458"
+note = "Alchemy: address stored at 0x08b07f7c"
+
+[[extra_func]]
+addr = 0x080ceb58
+mode = "thumb"
+name = "BattleEffect_HasMatchingEvent5"
+note = "Alchemy: address stored at 0x080c850c"
+
+[[extra_func]]
+addr = 0x080ceb80
+mode = "thumb"
+name = "BattleEffect_HasTrigger"
+note = "Alchemy: address stored at 0x080c8514"
+
+[[extra_func]]
+addr = 0x080cee40
+mode = "thumb"
+name = "Actor_SetWideSprite"
+note = "Alchemy: address stored at 0x080c8424"
+
+[[extra_func]]
+addr = 0x080ceec8
+mode = "thumb"
+name = "Actor_ReturnHome"
+note = "Alchemy: address stored at 0x080c842c"
+
+[[extra_func]]
+addr = 0x080cef68
+mode = "thumb"
+name = "ObjectEvent_SetMode5WithCue"
+note = "Alchemy: address stored at 0x080c83fc"
+
+[[extra_func]]
+addr = 0x080cefb4
+mode = "thumb"
+name = "ObjectEvent_SetMode4WithCue"
+note = "Alchemy: address stored at 0x080c83f4"
+
+[[extra_func]]
+addr = 0x080cefd0
+mode = "thumb"
+name = "ObjectEvent_SetMode2"
+note = "Alchemy: address stored at 0x080c8404"
+
+[[extra_func]]
+addr = 0x080ceffc
+mode = "thumb"
+name = "ObjectEvent_GetObject"
+note = "Alchemy: address stored at 0x080c83ec"
+
+[[extra_func]]
+addr = 0x080cf004
+mode = "thumb"
+name = "ObjectEvent_Remove"
+note = "Alchemy: address stored at 0x080c8414"
+
+[[extra_func]]
+addr = 0x080cf00c
+mode = "thumb"
+name = "ObjectEvent_PlaceOnGround"
+note = "Alchemy: address stored at 0x080c840c"
+
+[[extra_func]]
+addr = 0x080cf050
+mode = "thumb"
+name = "Func_080cf050"
+note = "Alchemy: address stored at 0x080c841c"
+
+[[extra_func]]
+addr = 0x080cf158
+mode = "thumb"
+name = "Field_IsRevealActive"
+note = "Alchemy: address stored at 0x080f01bc"
+
+[[extra_func]]
+addr = 0x080cf3b4
+mode = "thumb"
+name = "BattleEffect_RunActorRiseAndDescent"
+note = "Alchemy: address stored at 0x080c83dc"
+
+[[extra_func]]
+addr = 0x080cf424
+mode = "thumb"
+name = "BattleEffect_StartEffectObject22"
+note = "Alchemy: address stored at 0x080c83e4"
+
+[[extra_func]]
+addr = 0x080cf4e0
+mode = "thumb"
+name = "BattleEffect_SpawnRandomParticleAtPosition"
+note = "Alchemy: address stored at 0x080cf2e8"
+
+[[extra_func]]
+addr = 0x080d00f8
+mode = "thumb"
+name = "ScreenTransition_InitializeBattleEffectState"
+note = "Alchemy: address stored at 0x080c8344"
+
+[[extra_func]]
+addr = 0x080d01cc
+mode = "thumb"
+name = "ScreenTransition_Start"
+note = "Alchemy: address stored at 0x080c8354"
+
+[[extra_func]]
+addr = 0x080d0520
+mode = "thumb"
+name = "ScreenTransition_Finish"
+note = "Alchemy: address stored at 0x080c835c"
+
+[[extra_func]]
+addr = 0x080d072c
+mode = "thumb"
+name = "Func_080d072c"
+note = "Alchemy: address stored at 0x080c8954"
+
+[[extra_func]]
+addr = 0x080d0748
+mode = "thumb"
+name = "Map_ClearLayerFlags"
+note = "Alchemy: address stored at 0x080c8364"
+
+[[extra_func]]
+addr = 0x080d0bec
+mode = "thumb"
+name = "ScreenTransition_InitializeState"
+note = "Alchemy: address stored at 0x080c834c"
+
+[[extra_func]]
+addr = 0x080d1684
+mode = "thumb"
+name = "BattleEffect_InitializeBuffers"
+note = "Alchemy: address stored at 0x080c8374"
+
+[[extra_func]]
+addr = 0x080d16f8
+mode = "thumb"
+name = "BattlePalette_StopBlendAndReleaseBuffer"
+note = "Alchemy: address stored at 0x080c839c"
+
+[[extra_func]]
+addr = 0x080d172c
+mode = "thumb"
+name = "BattleEffect_ApplyColorToSourceBuffer"
+note = "Alchemy: address stored at 0x080c8384"
+
+[[extra_func]]
+addr = 0x080d174c
+mode = "thumb"
+name = "BattleEffect_SetPrimaryBufferValue"
+note = "Alchemy: address stored at 0x080c83a4"
+
+[[extra_func]]
+addr = 0x080d1760
+mode = "thumb"
+name = "Func_080d1760"
+note = "Alchemy: address stored at 0x080c896c"
+
+[[extra_func]]
+addr = 0x080d17e8
+mode = "thumb"
+name = "BattleEffect_LoadBufferPalette"
+note = "Alchemy: address stored at 0x080c8974"
+
+[[extra_func]]
+addr = 0x080d1a18
+mode = "thumb"
+name = "BattleEffect_StartFadeOverlay"
+note = "Alchemy: address stored at 0x080c846c"
+
+[[extra_func]]
+addr = 0x080d1ac4
+mode = "thumb"
+name = "FadeOverlay_Suspend"
+note = "Alchemy: address stored at 0x080c8474"
+
+[[extra_func]]
+addr = 0x080d1ad4
+mode = "thumb"
+name = "FadeOverlay_Resume"
+note = "Alchemy: address stored at 0x080c847c"
+
+[[extra_func]]
+addr = 0x080d1cc0
+mode = "thumb"
+name = "Func_080d1cc0"
+note = "Alchemy: address stored at 0x080c8484"
+
+[[extra_func]]
+addr = 0x080d1d34
+mode = "thumb"
+name = "Func_080d1d34"
+note = "Alchemy: address stored at 0x080c848c"
+
+[[extra_func]]
+addr = 0x080d1d44
+mode = "thumb"
+name = "Func_080d1d44"
+note = "Alchemy: address stored at 0x080c8494"
+
+[[extra_func]]
+addr = 0x080d1d54
+mode = "thumb"
+name = "BattleEffect_FillOverlayTiles"
+note = "Alchemy: address stored at 0x080c88a4"
+
+[[extra_func]]
+addr = 0x080d1dac
+mode = "thumb"
+name = "Func_080d1dac"
+note = "Alchemy: address stored at 0x080c88ac"
+
+[[extra_func]]
+addr = 0x080d1df0
+mode = "thumb"
+name = "BattleEffect_DrawSpriteAtWorldPosition"
+note = "Alchemy: address stored at 0x080c88b4"
+
+[[extra_func]]
+addr = 0x080d1e18
+mode = "thumb"
+name = "Func_080d1e18"
+note = "Alchemy: address stored at 0x080c88bc"
+
+[[extra_func]]
+addr = 0x080d1eac
+mode = "thumb"
+name = "Func_080d1eac"
+note = "Alchemy: address stored at 0x080c85cc"
+
+[[extra_func]]
+addr = 0x080d1ee8
+mode = "thumb"
+name = "Func_080d1ee8"
+note = "Alchemy: address stored at 0x080c8654"
+
+[[extra_func]]
+addr = 0x080d1f0c
+mode = "thumb"
+name = "Func_080d1f0c"
+note = "Alchemy: address stored at 0x080c865c"
+
+[[extra_func]]
+addr = 0x080d1f18
+mode = "thumb"
+name = "Func_080d1f18"
+note = "Alchemy: address stored at 0x080c8664"
+
+[[extra_func]]
+addr = 0x080d1f20
+mode = "thumb"
+name = "Func_080d1f20"
+note = "Alchemy: address stored at 0x080c866c"
+
+[[extra_func]]
+addr = 0x080d2084
+mode = "thumb"
+name = "Event_WaitTwoSecondsOrPress"
+note = "Alchemy: address stored at 0x080c8674"
+
+[[extra_func]]
+addr = 0x080d20fc
+mode = "thumb"
+name = "Func_080d20fc"
+note = "Alchemy: address stored at 0x080c867c"
+
+[[extra_func]]
+addr = 0x080d2260
+mode = "thumb"
+name = "Leader_StopMoving"
+note = "Alchemy: address stored at 0x080c82fc"
+
+[[extra_func]]
+addr = 0x080d22a8
+mode = "thumb"
+name = "Event_Start"
+note = "Alchemy: address stored at 0x080c801c"
+
+[[extra_func]]
+addr = 0x080d2350
+mode = "thumb"
+name = "Event_End"
+note = "Alchemy: address stored at 0x080c8024"
+
+[[extra_func]]
+addr = 0x080d2398
+mode = "thumb"
+name = "Event_RunObjectHookAndWait"
+note = "Alchemy: address stored at 0x080c802c"
+
+[[extra_func]]
+addr = 0x080d23b8
+mode = "thumb"
+name = "Event_CallWithLastActiveObjectId"
+note = "Alchemy: address stored at 0x080c8034"
+
+[[extra_func]]
+addr = 0x080d23cc
+mode = "thumb"
+name = "Event_SetSceneEvents"
+note = "Alchemy: address stored at 0x080c8044"
+
+[[extra_func]]
+addr = 0x080d23d8
+mode = "thumb"
+name = "Event_PrepareObjectAndApplyValue"
+note = "Alchemy: address stored at 0x080c804c"
+
+[[extra_func]]
+addr = 0x080d23f8
+mode = "thumb"
+name = "Event_PrepareTwoObjectsAndApply"
+note = "Alchemy: address stored at 0x080c8054"
+
+[[extra_func]]
+addr = 0x080d2454
+mode = "thumb"
+name = "Event_ClearValidPackedIds"
+note = "Alchemy: address stored at 0x080c85d4"
+
+[[extra_func]]
+addr = 0x080d2488
+mode = "thumb"
+name = "Party_RemoveOwnerRestored"
+note = "Alchemy: address stored at 0x080c805c"
+
+[[extra_func]]
+addr = 0x080d25c8
+mode = "thumb"
+name = "Func_080d25c8"
+note = "Alchemy: address stored at 0x080c895c"
+
+[[extra_func]]
+addr = 0x080d260c
+mode = "thumb"
+name = "PartyInventory_GiveItem"
+note = "Alchemy: address stored at 0x080c8064"
+
+[[extra_func]]
+addr = 0x080d27ec
+mode = "thumb"
+name = "Inventory_TryAddAndReturnOwner"
+note = "Alchemy: address stored at 0x080c806c"
+
+[[extra_func]]
+addr = 0x080d2840
+mode = "thumb"
+name = "Event_AskYesNoWithActorAnimation"
+note = "Alchemy: address stored at 0x080c8074"
+
+[[extra_func]]
+addr = 0x080d295c
+mode = "thumb"
+name = "Func_080d295c"
+note = "Alchemy: address stored at 0x080c855c"
+
+[[extra_func]]
+addr = 0x080d296c
+mode = "thumb"
+name = "Func_080d296c"
+note = "Alchemy: address stored at 0x080c807c"
+
+[[extra_func]]
+addr = 0x080d2a0c
+mode = "thumb"
+name = "Party_LearnAbility"
+note = "Alchemy: address stored at 0x080c8084"
+
+[[extra_func]]
+addr = 0x080d2a3c
+mode = "thumb"
+name = "Event_StartScreenTransition"
+note = "Alchemy: address stored at 0x080c83ac"
+
+[[extra_func]]
+addr = 0x080d2a64
+mode = "thumb"
+name = "Event_FinishScreenTransition"
+note = "Alchemy: address stored at 0x080c83b4"
+
+[[extra_func]]
+addr = 0x080d2a8c
+mode = "thumb"
+name = "Event_WaitTransitionFrames"
+note = "Alchemy: address stored at 0x080c83bc"
+
+[[extra_func]]
+addr = 0x080d2aa4
+mode = "thumb"
+name = "Event_SetDestination"
+note = "Alchemy: address stored at 0x080c826c"
+
+[[extra_func]]
+addr = 0x080d2ad0
+mode = "thumb"
+name = "Event_SetRestartPoint"
+note = "Alchemy: address stored at 0x080c8274"
+
+[[extra_func]]
+addr = 0x080d2afc
+mode = "thumb"
+name = "Event_SetExitRequest"
+note = "Alchemy: address stored at 0x080c827c"
+
+[[extra_func]]
+addr = 0x080d2b0c
+mode = "thumb"
+name = "Field_RequestBattleFromEncounterTable"
+note = "Alchemy: address stored at 0x080c8284"
+
+[[extra_func]]
+addr = 0x080d2b4c
+mode = "thumb"
+name = "Func_080d2b4c"
+note = "Alchemy: address stored at 0x080c828c"
+
+[[extra_func]]
+addr = 0x080d2c04
+mode = "thumb"
+name = "Party_SetFields1eeAnd1f0"
+note = "Alchemy: address stored at 0x080c8294"
+
+[[extra_func]]
+addr = 0x080d2c1c
+mode = "thumb"
+name = "Party_SetFields1f2And1f4"
+note = "Alchemy: address stored at 0x080c829c"
+
+[[extra_func]]
+addr = 0x080d2c34
+mode = "thumb"
+name = "Field_SetDestination"
+note = "Alchemy: address stored at 0x080c82a4"
+
+[[extra_func]]
+addr = 0x080d2c64
+mode = "thumb"
+name = "Func_080d2c64"
+note = "Alchemy: address stored at 0x080c868c"
+
+[[extra_func]]
+addr = 0x080d2c98
+mode = "thumb"
+name = "Event_NoOp"
+note = "Alchemy: address stored at 0x080c8694"
+
+[[extra_func]]
+addr = 0x080d2c9c
+mode = "thumb"
+name = "Func_080d2c9c"
+note = "Alchemy: address stored at 0x080c869c"
+
+[[extra_func]]
+addr = 0x080d2cc4
+mode = "thumb"
+name = "Func_080d2cc4"
+note = "Alchemy: address stored at 0x080c889c"
+
+[[extra_func]]
+addr = 0x080d2d08
+mode = "thumb"
+name = "Func_080d2d08"
+note = "Alchemy: address stored at 0x080c88cc"
+
+[[extra_func]]
+addr = 0x080d2d70
+mode = "thumb"
+name = "Func_080d2d70"
+note = "Alchemy: address stored at 0x080c8934"
+
+[[extra_func]]
+addr = 0x080d2d94
+mode = "thumb"
+name = "Actor_SetSpeedParameters"
+note = "Alchemy: address stored at 0x080c809c"
+
+[[extra_func]]
+addr = 0x080d2da8
+mode = "thumb"
+name = "Actor_SetMovementTypeById"
+note = "Alchemy: address stored at 0x080c80a4"
+
+[[extra_func]]
+addr = 0x080d2dc8
+mode = "thumb"
+name = "Actor_Stop"
+note = "Alchemy: address stored at 0x080c80b4"
+
+[[extra_func]]
+addr = 0x080d2de4
+mode = "thumb"
+name = "Actor_ResetTargetsAndVelocity"
+note = "Alchemy: address stored at 0x080c88fc"
+
+[[extra_func]]
+addr = 0x080d2e1c
+mode = "thumb"
+name = "Actor_WatchAndSetScript"
+note = "Alchemy: address stored at 0x080c8604"
+
+[[extra_func]]
+addr = 0x080d2e40
+mode = "thumb"
+name = "Actor_RefreshSelectorById"
+note = "Alchemy: address stored at 0x080c80ac"
+
+[[extra_func]]
+addr = 0x080d2e50
+mode = "thumb"
+name = "Actor_SetMovementTypeAndWaitById"
+note = "Alchemy: address stored at 0x080c80bc"
+
+[[extra_func]]
+addr = 0x080d2e78
+mode = "thumb"
+name = "Actor_ResetAndSetPosition"
+note = "Alchemy: address stored at 0x080c80c4"
+
+[[extra_func]]
+addr = 0x080d2ea4
+mode = "thumb"
+name = "Actor_SetPositionAndCommit"
+note = "Alchemy: address stored at 0x080c80cc"
+
+[[extra_func]]
+addr = 0x080d2ed4
+mode = "thumb"
+name = "Actor_ResetAndSetPositionInMode2"
+note = "Alchemy: address stored at 0x080c80d4"
+
+[[extra_func]]
+addr = 0x080d2f08
+mode = "thumb"
+name = "Actor_SetPositionAndReset"
+note = "Alchemy: address stored at 0x080c80dc"
+
+[[extra_func]]
+addr = 0x080d2f48
+mode = "thumb"
+name = "Actor_CenterOnColumn"
+note = "Alchemy: address stored at 0x080c80e4"
+
+[[extra_func]]
+addr = 0x080d2fc8
+mode = "thumb"
+name = "Actor_OffsetPositionAndResetMotion"
+note = "Alchemy: address stored at 0x080c80ec"
+
+[[extra_func]]
+addr = 0x080d2ffc
+mode = "thumb"
+name = "Actor_OffsetPositionAndReset"
+note = "Alchemy: address stored at 0x080c85f4"
+
+[[extra_func]]
+addr = 0x080d303c
+mode = "thumb"
+name = "Actor_CommitPositionAndActivate"
+note = "Alchemy: address stored at 0x080c85fc"
+
+[[extra_func]]
+addr = 0x080d3070
+mode = "thumb"
+name = "Func_080d3070"
+note = "Alchemy: address stored at 0x080c85ec"
+
+[[extra_func]]
+addr = 0x080d30fc
+mode = "thumb"
+name = "Actor_WaitForMoveById"
+note = "Alchemy: address stored at 0x080c80f4"
+
+[[extra_func]]
+addr = 0x080d3118
+mode = "thumb"
+name = "Actor_SetHorizontalPositionWithTerrain"
+note = "Alchemy: address stored at 0x080c80fc"
+
+[[extra_func]]
+addr = 0x080d3164
+mode = "thumb"
+name = "Actor_SetHorizontalPositionAndAngleWithTerrain"
+note = "Alchemy: address stored at 0x080c8104"
+
+[[extra_func]]
+addr = 0x080d31c0
+mode = "thumb"
+name = "Actor_SetPositionWithTerrain"
+note = "Alchemy: address stored at 0x080c810c"
+
+[[extra_func]]
+addr = 0x080d3214
+mode = "thumb"
+name = "Actor_MoveToObject"
+note = "Alchemy: address stored at 0x080c8114"
+
+[[extra_func]]
+addr = 0x080d3240
+mode = "thumb"
+name = "Actor_SetModeById"
+note = "Alchemy: address stored at 0x080c811c"
+
+[[extra_func]]
+addr = 0x080d3254
+mode = "thumb"
+name = "Actor_SetActionById"
+note = "Alchemy: address stored at 0x080c8124"
+
+[[extra_func]]
+addr = 0x080d3268
+mode = "thumb"
+name = "Actor_WaitForAnimationChange"
+note = "Alchemy: address stored at 0x080c8134"
+
+[[extra_func]]
+addr = 0x080d32b8
+mode = "thumb"
+name = "Motion_SetModeAndWaitAnimation"
+note = "Alchemy: address stored at 0x080c812c"
+
+[[extra_func]]
+addr = 0x080d32c8
+mode = "thumb"
+name = "Actor_Jump"
+note = "Alchemy: address stored at 0x080c813c"
+
+[[extra_func]]
+addr = 0x080d3300
+mode = "thumb"
+name = "Actor_StartRepeatedMotion"
+note = "Alchemy: address stored at 0x080c8144"
+
+[[extra_func]]
+addr = 0x080d332c
+mode = "thumb"
+name = "Motion_SetVarCbAndRefresh"
+note = "Alchemy: address stored at 0x080c814c"
+
+[[extra_func]]
+addr = 0x080d3460
+mode = "thumb"
+name = "Actor_JumpDownLedge"
+note = "Alchemy: address stored at 0x080c8154"
+
+[[extra_func]]
+addr = 0x080d359c
+mode = "thumb"
+name = "Actor_SetAngleToward"
+note = "Alchemy: address stored at 0x080c815c"
+
+[[extra_func]]
+addr = 0x080d35d4
+mode = "thumb"
+name = "Actor_TurnToFaceEachOther"
+note = "Alchemy: address stored at 0x080c8164"
+
+[[extra_func]]
+addr = 0x080d36a8
+mode = "thumb"
+name = "ObjectTable_DestroyById"
+note = "Alchemy: address stored at 0x080c8094"
+
+[[extra_func]]
+addr = 0x080d36c8
+mode = "thumb"
+name = "Actor_ConfigureSpriteColor"
+note = "Alchemy: address stored at 0x080c816c"
+
+[[extra_func]]
+addr = 0x080d36f4
+mode = "thumb"
+name = "Actor_ApplyIndexedChildValue"
+note = "Alchemy: address stored at 0x080d36f0"
+
+[[extra_func]]
+addr = 0x080d3744
+mode = "thumb"
+name = "Actor_SetPartAttribute"
+note = "Alchemy: address stored at 0x080c8174"
+
+[[extra_func]]
+addr = 0x080d3780
+mode = "thumb"
+name = "Actor_SetTargetAndCallback"
+note = "Alchemy: address stored at 0x080c817c"
+
+[[extra_func]]
+addr = 0x080d3814
+mode = "thumb"
+name = "Actor_ResetTargetAndSetMode1"
+note = "Alchemy: address stored at 0x080c81e4"
+
+[[extra_func]]
+addr = 0x080d3838
+mode = "thumb"
+name = "Actor_ArmCallback"
+note = "Alchemy: address stored at 0x080c81d4"
+
+[[extra_func]]
+addr = 0x080d3860
+mode = "thumb"
+name = "Actor_ArmCallbackAndRefresh"
+note = "Alchemy: address stored at 0x080c81dc"
+
+[[extra_func]]
+addr = 0x080d3888
+mode = "thumb"
+name = "Actor_SetSpritePriority"
+note = "Alchemy: address stored at 0x080c8204"
+
+[[extra_func]]
+addr = 0x080d38d4
+mode = "thumb"
+name = "ObjectVisual_CopyAttributes"
+note = "Alchemy: address stored at 0x080c8224"
+
+[[extra_func]]
+addr = 0x080d390c
+mode = "thumb"
+name = "Func_080d390c"
+note = "Alchemy: address stored at 0x080c820c"
+
+[[extra_func]]
+addr = 0x080d3928
+mode = "thumb"
+name = "Func_080d3928"
+note = "Alchemy: address stored at 0x080c87ac"
+
+[[extra_func]]
+addr = 0x080d3940
+mode = "thumb"
+name = "Func_080d3940"
+note = "Alchemy: address stored at 0x080c87b4"
+
+[[extra_func]]
+addr = 0x080d3a10
+mode = "thumb"
+name = "Func_080d3a10"
+note = "Alchemy: address stored at 0x080c87bc"
+
+[[extra_func]]
+addr = 0x080d3b28
+mode = "thumb"
+name = "Func_080d3b28"
+note = "Alchemy: address stored at 0x080c8864"
+
+[[extra_func]]
+addr = 0x080d3be8
+mode = "thumb"
+name = "Event_SetMessageId"
+note = "Alchemy: address stored at 0x080c8184"
+
+[[extra_func]]
+addr = 0x080d3bf8
+mode = "thumb"
+name = "ObjectTable_ReadActiveValue"
+note = "Alchemy: address stored at 0x080c8624"
+
+[[extra_func]]
+addr = 0x080d3c2c
+mode = "thumb"
+name = "ObjectTable_FindActiveByValue"
+note = "Alchemy: address stored at 0x080c861c"
+
+[[extra_func]]
+addr = 0x080d3c88
+mode = "thumb"
+name = "FieldMessage_ShowAtActor"
+note = "Alchemy: address stored at 0x080c818c"
+
+[[extra_func]]
+addr = 0x080d3fb0
+mode = "thumb"
+name = "Func_080d3fb0"
+note = "Alchemy: address stored at 0x080c8194"
+
+[[extra_func]]
+addr = 0x080d406c
+mode = "thumb"
+name = "Event_ShowMessageThenWait"
+note = "Alchemy: address stored at 0x080c819c"
+
+[[extra_func]]
+addr = 0x080d407c
+mode = "thumb"
+name = "Event_ShowMessageAndWait"
+note = "Alchemy: address stored at 0x080c81a4"
+
+[[extra_func]]
+addr = 0x080d4084
+mode = "thumb"
+name = "Event_AskYesNoAndShowResponse"
+note = "Alchemy: address stored at 0x080c81ac"
+
+[[extra_func]]
+addr = 0x080d40d8
+mode = "thumb"
+name = "Event_NoOpUpdate"
+note = "Alchemy: address stored at 0x080c81b4"
+
+[[extra_func]]
+addr = 0x080d40dc
+mode = "thumb"
+name = "Func_080d40dc"
+note = "Alchemy: address stored at 0x080c81bc"
+
+[[extra_func]]
+addr = 0x080d4178
+mode = "thumb"
+name = "Event_ShowCounter"
+note = "Alchemy: address stored at 0x080c81c4"
+
+[[extra_func]]
+addr = 0x080d4180
+mode = "thumb"
+name = "Event_ShowCounterAtPosition"
+note = "Alchemy: address stored at 0x080c81cc"
+
+[[extra_func]]
+addr = 0x080d41e8
+mode = "thumb"
+name = "ObjectTable_RunIfActive"
+note = "Alchemy: address stored at 0x080c81ec"
+
+[[extra_func]]
+addr = 0x080d41fc
+mode = "thumb"
+name = "Battle_ShowPairedUnitWorkAndWait"
+note = "Alchemy: address stored at 0x080c81f4"
+
+[[extra_func]]
+addr = 0x080d4330
+mode = "thumb"
+name = "Func_080d4330"
+note = "Alchemy: address stored at 0x080c81fc"
+
+[[extra_func]]
+addr = 0x080d4384
+mode = "thumb"
+name = "Camera_FollowActor"
+note = "Alchemy: address stored at 0x080c822c"
+
+[[extra_func]]
+addr = 0x080d43ec
+mode = "thumb"
+name = "Camera_SetSpeedParameters"
+note = "Alchemy: address stored at 0x080c8234"
+
+[[extra_func]]
+addr = 0x080d440c
+mode = "thumb"
+name = "Camera_MoveWithinMapBounds"
+note = "Alchemy: address stored at 0x080c823c"
+
+[[extra_func]]
+addr = 0x080d450c
+mode = "thumb"
+name = "Func_080d450c"
+note = "Alchemy: address stored at 0x080c824c"
+
+[[extra_func]]
+addr = 0x080d452c
+mode = "thumb"
+name = "Func_080d452c"
+note = "Alchemy: address stored at 0x080c8254"
+
+[[extra_func]]
+addr = 0x080d4548
+mode = "thumb"
+name = "Func_080d4548"
+note = "Alchemy: address stored at 0x080c8244"
+
+[[extra_func]]
+addr = 0x080d4568
+mode = "thumb"
+name = "Func_080d4568"
+note = "Alchemy: address stored at 0x080c825c"
+
+[[extra_func]]
+addr = 0x080d45b8
+mode = "thumb"
+name = "Func_080d45b8"
+note = "Alchemy: address stored at 0x080c8264"
+
+[[extra_func]]
+addr = 0x080d46a4
+mode = "thumb"
+name = "Func_080d46a4"
+note = "Alchemy: address stored at 0x080c863c"
+
+[[extra_func]]
+addr = 0x080d4714
+mode = "thumb"
+name = "Func_080d4714"
+note = "Alchemy: address stored at 0x080c8644"
+
+[[extra_func]]
+addr = 0x080d47b4
+mode = "thumb"
+name = "Func_080d47b4"
+note = "Alchemy: address stored at 0x080c8214"
+
+[[extra_func]]
+addr = 0x080d489c
+mode = "thumb"
+name = "Func_080d489c"
+note = "Alchemy: address stored at 0x080c821c"
+
+[[extra_func]]
+addr = 0x080d49a0
+mode = "thumb"
+name = "Actor_ClearChildFlags"
+note = "Alchemy: address stored at 0x080f34f8"
+
+[[extra_func]]
+addr = 0x080d49ac
+mode = "thumb"
+name = "Actor_SetPriorityBit5"
+note = "Alchemy: address stored at 0x080f3504"
+
+[[extra_func]]
+addr = 0x080d49bc
+mode = "thumb"
+name = "Actor_MoveTowardTarget"
+note = "Alchemy: address stored at 0x080f3740"
+
+[[extra_func]]
+addr = 0x080d4a54
+mode = "thumb"
+name = "SceneActor_UpdateFacingTowardTarget"
+note = "Alchemy: address stored at 0x080d4ab0"
+
+[[extra_func]]
+addr = 0x080d4aa8
+mode = "thumb"
+name = "Func_080d4aa8"
+note = "Alchemy: address stored at 0x080c88f4"
+
+[[extra_func]]
+addr = 0x080d4ab4
+mode = "thumb"
+name = "Func_080d4ab4"
+note = "Alchemy: address stored at 0x080c887c"
+
+[[extra_func]]
+addr = 0x080d4b0c
+mode = "thumb"
+name = "Actor_SetActionCallback"
+note = "Alchemy: address stored at 0x080c8684"
+
+[[extra_func]]
+addr = 0x080d4d08
+mode = "thumb"
+name = "Func_080d4d08"
+note = "Alchemy: address stored at 0x080c82e4"
+
+[[extra_func]]
+addr = 0x080d50f8
+mode = "thumb"
+name = "Func_080d50f8"
+note = "Alchemy: address stored at 0x080c82ec"
+
+[[extra_func]]
+addr = 0x080d53b8
+mode = "thumb"
+name = "Func_080d53b8"
+note = "Alchemy: address stored at 0x080c82f4"
+
+[[extra_func]]
+addr = 0x080d5bec
+mode = "thumb"
+name = "Func_080d5bec"
+note = "Alchemy: address stored at 0x080c82ac"
+
+[[extra_func]]
+addr = 0x080d5d70
+mode = "thumb"
+name = "Func_080d5d70"
+note = "Alchemy: address stored at 0x080c879c"
+
+[[extra_func]]
+addr = 0x080d5e50
+mode = "thumb"
+name = "ObjectEffect_StartContextEffect26"
+note = "Alchemy: address stored at 0x080c8904"
+
+[[extra_func]]
+addr = 0x080d5e64
+mode = "thumb"
+name = "ObjectEffect_StartContextEffect25"
+note = "Alchemy: address stored at 0x080c890c"
+
+[[extra_func]]
+addr = 0x080d6408
+mode = "thumb"
+name = "Func_080d6408"
+note = "Alchemy: address stored at 0x080c83c4"
+
+[[extra_func]]
+addr = 0x080d64b8
+mode = "thumb"
+name = "Func_080d64b8"
+note = "Alchemy: address stored at 0x080c83cc"
+
+[[extra_func]]
+addr = 0x080d64f0
+mode = "thumb"
+name = "Func_080d64f0"
+note = "Alchemy: address stored at 0x080d69e4"
+
+[[extra_func]]
+addr = 0x080d690c
+mode = "thumb"
+name = "Func_080d690c"
+note = "Alchemy: address stored at 0x080c8304"
+
+[[extra_func]]
+addr = 0x080d6b90
+mode = "thumb"
+name = "Func_080d6b90"
+note = "Alchemy: address stored at 0x080c8334"
+
+[[extra_func]]
+addr = 0x080d6e58
+mode = "thumb"
+name = "FieldMotes_Start"
+note = "Alchemy: address stored at 0x080c8914"
+
+[[extra_func]]
+addr = 0x080d6f34
+mode = "thumb"
+name = "Func_080d6f34"
+note = "Alchemy: address stored at 0x080c891c"
+
+[[extra_func]]
+addr = 0x080d7024
+mode = "thumb"
+name = "Func_080d7024"
+note = "Alchemy: address stored at 0x080c8924"
+
+[[extra_func]]
+addr = 0x080d7240
+mode = "thumb"
+name = "FieldEffect_InitializeSparkles"
+note = "Alchemy: address stored at 0x080c833c"
+
+[[extra_func]]
+addr = 0x080d7304
+mode = "thumb"
+name = "BattleEffect_StartTwelveFrameBlend"
+note = "Alchemy: address stored at 0x080c830c"
+
+[[extra_func]]
+addr = 0x080d73b4
+mode = "thumb"
+name = "BattleEffect_SetBlock30ValuesMaxZero"
+note = "Alchemy: address stored at 0x080c8314"
+
+[[extra_func]]
+addr = 0x080d73e0
+mode = "thumb"
+name = "BattleEffect_SetBlock30Values12Zero"
+note = "Alchemy: address stored at 0x080c831c"
+
+[[extra_func]]
+addr = 0x080d7408
+mode = "thumb"
+name = "BattleEffect_SetBlock30Values128One"
+note = "Alchemy: address stored at 0x080c8324"
+
+[[extra_func]]
+addr = 0x080d7430
+mode = "thumb"
+name = "BattleEffect_StartBufferBlend"
+note = "Alchemy: address stored at 0x080c832c"
+
+[[extra_func]]
+addr = 0x080d7788
+mode = "thumb"
+name = "Func_080d7788"
+note = "Alchemy: address stored at 0x080c8584"
+
+[[extra_func]]
+addr = 0x080d7a78
+mode = "thumb"
+name = "BattleEffect_InitializeSlots"
+note = "Alchemy: address stored at 0x080c85dc"
+
+[[extra_func]]
+addr = 0x080d7ab4
+mode = "thumb"
+name = "BattleEffect_ClearActiveSlotsAndScheduleUpdates"
+note = "Alchemy: address stored at 0x080c85e4"
+
+[[extra_func]]
+addr = 0x080d7b04
+mode = "thumb"
+name = "Func_080d7b04"
+note = "Alchemy: address stored at 0x080d7d40"
+
+[[extra_func]]
+addr = 0x080d7d48
+mode = "thumb"
+name = "BattleEffect_SetObjectAlternatingWords"
+note = "Alchemy: address stored at 0x080d8144"
+
+[[extra_func]]
+addr = 0x080d7d68
+mode = "thumb"
+name = "BattleEffect_SpinUpAngle"
+note = "Alchemy: address stored at 0x080d8138"
+
+[[extra_func]]
+addr = 0x080d7d90
+mode = "thumb"
+name = "BattleEffect_ShrinkObjectAndDestroySlow"
+note = "Alchemy: address stored at 0x080d813c"
+
+[[extra_func]]
+addr = 0x080d7dbc
+mode = "thumb"
+name = "BattleEffect_UpdatePhasedRadialParticle"
+note = "Alchemy: address stored at 0x080d8140"
+
+[[extra_func]]
+addr = 0x080d897c
+mode = "thumb"
+name = "Func_080d897c"
+note = "Alchemy: address stored at 0x080c86ac"
+
+[[extra_func]]
+addr = 0x080d8d68
+mode = "thumb"
+name = "Func_080d8d68"
+note = "Alchemy: address stored at 0x080c86b4"
+
+[[extra_func]]
+addr = 0x080d9104
+mode = "thumb"
+name = "Func_080d9104"
+note = "Alchemy: address stored at 0x080c86bc"
+
+[[extra_func]]
+addr = 0x080d92d4
+mode = "thumb"
+name = "Func_080d92d4"
+note = "Alchemy: address stored at 0x080c86c4"
+
+[[extra_func]]
+addr = 0x080d9710
+mode = "thumb"
+name = "Func_080d9710"
+note = "Alchemy: address stored at 0x080c86cc"
+
+[[extra_func]]
+addr = 0x080d9ab0
+mode = "thumb"
+name = "Func_080d9ab0"
+note = "Alchemy: address stored at 0x080c86e4"
+
+[[extra_func]]
+addr = 0x080d9ad0
+mode = "thumb"
+name = "Func_080d9ad0"
+note = "Alchemy: address stored at 0x080c86ec"
+
+[[extra_func]]
+addr = 0x080d9b08
+mode = "thumb"
+name = "Func_080d9b08"
+note = "Alchemy: address stored at 0x080c86d4"
+
+[[extra_func]]
+addr = 0x080d9e98
+mode = "thumb"
+name = "Func_080d9e98"
+note = "Alchemy: address stored at 0x080c86dc"
+
+[[extra_func]]
+addr = 0x080da908
+mode = "thumb"
+name = "Func_080da908"
+note = "Alchemy: address stored at 0x080c886c"
+
+[[extra_func]]
+addr = 0x080da938
+mode = "thumb"
+name = "Func_080da938"
+note = "Alchemy: address stored at 0x080c8874"
+
+[[extra_func]]
+addr = 0x080daecc
+mode = "thumb"
+name = "Func_080daecc"
+note = "Alchemy: address stored at 0x080c878c"
+
+[[extra_func]]
+addr = 0x080db0b0
+mode = "thumb"
+name = "Func_080db0b0"
+note = "Alchemy: address stored at 0x080c8794"
+
+[[extra_func]]
+addr = 0x080db444
+mode = "thumb"
+name = "Func_080db444"
+note = "Alchemy: address stored at 0x080c8784"
+
+[[extra_func]]
+addr = 0x080db48c
+mode = "thumb"
+name = "Field_DispatchTypeHandler"
+note = "Alchemy: address stored at 0x080c849c"
+
+[[extra_func]]
+addr = 0x080db91c
+mode = "thumb"
+name = "Actor_ApplyRandomChildValues"
+note = "Alchemy: address stored at 0x080c88c4"
+
+[[extra_func]]
+addr = 0x080dbdc8
+mode = "thumb"
+name = "Func_080dbdc8"
+note = "Alchemy: address stored at 0x080c8834"
+
+[[extra_func]]
+addr = 0x080dbdd4
+mode = "thumb"
+name = "Func_080dbdd4"
+note = "Alchemy: address stored at 0x080c8844"
+
+[[extra_func]]
+addr = 0x080dbde8
+mode = "thumb"
+name = "Func_080dbde8"
+note = "Alchemy: address stored at 0x080c883c"
+
+[[extra_func]]
+addr = 0x080dbdf4
+mode = "thumb"
+name = "Func_080dbdf4"
+note = "Alchemy: address stored at 0x080c884c"
+
+[[extra_func]]
+addr = 0x080dbe08
+mode = "thumb"
+name = "Func_080dbe08"
+note = "Alchemy: address stored at 0x080c8854"
+
+[[extra_func]]
+addr = 0x080dbe44
+mode = "thumb"
+name = "Func_080dbe44"
+note = "Alchemy: address stored at 0x080c885c"
+
+[[extra_func]]
+addr = 0x080dc0b8
+mode = "thumb"
+name = "ResourceTable_CountFreeBlocks"
+note = "Alchemy: address stored at 0x080c8554"
+
+[[extra_func]]
+addr = 0x080dc0d8
+mode = "thumb"
+name = "Sprite_ShareVramCacheEntry"
+note = "Alchemy: address stored at 0x080c851c"
+
+[[extra_func]]
+addr = 0x080dc1b0
+mode = "thumb"
+name = "Field_StartColorTransition"
+note = "Alchemy: address stored at 0x080c87fc"
+
+[[extra_func]]
+addr = 0x080dc244
+mode = "thumb"
+name = "Field_StartPaletteTransition"
+note = "Alchemy: address stored at 0x080c8804"
+
+[[extra_func]]
+addr = 0x080dc294
+mode = "thumb"
+name = "BattleEffect_InitializeSharedScene"
+note = "Alchemy: address stored at 0x080c84cc"
+
+[[extra_func]]
+addr = 0x080dc384
+mode = "thumb"
+name = "BattleEffect_PrepareBufferInterpolation"
+note = "Alchemy: address stored at 0x080c84d4"
+
+[[extra_func]]
+addr = 0x080dc410
+mode = "thumb"
+name = "BattleEffect_LoadActionEffectResources"
+note = "Alchemy: address stored at 0x080c84a4"
+
+[[extra_func]]
+addr = 0x080dc62c
+mode = "thumb"
+name = "BattleEffect_SetupObjectPair"
+note = "Alchemy: address stored at 0x080c84ac"
+
+[[extra_func]]
+addr = 0x080dc6d8
+mode = "thumb"
+name = "Func_080dc6d8"
+note = "Alchemy: address stored at 0x080c84c4"
+
+[[extra_func]]
+addr = 0x080dc7cc
+mode = "thumb"
+name = "BattleEffect_StopMainActor"
+note = "Alchemy: address stored at 0x080c84b4"
+
+[[extra_func]]
+addr = 0x080dc7e8
+mode = "thumb"
+name = "BattleEffect_CleanupSceneObjects"
+note = "Alchemy: address stored at 0x080c84bc"
+
+[[extra_func]]
+addr = 0x080dc978
+mode = "thumb"
+name = "Func_080dc978"
+note = "Alchemy: address stored at 0x080c84ec"
+
+[[extra_func]]
+addr = 0x080dca50
+mode = "thumb"
+name = "BattleEffect_FinishSceneAndReleaseHeapBlock"
+note = "Alchemy: address stored at 0x080c84f4"
+
+[[extra_func]]
+addr = 0x080dca84
+mode = "thumb"
+name = "Palette_FillNumber15Grey"
+note = "Alchemy: address stored at 0x080c84fc"
+
+[[extra_func]]
+addr = 0x080dcadc
+mode = "thumb"
+name = "Func_080dcadc"
+note = "Alchemy: address stored at 0x080c8504"
+
+[[extra_func]]
+addr = 0x080dcf08
+mode = "thumb"
+name = "BattleEffect_SetCallbackWhenTargetUnset"
+note = "Alchemy: address stored at 0x080dcd88"
+
+[[extra_func]]
+addr = 0x080dd054
+mode = "thumb"
+name = "Func_080dd054"
+note = "Alchemy: address stored at 0x080c82cc"
+
+[[extra_func]]
+addr = 0x080dd528
+mode = "thumb"
+name = "BattleEffect_StartItemBreak"
+note = "Alchemy: address stored at 0x080c852c"
+
+[[extra_func]]
+addr = 0x080dd63c
+mode = "thumb"
+name = "BattleEffect_SnapScaleToFull"
+note = "Alchemy: address stored at 0x080c8534"
+
+[[extra_func]]
+addr = 0x080dd668
+mode = "thumb"
+name = "UpdateRisingParticleBurst"
+note = "Alchemy: address stored at 0x080c853c"
+
+[[extra_func]]
+addr = 0x080de060
+mode = "thumb"
+name = "Func_080de060"
+note = "Alchemy: address stored at 0x080de2f4"
+
+[[extra_func]]
+addr = 0x080de154
+mode = "thumb"
+name = "Func_080de154"
+note = "Alchemy: address stored at 0x080f0f00"
+
+[[extra_func]]
+addr = 0x080de550
+mode = "thumb"
+name = "BattleEffect_UpdateOrbitingParticleMain"
+note = "Alchemy: address stored at 0x080de814"
+
+[[extra_func]]
+addr = 0x080de578
+mode = "thumb"
+name = "BattleEffect_UpdateOrbitingParticleFade"
+note = "Alchemy: address stored at 0x080de5f8"
+
+[[extra_func]]
+addr = 0x080de5a4
+mode = "thumb"
+name = "BattleEffect_UpdateOrbitingParticleLeft"
+note = "Alchemy: address stored at 0x080de80c"
+
+[[extra_func]]
+addr = 0x080de5fc
+mode = "thumb"
+name = "BattleEffect_UpdateOrbitingParticleRight"
+note = "Alchemy: address stored at 0x080de810"
+
+[[extra_func]]
+addr = 0x080de818
+mode = "thumb"
+name = "BattleEffect_SwayParticle"
+note = "Alchemy: address stored at 0x080de9e4"
+
+[[extra_func]]
+addr = 0x080de864
+mode = "thumb"
+name = "BattleEffect_UpdateShrinkingOrbitObject"
+note = "Alchemy: address stored at 0x080deb9c"
+
+[[extra_func]]
+addr = 0x080de8d0
+mode = "thumb"
+name = "Func_080de8d0"
+note = "Alchemy: address stored at 0x080deba0"
+
+[[extra_func]]
+addr = 0x080decb8
+mode = "thumb"
+name = "Func_080decb8"
+note = "Alchemy: address stored at 0x080c82d4"
+
+[[extra_func]]
+addr = 0x080ded84
+mode = "thumb"
+name = "BattleEffect_LandFallingObject"
+note = "Alchemy: address stored at 0x080df168"
+
+[[extra_func]]
+addr = 0x080deda8
+mode = "thumb"
+name = "BattleEffect_UpdateDriftingFallObject"
+note = "Alchemy: address stored at 0x080df16c"
+
+[[extra_func]]
+addr = 0x080df8a8
+mode = "thumb"
+name = "BattleEffect_UpdateObjectMotionScaleAndLinkedAngle"
+note = "Alchemy: address stored at 0x080dfaac"
+
+[[extra_func]]
+addr = 0x080dfab4
+mode = "thumb"
+name = "Effect_AdvanceMotion"
+note = "Alchemy: address stored at 0x080dfb80"
+
+[[extra_func]]
+addr = 0x080dfffc
+mode = "thumb"
+name = "BattleEffect_AgeAndCueAtEighty"
+note = "Alchemy: address stored at 0x080dfff8"
+
+[[extra_func]]
+addr = 0x080e0020
+mode = "thumb"
+name = "Func_080e0020"
+note = "Alchemy: address stored at 0x080e02e8"
+
+[[extra_func]]
+addr = 0x080e02ec
+mode = "thumb"
+name = "BattleEffect_SetRandomTableValueOnObject"
+note = "Alchemy: address stored at 0x080e0358"
+
+[[extra_func]]
+addr = 0x080e0308
+mode = "thumb"
+name = "BattleEffect_PauseObject"
+note = "Alchemy: address stored at 0x080c860c"
+
+[[extra_func]]
+addr = 0x080e035c
+mode = "thumb"
+name = "BattleEffect_ResumeObject"
+note = "Alchemy: address stored at 0x080c8614"
+
+[[extra_func]]
+addr = 0x080e0f40
+mode = "thumb"
+name = "BattleEffect_UpdateDescendingParticlePositiveArc"
+note = "Alchemy: address stored at 0x080e1150"
+
+[[extra_func]]
+addr = 0x080e0fb0
+mode = "thumb"
+name = "BattleEffect_UpdateDescendingParticleNegativeArc"
+note = "Alchemy: address stored at 0x080e114c"
+
+[[extra_func]]
+addr = 0x080e1154
+mode = "thumb"
+name = "BattleEffect_UpdatePairedArcSpawner"
+note = "Alchemy: address stored at 0x080e1374"
+
+[[extra_func]]
+addr = 0x080e1214
+mode = "thumb"
+name = "BattleEffect_RunEffect16"
+note = "Alchemy: address stored at 0x0822a0e4"
+
+[[extra_func]]
+addr = 0x080e137c
+mode = "thumb"
+name = "BattleEffect_WaitForArcGroups"
+note = "Alchemy: address stored at 0x080c881c"
+
+[[extra_func]]
+addr = 0x080e15fc
+mode = "thumb"
+name = "BattleEffect_StartArcEffect"
+note = "Alchemy: address stored at 0x080c880c"
+
+[[extra_func]]
+addr = 0x080e1650
+mode = "thumb"
+name = "BattleEffect_EndArcEffect"
+note = "Alchemy: address stored at 0x080c8814"
+
+[[extra_func]]
+addr = 0x080e25e8
+mode = "thumb"
+name = "Func_080e25e8"
+note = "Alchemy: address stored at 0x080c8764"
+
+[[extra_func]]
+addr = 0x080e2774
+mode = "thumb"
+name = "Func_080e2774"
+note = "Alchemy: address stored at 0x080c88d4"
+
+[[extra_func]]
+addr = 0x080e28d4
+mode = "thumb"
+name = "Func_080e28d4"
+note = "Alchemy: address stored at 0x080c894c"
+
+[[extra_func]]
+addr = 0x080e3060
+mode = "thumb"
+name = "BattleEffect_SpinObject"
+note = "Alchemy: address stored at 0x080e342c"
+
+[[extra_func]]
+addr = 0x080e3698
+mode = "thumb"
+name = "Func_080e3698"
+note = "Alchemy: address stored at 0x080c8884"
+
+[[extra_func]]
+addr = 0x080e37e0
+mode = "thumb"
+name = "Func_080e37e0"
+note = "Alchemy: address stored at 0x080c888c"
+
+[[extra_func]]
+addr = 0x080e70f8
+mode = "thumb"
+name = "BattleEffect_DropObjectAtAnchor"
+note = "Alchemy: address stored at 0x080c8894"
+
+[[extra_func]]
+addr = 0x080e7238
+mode = "thumb"
+name = "Func_080e7238"
+note = "Alchemy: address stored at 0x080c88dc"
+
+[[extra_func]]
+addr = 0x080e74d8
+mode = "thumb"
+name = "Func_080e74d8"
+note = "Alchemy: address stored at 0x080c88ec"
+
+[[extra_func]]
+addr = 0x080e7804
+mode = "thumb"
+name = "Func_080e7804"
+note = "Alchemy: address stored at 0x080c88e4"
+
+[[extra_func]]
+addr = 0x080e9e8c
+mode = "thumb"
+name = "Func_080e9e8c"
+note = "Alchemy: address stored at 0x080ea388"
+
+[[extra_func]]
+addr = 0x080ea14c
+mode = "thumb"
+name = "Func_080ea14c"
+note = "Alchemy: address stored at 0x080c892c"
+
+[[extra_func]]
+addr = 0x080ea7c0
+mode = "thumb"
+name = "Func_080ea7c0"
+note = "Alchemy: address stored at 0x080c86fc"
+
+[[extra_func]]
+addr = 0x080ea8d4
+mode = "thumb"
+name = "Func_080ea8d4"
+note = "Alchemy: address stored at 0x080c8704"
+
+[[extra_func]]
+addr = 0x080eaa14
+mode = "thumb"
+name = "Func_080eaa14"
+note = "Alchemy: address stored at 0x080c870c"
+
+[[extra_func]]
+addr = 0x080eab70
+mode = "thumb"
+name = "Func_080eab70"
+note = "Alchemy: address stored at 0x080c8714"
+
+[[extra_func]]
+addr = 0x080eab98
+mode = "thumb"
+name = "Func_080eab98"
+note = "Alchemy: address stored at 0x080c8734"
+
+[[extra_func]]
+addr = 0x080eabd0
+mode = "thumb"
+name = "Func_080eabd0"
+note = "Alchemy: address stored at 0x080c871c"
+
+[[extra_func]]
+addr = 0x080eace8
+mode = "thumb"
+name = "Func_080eace8"
+note = "Alchemy: address stored at 0x080c8724"
+
+[[extra_func]]
+addr = 0x080eadfc
+mode = "thumb"
+name = "Func_080eadfc"
+note = "Alchemy: address stored at 0x080c872c"
+
+[[extra_func]]
+addr = 0x080eaeb4
+mode = "thumb"
+name = "Func_080eaeb4"
+note = "Alchemy: address stored at 0x080c8754"
+
+[[extra_func]]
+addr = 0x080eaf28
+mode = "thumb"
+name = "Func_080eaf28"
+note = "Alchemy: address stored at 0x080c873c"
+
+[[extra_func]]
+addr = 0x080eb2c8
+mode = "thumb"
+name = "BattleEffect_StepVector2"
+note = "Alchemy: address stored at 0x080c87dc"
+
+[[extra_func]]
+addr = 0x080eb2d0
+mode = "thumb"
+name = "BattleEffect_StepVector3"
+note = "Alchemy: address stored at 0x080c87e4"
+
+[[extra_func]]
+addr = 0x080eb960
+mode = "thumb"
+name = "Func_080eb960"
+note = "Alchemy: address stored at 0x080c87a4"
+
+[[extra_func]]
+addr = 0x080ebea8
+mode = "thumb"
+name = "FieldParticle_SetActorMode"
+note = "Alchemy: address stored at 0x080c85a4"
+
+[[extra_func]]
+addr = 0x080ebeb4
+mode = "thumb"
+name = "FieldParticle_SetCallback"
+note = "Alchemy: address stored at 0x080c85ac"
+
+[[extra_func]]
+addr = 0x080ebec8
+mode = "thumb"
+name = "FieldParticle_Initialize"
+note = "Alchemy: address stored at 0x080c85b4"
+
+[[extra_func]]
+addr = 0x080ed804
+mode = "thumb"
+name = "FlagEntries_GetTable"
+note = "Alchemy: address stored at 0x080c86f4"
+
+[[extra_func]]
+addr = 0x080f8840
+mode = "thumb"
+name = "Icon_CreateWithResourceVariant"
+note = "Alchemy: address stored at 0x080f8024"
+
+[[extra_func]]
+addr = 0x080f8888
+mode = "thumb"
+name = "Icon_PrepareActor"
+note = "Alchemy: address stored at 0x080f802c"
+
+[[extra_func]]
+addr = 0x080f92ac
+mode = "thumb"
+name = "Palette_CopyObjectBankToBackground14"
+note = "Alchemy: address stored at 0x080f804c"
+
+[[extra_func]]
+addr = 0x080f94a4
+mode = "thumb"
+name = "Func_080f94a4"
+note = "Alchemy: address stored at 0x080f8004"
+
+[[extra_func]]
+addr = 0x080fb8ac
+mode = "thumb"
+name = "ItemMenu_DrawItemDetails"
+note = "Alchemy: address stored at 0x080f803c"
+
+[[extra_func]]
+addr = 0x080fb8b8
+mode = "thumb"
+name = "Func_080fb8b8"
+note = "Alchemy: address stored at 0x080f8044"
+
+[[extra_func]]
+addr = 0x080fcab8
+mode = "thumb"
+name = "Func_080fcab8"
+note = "Alchemy: address stored at 0x080f800c"
+
+[[extra_func]]
+addr = 0x080fe184
+mode = "thumb"
+name = "Func_080fe184"
+note = "Alchemy: address stored at 0x080f801c"
+
+[[extra_func]]
+addr = 0x080fe274
+mode = "thumb"
+name = "Func_080fe274"
+note = "Alchemy: address stored at 0x080f8014"
+
+[[extra_func]]
+addr = 0x08100e7c
+mode = "thumb"
+name = "Func_08100e7c"
+note = "Alchemy: address stored at 0x080f8034"
+
+[[extra_func]]
+addr = 0x08104ef8
+mode = "thumb"
+name = "Menu_CreateOwnerEntryObjects"
+note = "Alchemy: address stored at 0x080f805c"
+
+[[extra_func]]
+addr = 0x08104fe0
+mode = "thumb"
+name = "Menu_PlaceOwnerEntryObjects"
+note = "Alchemy: address stored at 0x080f8064"
+
+[[extra_func]]
+addr = 0x0810508c
+mode = "thumb"
+name = "Menu_ReleaseEntryObjects"
+note = "Alchemy: address stored at 0x080f806c"
+
+[[extra_func]]
+addr = 0x081050b8
+mode = "thumb"
+name = "Menu_SetEntryObjectsHidden"
+note = "Alchemy: address stored at 0x080f8084"
+
+[[extra_func]]
+addr = 0x081051a8
+mode = "thumb"
+name = "Func_081051a8"
+note = "Alchemy: address stored at 0x080f8074"
+
+[[extra_func]]
+addr = 0x0810526c
+mode = "thumb"
+name = "MenuIcon_ReleaseObjects"
+note = "Alchemy: address stored at 0x080f807c"
+
+[[extra_func]]
+addr = 0x081052ac
+mode = "thumb"
+name = "MenuIcon_ReplaceObject"
+note = "Alchemy: address stored at 0x080f808c"
+
+[[extra_func]]
+addr = 0x08105300
+mode = "thumb"
+name = "MenuIcon_SetPosition"
+note = "Alchemy: address stored at 0x080f8094"
+
+[[extra_func]]
+addr = 0x0810532c
+mode = "thumb"
+name = "MenuIcon_SetPicture"
+note = "Alchemy: address stored at 0x080f809c"
+
+[[extra_func]]
+addr = 0x08105350
+mode = "thumb"
+name = "Func_08105350"
+note = "Alchemy: address stored at 0x080f80a4"
+
+[[extra_func]]
+addr = 0x081082c4
+mode = "thumb"
+name = "Func_081082c4"
+note = "Alchemy: address stored at 0x0810800c"
+
+[[extra_func]]
+addr = 0x08108464
+mode = "thumb"
+name = "Debug_ApplyPresetItemsAndFlags"
+note = "Alchemy: address stored at 0x08108004"
+
+[[extra_func]]
+addr = 0x081084e0
+mode = "thumb"
+name = "Sound_WaitForJingle"
+note = "Alchemy: address stored at 0x0810807c"
+
+[[extra_func]]
+addr = 0x0810875c
+mode = "thumb"
+name = "Shop_FillSelector"
+note = "Alchemy: address stored at 0x08108054"
+
+[[extra_func]]
+addr = 0x081088d8
+mode = "thumb"
+name = "Shop_RestoreSceneTiles"
+note = "Alchemy: address stored at 0x0810805c"
+
+[[extra_func]]
+addr = 0x08108928
+mode = "thumb"
+name = "Shop_InitializeEffect"
+note = "Alchemy: address stored at 0x08108064"
+
+[[extra_func]]
+addr = 0x081089e4
+mode = "thumb"
+name = "Func_081089e4"
+note = "Alchemy: address stored at 0x0810803c"
+
+[[extra_func]]
+addr = 0x08108a88
+mode = "thumb"
+name = "Shop_SetCursor"
+note = "Alchemy: address stored at 0x08108044"
+
+[[extra_func]]
+addr = 0x08108aa8
+mode = "thumb"
+name = "Func_08108aa8"
+note = "Alchemy: address stored at 0x0810804c"
+
+[[extra_func]]
+addr = 0x08108b34
+mode = "thumb"
+name = "VramBlock_LoadResource"
+note = "Alchemy: address stored at 0x0810808c"
+
+[[extra_func]]
+addr = 0x0810a804
+mode = "thumb"
+name = "Forge_PartyHasMaterial"
+note = "Alchemy: address stored at 0x08108094"
+
+[[extra_func]]
+addr = 0x0810a834
+mode = "thumb"
+name = "Forge_SetItem"
+note = "Alchemy: address stored at 0x0810809c"
+
+[[extra_func]]
+addr = 0x0810a84c
+mode = "thumb"
+name = "Forge_GetItem"
+note = "Alchemy: address stored at 0x081080a4"
+
+[[extra_func]]
+addr = 0x0810aa80
+mode = "thumb"
+name = "Shop_ConfirmAct"
+note = "Alchemy: address stored at 0x08108014"
+
+[[extra_func]]
+addr = 0x0810b0bc
+mode = "thumb"
+name = "BattleEffect_UpdateRadialMotion"
+note = "Alchemy: address stored at 0x0810b374"
+
+[[extra_func]]
+addr = 0x0810b3ec
+mode = "thumb"
+name = "Func_0810b3ec"
+note = "Alchemy: address stored at 0x0810802c"
+
+[[extra_func]]
+addr = 0x0810b418
+mode = "thumb"
+name = "Inn_CheckIn"
+note = "Alchemy: address stored at 0x0810801c"
+
+[[extra_func]]
+addr = 0x0810b520
+mode = "thumb"
+name = "Inn_PlaySleep"
+note = "Alchemy: address stored at 0x08108084"
+
+[[extra_func]]
+addr = 0x0810b5c4
+mode = "thumb"
+name = "Func_0810b5c4"
+note = "Alchemy: address stored at 0x08108024"
+
+[[extra_func]]
+addr = 0x0810b79c
+mode = "thumb"
+name = "Func_0810b79c"
+note = "Alchemy: address stored at 0x08108074"
+
+[[extra_func]]
+addr = 0x0810b7a8
+mode = "thumb"
+name = "Func_0810b7a8"
+note = "Alchemy: address stored at 0x0810806c"
+
+[[extra_func]]
+addr = 0x08118410
+mode = "thumb"
+name = "ColorBuffer_Scale"
+note = "Alchemy: address stored at 0x081180f4"
+
+[[extra_func]]
+addr = 0x08118738
+mode = "thumb"
+name = "DebugParty_LoadPreset"
+note = "Alchemy: address stored at 0x08118114"
+
+[[extra_func]]
+addr = 0x08118958
+mode = "thumb"
+name = "Func_08118958"
+note = "Alchemy: address stored at 0x08118004"
+
+[[extra_func]]
+addr = 0x08118f6c
+mode = "thumb"
+name = "Func_08118f6c"
+note = "Alchemy: address stored at 0x0811815c"
+
+[[extra_func]]
+addr = 0x08119734
+mode = "thumb"
+name = "Func_08119734"
+note = "Alchemy: address stored at 0x08118154"
+
+[[extra_func]]
+addr = 0x081197f0
+mode = "thumb"
+name = "Func_081197f0"
+note = "Alchemy: address stored at 0x081180a4"
+
+[[extra_func]]
+addr = 0x0811a0b0
+mode = "thumb"
+name = "BattleParty_PrepareReserveOwners"
+note = "Alchemy: address stored at 0x0811813c"
+
+[[extra_func]]
+addr = 0x0811a188
+mode = "thumb"
+name = "BattleParty_ListLivingUnits"
+note = "Alchemy: address stored at 0x081180c4"
+
+[[extra_func]]
+addr = 0x0811a39c
+mode = "thumb"
+name = "Func_0811a39c"
+note = "Alchemy: address stored at 0x08118144"
+
+[[extra_func]]
+addr = 0x0811bd50
+mode = "thumb"
+name = "BattleMotion_ProjectPosition"
+note = "Alchemy: address stored at 0x081180ac"
+
+[[extra_func]]
+addr = 0x0811c01c
+mode = "thumb"
+name = "Func_0811c01c"
+note = "Alchemy: address stored at 0x08118084"
+
+[[extra_func]]
+addr = 0x0811c074
+mode = "thumb"
+name = "Func_0811c074"
+note = "Alchemy: address stored at 0x0811808c"
+
+[[extra_func]]
+addr = 0x0811c120
+mode = "thumb"
+name = "BattleMotion_ApproachTarget"
+note = "Alchemy: address stored at 0x0811807c"
+
+[[extra_func]]
+addr = 0x0811c2b4
+mode = "thumb"
+name = "Func_0811c2b4"
+note = "Alchemy: address stored at 0x081180b4"
+
+[[extra_func]]
+addr = 0x0811c314
+mode = "thumb"
+name = "Func_0811c314"
+note = "Alchemy: address stored at 0x081180bc"
+
+[[extra_func]]
+addr = 0x0811c37c
+mode = "thumb"
+name = "Func_0811c37c"
+note = "Alchemy: address stored at 0x08118074"
+
+[[extra_func]]
+addr = 0x0811cd7c
+mode = "thumb"
+name = "Camera_ConfigureScene"
+note = "Alchemy: address stored at 0x081180d4"
+
+[[extra_func]]
+addr = 0x08120060
+mode = "thumb"
+name = "Func_08120060"
+note = "Alchemy: address stored at 0x0811812c"
+
+[[extra_func]]
+addr = 0x08122c4c
+mode = "thumb"
+name = "BattlePlayback_Start"
+note = "Alchemy: address stored at 0x081180ec"
+
+[[extra_func]]
+addr = 0x08123574
+mode = "thumb"
+name = "BattleParty_CountStandbyDjinn"
+note = "Alchemy: address stored at 0x08118134"
+
+[[extra_func]]
+addr = 0x08124bfc
+mode = "thumb"
+name = "DjinnRecovery_CountDown"
+note = "Alchemy: address stored at 0x081180fc"
+
+[[extra_func]]
+addr = 0x08124cac
+mode = "thumb"
+name = "DjinnRecovery_CountDownTwenty"
+note = "Alchemy: address stored at 0x0811810c"
+
+[[extra_func]]
+addr = 0x08125aa0
+mode = "thumb"
+name = "Func_08125aa0"
+note = "Alchemy: address stored at 0x0811800c"
+
+[[extra_func]]
+addr = 0x08126218
+mode = "thumb"
+name = "BattleBackground_SetPaletteLevel"
+note = "Alchemy: address stored at 0x0811804c"
+
+[[extra_func]]
+addr = 0x0812628c
+mode = "thumb"
+name = "Func_0812628c"
+note = "Alchemy: address stored at 0x0811803c"
+
+[[extra_func]]
+addr = 0x081263fc
+mode = "thumb"
+name = "Func_081263fc"
+note = "Alchemy: address stored at 0x08118044"
+
+[[extra_func]]
+addr = 0x08126904
+mode = "thumb"
+name = "BattleCamera_SetViewAtPairMidpoint"
+note = "Alchemy: address stored at 0x08118034"
+
+[[extra_func]]
+addr = 0x08126944
+mode = "thumb"
+name = "Func_08126944"
+note = "Alchemy: address stored at 0x0811801c"
+
+[[extra_func]]
+addr = 0x08126978
+mode = "thumb"
+name = "Func_08126978"
+note = "Alchemy: address stored at 0x08118024"
+
+[[extra_func]]
+addr = 0x08126cfc
+mode = "thumb"
+name = "BattleHighlight_SetModes"
+note = "Alchemy: address stored at 0x081180e4"
+
+[[extra_func]]
+addr = 0x0812814c
+mode = "thumb"
+name = "BattleClass_GetAttackHop"
+note = "Alchemy: address stored at 0x08118064"
+
+[[extra_func]]
+addr = 0x08128174
+mode = "thumb"
+name = "Summon_IsEntrySecondaryFlagged"
+note = "Alchemy: address stored at 0x0811805c"
+
+[[extra_func]]
+addr = 0x08128194
+mode = "thumb"
+name = "BattleClass_GetEffectHeight"
+note = "Alchemy: address stored at 0x08118054"
+
+[[extra_func]]
+addr = 0x0813e3d0
+mode = "thumb"
+name = "Func_0813e3d0"
+note = "Alchemy: address stored at 0x08138024"
+
+[[extra_func]]
+addr = 0x0813eb70
+mode = "thumb"
+name = "Func_0813eb70"
+note = "Alchemy: address stored at 0x0813802c"
+
+[[extra_func]]
+addr = 0x0813f518
+mode = "thumb"
+name = "Func_0813f518"
+note = "Alchemy: address stored at 0x08138034"
+
+[[extra_func]]
+addr = 0x0813fa88
+mode = "thumb"
+name = "Func_0813fa88"
+note = "Alchemy: address stored at 0x0813803c"
+
+[[extra_func]]
+addr = 0x0813fd40
+mode = "thumb"
+name = "BattleEffect_EndElementStreaks"
+note = "Alchemy: address stored at 0x08138044"
+
+[[extra_func]]
+addr = 0x08142944
+mode = "thumb"
+name = "Func_08142944"
+note = "Alchemy: address stored at 0x08138054"
+
+[[extra_func]]
+addr = 0x0814c994
+mode = "thumb"
+name = "BattleEffect_RunSceneEffect"
+note = "Alchemy: address stored at 0x08138014"
+
+[[extra_func]]
+addr = 0x0814cb60
+mode = "thumb"
+name = "BattleEffect_RunTableEffect"
+note = "Alchemy: address stored at 0x0813801c"
+
+[[extra_func]]
+addr = 0x0815e320
+mode = "thumb"
+name = "BattleEffect_DispatchByIdRange"
+note = "Alchemy: address stored at 0x0813800c"
+
+[[extra_func]]
+addr = 0x0819253c
+mode = "thumb"
+name = "Func_0819253c"
+note = "Alchemy: address stored at 0x08192dac"
+
+[[extra_func]]
+addr = 0x081a06e0
+mode = "thumb"
+name = "Func_081a06e0"
+note = "Alchemy: address stored at 0x081a0004"
+
+[[extra_func]]
+addr = 0x081a1288
+mode = "thumb"
+name = "SceneState_SetScrollTarget"
+note = "Alchemy: address stored at 0x081a001c"
+
+[[extra_func]]
+addr = 0x081a150c
+mode = "thumb"
+name = "Func_081a150c"
+note = "Alchemy: address stored at 0x081a000c"
+
+[[extra_func]]
+addr = 0x081a15dc
+mode = "thumb"
+name = "Func_081a15dc"
+note = "Alchemy: address stored at 0x081a0014"
+
+[[extra_func]]
+addr = 0x081a17d0
+mode = "thumb"
+name = "Func_081a17d0"
+note = "Alchemy: address stored at 0x081a0024"
+
+[[extra_func]]
+addr = 0x081a18f8
+mode = "thumb"
+name = "Func_081a18f8"
+note = "Alchemy: address stored at 0x081a002c"
+
+[[extra_func]]
+addr = 0x081a71c8
+mode = "thumb"
+name = "Func_081a71c8"
+note = "Alchemy: address stored at 0x081a602c"
+
+[[extra_func]]
+addr = 0x081a729c
+mode = "thumb"
+name = "Func_081a729c"
+note = "Alchemy: address stored at 0x081a6004"
+
+[[extra_func]]
+addr = 0x081a7514
+mode = "thumb"
+name = "Title_NoOpPalette"
+note = "Alchemy: address stored at 0x081a6014"
+
+[[extra_func]]
+addr = 0x081a7518
+mode = "thumb"
+name = "Title_ShowSplashScreen"
+note = "Alchemy: address stored at 0x081a601c"
+
+[[extra_func]]
+addr = 0x081a76f8
+mode = "thumb"
+name = "Func_081a76f8"
+note = "Alchemy: address stored at 0x081a6024"
+
+[[extra_func]]
+addr = 0x081a786c
+mode = "thumb"
+name = "Data_081a786c"
+note = "Alchemy: address stored at 0x081a600c"
+
+[[extra_func]]
+addr = 0x081ac008
+mode = "thumb"
+name = "LuckyDice_Start"
+note = "Alchemy: address stored at 0x081ac004"
+
+[[extra_func]]
+addr = 0x081b2008
+mode = "thumb"
+name = "LuckyWheels_Start"
+note = "Alchemy: address stored at 0x081b2004"
+
+[[extra_func]]
+addr = 0x081b8008
+mode = "thumb"
+name = "Func_081b83c4_Start"
+note = "Alchemy: address stored at 0x081b8004"
+
+[[extra_func]]
+addr = 0x081c0426
+mode = "thumb"
+name = "AlchemyUncredited_081c0426"
+note = "Alchemy: address stored at 0x08859650"
+
+[[extra_func]]
+addr = 0x081c05f0
+mode = "thumb"
+name = "AlchemyUncreditedEnd_081c05ee"
+note = "Alchemy: address stored at 0x08a02884"
+
+[[extra_func]]
+addr = 0x081c07a2
+mode = "thumb"
+name = "ply_note"
+note = "Alchemy: address stored at 0x081c2424"
+
+[[extra_func]]
+addr = 0x081c0c18
+mode = "thumb"
+name = "Func_081c0c18"
+note = "Alchemy: address stored at 0x081c00ac"
+
+[[extra_func]]
+addr = 0x081c0c1c
+mode = "thumb"
+name = "Sound_Initialize"
+note = "Alchemy: address stored at 0x081c000c"
+
+[[extra_func]]
+addr = 0x081c0cb0
+mode = "thumb"
+name = "Sound_Play"
+note = "Alchemy: address stored at 0x081c0014"
+
+[[extra_func]]
+addr = 0x081c0e30
+mode = "thumb"
+name = "Sound_UpdateBgmRamps"
+note = "Alchemy: address stored at 0x081c008c"
+
+[[extra_func]]
+addr = 0x081c0f3c
+mode = "thumb"
+name = "Func_081c0f3c"
+note = "Alchemy: address stored at 0x081c001c"
+
+[[extra_func]]
+addr = 0x081c0f44
+mode = "thumb"
+name = "Sound_SetBgmTempo"
+note = "Alchemy: address stored at 0x081c0024"
+
+[[extra_func]]
+addr = 0x081c0f58
+mode = "thumb"
+name = "Sound_SetBgmPitch"
+note = "Alchemy: address stored at 0x081c002c"
+
+[[extra_func]]
+addr = 0x081c0f70
+mode = "thumb"
+name = "Func_081c0f70"
+note = "Alchemy: address stored at 0x081c0034"
+
+[[extra_func]]
+addr = 0x081c0f84
+mode = "thumb"
+name = "Sound_SetBgmVolume"
+note = "Alchemy: address stored at 0x081c003c"
+
+[[extra_func]]
+addr = 0x081c0fac
+mode = "thumb"
+name = "Sound_SetBgmVolumeTarget"
+note = "Alchemy: address stored at 0x081c0044"
+
+[[extra_func]]
+addr = 0x081c0fc0
+mode = "thumb"
+name = "Sound_StopAllMusicPlayers"
+note = "Alchemy: address stored at 0x081c005c"
+
+[[extra_func]]
+addr = 0x081c0fc8
+mode = "thumb"
+name = "Sound_ResumeAllMusicPlayers"
+note = "Alchemy: address stored at 0x081c0064"
+
+[[extra_func]]
+addr = 0x081c0fd0
+mode = "thumb"
+name = "Sound_GetBgmRestoreDelay"
+note = "Alchemy: address stored at 0x081c004c"
+
+[[extra_func]]
+addr = 0x081c0fdc
+mode = "thumb"
+name = "Sound_WaitForBgmRestore"
+note = "Alchemy: address stored at 0x081c007c"
+
+[[extra_func]]
+addr = 0x081c1000
+mode = "thumb"
+name = "Sound_SuspendDirectSound"
+note = "Alchemy: address stored at 0x081c0084"
+
+[[extra_func]]
+addr = 0x081c1014
+mode = "thumb"
+name = "Func_081c1014"
+note = "Alchemy: address stored at 0x081c0054"
+
+[[extra_func]]
+addr = 0x081c1158
+mode = "thumb"
+name = "Sound_UpdateCommandMask"
+note = "Alchemy: address stored at 0x081c006c"
+
+[[extra_func]]
+addr = 0x081c117c
+mode = "thumb"
+name = "Sound_GetCurrentBgm"
+note = "Alchemy: address stored at 0x081c0074"
+
+[[extra_func]]
+addr = 0x081c1188
+mode = "thumb"
+name = "SoundFlag_Test"
+note = "Alchemy: address stored at 0x081c0094"
+
+[[extra_func]]
+addr = 0x081c11ac
+mode = "thumb"
+name = "SoundFlag_Set"
+note = "Alchemy: address stored at 0x081c009c"
+
+[[extra_func]]
+addr = 0x081c11cc
+mode = "thumb"
+name = "SoundFlag_Clear"
+note = "Alchemy: address stored at 0x081c00a4"
+
+[[extra_func]]
+addr = 0x081c16b4
+mode = "thumb"
+name = "SoundDriver_ClearBuffer"
+note = "Alchemy: address stored at 0x081c34c8"
+
+[[extra_func]]
+addr = 0x081c16cc
+mode = "thumb"
+name = "SoundNote_Detach"
+note = "Alchemy: address stored at 0x081c34c4"
+
+[[extra_func]]
+addr = 0x081c16ec
+mode = "thumb"
+name = "ply_fine"
+note = "Alchemy: address stored at 0x081c343c"
+
+[[extra_func]]
+addr = 0x081c175c
+mode = "thumb"
+name = "AlchemyUncreditedEnd_081c175a"
+note = "Alchemy: address stored at 0x081c3440"
+
+[[extra_func]]
+addr = 0x081c177c
+mode = "thumb"
+name = "ply_patt"
+note = "Alchemy: address stored at 0x081c3444"
+
+[[extra_func]]
+addr = 0x081c1798
+mode = "thumb"
+name = "AlchemyUncreditedEnd_081c1796"
+note = "Alchemy: address stored at 0x081c3448"
+
+[[extra_func]]
+addr = 0x081c17ac
+mode = "thumb"
+name = "ply_rept"
+note = "Alchemy: address stored at 0x081c344c"
+
+[[extra_func]]
+addr = 0x081c17dc
+mode = "thumb"
+name = "AlchemyUncreditedEnd_081c17da"
+note = "Alchemy: address stored at 0x081c3460"
+
+[[extra_func]]
+addr = 0x081c17e8
+mode = "thumb"
+name = "AlchemyUncreditedEnd_081c17e6"
+note = "Alchemy: address stored at 0x081c3464"
+
+[[extra_func]]
+addr = 0x081c17fc
+mode = "thumb"
+name = "ply_keysh"
+note = "Alchemy: address stored at 0x081c3468"
+
+[[extra_func]]
+addr = 0x081c1810
+mode = "thumb"
+name = "AlchemyUncreditedEnd_081c180e"
+note = "Alchemy: address stored at 0x081c346c"
+
+[[extra_func]]
+addr = 0x081c1840
+mode = "thumb"
+name = "AlchemyUncreditedEnd_081c183e"
+note = "Alchemy: address stored at 0x081c3470"
+
+[[extra_func]]
+addr = 0x081c1854
+mode = "thumb"
+name = "AlchemyUncreditedEnd_081c1852"
+note = "Alchemy: address stored at 0x081c3474"
+
+[[extra_func]]
+addr = 0x081c1868
+mode = "thumb"
+name = "ply_bend"
+note = "Alchemy: address stored at 0x081c3478"
+
+[[extra_func]]
+addr = 0x081c187c
+mode = "thumb"
+name = "ply_bendr"
+note = "Alchemy: address stored at 0x081c347c"
+
+[[extra_func]]
+addr = 0x081c1890
+mode = "thumb"
+name = "AlchemyUncreditedEnd_081c188e"
+note = "Alchemy: address stored at 0x081c3484"
+
+[[extra_func]]
+addr = 0x081c189c
+mode = "thumb"
+name = "AlchemyUncreditedEnd_081c189a"
+note = "Alchemy: address stored at 0x081c348c"
+
+[[extra_func]]
+addr = 0x081c18b4
+mode = "thumb"
+name = "ply_tune"
+note = "Alchemy: address stored at 0x081c3498"
+
+[[extra_func]]
+addr = 0x081c18c8
+mode = "thumb"
+name = "ply_port"
+note = "Alchemy: address stored at 0x081c34a8"
+
+[[extra_func]]
+addr = 0x081c1e08
+mode = "thumb"
+name = "ply_endtie"
+note = "Alchemy: address stored at 0x081c22e8"
+
+[[extra_func]]
+addr = 0x081c1e70
+mode = "thumb"
+name = "ply_lfos"
+note = "Alchemy: address stored at 0x081c22dc"
+
+[[extra_func]]
+addr = 0x081c1e84
+mode = "thumb"
+name = "AlchemyUncreditedEnd_081c1e82"
+note = "Alchemy: address stored at 0x081c22e0"
+
+[[extra_func]]
+addr = 0x081c1fb4
+mode = "thumb"
+name = "m4aSoundMain"
+note = "Alchemy: address stored at 0x081c0004"
+
+[[extra_func]]
+addr = 0x081c2434
+mode = "thumb"
+name = "SampleFreqSet"
+note = "Alchemy: address stored at 0x081c22ec"
+
+[[extra_func]]
+addr = 0x081c28e0
+mode = "thumb"
+name = "TrkVolPitSet"
+note = "Alchemy: address stored at 0x081c22f8"
+
+[[extra_func]]
+addr = 0x081c31b4
+mode = "thumb"
+name = "ply_memacc"
+note = "Alchemy: address stored at 0x081c22d8"
+
+[[extra_func]]
+addr = 0x081c330c
+mode = "thumb"
+name = "ply_xcmd"
+note = "Alchemy: address stored at 0x081c22e4"
+
+[[extra_func]]
+addr = 0x081c332c
+mode = "thumb"
+name = "System_CallWorkEntryWithArgs"
+note = "Alchemy: address stored at 0x081c36e4"
+
+[[extra_func]]
+addr = 0x081c3340
+mode = "thumb"
+name = "ply_xwave"
+note = "Alchemy: address stored at 0x081c36e8"
+
+[[extra_func]]
+addr = 0x081c3388
+mode = "thumb"
+name = "ply_xtype"
+note = "Alchemy: address stored at 0x081c36ec"
+
+[[extra_func]]
+addr = 0x081c339c
+mode = "thumb"
+name = "ply_xatta"
+note = "Alchemy: address stored at 0x081c36f4"
+
+[[extra_func]]
+addr = 0x081c33b0
+mode = "thumb"
+name = "ply_xdeca"
+note = "Alchemy: address stored at 0x081c36f8"
+
+[[extra_func]]
+addr = 0x081c33c4
+mode = "thumb"
+name = "ply_xsust"
+note = "Alchemy: address stored at 0x081c36fc"
+
+[[extra_func]]
+addr = 0x081c33d8
+mode = "thumb"
+name = "ply_xrele"
+note = "Alchemy: address stored at 0x081c3700"
+
+[[extra_func]]
+addr = 0x081c33ec
+mode = "thumb"
+name = "ply_xiecv"
+note = "Alchemy: address stored at 0x081c3704"
+
+[[extra_func]]
+addr = 0x081c33f8
+mode = "thumb"
+name = "ply_xiecl"
+note = "Alchemy: address stored at 0x081c3708"
+
+[[extra_func]]
+addr = 0x081c3404
+mode = "thumb"
+name = "ply_xleng"
+note = "Alchemy: address stored at 0x081c370c"
+
+[[extra_func]]
+addr = 0x081c3418
+mode = "thumb"
+name = "ply_xswee"
+note = "Alchemy: address stored at 0x081c3710"
+
+[[extra_func]]
+addr = 0x081c342c
+mode = "thumb"
+name = "DummyFunc"
+note = "Alchemy: address stored at 0x081c2428"
