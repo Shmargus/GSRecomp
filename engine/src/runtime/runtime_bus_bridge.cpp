@@ -881,6 +881,20 @@ int cheat_option_get(const char* key, int normal) {
     return cheats_blocked() ? normal : game_option_get(key, normal);
 }
 
+namespace {
+// Default "Flicker only - Strong" (kTemporalBlendDefaultIndex) until the
+// host window publishes the player's choice.
+std::atomic<int> g_flicker_reduction_index{3};
+}  // namespace
+
+void set_flicker_reduction_index(int index) {
+    g_flicker_reduction_index.store(index, std::memory_order_relaxed);
+}
+
+int flicker_reduction_index() {
+    return g_flicker_reduction_index.load(std::memory_order_relaxed);
+}
+
 gba::GbaBus* active_bus() {
     return g_active_bus;
 }

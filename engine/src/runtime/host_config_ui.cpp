@@ -1270,13 +1270,19 @@ void draw_video_page(ConfigUiState* st) {
         {
             const bool filters_available = st->screen_filters_supported && st->screen_filters_available;
             if (!filters_available) ImGui::BeginDisabled();
-            static constexpr const char* kFilterLabels[] = {"Off", "LCD3x", "xBR",
-                                                           "CRT Lottes", "ScaleFX"};
+            // Labels by gbarecomp::ScreenFilter value; kFilterOrder is the
+            // order the list shows them in.
+            static constexpr const char* kFilterLabels[] = {
+                "Off", "LCD3x", "xBR", "CRT Lottes", "ScaleFX", "Bilinear",
+                "Sharp bilinear"};
+            static constexpr int kFilterOrder[] = {0, 5, 6, 1, 2, 3, 4};
+            static_assert(std::size(kFilterLabels) == gbarecomp::kScreenFilterLast + 1);
+            static_assert(std::size(kFilterOrder) == std::size(kFilterLabels));
             const int filter_choice =
-                st->screen_filter >= 1 && st->screen_filter <= 4
+                st->screen_filter >= 1 && st->screen_filter <= gbarecomp::kScreenFilterLast
                     ? st->screen_filter : 0;
             if (setting_combo("Filter (test)", kFilterLabels[filter_choice])) {
-                for (int i = 0; i < 5; ++i) {
+                for (const int i : kFilterOrder) {
                     if (native_selectable(kFilterLabels[i], i == filter_choice)) {
                         st->screen_filter = i;
                         st->video_changed = true;
@@ -1287,11 +1293,35 @@ void draw_video_page(ConfigUiState* st) {
             }
             if (!filters_available) ImGui::EndDisabled();
             caption(filters_available
-                ? "Test option. LCD3x imitates the GBA screen's grid, CRT Lottes "
-                  "an old TV; xBR and ScaleFX smooth the pixel art."
+                ? "Test option. Bilinear smooths the picture; sharp bilinear keeps "
+                  "pixels crisp with even sizes. LCD3x imitates the GBA screen's "
+                  "grid, CRT Lottes an old TV; xBR and ScaleFX smooth the pixel art."
                 : (st->screen_filters_supported
                     ? "Enable Screen Filters in the launcher. Requires OpenGL."
                     : "Screen filters are not yet available for this game."));
+            // The chosen filter's adjustable values (kScreenFilterParams).
+            bool has_params = false;
+            ImGui::PushID("screen_filter_params");
+            for (int i = 0; filters_available && i < gbarecomp::kScreenFilterParamCount; ++i) {
+                const gbarecomp::ScreenFilterParam& p = gbarecomp::kScreenFilterParams[i];
+                if (static_cast<int>(p.filter) != filter_choice) continue;
+                has_params = true;
+                ImGui::PushID(i);
+                const SliderEdit edit = slider_float(p.label, &st->screen_filter_params[i],
+                                                     p.lo, p.hi, p.step, p.format);
+                ImGui::PopID();
+                if (edit.changed) st->video_changed = true;
+                if (edit.committed) st->screen_filter_save = true;
+            }
+            if (has_params && native_button("Reset filter settings")) {
+                const gbarecomp::ScreenFilterValues defaults = gbarecomp::screen_filter_defaults();
+                for (int i = 0; i < gbarecomp::kScreenFilterParamCount; ++i)
+                    if (static_cast<int>(gbarecomp::kScreenFilterParams[i].filter) == filter_choice)
+                        st->screen_filter_params[i] = defaults[i];
+                st->video_changed = true;
+                st->screen_filter_save = true;
+            }
+            ImGui::PopID();
         }
 
     }

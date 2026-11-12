@@ -133,8 +133,20 @@ inline constexpr gbarecomp::UiTranslation kTable[] = {
     {"Adjusts colours to help distinguish them. Deuteranopia: red-green; tritanopia: blue-yellow. Works with all colour profiles and filters.", "Adapte les couleurs pour aider à les distinguer. Deutéranopie : rouge-vert ; tritanopie : bleu-jaune. Compatible avec tous les profils et filtres."},
     {"Screen filter", "Filtre d'écran"},
     {"Filter (test)", "Filtre (essai)"},
-    {"Test option. LCD3x imitates the GBA screen's grid, CRT Lottes "
-     "an old TV; xBR and ScaleFX smooth the pixel art.", "Option d'essai. LCD3x imite la grille de l'écran GBA, CRT Lottes un ancien téléviseur ; xBR et ScaleFX lissent les pixels."},
+    {"Test option. Bilinear smooths the picture; sharp bilinear keeps "
+     "pixels crisp with even sizes. LCD3x imitates the GBA screen's "
+     "grid, CRT Lottes an old TV; xBR and ScaleFX smooth the pixel art.",
+     "Option d'essai. Bilinéaire adoucit l'image ; bilinéaire net garde des pixels nets et de taille égale. LCD3x imite la grille de l'écran GBA, CRT Lottes un ancien téléviseur ; xBR et ScaleFX lissent les pixels."},
+    {"Bilinear", "Bilinéaire"},
+    {"Sharp bilinear", "Bilinéaire net"},
+    {"Scanlines", "Lignes de balayage"},
+    {"Pixel grid", "Grille de pixels"},
+    {"Edge tolerance", "Tolérance des contours"},
+    {"Curvature", "Courbure"},
+    {"Shadow mask", "Masque d'ombre"},
+    {"Glow", "Halo"},
+    {"Edge threshold", "Seuil des contours"},
+    {"Reset filter settings", "Réinitialiser le filtre"},
     {"Enable Screen Filters in the launcher. Requires OpenGL.", "Activez les filtres d'écran dans le lanceur. Nécessite OpenGL."},
     {"Screen filters are not yet available for this game.", "Les filtres d'écran ne sont pas encore disponibles pour ce jeu."},
     {"Flicker", "Scintillement"},

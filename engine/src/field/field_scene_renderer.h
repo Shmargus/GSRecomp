@@ -26,14 +26,17 @@
 // the whole frame.
 #pragma once
 
+#include <bitset>
 #include <cstdint>
 #include <cstddef>
+#include <memory>
 #include <vector>
 
 #include "effect_burst.h"
 #include "effect_particles.h"
 #include "field_scene.h"
 #include "gpu_surface.h"
+#include "sprite_flicker.h"
 
 namespace gsr {
 
@@ -177,6 +180,18 @@ public:
     // Better Field Psy (settings page two): Reveal's circle opens to the
     // whole view instead of blacking out everything around it.
     void set_reveal_full(bool full) { reveal_full_ = full; }
+    // The scene's sprites that belong to a character (the game's actor
+    // table). FieldGameProfile::hide_objects_off_room hides only these; an
+    // effect sprite off the room still draws. Call before draw().
+    void set_character_objects(const std::bitset<FieldScene::kObjects>& slots) {
+        character_objects_ = slots;
+    }
+    // Flicker reduction for sprites a game shows on every other frame
+    // (sprite_flicker.h): the frame is drawn once more with the other
+    // phase's sprites and mixed in at `weight` (the previous frame's share,
+    // as the F1 Flicker reduction setting's weights; 0.5 is the LCD's even
+    // mix). 0 turns it off. Call before draw().
+    void set_flicker_smoothing(float weight);
 
     // Starts a particle burst at an output-pixel position, together with the
     // impact screen shake (ScreenShake). The burst is drawn by draw() on top
@@ -347,6 +362,7 @@ private:
     bool effect_hidden_ = false;
     bool menu_open_ = false;
     bool reveal_full_ = false;
+    std::bitset<FieldScene::kObjects> character_objects_;
     // Rows in the per-row register texture: FieldScene::kRows, plus the output
     // height for a game whose profile has margin scroll rows (set_output_size).
     int row_io_rows_ = FieldScene::kRows;
@@ -371,6 +387,21 @@ private:
     int shake_target_w_ = 0, shake_target_h_ = 0;
     bool shake_failed_ = false;
     bool ensure_shake_target();
+    // Sprite flicker smoothing (set_flicker_smoothing). draw_frame's phase:
+    // Plain draws normally; Other resolves the other phase into
+    // flicker_other_ and stops; Mix resolves into flicker_this_, mixes the
+    // two into the normal destination and carries on.
+    enum class FlickerPhase { Plain, Other, Mix };
+    bool draw_frame(const FieldScene& scene, FlickerPhase phase);
+    bool ensure_flicker_targets();
+    float flicker_weight_ = 0.0f;
+    SpriteFlickerHistory flicker_history_;
+    std::unique_ptr<FieldScene> flicker_scene_;
+    gbarecomp::GpuProgram flicker_mix_ = 0;
+    gbarecomp::GpuTexture flicker_this_ = 0;
+    gbarecomp::GpuTexture flicker_other_ = 0;
+    int flicker_target_w_ = 0, flicker_target_h_ = 0;
+    bool flicker_failed_ = false;
     // Default true: a caller that never uploads a room (the offline checks)
     // is not held back from drawing.
     bool world_loaded_ = true;

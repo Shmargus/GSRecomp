@@ -17,6 +17,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "screen_filter.h"
+
 struct SDL_Window;
 struct SDL_Renderer;
 union SDL_Event;
@@ -168,7 +170,9 @@ struct ConfigUiState {
     bool  aspect_view_available = false;
     bool  screen_filters_supported = false;
     bool  screen_filters_available = false;  // test: launcher box on + opengl renderer
-    int   screen_filter = 0;        // test: 0 off, 1 LCD3x, 2 xBR, 3 CRT Lottes, 4 ScaleFX
+    int   screen_filter = 0;        // test: gbarecomp::ScreenFilter value
+    gbarecomp::ScreenFilterValues screen_filter_params = gbarecomp::screen_filter_defaults();
+    bool  screen_filter_save = false;  // a filter slider was let go: save it
     bool  show_fps = false;
 
     // --- audio --------------------------------------------------------------

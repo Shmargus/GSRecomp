@@ -22,7 +22,7 @@
 #include "tla_beacon_margins.h"
 #include "tla_kept_cells.h"
 #include "tla_line_table_margins.h"
-#include "tla_room_sprite_clip.h"
+#include "tla_parked_characters.h"
 #include "tla_screen_effect_margins.h"
 #include "tla_ship_water_margins.h"
 #include "tla_tornado_margins.h"
@@ -53,6 +53,9 @@ struct TlaFieldFrame {
     std::size_t room_palette_entries = 0;
     bool menu_open = false;
     bool reveal_full = false;  // Better Field Psy: Reveal covers the whole view
+    // Flicker reduction's weight for sprites shown every other frame
+    // (FieldSceneRenderer::set_flicker_smoothing); 0 = off.
+    float flicker_weight = 0.0f;
     unsigned ripple_phase = 0;
     int camera_hold_y = 0;      // tla_camera_hold_y
     // tla_camera_kept_bounds (x, y), whole pixels.
@@ -101,8 +104,9 @@ inline bool tla_field_draw(gsr::FieldSceneRenderer& renderer, gsr::FieldScene& s
     // stays exactly the picture checked against the console compositor.
     const bool expanded = width > 240 || height > 160;
     const int first_y = -(height - 160) / 2;
-    if (expanded)
-        tla_hide_outside_room(scene, in.ewram, in.ewram_bytes, in.iwram, in.iwram_bytes);
+    // Characters parked off the room are hidden; effects stay.
+    renderer.set_character_objects(tla_character_objects(
+        scene, in.ewram, in.ewram_bytes, in.iwram, in.iwram_bytes));
     tla_weather_sprite_margins(scene, margins, frame_vram, in.menu_open, &state.weather);
     if (expanded) tla_beacon_margins(scene, margins, frame_vram, first_y);
     tla_tornado_margins(scene, margins,
@@ -146,6 +150,8 @@ inline bool tla_field_draw(gsr::FieldSceneRenderer& renderer, gsr::FieldScene& s
         renderer.upload_room_palette(in.room_palette, in.room_palette_entries);
     renderer.set_room_source_enabled(expanded);
     renderer.set_menu_open(in.menu_open);
+    // Sprites shown on every other frame (sprite_flicker.h).
+    renderer.set_flicker_smoothing(in.flicker_weight);
     renderer.set_reveal_full(in.reveal_full);
 
     if (expanded) {

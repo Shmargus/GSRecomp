@@ -968,8 +968,12 @@ void render_scanline_internal(uint8_t* rgb,
                 // Color Special Effects"). Golden Sun's defend flash
                 // brightens the one non-semi-transparent party member this
                 // way (BLDCNT 0x3F90, gpu_rewind_0051, FACTS.md 2026-09-25).
-                bool t1 = blend_enabled(ux) &&
-                    (obj_mode == 1 || (first_targets & (1u << 4)) != 0);
+                // The window's effect bit gates only the BLDCNT choice: a
+                // semi-transparent OBJ blends even where the window turns
+                // effects off (mGBA PreprocessSprite). The title's lens
+                // flare sits in a full-screen WIN0 with WININ 0x1616.
+                bool t1 = obj_mode == 1 ||
+                    (blend_enabled(ux) && (first_targets & (1u << 4)) != 0);
                 const int lifted = std::min(priority, static_cast<int>(obj_lift[ux]));
                 submit(ux, color, lifted * 256 + idx, 4, t1, obj_target2,
                        obj_mode == 1);
@@ -2107,8 +2111,8 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
                     const uint32_t ux = static_cast<uint32_t>(out_x);
                     if (!layer_enabled(ux, 4)) continue;
                     // First target as in render_scanline_internal.
-                    const bool t1 = blend_enabled(ux) &&
-                        (obj_mode == 1 || (first_targets & (1u << 4)) != 0);
+                    const bool t1 = obj_mode == 1 ||
+                        (blend_enabled(ux) && (first_targets & (1u << 4)) != 0);
                     const int lifted = std::min(priority, static_cast<int>(obj_lift[ux]));
                     submit(ux, color, lifted * 256 + idx, 4,
                            static_cast<uint8_t>(kWsMarginSourceObj), t1,

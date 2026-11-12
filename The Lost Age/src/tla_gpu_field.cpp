@@ -49,6 +49,7 @@
 #include "runtime.h"
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
+#include "temporal_blend.h"
 #include "tla.h"
 #include "../../shared_game/quality_of_life.h"
 #include "../../shared_game/world_margin_live.h"
@@ -579,6 +580,8 @@ bool draw_capture(const Capture& capture, std::uint8_t* rgb,
     }
     in.menu_open = capture.window_open;
     in.reveal_full = tla_field_psy_fast();
+    in.flicker_weight = gbarecomp::temporal_blend_weight_for_index(
+        gbarecomp::flicker_reduction_index());
     in.ripple_phase = capture.ripple_phase;
     in.camera_hold_y = capture.camera_hold_y;
     for (int n = 0; n < 2; ++n) {

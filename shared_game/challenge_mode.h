@@ -216,6 +216,30 @@ inline void keep_down() {
     if (c.size > 0) keep_down(*b, c);
 }
 
+// The battle's party list without the left-out heroes (Jimmy, 12 November:
+// hidden in battle only). The game's builder (TBS 0x080B6A60) takes the first
+// `cap` members in party order, writes their ids as u16s to `out` (if not 0)
+// with an 0xFF end, marks each record's `battle_mark` byte 2 and returns the
+// count. The same over the members who fight: picks, and a spared hero.
+// The Lost Age's waiting list (0x0811A0B0) is the members after the first
+// four, none when 3 may fight: `skip` 4 there.
+inline std::uint32_t battle_party(gba::GbaBus& b, const Config& c, std::uint32_t out, int cap,
+                                  std::uint32_t battle_mark, int skip = 0) {
+    const int count = joined_count(b);
+    int n = 0, fighters = 0;
+    for (int i = 0; i < count && n < cap; ++i) {
+        const unsigned id = b.read8(game->order + i);
+        if (id < static_cast<unsigned>(game->heroes) && !picked(c, id) &&
+            static_cast<int>(id) != spared) continue;
+        if (fighters++ < skip) continue;
+        if (out) { b.write16(out, static_cast<std::uint16_t>(id)); out += 2; }
+        b.write8(record(id) + battle_mark, 2);
+        ++n;
+    }
+    if (out) b.write16(out, 0xFFu);
+    return static_cast<std::uint32_t>(n);
+}
+
 // Once a game frame. Every left-out member who is in the party stays down,
 // as the game's own HP setter leaves them (TBS 0x080782A0): HP 0 and HP share
 // 0 (story joins, inns and full heals included). On the field, outside

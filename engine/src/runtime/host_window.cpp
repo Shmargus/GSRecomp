@@ -415,6 +415,7 @@ struct Backend {
     // into screen_filter.cpp.
     ScreenFilter screen_filter = ScreenFilter::Off;
     ScreenFilter preferred_screen_filter = ScreenFilter::Off;
+    ScreenFilterValues screen_filter_params = screen_filter_defaults();
     bool screen_filters_on = false;
     bool resize_driven_view = false;
     bool linear_filter = false;
@@ -1827,6 +1828,7 @@ void HostWindow::present(const uint8_t* rgb888) {
             b->cfg.frame_interpolation_available && b->cfg.frame_interpolation_2x;
         const int blend_index = std::clamp(b->temporal_blend_index, 0,
                                            gbarecomp::kTemporalBlendItemCount - 1);
+        gbarecomp::set_flicker_reduction_index(blend_index);
         const bool blend_engaged = !supplied_native && rgb888 != nullptr &&
             blend_index != 0 && !interpolation_engaged;
         if (blend_engaged) {
@@ -1968,8 +1970,10 @@ void HostWindow::present(const uint8_t* rgb888) {
                 layout.x, layout.y, layout.width, layout.height};
             filtered = layout.width > 0 && layout.height > 0 &&
                        screen_filter_draw(b->renderer, frame_texture,
-                                          b->screen_filter, whole, b->base_w,
-                                          b->base_h, destination);
+                                          b->screen_filter,
+                                          b->screen_filter_params.data(),
+                                          whole, b->base_w, b->base_h,
+                                          destination);
         }
         if (!filtered)
             SDL_RenderCopy(b->renderer, frame_texture, nullptr, nullptr);
@@ -2031,7 +2035,8 @@ void HostWindow::present(const uint8_t* rgb888) {
             const bool filtered =
                 b->screen_filter != ScreenFilter::Off &&
                 screen_filter_draw(b->renderer, frame_texture,
-                                   b->screen_filter, source,
+                                   b->screen_filter,
+                                   b->screen_filter_params.data(), source,
                                    shown_width(b, b->base_w, b->base_h),
                                    b->base_h, destination);
             // 3:2 copies the whole texture, exactly as before 4:3 existed.
@@ -2194,8 +2199,17 @@ void HostWindow::load_input_config(const char* dir) {
             b->cfg.integer_scale = on;
         } else if (SDL_strcasecmp(key, "ScreenFilter") == 0) {
             const long filter = std::strtol(val, nullptr, 10);
-            if (filter >= 0 && filter <= static_cast<int>(ScreenFilter::ScaleFx))
+            if (filter >= 0 && filter <= kScreenFilterLast)
                 b->preferred_screen_filter = static_cast<ScreenFilter>(filter);
+        } else {
+            for (int i = 0; i < kScreenFilterParamCount; ++i) {
+                const ScreenFilterParam& param = kScreenFilterParams[i];
+                if (SDL_strcasecmp(key, param.key) != 0) continue;
+                char* end = nullptr;
+                const float v = std::strtof(val, &end);
+                if (end != val && std::isfinite(v))
+                    b->screen_filter_params[i] = std::clamp(v, param.lo, param.hi);
+            }
         }
     });
 
@@ -3134,18 +3148,25 @@ bool write_video_ini(const Backend* b) {
         if (!cur.empty()) lines.push_back(cur);
         std::fclose(in);
     }
-    static const char* const names[] = {
+    std::vector<const char*> names = {
         "WindowScale", "Fullscreen", "VSync", "LinearFilter",
         "IntegerScale", "ScreenFilter", "ShowFPS"
     };
-    const std::string values[] = {
+    std::vector<std::string> values = {
         std::to_string(b->scale), b->preferred_fullscreen ? "true" : "false",
         b->vsync ? "true" : "false", b->linear_filter ? "true" : "false",
         b->integer_scale ? "true" : "false",
         std::to_string(static_cast<int>(b->preferred_screen_filter)),
         b->fps_readout ? "true" : "false"
     };
-    rewrite_ini_section(lines, "Video", names, values, static_cast<int>(std::size(names)));
+    for (int i = 0; i < kScreenFilterParamCount; ++i) {
+        char text[32];
+        std::snprintf(text, sizeof(text), "%g", b->screen_filter_params[i]);
+        names.push_back(kScreenFilterParams[i].key);
+        values.emplace_back(text);
+    }
+    rewrite_ini_section(lines, "Video", names.data(), values.data(),
+                        static_cast<int>(names.size()));
     std::string text;
     for (const auto& line : lines) text += line + '\n';
     return gba::replace_file(path, text.data(), text.size(), nullptr);
@@ -3736,6 +3757,7 @@ HostWindow::Events HostWindow::pump() {
         b->cfg.native_scale = b->native_scale;
         b->cfg.screen_filters_available = b->screen_filters_on;
         b->cfg.screen_filter = static_cast<int>(b->preferred_screen_filter);
+        b->cfg.screen_filter_params = b->screen_filter_params;
     }
     if (!b->cfg.audio_changed && !b->cfg.mute)
         b->cfg.volume = b->volume;
@@ -4142,13 +4164,15 @@ HostWindow::Events HostWindow::pump() {
         }
         if (b->aspect_view_available && b->cfg.widescreen && b->cfg.aspect == ViewAspectMinimalSharpPixels)
             b->cfg.integer_scale = true;
-        if (b->cfg.video_changed || b->cfg.color_save) {
+        if (b->cfg.video_changed || b->cfg.color_save ||
+            b->cfg.screen_filter_save) {
             const bool video_settings_changed =
                 b->cfg.fullscreen != b->fullscreen || b->cfg.scale != b->scale ||
                 b->cfg.show_fps != b->fps_readout || b->cfg.vsync != b->vsync ||
                 b->cfg.linear_filter != b->linear_filter ||
                 b->cfg.integer_scale != b->integer_scale ||
-                b->cfg.screen_filter != static_cast<int>(b->preferred_screen_filter);
+                b->cfg.screen_filter != static_cast<int>(b->preferred_screen_filter) ||
+                b->cfg.screen_filter_save;
             if (b->cfg.fullscreen != b->fullscreen) {
                 set_fullscreen(b->cfg.fullscreen);
                 if (b->fullscreen == b->cfg.fullscreen) b->preferred_fullscreen = b->fullscreen;
@@ -4207,7 +4231,13 @@ HostWindow::Events HostWindow::pump() {
             }
             // Keep the preference even when this launch cannot use filters.
             b->preferred_screen_filter = static_cast<ScreenFilter>(std::clamp(
-                b->cfg.screen_filter, 0, static_cast<int>(ScreenFilter::ScaleFx)));
+                b->cfg.screen_filter, 0, kScreenFilterLast));
+            // Sliders show live; they save when let go (screen_filter_save).
+            for (int i = 0; i < kScreenFilterParamCount; ++i)
+                b->screen_filter_params[i] = std::clamp(
+                    b->cfg.screen_filter_params[i], kScreenFilterParams[i].lo,
+                    kScreenFilterParams[i].hi);
+            b->cfg.screen_filter_save = false;
             b->screen_filter = b->screen_filters_on ? b->preferred_screen_filter
                                                   : ScreenFilter::Off;
             if (video_settings_changed) persist_video(b);

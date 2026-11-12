@@ -243,6 +243,7 @@ GS_ROM_ADDR(0x080AE778u, 0x080B2FE4u, 0x080AE7F0u, 0x080B2FE8u, 0x080B15F4u)  //
 GS_ROM_ADDR(0x080B27B0u, 0x080B67B0u, 0x080B27B0u, 0x080B67B0u, 0x080B4DB0u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x080B41ACu, 0x080B81ACu, 0x080B41ACu, 0x080B81ACu, 0x080B67ACu)  // spain: data: literal pair; italy: data: literal pair; france: data: literal pair; germany: data: literal pair
 GS_ROM_ADDR(0x080B5138u, 0x080B9138u, 0x080B5138u, 0x080B9138u, 0x080B7738u)  // spain: code; italy: code; france: code; germany: code
+GS_ROM_ADDR(0x080B6A60u, 0x080BAA78u, 0x080B6A78u, 0x080BAA78u, 0x080B9078u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x080B6B40u, 0x080BAB58u, 0x080B6B58u, 0x080BAB58u, 0x080B9158u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x080B6D30u, 0x080BAD48u, 0x080B6D48u, 0x080BAD48u, 0x080B9348u)  // spain: code; italy: code; france: code; germany: code
 GS_ROM_ADDR(0x080C0299u, 0x080C42B1u, 0x080C02B1u, 0x080C42B1u, 0x080C28B1u)  // spain: code; italy: code; france: code; germany: code

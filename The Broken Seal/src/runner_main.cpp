@@ -33,6 +33,7 @@
 #include "room_buffer.h"
 #include "field_scene.h"
 #include "obj_y_continuity.h"
+#include "parked_characters_tbs.h"
 #include "effect_capture.h"
 #include "unpacker_catch.h"
 #include "../../shared_game/unpacker_guard.h"
@@ -83,6 +84,7 @@
 #include "runtime.h"
 #include "memory_snapshot.h"
 #include "runtime_bus_bridge.h"
+#include "temporal_blend.h"
 #include "runtime_arm.h"
 #include "arm_cpu_bridge.h"
 #include "arm_decode.h"
@@ -9678,7 +9680,15 @@ bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
         }
     }
     renderer.set_menu_open(capture.window_open);
+    // The title flare's halos alternate frame by frame (sprite_flicker.h).
+    renderer.set_flicker_smoothing(gbarecomp::temporal_blend_weight_for_index(
+        gbarecomp::flicker_reduction_index()));
     renderer.set_reveal_full(g_field_psynergy_fast.load() != 0);
+    // Characters parked off the room are hidden; effects stay.
+    renderer.set_character_objects(golden_sun_character_objects(
+        capture.scene, capture.ewram.data(), capture.ewram.size(),
+        capture.iwram.data(), capture.iwram.size(), gs::ram(0x03001E70u),
+        gs::ram(0x03001EBCu)));
     // The storm's rain continues into every margin (rain_margins.h); any other
     // scene draws with no margin data, as before.
     gsr::SceneMargins margins;

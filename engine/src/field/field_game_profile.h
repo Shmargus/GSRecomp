@@ -92,11 +92,13 @@ struct FieldGameProfile {
     // TLA's layer scroll plus its grid region can cross the 2048-pixel grid.
     // The room lookup wraps there (Gondowan Cliffs, F12 0057).
     bool room_grid_wrap = false;
-    // Hide a sprite lying wholly outside both the console's 240x160 and the
-    // room rectangle the margins draw (where they are black). The game stages
-    // cutscene actors off the map there -- the Wise One at world (-8,-22)
-    // against a room starting at x 80 (gpu_rewind_0092, map 9) -- and the
-    // widened view showed them floating in the void.
+    // Hide a character's sprite lying wholly outside both the console's
+    // 240x160 and the room rectangle the margins draw (where they are black).
+    // The game stages cutscene actors off the map there -- the Wise One at
+    // world (-8,-22) against a room starting at x 80 (gpu_rewind_0092, map
+    // 9) -- and the widened view showed them floating in the void. The game
+    // names its characters' sprites each frame
+    // (FieldSceneRenderer::set_character_objects); effects stay.
     bool hide_objects_off_room = false;
 };
 

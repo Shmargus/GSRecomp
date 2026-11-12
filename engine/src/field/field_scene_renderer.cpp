@@ -1560,10 +1560,11 @@ const char* kResolveFragment =
     "  bool blend_ok = ((wc >> 5) & 1) != 0;\n"
     // An OBJ is a first target when semi-transparent or when BLDCNT
     // selects the OBJ layer; only a semi-transparent one forces alpha
-    // (gba_ppu.cpp, FACTS.md 2026-09-25).
-    "  bool top_target1 = blend_ok && ((top_layer == 4)\n"
-    "                    ? (top_semi || ((u_first_targets >> 4) & 1) != 0)\n"
-    "                    : (((u_first_targets >> top_layer) & 1) != 0));\n"
+    // (gba_ppu.cpp, FACTS.md 2026-09-25). The window's effect bit gates
+    // only the BLDCNT choice: a semi-transparent OBJ blends even where the
+    // window turns effects off (the title's lens flare, WININ 0x1616).
+    "  bool top_target1 = (top_layer == 4 && top_semi) ||\n"
+    "                    (blend_ok && ((u_first_targets >> top_layer) & 1) != 0);\n"
     "  bool second_target2 = ((u_second_targets >> second_layer) & 1) != 0;\n"
     "\n"
     "  int r; int g6; int b;\n"
@@ -1787,6 +1788,9 @@ FieldSceneRenderer::~FieldSceneRenderer() {
     if (solid_) surface_->destroy_program(solid_);
     if (shake_blit_) surface_->destroy_program(shake_blit_);
     if (shake_target_) surface_->destroy_texture(shake_target_);
+    if (flicker_mix_) surface_->destroy_program(flicker_mix_);
+    if (flicker_this_) surface_->destroy_texture(flicker_this_);
+    if (flicker_other_) surface_->destroy_texture(flicker_other_);
     if (obj_window_) surface_->destroy_program(obj_window_);
     if (window_) surface_->destroy_program(window_);
     if (vram_) surface_->destroy_texture(vram_);
@@ -2946,6 +2950,58 @@ bool FieldSceneRenderer::ensure_shake_target() {
     return true;
 }
 
+// Mixes this frame's picture with the other sprite phase's picture
+// (set_flicker_smoothing). Both were resolved at the same output pixels, so
+// they are read at gl_FragCoord like the shake target. A pixel the two agree
+// on comes out unchanged.
+static const char* kFlickerMixFragment =
+    "#version 130\n"
+    "uniform sampler2D u_this;\n"
+    "uniform sampler2D u_other;\n"
+    "uniform float u_weight;\n"
+    "out vec4 o_colour;\n"
+    "void main() {\n"
+    "  ivec2 i = ivec2(gl_FragCoord.xy);\n"
+    "  vec4 a = texelFetch(u_this, i, 0);\n"
+    "  vec4 b = texelFetch(u_other, i, 0);\n"
+    "  o_colour = (a == b) ? a : mix(a, b, u_weight);\n"
+    "}\n";
+
+void FieldSceneRenderer::set_flicker_smoothing(float weight) {
+    flicker_weight_ = weight > 0.0f ? std::min(weight, 0.5f) : 0.0f;
+}
+
+bool FieldSceneRenderer::ensure_flicker_targets() {
+    if (!ready_ || flicker_failed_) return false;
+    if (!flicker_mix_) {
+        char log[1024] = {};
+        flicker_mix_ = surface_->create_program(kSolidVertex, kFlickerMixFragment,
+                                                log, sizeof log);
+        if (!flicker_mix_) {
+            flicker_failed_ = true;
+            std::fprintf(stderr, "field_scene_renderer: flicker shader: %s\n",
+                         log);
+            return false;
+        }
+    }
+    if (!flicker_this_ || !flicker_other_ || flicker_target_w_ != output_w_ ||
+        flicker_target_h_ != output_h_) {
+        if (flicker_this_) surface_->destroy_texture(flicker_this_);
+        if (flicker_other_) surface_->destroy_texture(flicker_other_);
+        flicker_this_ = surface_->create_texture(
+            output_w_, output_h_, gbarecomp::GpuTextureFormat::RGBA8, false);
+        flicker_other_ = surface_->create_texture(
+            output_w_, output_h_, gbarecomp::GpuTextureFormat::RGBA8, false);
+        flicker_target_w_ = output_w_;
+        flicker_target_h_ = output_h_;
+        if (!flicker_this_ || !flicker_other_) {
+            flicker_failed_ = true;
+            return false;
+        }
+    }
+    return true;
+}
+
 void FieldSceneRenderer::spawn_burst(float view_x, float view_y) {
     if (!ensure_solid()) return;
     ensure_shake_target();
@@ -3191,6 +3247,32 @@ gbarecomp::GpuTexture FieldSceneRenderer::output_texture() const {
 }
 
 bool FieldSceneRenderer::draw(const FieldScene& scene) {
+    // Sprites shown on every other frame: draw the other phase first, then
+    // this frame mixed with it (sprite_flicker.h). Off, or nothing
+    // alternating, is the plain single draw.
+    bool other_drawn = false;
+    if (flicker_weight_ > 0.0f && ready_ && output_w_ > 0 && output_h_ > 0 &&
+        ensure_flicker_targets()) {
+        SceneObjectTable other;
+        if (scene.valid &&
+            sprite_flicker_other_phase(scene.objects, flicker_history_, &other)) {
+            if (!flicker_scene_) flicker_scene_ = std::make_unique<FieldScene>();
+            *flicker_scene_ = scene;
+            flicker_scene_->objects = other;
+            other_drawn = draw_frame(*flicker_scene_, FlickerPhase::Other);
+        }
+    }
+    const bool ok = draw_frame(
+        scene, other_drawn ? FlickerPhase::Mix : FlickerPhase::Plain);
+    if (ok && flicker_weight_ > 0.0f)
+        flicker_history_.push(scene.objects);
+    else
+        flicker_history_.reset();
+    return ok;
+}
+
+bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
+                                    FlickerPhase phase) {
     declined_ = nullptr;
     if (!ready_ || output_w_ <= 0 || output_h_ <= 0) {
         declined_ = "the renderer is not ready";
@@ -4061,11 +4143,14 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
         // A mode-2 object never draws a visible pixel; it only shapes the
         // object window, which the mask pass below already used it for.
         if (!O.present || O.window) return;
-        // Off the console's screen and off the room the margins draw: no
-        // console frame shows it here, and our margins are black there
-        // (FieldGameProfile::hide_objects_off_room). Field rooms only, the
-        // same gate the margins' room lookup uses.
-        if (!extra && prof().hide_objects_off_room && room_source_enabled_ &&
+        // A character off the console's screen and off the room the margins
+        // draw: no console frame shows it here, and our margins are black
+        // there (FieldGameProfile::hide_objects_off_room). Effects stay
+        // (set_character_objects). Field rooms only, the same gate the
+        // margins' room lookup uses.
+        if (!extra && prof().hide_objects_off_room &&
+            character_objects_[static_cast<std::size_t>(slot)] &&
+            room_source_enabled_ &&
             room_valid_ && scene.video_mode == 0) {
             const int w = O.affine && O.double_size ? O.width * 2 : O.width;
             const int h = O.affine && O.double_size ? O.height * 2 : O.height;
@@ -4348,7 +4433,10 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
     const bool shaking = shake_.active() && shake_blit_ && shake_target_ &&
                          shake_target_w_ == output_w_ &&
                          shake_target_h_ == output_h_;
-    surface_->bind_color_target(shaking ? shake_target_ : 0);
+    const gbarecomp::GpuTexture destination = shaking ? shake_target_ : 0;
+    surface_->bind_color_target(phase == FlickerPhase::Other ? flicker_other_
+                                : phase == FlickerPhase::Mix ? flicker_this_
+                                                             : destination);
     surface_->set_uniform_mat4(resolve_, "u_transform", transform);
     surface_->set_uniform_int(resolve_, "u_top", 0);
     surface_->set_uniform_int(resolve_, "u_second", 1);
@@ -4365,6 +4453,17 @@ bool FieldSceneRenderer::draw(const FieldScene& scene) {
     full.w = static_cast<float>(output_w_);
     full.h = static_cast<float>(output_h_);
     surface_->draw_quads(resolve_, &full, 1, resolve_textures, 4);
+    if (phase == FlickerPhase::Other) return true;
+    if (phase == FlickerPhase::Mix) {
+        surface_->bind_color_target(destination);
+        surface_->set_uniform_mat4(flicker_mix_, "u_transform", transform);
+        surface_->set_uniform_int(flicker_mix_, "u_this", 0);
+        surface_->set_uniform_int(flicker_mix_, "u_other", 1);
+        surface_->set_uniform_float(flicker_mix_, "u_weight", flicker_weight_);
+        const gbarecomp::GpuTexture mix_textures[2] = {flicker_this_,
+                                                       flicker_other_};
+        surface_->draw_quads(flicker_mix_, &full, 1, mix_textures, 2);
+    }
 
     // The shake, applied to the burst quads too: about the view centre,
     // scaled just enough that the shifted picture still covers the view.

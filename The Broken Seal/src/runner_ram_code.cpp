@@ -1954,6 +1954,18 @@ void challenge_on_entry(std::uint32_t pc) {
         challenge_spare_for_lesson();
         ch::keep_down();
         challenge_djinn_to_leader();
+    } else if (pc == GS_ROM(0x080B6A60u)) {
+        // Battle's party list (out): the only builder, called by setup,
+        // commands and turns (10 callers, FACTS.md 12 November). Left-out
+        // heroes are left off. At most 4, 3 when [battle] +0x44 is set;
+        // record +0x12A = 2 per member.
+        const ch::Config c = ch::current();
+        if (c.size == 0) return;
+        challenge_spare_for_lesson();
+        gba::GbaBus* b = ch::bus();
+        if (!b) return;
+        const int cap = bus_read_u8(bus_read_u32(gs::ram(0x03001E74u)) + 0x44u) ? 3 : 4;
+        gbarecomp::guest_return_now(pc, ch::battle_party(*b, c, g_cpu.R[0], cap, 0x12Au));
     } else if (pc == GS_ROM(0x080792FCu) &&
                (g_cpu.R[14] & ~1u) == GS_ROM(0x08078FDAu)) {
         // New game: (character, level) raises the level-1 hero to its story

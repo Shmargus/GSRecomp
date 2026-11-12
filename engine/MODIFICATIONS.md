@@ -283,10 +283,12 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
   state loaded into a larger view than it was made in can miss graphics). A
   presentation shutdown hook releases each game's renderer, fences and PBOs
   before `HostWindow` destroys its context.
-- **Screen filters** (`runtime/screen_filter.{h,cpp}`). LCD3x, xBR, CRT Lottes
-  and ScaleFX (multi-stage) GLSL filters at the final present on the OpenGL
-  renderer, behind `GSR_SCREEN_FILTERS` (set by every launcher except under
-  Direct3D). Nothing runs when it is off.
+- **Screen filters** (`runtime/screen_filter.{h,cpp}`). LCD3x, xBR, CRT Lottes,
+  ScaleFX (multi-stage), bilinear and sharp bilinear GLSL filters at the final
+  present on the OpenGL renderer, behind `GSR_SCREEN_FILTERS` (set by every
+  launcher except under Direct3D). Nothing runs when it is off. Each filter's
+  main values are F1 sliders saved in config.ini `[Video]`, from the one
+  `kScreenFilterParams` table.
 - **Release badge and cover cartridge.** The host reads `edition_badge.txt`
   (caption and ASCII flourish) and `edition_badge.bmp` beside the executable;
   when both exist F1 reserves space at the bottom right for them.
@@ -611,6 +613,18 @@ All null or off by default and installed by the game's runner. `RunOptions`:
   through walls) gives its normal value, and F1 shows the whole Cheats page
   at normal values, unavailable; the player's own choices are kept. Golden
   Sun's Challenge Mode sets it.
+- **Semi-transparent sprites ignore the window's effect bit**
+  (`src/gba/gba_ppu.cpp` both OBJ paths, `field_scene_renderer.cpp` resolve
+  shader): an OAM mode-1 sprite is always a first blend target, as in mGBA;
+  the window bit gates only BLDCNT's OBJ choice. Golden Sun's title lens
+  flare sits in a full-screen window with effects off.
+- **Sprite flicker smoothing** (`src/field/sprite_flicker.h`,
+  `field_scene_renderer.*` `set_flicker_smoothing`, `runtime_bus_bridge.*`
+  `flicker_reduction_index`): sprites a game shows only on every other frame
+  are found from the last three object tables; the frame is drawn a second
+  time with the other phase's sprites and mixed in at the F1 Flicker
+  reduction weight, as the GBA's LCD blended them. Off with Flicker
+  reduction Off.
 
 ## What was left out of this copy
 

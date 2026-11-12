@@ -1,6 +1,6 @@
 // screen_filter.cpp -- see screen_filter.h.
 //
-// Four GLSL filters run at the final present on SDL's "opengl" renderer:
+// Six GLSL filters run at the final present on SDL's "opengl" renderer:
 //
 //   LCD3x      by Gigaherz, public domain (libretro glsl-shaders, handheld/).
 //   xBR-lv2    by Hyllian, MIT licence (libretro glsl-shaders, xbr/). The
@@ -8,11 +8,16 @@
 //   CRT Lottes by Timothy Lottes, public domain (libretro glsl-shaders, crt/).
 //   ScaleFX    by Sp00kyFox, MIT licence (libretro glsl-shaders, scalefx/). A
 //              five-pass chain; the notice is reproduced verbatim above it.
+//   Bilinear and sharp bilinear, our own: plain 4-tap bilinear in 1x pixels,
+//              and the same with each pixel's middle held flat (the usual
+//              "sharp bilinear": crisp pixels, smoothed only at their edges).
 //
-// All are ported from libretro's slang-less GLSL to `#version 130`. The libretro
-// parameter/#pragma machinery is gone; the algorithms and their default
-// constants are unchanged. The first three are one fragment pass; ScaleFX runs
-// its passes through float/8-bit FBO textures (see kSfxPasses).
+// The four ports are from libretro's slang-less GLSL to `#version 130`. The
+// libretro #pragma machinery is gone; the algorithms are unchanged. The few
+// player-adjustable values come in as the Params[] uniform, filled from
+// kScreenFilterParams (screen_filter.h), whose defaults are upstream's. All but
+// ScaleFX are one fragment pass; ScaleFX runs its passes through float/8-bit
+// FBO textures (see kSfxPasses).
 //
 // The shaders work in "source pixel" units. The graphics-card renderer's
 // texture can be the 1x picture enlarged by an integer native scale, so every
@@ -82,6 +87,7 @@ constexpr GLenum kRgba16f            = 0x881A;
     X(void,    UseProgram,      (GLuint))                                      \
     X(GLint,   GetUniformLocation,(GLuint, const char*))                       \
     X(void,    Uniform1i,       (GLint, GLint))                                \
+    X(void,    Uniform1fv,      (GLint, GLsizei, const GLfloat*))              \
     X(void,    Uniform2f,       (GLint, GLfloat, GLfloat))                     \
     X(void,    Uniform4f,       (GLint, GLfloat, GLfloat, GLfloat, GLfloat))   \
     X(void,    GenVertexArrays, (GLsizei, GLuint*))                            \
@@ -168,6 +174,7 @@ const char* kFragmentCommon =
     "uniform vec2 SourceSize;\n"
     "uniform vec4 TexRect;\n"
     "uniform vec2 OutputSize;\n"
+    "uniform float Params[8];\n"
     "in vec2 v_uv;\n"
     "out vec4 FragColor;\n"
     "\n"
@@ -180,9 +187,11 @@ const char* kFragmentCommon =
 
 // LCD3x -- Author: Gigaherz. License: Public domain.
 // (libretro glsl-shaders, handheld/shaders/lcd3x.glsl; defaults 16.0 and 4.0)
+// Port notes: (b + sin) / (b + 1) is rewritten as 1 - d * (1 - sin) / 2 with
+// d = 2 / (b + 1), the line depth the sliders set (Params[0], Params[1] in %).
 const char* kLcd3xFragment = R"GLSL(
-#define brighten_scanlines 16.0
-#define brighten_lcd 4.0
+#define scanline_depth (Params[0] * 0.01)
+#define lcd_depth (Params[1] * 0.01)
 
 const vec3 offsets = vec3(3.141592654) * vec3(1.0/2.0,1.0/2.0 - 2.0/3.0,1.0/2.0-4.0/3.0);
 
@@ -193,8 +202,8 @@ void main()
 
     vec2 angle = v_uv * omega;
 
-    float yfactor = (brighten_scanlines + sin(angle.y)) / (brighten_scanlines + 1.0);
-    vec3 xfactors = (brighten_lcd + sin(angle.x + offsets)) / (brighten_lcd + 1.0);
+    float yfactor = 1.0 - scanline_depth * (1.0 - sin(angle.y)) * 0.5;
+    vec3 xfactors = vec3(1.0) - lcd_depth * (vec3(1.0) - sin(angle.x + offsets)) * 0.5;
 
     vec3 color = yfactor * xfactors * res;
 
@@ -235,7 +244,7 @@ void main()
 // (default off) and the parameter pragmas are dropped.
 const char* kXbrFragment = R"GLSL(
 #define XBR_SCALE 3.0
-#define XBR_EQ_THRESHOLD 15.0
+#define XBR_EQ_THRESHOLD Params[0]
 #define XBR_LV2_COEFFICIENT 2.0
 #define lv2_cf XBR_LV2_COEFFICIENT
 
@@ -391,28 +400,71 @@ void main()
 }
 )GLSL";
 
+// Bilinear in 1x source pixels, built from four nearest src_texel() reads so
+// the result is the same whatever integer enlargement the texture has. `pos`
+// is in source pixels; pixel i's centre is at i + 0.5.
+#define SF_BILINEAR_HELPER R"GLSL(
+vec3 bilinear(vec2 pos)
+{
+    vec2 q = pos - vec2(0.5);
+    vec2 i = floor(q);
+    vec2 f = q - i;
+    vec3 a = src_texel(i).rgb;
+    vec3 b = src_texel(i + vec2(1.0, 0.0)).rgb;
+    vec3 c = src_texel(i + vec2(0.0, 1.0)).rgb;
+    vec3 d = src_texel(i + vec2(1.0, 1.0)).rgb;
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+)GLSL"
+
+const char* kBilinearFragment = SF_BILINEAR_HELPER R"GLSL(
+void main()
+{
+    FragColor = vec4(bilinear(v_uv * SourceSize), 1.0);
+}
+)GLSL";
+
+// Sharp bilinear: each source pixel is first enlarged by the largest whole
+// factor that fits, then bilinear covers the remainder, so only a band about
+// one output pixel wide at each pixel edge is blended.
+const char* kSharpBilinearFragment = SF_BILINEAR_HELPER R"GLSL(
+void main()
+{
+    vec2 texel = v_uv * SourceSize;
+    vec2 scale = max(floor(OutputSize / SourceSize), vec2(1.0));
+    vec2 base = floor(texel);
+    vec2 centre = texel - base - vec2(0.5);
+    vec2 range = vec2(0.5) - vec2(0.5) / scale;
+    vec2 f = (centre - clamp(centre, -range, range)) * scale + vec2(0.5);
+    FragColor = vec4(bilinear(base + f), 1.0);
+}
+)GLSL";
+
+#undef SF_BILINEAR_HELPER
+
 // CRT Lottes -- PUBLIC DOMAIN CRT STYLED SCAN-LINE SHADER by Timothy Lottes
 // (libretro glsl-shaders, crt/shaders/crt-lottes.glsl). Upstream's header says
 // "Please take and use, change, or whatever."
 //
-// Port notes: parameters keep their upstream default values as #defines; the
-// GL_ES / SIMPLE_LINEAR_GAMMA branches and the pragma lines are dropped. Every
+// Port notes: parameters keep their upstream default values as #defines,
+// except the five the sliders set (Params[0..4]: scanline hardness, curvature
+// %, mask depth %, brightness %, glow %); the GL_ES / SIMPLE_LINEAR_GAMMA branches and the pragma lines are dropped. Every
 // sample goes through src_texel(); reads outside the picture return black, as
 // upstream's clamp-to-border wrap does. TextureSize == InputSize here, so the
 // upstream size ratios in main() are 1.
 const char* kLottesFragment = R"GLSL(
-#define hardScan -8.0
+#define hardScan (-Params[0])
 #define hardPix -3.0
-#define warpX 0.031
-#define warpY 0.041
-#define maskDark 0.5
-#define maskLight 1.5
+#define warpX (0.031 * Params[1] * 0.01)
+#define warpY (0.041 * Params[1] * 0.01)
+#define maskDark (1.0 - Params[2] * 0.01)
+#define maskLight (1.0 + Params[2] * 0.01)
 #define scaleInLinearGamma 1.0
 #define shadowMask 3.0
-#define brightBoost 1.0
+#define brightBoost (Params[3] * 0.01)
 #define hardBloomPix -1.5
 #define hardBloomScan -2.0
-#define bloomAmount 0.15
+#define bloomAmount (Params[4] * 0.01)
 #define shape 2.0
 
 //Uncomment to reduce instructions with simpler linearization
@@ -705,7 +757,8 @@ void main()
 // Port notes: the five passes follow scalefx.glslp (see kSfxPasses below). The
 // vertex stages' t1..t4 coordinates are unused by the desktop fragment path
 // (textureOffset), so they are dropped; v_uv replaces TEX0 and the SFX_*
-// parameters keep their upstream defaults (SFX_CLR 0.5, SFX_SAA 1.0, SFX_SCN 1.0).
+// parameters keep their upstream defaults (SFX_SAA 1.0, SFX_SCN 1.0) except
+// SFX_CLR (upstream 0.5), which the slider sets as Params[0] in %.
 // Uniforms follow libretro: TextureSize/InputSize describe the pass's Source,
 // OutputSize its own render target.
 const char* kSfxCommon =
@@ -714,6 +767,7 @@ const char* kSfxCommon =
     "uniform vec2 TextureSize;\n"
     "uniform vec2 InputSize;\n"
     "uniform sampler2D Texture;\n"
+    "uniform float Params[8];\n"
     "in vec2 v_uv;\n"
     "out vec4 FragColor;\n"
     "#define Source Texture\n"
@@ -763,7 +817,7 @@ void main()
 
 const char* kSfxPass1 = R"GLSL(
 
-#define SFX_CLR 0.5
+#define SFX_CLR (Params[0] * 0.01)
 #define SFX_SAA 1.0
 
 // corner strength
@@ -1043,6 +1097,7 @@ struct Program {
     GLint  u_output_size = -1;
     GLint  u_texture_size = -1;  // ScaleFX passes
     GLint  u_input_size = -1;    // ScaleFX passes
+    GLint  u_params = -1;        // Params[] (slider values)
 };
 
 // ScaleFX, exactly as libretro's scalefx.glslp: five passes, all nearest, scale
@@ -1075,7 +1130,7 @@ struct State {
     GLuint      vao = 0;
     GLuint      vbo = 0;
     bool        geometry_ready = false;
-    Program     programs[3];         // Lcd3x, Xbr, CrtLottes
+    Program     programs[5];         // see kOnePass
     // ScaleFX
     bool        fbo_loaded = false;  // load_fbo() attempted
     bool        fbo_ok = false;
@@ -1091,6 +1146,43 @@ struct State {
 State& state() {
     static State s;
     return s;
+}
+
+// The single-pass filters, in State::programs order.
+struct OnePass {
+    ScreenFilter filter;
+    const char*  fragment;
+    const char*  name;
+};
+const OnePass kOnePass[5] = {
+    {ScreenFilter::Lcd3x, kLcd3xFragment, "LCD3x"},
+    {ScreenFilter::Xbr, kXbrFragment, "xBR"},
+    {ScreenFilter::CrtLottes, kLottesFragment, "CRT Lottes"},
+    {ScreenFilter::Bilinear, kBilinearFragment, "Bilinear"},
+    {ScreenFilter::SharpBilinear, kSharpBilinearFragment, "Sharp bilinear"},
+};
+
+int one_pass_index(ScreenFilter filter) {
+    for (int i = 0; i < 5; ++i)
+        if (kOnePass[i].filter == filter) return i;
+    return -1;
+}
+
+// `filter`'s slider values (defaults where `all` is null), in Params[] order.
+int gather_params(ScreenFilter filter, const float* all,
+                  float out[kScreenFilterMaxParams]) {
+    int n = 0;
+    for (int i = 0; i < kScreenFilterParamCount && n < kScreenFilterMaxParams; ++i) {
+        const ScreenFilterParam& p = kScreenFilterParams[i];
+        if (p.filter != filter) continue;
+        const float v = all ? all[i] : p.def;
+        out[n++] = v < p.lo ? p.lo : v > p.hi ? p.hi : v;
+    }
+    return n;
+}
+
+void set_params(const Program& p, const float* values, int count) {
+    if (p.u_params >= 0 && count > 0) glUniform1fv(p.u_params, count, values);
 }
 
 void log_info(const char* what, bool is_program, GLuint object) {
@@ -1165,6 +1257,7 @@ void build_program(Program* p, const char* fragment_body, const char* name,
     p->u_output_size = glGetUniformLocation(program, "OutputSize");
     p->u_texture_size = glGetUniformLocation(program, "TextureSize");
     p->u_input_size = glGetUniformLocation(program, "InputSize");
+    p->u_params = glGetUniformLocation(program, "Params");
 }
 
 // Two triangles covering clip space. Each vertex: x, y, u, v with (u,v) = 0,0
@@ -1237,7 +1330,8 @@ bool ensure_sfx_chain(State* s, int w, int h, GLint unit_index) {
 bool run_scalefx(State* s, GLint unit, GLint src_unit, GLint aux_unit,
                  const SDL_Rect& source, int tex_w, int tex_h, float texw,
                  float texh, int pixel_w, int pixel_h, const SDL_Rect& dest,
-                 int out_h, GLuint final_fbo) {
+                 int out_h, GLuint final_fbo, const float* params,
+                 int param_count) {
     if (!ensure_sfx_chain(s, pixel_w, pixel_h, src_unit)) return false;
     const float u0 = static_cast<float>(source.x) / tex_w * texw;
     const float v0 = static_cast<float>(source.y) / tex_h * texh;
@@ -1289,6 +1383,7 @@ bool run_scalefx(State* s, GLint unit, GLint src_unit, GLint aux_unit,
         }
         glUniform2f(p.u_texture_size, fw, fh);
         glUniform2f(p.u_input_size, fw, fh);
+        set_params(p, params, param_count);
         glUniform2f(p.u_output_size, last ? static_cast<float>(dest.w) : fw,
                     last ? static_cast<float>(dest.h) : fh);
         glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -1299,8 +1394,9 @@ bool run_scalefx(State* s, GLint unit, GLint src_unit, GLint aux_unit,
 }  // namespace
 
 bool screen_filter_draw(SDL_Renderer* renderer, SDL_Texture* texture,
-                        ScreenFilter filter, const SDL_Rect& source,
-                        int pixel_w, int pixel_h, const SDL_Rect& dest) {
+                        ScreenFilter filter, const float* params,
+                        const SDL_Rect& source, int pixel_w, int pixel_h,
+                        const SDL_Rect& dest) {
     if (filter == ScreenFilter::Off || !renderer || !texture) return false;
     if (pixel_w < 1 || pixel_h < 1 || source.w < 1 || source.h < 1 ||
         dest.w < 1 || dest.h < 1)
@@ -1308,9 +1404,11 @@ bool screen_filter_draw(SDL_Renderer* renderer, SDL_Texture* texture,
     State& s = state();
     if (s.loaded && !s.loaded_ok) return false;
     const bool sfx = filter == ScreenFilter::ScaleFx;
-    Program& prog = sfx ? s.sfx_copy
-                  : s.programs[filter == ScreenFilter::Lcd3x ? 0
-                             : filter == ScreenFilter::Xbr ? 1 : 2];
+    const int one_pass = one_pass_index(filter);
+    if (!sfx && one_pass < 0) return false;
+    Program& prog = sfx ? s.sfx_copy : s.programs[one_pass];
+    float values[kScreenFilterMaxParams] = {};
+    const int value_count = gather_params(filter, params, values);
     if (sfx && s.sfx_failed) return false;
     if (prog.tried && !prog.id) return false;
 
@@ -1406,12 +1504,9 @@ bool screen_filter_draw(SDL_Renderer* renderer, SDL_Texture* texture,
         if (!prog.tried) {
             if (sfx)
                 build_scalefx(&s);
-            else if (filter == ScreenFilter::Lcd3x)
-                build_program(&prog, kLcd3xFragment, "LCD3x");
-            else if (filter == ScreenFilter::Xbr)
-                build_program(&prog, kXbrFragment, "xBR");
             else
-                build_program(&prog, kLottesFragment, "CRT Lottes");
+                build_program(&prog, kOnePass[one_pass].fragment,
+                              kOnePass[one_pass].name);
         }
         if (sfx) {
             if (prog.id && s.geometry_ready && !s.sfx_failed) {
@@ -1422,7 +1517,8 @@ bool screen_filter_draw(SDL_Renderer* renderer, SDL_Texture* texture,
                 }
                 drawn = run_scalefx(&s, unit, src_unit, aux_unit, source, tex_w,
                                     tex_h, texw, texh, pixel_w, pixel_h, dest,
-                                    out_h, static_cast<GLuint>(prev_draw_fbo));
+                                    out_h, static_cast<GLuint>(prev_draw_fbo),
+                                    values, value_count);
                 glActiveTexture(static_cast<GLenum>(unit));
             }
         } else if (prog.id && s.geometry_ready) {
@@ -1441,6 +1537,7 @@ bool screen_filter_draw(SDL_Renderer* renderer, SDL_Texture* texture,
             glUniform4f(prog.u_tex_rect, u0, v0, u1, v1);
             glUniform2f(prog.u_output_size, static_cast<float>(dest.w),
                         static_cast<float>(dest.h));
+            set_params(prog, values, value_count);
             glBindVertexArray(s.vao);
             glDrawArrays(GL_TRIANGLES, 0, 6);
             drawn = true;
@@ -1504,7 +1601,8 @@ void screen_filter_shutdown() {
 namespace gbarecomp {
 
 bool screen_filter_draw(SDL_Renderer*, SDL_Texture*, ScreenFilter,
-                        const SDL_Rect&, int, int, const SDL_Rect&) {
+                        const float*, const SDL_Rect&, int, int,
+                        const SDL_Rect&) {
     return false;
 }
 

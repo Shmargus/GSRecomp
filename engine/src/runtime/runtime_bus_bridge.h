@@ -115,6 +115,12 @@ bool cheats_blocked();
 // Every cheat option reads through this.
 int cheat_option_get(const char* key, int normal);
 
+// The F1 "Flicker reduction" choice (temporal_blend.h index), published by
+// the host window each presented frame so a game's own renderer can apply
+// the same setting (FieldSceneRenderer::set_flicker_smoothing).
+void set_flicker_reduction_index(int index);
+int flicker_reduction_index();
+
 // Retrieve the currently-bound bus / ppu, or nullptr if none.
 gba::GbaBus* active_bus();
 gba::GbaPpu* active_ppu();

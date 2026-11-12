@@ -685,6 +685,24 @@ bool tla_new_game_on_entry(std::uint32_t pc) {
     } else if (pc == TLA_ROM(0x080AFBB4u) && lr == TLA_ROM(0x080AF89Eu)) {
         // New game: the builder raises a level-0 hero to its story level.
         ch::keep_start_record(g_cpu.R[0]);
+    } else if (pc == TLA_ROM(0x0811A038u) || pc == TLA_ROM(0x0811A0B0u)) {
+        // Battle's party list and waiting list (out): left-out heroes are
+        // left off (Jimmy, 12 November: hidden in battle only). Fighting: at
+        // most 4, 3 when [battle] +0x44 is set; waiting: those after the
+        // first 4, none when it is set. Record +0x12A = 2 per member. With
+        // the picks first in the order the lists stay its prefix, as the
+        // switch write-back 0x081195EC needs (FACTS 12 November).
+        gba::GbaBus* b = bus();
+        const ch::Config c = ch::current();
+        if (!b || c.size == 0) return false;
+        const bool three = b->read8(b->read32(kTlaBattleSlot) + 0x44u) != 0;
+        const bool waiting = pc == TLA_ROM(0x0811A0B0u);
+        const std::uint32_t n = waiting
+            ? (three ? ch::battle_party(*b, c, g_cpu.R[0], 0, 0x12Au)
+                     : ch::battle_party(*b, c, g_cpu.R[0], 8, 0x12Au, 4))
+            : ch::battle_party(*b, c, g_cpu.R[0], three ? 3 : 4, 0x12Au);
+        gbarecomp::guest_return_now(pc, n);
+        return true;
     } else if (pc == TLA_ROM(0x0811A188u)) {
         // Battle lists the living (HP > 0) for commands and turns.
         ch::keep_down();
