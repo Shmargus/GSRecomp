@@ -40,7 +40,10 @@ param(
     # Pick (and if needed make) the game code for the
     # collection's ROM, record it in local\game_code_revision.txt, and stop.
     # build_dev.ps1 runs this before recording the build's inputs.
-    [switch]$PrepareOnly
+    [switch]$PrepareOnly,
+    # The clean ROM to build from (build_dev.ps1 -BuildRom). Empty = the
+    # collection's ROM.
+    [string]$BuildRom = ''
 )
 $ErrorActionPreference = 'Stop'
 
@@ -210,11 +213,11 @@ public static class GoldenSunBuildLimits {
     $language = if (Test-Path -LiteralPath $languageFile -PathType Leaf) { "$(Get-Content -LiteralPath $languageFile -TotalCount 1)".Trim() } else { '' }
     $chosen = @($revisions | Where-Object { $_.Code -ceq $language })
     $romName = if ($chosen.Count -and $chosen[0] -ne $revisions[0]) { "$($cfg.Root) ($($chosen[0].Name))" } else { $cfg.Root }
-    $rom = Join-Path $collection "ROMs/$romName.gba"
+    $rom = if ($BuildRom) { $BuildRom } else { Join-Path $collection "ROMs/$romName.gba" }
     if (-not (Test-Path -LiteralPath $rom -PathType Leaf)) { throw "The collection ROM is missing: $rom" }
     $romSha1 = (Get-FileHash -LiteralPath $rom -Algorithm SHA1).Hash.ToLowerInvariant()
     $revision = @($revisions | Where-Object { $_.Sha1 -eq $romSha1 })[0]
-    if (-not $revision) { throw "The collection ROM (SHA-1 $romSha1) is not a supported $($cfg.Root) ROM." }
+    if (-not $revision) { throw "The ROM (SHA-1 $romSha1) is not a supported $($cfg.Root) ROM. Build from a clean ROM." }
     $localized = $revision -ne $revisions[0]
     $corpus = if ($localized) { "$($revision.Code)/$($cfg.CodeName)" } else { $cfg.CodeName }
     Write-Host "ROM: $($revision.Name) (game code local\$corpus)."

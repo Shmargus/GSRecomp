@@ -254,11 +254,9 @@ bool runtime_saves_in_saves(const fs::path& root, int choice, std::string& error
 }
 
 bool game_built(const fs::path& root, int choice, std::stop_token stop = {}) {
-    std::error_code ec;
     // Packaged games check the release fingerprint; developer trees check the build record.
-    if (fs::is_directory(root / "builder", ec) || root.parent_path().filename() == "games")
-        return gsr_launcher::game_code_ready(root, gsr_launcher::kGames[choice],
-                                             gsr_session::load_launcher_audio_settings(root).any_rom);
+    if (gsr_collection::CollectionBuild::is_player(root))
+        return gsr_launcher::game_code_ready(root, gsr_launcher::kGames[choice]);
     return gsr_collection::developer_build_ready(root, choice, gsr_session::engine(root, choice), stop);
 }
 
@@ -1040,7 +1038,9 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 reduced_build = false; request_build_dialog = true;
             } else {
                 fs::path rom;
-                if (gsr_collection::prepare_rom(window, root, choice, rom, error) &&
+                // "Skip the ROM check": ask for the ROM to play every time.
+                if (gsr_collection::prepare_rom(window, root, choice, rom, error,
+                        gsr_collection::skip_rom_check_on(root, choice), "The ROM to PLAY - ") &&
                     runtime_saves_in_saves(game, choice, error)) {
                     fade_only = false;
                     insertion_choice = selected = choice;
@@ -1052,9 +1052,14 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
         }
         if (build_choice >= 0 && !build.running && building_choice < 0 && preview.empty()) {
             const int choice = build_choice; build_choice = -1;
-            fs::path rom;
+            fs::path rom, clean;
             error.clear();
-            if (gsr_collection::prepare_rom(window, root, choice, rom, error)) {
+            // "Skip the ROM check": the clean ROM is asked for first, the
+            // played ROM after; the build uses the clean one.
+            if (gsr_collection::clean_build_rom(window, root, choice, clean, error) &&
+                gsr_collection::prepare_rom(window, root, choice, rom, error, !clean.empty(),
+                                            "Step 2 of 2 - the ROM to PLAY (patched or clean) - ")) {
+                if (!clean.empty()) rom = clean;
                 if (builder.start(root, choice, rom, error, reduced_build)) {
                     building_language = gsr_collection::rom_language(root, choice);
                     building_choice = selected = choice;

@@ -12,6 +12,9 @@
 
 // Shared collection storage. External imports preserve originals and existing
 // progress. Legacy progress beside managed ROMs is verified and moved to Saves.
+namespace gsr_launcher {
+bool sha1_file(const std::filesystem::path&, std::string*);
+}
 namespace gsr_collection {
 namespace fs = std::filesystem;
 
@@ -194,6 +197,24 @@ inline ManagedFiles managed_paths(const fs::path& root, const std::string& game_
     return {absolute, absolute / "ROMs" / (name + ".gba"), absolute / "Saves" / (name + ".sav"), absolute / "Saves" / name};
 }
 
+// A patched ROM (played with "Skip the ROM check") is kept beside the game's
+// clean one under its own name, "<game> [<patch file name>]", with its own
+// save and savestates, so a hack never shares progress with the normal game.
+// `selected` already in ROMs under such a name keeps it.
+inline bool patched_name(const std::string& stem, const std::string& base) {
+    return stem.size() > base.size() + 2 && stem.rfind(base + " [", 0) == 0 && stem.back() == ']';
+}
+inline ManagedFiles patched_paths(const ManagedFiles& clean, const fs::path& selected) {
+    const auto base = storage_detail::text(clean.rom.stem());
+    const auto stem = storage_detail::text(selected.stem());
+    std::error_code ec;
+    const bool managed = fs::equivalent(selected.parent_path(), clean.rom.parent_path(), ec) &&
+                         patched_name(stem, base);
+    const auto name = managed ? stem : base + " [" + stem + "]";
+    return {clean.root, clean.root / "ROMs" / (name + ".gba"), clean.root / "Saves" / (name + ".sav"),
+            clean.root / "Saves" / name};
+}
+
 inline fs::path infer_collection_root(const fs::path& child_root) {
     using namespace storage_detail;
     if (child_root.empty()) throw std::runtime_error("Cannot locate the collection launcher folder from an empty game path.");
@@ -219,6 +240,11 @@ inline bool sync_legacy_states(const ManagedFiles& files, std::string& error) {
     error.clear();
     try {
         bool managed = false;
+        // A patched ROM's files (patched_paths) never had the legacy layout.
+        for (const char* game : {"The Broken Seal", "The Lost Age"})
+            if (patched_name(storage_detail::text(files.rom.stem()),
+                             storage_detail::text(managed_paths(files.root, game).rom.stem())))
+                return true;
         for (const char* game : {"The Broken Seal", "The Lost Age"}) {
             const auto expected = managed_paths(files.root, game);
             managed = managed || (files.rom.lexically_normal() == expected.rom &&
@@ -279,9 +305,18 @@ inline bool import_selected_rom(const fs::path& root, const fs::path& selected,
         out = managed_paths(root, game_stem);
         if (!fs::is_regular_file(source))
             throw std::runtime_error("Select an existing ROM file: " + text(source));
-        if (path_present(out.rom) && (!fs::is_regular_file(out.rom) || fs::is_symlink(fs::symlink_status(out.rom)) || !same_bytes(source, out.rom)))
+        // Not this language's clean ROM: a patched one (the caller allowed it).
+        const int game = game_stem == "The Lost Age";
+        std::string sha1;
+        const bool patched = !gsr_launcher::sha1_file(source, &sha1) ||
+            sha1 != gsr_launcher::kGames[game].rom_sha1s[rom_language(out.root, game)];
+        if (patched) out = patched_paths(out, source);
+        if (path_present(out.rom) && (!fs::is_regular_file(out.rom) || fs::is_symlink(fs::symlink_status(out.rom))))
+            throw std::runtime_error("Expected a regular ROM file at " + text(out.rom) + ".");
+        if (path_present(out.rom) && !same_bytes(source, out.rom) && !patched)
             throw std::runtime_error("A different ROM already exists at " + text(out.rom) + ". Move it aside before selecting this ROM.");
-        if (!path_present(out.rom)) copy_preserving_time(source, out.rom);
+        // A newer copy of the same patch replaces the older one; its save stays.
+        copy_preserving_time(source, out.rom, patched);
         fs::create_directories(out.root / "Saves");
         // Move any old working progress out of managed ROMs; the engines
         // save directly in Saves and nothing is copied back beside the ROM.

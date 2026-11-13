@@ -747,9 +747,12 @@ void style_ui() {
 }
 
 // Pick ROM: check it, then build the game code first if needed, else play.
-// Once a ROM was accepted the button says Play and uses it without asking.
+// Once a ROM was accepted the button says Play and uses it without asking,
+// except with "Skip the ROM check" on: then every Play asks for the ROM to
+// play (in collection play the collection launcher just asked).
+bool ask_rom_every_play() { return gbarecomp::any_rom_allowed() && !g_collection_play; }
 void pick_rom() {
-    if (!g_ui.remembered_rom.empty()) {
+    if (!g_ui.remembered_rom.empty() && !ask_rom_every_play()) {
         std::string error;
         if (validate_rom(g_ui.remembered_rom, &error)) {
             launcher_log("Play: using the remembered ROM " + g_ui.remembered_rom + ".");
@@ -877,7 +880,29 @@ void use_rom(const std::string& selected_rom) {
     g_ui.pending_rom.clear();
     if (preparation != PreparationState::Ready) {
         launcher_log("The game needs preparation: building it.");
-        if (g_build.start(g_collection_root, session_game_index, rom, error)) {
+        // "Skip the ROM check": build from a clean ROM, play `rom`.
+        std::string build_rom = rom;
+        if (gsr_collection::skip_rom_check_on(g_collection_root, session_game_index)) {
+            const auto message = gsr_collection::clean_build_rom_message(g_collection_root,
+                                                                         session_game_index, false);
+            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, session_game().title,
+                                     message.c_str(), nullptr);
+            bool no_dialog = false;
+            build_rom = pick_rom_with_dialog((g_collection_root / "ROMs").string(), &no_dialog);
+            if (build_rom.empty()) {
+                launcher_log("Clean build ROM: none chosen.");
+                if (no_dialog) show_message("No file chooser",
+                    "Install zenity or kdialog to choose the clean ROM.", true);
+                return;
+            }
+            if (!gsr_collection::check_clean_build_rom(build_rom, g_collection_root,
+                                                       session_game_index, error)) {
+                launcher_log("Clean build ROM: " + build_rom + " - refused: " + error);
+                show_message("Not a clean ROM", error, true);
+                return;
+            }
+        }
+        if (g_build.start(g_collection_root, session_game_index, build_rom, error)) {
             g_build_rom = rom;
         } else {
             show_message("The game builder could not start", error, true);
@@ -1017,7 +1042,8 @@ int gsr_session_main(int game, int argc, char** argv) {
     bool running = true;
     std::string release_notes;  // empty until the update check has them
     g_collection_activation_pending = g_collection_play;
-    if (!g_collection_play && g_ui.auto_start && ready && !g_ui.remembered_rom.empty()) {
+    if (!g_collection_play && g_ui.auto_start && ready && !g_ui.remembered_rom.empty() &&
+        !ask_rom_every_play()) {
         launcher_log("Start automatically: waiting for the update check.");
         g_ui.auto_start_began = std::max<Uint32>(1, SDL_GetTicks());
     }

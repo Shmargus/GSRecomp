@@ -53,7 +53,7 @@ inline bool developer_build_ready(const fs::path& game_root, int choice,
     try {
         // A tree built for another language's ROM needs a rebuild.
         const auto code = game_code(game_root,choice);
-        if (code.rom_sha1 != gsr_launcher::required_rom_sha1(game_root, gsr_launcher::kGames[choice], false))
+        if (code.rom_sha1 != gsr_launcher::required_rom_sha1(game_root, gsr_launcher::kGames[choice]))
             return false;
         const auto record = gsr_launcher::read_text(engine.parent_path() / "collection-build.txt");
         if (record.rfind("developer_build=1\n", 0) != 0) return false;

@@ -163,7 +163,8 @@ class CollectionBuild {
         else cmd += L" -NoProfile -ExecutionPolicy Bypass -File " +
             quote((collection / "scripts" / "build_dev.ps1").wstring()) +
             L" -Game " + (choice == 0 ? std::wstring(L"BrokenSeal") : std::wstring(L"LostAge")) +
-            L" -LauncherProcessId " + std::to_wstring(GetCurrentProcessId()) + L" -SkipLauncher";
+            L" -LauncherProcessId " + std::to_wstring(GetCurrentProcessId()) + L" -SkipLauncher" +
+            L" -BuildRom " + quote(rom.wstring());
         if (!player && reduced) cmd += L" -CpuPercent 50 -RamPercent 50 -CpuCapInherited";
         STARTUPINFOW startup{}; startup.cb = sizeof(startup);
         startup.dwFlags = STARTF_USESTDHANDLES;
@@ -274,6 +275,13 @@ class CollectionBuild {
 #endif
     }
 public:
+    // A player package builds with its builder; the source tree builds with
+    // the developer scripts.
+    static bool is_player(const fs::path& game_root) {
+        std::error_code ec;
+        return game_root.parent_path().filename() == "games" ||
+               fs::is_directory(game_root / "builder", ec);
+    }
     CollectionBuild() = default;
     CollectionBuild(const CollectionBuild&) = delete;
     CollectionBuild& operator=(const CollectionBuild&) = delete;
@@ -306,7 +314,7 @@ public:
         try {
             fs::path root = gsr_session::game_root(collection, choice);
             std::error_code ec;
-            bool player = root.parent_path().filename() == "games" || fs::is_directory(root / "builder", ec);
+            const bool player = is_player(root);
 #ifdef _WIN32
             fs::path executable;
             if (player) executable = root / "builder" / "gsr_builder.exe";
@@ -332,4 +340,32 @@ public:
         } catch (const std::exception& e) { error = e.what(); finish(false, error); return false; }
     }
 };
+
+// "Skip the ROM check" lets a player play a patched ROM, but the game code is
+// always built from a clean one (the translator refuses any other). With it
+// on, every build (player or developer) asks for the clean ROM, then (where
+// the ROM to play is not already chosen, `ask_play`) for the ROM to play.
+inline bool skip_rom_check_on(const fs::path& collection, int choice) {
+    return gsr_session::load_launcher_audio_settings(
+        gsr_session::game_root(collection, choice)).any_rom;
+}
+inline std::string clean_build_rom_message(const fs::path& collection, int choice,
+                                           bool ask_play) {
+    const auto& game = gsr_launcher::kGames[choice];
+    const std::string rom = std::string(game.title) + " (" +
+                            game.rom_names[rom_language(collection, choice)] + ")";
+    std::string text = "\"Skip the ROM check\" is on: you can play a patched ROM, but the "
+                       "game is always built from a clean, unpatched ROM.\n\n";
+    if (!ask_play)
+        return text + "Next, choose your CLEAN " + rom + " ROM. The game is built from it; "
+                      "you will still play the ROM you already chose.";
+    return text + "Two file windows open next, in this order:\n\n"
+                  "1. Choose your CLEAN " + rom + " ROM. The game is built from it.\n"
+                  "2. Choose the ROM you want to PLAY, such as your patched ROM.";
+}
+inline bool check_clean_build_rom(const fs::path& rom, const fs::path& collection, int choice,
+                                  std::string& error) {
+    return gsr_launcher::validate_rom(rom, &error, gsr_launcher::kGames[choice], false,
+                                      rom_language(collection, choice));
+}
 } // namespace gsr_collection

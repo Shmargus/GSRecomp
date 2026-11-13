@@ -289,6 +289,9 @@ std::wstring remembered_rom(const fs::path& root) {
     return {};
 }
 
+// The ROM, save and savestates of the ROM being played.
+gsr_collection::ManagedFiles g_active_files;
+
 bool prepare_collection_rom(const fs::path& root, std::wstring& rom, HWND owner,
                             gsr_collection::ManagedFiles* result = nullptr) {
     std::string error;
@@ -312,12 +315,15 @@ bool prepare_collection_rom(const fs::path& root, std::wstring& rom, HWND owner,
     }
     rom = files.rom.wstring();
     write_cached_path(root / L"local" / L"launcher-rom.txt", rom);
+    g_active_files = files;
     if (result) *result = files;
     return true;
 }
 
 fs::path active_save_path(const fs::path& root) {
     if (!g_test_progress.save.empty()) return g_test_progress.save;
+    // The save that goes with the ROM being played (a patched ROM has its own).
+    if (!g_active_files.save.empty()) return g_active_files.save;
     return gsr_collection::managed_paths(g_collection_root.empty()
         ? gsr_collection::infer_collection_root(root) : g_collection_root,
         session_game().stem).save;
@@ -2394,7 +2400,30 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
                 ShowWindow(window, SW_SHOW);
                 UpdateWindow(window);
                 std::string error;
-                if (g_build.start(g_collection_root, session_game_index, fs::path(rom), error)) {
+                // "Skip the ROM check": build from a clean ROM, play `rom`.
+                fs::path build_rom = rom;
+                if (gsr_collection::skip_rom_check_on(g_collection_root, session_game_index)) {
+                    const std::wstring message = utf8_to_wide(gsr_collection::clean_build_rom_message(
+                        g_collection_root, session_game_index, false));
+                    MessageBoxW(window, message.c_str(), session_game().title_w,
+                                MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+                    build_rom = pick_file(L"Your CLEAN, unpatched ROM",
+                        L"Golden Sun ROM (*.gba)\0*.gba\0All files (*.*)\0*.*\0\0", {}, window);
+                    if (build_rom.empty()) {
+                        launcher_log(L"Clean build ROM: none chosen.");
+                        DestroyWindow(window);
+                        return 0;
+                    }
+                    if (!gsr_collection::check_clean_build_rom(build_rom, g_collection_root,
+                                                               session_game_index, error)) {
+                        launcher_log(L"Clean build ROM: " + build_rom.wstring() + L" - refused.");
+                        MessageBoxW(window, utf8_to_wide(error).c_str(), session_game().title_w,
+                                    MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+                        DestroyWindow(window);
+                        return 0;
+                    }
+                }
+                if (g_build.start(g_collection_root, session_game_index, build_rom, error)) {
                     g_build_rom = rom;
                 } else {
                     MessageBoxW(window, utf8_to_wide(error).c_str(), session_game().title_w,

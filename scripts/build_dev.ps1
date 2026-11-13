@@ -9,7 +9,10 @@ param(
     [int]$LauncherProcessId = 0,
     [switch]$SkipLauncher,
     # The collection launcher already caps the complete process tree.
-    [switch]$CpuCapInherited
+    [switch]$CpuCapInherited,
+    # The clean ROM to build from (the launcher's "Skip the ROM check" asks
+    # for it). Empty = the collection's ROM. One game only.
+    [string]$BuildRom = ''
 )
 $ErrorActionPreference = 'Stop'
 $collectionRoot = Split-Path -Parent $PSScriptRoot
@@ -225,6 +228,7 @@ function Configure-Plan($Plan, [string]$RunDir) {
 try {
     if (-not [Environment]::Is64BitProcess) { throw 'Use 64-bit PowerShell.' }
     if ($Game -eq 'None' -and $SkipLauncher) { throw 'Nothing to build: no game and no launcher.' }
+    if ($BuildRom -and $Game -notin @('BrokenSeal', 'LostAge')) { throw '-BuildRom needs one game (-Game BrokenSeal or LostAge).' }
     Assert-Idle
     $cmake = (Get-Command cmake.exe -ErrorAction Stop).Source
     $python = (Get-Command python.exe -ErrorAction Stop).Source
@@ -235,6 +239,7 @@ try {
     $buildGameScript = Join-Path $PSScriptRoot 'build_game.ps1'
     $inheritedCpuArgs = @()
     if ($CpuCapInherited) { $inheritedCpuArgs += '-CpuCapInherited' }
+    if ($BuildRom) { $inheritedCpuArgs += @('-BuildRom', $BuildRom) }
     $gsBuild = Join-Path $gsRoot 'build/gs011_opt'
     $tlaBuild = Join-Path $tlaRoot 'build/tla'
     $gsCache = Read-Cache (Join-Path $gsBuild 'CMakeCache.txt')

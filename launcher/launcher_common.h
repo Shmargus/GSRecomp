@@ -334,22 +334,17 @@ inline std::string release_fingerprint(const fs::path& root,
     return text;
 }
 
-// The ROM the game code must be built from: the copy this collection plays
-// for the chosen language (The Broken Seal's flag) when it is that one (or
-// with the ROM check off, any), so switching language asks for a rebuild.
-// Otherwise that language's ROM, or with the ROM check off, empty.
-inline std::string required_rom_sha1(const fs::path& root, const GameIdentity& game,
-                                     bool any_rom) {
-    std::string digest;
+// The ROM the game code must be built from: the clean ROM of the chosen
+// language (the game's flag), so switching language asks for a rebuild. With
+// "Skip the ROM check" on, the played ROM may be patched; the build still
+// comes from the clean one (collection_build.h), so playing it needs none.
+inline std::string required_rom_sha1(const fs::path& root, const GameIdentity& game) {
     int language = 0;
     try {
         const auto collection = gsr_collection::infer_collection_root(root);
         language = gsr_collection::rom_language(collection,&game == &kGames[1]);
-        const auto rom = gsr_collection::managed_paths(collection, game.stem).rom;
-        if (sha1_file(rom, &digest) && (any_rom || digest == game.rom_sha1s[language]))
-            return digest;
     } catch (const std::exception&) {}
-    return any_rom ? std::string{} : game.rom_sha1s[language];
+    return game.rom_sha1s[language];
 }
 
 inline bool player_build_inputs_match(const fs::path& root, const GameIdentity& game,
@@ -392,8 +387,7 @@ inline bool finish_player_build_record(const fs::path& root, const GameIdentity&
 }
 
 // Whether the installed library matches the build from this release and ROM.
-inline bool game_code_ready(const fs::path& root, const GameIdentity& game = session_game(),
-                            bool any_rom = gbarecomp::any_rom_allowed()) {
+inline bool game_code_ready(const fs::path& root, const GameIdentity& game = session_game()) {
     const auto library = root / game.library;
     if (!player_library_exists(library)) return false;
     const auto record = gsr_player::read_build_record(read_text(root / game.build_stamp));
@@ -401,7 +395,7 @@ inline bool game_code_ready(const fs::path& root, const GameIdentity& game = ses
     if (read_text(root / game.release_stamp) != release_fingerprint(root, game))
         return false;
     std::string library_now;
-    return player_build_inputs_match(root, game, record, required_rom_sha1(root, game, any_rom)) &&
+    return player_build_inputs_match(root, game, record, required_rom_sha1(root, game)) &&
            sha1_file(library, &library_now) &&
            *record.library_sha1 == library_now;
 }

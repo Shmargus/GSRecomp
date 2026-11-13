@@ -1,5 +1,6 @@
 #pragma once
 
+#include "collection_build.h"
 #include "collection_storage.h"
 #include "collection_session.h"
 #include "collection_preferences.h"
@@ -96,10 +97,11 @@ inline bool run_picker(const fs::path& executable, std::vector<std::string> argu
 }
 #endif
 inline bool pick(SDL_Window* window, const fs::path& folder, int choice, int language,
-                 fs::path& selected, std::string& error) {
+                 fs::path& selected, std::string& error, const char* step = "") {
     const auto& game = gsr_launcher::kGames[choice];
-    const std::string title = std::string("Select ") + game.stem + " ROM (" +
-                              game.rom_names[language] + ")";
+    // `step` names which of the two "Skip the ROM check" file windows this is.
+    const std::string rom = std::string(game.stem) + " ROM (" + game.rom_names[language] + ")";
+    const std::string title = *step ? std::string(step) + rom : "Select " + rom;
 #ifdef _WIN32
     SDL_SysWMinfo info{};
     SDL_VERSION(&info.version);
@@ -146,8 +148,11 @@ inline bool pick(SDL_Window* window, const fs::path& folder, int choice, int lan
 }
 } // namespace rom_detail
 
+// `ask`: always open the file window (titled with `step`), ignoring the ROM
+// used last time ("Skip the ROM check" builds ask for the ROM to play).
 inline bool prepare_rom(SDL_Window* window, const fs::path& collection, int choice,
-                        fs::path& rom, std::string& error) {
+                        fs::path& rom, std::string& error, bool ask = false,
+                        const char* step = "") {
     error.clear();
     rom.clear();
     if (choice < 0 || choice > 1) { error = "Unknown collection game."; return false; }
@@ -159,7 +164,8 @@ inline bool prepare_rom(SDL_Window* window, const fs::path& collection, int choi
             gsr_session::game_root(root, choice)).any_rom;
         const int language = rom_language(root,choice);
         fs::path selected;
-        std::ifstream remembered(cache, std::ios::binary);
+        std::ifstream remembered;
+        if (!ask) remembered.open(cache, std::ios::binary);
         if (remembered) {
             std::string text{std::istreambuf_iterator<char>(remembered), std::istreambuf_iterator<char>()};
             rom_detail::trim_newlines(text);
@@ -168,12 +174,12 @@ inline bool prepare_rom(SDL_Window* window, const fs::path& collection, int choi
             if (!remembered.bad() && !text.empty() && rom_detail::validate(candidate, choice, any_rom, ignored, language)) selected = candidate;
         }
         if (remembered.is_open()) remembered.close();
-        if (selected.empty()) {
+        if (selected.empty() && !ask) {
             const auto managed = managed_paths(root, choice == 0 ? "The Broken Seal" : "The Lost Age");
             std::string ignored;
             if (rom_detail::validate(managed.rom, choice, any_rom, ignored, language)) selected = managed.rom;
         }
-        if (selected.empty() && !rom_detail::pick(window, root / "ROMs", choice, language, selected, error)) return false;
+        if (selected.empty() && !rom_detail::pick(window, root / "ROMs", choice, language, selected, error, step)) return false;
         if (!rom_detail::validate(selected, choice, any_rom, error, language)) return false;
         ManagedFiles managed;
         if (!import_selected_rom(root, selected, choice == 0 ? "The Broken Seal" : "The Lost Age", managed, error)) return false;
@@ -189,5 +195,23 @@ inline bool prepare_rom(SDL_Window* window, const fs::path& collection, int choi
         rom = managed.rom;
         return true;
     } catch (const std::exception& e) { error = "Cannot prepare the ROM: " + std::string(e.what()); return false; }
+}
+
+// With "Skip the ROM check" on, the clean ROM to build with, picked now, first
+// thing after Build (collection_build.h); otherwise `rom` stays empty.
+inline bool clean_build_rom(SDL_Window* window, const fs::path& collection, int choice,
+                            fs::path& rom, std::string& error) {
+    error.clear();
+    rom.clear();
+    if (!skip_rom_check_on(collection, choice)) return true;
+    const auto message = clean_build_rom_message(collection, choice, true);
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, gsr_launcher::kGames[choice].title,
+                             message.c_str(), window);
+    fs::path clean;
+    if (!rom_detail::pick(window, collection / "ROMs", choice, rom_language(collection, choice),
+                          clean, error, "Step 1 of 2 - your CLEAN, unpatched ")) return false;
+    if (!check_clean_build_rom(clean, collection, choice, error)) return false;
+    rom = clean;
+    return true;
 }
 } // namespace gsr_collection
