@@ -168,6 +168,11 @@ class CollectionBuild {
         startup.dwFlags = STARTF_USESTDHANDLES;
         startup.hStdInput = input; startup.hStdOutput = startup.hStdError = writer;
         PROCESS_INFORMATION process{};
+        // "Skip the ROM check" (any_rom.h): the builder inherits it from here,
+        // as it does from a game session.
+        if (player)
+            SetEnvironmentVariableA(gbarecomp::kAnyRomEnv,
+                gsr_session::load_launcher_audio_settings(root).any_rom ? "1" : "0");
         HANDLE job = CreateJobObjectW(nullptr, nullptr);
         JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
@@ -233,11 +238,15 @@ class CollectionBuild {
         const std::string quota = "CPUQuota=" + std::to_string(std::uint64_t(resources.cpus) * 50) + "%";
         const std::string memory = "MemoryMax=" + std::to_string(resources.ram / 2);
         const pid_t parent = getpid();
+        // "Skip the ROM check" (any_rom.h): the builder inherits it from here,
+        // as it does from a game session.
+        const bool any_rom = player && gsr_session::load_launcher_audio_settings(root).any_rom;
         pid_t child = fork();
         if (child == 0) {
             if (prctl(PR_SET_PDEATHSIG, SIGTERM) != 0 || getppid() != parent) _exit(127);
             setpgid(0, 0); close(pipefd[0]);
             dup2(pipefd[1], STDOUT_FILENO); dup2(pipefd[1], STDERR_FILENO); close(pipefd[1]);
+            if (player) setenv(gbarecomp::kAnyRomEnv, any_rom ? "1" : "0", 1);
             if (chdir(cwd.c_str()) == 0) {
                 if (reduced) execlp("systemd-run", "systemd-run", "--user", "--scope", "--quiet", "--collect",
                     "--no-ask-password", "--expand-environment=no", "--property", quota.c_str(),
