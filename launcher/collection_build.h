@@ -1,5 +1,6 @@
 #pragma once
 #include "collection_session.h"
+#include "collection_preferences.h"
 #include "launcher_common.h"
 #include "build_resources.h"
 #include <atomic>
