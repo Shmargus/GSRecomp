@@ -18,7 +18,7 @@
 #include "launcher_graphics_retry.h"
 #include "launcher_test_policy.h"
 #include "session_environment.h"
-#include "launcher_widescreen_diagnostics_policy.h"
+#include "launcher_input_record_policy.h"
 #include "launcher_logo.h"  // generated from assets/launcher_logo.png
 #include "launcher_common.h"
 #include "collection_build.h"
@@ -219,8 +219,7 @@ std::wstring read_cached_path(const fs::path& path) {
 }
 
 void write_cached_path(const fs::path& path, const std::wstring& value) {
-    // A fresh release folder has no local/ yet; without it the path was
-    // silently not kept and the next start asked for the ROM again.
+    // Create local/ on first run so the chosen ROM path can be saved.
     std::error_code ec;
     fs::create_directories(path.parent_path(), ec);
     std::ofstream file(path, std::ios::binary | std::ios::trunc);
@@ -605,25 +604,6 @@ struct HttpTarget {
     std::wstring path;
     INTERNET_PORT port = INTERNET_DEFAULT_HTTPS_PORT;
 };
-
-bool crack_url(const std::wstring& url, HttpTarget* target) {
-    URL_COMPONENTS parts{};
-    parts.dwStructSize = sizeof(parts);
-    wchar_t host[256] = {}, path[4096] = {}, extra[4096] = {};
-    parts.lpszHostName = host;
-    parts.dwHostNameLength = 256;
-    parts.lpszUrlPath = path;
-    parts.dwUrlPathLength = 4096;
-    parts.lpszExtraInfo = extra;
-    parts.dwExtraInfoLength = 4096;
-    if (!WinHttpCrackUrl(url.c_str(), 0, 0, &parts) || parts.nScheme != INTERNET_SCHEME_HTTPS)
-        return false;
-    target->host.assign(host, parts.dwHostNameLength);
-    target->path.assign(path, parts.dwUrlPathLength);
-    target->path.append(extra, parts.dwExtraInfoLength);
-    target->port = parts.nPort;
-    return true;
-}
 
 using HttpProgress = std::function<void(std::uint64_t done, std::uint64_t total)>;
 
@@ -1362,7 +1342,7 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
         inherited_environment_value(L"GBARECOMP_INPUT_REPLAY");
     const auto input_record_policy =
         gsr::resolve_launcher_input_record_policy(
-            false, explicit_input_record, !input_replay.empty(), L"");
+            explicit_input_record, !input_replay.empty());
     if (input_record_policy.replay_conflict) {
         return fail(L"GBARECOMP_INPUT_RECORD cannot be used together with "
                     L"GBARECOMP_INPUT_REPLAY.");

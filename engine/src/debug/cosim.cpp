@@ -1,4 +1,4 @@
-// cosim.cpp — GBA first-divergence co-simulation engine + minimal TCP server.
+// cosim.cpp: GBA first-divergence co-simulation engine + minimal TCP server.
 // See COSIM_ORACLE.md. Active ONLY in the GBA_COSIM build (empty TU otherwise, so
 // it is safe in the shared source list). Design follows psxrecomp's cosim,
 // adapted to the ARM7 master clock.
@@ -6,15 +6,15 @@
 // Model: the guest runs normally on the main thread. runtime_tick (the shared
 // per-instruction master-clock advance for BOTH backends) calls cosim_on_tick() at
 // each instruction boundary. When the guest cycle crosses a stride boundary it
-// folds a full-state hash into a cumulative chain, stamps a ring entry, and — when
-// the coordinator's step budget is exhausted — PARKS the guest thread at that
+// folds a full-state hash into a cumulative chain, stamps a ring entry, and, when
+// the coordinator's step budget is exhausted, PARKS the guest thread at that
 // deterministic cycle so the coordinator can read a quiescent machine over TCP,
 // compare, and resume. Two instances (recomp + force-interp) driven in lockstep by
 // oracle/gba_cosim.py converge on the first divergent checkpoint.
 //
 // Parking is at FIXED cycle-stride boundaries (never a wall-time "notice a stop
 // flag" point): two processes noticing an async flag at different wall-times would
-// park at different cycles — a harness nondeterminism masquerading as a guest
+// park at different cycles, a harness nondeterminism masquerading as a guest
 // divergence. Stride is fixed at launch (env) before either process runs.
 #ifdef GBA_COSIM
 
@@ -191,7 +191,7 @@ void handle_line(sock_t s, char* line) {
                 i, g_cpu.banked_sp[i], i, g_cpu.banked_lr[i], i, g_cpu.banked_spsr[i]);
             p += w; rem -= w;
         }
-        // r8..r12 User/System bank + FIQ bank — hashed by hash_cpu() but not
+        // r8..r12 User/System bank + FIQ bank, hashed by hash_cpu() but not
         // architecturally visible in the current mode, so a cpu-subhash split
         // with all R[]/banked sp/lr/spsr matching localizes to one of these.
         for (int i = 0; i < 5 && rem > 20; ++i) {
@@ -299,7 +299,7 @@ void cosim_init(void) {
     unsigned short port = 19850;
     if (const char* e = std::getenv("GBA_COSIM_PORT"); e && *e) port = (unsigned short)std::atoi(e);
     // Stride fixed at launch (env) so both processes checkpoint at identical cycles
-    // before either runs an instruction — no set-stride race.
+    // before either runs an instruction; no set-stride race.
     if (const char* st = std::getenv("GBA_COSIM_STRIDE"); st && *st) {
         if (unsigned long long v = std::strtoull(st, nullptr, 10); v) g_stride = v;
     }

@@ -1,4 +1,4 @@
-// host_config_ui.h — Dear ImGui configuration UI for the host window.
+// host_config_ui.h: Dear ImGui configuration UI for the host window.
 //
 // One Settings window with horizontal tabs (Video, Audio, optional Music, Controls,
 // Hotkeys, Speed, optional Game, Cheats and Help), usable by mouse,
@@ -174,6 +174,11 @@ struct ConfigUiState {
     gbarecomp::ScreenFilterValues screen_filter_params = gbarecomp::screen_filter_defaults();
     bool  screen_filter_save = false;  // a filter slider was let go: save it
     bool  show_fps = false;
+    // Phones (touch_controls.h): the on-screen buttons shown; the menu
+    // button stays either way. `controller_prompt`: the window asks to open
+    // the "controller connected" question in the menu.
+    bool  touch_buttons = true;
+    bool  controller_prompt = false;
 
     // --- audio --------------------------------------------------------------
     int   volume = 100;             // 0..100
@@ -212,7 +217,7 @@ struct ConfigUiState {
     // kTemporalBlendDefaultIndex.
     int   temporal_blend_index = 3;
     // Live per-BG-layer visibility toggle, applied when layers_changed is set
-    // (no page in this menu sets it now). Render-only, session-only (never
+    // (no page in this menu sets it). Render-only, session-only (never
     // persisted). Default false = all layers visible.
     bool  hide_bg0 = false;
     bool  hide_bg1 = false;
@@ -227,7 +232,7 @@ struct ConfigUiState {
 
     // --- logging --------------------------------------------------------
     // Single toggle for every verbose/diagnostic stream that isn't already
-    // always-on (coverage-honesty banner, dispatch-miss log, hang watchdog,
+    // always-on (coverage banner, dispatch-miss log, hang watchdog,
     // etc. stay on regardless). Off by default. See runtime_arm.h
     // gsr_set_additional_debug_logging / gsr_additional_debug_logging.
     bool  additional_debug_logging = false;
@@ -291,7 +296,7 @@ void config_ui_set_menu_art(const uint8_t* tiles, const uint8_t* widths,
 void config_ui_open_cheats();
 
 // Feed every SDL event here BEFORE the host window interprets it. Returns true
-// when the UI consumed the event and the host/guest must ignore it — true
+// when the UI consumed the event and the host/guest must ignore it; true
 // whenever the menu is visible and the event is mouse/keyboard input.
 bool config_ui_handle_event(const SDL_Event* e, bool quit_modal = false);
 

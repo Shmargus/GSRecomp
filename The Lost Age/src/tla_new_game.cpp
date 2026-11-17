@@ -2,31 +2,31 @@
 // Random Psynergy (rules: shared_game/challenge_mode.h and
 // shared_game/random_psynergy.h, one copy with The Broken Seal).
 //
-// Jimmy's design for this game (5 November 2026): the same checklist as The
-// Broken Seal (Hard Mode, Challenge Mode, Random Psynergy, Begin); any of the
-// eight can be picked and travels from Idejima; Challenge and Random
-// Psynergy are fresh games only (not with data transferred from Golden Sun);
-// picks start at Felix's level.
+// Design: the same checklist as The Broken Seal (Hard Mode, Challenge Mode,
+// Random Psynergy, Begin); any of the eight can be picked and travels from
+// Idejima; Challenge and Random Psynergy are fresh games only (not with data
+// transferred from Golden Sun); picks start at Felix's level.
 //
 // Measured, verified ROMs (FACTS.md "Challenge Mode and Random Psynergy",
 // 5 November 2026; English address, the others in tla_rom_addresses.inc):
 //
-// Checklist. Before the transfer message (the importer's measured
-// 0x08038040, text 0x24), the same frame hold shows the checklist. Fresh-only
-// choices answer No without drawing the question; ordinary choices keep it.
-// Answers wait until the opening hook below before modifying the new party.
-// The title overlay's new game (asset 1610, unpacked to
-// 0x02008000) names the characters (0x02008580), asks the level questions
-// only while 0x02003860 (Clear Data) is set, then at 0x020086A0 calls
-// 0x080D2AA4(0, 8) (veneer 0x080C8268; sets the opening's room and
-// entrance) and goes on to the game. On that entry the checklist opens and
-// the game waits in its frame routine 0x08013560(1), as The Broken Seal's
-// does, until Begin; then the call goes ahead with its own arguments.
-// The hero builder 0x080AF7AC (new game 0x080ADDF0, before the transfer
-// question) builds all eight: items, class, then 0x080AFBB4(id, table
-// 0x080C0F4C + id*0xB4 + 0x96) from level 0 (call 0x080AF89A), class update
-// 0x080B0298, stats 0x080AD3F8. Story levels: Felix, Jenna, Sheba 5, Piers
-// 18, Isaac's party 28.
+// Checklist. The same frame hold that precedes the transfer message (the
+// importer's measured 0x08038040, text 0x24) shows the checklist. A
+// fresh-only choice makes the transfer question answer No without drawing it;
+// ordinary choices keep the question. Answers wait until the opening hook
+// below before they modify the new party.
+// The title overlay's new game (asset 1610, unpacked to 0x02008000) names the
+// characters (0x02008580) and asks the level questions only while 0x02003860
+// (Clear Data) is set. Then at 0x020086A0 it calls 0x080D2AA4(0, 8) (veneer
+// 0x080C8268), which sets the opening's room and entrance, and goes on to the
+// game. On that entry the checklist opens and the game waits in its frame
+// routine 0x08013560(1), as The Broken Seal's does, until Begin; then the call
+// goes ahead with its own arguments.
+// The hero builder 0x080AF7AC (called from the new game 0x080ADDF0, before the
+// transfer question) builds all eight heroes in this order: items, class,
+// then 0x080AFBB4(id, table 0x080C0F4C + id*0xB4 + 0x96) from level 0 (call
+// 0x080AF89A), class update 0x080B0298, stats 0x080AD3F8. Story levels:
+// Felix, Jenna, Sheba 5, Piers 18, Isaac's party 28.
 //
 // Storage. The header builder 0x08043358 writes payload 0x02000000..0x27 and
 // 0x2C..0x2F only (r7 = 0x01FFFFF0, stores up to +0x3C); 0x02000028..0x2B
@@ -34,22 +34,25 @@
 // of every TLA save in the collection and in all 212 F12 memory captures.
 // A transfer from Golden Sun sets story flag 0x2F (importer 0x080AE5C2).
 //
-// Challenge hooks. Join 0x080AFDD8 / leave 0x080AFE1C keep the order bytes
-// 0x02000458 (as The Broken Seal's); party of eight. Battle lists the living
-// in 0x0811A188 (HP +0x38 > 0); the per-target check 0x080B075C(?, id, ?,
-// kind) returns 0 for a revive kind (0x080B0740: 5, 0x38, 0x39, 0x49) on a
-// living member; Sanctum 0x0810A898(id, service 0 revives) returns 0 when not
-// needed; the field ability routine 0x081007F8(ability, user, target, ?)
-// leaves message 0xD (revive on the living) at [0x030000DC] + 0x25E and
-// returns -1. Djinn grant 0x080B0AB8 hands (id, element, index) to 0x080B0B78
-// (call 0x080B0B50), keeping the id in r9; counts at record +0x118.
-// Djinn menu give check 0x0810498C(from slot, to slot), only caller
-// 0x0810495E in the target list 0x08104928: totals from 0x081049C8 (menu
-// [0x030000DC] +0x215 count, +0x204 u16 ids; bits 0..19 of +0xF8 | +0x108
-// per element, as The Broken Seal), one moved, returns 1 when the
-// receiver's new total is at most the giver's + 1 (only the two compared,
-// unlike The Broken Seal's every pair). Byte-identical in all five ROMs
-// (8 November 2026).
+// Challenge hooks. Join 0x080AFDD8 and leave 0x080AFE1C keep the order bytes
+// at 0x02000458 (as The Broken Seal does); the party holds eight.
+// - Battle lists the living in 0x0811A188 (HP at +0x38 > 0).
+// - The per-target check 0x080B075C(?, id, ?, kind) returns 0 when a revive
+//   kind (0x080B0740: 5, 0x38, 0x39, 0x49) targets a living member.
+// - Sanctum 0x0810A898(id, service) returns 0 when no revive is needed
+//   (service 0 revives).
+// - The field ability routine 0x081007F8(ability, user, target, ?) writes
+//   message 0xD (revive on the living) at [0x030000DC] + 0x25E and returns -1.
+// - The Djinn grant 0x080B0AB8 passes (id, element, index) to 0x080B0B78
+//   (call 0x080B0B50), keeping the id in r9; the counts are at record +0x118.
+// - The Djinn menu give check 0x0810498C(from slot, to slot) has one caller,
+//   0x0810495E in the target list 0x08104928. It takes totals from
+//   0x081049C8 (menu [0x030000DC] +0x215 count, +0x204 u16 ids; bits 0..19 of
+//   +0xF8 | +0x108 per element, as in The Broken Seal), moves one Djinn, and
+//   returns 1 when the receiver's new total is at most the giver's + 1. Only
+//   those two members are compared, unlike The Broken Seal, which compares
+//   every pair.
+// All of these are byte-identical in all five ROMs (8 November 2026).
 //
 // Random Psynergy. The rebuild 0x080AF4E4(id) (only from the class update
 // 0x080B0298) has The Broken Seal's rules: class table 0x080C15F4 + class *
@@ -158,7 +161,7 @@ const rw::Game& rw_game() {
 }
 
 // --- the onboarding (shared_game/new_game_flow.h) --------------------------------
-// Jimmy, 7 November 2026. "Name the other characters?" on entry to the
+// "Name the other characters?" on entry to the
 // naming routine for the second hero; the rest where the checklist opened
 // (before the Golden Sun transfer question, or at the opening).
 // Challenge sizes (index + 1 heroes).
@@ -199,8 +202,7 @@ enum class Names { Unasked, Yes, No };
 Names g_names = Names::Unasked;
 bool g_names_open = false;
 
-// A randomized Broken Seal run carried over by the import (Jimmy, 7 November
-// 2026): its two blocks (payload +0x30 and +0x38) win over this game's choices.
+// A randomized Broken Seal run carried over by the import: its two blocks (payload +0x30 and +0x38) win over this game's choices.
 std::array<std::uint8_t, 16> g_imported_run{};
 bool g_imported_run_set = false;
 
@@ -364,7 +366,7 @@ void give_starting_gear(gba::GbaBus& b, unsigned id) {
     }
 }
 
-// Picks at Felix's level (Jimmy, 5 November). Above it: the kept level-0
+// Picks at Felix's level. Above it: the kept level-0
 // record comes back (challenge_mode.h) and the builder's own raise runs;
 // below it (Easy's Clear Data levels): the raise alone. Then the class update
 // and stats, as the builder does, and full HP and PP.
@@ -392,8 +394,8 @@ void apply_levels() {
     }
 }
 
-// Skip the opening (Jimmy, 8 November 2026: start where his F12 0215 stands,
-// on the world map just outside Idejima; FACTS "Skip the opening"). At the
+// Skip the opening (start where F12 0215 stands, on the world map just
+// outside Idejima; FACTS "Skip the opening"). At the
 // opening's room request 0x080D2AA4(0, 8), the new game already built and
 // the choices applied, it leaves what Venus Lighthouse and Idejima would:
 //  - Sheba joins through the game's join 0x080AFDD8 (Challenge Mode's rules
@@ -486,7 +488,7 @@ bool naming_entry(std::uint32_t pc) {
         b->write16(TLA_OVL("title", 0x0200A4F8u), 1u);
         return false;
     }
-    // Isaac is always named, as in the game (Jimmy, 10 November 2026).
+    // Isaac is always named, as in the game.
     if (index == 0 || index > 7) return false;
     if (g_names == Names::No) {
         gbarecomp::guest_return_now(pc, 0u);
@@ -687,7 +689,7 @@ bool tla_new_game_on_entry(std::uint32_t pc) {
         ch::keep_start_record(g_cpu.R[0]);
     } else if (pc == TLA_ROM(0x0811A038u) || pc == TLA_ROM(0x0811A0B0u)) {
         // Battle's party list and waiting list (out): left-out heroes are
-        // left off (Jimmy, 12 November: hidden in battle only). Fighting: at
+        // left off (hidden in battle only). Fighting: at
         // most 4, 3 when [battle] +0x44 is set; waiting: those after the
         // first 4, none when it is set. Record +0x12A = 2 per member. With
         // the picks first in the order the lists stay its prefix, as the
@@ -732,8 +734,8 @@ bool tla_new_game_on_entry(std::uint32_t pc) {
         return true;
     } else if (pc == TLA_ROM(0x0810498Cu)) {
         // Djinn menu give check (from slot, to slot): in a Challenge file a
-        // left-out hero may hand over or take any number (Jimmy's rule for
-        // The Broken Seal, 5 November); between picks the game's own rule.
+        // left-out hero may hand over or take any number (the same rule as
+        // The Broken Seal); between picks the game's own rule.
         gba::GbaBus* b = bus();
         if (!b || ch::current().size == 0) return false;
         const std::uint32_t menu = b->read32(0x030000DCu);
@@ -772,9 +774,9 @@ void tla_new_game_reset() {
     rw::reset();
 }
 
-// Fresh-only choices (Jimmy, 5 November 2026): a randomizer or a challenge
+// Fresh-only choices: a randomizer or a challenge
 // chosen here means no transfer from Golden Sun (a randomized Broken Seal run
-// brings its own, 7 November).
+// brings its own).
 bool tla_new_game_fresh_only() {
     if (!g_chosen) return false;
     return g_chosen_result.any_random() || g_chosen_result.challenge.size > 0;

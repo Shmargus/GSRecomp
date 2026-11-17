@@ -1,7 +1,7 @@
-// color_lut.h — present-time screen-color simulation (BGR555 → RGBA8 LUT).
+// color_lut.h: present-time screen-color simulation (BGR555 → RGBA8 LUT).
 //
 // PRESENT-TIME ONLY. This never touches the emulation, the framebuffer the
-// PPU produces, or the differential-verify path — diff_frame / oracle
+// PPU produces, or the differential-verify path: diff_frame / oracle
 // comparisons stay defined on the raw RGB888 the PPU renders. The LUT is a
 // 32768-entry table applied to a COPY of the frame at SDL-upload time, and
 // it defaults to Raw (exact passthrough), so default behavior and every

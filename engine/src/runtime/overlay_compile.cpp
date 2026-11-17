@@ -1,4 +1,3 @@
-// overlay_compile.cpp — see overlay_compile.h.
 
 #include "overlay_compile.h"
 
@@ -42,12 +41,23 @@ std::string heal_toolchain_root() {
     const char* e = std::getenv("GBARECOMP_HEAL_TOOLCHAIN");
     if (!e || !e[0]) return "";
     std::error_code ec;
+#if defined(__ANDROID__)
+    // Android: the app's own Clang and lld are one program in the app's
+    // library folder (GBARECOMP_HEAL_LLVM); the root holds what they need
+    // (sysroot/ and lib/clang/<version>/), as for the phone's game build
+    // (player_builder/builder_main.cpp).
+    const char* llvm = std::getenv("GBARECOMP_HEAL_LLVM");
+    return llvm && llvm[0] && fs::exists(llvm, ec) &&
+           fs::is_directory(fs::path(e) / "sysroot", ec)
+        ? std::string(e) : std::string();
+#else
 #ifdef _WIN32
     const fs::path gxx = fs::path(e) / "bin" / "g++.exe";
 #else
     const fs::path gxx = fs::path(e) / "bin" / "g++";
 #endif
     return fs::exists(gxx, ec) ? std::string(e) : std::string();
+#endif
 }
 
 namespace {
@@ -112,7 +122,7 @@ std::string exe_dir() {
 }
 
 // True under GBARECOMP_HEAL_BACKEND=auto-no-gcc: simulate a shipped, source-less,
-// gcc-less player box ON a dev machine — force the bundled tcc + bundled include
+// gcc-less player box ON a dev machine: force the bundled tcc + bundled include
 // even though the dev source + gcc are present. (resolve_backend() in
 // overlay_loader.cpp maps the same value to tcc.)
 bool heal_simulate_shipped() {
@@ -170,6 +180,10 @@ std::string tcc_path() {
 // <exe>/overlay_toolchain/include (beside the bundled tcc). Used by both gcc
 // and tcc.
 std::vector<std::string> overlay_include_args() {
+    // Android: the game runs inside the app's own process, so the headers'
+    // folder is named by the launcher (the game's builder/engine/include).
+    if (const char* given = std::getenv("GBARECOMP_HEAL_INCLUDE"); given && given[0])
+        return {"-I" + std::string(given)};
     const std::string ed = exe_dir();
     std::vector<std::string> bundled;
     if (!ed.empty())
@@ -317,8 +331,10 @@ bool load_and_resolve(const std::string& dll, uint32_t pc,
 // Spawn the compiler directly (no shell, so no path is ever read as shell
 // text), stdout+stderr to logpath, block until exit; return the exit code
 // (-1 on spawn failure or a signal).
+// `program`, when given, is the file to run while args[0] stays the name it
+// is called by (Android's one-program Clang and lld choose by that name).
 int run_process(const std::vector<std::string>& args, const std::string& logpath,
-                std::string* err) {
+                std::string* err, const char* program = nullptr) {
     // The bundled toolchain's PATH and libraries go to the compiler only
     // (hostlib's libz/libzstd must never shadow the game's).
     std::vector<std::string> env;
@@ -349,8 +365,10 @@ int run_process(const std::vector<std::string>& args, const std::string& logpath
                                      O_WRONLY | O_CREAT | O_TRUNC, 0644);
     posix_spawn_file_actions_adddup2(&actions, STDOUT_FILENO, STDERR_FILENO);
     pid_t pid = 0;
-    const int spawned = posix_spawnp(&pid, argv[0], &actions, nullptr,
-                                     argv.data(), envp.data());
+    const int spawned = program
+        ? posix_spawn(&pid, program, &actions, nullptr, argv.data(), envp.data())
+        : posix_spawnp(&pid, argv[0], &actions, nullptr,
+                       argv.data(), envp.data());
     posix_spawn_file_actions_destroy(&actions);
     if (spawned != 0) {
         if (err) *err = "cannot start " + args[0] + ": " + std::strerror(spawned);
@@ -437,7 +455,7 @@ bool overlay_compile_one(const OverlayWorkItem& w,
         return false;
     }
 
-    // CRC32 of the compiled-from bytes [pc, end) — keys the cache filename so a
+    // CRC32 of the compiled-from bytes [pc, end); keys the cache filename so a
     // changed image produces a distinct file (a stale DLL is simply orphaned).
     const uint32_t crc =
         gba::crc32(w.bytes + (w.pc - w.base), end - w.pc);
@@ -510,7 +528,54 @@ bool overlay_compile_one(const OverlayWorkItem& w,
 #endif
         }
 
+#if defined(__ANDROID__)
+        int rc = -1;
+        if (backend == HealBackend::Tcc) {
+            if (err) *err = "no compiler for RAM code on this phone";
+            return false;
+        } else {
+            // The app's Clang compiles, its lld links: the same two steps,
+            // target and files as the phone's game build (builder_main.cpp;
+            // the link line is the NDK clang++'s for -shared, measured there
+            // with -###). The overlay calls the engine only through the
+            // callback table, so it links against nothing but the C library.
+            const std::string root = heal_toolchain_root();
+            const char* llvm = std::getenv("GBARECOMP_HEAL_LLVM");
+            const char* target = "aarch64-linux-android28";
+            const fs::path sysroot = fs::path(root) / "sysroot";
+            fs::path resource = fs::path(root) / "lib" / "clang" / "missing";
+            std::error_code rec;
+            for (const auto& entry :
+                 fs::directory_iterator(fs::path(root) / "lib" / "clang", rec))
+                if (entry.is_directory()) resource = entry.path();
+            const fs::path obj = dir / (std::string(stem) + ".o");
+            cmd = {"clang++", std::string("--target=") + target,
+                   "--sysroot=" + sysroot.string(),
+                   "-resource-dir=" + resource.string(),
+                   "-O2", "-std=gnu++17", "-fno-exceptions", "-fno-rtti", "-fPIC"};
+            cmd.insert(cmd.end(), inc.begin(), inc.end());
+            cmd.insert(cmd.end(), {"-c", "-o", obj.string(), "-x", "c++", cpath.string()});
+            rc = run_process(cmd, logpath.string(), err, llvm);
+            if (rc == 0) {
+                const fs::path libs = sysroot / "usr" / "lib" / "aarch64-linux-android";
+                const fs::path api = libs / "28";
+                const fs::path builtins = resource / "lib" / "linux" /
+                                          "libclang_rt.builtins-aarch64-android.a";
+                const fs::path linklog = dir / (std::string(stem) + ".link.log");
+                cmd = {"ld.lld", "-EL", "--fix-cortex-a53-843419", "-z", "now",
+                       "-z", "relro", "-z", "max-page-size=16384", "--no-rosegment",
+                       "--hash-style=gnu", "--eh-frame-hdr", "-m", "aarch64linux",
+                       "-shared", "-o", dlltmp.string(),
+                       (api / "crtbegin_so.o").string(), "-L" + api.string(),
+                       "-L" + libs.string(), obj.string(), builtins.string(),
+                       "-lc", "-ldl", (api / "crtend_so.o").string()};
+                rc = run_process(cmd, linklog.string(), err, llvm);
+            }
+            fs::remove(obj, rec);
+        }
+#else
         const int rc = run_process(cmd, logpath.string(), err);
+#endif
         if (rc != 0) {
             if (err) {
                 *err = std::string(heal_backend_name(backend)) + " exit " +

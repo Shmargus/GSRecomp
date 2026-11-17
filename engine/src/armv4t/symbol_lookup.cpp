@@ -1,4 +1,3 @@
-// symbol_lookup.cpp — see symbol_lookup.h.
 #include "symbol_lookup.h"
 
 namespace {

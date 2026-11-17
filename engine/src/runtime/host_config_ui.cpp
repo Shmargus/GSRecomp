@@ -1,4 +1,3 @@
-// host_config_ui.cpp — see host_config_ui.h.
 
 #include "host_config_ui.h"
 #include "game_options.h"
@@ -85,7 +84,9 @@ void config_ui_open_cheats() {
 #ifdef GBARECOMP_HAVE_IMGUI
 
 #include <SDL.h>
-#include <SDL_opengl.h>
+#include "gl_platform.h"
+#include "touch_ui.h"
+#include "touch_controls.h"
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -134,6 +135,10 @@ bool g_scroll_to_selected_tab = false;
 const char* g_context_help = nullptr;
 int g_help_page = -1;
 int g_video_section = 0;
+// The phone menu's unscaled style and the font size it was last fitted to
+// (fit_phone_menu).
+ImGuiStyle g_phone_base_style;
+float g_phone_font_px = 0.0f;
 bool g_setting_label_hovered = false;
 bool g_help_panel_visible = true;
 bool g_fit_default_window = false;
@@ -333,23 +338,25 @@ void draw_menu_tile(ImDrawList* draw, int tile, ImVec2 pos, ImVec2 size,
 }
 
 void draw_menu_frame(ImVec2 pos, ImVec2 size) {
-    if (!g_menu_art_ready || size.x < 32.0f || size.y < 32.0f) return;
+    // 16 px tiles, enlarged with the menu font on phones (touch_ui.h).
+    const float t = 16.0f * ImGui::GetIO().FontGlobalScale;
+    if (!g_menu_art_ready || size.x < 2 * t || size.y < 2 * t) return;
     ImDrawList* draw = ImGui::GetWindowDrawList();
     draw->PushClipRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), true);
     // Border only: filling here would cover the translucent window beneath it.
-    for (float x = pos.x + 16.0f; x < pos.x + size.x - 16.0f; x += 16.0f) {
-        draw_menu_tile(draw, 17, ImVec2(x, pos.y), ImVec2(16, 16));
-        draw_menu_tile(draw, 20, ImVec2(x, pos.y + size.y - 16), ImVec2(16, 16));
+    for (float x = pos.x + t; x < pos.x + size.x - t; x += t) {
+        draw_menu_tile(draw, 17, ImVec2(x, pos.y), ImVec2(t, t));
+        draw_menu_tile(draw, 20, ImVec2(x, pos.y + size.y - t), ImVec2(t, t));
     }
-    for (float y = pos.y + 16.0f; y < pos.y + size.y - 16.0f; y += 16.0f) {
-        draw_menu_tile(draw, 22, ImVec2(pos.x, y), ImVec2(16, 16));
-        draw_menu_tile(draw, 23, ImVec2(pos.x + size.x - 16, y), ImVec2(16, 16));
+    for (float y = pos.y + t; y < pos.y + size.y - t; y += t) {
+        draw_menu_tile(draw, 22, ImVec2(pos.x, y), ImVec2(t, t));
+        draw_menu_tile(draw, 23, ImVec2(pos.x + size.x - t, y), ImVec2(t, t));
     }
-    draw_menu_tile(draw, 16, pos, ImVec2(16, 16));
-    draw_menu_tile(draw, 18, ImVec2(pos.x + size.x - 16, pos.y), ImVec2(16, 16));
-    draw_menu_tile(draw, 19, ImVec2(pos.x, pos.y + size.y - 16), ImVec2(16, 16));
-    draw_menu_tile(draw, 21, ImVec2(pos.x + size.x - 16,
-        pos.y + size.y - 16), ImVec2(16, 16));
+    draw_menu_tile(draw, 16, pos, ImVec2(t, t));
+    draw_menu_tile(draw, 18, ImVec2(pos.x + size.x - t, pos.y), ImVec2(t, t));
+    draw_menu_tile(draw, 19, ImVec2(pos.x, pos.y + size.y - t), ImVec2(t, t));
+    draw_menu_tile(draw, 21, ImVec2(pos.x + size.x - t,
+        pos.y + size.y - t), ImVec2(t, t));
     draw->PopClipRect();
 }
 
@@ -614,6 +621,16 @@ void clear_edition_badge() {
 // half: same row, two independent bind boxes).
 enum class Capture { None, Key, Pad, Hotkey, HotkeyPad };
 Capture g_capture = Capture::None;
+// A bind box armed with a controller button (A on the focused box) waits for
+// every controller button to be let go, so that same press is not taken as
+// the new binding. The next press binds.
+bool g_capture_wait_release = false;
+
+bool gamepad_button_held() {
+    for (int k = ImGuiKey_GamepadStart; k <= ImGuiKey_GamepadRStickDown; ++k)
+        if (ImGui::IsKeyDown(static_cast<ImGuiKey>(k))) return true;
+    return false;
+}
 int     g_capture_index = -1;
 int     g_capture_pad_slot = 0;
 bool    g_config_window_recover = false;
@@ -921,8 +938,19 @@ SliderEdit slider_float(const char* label, float* value, float lo, float hi, flo
 }
 
 void draw_controls_page(ConfigUiState* st) {
+    if (touch_ui::kEnabled) {
+        section("On-screen buttons");
+        if (setting_checkbox("Show on-screen buttons", &st->touch_buttons))
+            st->video_changed = true;
+        caption("The menu button stays either way.");
+    }
     section("Buttons");
-    caption(st->stick_bindings_available
+    // Phones have no keyboard, so there is no keyboard column.
+    const int first_slot = touch_ui::kEnabled ? 0 : -1;
+    const int slots = 2 - first_slot;
+    caption(touch_ui::kEnabled
+        ? "Tap a box, then press the controller button to use. Back cancels."
+        : st->stick_bindings_available
         ? "Use Controller and Alternate for D-pad and stick together. Click a box to bind; Esc cancels."
         : "Click a box, then press the key or controller button to use. Esc cancels.");
 
@@ -933,7 +961,7 @@ void draw_controls_page(ConfigUiState* st) {
     const float clear_w = ImGui::CalcTextSize("x").x + style.FramePadding.x * 2;
     const float bind_w = ImGui::CalcTextSize(ui_text("press a button...")).x + style.FramePadding.x * 2;
     const bool stacked = ImGui::GetContentRegionAvail().x <
-        button_label_w + (bind_w + clear_w) * 3 + style.CellPadding.x * 14;
+        button_label_w + (bind_w + clear_w) * slots + style.CellPadding.x * (2 + slots * 4);
     // Both layouts use identical capture and clear handlers.
     auto binding = [&](int bit, int slot) {
         ImGui::PushID(slot);
@@ -943,7 +971,7 @@ void draw_controls_page(ConfigUiState* st) {
             (keyboard || g_capture_pad_slot == slot);
         int& value = keyboard ? st->key_bind[bit] :
             (slot == 0 ? st->pad_bind : st->pad_bind_alt)[bit];
-        const int column = stacked ? 1 : (keyboard ? 1 : 3 + slot * 2);
+        const int column = stacked ? 1 : (keyboard ? 1 : 1 + 2 * (slot - first_slot));
         if (stacked) {
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
@@ -957,6 +985,7 @@ void draw_controls_page(ConfigUiState* st) {
                                  : (keyboard ? key_label(value) : pad_label(value)),
                           ImVec2(-FLT_MIN, 0))) {
             g_capture = armed ? Capture::None : capture;
+            g_capture_wait_release = !armed && !keyboard && gamepad_button_held();
             g_capture_index = bit;
             if (!keyboard) g_capture_pad_slot = slot;
         }
@@ -977,16 +1006,17 @@ void draw_controls_page(ConfigUiState* st) {
                     ImGui::CalcTextSize(ui_text("Controller")).x);
                 ImGui::TableSetupColumn("Binding", ImGuiTableColumnFlags_WidthStretch);
                 ImGui::TableSetupColumn("Clear", ImGuiTableColumnFlags_WidthFixed, clear_w);
-                for (int slot = -1; slot < 2; ++slot) binding(kButtons[i].bit, slot);
+                for (int slot = first_slot; slot < 2; ++slot) binding(kButtons[i].bit, slot);
                 ImGui::EndTable();
             }
             ImGui::PopID();
         }
-    } else if (ImGui::BeginTable("binds", 7,
+    } else if (ImGui::BeginTable("binds", 1 + 2 * slots,
         ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn(ui_text("Button"), ImGuiTableColumnFlags_WidthFixed, button_label_w);
-        for (const char* name : {"Keyboard", "Controller", "Alternate"}) {
-            ImGui::TableSetupColumn(ui_text(name), ImGuiTableColumnFlags_WidthStretch);
+        static const char* const kSources[] = {"Keyboard", "Controller", "Alternate"};
+        for (int source = first_slot + 1; source < 3; ++source) {
+            ImGui::TableSetupColumn(ui_text(kSources[source]), ImGuiTableColumnFlags_WidthStretch);
             ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, clear_w);
         }
         ImGui::TableHeadersRow();
@@ -996,7 +1026,7 @@ void draw_controls_page(ConfigUiState* st) {
             ImGui::TableSetColumnIndex(0);
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted(ui_text(kButtons[i].label));
-            for (int slot = -1; slot < 2; ++slot) binding(kButtons[i].bit, slot);
+            for (int slot = first_slot; slot < 2; ++slot) binding(kButtons[i].bit, slot);
             ImGui::PopID();
         }
         ImGui::EndTable();
@@ -1081,7 +1111,11 @@ void draw_hotkeys_page(ConfigUiState* st) {
             if (bind_row(stacked ? "Controller" : "", pad_label(st->hotkey_pad[h]), pad_armed,
                          Capture::HotkeyPad, h, &pad_cleared, stacked ? 0 : 3)) {
                 if (pad_armed) g_capture = Capture::None;
-                else { g_capture = Capture::HotkeyPad; g_capture_index = h; }
+                else {
+                    g_capture = Capture::HotkeyPad;
+                    g_capture_index = h;
+                    g_capture_wait_release = gamepad_button_held();
+                }
             }
             if (pad_cleared) {
                 st->hotkey_pad[h] = -1;
@@ -1118,7 +1152,8 @@ void draw_video_page(ConfigUiState* st) {
             ImGuiTableFlags_SizingStretchSame);
         if (groups) ImGui::TableNextColumn();
         {
-            SettingsPanel panel("Window");
+            SettingsPanel panel(touch_ui::kEnabled ? "Screen" : "Window");
+#if !defined(__ANDROID__)  // a phone's game always fills the screen
             // The slider edits a menu-local copy: host_window republishes st->scale
             // from the live window every frame, which would overwrite a dragged value
             // before release. The copy follows the window only while the slider is
@@ -1152,6 +1187,7 @@ void draw_video_page(ConfigUiState* st) {
                 ? "Leave fullscreen to change the window size."
                 : "Size of the game window. Applied when you let go of the slider.");
             if (setting_checkbox("Fullscreen", &st->fullscreen)) st->video_changed = true;
+#endif
             if (setting_checkbox("Show FPS", &st->show_fps)) st->video_changed = true;
             caption("Shows frames drawn per second and game speed in the corner of "
                     "the screen. 100% is full speed.");
@@ -1366,9 +1402,9 @@ void draw_turbo_page(ConfigUiState* st) {
 void draw_enhancements_page(ConfigUiState* st) {
     section("Flicker");
     // VFX-FLICKER-02: selective temporal blend ("LCD ghosting"). Legacy
-    // config values 4..6 were whole-frame modes that are no longer offered;
-    // migrate them through the normal change path so an old file cannot keep
-    // a hidden mode active. Greyed, not hidden, while 2x scene interpolation
+    // config values 4..6 are whole-frame modes that are not offered any more;
+    // they are migrated through the normal change path so an old file cannot
+    // keep a hidden mode active. Greyed, not hidden, while 2x scene interpolation
     // is on (see host_window.cpp's present()).
     static const char kTemporalBlendItems[] =
         "Off\0" "Light\0" "Medium\0" "Strong\0";
@@ -1766,19 +1802,23 @@ bool config_ui_init(SDL_Window* window, SDL_Renderer* renderer,
     // title bar only.
     io.ConfigWindowsMoveFromTitleBarOnly = true;
     io.ConfigWindowsResizeFromEdges = true;
+#if !defined(__ANDROID__)  // a phone has one window
     if (use_opengl) {
         // Real multi-viewport: torn-off panels become their own OS windows,
         // each an SDL window + GL context ImGui creates/destroys itself via
         // the platform backend below.
         io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
     }
+#endif
     ImGui::StyleColorsDark();
     apply_modern_style();
+    // Phones size the menu per frame from the font in use (fit_phone_menu).
+    g_phone_base_style = ImGui::GetStyle();
     bool backend_ok;
     if (use_opengl) {
         backend_ok = ImGui_ImplSDL2_InitForOpenGL(window,
                                                    SDL_GL_GetCurrentContext());
-        if (backend_ok) backend_ok = ImGui_ImplOpenGL3_Init("#version 130");
+        if (backend_ok) backend_ok = ImGui_ImplOpenGL3_Init(gl_imgui_glsl_version());
     } else {
         backend_ok = ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
         if (backend_ok) backend_ok = ImGui_ImplSDLRenderer2_Init(renderer);
@@ -1982,6 +2022,9 @@ bool config_ui_capture_key(ConfigUiState* st, int scancode, int keycode,
 
 bool config_ui_capture_pad(ConfigUiState* st, int button) {
     if (!g_visible || g_capture_index < 0) return false;
+    // Still the press that armed the box: swallowed, nothing bound.
+    if (g_capture_wait_release &&
+        (g_capture == Capture::Pad || g_capture == Capture::HotkeyPad)) return true;
     if (pad_is_stick(button) && !st->stick_bindings_available) return false;
     // L2/R2's synthetic ids are hotkey-only, not gameplay binds: a trigger
     // pull while a Controls-page pad box is armed is not consumed. Stick
@@ -1999,6 +2042,174 @@ bool config_ui_capture_pad(ConfigUiState* st, int button) {
     }
     g_capture = Capture::None;
     return true;
+}
+
+// The phone's menu (touch_ui.h). It fills the screen: first a grid of big
+// page tiles, then the chosen page full screen with Back and Resume. The
+// pages are the PC menu's own (same settings, same saving). Only the PC-only
+// pages are left out: Controls and Hotkeys bind keyboard keys, which a phone
+// does not have.
+int g_phone_page = -1;  // -1: the home grid
+
+// Phone (touch_ui.h): the menu's font enlarged by a whole number of its art
+// pixels so it stays sharp, and 48 dp rows. Sized from the font actually in
+// use, which the game's menu art replaces after start-up. Sizes come from the
+// unscaled style each time; colours are kept as they are.
+void fit_phone_menu() {
+    if (!touch_ui::kEnabled) return;
+    // The menu art's 8 px letters (FontSize) draw at Scale 2. The text is
+    // a bit smaller than 16 dp so more fits: 12 dp, rounded to a whole number
+    // of art pixels so the letters stay sharp. On a 360 dpi phone that is
+    // 24 px, three times the art.
+    constexpr float kMenuTextDp = 12.0f;
+    const ImFont* font = ImGui::GetFont();
+    const float px = font ? font->FontSize * font->Scale : 0.0f;
+    if (px <= 0.0f || px == g_phone_font_px) return;
+    g_phone_font_px = px;
+    const float art = font->FontSize;
+    const float multiple = std::max(1.0f,
+        std::round(kMenuTextDp * touch_ui::density(g_window) / art));
+    const float s = multiple * art / px;
+    ImGuiStyle& style = ImGui::GetStyle();
+    ImGuiStyle sized = g_phone_base_style;
+    std::copy(std::begin(style.Colors), std::end(style.Colors), std::begin(sized.Colors));
+    style = sized;
+    ImGui::GetIO().FontGlobalScale = s;
+    touch_ui::apply_style(g_window, s, px * s);
+}
+
+void draw_phone_menu(ConfigUiState* st) {
+    struct Tile { const char* name; int id; };  // id: g_selected_page; -2 quits
+    Tile tiles[10];
+    int count = 0;
+    tiles[count++] = {"Video", 0};
+    tiles[count++] = {"Audio", 1};
+    if (g_music_page_draw) tiles[count++] = {"Music", 8};
+    tiles[count++] = {"Controls", 2};
+    tiles[count++] = {"Speed", 4};
+    tiles[count++] = {"Game", 5};
+    tiles[count++] = {"Cheats", 6};
+    tiles[count++] = {"Help", 7};
+    tiles[count++] = {"Quit Game", -2};
+
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->Pos);
+    ImGui::SetNextWindowSize(viewport->Size);
+    ImGui::SetNextWindowViewport(viewport->ID);
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar |
+        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoScrollWithMouse;
+    bool resume = false;
+    if (ImGui::Begin("###PhoneMenu", nullptr, flags)) {
+        draw_menu_frame(ImGui::GetWindowPos(), ImGui::GetWindowSize());
+        const ImGuiStyle& style = ImGui::GetStyle();
+        if (st->controller_prompt) {
+            // A controller was connected for the first time (host_window
+            // ask_about_touch_buttons): hide the on-screen buttons?
+            ImGui::TextColored(kGold, "%s", ui_text("Controller connected"));
+            ImGui::Spacing();
+            ImGui::TextWrapped("%s", ui_text("Hide the on-screen buttons? The menu button "
+                                             "stays. You can show them again in Controls."));
+            ImGui::Spacing();
+            ImGui::Spacing();
+            const float gap = style.ItemSpacing.x * 2;
+            const float w = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
+            const float h = touch_ui::min_target(g_window) * 1.5f;
+            bool answered = false;
+            if (native_button("Hide on-screen buttons", ImVec2(w, h))) {
+                st->touch_buttons = false;
+                st->video_changed = true;
+                answered = true;
+            }
+            ImGui::SetItemDefaultFocus();
+            ImGui::SameLine(0, gap);
+            if (native_button("Keep them", ImVec2(w, h))) answered = true;
+            if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) answered = true;
+            if (answered) {
+                st->controller_prompt = false;
+                resume = true;
+            }
+            ImGui::End();
+            if (resume) {
+                g_phone_page = -1;
+                config_ui_set_visible(false);
+            }
+            return;
+        }
+        // The header: Back on a page, the title, Resume on the right.
+        const char* title = "Settings";
+        for (int i = 0; i < count; ++i)
+            if (g_phone_page >= 0 && tiles[i].id == g_phone_page) title = tiles[i].name;
+        if (g_phone_page >= 0) {
+            if (native_button("< Back")) g_phone_page = -1;
+            ImGui::SameLine();
+        }
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(kGold, "%s", ui_text(title));
+        const float resume_w = ImGui::CalcTextSize(ui_text("Resume")).x + style.FramePadding.x * 2;
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - resume_w);
+        if (native_button("Resume")) resume = true;
+        ImGui::Spacing();
+
+        if (g_phone_page < 0) {
+            // Home: up to four tiles a row, as large as the screen allows.
+            constexpr int kColumns = 4;
+            const int rows = (count + kColumns - 1) / kColumns;
+            const ImVec2 avail = ImGui::GetContentRegionAvail();
+            const float gap = style.ItemSpacing.x * 2;
+            const float tile_w = (avail.x - gap * (kColumns - 1)) / kColumns;
+            const float tile_h = std::max(touch_ui::min_target(g_window),
+                std::min(tile_w * 0.6f, (avail.y - gap * (rows - 1)) / rows));
+            for (int i = 0; i < count; ++i) {
+                if (i % kColumns) ImGui::SameLine(0, gap);
+                else if (i) ImGui::Dummy(ImVec2(0, gap - style.ItemSpacing.y));
+                ImGui::PushID(i);
+                if (native_button(tiles[i].name, ImVec2(tile_w, tile_h))) {
+                    if (tiles[i].id == -2) {
+                        st->request_quit = true;
+                    } else {
+                        g_phone_page = tiles[i].id;
+                        g_selected_page = tiles[i].id;
+                        ImGui::SetNextWindowScroll(ImVec2(0, 0));
+                    }
+                }
+                ImGui::PopID();
+            }
+        } else {
+            // One page, scrolled with the finger (touch_ui::drag_scroll).
+            ImGui::BeginChild("PhonePage", ImVec2(0, 0), ImGuiChildFlags_NavFlattened);
+            switch (g_phone_page) {
+                case 0:
+                    draw_video_page(st);
+                    if (g_video_section == 2) draw_enhancements_page(st);
+                    break;
+                case 1: draw_audio_page(st); break;
+                case 2: draw_controls_page(st); break;
+                case 4: draw_turbo_page(st); break;
+                case 5: draw_game_page(); break;
+                case 6: draw_cheats_page(st); break;
+                case 8: if (g_music_page_draw) g_music_page_draw(); break;
+                default: draw_troubleshooting_page(st); break;
+            }
+            ImGui::EndChild();
+        }
+        // Back (the phone's back gesture arrives as Escape): a page goes
+        // home, home resumes the game.
+        if (st->quit_confirmation != ConfigUiState::QuitConfirmation::Open &&
+            !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) &&
+            !config_ui_text_input_active() &&
+            ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+            if (g_phone_page >= 0) g_phone_page = -1;
+            else resume = true;
+        }
+    }
+    ImGui::End();
+    if (resume) {
+        g_phone_page = -1;
+        config_ui_set_visible(false);
+    }
 }
 
 void config_ui_draw(ConfigUiState* st) {
@@ -2036,8 +2247,31 @@ void config_ui_draw(ConfigUiState* st) {
     }
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
+    if (g_capture_wait_release && !gamepad_button_held()) g_capture_wait_release = false;
+    touch_ui::drag_scroll(g_window);
+    fit_phone_menu();
+#if defined(__ANDROID__)
+    {
+        // Phone check: what sizes the menu (logged once per session).
+        static bool logged = false;
+        if (!logged) {
+            logged = true;
+            const ImGuiIO& io = ImGui::GetIO();
+            float ddpi = 0, hdpi = 0, vdpi = 0;
+            SDL_GetDisplayDPI(SDL_GetWindowDisplayIndex(g_window), &ddpi, &hdpi, &vdpi);
+            int ww = 0, wh = 0;
+            SDL_GetWindowSize(g_window, &ww, &wh);
+            std::fprintf(stderr, "[touch-ui] display=%.0fx%.0f fb_scale=%.2f window=%dx%d "
+                "dpi=%.0f/%.0f/%.0f font_scale=%.2f font=%.1f\n", io.DisplaySize.x,
+                io.DisplaySize.y, io.DisplayFramebufferScale.x, ww, wh, ddpi, hdpi,
+                vdpi, io.FontGlobalScale, ImGui::GetFontSize());
+        }
+    }
+#endif
 
-    if (g_visible) {
+    if (g_visible && touch_ui::kEnabled) {
+        draw_phone_menu(st);
+    } else if (g_visible) {
         const ImGuiViewport* viewport = ImGui::GetMainViewport();
         const bool viewport_changed = g_config_work_size.x != viewport->WorkSize.x ||
             g_config_work_size.y != viewport->WorkSize.y ||
@@ -2353,6 +2587,11 @@ void config_ui_draw(ConfigUiState* st) {
     if (g_config_ui_extra_draw) g_config_ui_extra_draw();
     draw_quit_confirmation(st);
     draw_bind_conflict(st);
+    // Phones: the on-screen buttons and the menu button, over everything.
+    if (touch_controls_enabled()) {
+        const ImGuiIO& io = ImGui::GetIO();
+        touch_controls_draw_overlay(io.DisplaySize.x, io.DisplaySize.y, g_visible);
+    }
 
     ImGui::Render();
     if (g_use_opengl) {
@@ -2375,7 +2614,7 @@ void config_ui_draw(ConfigUiState* st) {
 
 }  // namespace gbarecomp
 
-#else  // !GBARECOMP_HAVE_IMGUI — no-op stubs
+#else  // !GBARECOMP_HAVE_IMGUI: no-op stubs
 
 namespace gbarecomp {
 bool config_ui_init(SDL_Window*, SDL_Renderer*, bool) { return false; }

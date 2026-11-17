@@ -1,7 +1,5 @@
-// F1 > Game for a randomizer run, both games (Jimmy, 6 November 2026;
-// docs/NEXT_PRIORITY_MODES.md section 5): the run's seed (run_code.h), to
-// share, and the spoiler sheet, hidden until Show is pressed: each hero's
-// Psynergy by level and what every weapon and armour piece became.
+// F1 > Game shows the run code. Press Show to reveal Psynergy by hero
+// and level, plus the randomized equipment.
 //
 // The sheet is written on the emulation thread whenever the loaded file's
 // run changes (the plans read the bus and the ROM image) and read by the F1
@@ -56,9 +54,11 @@ inline run_code::Run run_of(const random_psynergy::Config& p, const random_weapo
     if (p.treasure) r.choices |= rc::kItems;
     if (p.treasure && p.bargains) r.choices |= rc::kBargains;
     if (p.coins) r.choices |= rc::kCoins;
-    // Weapons and Armor: the finds (The Broken Seal) or the stat shuffle;
-    // Stats: the stat shuffle with finds. A stat shuffle without finds is
-    // The Lost Age's Weapons (or a Broken Seal run's, Stats on).
+    // Weapons and Armor are ticked when that kind of equipment is randomized,
+    // either by Random Weapons / Armor finds or by the equipment stat shuffle.
+    // Stats is ticked whenever the stat shuffle runs. A stat shuffle without
+    // finds is what The Lost Age calls Weapons, and a Broken Seal run with
+    // Stats on.
     if (p.weapon_finds || (e.seed && e.weapons)) r.choices |= rc::kWeapons;
     if (p.armour_finds || (e.seed && e.armour)) r.choices |= rc::kArmor;
     if (e.seed && (e.weapons || e.armour)) r.choices |= rc::kStats;

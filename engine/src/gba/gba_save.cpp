@@ -67,7 +67,7 @@ void GbaSave::serialize(gbarecomp::debug::SnapshotWriter& w) const {
     w.u32(read_byte_offset_);
     w.u32(read_bit_index_);
 
-    // FLASH state — appended after the EEPROM block so an older savestate
+    // FLASH state: appended after the EEPROM block so an older savestate
     // (whose SAVE section ends here) still deserializes: the reader is
     // bounded to the section length, and deserialize() only reads these
     // fields when bytes remain. No snapshot-version bump required.
@@ -129,7 +129,7 @@ void GbaSave::deserialize_fields(gbarecomp::debug::SnapshotReader& r) {
     read_byte_offset_  = r.u32();
     read_bit_index_    = r.u32();
 
-    // FLASH state (optional trailing block — absent in pre-flash
+    // FLASH state (optional trailing block; absent in pre-flash
     // savestates, whose SAVE section ends after the EEPROM fields).
     if (r.remaining() == 0) return;
     flash_enabled_ = r.boolean();

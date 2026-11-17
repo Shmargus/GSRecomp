@@ -16,10 +16,7 @@
 #include <unordered_map>
 #include <vector>
 
-#if defined(_WIN32)
-#include <windows.h>
-#endif
-#include <GL/gl.h>
+#include "gl_platform.h"
 
 namespace gbarecomp {
 namespace {
@@ -258,6 +255,31 @@ const char* kBlitFragment =
     "  o_colour = texture(u_texture, v_uv) * v_tint;\n"
     "}\n";
 
+// The bound GL_TEXTURE_2D's level 0 as RGBA8 into `out` (a client pointer,
+// or an offset into the bound pixel-pack buffer). Desktop GL reads the
+// texture directly; OpenGL ES has no glGetTexImage, so it attaches the
+// texture to a scratch read framebuffer and reads that. Both give row 0 as
+// the texture's first row.
+void get_bound_texture_rgba(GLuint texture, int width, int height, void* out) {
+#if defined(GBARECOMP_GLES)
+    constexpr GLenum kReadFramebuffer = 0x8CA8;
+    constexpr GLenum kReadFramebufferBinding = 0x8CAA;
+    GLint previous = 0;
+    glGetIntegerv(kReadFramebufferBinding, &previous);
+    GLuint fbo = 0;
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(kReadFramebuffer, fbo);
+    glFramebufferTexture2D(kReadFramebuffer, kColorAttachment0, GL_TEXTURE_2D,
+                           texture, 0);
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, out);
+    glBindFramebuffer(kReadFramebuffer, static_cast<GLuint>(previous));
+    glDeleteFramebuffers(1, &fbo);
+#else
+    (void)texture; (void)width; (void)height;
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, out);
+#endif
+}
+
 // Orthographic projection over a width x height rectangle with y downward,
 // column-major, which is what GL expects.
 void ortho(float* m, float width, float height) {
@@ -297,7 +319,27 @@ struct GpuSurface::UniformSlot {
     float value[4] = {};
 };
 
+struct GpuSurface::Targets {
+    std::unordered_map<GLuint, GLuint> framebuffer_of;  // by colour texture
+    GLuint current = 0;      // what begin_frame binds; 0 = the main target's
+    GLuint main_carries = 0; // the texture attached to the main framebuffer
+    std::vector<float> vertices;  // draw_quads' corner data, kept between calls
+};
+
 struct GpuSurface::UniformCache {
+    // The last slot found for each (program, name pointer). Callers pass the
+    // same literals every frame, so most lookups end here with one short
+    // string compare instead of hashing the name (profile of 16 November
+    // 2026: uniform_slot 2.9% of the phone's game thread). The compare
+    // keeps a reused name buffer with new text from matching.
+    struct Recent {
+        GpuProgram program = 0;
+        const char* name = nullptr;
+        const std::string* key = nullptr;
+        UniformSlot* slot = nullptr;
+    };
+    static constexpr std::size_t kRecent = 256;
+    Recent recent[kRecent];
     struct NameHash {
         using is_transparent = void;
         std::size_t operator()(std::string_view s) const noexcept {
@@ -344,6 +386,7 @@ bool GpuSurface::init() {
 
     saved_ = new SavedState();
     uniforms_ = new UniformCache();
+    targets_ = new Targets();
     g_program_uniforms = load_program_uniforms();
     g_async_readback = load_async_readback();
     readback_ = new Readback();
@@ -379,6 +422,12 @@ void GpuSurface::release() {
     }
     if (target_tex_) { glDeleteTextures(1, &target_tex_); target_tex_ = 0; }
     if (depth_rb_) { glDeleteRenderbuffers(1, &depth_rb_); depth_rb_ = 0; }
+    if (targets_) {
+        for (auto& [texture, framebuffer] : targets_->framebuffer_of)
+            glDeleteFramebuffers(1, &framebuffer);
+        delete targets_;
+        targets_ = nullptr;
+    }
     if (fbo_) { glDeleteFramebuffers(1, &fbo_); fbo_ = 0; }
     if (vbo_) { glDeleteBuffers(1, &vbo_); vbo_ = 0; }
     if (vao_) { glDeleteVertexArrays(1, &vao_); vao_ = 0; }
@@ -504,7 +553,18 @@ void GpuSurface::update_texture(GpuTexture texture, int x, int y,
 }
 
 void GpuSurface::destroy_texture(GpuTexture texture) {
-    if (texture) glDeleteTextures(1, &texture);
+    if (!texture) return;
+    // Its framebuffer goes with it: the driver may give the next texture the
+    // same name.
+    if (targets_) {
+        auto it = targets_->framebuffer_of.find(texture);
+        if (it != targets_->framebuffer_of.end()) {
+            if (targets_->current == it->second) targets_->current = 0;
+            glDeleteFramebuffers(1, &it->second);
+            targets_->framebuffer_of.erase(it);
+        }
+    }
+    glDeleteTextures(1, &texture);
 }
 
 GpuProgram GpuSurface::create_program(const char* vertex_source,
@@ -514,7 +574,9 @@ GpuProgram GpuSurface::create_program(const char* vertex_source,
     auto compile = [&](GLenum type, const char* source) -> GLuint {
         GLuint shader = glCreateShader(type);
         if (!shader) return 0;
-        glShaderSource(shader, 1, &source, nullptr);
+        const std::string text = gl_shader_source(source);
+        const char* text_ptr = text.c_str();
+        glShaderSource(shader, 1, &text_ptr, nullptr);
         glCompileShader(shader);
         GLint ok = 0;
         glGetShaderiv(shader, kCompileStatus, &ok);
@@ -581,6 +643,12 @@ void GpuSurface::destroy_program(GpuProgram program) {
 GpuSurface::UniformSlot* GpuSurface::uniform_slot(GpuProgram p,
                                                   const char* name) {
     if (!p || !name || !uniforms_) return nullptr;
+    const std::size_t at =
+        ((reinterpret_cast<std::uintptr_t>(name) >> 3) ^ (p * 0x9E3779B1u)) %
+        UniformCache::kRecent;
+    UniformCache::Recent& recent = uniforms_->recent[at];
+    if (recent.program == p && recent.name == name && *recent.key == name)
+        return recent.slot->location >= 0 ? recent.slot : nullptr;
     auto& slots = uniforms_->programs[p];
     auto it = slots.find(std::string_view(name));
     if (it == slots.end()) {
@@ -588,11 +656,16 @@ GpuSurface::UniformSlot* GpuSurface::uniform_slot(GpuProgram p,
         slot.location = glGetUniformLocation(p, name);
         it = slots.emplace(name, slot).first;
     }
+    // Map nodes stay where they are until the program is forgotten.
+    recent = {p, name, &it->first, &it->second};
     return it->second.location >= 0 ? &it->second : nullptr;
 }
 
 void GpuSurface::forget_program_uniforms(GpuProgram p) {
-    if (uniforms_) uniforms_->programs.erase(p);
+    if (!uniforms_) return;
+    for (auto& recent : uniforms_->recent)
+        if (recent.program == p) recent = {};
+    uniforms_->programs.erase(p);
 }
 
 namespace {
@@ -683,6 +756,9 @@ void GpuSurface::log_texture_r8ui(GpuTexture texture, unsigned unit,
 
     bool read = false;
     std::size_t nonzero = 0, differing = 0;
+#if !defined(GBARECOMP_GLES)
+    // OpenGL ES cannot read an R8UI texture back as bytes; this diagnostic
+    // reports it unread there.
     if (texture && expected && width > 0 && height > 0 &&
         actual_w == width && actual_h == height && format == GLint(kR8UI)) {
         std::vector<std::uint8_t> pixels(std::size_t(width) * height);
@@ -697,6 +773,9 @@ void GpuSurface::log_texture_r8ui(GpuTexture texture, unsigned unit,
         }
         read = true;
     }
+#else
+    (void)expected;
+#endif
     glBindTexture(GL_TEXTURE_2D, GLuint(bound));
     glActiveTexture(GLenum(active));
     const GLenum error = glGetError();
@@ -733,6 +812,7 @@ bool GpuSurface::set_target_size(int width, int height) {
     }
     target_w_ = width;
     target_h_ = height;
+    targets_->main_carries = target_tex_;
     return true;
 }
 
@@ -756,9 +836,16 @@ void GpuSurface::begin_frame(float r, float g, float b, float a) {
     glGetIntegerv(kBlendSrcAlpha, &saved_->blend_src_alpha);
     glGetIntegerv(kBlendDstAlpha, &saved_->blend_dst_alpha);
 
-    glBindFramebuffer(kFramebuffer, fbo_);
+    glBindFramebuffer(kFramebuffer, targets_->current ? targets_->current : fbo_);
     glViewport(0, 0, target_w_, target_h_);
     glDisable(GL_SCISSOR_TEST);
+    // Our passes write packed records (colour bytes, sort keys) that blending
+    // would mix with the target; they turn blending on only where they mean
+    // it (set_blend_mode). Whatever drew last may have left it on: on phones
+    // the menu and on-screen buttons do, and the field came out as a few
+    // green and red levels (2026-11-14).
+    glDisable(GL_BLEND);
+    glDisable(GL_DEPTH_TEST);
     glClearColor(r, g, b, a);
     glClear(GL_COLOR_BUFFER_BIT);
     in_frame_ = true;
@@ -802,14 +889,45 @@ void GpuSurface::set_blend_alpha(bool enabled) {
     set_blend_mode(enabled ? GpuBlendMode::Alpha : GpuBlendMode::Off);
 }
 
-void GpuSurface::bind_color_target(GpuTexture texture) {
-    if (!ready_) return;
-    const GLuint tex = texture ? texture : target_tex_;
+unsigned GpuSurface::framebuffer_for(GpuTexture texture) {
+    if (!texture || texture == target_tex_) return fbo_;
+    auto it = targets_->framebuffer_of.find(texture);
+    if (it != targets_->framebuffer_of.end()) return it->second;
+    GLuint framebuffer = 0;
+    glGenFramebuffers(1, &framebuffer);
+    if (!framebuffer) return fbo_;
     GLint previous_fbo = 0;
     glGetIntegerv(kFramebufferBinding, &previous_fbo);
-    glBindFramebuffer(kFramebuffer, fbo_);
-    glFramebufferTexture2D(kFramebuffer, kColorAttachment0, GL_TEXTURE_2D, tex, 0);
+    glBindFramebuffer(kFramebuffer, framebuffer);
+    glFramebufferTexture2D(kFramebuffer, kColorAttachment0, GL_TEXTURE_2D,
+                           texture, 0);
+    // Every target shares the one depth buffer.
+    if (depth_rb_)
+        glFramebufferRenderbuffer(kFramebuffer, kDepthAttachment, kRenderbuffer,
+                                  depth_rb_);
     glBindFramebuffer(kFramebuffer, static_cast<GLuint>(previous_fbo));
+    targets_->framebuffer_of.emplace(texture, framebuffer);
+    return framebuffer;
+}
+
+void GpuSurface::bind_color_target(GpuTexture texture) {
+    if (!ready_) return;
+    const GLuint framebuffer = framebuffer_for(texture);
+    const GLuint tex = texture ? texture : target_tex_;
+    if (framebuffer == fbo_ && targets_->main_carries != tex) {
+        // A texture that no framebuffer of its own could be made for (or the
+        // main target after one): the main framebuffer carries it.
+        targets_->main_carries = tex;
+        GLint previous_fbo = 0;
+        glGetIntegerv(kFramebufferBinding, &previous_fbo);
+        glBindFramebuffer(kFramebuffer, fbo_);
+        glFramebufferTexture2D(kFramebuffer, kColorAttachment0, GL_TEXTURE_2D,
+                               tex, 0);
+        glBindFramebuffer(kFramebuffer, static_cast<GLuint>(previous_fbo));
+    }
+    targets_->current = framebuffer == fbo_ ? 0 : framebuffer;
+    // Outside a frame the choice waits for begin_frame to bind it.
+    if (in_frame_) glBindFramebuffer(kFramebuffer, framebuffer);
 }
 
 void GpuSurface::clear_color_target(float r, float g, float b, float a) {
@@ -855,6 +973,11 @@ void GpuSurface::set_depth_enabled(bool enabled) {
             glBindFramebuffer(kFramebuffer, fbo_);
             glFramebufferRenderbuffer(kFramebuffer, kDepthAttachment,
                                       kRenderbuffer, depth_rb_);
+            for (auto& [texture, framebuffer] : targets_->framebuffer_of) {
+                glBindFramebuffer(kFramebuffer, framebuffer);
+                glFramebufferRenderbuffer(kFramebuffer, kDepthAttachment,
+                                          kRenderbuffer, depth_rb_);
+            }
             glBindFramebuffer(kFramebuffer, static_cast<GLuint>(previous_fbo));
             depth_w_ = target_w_;
             depth_h_ = target_h_;
@@ -869,7 +992,11 @@ void GpuSurface::set_depth_enabled(bool enabled) {
 
 void GpuSurface::clear_depth(float value) {
     if (!ready_ || !depth_rb_ || !in_frame_) return;
+#if defined(GBARECOMP_GLES)
+    glClearDepthf(value);
+#else
     glClearDepth(static_cast<GLdouble>(value));
+#endif
     glDepthMask(GL_TRUE);
     glClear(GL_DEPTH_BUFFER_BIT);
 }
@@ -879,7 +1006,8 @@ void GpuSurface::draw_quads(GpuProgram program, const GpuQuad* quads,
                             std::size_t texture_count) {
     if (!ready_ || !program || !quads || count == 0) return;
 
-    std::vector<float> vertices;
+    std::vector<float>& vertices = targets_->vertices;
+    vertices.clear();
     vertices.reserve(count * kVerticesPerQuad * kFloatsPerVertex);
     for (std::size_t i = 0; i < count; ++i) {
         const GpuQuad& q = quads[i];
@@ -906,15 +1034,13 @@ void GpuSurface::draw_quads(GpuProgram program, const GpuQuad* quads,
 
     glBindVertexArray(vao_);
     glBindBuffer(kArrayBuffer, vbo_);
+    // New storage each time (the streaming idiom): writing into the buffer
+    // an earlier draw of this frame still uses made the phone's driver copy
+    // the buffer first (profile of 16 November 2026: glBufferSubData 4.5% of
+    // the game thread, about ten draws a frame).
     const std::size_t bytes = vertices.size() * sizeof(float);
-    if (bytes > vbo_capacity_) {
-        glBufferData(kArrayBuffer, static_cast<ptrdiff_t>(bytes),
-                     vertices.data(), kStreamDraw);
-        vbo_capacity_ = bytes;
-    } else {
-        glBufferSubData(kArrayBuffer, 0, static_cast<ptrdiff_t>(bytes),
-                        vertices.data());
-    }
+    glBufferData(kArrayBuffer, static_cast<ptrdiff_t>(bytes), vertices.data(),
+                 kStreamDraw);
 
     const GLsizei stride = kFloatsPerVertex * sizeof(float);
     glEnableVertexAttribArray(0);
@@ -987,7 +1113,7 @@ bool GpuSurface::read_texture_rgb(GpuTexture texture, int width, int height,
         glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &actual_w);
         glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &actual_h);
         if (actual_w != width || actual_h != height) return false;
-        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+        get_bound_texture_rgba(texture, width, height, rgba.data());
         if (glGetError() != GL_NO_ERROR) return false;
     }
     rgba_bottom_up_to_rgb(rgba.data(), width, height, out_rgb);
@@ -1029,7 +1155,7 @@ bool GpuSurface::begin_texture_readback(GpuTexture texture, int width,
         }
         // With a pack buffer bound the pointer is an offset into it: the
         // GPU may transfer later, without a client-side fence wait here.
-        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        get_bound_texture_rgba(texture, width, height, nullptr);
         if (glGetError() != GL_NO_ERROR) return false;
     }
     slot.fence = glFenceSync(kSyncGpuCommandsComplete, 0);

@@ -90,6 +90,10 @@ public:
     // Call after recording the picture, before painting any report notice.
     ReportNotice update_report(const std::string* automatic_note,
                                const char* note_file = "note.txt");
+    // Whether a report notice is on screen as of the last update_report.
+    bool report_notice_showing(unsigned long long frame) const {
+        return report_notice_ != ReportNotice::None && frame <= report_notice_until_;
+    }
 
 private:
     const HistoryFrame& oldest_first(std::size_t i) const;

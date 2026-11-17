@@ -1,4 +1,4 @@
-// frame_timing.h — clock-independent presentation-rate policy.
+// frame_timing.h: clock-independent presentation-rate policy.
 
 #pragma once
 

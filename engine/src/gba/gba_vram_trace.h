@@ -72,7 +72,7 @@ bool dma_overlaps_active_affine_bg23(const std::uint8_t* io,
                                      std::uint32_t units,
                                      std::uint32_t dest_control);
 
-// Game runners may arm the bounded probe by default for a temporary,
+// Game runners may arm the bounded probe by default for an
 // identity-gated investigation build. An explicit
 // GBARECOMP_VRAM_MAP_TRACE=0 still disables it.
 void set_default_enabled(bool enabled);

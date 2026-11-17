@@ -1,0 +1,139 @@
+# Reviewed Reloaded 1.83a counterparts the address map cannot give by itself
+# (tools/build_rom_address_table.py). Measured 15 November 2026 against the
+# verified USA/Europe ROM; local/rl/address-map.json.
+
+[[overlay]]
+overlay = "rom_7795e8"
+usa = 0x020096B2
+reloaded = 0x020096B2
+evidence = "Decompressed rom_7795e8 (0x171A bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085D2
+reloaded = 0x020085D2
+evidence = "Decompressed rom_77a7c8 (0x679C bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085D6
+reloaded = 0x020085D6
+evidence = "Decompressed rom_77a7c8 (0x679C bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085E4
+reloaded = 0x020085E4
+evidence = "Decompressed rom_77a7c8 (0x679C bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085E6
+reloaded = 0x020085E6
+evidence = "Decompressed rom_77a7c8 (0x679C bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_78c76c"
+usa = 0x02008EEC
+reloaded = 0x02008EEC
+evidence = "Decompressed rom_78c76c (0x2978 bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008BE2
+reloaded = 0x02008BE2
+evidence = "Decompressed rom_7fb4a8 (0x1F4C bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008BEA
+reloaded = 0x02008BEA
+evidence = "Decompressed rom_7fb4a8 (0x1F4C bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008BF2
+reloaded = 0x02008BF2
+evidence = "Decompressed rom_7fb4a8 (0x1F4C bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008C7A
+reloaded = 0x02008C7A
+evidence = "Decompressed rom_7fb4a8 (0x1F4C bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008D48
+reloaded = 0x02008D48
+evidence = "Decompressed rom_7fb4a8 (0x1F4C bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[text]]
+usa = 0x00000075
+reloaded = 0x00000075
+evidence = "Reloaded keeps the USA text numbering (text routines and the code literals naming this ID are unchanged); decodes the same line in both ROMs."
+
+[[text]]
+usa = 0x00000182
+reloaded = 0x00000182
+evidence = "Reloaded keeps the USA text numbering (text routines and the code literals naming this ID are unchanged); decodes the same line in both ROMs."
+
+[[text]]
+usa = 0x00000287
+reloaded = 0x00000287
+evidence = "Reloaded keeps the USA text numbering (text routines and the code literals naming this ID are unchanged); decodes the same line in both ROMs."
+
+[[text]]
+usa = 0x00000333
+reloaded = 0x00000333
+evidence = "Reloaded keeps the USA text numbering (text routines and the code literals naming this ID are unchanged); decodes the same line in both ROMs."
+
+[[text]]
+usa = 0x00000C0A
+reloaded = 0x00000C0A
+evidence = "Reloaded keeps the USA text numbering (text routines and the code literals naming this ID are unchanged); decodes the same line in both ROMs."
+
+[[text]]
+usa = 0x00000C12
+reloaded = 0x00000C12
+evidence = "Reloaded keeps the USA text numbering (text routines and the code literals naming this ID are unchanged); decodes the same line in both ROMs."
+
+[[text]]
+usa = 0x00000C13
+reloaded = 0x00000C13
+evidence = "Reloaded keeps the USA text numbering (text routines and the code literals naming this ID are unchanged); decodes the same line in both ROMs."
+
+[[text]]
+usa = 0x00000C19
+reloaded = 0x00000C19
+evidence = "Reloaded keeps the USA text numbering (text routines and the code literals naming this ID are unchanged); decodes the same line in both ROMs."
+
+[[text]]
+usa = 0x00000C24
+reloaded = 0x00000C24
+evidence = "Reloaded keeps the USA text numbering (text routines and the code literals naming this ID are unchanged); decodes the same line in both ROMs."
+
+[[text]]
+usa = 0x00000C28
+reloaded = 0x00000C28
+evidence = "Reloaded keeps the USA text numbering (text routines and the code literals naming this ID are unchanged); decodes the same line in both ROMs."
+
+[[text]]
+usa = 0x00002930
+reloaded = 0x00002930
+evidence = "Reloaded keeps the USA text numbering (text routines and the code literals naming this ID are unchanged); decodes the same line in both ROMs."
+
+[[text]]
+usa = 0x00002935
+reloaded = 0x00002935
+evidence = "Reloaded keeps the USA text numbering (text routines and the code literals naming this ID are unchanged); decodes the same line in both ROMs."
+
+[[text]]
+usa = 0x00002936
+reloaded = 0x00002936
+evidence = "Reloaded keeps the USA text numbering (text routines and the code literals naming this ID are unchanged); decodes the same line in both ROMs."
+
+[[text]]
+usa = 0x00002937
+reloaded = 0x00002937
+evidence = "Reloaded keeps the USA text numbering (text routines and the code literals naming this ID are unchanged); decodes the same line in both ROMs."

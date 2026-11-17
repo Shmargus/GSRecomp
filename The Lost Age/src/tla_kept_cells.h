@@ -1,13 +1,11 @@
 // tla_kept_cells.h -- battle sprites the game reuses while they sit past the
 // console's screen keep their picture in the margins.
 //
-// Eclipse's dragon is 32 cells of 32x32 8-bit sprites filling all 32 KB of
-// sprite memory (F12 tla_rewind_0177: block map 0x02003410 has no free
-// block). When it changes pose (f042) the game takes the wing tip's cell
-// (tile 800, x 252, past the console's x 239) for a new piece beside the head
-// (x 60, y 42) and paints it over: on the console nothing is lost, in the
-// widened view the wing loses a square (FACTS.md 2026-10-28). Jimmy chose to
-// keep drawing the old picture.
+// Eclipse fills all 32 KB of sprite memory with 32 32x32 8-bit cells (F12
+// tla_rewind_0177, block map 0x02003410). At f042 the game reuses the
+// wingtip's tile 800 at x 252 for a piece at x 60, y 42. That wingtip is
+// outside the GBA view but visible in widescreen. Draw its previous
+// contents there (FACTS.md, 2026-10-28).
 //
 // A sprite counts as reused when, from one frame to the next, the same tile
 // moves by at least its own size (positions compared through the hardware's

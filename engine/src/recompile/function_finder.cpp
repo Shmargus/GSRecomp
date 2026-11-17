@@ -1,4 +1,4 @@
-// function_finder.cpp — implementation.
+// function_finder.cpp: implementation.
 //
 // Discovery is a prioritized worklist:
 //   - Pop (addr, mode) from the worklist.
@@ -156,7 +156,7 @@ void FunctionFinder::record_collision(uint32_t target,
                                        const std::string& origin_name,
                                        const std::string& origin_kind) {
     // Speculative (literal-pool) flow into a data_range is NOT a hard
-    // error — it just means the harvested literal wasn't really a code
+    // error. It just means the harvested literal wasn't really a code
     // pointer. Swallow it and mark the function for drop; discover_one
     // erases it so a genuine path can rediscover the address later.
     // Authoritative walks (entry/symbols/jump_table) still hard-error.
@@ -165,7 +165,7 @@ void FunctionFinder::record_collision(uint32_t target,
         return;
     }
     // Alias-candidate walks: a real seed entering a data_range is left
-    // completely alone below (still a hard collision) — this branch is
+    // completely alone below (still a hard collision). This branch is
     // gated strictly to current_walk_alias_, which is only ever true for
     // a [[resume_range]]/resume=true expansion's own walk (see
     // discover_one). Real code cannot fall into its own data_range, so
@@ -271,7 +271,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
     // its own data_range, so a walk from an alias entry point that lands
     // in one proves the entry point is unreachable by construction (e.g.
     // one instruction past an unconditional `LDR pc, [...]` jump-table
-    // dispatch). Non-alias seeds are unaffected — see record_collision.
+    // dispatch). Non-alias seeds are unaffected: see record_collision.
     current_walk_alias_ = alias_candidate_keys_.count(key) != 0;
 
     Function fn{};
@@ -293,7 +293,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
     // call (BL) we just decoded, set only when that continuation lands
     // inside a declared data_range. A *returning* call cannot have a
     // literal pool as its return address, so a data_range collision at
-    // exactly this address proves the BL never returns — the compiler
+    // exactly this address proves the BL never returns: the compiler
     // emitted it as a long-range unconditional branch (out of B's +-2KB
     // reach) rather than a real call. The TOML's own data_range entries
     // self-evidence this; no ELF metadata is needed. The real branch
@@ -350,7 +350,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
         uint32_t max_index   = 0;
         // The source index register this scale was derived from (the Rm of
         // the `LSL`). When the switch guard's `CMP index,#N` comes AFTER the
-        // scale (common — the index is scaled into a scratch reg, e.g.
+        // scale (common: the index is scaled into a scratch reg, e.g.
         // `lsl r0,r4,#2; mov ip,r0; ... cmp r4,#8`), bound_known is still
         // false at scale time; the table-former re-checks reg_bound[src_reg]
         // so the late bound still sizes the table. 0xFF = no known source.
@@ -368,7 +368,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
 
     // Range bound for a register established by a `CMP Ri,#N` switch
     // guard. The bound travels with the index through the scale/add chain
-    // and gives the jump-table emitter an EXACT entry count — the precise
+    // and gives the jump-table emitter an EXACT entry count: the precise
     // terminator that replaces the old "stop at first non-prologue" walk.
     // Two guard shapes feed it: the in-block `B{hi,cs}`-to-default form
     // (bound set here as we walk past it), and the inverted
@@ -400,7 +400,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
     // table ONLY when `dest` is subsequently used as a control-flow
     // target (BX dest / MOV pc,dest / BL into a `bx dest` veneer). This
     // is what distinguishes a jump table from an ordinary indexed load
-    // of a DATA pointer (which is dereferenced, not branched to) — the
+    // of a DATA pointer (which is dereferenced, not branched to) is the
     // distinction that keeps the detector from seeding garbage.
     struct PendingJt {
         bool     active      = false;
@@ -593,18 +593,20 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
         ++stats_.branch_targets_discovered;
     };
 
-    // Code-vs-data discriminator for a jump-table entry target. Accepts
-    // any plausible CODE target (NOT just a function prologue — a real
-    // `switch` table points at mid-function case labels that open with
-    // arbitrary instructions, e.g. `add r0,r4,#0`), while still rejecting
-    // DATA words that merely happen to fall in ROM. (Requiring a
-    // `push`/`stmfd` prologue would reject every switch table whose cases
-    // aren't function entries.) Checks, in order: correct alignment for the mode; lands
-    // in ROM and not in a known data_range; decodes to defined
-    // instruction(s) in `mode`. `strict` (used only when no exact count
-    // bound exists) decodes a short run and requires every instruction
-    // defined — a single `!is_undefined` is too weak to terminate an
-    // unbounded walk, since most 0x08xxxxxx words decode to *something*.
+    // Decides whether a jump-table entry target looks like code or data.
+    // It accepts any plausible code target, not just a function prologue:
+    // a real `switch` table points at mid-function case labels that open
+    // with arbitrary instructions (e.g. `add r0,r4,#0`). Requiring a
+    // `push`/`stmfd` prologue would reject every table whose cases are not
+    // function entries. It still rejects data words that merely fall in ROM.
+    // Checks, in order:
+    //   1. The address is correctly aligned for the mode.
+    //   2. It lands in ROM and not in a known data_range.
+    //   3. It decodes to defined instruction(s) in `mode`.
+    // `strict` is used only when no exact entry count is known. It decodes a
+    // short run and requires every instruction to be defined, because a
+    // single `!is_undefined` is too weak to end an unbounded walk: most
+    // 0x08xxxxxx words decode to something.
     auto looks_like_code = [&](uint32_t tgt, CpuMode mode,
                                bool strict) -> bool {
         if (mode == CpuMode::Thumb) {
@@ -638,7 +640,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
     // looks like a code pointer seeds a new function entry. This catches
     // function pointers stashed in literal pools that are NEVER consumed
     // by a statically-resolvable branch (stored into a callback table,
-    // passed as an argument, returned) — the main source of "missed
+    // passed as an argument, returned): the main source of "missed
     // function" dispatch gaps. SPECULATIVE + SILENT: the heuristic is
     // bit0==1 → THUMB target, (word&3)==0 → ARM target; anything else is
     // not a pointer. looks_like_code (strict) gates on alignment, ROM
@@ -650,12 +652,12 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
     // push `STMFD sp!, {..., lr}` (Full Descending: P=1,U=0,W=1,L=0, base
     // SP, LR in the list). Some older/APCS frames lead with `mov ip,sp`
     // before the push, so scan the first two instructions. A ROM *data*
-    // word essentially never points at such a push, which is the strong
+    // word almost never points at such a push, which is the strong
     // second signal ARM harvesting needs: plain alignment + a 6-instr
     // "all defined" decode is far too weak for ARM (its condition field
     // makes nearly any word decode to something), and without this gate
     // an ARM harvest exploded discovery 7.5x on a large ROM (~292k
-    // bogus funcs from data pointers). THUMB needs no such gate — bit0-set +
+    // bogus funcs from data pointers). THUMB needs no such gate: bit0-set +
     // ROM-range + strict decode is already a strong enough signal.
     auto is_arm_func_prologue = [&](uint32_t tgt) -> bool {
         uint32_t a = tgt;
@@ -699,14 +701,14 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
     // tools/gba_recompile/main.cpp (mark table bytes as data + seed each
     // entry) but derives base/count/mode automatically.
     //
-    //  * `interworking`  — how the dispatcher consumes an entry. true for
+    //  * `interworking`: how the dispatcher consumes an entry. true for
     //    `BX Rt` / a `bx`-veneer reached by BL: bit0 of each word selects
     //    ARM/THUMB (the classic abs32-with-thumb-bit table). false for
     //    `MOV pc,Rt`: a non-interworking write to PC that KEEPS the
     //    dispatcher's current mode, so the words carry no mode bit and
     //    every target inherits `entry_mode`. Deriving mode from bit0 here
     //    would mis-seed even THUMB targets as ARM.
-    //  * `count_hint`    — exact entry count from the dispatcher's
+    //  * `count_hint`: exact entry count from the dispatcher's
     //    `CMP index,#N; B{hi,cs} default` bound, or 0 if none was
     //    recovered. When known it is the authoritative terminator (no
     //    guessing); a within-range entry that fails the code check then
@@ -727,7 +729,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
         std::vector<FunctionSeed> targets;
         // Benign overlap: the table bytes are already covered by a
         // data_range (a manual [[jump_table]] hint, or a prior auto table).
-        // The walk yields nothing and we suppress silently — this is the
+        // The walk yields nothing and we suppress silently. This is the
         // detector independently rediscovering a hand-annotated table, not
         // a failure. Distinguished from a genuine bound mismatch below.
         bool overlap = false;
@@ -928,13 +930,13 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
             break;
         }
         // If we ever decode from inside a data_range, that's a hard
-        // error — TOML asserted "no code here" but our walk got here
+        // error: TOML asserted "no code here" but our walk got here
         // anyway. Recorded; finder continues so multiple collisions
         // surface at once.
         //
         // EXCEPTION: if this is exactly the fall-through continuation of
         // a direct call we just decoded, it is a proven long-range branch
-        // (see direct_call_continuation above), not a real return — don't
+        // (see direct_call_continuation above), not a real return. Don't
         // record a collision for it. Any other route into a data_range
         // (unconditional B, plain fall-through from a non-call
         // instruction, an indirect call's "continuation", etc.) still
@@ -984,7 +986,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
         }
 
         // ARM long-branch BL (see direct_call_continuation above). An ARM
-        // BL is a single 4-byte instruction — its continuation is reached
+        // BL is a single 4-byte instruction; its continuation is reached
         // only by ordinary fall-through (pc + 4), there's no separate
         // enqueue to suppress the way THUMB's BL-pair block has. Gated to
         // ARM entry mode: in THUMB, ins.is_call also fires for BL_prefix/
@@ -997,7 +999,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
 
         // THUMB BL pair: the decoder splits BL into BL_prefix
         // (upper halfword) + BL_suffix (lower halfword). Neither
-        // half alone has the FULL target — prefix has
+        // half alone has the FULL target: prefix has
         // branch_target = (PC+4)+(upper<<12) which is just an
         // intermediate base, suffix has branch_target = 0 plus
         // swi_imm = (imm11<<1). Combining them gives the real
@@ -1010,7 +1012,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
         // whether this walk decoded the prefix itself the instruction
         // before (the ordinary case: pc advances prefix -> suffix a
         // halfword at a time and hits this on the suffix iteration), or
-        // the walk's very first instruction IS the suffix halfword — a
+        // the walk's very first instruction IS the suffix halfword: a
         // post-IRQ BL_suffix resume seed (see the alias-candidate gate in
         // run()). Either way "is this halfword really primed by a
         // BL_prefix" is answered identically: decode pc-2 and check. A
@@ -1065,7 +1067,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
             }
         }
 
-        // Indirect = computed; we can't follow statically — UNLESS
+        // Indirect = computed; we can't follow statically, UNLESS
         // our narrow constant tracker resolved the source register
         // to a known value just above the BX (or MOV PC, Rn).
         if (ins.op == armv4t::IrOp::SWI) {
@@ -1127,8 +1129,8 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
             }
 
             // Two cases land here with a tracked register source:
-            //   1. BX Rm                  — `ins.rm` is the source
-            //   2. MOV PC, Rn (DP-MOV)    — `ins.op2.shifted.rm`
+            //   1. BX Rm: `ins.rm` is the source
+            //   2. MOV PC, Rn (DP-MOV): `ins.op2.shifted.rm`
             //      is the source (op2 with no shift)
             // BX is the ARMv4T interworking instruction, so it gets
             // target mode from bit 0. Plain DP writes to PC keep the
@@ -1201,7 +1203,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
                        can_read_walk_at(ins.pc + 2, 2)) {
                 // THUMB BL is a prefix/suffix halfword PAIR; the full
                 // target only exists once combined. This is the dominant
-                // dispatch form — `bl <bx-dest veneer>` — so without it
+                // dispatch form (`bl <bx-dest veneer>`), so without it
                 // every THUMB-BL-dispatched table is missed. Combine the
                 // pair (same math as the finder's direct-BL handling),
                 // then check the veneer it lands on.
@@ -1312,9 +1314,9 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
             }
             if (have) {
                 // HI/CS: taken branches AWAY to the default, so the
-                // indexed dispatch is the fall-through of THIS walk —
+                // indexed dispatch is the fall-through of THIS walk, so
                 // set the bound directly. LS/CC: taken branches TO the
-                // dispatch, which the finder walks as its own seed —
+                // dispatch, which the finder walks as its own seed, so
                 // park the bound for that target (re-seeded at entry).
                 if (ins.cond == armv4t::Cond::HI ||
                     ins.cond == armv4t::Cond::CS) {
@@ -1540,7 +1542,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
                 reg_sym[ins.rd].known = false;
             } else {
                 // Any other write to Rd invalidates the tracker
-                // entry. We don't try to detect "no write" — a
+                // entry. We don't try to detect "no write"; a
                 // few false-invalidations (over-clearing) are fine
                 // and bias toward conservative behavior.
                 reg_const[ins.rd].known = false;
@@ -1701,7 +1703,7 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
         //   1. A return-shaped instruction (BX LR, pop {pc}, ldm
         //      r?, {..., pc}).
         //   2. An indirect control transfer.
-        //   3. An unconditional branch (B with cond=AL) — we'll
+        //   3. An unconditional branch (B with cond=AL): we'll
         //      reach the target by adding it to the worklist.
         if (ins.is_return || ins.is_indirect) {
             break;
@@ -1716,11 +1718,11 @@ void FunctionFinder::discover_one(uint32_t entry_addr, CpuMode entry_mode,
     }
 
     if (current_walk_dropped_) {
-        // A speculative literal-pool function entered a data_range — not
+        // A speculative literal-pool function entered a data_range, so it is not
         // real code. Drop it silently (no hard error). Erase the visited
         // marker so a genuine, authoritative path can rediscover the
         // address later (and that path WILL hard-error if it too enters
-        // a data_range — surfacing a real contradiction). Discard any
+        // a data_range, surfacing a real contradiction). Discard any
         // sub-seeds harvested during this discarded walk.
         visited_.erase(key);
         mode_switch_seeds_.clear();
@@ -1755,22 +1757,22 @@ void FunctionFinder::run(std::size_t max_functions) {
     //
     // So: an alias_candidate seed on a BL_suffix-shaped halfword is kept
     // (not dropped) when the immediately preceding halfword decodes as
-    // BL_prefix — it becomes a legitimate resume entry point, rolled into
+    // BL_prefix, it becomes a legitimate resume entry point, rolled into
     // its host function as a mid-function alias label by the rollup below
     // exactly like any other alias_candidate seed. It is still dropped when
     // the preceding halfword is NOT a BL_prefix: that means the BL_suffix
-    // bit pattern (0xF800..0xFFFF) is coincidental — e.g. a
+    // bit pattern (0xF800..0xFFFF) is coincidental (e.g. a
     // [[resume_range]] expansion landing on data, or on the very first
-    // halfword of the image with no preceding halfword to prime LR — and
+    // halfword of the image with no preceding halfword to prime LR), and
     // offering it as an entry would be pure over-approximation with no
     // hardware justification. Gated strictly to alias_candidate seeds: a
     // non-alias explicit seed on the same halfword is a genuine authoring
     // error and keeps whatever behaviour it has today (unaffected by this
-    // gate; not touched here). Genuine drops remain visible — the count
+    // gate; not touched here). Genuine drops remain visible: the count
     // below is printed in the discovery summary, never silent.
     //
     // The BL_prefix half is never treated specially by this gate (it isn't
-    // BL_suffix, so it never matches below) — it stays an ordinary
+    // BL_suffix, so it never matches below), it stays an ordinary
     // instruction boundary exactly as before. Priming LR is what makes the
     // *suffix* resumable; the prefix itself is not a distinguished resume
     // boundary in this sense and must not become one.
@@ -1866,7 +1868,7 @@ void FunctionFinder::run(std::size_t max_functions) {
            (functions_.size() < max_functions || required_remaining > 0)) {
         // Safety net: discovery must converge (worklist drains toward
         // empty). A runaway past this bound means a detector or decoder
-        // change is seeding garbage — halt loudly rather than exhaust
+        // change is seeding garbage. Halt loudly rather than exhaust
         // memory. A healthy run on a large ROM peaks near ~170k, so
         // 2M is far above it.
         if (worklist.size() > 2000000u) {
@@ -1980,7 +1982,7 @@ void FunctionFinder::run(std::size_t max_functions) {
         }
     }
 
-    // Apply exclude_func filter — remove functions whose entry
+    // Apply exclude_func filter: remove functions whose entry
     // address was declared in [[exclude_func]].
     if (!excluded_.empty()) {
         std::size_t before = functions_.size();
@@ -2002,7 +2004,7 @@ void FunctionFinder::run(std::size_t max_functions) {
     // Diagnostic (opt-in, off by default): dump the boundary/alias decision for
     // functions in a window around GBARECOMP_FINDER_DEBUG_ADDR. Exists because
     // reading this code cannot tell you WHY a given interior entry did or did
-    // not get clamped/aliased — the answer depends on runtime values of
+    // not get clamped/aliased: the answer depends on runtime values of
     // source_bias and the alias-candidate set.
     const char* dbg_env = std::getenv("GBARECOMP_FINDER_DEBUG_ADDR");
     const uint32_t dbg_addr = dbg_env ? static_cast<uint32_t>(
@@ -2025,7 +2027,7 @@ void FunctionFinder::run(std::size_t max_functions) {
     // (approximate boundary). ARM and THUMB entries occupy the same byte
     // address space but do not share instruction boundaries; a false-start
     // THUMB entry in the middle of ARM code must not truncate the ARM body.
-    // Explicit interior/resume seeds (alias candidates) are NOT boundaries —
+    // Explicit interior/resume seeds (alias candidates) are NOT boundaries:
     // skipping them keeps the host's body intact so the candidate can be
     // rolled into it as a mid-function label rather than splitting the host.
     for (std::size_t i = 0; i < functions_.size(); ++i) {
@@ -2070,16 +2072,17 @@ void FunctionFinder::run(std::size_t max_functions) {
     // ── Mid-function aliasing (idea from psxrecomp) ───────────────────────
     // Roll each explicit interior/resume seed into the REAL host whose clamped
     // body contains it (host.addr < cand.addr < host.end_addr, same mode).
-    // A WaitForVBlank-style busy-wait that an IRQ returns into mid-loop is the
-    // motivating case: rooting the resume PC as its own function would split
-    // the tight loop into dispatch-chained 1-instruction functions (binary
-    // search per iteration → throughput regression). Instead
-    // the host stays one whole function (native goto back-edges intact) and the
-    // resume PC becomes an interior label reached via the host's resume
-    // prologue. Host extents are the just-computed CLAMPED end_addr (accurate
-    // next-real-function boundary), so the resume PC is guaranteed to lie in
-    // the host's emitted body — its label exists. A candidate with no
-    // containing host (a gap / genuine standalone) is left as its own function.
+    // The motivating case is a WaitForVBlank-style busy-wait that an IRQ
+    // returns into mid-loop. Rooting the resume PC as its own function would
+    // split the tight loop into 1-instruction functions chained by dispatch,
+    // and each iteration would pay a binary search (a throughput regression).
+    // Instead the host stays one whole function with its native goto
+    // back-edges intact, and the resume PC becomes an interior label reached
+    // through the host's resume prologue. Host extents use the just-computed
+    // clamped end_addr (the accurate next-real-function boundary), so the
+    // resume PC is guaranteed to lie in the host's emitted body and its label
+    // exists. A candidate with no containing host (a gap, or a genuine
+    // standalone function) is left as its own function.
     if (!alias_candidate_keys_.empty()) {
         std::size_t aliases = 0;
         for (std::size_t i = 0; i < functions_.size(); ++i) {
@@ -2110,7 +2113,7 @@ void FunctionFinder::run(std::size_t max_functions) {
         // When a [[resume_range]] spans the containing function's own entry,
         // that entry is itself expanded into an alias candidate, so no
         // non-candidate host exists anywhere in the run and EVERY candidate
-        // falls through to a standalone function — each emitting the whole
+        // falls through to a standalone function, each emitting the whole
         // shared tail. Measured on Golden Sun overlay rom_77dd1c: a range over
         // one ~944-byte function produced ~450 standalone functions, and the
         // corpus emitted 352,460 instruction bodies for 8,397 distinct guest
@@ -2119,7 +2122,7 @@ void FunctionFinder::run(std::size_t max_functions) {
         //
         // The lowest unhosted candidate of a contiguous run IS the
         // function the range describes. Promote it to the host and roll the
-        // rest of the run into it. Same emitted instruction stream — the
+        // rest of the run into it. Same emitted instruction stream; the
         // interior entries become labels reached through the host's resume
         // prologue instead of private copies of the body.
         for (std::size_t i = 0; i < functions_.size(); ++i) {

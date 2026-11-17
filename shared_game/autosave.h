@@ -1,7 +1,7 @@
-// Autosave, both games (Jimmy, 7 November 2026): each time the party enters
-// a new area, the game is saved to file 9, shown first in the file list as
-// "Autosave" (save_files.h). Manual saves never reach it, so the player's
-// own files are never overwritten. F1 > Game switch, off by default.
+// Autosave, both games: each time the party enters a
+// new area, the game is saved to file 9, shown first in the file list as
+// "Autosave" (save_files.h). Manual saves never reach it, so the player's own
+// files are never overwritten. F1 > Game switch, off by default.
 //
 // The moment: the field button poll's entry (radial_psynergy.h), reached only
 // while the player has control on the field, with the room number changed

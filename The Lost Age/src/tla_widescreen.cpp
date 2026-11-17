@@ -219,33 +219,39 @@ bool g_camera_y_seen = false;
 // The map number when the current room was loaded (room clamp store).
 uint16_t g_room_map = 0;
 
-// A scene that widens the room's bounds around the old ones mid-room keeps
-// the camera's offset from where the game asks (F12 tla_rewind_0044, the
-// Tremor scene: bounds X 32..608 became 0..1024 at f101; the rule's limit
-// 248 lifted and the camera jumped 120 to the game's 368 in one frame, past
-// what the game redraws of its maps, then shook around 368..373). Bounds
-// that move or shrink in the same map (0014 f89, 0024 f13, 0030 f34: other
-// parts of the room) and a new map take the rule again (Jimmy, 2026-10-16:
-// hold steady, shake included).
+// Hold. When a scene widens the room's bounds around the old ones in the
+// middle of a room, the expanded view keeps its current offset from the
+// camera position the game asks for, instead of applying the margin rule to
+// the new bounds. Example: F12 tla_rewind_0044, the Tremor scene. The bounds
+// in X went from 32..608 to 0..1024 at f101. The rule's limit of 248 lifted,
+// so the camera jumped 120 pixels to the game's 368 in a single frame, past
+// what the game redraws of its maps, and then shook around 368..373. In
+// these cases the offset is held. Bounds that move or shrink in the same map
+// (0014 f89, 0024 f13, 0030 f34: other parts of the room), and any new map,
+// use the rule again, so the view holds steady, shake included.
 //
-// The hold lets go as the game's camera travels: each pixel the request
-// moves past the farthest it has been since the hold began takes one pixel
-// off the offset, so walking eases the view back to the game's camera and a
-// shake (inside the range already travelled) does not. Jupiter Lighthouse
-// (map 257, F12 0141) began a hold in ordinary play, bounds 16..800 never
-// changed back, and Felix stayed 120 px off centre (Jimmy, 2026-10-24:
-// catch up while he walks, no jump).
+// The hold releases gradually as the game's camera travels. Each pixel that
+// the request moves past the farthest point it has reached since the hold
+// began removes one pixel from the offset. Walking therefore eases the view
+// back to the game's camera, while a shake (inside the range already
+// travelled) does not. Example: the Jupiter Lighthouse (map 257, F12 0141)
+// begins a hold in ordinary play. Its bounds 16..800 never change back, so
+// without the easing Felix would stay 120 px off centre. With it, the view
+// catches up while he walks, with no jump.
 //
-// Bounds that shrink inside the old ones while the game's own camera does
-// not jump keep the old bounds for the expanded view instead (`kept`):
-// stepping off Lemuria's dock stairs (map 201, F12 0136 f24) narrows y
-// 352..928 to 750..928, and the rule moved the camera 71 rows in one frame
-// and blacked out the scenery above 750 (Jimmy, 2026-10-23: keep the camera
-// still; a 16 px/frame glide was rejected). 0024/0030 (another part of the
-// room) do not narrow inside the old bounds; 0014 does, but as a new room
-// behind a fade (below). The game's own camera jumping more than it moves in
-// a frame (16 px, r5 at 0x0802AE7E) past its new clamp, bounds that grow past
-// the kept ones, or bounds back to them end it.
+// Kept bounds. When the bounds shrink to a range inside the old ones, and the
+// game's own camera does not jump, the expanded view keeps using the old
+// bounds (`kept`). Example: stepping off Lemuria's dock stairs (map 201, F12
+// 0136 f24) narrows y from 352..928 to 750..928. Applying the rule there
+// would move the camera 71 rows in one frame and black out the scenery above
+// 750, so the camera stays still instead. Captures 0024 and 0030 (another
+// part of the room) do not narrow inside the old bounds. 0014 does, but as a
+// new room behind a fade (see below). The kept bounds end in any of three
+// cases:
+// - the game's own camera jumps past its new clamp by more than it moves in
+//   a frame (16 px, r5 at 0x0802AE7E);
+// - the bounds grow past the kept ones;
+// - the bounds return to the kept ones.
 struct CameraHold {
     bool valid = false, holding = false;
     uint16_t map = 0;
@@ -259,8 +265,8 @@ struct CameraHold {
     bool have_requested = false;
     int32_t requested = 0;               // the game's last request
 
-    // New bounds that end the hold: no longer around the held ones, or the
-    // held ones again.
+    // New bounds that end the hold: they no longer surround the held ones,
+    // or they equal the held ones.
     bool hold_ends(int32_t new_lo, int32_t new_edge) const {
         return new_lo > held_lo || new_edge < held_edge ||
                (new_lo == held_lo && new_edge == held_edge);
@@ -324,9 +330,10 @@ int32_t held_camera(gba::GbaBus* b, bool x, int32_t requested, int32_t ruled,
         // so the rule for it applies, not the wider bounds kept (F12
         // tla_rewind_0165, map 287: casting Grind set 32..416 to 0..1024 and
         // back, and the kept 0..1024 left the camera on Felix, off the room).
-        // Also once the hold has let go: a hold with no offset ends on its
-        // first store (0178, map 292: Tremor on nothing, y 48..496 -> 0..1024
-        // -> 48..496 kept 0..1024 and the view left the room).
+        // The same applies once the hold has let go: a hold with no offset
+        // ends on its first store. Example: 0178, map 292, Tremor on nothing
+        // sets y 48..496, then 0..1024, then 48..496 again. Keeping 0..1024
+        // there would leave the view outside the room.
         bool restored = false;
         if (h.widened && h.hold_ends(lo, edge)) {
             restored = lo == h.held_lo && edge == h.held_edge;
@@ -459,7 +466,7 @@ void note_placed(uint32_t record, int x, int y, int placed_attr0 = -1,
     gba::GbaBus* b = bus();
     if (!b) return;
     sync_placement_scene(b);
-    // The record's full tile now, while its sprite-memory grant is current.
+    // The record's full tile, read while its sprite-memory grant is current.
     const uint16_t attr2 = b->read16(record + 8u);
     const int tile = uses_tile_grant ? tla_sprite_memory_tile(record, attr2) : -1;
     g_placements.note(*b, runtime_current_frame(), record, x, y,
@@ -1149,8 +1156,10 @@ bool tla_camera_kept_bounds(bool kept[2], int lo[2], int edge[2]) {
 // match BG3, BG2, BG1's scroll) and redraws only the strip it scrolls onto:
 // column writer 0x0802AC90 (bl 0x0802AF16) on an 8-pixel x tile, row writer
 // 0x0802ABBC (bl 0x0802AF38/44, 16 cells, the ring's width) on a 16-pixel y
-// row; tiles are `lsr #19` (0x0802AEEC/F8). Repaint after a jump:
-// tile_ring_redraw.h.
+// row; tiles are `lsr #19` (0x0802AEEC/F8). Each layer lives in a 256x256
+// tile ring in video memory: the scrolling map wraps around inside it, so
+// only the strip that scrolls into view is rewritten. After a camera jump the
+// rest of the ring is stale, and tile_ring_redraw.h repaints it.
 namespace {
 gsr::TileRingRedraw g_tile_rings({kFieldStatePointer, 0x108u, 0x38u, TLA_ROM(0x0802ABBCu), kMapNumber,
                                   false});

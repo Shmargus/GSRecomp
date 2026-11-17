@@ -205,8 +205,8 @@ void play_menu_sounds() {
 
 // The repeat-keys load: Left/Right on the Difficulty row.
 int settings_page_repeat_keys(std::uint32_t*) {
-    // The game's own five rows, Difficulty last (hard_mode.h); the old page
-    // two now lives in the Quality of Life menu, so the loop moves as usual.
+    // The game's own five rows, Difficulty last (hard_mode.h). The extra
+    // options live in the Quality of Life menu, so the loop moves as usual.
     // Up and Down are tested first and end the frame's input.
     using namespace gsr::settings_page;
     const std::uint32_t keys = bus_read_u32(kRepeatKeys);
@@ -511,7 +511,7 @@ void install_quality_of_life() {
         GS_ROM(0x0801776Cu), GS_ROM(0x08029531u), GS_ROM(0x08029506u),
         GS_ROM(0x080030F8u), GS_ROM(0x080F9010u),
         gs::text(0xC24u), gs::text(0xC28u), GS_ROM(0x080216E8u),
-        42u, 23u, load_menu_font, quality_of_life_rows}; // Sleep 42 (pause icon table); 23 picked by Jimmy from the icon sheet, 11 November 2026.
+        42u, 23u, load_menu_font, quality_of_life_rows}; // Sleep 42 (pause icon table); 23 from the icon sheet
     gsr::qol::install(profile);
 }
 } // namespace gsr_runner

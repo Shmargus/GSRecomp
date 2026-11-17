@@ -1,7 +1,7 @@
-// cosim_state.h — full guest-architectural-state canonical hash for the GBA
+// cosim_state.h: full guest-architectural-state canonical hash for the GBA
 // first-divergence co-simulation oracle. See COSIM_ORACLE.md.
 //
-// The single correctness rule (agnostic doc + PSX gold standard): this hash must
+// The one correctness rule: this hash must
 // cover EVERY piece of state that can influence future guest execution, and
 // NOTHING host-only (function pointers, JIT/overlay tables, SDL buffers, malloc
 // addresses, padding). A missed execution-relevant field is a blind spot (false

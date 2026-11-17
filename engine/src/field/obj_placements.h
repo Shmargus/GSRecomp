@@ -97,7 +97,7 @@ public:
     // records by one). An older placement of a record that has since moved
     // on is no answer: a long-gone bottom-margin placement of another object
     // answered for an NPC just above the view and drew it in the bottom
-    // margin (TLA, Jimmy, 2026-10-05).
+    // margin (TLA, 2026-10-05).
     const Placement* find(gba::GbaBus& bus, unsigned long long now,
                           std::uint16_t attr0, std::uint16_t attr1,
                           std::uint16_t attr2) const {
@@ -113,14 +113,11 @@ public:
                    ((a1 ^ attr1) & 0xC000u) == 0u &&
                    ((a2 ^ attr2) & 0xFC00u) == 0u;
         };
-        // Two records can share one raw position and kind: a sand burst
-        // stacks two puffs on the same spot (TLA F12 tla_rewind_0055 frame
-        // 31, OAM 7 and 10), and puffs rise from one spawn point, so a new
-        // puff sits now where OAM still shows last frame's older one
-        // (tla_rewind_0056 frame 93: OAM 20 at raw (0x67, 0x70), tile 0x30,
-        // record 0x03001648 placed there at frame 92). The record whose tile
-        // is the entry's wins first, then a record still there, then the
-        // newest placement, so each entry gets its own record back.
+        // Sand puffs can share a raw position and kind (TLA F12 tla_rewind_0055
+        // f31, OAM 7 and 10). A new puff can also overlap last frame's OAM
+        // (tla_rewind_0056 f93, OAM 20 at 0x67,0x70, tile 0x30, record
+        // 0x03001648 placed at f92). Prefer a tile match, then a record still at
+        // that position, then the newest placement.
         const auto same_tile = [&](std::uint16_t a2) {
             return ((a2 ^ attr2) & 0x03FFu) == 0u;
         };

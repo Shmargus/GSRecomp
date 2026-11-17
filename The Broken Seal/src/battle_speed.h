@@ -100,8 +100,9 @@ constexpr int kIndicatorY = 32;
 
 constexpr const char* kOptionsKey = gbarecomp::kOptionBattleSpeed;
 
-// Field Psynergy speed-up, The Lost Age's rule (FACTS.md 2026-10-15). The field Psynergy dispatcher 0x0808E680
-// (The Lost Age's 0x080CE61C, same layout) runs the cast inside one of two
+// Field Psynergy speed-up, The Lost Age's rule (FACTS.md 2026-10-15). The
+// field Psynergy dispatcher 0x0808E680 (The Lost Age's 0x080CE61C, same
+// layout) runs the cast inside one of two
 // cast blocks: 0x08096960 (bl at 0x0808E8CA) or 0x08096810 (bl at
 // 0x0808E8D0), chosen by flags 0x140/0x141; both read the cast object in
 // [0x03001F30] and switch on its kind at +0x1E. So the return into the
@@ -115,13 +116,14 @@ constexpr std::uint32_t kStackBottom = 0x03007000u;
 constexpr std::uint32_t kStackTop = 0x03007F00u;
 
 // Reveal's range (ROM 0x080982DC, run every frame while Reveal is up; FACTS
-// 2026-09-30). With S = [0x03001EBC]: the cast spot is S+0xCBC (x) and
-// S+0xCBE (y), a countdown S+0xCBA. It forms dx*0xD105>>16 and dy from the
-// leader, compares dx*dx + dy*dy (r2) with 0xE10 (60 px squared) and, when
-// that is reached or the countdown is 0, loads 0x2090 at 0x08098370 and
-// stores it to S+0x17E, which ends Reveal. Better Field Psy doubles the
-// distance: the load then returns S+0x17E's own value (the store changes
-// nothing) while r2 is under 4 * 0xE10 and the countdown is not 0.
+// 2026-09-30). Let S = [0x03001EBC]. The cast spot is S+0xCBC (x) and
+// S+0xCBE (y), and S+0xCBA is a countdown. The routine computes
+// dx*0xD105>>16 and dy from the leader and compares dx*dx + dy*dy (r2) with
+// 0xE10 (60 px squared). When that limit is reached or the countdown is 0, it
+// loads 0x2090 at 0x08098370 and stores it to S+0x17E, which ends Reveal.
+// Better Field Psy doubles the distance: while r2 is under 4 * 0xE10 and the
+// countdown is not 0, the load returns S+0x17E's own value, so the store
+// changes nothing.
 const std::uint32_t kRevealEndLiteralPc = gs::rom(0x08098370u);
 constexpr std::uint32_t kRevealEndCommand = 0x00002090u;
 const std::uint32_t kRevealStatePointer = gs::ram(0x03001EBCu);

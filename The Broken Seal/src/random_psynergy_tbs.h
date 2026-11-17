@@ -1,6 +1,5 @@
 // Random Psynergy, The Broken Seal's places (rules: shared_game/
-// random_psynergy.h, one copy with The Lost Age; design docs/features/
-// SEEDED_PSYNERGY.md).
+// random_psynergy.h, one copy with The Lost Age).
 //
 // Measured, verified ROMs (FACTS.md "Random Psynergy", 4 November 2026):
 // - The game rebuilds a character's 32 Psynergy words (record +0x58, every
@@ -38,8 +37,8 @@ namespace gsr::random_psynergy::tbs {
 constexpr int kClasses = 85;
 
 // Fair Play's early heals, Cure 90 and Ply 93, are in this pool at level 1.
-// Frost and Whirlwind open puzzles (Jimmy: learned before they are needed,
-// by anyone who is there in time). Frost may go to any hero, Whirlwind to one
+// Frost and Whirlwind open puzzles (learned before they are needed, by
+// anyone who is there in time). Frost may go to any hero, Whirlwind to one
 // who joins no later than Ivan.
 constexpr Key kKeys[] = {{24, 0xFu}, {78, 0x7u}};
 

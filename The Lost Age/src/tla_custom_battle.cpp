@@ -10,69 +10,83 @@
 // code unpacked and relocated by running the game's own 0x080130CC on it.
 // Not yet run in the game.
 //
-// The receptionist: room 312's code (file 0x6B5, at 0x02008000). Her talk
-// handler 0x02008BB0 keeps text base 0x13EC in r6 (literal 0x02008D94):
-// 0x13F1 "You do not have an opponent. Would you like to battle a monster?"
-// set at 0x02008C02 (set text 0x080D3BE8), shown at 0x02008C0A (0x080D3C88),
-// Yes/No 0x080D2840(4, 0) from 0x02008C12. Yes sets 0x173 and her line
-// 0x13F3, No clears it and sets 0x13F2; both set it at 0x02008CB2. Her calls
-// go through RAM and ROM veneers that keep lr.
+// The receptionist: room 312's code (file 0x6B5, loaded at 0x02008000). Her
+// talk handler 0x02008BB0 keeps the text base 0x13EC in r6 (literal
+// 0x02008D94) and does the following:
+// - Text 0x13F1, "You do not have an opponent. Would you like to battle a
+//   monster?", is set at 0x02008C02 (set-text routine 0x080D3BE8) and shown
+//   at 0x02008C0A (show routine 0x080D3C88).
+// - The Yes/No menu 0x080D2840(4, 0) is opened from 0x02008C12.
+// - Yes sets flag 0x173 and her line 0x13F3. No clears the flag and sets line
+//   0x13F2. Both set the line at 0x02008CB2.
+// Her calls go through RAM and ROM veneers that keep lr.
 //
-// Her Yes/No: 0x080D2840 -> 0x08038378 -> 0x0804D9E0 -> menu loop
-// 0x0804D16C: context [0x030000E8], cursor +0x8C, row +0x94 (0x0804D3E8).
-// It waits 0x08013560(1) from 0x0804D1E4 and reads keys through r6 =
-// 0x03001150: new presses +4 (A, B, Start), repeat +0xC (directions), so a
-// blinded menu hears no direction either; sounds through 0x081C0010, select
-// from 0x0804D26E. 0x08000478..0x08000487 are ROM zeros.
+// Her Yes/No: 0x080D2840 -> 0x08038378 -> 0x0804D9E0 -> menu loop 0x0804D16C.
+// - The menu context is at [0x030000E8]; the cursor is at +0x8C and the row
+//   at +0x94 (0x0804D3E8).
+// - The loop waits with 0x08013560(1) from 0x0804D1E4.
+// - The key state at r6 = 0x03001150 has new presses at +4 (A, B, Start)
+//   and direction repeats at +0xC. Redirecting the pointer masks both.
+// - Sounds go through 0x081C0010; the select sound is played from 0x0804D26E.
+// - 0x08000478..0x08000487 are ROM zeros.
 //
-// The builder 0x08127CD4 (The Broken Seal's 0x080C1FFC with moved
-// addresses): flag 0x173 -> selector 0x0812764C; list sp + 0x60 (pointer
-// sp + 0x1C), levels word sp + 0x20; slots from 0x08127FCA (0x08016CA4,
-// r0 = 0x80 first); stat adjustment 0x0812786C from 0x0812802E; small
-// enemy 0x081280FC; enemy data 0x080AD140 (rows 0x080B9E7C, 0x4C bytes).
-// Levels as 0x0812764C takes them: party count 0x080AD0F0 and IDs at bytes
-// 0x02000458 (0x0811A038), battle context [0x03000024], adjustment
-// 0x08016D5C(0x3F8).
+// The builder 0x08127CD4 (The Broken Seal's 0x080C1FFC with moved addresses):
+// - With flag 0x173 set it calls the selector 0x0812764C.
+// - The enemy list is at sp + 0x60 (pointer at sp + 0x1C); the levels word
+//   is at sp + 0x20.
+// - Enemy slots are fetched from 0x08127FCA (via 0x08016CA4, with r0 = 0x80
+//   for the first); the stat adjustment 0x0812786C is called from 0x0812802E;
+//   the small-enemy test is 0x081280FC.
+// - Enemy data is read by 0x080AD140 (rows at 0x080B9E7C, 0x4C bytes each).
+// The selector 0x0812764C takes the levels from the party count 0x080AD0F0
+// and the IDs at bytes 0x02000458 (read by 0x0811A038), the battle context
+// [0x03000024], and the adjustment 0x08016D5C(0x3F8).
 //
-// Formations 0x0812CE7C: 0x294 rows of 24 bytes, IDs - 8 as halfwords at
-// +0..8, minimum counts +10..14, maximum +15..19 (0x08127D1A..0x08127DBA,
-// 0x08127588).
+// Formations at 0x0812CE7C: 0x294 rows of 24 bytes.
+// - Member IDs - 8 are halfwords at +0..8.
+// - Minimum counts are at +10..14 and maximum counts at +15..19.
+// - Read at 0x08127D1A..0x08127DBA and 0x08127588.
 //
-// Artwork: 0x0811A4E0 loads enemy slot r0's artwork (ID halfword unit +
-// 0x14A, skipped when byte +0x129 is set); sprite 0x081280BC (halfword at
-// 0x08130D0C + ID * 8, rows up to 0x182), variant 0x081280D8 (byte +3 bits
-// 1..4); 0x080227E0 loads it: records 0x08300000 + (sprite & 0xFFF) * 20,
-// (asset, sprite) pairs 0x0802E91C, assets 0x08680000, the ARM unpacker,
-// colour tables 0x080203A8; tag -> data 0x080228BC. Seven composites take
-// the next sprite as their second half, built with tag + 0x2001
-// (0x0811A5AA..0x0811A5DE, 0x0811B804..0x0811B8A8). Picture palette: the
-// same 64 bytes as The Broken Seal's 0x0800779C sit at 0x08017B10
-// (TODO-EVIDENCE: not traced to the battle's palette load).
+// Artwork.
+// - 0x0811A4E0 loads enemy slot r0's artwork. It reads the ID halfword at
+//   unit + 0x14A and skips the slot when byte +0x129 is set.
+// - The sprite comes from 0x081280BC (halfword at 0x08130D0C + ID * 8, rows
+//   up to 0x182) and the colour variant from 0x081280D8 (byte +3, bits 1..4).
+// - 0x080227E0 loads the artwork: records at 0x08300000 + (sprite & 0xFFF) *
+//   20, (asset, sprite) pairs at 0x0802E91C, assets at 0x08680000 (unpacked
+//   with the ARM unpacker), colour tables at 0x080203A8. The lookup from tag
+//   to data is 0x080228BC.
+// - Seven composites take the next sprite as their second half, built with
+//   tag + 0x2001 (0x0811A5AA..0x0811A5DE, 0x0811B804..0x0811B8A8).
+// - Picture palette: the same 64 bytes as The Broken Seal's 0x0800779C sit at
+//   0x08017B10 (TODO-EVIDENCE: not traced to the battle's palette load).
 //
-// Names: text ID + 0x424 (the name block 0x42C "???", Djinni 0x42D..0x466;
-// levels and Kraken's composite sprite agree: Vermin and Bat Lv 1, Kraken
-// 0x15C sprite 0x277). Text tables 0x080A9F54 / 0x08060C30 (0x08038580,
-// 0x0803843C: The Broken Seal's routines with moved literals).
+// Names: the text ID is the enemy ID + 0x424 (name block 0x42C is "???",
+// Djinni are 0x42D..0x466). Levels and Kraken's composite sprite agree with
+// this: Vermin and Bat are Lv 1, Kraken is 0x15C with sprite 0x277. The text
+// tables are 0x080A9F54 / 0x08060C30 (routines 0x08038580, 0x0803843C: The
+// Broken Seal's routines with moved literals).
 //
-// Which monsters a save offers. Encounter sets are numbered in story order:
-// room rows 0x080EE6D4 (room, entrance, flag, zone 1 set, zone 2 set; read
-// by 0x080C9E50) rise with the room numbers, and the late revisits of early
-// rooms use late sets (rooms 79..81 sets 96, 97). World map rows
-// (region, terrain, flag, set) at 0x080EEDBC, and 0x080EEF34 on the second
-// world map (0x080C9F2C). A won fight records each enemy kind as flag
-// 0x600 + ID (IDs below 0x200), not in Battle Mode (0x08128312..0x0812833A).
-// So a monster is offered when the save has beaten it, or when its first
-// set comes no later than the latest first set among the monsters it has
-// beaten: never early, at worst one area late. Monsters in no set (bosses
-// and other scripted fights) are on the Bosses page, offered once beaten.
+// Which monsters a save offers. Encounter sets are numbered in story order.
+// - Room rows at 0x080EE6D4 (room, entrance, flag, zone 1 set, zone 2 set;
+//   read by 0x080C9E50) rise with the room numbers. Late revisits of early
+//   rooms use late sets (rooms 79..81 use sets 96, 97).
+// - World map rows (region, terrain, flag, set) are at 0x080EEDBC, and at
+//   0x080EEF34 on the second world map (0x080C9F2C).
+// - A won fight records each enemy kind as flag 0x600 + ID (IDs below 0x200),
+//   except in Battle Mode (0x08128312..0x0812833A).
+// Offer a monster if the save has beaten it or reached its first encounter
+// set, inferred from the latest first set of any defeated monster. This
+// can leave an enemy locked until the next area. Scripted fights with no
+// set unlock on the Bosses page once beaten.
 //
-// Clear Data offers every opponent, as in The Broken Seal. A save file is
-// a verbatim image of 0x02000000: load 0x08015E44 and save 0x08042F10 copy
-// 0x2FF0 bytes between sector +0x10 and r1 = 0x02000000 (callers
-// 0x080437B0, 0x0804384A, 0x0804350A). The title's Clear Data test
-// 0x080432A4 reads summary byte +0x31 (= sector +0x31, filled by
-// 0x08016054), so the loaded save's Clear Data mark is byte 0x02000021.
-// Jimmy's save: slot 2 has 1 there, slots 1 and 3 have 0.
+// Clear Data offers every opponent, as in The Broken Seal. A save file is a
+// verbatim image of 0x02000000: load 0x08015E44 and save 0x08042F10 copy
+// 0x2FF0 bytes between sector +0x10 and r1 = 0x02000000 (callers 0x080437B0,
+// 0x0804384A, 0x0804350A). The title's Clear Data test 0x080432A4 reads
+// summary byte +0x31 (= sector +0x31, filled by 0x08016054), so the loaded
+// save's Clear Data mark is byte 0x02000021. In the measured save, slot 2 has
+// 1 there and slots 1 and 3 have 0.
 
 #include "tla_rom_version.h"
 #include <algorithm>
@@ -97,9 +111,12 @@ namespace cb = gsr::custom_battle;
 constexpr unsigned kComposites[] = {0x231u, 0x243u, 0x245u, 0x247u, 0x249u, 0x277u, 0x27Eu};
 const std::uint32_t kFormations = TLA_ROM(0x0812CE7Cu);
 constexpr unsigned kFormationCount = 0x294u;
-const std::uint32_t kEncounterSets = TLA_ROM(0x080EDACCu);  // 28 bytes: formations +4, weights +20
-const std::uint32_t kRoomSets = TLA_ROM(0x080EE6D4u);
-const std::uint32_t kWorldMapSets[] = {TLA_ROM(0x080EEDBCu), TLA_ROM(0x080EEF34u)};
+// ROM offsets (cb::rom_u8 and friends read offsets, not addresses).
+constexpr std::uint32_t kRomBase = 0x08000000u;
+const std::uint32_t kEncounterSets = TLA_ROM(0x080EDACCu) - kRomBase;  // 28 bytes: formations +4, weights +20
+const std::uint32_t kRoomSets = TLA_ROM(0x080EE6D4u) - kRomBase;
+const std::uint32_t kWorldMapSets[] = {TLA_ROM(0x080EEDBCu) - kRomBase,
+                                       TLA_ROM(0x080EEF34u) - kRomBase};
 constexpr unsigned kDefeatedFlag = 0x600u, kDefeatedIds = 0x200u;
 constexpr std::uint32_t kClearData = 0x02000021u;  // non-zero: Clear Data
 // Not monsters: "???" (0x08), the Djinn (0x09..0x42), "?" (0x43, 0x74).
@@ -107,13 +124,8 @@ bool not_a_monster(unsigned id) { return id <= 0x43u || id == 0x74u; }
 
 std::map<unsigned, unsigned> g_first_set;  // monster -> earliest set
 
-unsigned rom_u8(cb::Rom rom, std::uint32_t at) {
-    at -= 0x08000000u;
-    return at < rom.size() ? rom[at] : 0u;
-}
-int rom_s16(cb::Rom rom, std::uint32_t at) {
-    return static_cast<std::int16_t>(rom_u8(rom, at) | (rom_u8(rom, at + 1) << 8));
-}
+using cb::rom_s16;
+using cb::rom_u8;
 
 void catalogue(cb::Rom rom, std::vector<cb::Monster>* out) {
     std::map<unsigned, cb::Monster> found;

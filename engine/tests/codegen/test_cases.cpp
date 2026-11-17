@@ -1,4 +1,4 @@
-// tests/codegen/test_cases.cpp — the L1 test corpus.
+// tests/codegen/test_cases.cpp: the L1 test corpus.
 //
 // One entry per per-IrOp shape we want to pin.
 //
@@ -69,7 +69,7 @@ const TestMemInit mem_swp_init[] = {
 
 }  // namespace
 
-// CPSR helpers expressed inline — most cases start with N/Z/C/V cleared
+// CPSR helpers expressed inline: most cases start with N/Z/C/V cleared
 // in System mode (0x1F), which has no register banking. FIQ mode (0x11) is
 // used for the banked-register case.
 #define MODE_SYSTEM 0x1Fu
@@ -156,7 +156,7 @@ const TestCase kTestCases[] = {
     },
 
     // ── DP shifted-register (imm count): MOVS r1, r0, ASR #1 with
-    //    r0 having top bit set — N=1, sign-extended.
+    //    r0 having top bit set: N=1, sign-extended.
     {
         "arm_movs_asr_imm_neg",
         false, 0x100u,
@@ -479,7 +479,7 @@ const TestCase kTestCases[] = {
         false, 0, 0,
     },
 
-    // ── LDMIA r1!, {r1, r2} — base register also in the list ────────
+    // ── LDMIA r1!, {r1, r2}: base register also in the list ────────
     {
         "arm_ldmia_wb_base_in_list",
         false, 0x100u,
@@ -491,7 +491,7 @@ const TestCase kTestCases[] = {
     },
 
     // ── STMDB SP! (PUSH-style) ──────────────────────────────────────
-    //    STMDB r0!, {r1, r2}  — pre-decrement, writeback.
+    //    STMDB r0!, {r1, r2}: pre-decrement, writeback.
     {
         "arm_stmdb_wb",
         false, 0x100u,
@@ -502,7 +502,7 @@ const TestCase kTestCases[] = {
         false, 0, 0,
     },
 
-    // ── STMDB r0, {r8, r9}^ from FIQ mode — stores the user-bank regs
+    // ── STMDB r0, {r8, r9}^ from FIQ mode: stores the user-bank regs
     {
         "arm_stmdb_user_regs_from_fiq",
         false, 0x100u,
@@ -523,7 +523,7 @@ const TestCase kTestCases[] = {
         false, 0, 0,
     },
 
-    // ── POP {r4, pc} — the SP-based function-return idiom ────────────
+    // ── POP {r4, pc}: the SP-based function-return idiom ────────────
     //    LDMIA sp!, {r4, pc}: loads r4 then pc (bit0 cleared), writeback
     //    sp += 8. Exits the shard via runtime_call_should_return /
     //    runtime_dispatch on the popped PC.
@@ -537,7 +537,7 @@ const TestCase kTestCases[] = {
         true, 0, 0,
     },
 
-    // ── LDM with PC, base != SP — a computed jump (dispatch, no return) ─
+    // ── LDM with PC, base != SP: a computed jump (dispatch, no return) ─
     {
         "arm_ldmia_pc_computed",
         false, 0x100u,
@@ -548,7 +548,7 @@ const TestCase kTestCases[] = {
         true, 0, 0,
     },
 
-    // ── Conditional LDM not taken (LDMEQ with Z=0) — cond-fail skip ───
+    // ── Conditional LDM not taken (LDMEQ with Z=0): cond-fail skip ───
     //    Body is skipped: no transfer, no writeback, R[15] advances,
     //    cyc == 1 (fetch). Marked non-branching like arm_bne_not_taken.
     {
@@ -699,7 +699,7 @@ const TestCase kTestCases[] = {
         false, 0, 0,
     },
 
-    // ── B forward — branch test that exercises runtime_dispatch
+    // ── B forward: branch test that exercises runtime_dispatch
     //    via the stub. B at 0x100 with imm24 = 0 → target = 0x100+8.
     //    Encoding: 0xEA000000
     {
@@ -724,7 +724,7 @@ const TestCase kTestCases[] = {
         true, 0, 0,
     },
 
-    // ── BX rN — interworking. rN's bit 0 selects THUMB.
+    // ── BX rN: interworking. rN's bit 0 selects THUMB.
     //    Encoding: cond 0001 0010 1111 1111 1111 0001 Rm
     //    BX r0: word = 0xE12FFF10
     {
@@ -1036,7 +1036,7 @@ const TestCase kTestCases[] = {
       MODE_SYSTEM, nullptr, 0, false, 0, 0 },
 
     // ── SMULL: signed multiplication ──────────────────────────────
-    //   SMULL r0, r1, r2, r3 — RdLo=0, RdHi=1, Rs=3, Rm=2
+    //   SMULL r0, r1, r2, r3: RdLo=0, RdHi=1, Rs=3, Rm=2
     //   cond=E, 0000 11 0 S=0 RdHi=1 RdLo=0 Rs=3 1001 Rm=2
     //   word = 0xE0C1 0392
     //   r2 = -1 (0xFFFFFFFF), r3 = 5 → (int64)-5 = 0xFFFFFFFFFFFFFFFB
@@ -1087,13 +1087,13 @@ const TestCase kTestCases[] = {
       {0x201u, 0, 0, 0, 0,0,0,0, 0,0,0,0, 0,0,0, 0x100u},
       (1u<<5) | MODE_SYSTEM, nullptr, 0, true, 0, 0 },
 
-    // ── ARM mov pc, lr — the AAPCS return idiom (C-return path) ───
+    // ── ARM mov pc, lr: the AAPCS return idiom (C-return path) ───
     //   MOV r15, r14 (0xE1A0F00E): pc = lr & ~3, then should_return/dispatch.
     { "arm_mov_pc_lr", false, 0x100u, 0xE1A0F00Eu,
       {0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0x08001000u, 0x100u},
       MODE_SYSTEM, nullptr, 0, /*branches*/ true, 0, 0 },
 
-    // ── ARM add pc, r0, #8 — computed jump (dispatch path) ────────
+    // ── ARM add pc, r0, #8: computed jump (dispatch path) ────────
     //   ADD r15, r0, #8 (0xE280F008): pc = (r0 + 8) & ~3, dispatch.
     { "arm_add_pc_imm", false, 0x100u, 0xE280F008u,
       {0x08002000u,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0, 0x100u},
@@ -1130,7 +1130,7 @@ const TestCase kTestCases[] = {
       {0, 0, 0, 0, 0x1000u, 0x2000u, 0, 0, 0,0,0,0, 0,0x3000u,0xCAFEu, 0x100u},
       (1u<<5) | MODE_SYSTEM, nullptr, 0, false, 0, 0 },
 
-    // ── THUMB fmt14 POP {r4, pc}  (0xBD10) — return idiom ─────────
+    // ── THUMB fmt14 POP {r4, pc}  (0xBD10): return idiom ─────────
     //    sp at 0x2000: r4 ← [0x2000], pc ← [0x2004] & ~1, sp += 8.
     { "thumb_pop_r4_pc", true, 0x100u, 0x0000BD10u,
       {0, 0, 0, 0, 0,0,0,0, 0,0,0,0, 0,0x2000u,0, 0x100u},

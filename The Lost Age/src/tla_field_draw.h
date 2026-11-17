@@ -1,12 +1,9 @@
 // tla_field_draw.h -- one frame's margin rules and renderer uploads, from the
 // scene to FieldSceneRenderer::draw.
 //
-// The one copy the game (src/tla_gpu_field.cpp) and the bench
-// (tools/tla_frame_check.cpp) both draw with, so a rule added for the game is
-// what the bench checks. Before this the bench kept its own list of steps and
-// fell behind (it never kept the camera rule's wider bounds, Lemuria's dock
-// stairs, F12 0136). Reading back the picture, and anything painted over it
-// afterwards (the flat map's margins), stays with the caller.
+// The game and tla_frame_check.cpp share these draw steps, including the
+// wider camera bounds used at Lemuria's dock stairs (F12 0136). The caller
+// reads back pixels and draws any extra margins.
 #pragma once
 
 #include <cstddef>

@@ -1,18 +1,13 @@
-// self_heal.h — Stage-1 self-healing dispatch-miss bookkeeping.
+// self_heal.h: Stage-1 self-healing dispatch-miss bookkeeping.
 //
-// When runtime_dispatch lands on a guest PC that has no generated function,
-// runtime_dispatch_miss (src/runtime/runtime_arm_default_aborts.cpp) does not
-// abort: it BRIDGES the missed call through the reference interpreter, then
-// returns control to recompiled code (see that file for the stop-address
-// contract). Every bridge is recorded here so the run can report — honestly —
-// that it was NOT fully static, and so the miss list can seed a reviewed TOML
-// proposal.
+// On a dispatch miss, runtime_dispatch_miss runs the call in the reference
+// interpreter and returns to generated code. See its stop-address rule in
+// runtime_arm_default_aborts.cpp. Record each bridge for the coverage
+// report and TOML proposal.
 //
-// Doctrine (PRINCIPLES.md "Honest self-healing" / "Coverage honesty is
-// load-bearing"): a bridged miss MUST be (1) loudly logged, (2) healed toward
-// static, and (3) fed back to the TOML via a *separate* proposal file that a
-// human reviews and merges (never an auto-write to game.toml). Stage 1 does
-// (1) + (3); the on-the-fly recompile of (2) is Stage 2 (overlay_loader.h).
+// Log each miss, try to compile it (overlay_loader.h), and write a separate
+// TOML proposal for review. See PRINCIPLES.md (Self-healing and Coverage
+// is reported).
 
 #pragma once
 
@@ -36,11 +31,9 @@ std::uint32_t self_heal_distinct_misses();
 // Total guest instructions executed in the interpreter bridge this session.
 std::uint64_t self_heal_interpreted_insns();
 
-// Emit the coverage-honesty banner to stdout and, if any misses occurred and
-// frag_path is non-null, write the reviewed proposal fragment to frag_path:
-// [[extra_func]] entries, plus a [[jump_table]]-candidate comment over any
-// tight run of misses that looks like a computed-jump switch's case targets
-// (see self_heal_cluster_misses). NEVER merges into game.toml.
+// Print coverage to stdout. If there were misses and frag_path is set,
+// write proposed [[extra_func]] entries there. Tight clusters get a note
+// for possible [[jump_table]] review (see self_heal_cluster_misses).
 void self_heal_write_report(const char* frag_path);
 
 // Set the running program's identity (title, 4-char game code, ROM SHA-1).
@@ -61,7 +54,7 @@ struct SelfHealMiss {
 // `jump_table_candidate`, the run's members are tightly-spaced same-mode
 // misses that look like the case targets of a computed-jump switch the
 // finder could not size (e.g. nine fragments in 0x08062894..0x08062920 in
-// another game) — review should prefer ONE sized [[jump_table]]
+// another game): review should prefer ONE sized [[jump_table]]
 // over merging the individual [[extra_func]] entries.
 struct SelfHealCluster {
     std::size_t begin = 0;   // [begin, end) indices into the sorted input
@@ -72,19 +65,14 @@ struct SelfHealCluster {
 // Group a PC-SORTED miss list into adjacency clusters. A run of at least
 // `min_run` same-mode misses, each within `max_gap` bytes of its
 // predecessor, is flagged jump_table_candidate. Every input index lands in
-// exactly one returned cluster (singletons included). Pure / no I/O — unit
+// exactly one returned cluster (singletons included). Pure / no I/O; unit
 // tested (engine/tests/selfheal/cluster_test.cpp) independently of the runtime.
 std::vector<SelfHealCluster> self_heal_cluster_misses(
     const std::vector<SelfHealMiss>& sorted_misses,
     std::uint32_t max_gap, std::size_t min_run);
 
-// JSON snapshot of the live miss/heal state for the TCP `misses` command and
-// the exit coverage file: a top-level "coverage" verdict (FULLY_STATIC /
-// NOT_STATIC), aggregate counters (distinct misses, interpreted insns,
-// healed-to-native, native calls, in-flight, failed, jump-table-candidate
-// regions) plus a per-bridged-PC array tagging healed state, native-call
-// counts, and whether each PC is part of a jump-table-candidate run. A pure
-// query of the always-on bookkeeping — no arming.
+// Coverage status, counters and per-PC healing results for the TCP `misses`
+// command and the exit report. Reading it doesn't arm tracing.
 std::string self_heal_misses_json();
 
 // Write self_heal_misses_json() to `path` (+ a trailing newline). Unlike the

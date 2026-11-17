@@ -1,4 +1,4 @@
-// dispatch_stub.cpp — empty cart dispatch table for bios_smoke.
+// dispatch_stub.cpp: empty cart dispatch table for bios_smoke.
 //
 // bios_smoke is interpreter-only: it executes via armv4t::Interpreter
 // and never calls runtime_dispatch(). But it links the runtime stack,
@@ -10,7 +10,7 @@
 // sentinel entry so the linker is satisfied. kDispatchTableLen=0 means any
 // (never-taken) dispatch would fall through to runtime_dispatch_miss.
 //
-// kBiosDispatchTable is NOT defined here — gbarecomp_runtime already
+// kBiosDispatchTable is NOT defined here; gbarecomp_runtime already
 // provides it (bios_dispatch_table.cpp or no_bios_dispatch_table.cpp).
 
 #include <cstdint>

@@ -1,17 +1,14 @@
-// Golden Sun: The Lost Age -- running a piece of the game's own code again
-// on the host, without touching the game.
+// Scratch memory for replaying a guest routine.
 //
-// The spark capture (src/tla_spell_sparks.cpp) lets the game's routine draw
-// what it clipped away: it copies the CPU, steps the interpreter through the
-// routine on this bus, and reads back what it wrote.
-// Reads come from EWRAM, IWRAM and ROM. IWRAM is a private copy, taken on
-// the first write to it (the routines patch their own code and use the
-// stack); other writes land in an overlay the later reads see. A DMA3 the
-// routine starts is done here, on this bus. Anything else ends the run: the
-// game's state and decisions never change.
+// Both games replay skipped spark draws with a copy of the CPU state.
+// DryRunBus reads EWRAM, IWRAM and ROM. It copies IWRAM on first write
+// because routines patch code there and use its stack. Other writes go
+// into a scratch overlay that later reads see. Unsupported accesses end
+// the replay.
 #pragma once
 
 #include <bitset>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <unordered_map>
@@ -25,27 +22,41 @@
 #include "runtime_arm.h"
 #include "thumb_decode.h"
 
-struct TlaDryRunBus final : armv4t::Bus {
+namespace gbarecomp {
+
+struct DryRunBus final : armv4t::Bus {
     static constexpr std::uint32_t kIwram = 0x03000000u, kIwramBytes = 0x8000u;
     static constexpr std::uint32_t kEwram = 0x02000000u, kEwramBytes = 0x40000u;
     static constexpr std::uint32_t kPageShift = 8;
 
-    explicit TlaDryRunBus(gba::GbaBus* bus)
-        : ewram(bus->ewram_ptr()), iwram(bus->iwram_ptr()),
-          rom(bus->rom_ptr()), rom_bytes(bus->rom_size()) {}
+    // How a run may write:
+    //   write_limit  bytes written before the run fails (0: no limit); a
+    //                path that writes more than a stamp's setup ends there.
+    //   dma3         a DMA3 the routine starts is done here, on this bus
+    //                (The Lost Age's rasterizer restores its self-patched
+    //                loop from a template); otherwise it is only a write.
+    explicit DryRunBus(gba::GbaBus* bus, std::size_t write_limit = 0, bool dma3 = true)
+        : DryRunBus(bus->ewram_ptr(), bus->iwram_ptr(), bus->rom_ptr(), bus->rom_size(),
+                    write_limit, dma3) {}
+    DryRunBus(const std::uint8_t* ewram, const std::uint8_t* iwram, const std::uint8_t* rom,
+              std::size_t rom_bytes, std::size_t write_limit = 0, bool dma3 = true)
+        : ewram(ewram), iwram(iwram), rom(rom), rom_bytes(rom_bytes),
+          write_limit(write_limit), dma3(dma3) {}
 
     const std::uint8_t* ewram;
     const std::uint8_t* iwram;
     const std::uint8_t* rom;
     std::size_t rom_bytes;
+    std::size_t write_limit;
+    bool dma3;
+    std::size_t bytes_written = 0;
     std::vector<std::uint8_t> iwram_copy;  // empty until IWRAM is written
     std::unordered_map<std::uint32_t, std::uint8_t> written;
     std::bitset<(kEwramBytes >> kPageShift)> ewram_dirty;
     bool failed = false;
     bool rom_written = false;  // a write over ROM bytes (a list the caller replaced)
 
-    // The run's own IWRAM, copied on first use: a caller may also prepare
-    // bytes in it before the run (a scratch canvas).
+    // Copy IWRAM on demand. Callers can seed a scratch canvas before replay.
     std::uint8_t* own_iwram(std::uint32_t a) {
         if (iwram_copy.empty()) iwram_copy.assign(iwram, iwram + kIwramBytes);
         return iwram_copy.data() + (a - kIwram);
@@ -90,6 +101,8 @@ struct TlaDryRunBus final : armv4t::Bus {
         return std::uint32_t(read16(a)) | (std::uint32_t(read16(a + 2)) << 16);
     }
     void write8(std::uint32_t a, std::uint8_t v) override {
+        if (write_limit && bytes_written == write_limit) { failed = true; return; }
+        ++bytes_written;
         if (a - kIwram < kIwramBytes) { *own_iwram(a) = v; return; }
         if (a - kEwram < kEwramBytes) ewram_dirty[(a - kEwram) >> kPageShift] = true;
         else if (a >= 0x08000000u) rom_written = true;
@@ -104,9 +117,8 @@ struct TlaDryRunBus final : armv4t::Bus {
         a &= ~3u;
         write16(a, static_cast<std::uint16_t>(v));
         write16(a + 2, static_cast<std::uint16_t>(v >> 16));
-        // DMA3 started by its count/control word: an immediate copy (the
-        // rasterizer restores its self-patched loop from a template).
-        if (a == 0x040000DCu && (v & 0x80000000u) != 0u) {
+        // DMA3 started by its count/control word: an immediate copy.
+        if (dma3 && a == 0x040000DCu && (v & 0x80000000u) != 0u) {
             const std::uint32_t src = read32(0x040000D4u);
             const std::uint32_t dst = read32(0x040000D8u);
             const bool words = (v & 0x04000000u) != 0u;
@@ -119,14 +131,13 @@ struct TlaDryRunBus final : armv4t::Bus {
     }
 };
 
-// Steps `cpu` on `dry` until `stop(cpu)` returns true (stopped), the run
-// fails, or `max_steps` pass. True when stopped. `stop` sees each pc before
-// it runs and may move it on (a test treated as passed); it is asked again
-// at the new pc.
+// Run up to `max_steps`. Return true if `stop(cpu)` succeeds, or false
+// on a bus or interpreter failure or if the budget runs out. `stop` runs
+// before each instruction. If it advances PC, check again at the new address.
 template <typename Stop>
-bool tla_dry_run(armv4t::CPUState& cpu, TlaDryRunBus& dry, int max_steps, Stop stop) {
+bool dry_run(armv4t::CPUState& cpu, DryRunBus& dry, int max_steps, Stop stop) {
     // Decoded instructions by address, kept while the bytes there match
-    // (the rasterizer patches its own code before its loops run).
+    // (a routine may patch its own code before its loops run).
     struct Decoded { std::uint32_t bits; bool thumb; armv4t::Instr insn; };
     std::unordered_map<std::uint32_t, Decoded> decoded;
     for (int step = 0; step < max_steps; ++step) {
@@ -153,3 +164,5 @@ bool tla_dry_run(armv4t::CPUState& cpu, TlaDryRunBus& dry, int max_steps, Stop s
     }
     return false;
 }
+
+}  // namespace gbarecomp

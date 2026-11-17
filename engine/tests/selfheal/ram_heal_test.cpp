@@ -1,18 +1,15 @@
-// ram_heal_test.cpp — regression coverage for Stage-2 self-heal over MUTABLE
+// ram_heal_test.cpp: regression coverage for Stage-2 self-heal over MUTABLE
 // (IWRAM/EWRAM) code, the RAM-blitter case (Golden Sun assembles a sprite
 // blitter into IWRAM at runtime; it can never be in the static corpus).
 //
 // Exercises the real pipeline end to end: overlay_request_compile ->
 // worker-thread emit + g++ compile -> overlay_drain_ready installs the
-// native fn -> overlay_try_dispatch calls it. No ROM/BIOS bytes are used —
-// every function body here is a synthetic two-instruction ARM stub written
+// native fn -> overlay_try_dispatch calls it. No ROM/BIOS bytes are used.
+// Every function body here is a synthetic two-instruction ARM stub written
 // directly into the test's own GbaBus.
 //
-// This needs a real g++ on PATH (or GBARECOMP_HEAL_CXX) to actually compile
-// the emitted overlay; if the toolchain named by gxx_path() genuinely isn't
-// reachable the heal will fail loudly (self_heal: compile FAILED ...) and
-// the polling loop below times out with a clear failure message rather than
-// hanging silently.
+// This test needs g++ on PATH or GBARECOMP_HEAL_CXX. If the compiler
+// cannot run, the heal reports a compile failure and the test times out.
 
 #include <chrono>
 #include <cstdlib>
@@ -99,7 +96,7 @@ void put16(uint8_t* dst, uint32_t off, uint16_t value) {
     note_raw_ram_write(dst, off, 2u);
 }
 
-// "MOV r0, #imm8; BX LR" — a two-instruction ARM leaf function. Distinct
+// "MOV r0, #imm8; BX LR": a two-instruction ARM leaf function. Distinct
 // imm8 values produce distinct bodies (distinct CRC32) at the SAME address
 // and SAME extent, which is exactly the shape of a re-assembled RAM blitter
 // variant.
@@ -111,7 +108,7 @@ void write_mov_bx_lr(uint8_t* dst, uint32_t off, uint8_t imm8) {
 // A healed leaf's `bx lr` is emitted as the standard return idiom: it asks
 // runtime_call_should_return whether LR matches an open call frame, and only
 // falls through to runtime_dispatch(lr) when it does not. A test that calls
-// a healed function without an open frame therefore does not "return" — it
+// a healed function without an open frame therefore does not "return": it
 // dispatches to whatever LR happens to hold (0 => the BIOS reset vector) and
 // spins. Every dispatch below goes through this helper so the call looks
 // exactly like a recompiled caller's BL site.
@@ -146,7 +143,7 @@ bool wait_healed(uint32_t pc, bool thumb, int timeout_ms = 30000) {
                       [&] { return gbarecomp::overlay_query(pc, thumb, nullptr); });
 }
 
-// ── Test 1: IWRAM self-heal — a re-assembled function heals to native and
+// ── Test 1: IWRAM self-heal: a re-assembled function heals to native and
 //    executes it (the motivating case: Golden Sun's sprite blitter). ──────
 void test_iwram_heal_and_dispatch(gba::GbaBus& bus) {
     constexpr uint32_t kPc = 0x03000200u;  // well inside IWRAM (32 KiB)
@@ -402,7 +399,7 @@ void test_dispatch_miss_drains_ready_before_bridge(gba::GbaBus& bus) {
           "drain-before-bridge native body returned wrong result");
 }
 
-// ── Test 2: the regression this design exists for — overwrite the SAME
+// ── Test 2: the regression this design exists for: overwrite the SAME
 //    address with a DIFFERENT function body. The stale native must NOT run;
 //    the new content must heal and execute instead. ──────────────────────
 void test_iwram_content_change_forces_reheal(gba::GbaBus& bus) {
@@ -418,13 +415,12 @@ void test_iwram_content_change_forces_reheal(gba::GbaBus& bus) {
     // Overwrite with a DIFFERENT function at the same address/extent.
     write_mov_bx_lr(bus.iwram_ptr(), kPc - 0x03000000u, 0x22);
 
-    // The very next dispatch must see the CRC mismatch: it must NOT call the
-    // stale native body (which would leave r0 == 0x11, or 0x22 is what we'd
-    // wrongly see if it silently used still-mapped-but-wrong code — the only
-    // way to tell "did not call stale native" apart from "correctly healed
-    // new content already" is to check the return value on THIS exact call:
-    // a sound implementation reports a miss (0) here because re-heal is
-    // asynchronous, not a same-call hot-swap).
+    // The very next dispatch must see the CRC mismatch and must NOT call the
+    // stale native body (which would leave r0 == 0x11). Checking this call's
+    // return value is the only way to tell "did not call stale native" apart
+    // from "already healed the new content". A sound implementation reports
+    // a miss (0) here, because re-heal is asynchronous, not a same-call
+    // hot-swap.
     g_cpu.R[0] = 0xDEADBEEFu;
     const int first_hit_after_overwrite = dispatch_as_call(kPc, 0);
     check(first_hit_after_overwrite == 0,
@@ -473,18 +469,20 @@ void test_write_then_execute_same_invocation(gba::GbaBus& bus) {
 //    from inside a generated function's own AOT guard when it fails) must
 //    consult the Stage-2 healed-overlay cache before paying for a fresh
 //    interpreter bridge. Golden Sun's fixed-address AOT dispatch entries
-//    guard their own extent against a single ROM-derived CRC; once a RAM
-//    slot has settled on self-assembled content that will never match that
-//    baked CRC, EVERY later call re-derives the same "not the AOT body"
-//    verdict from runtime_ram_code_guard and would pay for a fresh
-//    interpreter bridge on every single occurrence — even though the exact
-//    same bytes had already healed to native the first time. This proves:
-//    (1) the first sighting of a variant still bridges and heals, (2) a later call with UNCHANGED bytes reuses the healed
-//    native entry instead of re-interpreting, (3) a genuine content change
-//    still bridges + re-heals (the fast path never masks a real miss —
-//    overlay_try_dispatch independently re-verifies the live bytes' CRC
-//    before it will ever call the cached native fn), and (4) results stay
-//    byte-for-byte what the interpreter would have produced throughout. ──
+//    guard their own extent against a single ROM-derived CRC. Once a RAM
+//    slot settles on self-assembled content that never matches that baked
+//    CRC, every later call reaches the same "not the AOT body" verdict from
+//    runtime_ram_code_guard. Each would pay for a fresh interpreter bridge,
+//    even though the same bytes had already healed to native. This proves:
+//    (1) the first sighting of a variant still bridges and heals;
+//    (2) a later call with UNCHANGED bytes reuses the healed native entry
+//        instead of re-interpreting;
+//    (3) a genuine content change still bridges and re-heals. The fast path
+//        never masks a real miss, because overlay_try_dispatch independently
+//        re-verifies the live bytes' CRC before it calls the cached native
+//        fn;
+//    (4) results stay byte-for-byte what the interpreter would have
+//        produced throughout. ──
 void test_mutable_ram_miss_reuses_healed_variant(gba::GbaBus& bus) {
     constexpr uint32_t kPc = 0x03000500u;
     constexpr uint32_t kReturnPc = 0x08000100u;
@@ -510,7 +508,7 @@ void test_mutable_ram_miss_reuses_healed_variant(gba::GbaBus& bus) {
 
     // Same bytes, called again with NOTHING rewritten (the steady-state
     // case: the AOT guard keeps failing against its baked CRC because this
-    // slot is permanently self-assembled code now, but the content itself
+    // slot is permanently self-assembled code, but the content itself
     // hasn't changed since it healed). Must resolve WITHOUT a fresh
     // interpreter bridge.
     const std::uint64_t insns_before = gbarecomp::self_heal_interpreted_insns();
@@ -528,7 +526,7 @@ void test_mutable_ram_miss_reuses_healed_variant(gba::GbaBus& bus) {
          "a second repeat call with unchanged content re-interpreted");
 
     // A genuine content change (a different self-assembled variant lands
-    // at the same address) must still bridge + re-heal — the fast path
+    // at the same address) must still bridge + re-heal: the fast path
     // must never dispatch stale code.
     write_mov_bx_lr(bus.iwram_ptr(), off, 0xB2);
     const std::uint64_t insns_before_new = gbarecomp::self_heal_interpreted_insns();
@@ -615,7 +613,7 @@ void test_bridge_handoff_to_already_healed_callee(gba::GbaBus& bus) {
     check(wait_healed(kPcA, false),
          "callee A did not heal to native ahead of the handoff test");
 
-    // B is a genuinely unknown function, always dispatched via
+    // B is an unknown function, always dispatched via
     // runtime_dispatch_miss directly (Stage-1) below, never healed itself:
     //   MOV r2, lr      -- save LR (BL is about to clobber it)
     //   BL  A
@@ -741,7 +739,7 @@ void test_top_level_ram_bridge_is_resumable(gba::GbaBus& bus) {
     constexpr uint32_t kPc = 0x03001400u;
     const uint32_t off = kPc - 0x03000000u;
 
-    // B . — one instruction per bridge iteration, with no calls or returns.
+    // B . is one instruction per bridge iteration, with no calls or returns.
     put32(bus.iwram_ptr(), off, 0xEAFFFFFEu);
     g_cpu.R[14] = 0x08000280u;  // deliberately unusable as a stop address
     g_cpu.R[15] = kPc;
@@ -826,7 +824,7 @@ void test_ram_three_variant_alternation_no_reinterpretation(gba::GbaBus& bus) {
          std::to_string(gbarecomp::self_heal_interpreted_insns()) + ")");
 }
 
-// ── Test: a genuinely new variant (never seen at this address before) must
+// ── Test: a new variant (never seen at this address before) must
 //    still bridge through the interpreter and heal -- the multi-variant
 //    cache must never mask a real miss. ───────────────────────────────────
 void test_ram_genuinely_new_variant_still_bridges(gba::GbaBus& bus) {
@@ -970,7 +968,7 @@ void test_unmapped_region_never_heals() {
          "dispatch reported success for an unmapped-region PC");
 
     // Calling it again must stay a clean no-op (region_bytes' failure was
-    // remembered — this only proves it doesn't crash/loop on repeat).
+    // remembered: this only proves it doesn't crash/loop on repeat).
     gbarecomp::overlay_request_compile(kPc, false);
     check(!gbarecomp::overlay_query(kPc, false, nullptr),
          "retrying an unmapped-region PC healed on the second attempt");
@@ -982,7 +980,7 @@ void test_unmapped_region_never_heals() {
 // overlay_loader_reset_state_for_test() + overlay_loader_init() again in the
 // SAME process with the SAME cache_root/image id: the in-memory heal state
 // resets exactly like a fresh process would start, but the on-disk cache is
-// untouched — precisely what the background warm-loader now reads at init.
+// untouched: precisely what the background warm-loader reads at init.
 
 // Poll overlay_drain_ready for up to `timeout_ms`, letting the background
 // warm-load thread (and any worker-thread compiles it triggers) settle.
@@ -1230,8 +1228,8 @@ void stamp_newest_cache_dll(const std::string& cache_root, uint32_t pc,
 }
 
 // ── Test: multiple resident variants for one key are warm-loaded from disk
-//    on a fresh session, all without a single dispatch having happened —
-//    the multi-variant cache starts warm instead of only being populated by
+//    on a fresh session, all without a single dispatch having happened.
+//    The multi-variant cache starts warm instead of only being populated by
 //    live misses. ─────────────────────────────────────────────────────────
 void test_warm_load_multivariant_after_restart(gba::GbaBus& bus,
                                                const std::string& cache_root) {
@@ -1247,7 +1245,7 @@ void test_warm_load_multivariant_after_restart(gba::GbaBus& bus,
     }
     gbarecomp::overlay_loader_shutdown();
 
-    // Session 2: same cache_root/image — simulate a fresh process launch.
+    // Session 2: same cache_root/image. Simulate a fresh process launch.
     gbarecomp::overlay_loader_reset_state_for_test();
     gbarecomp::overlay_loader_init(cache_root, "ram_heal_test_image", nullptr);
     check(gbarecomp::overlay_enabled(), "self-heal did not re-activate for session 2");
@@ -1266,7 +1264,7 @@ void test_warm_load_multivariant_after_restart(gba::GbaBus& bus,
 }
 
 // ── Test: more cache files than kMaxVariantsPerKey exist on disk for one
-//    key — warm-load must cap at 10 and prefer the most-recently-modified
+//    key. Warm-load must cap at 10 and prefer the most-recently-modified
 //    files, not an arbitrary subset. ───────────────────────────────────────
 void test_warm_load_cap_prefers_most_recent(gba::GbaBus& bus,
                                             const std::string& cache_root) {
@@ -1310,7 +1308,7 @@ void test_warm_load_cap_prefers_most_recent(gba::GbaBus& bus,
     }
 
     // The 2 OLDEST files on disk (variants 0, 1) must NOT have been
-    // warm-loaded — the cap must have preferred the more recent 10.
+    // warm-loaded: the cap must have preferred the more recent 10.
     for (int i = 0; i < 2; ++i) {
         const uint8_t imm = static_cast<uint8_t>(0x70 + i);
         write_three_insn(bus.iwram_ptr(), off, imm, 0xC7u);
@@ -1340,8 +1338,8 @@ void test_warm_load_never_enters_on_live_mismatch(gba::GbaBus& bus,
     gbarecomp::overlay_loader_shutdown();
     gbarecomp::overlay_loader_reset_state_for_test();
 
-    // Before the new session even inits, live RAM changes to content that
-    // was NEVER cached for this pc — realistic: a fresh process does not, in
+    // Before the fresh session inits, live RAM changes to content that
+    // was NEVER cached for this pc. This is realistic: a fresh process does not, in
     // general, find IWRAM holding whatever a past session left there.
     write_mov_bx_lr(bus.iwram_ptr(), off, 0x81u);
 
@@ -1350,7 +1348,7 @@ void test_warm_load_never_enters_on_live_mismatch(gba::GbaBus& bus,
          "self-heal did not re-activate for the mismatch-test session");
 
     // Let the warm-load install the STRUCTURAL entry from disk (RAM warm-load
-    // does not check live bytes at install time — see warm_scan_ram).
+    // does not check live bytes at install time; see warm_scan_ram).
     uint64_t ram_healed = 0;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(5000);
     while (std::chrono::steady_clock::now() < deadline) {
@@ -1396,8 +1394,8 @@ void test_warm_load_races_organic_heal_no_corruption(gba::GbaBus& bus,
     gbarecomp::overlay_loader_shutdown();
     gbarecomp::overlay_loader_reset_state_for_test();
 
-    // Live bytes still hold the SAME content as the cached DLL this time —
-    // unlike the mismatch test above — so both the background warm-load
+    // Live bytes still hold the SAME content as the cached DLL this time,
+    // unlike the mismatch test above, so both the background warm-load
     // thread and an immediate organic dispatch race to install this key.
     gbarecomp::overlay_loader_init(cache_root, "ram_heal_test_image", nullptr);
     check(gbarecomp::overlay_enabled(),
@@ -1411,7 +1409,7 @@ void test_warm_load_races_organic_heal_no_corruption(gba::GbaBus& bus,
     settle_warm_load(3000);  // let any remaining warm-load activity finish
 
     // Whichever path won, dispatch must now be stable and correct across
-    // repeated calls — no corruption, no flapping, no re-interpretation.
+    // repeated calls: no corruption, no flapping, no re-interpretation.
     for (int i = 0; i < 5; ++i) {
         const std::uint64_t before = gbarecomp::self_heal_interpreted_insns();
         dispatch_ram_guard_miss(kPc, 0x90u);

@@ -1,4 +1,4 @@
-// gba_memory.cpp — memory map classification + mirror resolution.
+// gba_memory.cpp: memory map classification + mirror resolution.
 //
 // This file is intentionally small and reference-implementation style.
 // The hot bus path (gba_bus.cpp) consults `classify` and `resolve_offset`

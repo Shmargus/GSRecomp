@@ -5,19 +5,22 @@
 #include "rom_version.h"
 
 namespace gsr::radial_psynergy::tbs {
-// Field button poll 0x0800EAF8 (returns 0 while [0x03001EBC] is 0): masks
-// 0x02000450.. (L 0x200 at 0x02000458, R 0x100 at 0x0200045A) pick the shortcut words 0x02000460 / 0x02000462 for
-// the cast routine 0x0800EA60, which queues field + 0x17E as the Psynergy
-// menu does, for the dispatcher 0x0808E680. Ability records 0x0807EE58 (16 bytes, ids below 0x208, field
-// kind +0xC as dispatcher 0x0808E6A8 reads it); icons 0x0802DE88 (160) in
-// the common OBJ colours 0x0800779C; names text 0x333 + id.
+// Field button poll 0x0800EAF8 (returns 0 while [0x03001EBC] is 0). The masks
+// at 0x02000450.. (L 0x200 at 0x02000458, R 0x100 at 0x0200045A) pick the
+// shortcut words 0x02000460 / 0x02000462 for the cast routine 0x0800EA60.
+// That routine queues field + 0x17E for the dispatcher 0x0808E680, as the
+// Psynergy menu does. Ability records are at 0x0807EE58 (16 bytes, ids below
+// 0x208; the field kind at +0xC is read as dispatcher 0x0808E6A8 reads it).
+// Icons are at 0x0802DE88 (160), in the common OBJ colours 0x0800779C. Names
+// are text 0x333 + id.
 // Auto Field Psynergy (FACTS "Auto Field Psynergy", 5 November 2026). The
-// field loop's A (0x0808CAC4..0x0808CB42): A mask 0x02000450 against pressed
-// [0x03001C94]; talk when 0x0808DDEC([0x02000434]) != -1 and 0x0808D5A4 of it
-// is nonzero; else check when 0x0808CE74() is nonzero. The dispatcher, after
-// PP, searches the room's events ([field] + 0x10, 12 bytes, type 5 = Psynergy)
+// field loop handles A at 0x0808CAC4..0x0808CB42. It tests the A mask
+// 0x02000450 against pressed [0x03001C94]. It talks when
+// 0x0808DDEC([0x02000434]) != -1 and 0x0808D5A4 of that result is nonzero;
+// otherwise it checks when 0x0808CE74() is nonzero. The dispatcher, after PP,
+// searches the room's events ([field] + 0x10, 12 bytes, type 5 = Psynergy)
 // with 0x0808E4B4(category, kind, &out) for 0x10000005, 5, 0x50000005
-// (0x0808E7F4..0x0808E80E); event bit 0x80 matches anywhere in the room.
+// (0x0808E7F4..0x0808E80E). Event bit 0x80 matches anywhere in the room.
 inline bool a_acts() {
     const std::uint32_t target = guest(GS_ROM(0x0808DDECu), gbarecomp::active_bus()->read32(0x02000434u));
     if (target != 0xFFFFFFFFu && guest(GS_ROM(0x0808D5A4u), target)) return true;

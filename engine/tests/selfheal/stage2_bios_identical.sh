@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# stage2_bios_identical.sh — Stage-2 self-heal GFP1 byte-identity gate.
+# stage2_bios_identical.sh: Stage-2 self-heal GFP1 byte-identity gate.
 #
 # Proves that a runtime-recompiled (healed-to-native) BIOS function executes
 # instruction-for-instruction identically to the fully-static corpus, using the

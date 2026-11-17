@@ -94,16 +94,17 @@ constexpr int walk_speed_index(int halves) {
         if (kWalkSpeedHalves[i] == halves) return i;
     return 0;
 }
-// Saved values 0..3; Double was added after Off so saved files keep meaning.
+// Saved values 0..3. Double comes after Off in the list so existing saved
+// values keep their meaning.
 constexpr const char* kEncounterWords[4] = {"Normal", "Half", "Off", "Double"};
 // Fixed view mode 0 is Native 240x160, 1 the expanded view (runner options).
 inline constexpr auto& kScreenWords = gbarecomp::kViewModeLabels;
 // Enhanced Timing (60 Hz) and CPU Overclock (50x) together, through the
 // engine's F1 settings; On only while both are on.
 constexpr const char* kOnOffWords[2] = {"Off", "On"};
-// Better Field Psy (docs/features/IN_GAME_QOL.md): On runs a field
-// Psynergy cast at battle 2x and opens Reveal's circle to the whole view
-// (FieldSceneRenderer::set_reveal_full), and adds overworld Retreat travel.
+// Better Field Psy: On runs a field Psynergy cast at battle 2x speed, opens
+// Reveal's circle to the whole view (FieldSceneRenderer::set_reveal_full),
+// and adds overworld Retreat travel.
 constexpr const char* kFieldPsynergyWords[2] = {"Off", "On"};
 
 // Random encounters (FACTS.md, 2026-09-23). The field's encounter step

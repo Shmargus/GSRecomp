@@ -1,13 +1,9 @@
-# The developer/release game build for both games (replaces The Broken Seal's
-# build_lto.ps1 and The Lost Age's tla_build.ps1; see
-# Archive/2026-10-13-build-scripts/MANIFEST.txt). Nothing runs until the user
-# launches it. Per-game differences are in the $games table below; the shared
-# flow is the rest.
-# CPU is a Windows job hard cap; memory is a job-wide committed-memory cap
-# sized from physical RAM, not a promise of a particular Task Manager reading.
-# Other applications are outside these limits. Exceeding the memory budget
-# can fail an allocation/build; it does not throttle allocations until space frees.
-# References:
+# Shared developer and release build. Per-game settings are in $games.
+#
+# On Windows the job caps CPU and total committed memory. The memory cap
+# is sized from physical RAM and can cause allocations to fail. Other
+# applications are outside the job.
+#
 # https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_cpu_rate_control_information
 # https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_extended_limit_information
 [CmdletBinding()]
@@ -93,9 +89,8 @@ try {
         throw "The $BuildDir configuration is missing. Set it up first."
     }
     if ($cfg.BusyCheck) {
-        # Two builds at once corrupt each other's output.
-        $busy = Get-Process -Name ninja, cc1plus, lto1, lto-wrapper -ErrorAction SilentlyContinue
-        if ($busy) { throw 'Another build is running. Wait for it to finish.' }
+        . (Join-Path $PSScriptRoot 'build_guard.ps1')
+        if (Get-GsrBuildProcesses) { throw 'Another build is running. Wait for it to finish.' }
     }
     $mingw = 'C:/msys64/mingw64/bin'
     if (-not (Test-Path -LiteralPath "$mingw/mingw32-make.exe")) {

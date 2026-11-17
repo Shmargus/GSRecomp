@@ -22,6 +22,9 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
+#ifdef __ANDROID__
+#include "android_host.h"
+#endif
 
 namespace gsr_launcher {
 bool sha1_file(const std::filesystem::path&, std::string*);
@@ -33,12 +36,12 @@ inline void trim_newlines(std::string& value) {
     while (!value.empty() && (value.back() == '\r' || value.back() == '\n')) value.pop_back();
 }
 // The game's ROM check, the same one its session makes (launcher_common.h),
-// only the language its game's flag is set to; `any_rom` is that
-// game's "Skip the ROM check" setting.
+// except that it accepts only the language the game's flag is set to.
+// `any_rom` is that game's "Skip the ROM check" setting.
 inline bool validate(const fs::path& path, int choice, bool any_rom, std::string& error,
-                     int language) {
+                     int language, bool same_language = false) {
     return gsr_launcher::validate_rom(path, &error, gsr_launcher::kGames[choice], any_rom,
-                                      language);
+                                      language, same_language);
 }
 #ifndef _WIN32
 inline fs::path program(const char* name) {
@@ -127,6 +130,16 @@ inline bool pick(SDL_Window* window, const fs::path& folder, int choice, int lan
     }
     selected = filename.data();
     return true;
+#elif defined(__ANDROID__)
+    // The system file picker copies the file into the collection; the
+    // caller checks it and imports it as the PC launcher does.
+    (void)window;
+    (void)folder;
+    const fs::path copy = gsr_android::storage_root() / "local" / "picked-rom.gba";
+    const std::string picked = gsr_android::pick_file(title, copy);
+    if (picked.empty()) return false;
+    selected = fs::path(picked);
+    return true;
 #else
     (void)window;
     std::string output;
@@ -162,7 +175,7 @@ inline bool prepare_rom(SDL_Window* window, const fs::path& collection, int choi
         const auto cache = gsr_session::game_root(root, choice) / "local" / "launcher-rom.txt";
         const bool any_rom = gsr_session::load_launcher_audio_settings(
             gsr_session::game_root(root, choice)).any_rom;
-        const int language = rom_language(root,choice);
+        int language = rom_language(root,choice);
         fs::path selected;
         std::ifstream remembered;
         if (!ask) remembered.open(cache, std::ios::binary);
@@ -179,8 +192,23 @@ inline bool prepare_rom(SDL_Window* window, const fs::path& collection, int choi
             std::string ignored;
             if (rom_detail::validate(managed.rom, choice, any_rom, ignored, language)) selected = managed.rom;
         }
-        if (selected.empty() && !rom_detail::pick(window, root / "ROMs", choice, language, selected, error, step)) return false;
-        if (!rom_detail::validate(selected, choice, any_rom, error, language)) return false;
+        const bool picked = selected.empty();
+        if (picked && !rom_detail::pick(window, root / "ROMs", choice, language, selected, error, step)) return false;
+        if (!rom_detail::validate(selected, choice, any_rom, error, language, picked)) return false;
+        // A picked ROM that is the language's other revision (Reloaded under
+        // the English flag, or the clean ROM while Reloaded is chosen)
+        // switches to it: its own ROM, saves and game build. The caller sees
+        // the change in rom_language.
+        if (picked) {
+            const auto& game = gsr_launcher::kGames[choice];
+            std::string sha1;
+            const int found = gsr_launcher::sha1_file(selected, &sha1) ? gsr_launcher::rom_revision_of(game, sha1) : -1;
+            if (found >= 0 && found != language &&
+                gsr_launcher::rom_language_row(game, found) == gsr_launcher::rom_language_row(game, language)) {
+                if (!set_rom_language(root, found, choice)) { error = "Could not save the ROM choice."; return false; }
+                language = found;
+            }
+        }
         ManagedFiles managed;
         if (!import_selected_rom(root, selected, choice == 0 ? "The Broken Seal" : "The Lost Age", managed, error)) return false;
         if (!rom_detail::validate(managed.rom, choice, any_rom, error, language)) return false;

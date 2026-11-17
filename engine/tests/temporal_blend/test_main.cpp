@@ -1,5 +1,5 @@
 // VFX-FLICKER-02: synthetic tests for temporal_blend.h. No ROM, no SDL, no
-// real game frames — every buffer here is a hand-built synthetic pattern.
+// real game frames; every buffer here is a hand-built synthetic pattern.
 
 #include "temporal_blend.h"
 
@@ -18,13 +18,8 @@ void fail(const char* label) {
     std::exit(1);
 }
 
-// (a) Off is a bit-exact passthrough. "Off" means the caller never calls
-// temporal_blend_apply at all (weight 0 is not specially handled inside the
-// function — see temporal_blend.h). Model that contract here: the
-// present-path decision to skip blending at level 0 IS the passthrough, so
-// prove it the way host_window.cpp exercises it — by simply not calling the
-// blend and asserting the frame reaching the texture upload is the original
-// buffer, byte for byte.
+// Off bypasses temporal_blend_apply in host_window.cpp. Check that the
+// original bytes reach the texture upload when the blend is skipped.
 void test_off_is_passthrough() {
     const std::size_t kBytes = 240 * 160 * 3;
     std::vector<uint8_t> frame(kBytes);
@@ -33,8 +28,9 @@ void test_off_is_passthrough() {
     std::vector<uint8_t> reference = frame;
 
     // Level 0 == Off: host_window.cpp's blend_engaged gate is false whenever
-    // the blend index (temporal_blend_index) is 0, so present() never touches the buffer — model that
-    // by simply not invoking the blend and comparing against the original.
+    // the blend index (temporal_blend_index) is 0, so present() never touches
+    // the buffer. Model that by not invoking the blend and comparing against
+    // the original.
     const int level = 0;
     const bool blend_engaged = (level != 0);
     if (blend_engaged) fail("off_is_passthrough: blend unexpectedly engaged");
@@ -55,7 +51,7 @@ void test_off_is_passthrough() {
 // (b) Strong (index 3, weight 0.5) applied to an exact 2-frame alternating
 // pattern (frame A all 0x00, frame B all 0xFF, repeating) converges to the
 // steady 50/50 average after warmup. temporal_blend_apply blends against the
-// RAW (unblended) previous frame — see temporal_blend.h — so with a strictly
+// RAW (unblended) previous frame (see temporal_blend.h), so with a strictly
 // alternating raw input the blended output is the same constant on every
 // frame from the first blended one onward, not just in some asymptotic
 // limit; assert that stronger, exact property.
@@ -83,7 +79,7 @@ void test_strong_converges_on_exact_alternation() {
 
     // Frame 2 (A), previous raw = B. Same steady value, immediately (not
     // merely "eventually") for a true 50/50 blend against an exact
-    // alternation — the stronger property this test locks in.
+    // alternation: the stronger property this test locks in.
     temporal_blend_apply(a.data(), b.data(), out.data(), kBytes, weight);
     for (std::size_t i = 0; i < kBytes; ++i)
         if (out[i] != kExpected) fail("strong_converges: frame2 mismatch");
@@ -138,7 +134,7 @@ void test_first_frame_no_previous_is_passthrough() {
 }
 
 // VFX-FLICKER-03: synthetic tests for temporal_blend_apply_selective. All
-// buffers are single RGB888 pixels (3 bytes) unless noted, built by hand —
+// buffers are single RGB888 pixels (3 bytes) unless noted, built by hand;
 // no ROM, no real game frames.
 
 // (a) A pixel alternating A-B-A (frame1=A, frame2=B, frame3=A) is on an
@@ -167,7 +163,7 @@ void test_selective_alternating_pixel_is_blended() {
 }
 
 // (b) A pixel constant across all three frames matches BOTH prev and prev2,
-// so it is not flicker (matches_prev is true) — copy current through
+// so it is not flicker (matches_prev is true); copy current through
 // unchanged.
 void test_selective_constant_pixel_passthrough() {
     const uint8_t p[3] = {0x55, 0x66, 0x77};
@@ -179,7 +175,7 @@ void test_selective_constant_pixel_passthrough() {
 }
 
 // (c) A pixel changing every frame (frame1=A, frame2=B, frame3=C, all
-// distinct) has no N-2 match, so it is ordinary motion, not flicker —
+// distinct) has no N-2 match, so it is ordinary motion, not flicker;
 // current must pass through unchanged.
 void test_selective_moving_pixel_passthrough() {
     const uint8_t frame_a[3] = {0x10, 0x20, 0x30};
@@ -196,7 +192,7 @@ void test_selective_moving_pixel_passthrough() {
 }
 
 // (d) Frames 1 and 2 (no real prev2 yet) must pass current through
-// untouched — mirrors host_window.cpp's temporal_blend_history_count gate
+// untouched: mirrors host_window.cpp's temporal_blend_history_count gate
 // (present() never calls temporal_blend_apply_selective until history_count
 // >= 2), modeled here the same way test_first_frame_no_previous_is_passthrough
 // models the whole-frame gate above.
@@ -223,7 +219,7 @@ void test_selective_first_two_frames_passthrough() {
 }
 
 // (e) Per-byte false positive: a pixel where only ONE channel matches frame
-// N-2 (R matches, G and B don't) must NOT be treated as flicker — the
+// N-2 (R matches, G and B don't) must NOT be treated as flicker; the
 // compare is per PIXEL (all 3 channels together), not per byte. If this
 // were compared per byte, the R channel alone would look like an
 // alternating byte and get blended while G/B didn't; the correct behavior

@@ -1,13 +1,12 @@
-// relocatable_identity.h — code-only identity hashing for RAM code images.
+// relocatable_identity.h: code-only identity hashing for RAM code images.
 //
-// GS-011 established the defect class (docs/GS011_TRANSIENT_IMAGES.md,
-// "Hashing data as if it were code"): an image's identity hash must cover
-// bytes the copy's WRITER leaves alone, not the whole copied extent. Every
-// fixed-address and relocatable image so far paid for that by trimming a
-// trailing literal pool off the hashed extent. Func_b5138 self-relocates a
-// jump table into the MIDDLE of its own extent (declared [[data_range]]
-// blocks that are not at the tail), so trimming the extent cannot express
-// the fix — the hash has to skip interior holes instead.
+// GS-011 established the defect class ("Hashing data as if it were code"):
+// an image's identity hash must cover bytes the copy's WRITER leaves alone,
+// not the whole copied extent. Most images handle this by trimming a trailing
+// literal pool off the hashed extent. Func_b5138 self-relocates a jump table
+// into the MIDDLE of its own extent (declared [[data_range]] blocks that are
+// not at the tail), so trimming the extent cannot express the exclusion. The
+// hash has to skip interior holes instead.
 //
 // This header is the shared, testable core of that skip: pure logic over a
 // byte reader, no guest-bus dependency, so it can be exercised with a
@@ -26,7 +25,7 @@ namespace gsr {
 
 // A byte range excluded from a code-identity hash, expressed as [start, end)
 // offsets from the image's base (i.e. from wherever it is currently
-// resident) — the same offsets a declared [[data_range]] uses relative to
+// resident): the same offsets a declared [[data_range]] uses relative to
 // the image's origin, since a relocatable image's data ranges move with the
 // base by construction.
 struct ByteRange {

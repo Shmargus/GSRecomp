@@ -24,6 +24,9 @@
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#ifdef __ANDROID__
+#include "android_host.h"
+#endif
 extern char** environ;
 #endif
 
@@ -86,6 +89,15 @@ inline bool request_releases(std::string& reply) {
         if (count > kMaxReply - reply.size()) return false;
         reply.append(chunk, count);
     }
+}
+#elif defined(__ANDROID__)
+// Android has no curl: the app's own HTTPS (android_host.h).
+inline bool request_releases(std::string& reply) {
+    const int status = gsr_android::http_request(
+        std::string("https://") + gsr_online::kReleasesApiHost + gsr_online::kReleasesApiPath,
+        {std::string("User-Agent: ") + gsr_online::kUserAgent,
+         "Accept: application/vnd.github+json"}, {}, &reply);
+    return status == 200 && reply.size() <= kMaxReply;
 }
 #else
 inline bool request_releases(std::string& reply) {

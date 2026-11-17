@@ -1,4 +1,4 @@
-// obj_recorder.h — GSR_OBJ_RECORD sprite-placement census.
+// obj_recorder.h: GSR_OBJ_RECORD sprite-placement census.
 //
 // The question this exists to answer, and nothing else: WHICH committed
 // sprites can be given a full-precision position, and which cannot?

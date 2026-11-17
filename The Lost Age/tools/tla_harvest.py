@@ -34,18 +34,21 @@ ROM_SHA1 = "b500663220cb9bf56b9f8e8c0c544f1d6fa3a824"
 MAGIC = b"GBAPIC5\0"
 ORIGIN = 0x02000000          # translation origin of every family
 SOURCE = 0x08C00000          # where harvest.gba holds the packed families
-# Translation-only image: blitters.gba is separate, and TLA_HARVEST runtime
-# matching uses expected bytes / RAM origin, never these SOURCE addresses
+# This image is only read by the translator. blitters.gba is a separate
+# image. At run time, TLA_HARVEST matches routines by their expected bytes and
+# RAM origin, never by these SOURCE addresses
 # (tla_recompile.py:image; tla_ram_images.cpp:Family/build_family_index).
-# 2026-10-17: 13,681 pieces pack into 6,566 routines / 4,190,336 bytes,
-# ending at 0x08FFF080, beyond the old 0x08F00000 blitter boundary.
+# Measured 2026-10-17: 13,681 pieces pack into 6,566 routines / 4,190,336
+# bytes, ending at 0x08FFF080, which is beyond the 0x08F00000 blitter
+# boundary.
 SOURCE_END = 0x0A000000      # exclusive end of the 32 MiB GBA ROM window
 STRIDES = (0x40, 0x100, 0x400, 0x1000)
 GROUP = 64
-# 2026-10-17: harv73's 125,240,222-byte block unit exhausted build memory.
-# Existing 32-way function sharding makes the largest large-stride unit
-# 5,261,927 bytes; three large units compiled at a 610,156,544-byte job peak.
-# Smaller-stride families stay whole; packing and identities do not change.
+# Measured 2026-10-17: compiling harv73 as one 125,240,222-byte block unit
+# exhausted build memory. The 32-way function sharding already in use makes
+# the largest large-stride unit 5,261,927 bytes; three large units compiled
+# at a 610,156,544-byte job peak. Smaller-stride families stay whole. The
+# sharding does not change packing or routine identities.
 
 # F12 tla_rewind_0001/0002: the live Thumb function at 0x0200B6A8
 # compares world-object descriptor x/z with the camera focus box.

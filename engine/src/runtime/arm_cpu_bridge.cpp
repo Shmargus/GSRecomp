@@ -1,4 +1,3 @@
-// arm_cpu_bridge.cpp — see arm_cpu_bridge.h.
 
 #include "arm_cpu_bridge.h"
 

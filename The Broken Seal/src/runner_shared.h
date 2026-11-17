@@ -166,7 +166,7 @@ extern "C" const std::uint32_t gsr_funca418_pic_kImageOrigin;
 extern "C" const std::uint32_t gsr_funca418_pic_kImageSize;
 // The spell canvas's six DMA3-copied stack blobs, each a single ARM
 // STT_FUNC-sized routine copied by its own wrapper (Func_54e4, Func_5534,
-// 0x08005490, 0x0800543C, 0x0800562C, 0x0800567C — all the same shape):
+// 0x08005490, 0x0800543C, 0x0800562C, 0x0800567C; all the same shape):
 // "copy and fade" (ROM 0x08001ea8, 0x50 bytes), "copy and halve" (ROM
 // 0x08001ef8, 0x40 bytes), Func_1f38 (0x80 bytes), Func_1fb8 (0x84 bytes),
 // Func_203c (0x5c bytes) and Func_2098 (0x5c bytes). Each wrapper's
@@ -309,7 +309,7 @@ struct TransientCodeImage {
 // A RAM code image whose translation is position-independent: guest addresses
 // inside it are computed from g_runtime_image_base, so one corpus dispatches
 // at every base the game copies the routine to. `origin` is the address the
-// corpus was generated at — the dispatch table is expressed in it, and a live
+// corpus was generated at; the dispatch table is expressed in it, and a live
 // PC is translated by subtracting the verified base.
 //
 // This is what turns the relocatable pool from an unbounded enumeration into a
@@ -339,15 +339,18 @@ struct SettingsPageFont {
     std::uint8_t widths[256 - 0x20] = {};
 };
 
-// The questions are asked with the game still running, so its music and
-// the questions' sounds play, held in the game's own frame routine: on entry
-// Func_77f40 (Thumb) returns at once into the frame routine 0x080030F8(1)
-// (Thumb), whose return comes back to its own entry once a frame until both
-// are answered; then it returns into Func_77f40 with its saved arguments and
-// return address, and the new game goes on. The engine runs, draws and reads
-// keys frame by frame as usual (a guest_call loop would not: the launcher
-// turns present-in-place off, so nothing is shown or read inside a call).
-// The keys go to the questions only (cheat_menu_keyinput_filter).
+// The questions are asked while the game keeps running, so its music and the
+// questions' sounds play. The game is held inside its own frame routine:
+//  - On entry, Func_77f40 (Thumb) returns at once into the frame routine
+//    0x080030F8(1) (Thumb).
+//  - That routine's return address is set to its own entry, so it runs once
+//    per frame until both questions are answered.
+//  - Then it returns into Func_77f40 with the saved arguments and return
+//    address, and the new game goes on.
+// The engine runs, draws and reads keys frame by frame as usual. A guest_call
+// loop would not work: the launcher turns present-in-place off, so nothing is
+// shown or read inside a call. The keys go to the questions only
+// (cheat_menu_keyinput_filter).
 enum class QuestionHold { Off, Waiting, Resuming };
 
 // Seamless mode at the end of the game (seamless_mode.h). Emulation thread.

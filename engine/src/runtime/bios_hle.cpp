@@ -1,4 +1,4 @@
-// bios_hle.cpp — opt-in High-Level Emulation of GBA BIOS SWI calls.
+// bios_hle.cpp: opt-in High-Level Emulation of GBA BIOS SWI calls.
 //
 // See bios_hle.h for the design (opt-in, LLE stays the oracle, unimplemented
 // SWIs fall through to the recompiled BIOS). This file services a SWI by
@@ -18,7 +18,7 @@
 //
 // FLOAT NOTE: the affine SWIs (BgAffineSet/ObjAffineSet) and MidiKey2Freq use
 // host float math (matching mGBA), which can differ from the real BIOS fixed
-// point in the low bits — another reason LLE stays the oracle.
+// point in the low bits; another reason LLE stays the oracle.
 
 #include "bios_hle.h"
 
@@ -456,7 +456,7 @@ void do_midi_key_2_freq() {
 // Returns 1 (serviced in HLE) or 0 (fall through to the recompiled LLE BIOS).
 // The default of any un-cased SWI is 0, so LLE handles everything HLE omits
 // (SoftReset/RegisterRamReset/Halt/Stop/IntrWait/VBlankIntrWait, the sound
-// driver SWIs, MultiBoot, …) — those need the halt/IRQ/reset machinery the
+// driver SWIs, MultiBoot, …): those need the halt/IRQ/reset machinery the
 // recompiled BIOS already implements exactly, and mGBA's own HLE likewise
 // delegates them.
 int dispatch(uint32_t swi) {
@@ -513,7 +513,7 @@ void bios_hle_set_mode(BiosHleMode mode) {
 void bios_hle_boot_skip(uint32_t cart_entry) {
     // Synthesize the state the real BIOS leaves when it hands off to the cart
     // (GBATEK "GBA Reset"; the same state NanoBoyAdvance / mGBA HLE reproduce),
-    // then jump straight to the cart entry — the boot logo/chime never runs.
+    // then jump straight to the cart entry; the boot logo/chime never runs.
     // reset_recomp_cpu() already seeded the canonical banked SPs; we flip to
     // System mode, point the active SP at the System/User bank, clear the
     // low registers, and zero the user IRQ-handler pointer the recompiled BIOS

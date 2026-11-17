@@ -1,4 +1,4 @@
-// gba_bus.h — Concrete MemoryBus for the GBA.
+// gba_bus.h: Concrete MemoryBus for the GBA.
 //
 // Owns backing storage for EWRAM (256 KB), IWRAM (32 KB), PAL (1 KB),
 // VRAM (96 KB), OAM (1 KB). BIOS reads delegate to the GbaBios
@@ -7,7 +7,7 @@
 //
 // IO accesses dispatch to an owned GbaIo (1 KB IO page handler).
 // Unknown IO offsets still surface via log_unmapped(), but recognised
-// registers persist across reads/writes — without that, the BIOS's
+// registers persist across reads/writes; without that, the BIOS's
 // SOUNDBIAS-ramp loop spins forever waiting for hardware state.
 
 #pragma once
@@ -63,16 +63,17 @@ public:
     // The GBA has no pull resistors on the data bus: a read of the protected
     // BIOS region (00000000-00003FFF from outside the BIOS) or of any unmapped
     // address returns the most recently PRE-FETCHED opcode, not 0. Games rely on
-    // it (MC-HP-002: a NULL-animation-group deref reads the BIOS region; the
+    // it (MC-HP-002: a NULL-animation-group deref reads the BIOS region. The
     // open-bus value's high byte has bit7 set, so the frame-list walker
-    // terminates — returning 0 made it march forever).
+    // terminates. Returning 0 made it march forever).
     //
-    // latch_bios_prefetch() is called once per guest instruction WHILE PC is in
-    // the BIOS, so when the BIOS hands control to the cart, bios_prefetch_ holds
-    // the prefetch at the exit instruction (== mGBA's biosPrefetch; for the GBA
-    // SWI return at BIOS 0x188 that is mem[0x190]=0xE3A02004). note_pc() stashes
-    // the live PC each bus access so an UNMAPPED read returns the CURRENT
-    // prefetch (the executing code's $+8/$+4 word).
+    // latch_bios_prefetch() is called once per guest instruction while the PC
+    // is in the BIOS. When the BIOS hands control to the cart, bios_prefetch_
+    // therefore holds the prefetch at the exit instruction (the same as mGBA's
+    // biosPrefetch; for the GBA SWI return at BIOS 0x188 that is
+    // mem[0x190]=0xE3A02004). note_pc() stashes the live PC on each bus
+    // access, so an UNMAPPED read returns the CURRENT prefetch (the executing
+    // code's word at PC+8 in ARM state, PC+4 in THUMB state).
     void latch_bios_prefetch(uint32_t pc, bool thumb) {
         bios_prefetch_ = prefetch_word(pc, thumb);
     }
@@ -111,7 +112,7 @@ public:
     GbaRtc&       rtc()       { return rtc_; }
     const GbaRtc& rtc() const { return rtc_; }
 
-    // Region accessors — useful for tests, debug snapshots, and the
+    // Region accessors: useful for tests, debug snapshots, and the
     // PPU (which reads VRAM/OAM/PAL directly to render).
     uint8_t* ewram_ptr() { return ewram_.data(); }
     uint8_t* iwram_ptr() { return iwram_.data(); }
@@ -174,7 +175,7 @@ public:
     // (EWRAM/IWRAM/PAL/VRAM/OAM) plus bus-local scalars. The owned
     // GbaIo / GbaAudio / GbaSave are serialized separately by the
     // orchestrator via io()/audio()/save(). The BIOS image and ROM
-    // bytes are NOT serialized — they are reloaded (and hash-verified)
+    // bytes are NOT serialized; they are reloaded (and hash-verified)
     // on launch, and the snapshot's ROM-SHA-1 gate guarantees a match.
     // See debug/snapshot.h.
     void serialize(gbarecomp::debug::SnapshotWriter& w) const;

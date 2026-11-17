@@ -428,7 +428,7 @@ void rab_pull(rab_bridge *b, int16_t *out, int frames) {
                    && (int64_t)b->in_count > (int64_t)(2 * b->half + 4)) {
             /* Producer stalled: conceal by looping the most recent audio,
              * pitch-aligned, instead of fading to silence. out_pos is held at the
-             * stall edge so live play resumes seamlessly once the producer
+             * stall edge so live play resumes without a gap once the producer
              * recovers (the concealed time becomes latency the servo drains). */
             if (!b->concealing) {
                 int64_t end_i = (int64_t)b->in_count - b->half - 1;

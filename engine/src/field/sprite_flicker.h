@@ -40,8 +40,14 @@ inline constexpr int kSpriteFlickerReach = 4;
 // tile, but that copy sits about 200 pixels away (parked below the screen).
 inline constexpr int kSpriteFlickerGone = 32;
 
+// Affine (zoomed or turned) sprites are never candidates: one put back from
+// last frame would be drawn with THIS frame's transform group, which the game
+// may have changed or cleared. The Psynergy menu's selected icon (affine,
+// group 0) is the measured case: leaving it clears group 0 to zeros, and the
+// put-back icon drew as a solid 32x32 block of its centre colour
+// (gpu_rewind_0102, 15 November 2026). The title flare's halos are not affine.
 inline bool sprite_flicker_candidate(const SceneObject& o) {
-    return o.present && !o.window;
+    return o.present && !o.window && !o.affine;
 }
 
 // Same artwork and drawing attributes; position is compared separately.

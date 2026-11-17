@@ -1,4 +1,4 @@
-// host_local_music.h — host-side "local music" player (music mods): WAV or
+// host_local_music.h: host-side "local music" player (music mods) for WAV or
 // FLAC recordings from GBARECOMP_MUSIC_DIR's folders ("<disc>-<NN> <title>"),
 // streamed beside the game audio and looping where each folder's loops.txt
 // says (MUSIC_MODS.md). Owned by host_window.cpp's

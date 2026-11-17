@@ -173,7 +173,7 @@ REVIEWED_THUMB_LITERAL_OVERRIDES = (
 
 # ROM functions that strict-static execution has shown to take an asynchronous
 # IRQ return at an interior instruction. Listing individual PCs for these was a
-# crawl — each build surfaced the next instruction of the same loop — so the
+# crawl (each build surfaced the next instruction of the same loop), so the
 # whole ELF-bounded function is declared instead and `derive_resume_ranges`
 # splits it around its own `$d` literal pools. Membership still requires an
 # observed resume: this is not a whole-program policy.
@@ -289,7 +289,7 @@ REVIEWED_RESUME_FUNCTIONS = (
         "note": "observed resume at 0x080219a6 (Func_21950+0x56)",
     },
     # Second crawl iteration on the 2026-08-08 fight route: surfaced once the
-    # first pair below was seeded. Each verified against the pinned ELF —
+    # first pair below was seeded. Each verified against the pinned ELF:
     # containing sized STT_FUNC, miss PC inside that function's $t run.
     {
         "addr": 0x08005268,
@@ -955,7 +955,7 @@ REVIEWED_RESUME_FUNCTIONS = (
         "mode": "thumb",
         "note": "observed resume at 0x080be76c (Func_be378+0x3f4)",
     },
-    # User save-state-1 play session at frame 9,066, 2026-08-08. These are the
+    # Save-state-1 play session at frame 9,066, 2026-08-08. These are the
     # only self-heals from that run whose identities and extents are static:
     # three ARM functions in the boot [[code_copy]], plus fourteen ROM THUMB
     # functions. The observed PCs were checked against their sized ELF
@@ -1356,7 +1356,7 @@ REVIEWED_RESUME_POINTS = (
         )
     ),
     # The Func_1dc8 image DMA-copied to 0x0300387c is a flash driver that spins
-    # for milliseconds, so a VBlank resume can land on any of its ARM words —
+    # for milliseconds, so a VBlank resume can land on any of its ARM words:
     # first inside the `ldmdb` loop at 0x03003890, later inside the subroutine
     # at 0x030038d4. `[[resume_range]]` cannot express this: the image is
     # reached through an [[extra_func]] `source_addr`, not a declared
@@ -1740,7 +1740,7 @@ REVIEWED_DISPATCH_MISS_SEEDS = tuple(
 # through 0x03000818 copies one of the ELF-marked templates at 0x030008D4,
 # 0x030008EC, or 0x03000904 across the placeholder span ending at 0x030008B0.
 # Control then enters the synthesized image at 0x03000828. The immutable
-# 0xFEDCBA98 words remain data; this declaration only creates an honest
+# 0xFEDCBA98 words remain data; this declaration only creates a real
 # external dispatch boundary for an identity-aware runtime hook.
 REVIEWED_RUNTIME_CODE_ENTRIES = (
     {
@@ -1889,35 +1889,34 @@ REVIEWED_POINTER_TABLES = (
 )
 
 
-# GS-011 execution is now inside the `rom_9000` cluster (0x08009000..0x0801404c):
+# GS-011 execution reaches the `rom_9000` cluster (0x08009000..0x0801404c):
 # Func_cacc, Func_c62c, the Data_13624/Data_136e0 handler tables and everything
-# they reach live there. Every wall since the Func_8fefc jump table has been the
-# same shape — an exact ELF STT_FUNC/$t entry that the corpus files as
+# they reach live there. Every wall since the Func_8fefc jump table has had the
+# same shape: an exact ELF STT_FUNC/$t entry that the corpus files as
 # `confidence = "unresolved"` purely because its declared extent contains
 # ELF-marked literal pools (see `function_transitions` in
-# import_main_symbols.py), so the finder never reaches it and nothing seeds it.
+# import_main_symbols.py). The finder never reaches it, so nothing seeds it.
 #
 # That is a corpus conservatism, not missing evidence: those symbols passed
 # every entry-level check (symtab value, mapping-symbol mode, PT_LOAD source,
 # alignment, non-overlap) and differ from the proven set only in their
-# interiors. Seeding the whole cluster at once replaces a one-function-per-build
+# interiors. Seeding the whole cluster at once avoids a one-function-per-build
 # crawl.
 #
 # Scope is every executable ROM section from the reset vector through
 # `rom_8a000`, plus `rom_a1000` and `rom_c9000`. `rom_a1000` and `rom_c9000`
-# were previously held back by a finder defect: the compiler emits long
-# intra-function branches at 0x080ac342 (in `rom_a1000`) and 0x080e578a /
-# 0x080e5ac6 (in `rom_c9000`) as `BL`, and the finder treated a `BL` as a
-# returning call, so it resumed decoding at literal-pool bytes correctly
-# marked `$d`. That defect is now fixed in the engine's function finder: it
-# recognises a `BL` whose CONTINUATION address `pc + 4` lands inside a declared
-# `data_range` as non-returning and does not enqueue it. (The test is on the
-# continuation, not the branch target, and on the declared data_range, not the
-# caller's ELF extent - a returning call cannot have a literal pool as its
-# return address, which is what makes the collision proof rather than a
-# heuristic.) Both sections are therefore seeded here; the acceptance gate is
-# the collision-free regeneration this change was made under, not a re-review
-# of every symbol in the two sections.
+# were held back by a finder defect: the compiler emits long intra-function
+# branches at 0x080ac342 (in `rom_a1000`) and 0x080e578a / 0x080e5ac6 (in
+# `rom_c9000`) as `BL`, and the finder treated a `BL` as a returning call, so
+# it resumed decoding at literal-pool bytes correctly marked `$d`. The
+# engine's function finder now treats a `BL` as non-returning, and does not
+# enqueue it, when its CONTINUATION address `pc + 4` lands inside a declared
+# `data_range`. (The test is on the continuation, not the branch target, and
+# on the declared data_range, not the caller's ELF extent. A returning call
+# cannot have a literal pool as its return address, which makes the collision
+# a proof rather than a heuristic.) Both sections are therefore seeded here.
+# The acceptance gate is a collision-free regeneration, not a re-review of
+# every symbol in the two sections.
 #
 # `rom_770` is the IWRAM image already covered by [[code_copy]] and its own
 # explicit reviewed entries, so it is not seeded wholesale here.
@@ -1945,7 +1944,7 @@ REVIEWED_SEED_SECTIONS = (
 # (Func_888 at runtime 0x03000118) returns to that address with the T bit set,
 # and execution continues at site+4. The continuation is straight-line THUMB
 # code inside the same ELF-bounded function, but it is only ever reached by an
-# inter-mode dispatch, so it needs an explicit entry — the same situation as the
+# inter-mode dispatch, so it needs an explicit entry. This is the same situation as the
 # already reviewed 0x0800fca0, 0x0800fcb0 and 0x0801cc64/74/84 resumes. GS-011
 # strict-static stopped at exactly one of these, 0x0800cc94 (Func_cacc+0x1c8),
 # with r12 = 0x0800cc94 on the exchange into Func_888.
@@ -1964,7 +1963,7 @@ THUMB_BX_VALUE = 0x4700
 # directly: `ldr r4,[pc,#0]` loads the absolute target from the word that
 # follows, then `bx r4` exchanges to it. That word is `$d` data and the
 # veneer's own entry (`+0x0`) is an ordinary dispatchable STT_FUNC symbol, but
-# `+0x2` — the `bx r4` halfword — is only ever reached by falling out of
+# `+0x2`, the `bx r4` halfword, is only ever reached by falling out of
 # `+0x0`, never by a discovery walk that starts there, so it needs the same
 # explicit resume treatment as the `MOV ip,pc; BX rN` continuations above.
 # GS-011 self-heal discovery hand-reviewed exactly one of these the expensive

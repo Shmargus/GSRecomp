@@ -2,11 +2,13 @@
 
 // Which Golden Sun ROM this build runs, and where an English address is in it.
 //
-// Feature code names USA/Europe ROM addresses. A localized ROM (Spain, Italy, France, Germany)
-// is its own revision: most code moved, ~160 routines changed (FACTS.md
-// "Localized ROMs"). Each language gets its own game library, generated from
-// that ROM; the library exports the SHA-1 it was generated from, so the
-// version is known before any feature installs. German global RAM slots also move; gs::ram() maps those measured slots.
+// Feature code names USA/Europe ROM addresses. A localized ROM (Spain, Italy,
+// France, Germany) or a supported patched ROM (Golden Sun Reloaded) is its own
+// revision: most code moved and ~160 routines changed (FACTS.md "Localized
+// ROMs"). Each language gets its own game library, generated from that ROM;
+// the library exports the SHA-1 it was generated from, so the version is known
+// before any feature installs. German global RAM slots also move; gs::ram()
+// maps those measured slots.
 // Overlay-relative addresses and text IDs have their own measured maps below.
 //
 // gs::rom(usa)   the loaded revision's address for a USA ROM address; aborts
@@ -27,13 +29,17 @@
 
 namespace gs {
 
-// In the row order of src/rom_revisions.inc.
+// The language the loaded ROM plays as, in the row order of
+// src/rom_revisions.inc. A patched revision (Reloaded) reports the language
+// it is a patch of; gs::reloaded() tells it apart.
 enum class RomVersion : std::uint8_t { Usa, Spain, Italy, France, Germany };
 
 // The SHA-1 the game library was generated from (lower-case hex).
 const char* game_rom_sha1();
 RomVersion rom_version();
 const char* rom_version_name();
+// Golden Sun Reloaded 1.83a (an English patch; rom_version() is Usa).
+bool reloaded();
 
 std::uint32_t rom(std::uint32_t usa);
 std::uint32_t ovl(const char* overlay_id, std::uint32_t usa);

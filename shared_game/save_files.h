@@ -19,11 +19,8 @@ constexpr int kFiles = 9;      // what the player sees
 constexpr int kRows = 3;       // the game's box, and the files the cartridge holds
 constexpr int kLastBase = kFiles - kRows;
 
-// File 9 is the Autosave (autosave.h; Jimmy, 7 November 2026): shown first
-// in the list, written only by the autosave, never offered to a manual save.
-// It stays last in storage, so files 1-8 keep their places. Every index the
-// file box works with is a shown position; the save layers store
-// stored_file(shown).
+// Autosave uses stored slot 9 and appears first. Manual saves use slots
+// 1-8. Convert the displayed row with stored_file(shown) before saving.
 constexpr int kAutosaveFile = kFiles - 1;
 constexpr int kAutosaveShown = 0;
 inline int stored_file(int shown) { return shown == kAutosaveShown ? kAutosaveFile : shown - 1; }

@@ -176,9 +176,7 @@ configure_release "$tla_build" -S "$tla_repo" -B "$tla_build" -G Ninja \
     "-DTLA_GENERATED_DIR=$tla_corpus/main" \
     -DTLA_SPLIT_GAME_CODE=ON -DTLA_GAME_CODE_OPT=-Og \
     -DTLA_ENABLE_LTO=ON \
-    -DTLA_RELEASE_LAUNCHER=ON \
     "-DGSR_LINUX_DEV_LAUNCHER=$([ "$dev" = 1 ] && echo ON || echo OFF)" \
-    -DTLA_PLAYER_RELEASE=ON \
     "-DFETCHCONTENT_SOURCE_DIR_IMGUI=$imgui_source" \
     "-DFETCHCONTENT_SOURCE_DIR_TOMLPLUSPLUS=$toml_source" \
     "-DGSR_RELEASE_VERSION=$version" "-DGSR_REPORT_HOST=$report_host" \
@@ -234,8 +232,10 @@ sed 's/#.*//' "$usa/game_code_plan.txt" | while read -r kind _ toml _; do
     if [ "$kind" = transient ]; then cp "$usa/$toml" "$data/"; fi
 done
 cp "$usa"/overlays/*.toml "$data/overlays/"
-# Localized ROMs use their own measured configs and overlay source addresses.
-for language in es it fr de; do
+# Every revision after USA/Europe in the revision list (the languages, then
+# patched ROMs such as Reloaded) has its own measured configs.
+later_revisions() { sed -n 's/^GSR_ROM_REVISION("\([a-z][a-z]\)".*/\1/p' "$1" | tail -n +2; }
+for language in $(later_revisions "$repo/src/rom_revisions.inc"); do
     localized=$repo/config/$language
     localized_data=$data/$language
     mkdir -p "$localized_data/overlays"
@@ -417,7 +417,7 @@ install -m 755 -s "$tla_build/tla_builder" "$tla_builder/gsr_builder"
 install -m 755 -s "$tla_recompiler" "$tla_builder/"
 cp "$tla_repo/config/tla/main.toml" "$tla_builder/data/"
 cp "$tla_repo"/config/tla/reloc/*.toml "$tla_builder/data/reloc/"
-for language in es it fr de; do
+for language in $(later_revisions "$tla_repo/src/tla_rom_revisions.inc"); do
     mkdir -p "$tla_builder/data/$language/reloc"
     cp "$tla_repo/config/$language/main.toml" "$tla_builder/data/$language/"
     cp "$tla_repo"/config/"$language"/reloc/*.toml "$tla_builder/data/$language/reloc/"

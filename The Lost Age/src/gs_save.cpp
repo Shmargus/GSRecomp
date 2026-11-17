@@ -38,9 +38,8 @@ void add_cleared(std::vector<ClearSlot>& out, unsigned number,
     for (unsigned c = 0; c < 4; ++c)
         names_ok &= character_name(body + 0x500 + c * 0x14C);
     if (!names_ok) return;
-    // Challenge Mode files stay in The Broken Seal (Jimmy, 5 November 2026);
-    // its bytes are payload +0x28 (runner_main.cpp's Challenge Mode install).
-    // A randomized run (payload +0x30, +0x38) goes on (7 November 2026).
+    // Import the randomizer data at payload +0x30 and +0x38. Leave Challenge
+    // Mode data at +0x28 in The Broken Seal (see its runner_main.cpp).
     if (gsr::challenge::decode(body + 0x28).size > 0) return;
     ClearSlot slot{};
     slot.slot = number;

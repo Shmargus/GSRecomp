@@ -630,7 +630,8 @@ All null or off by default and installed by the game's runner. `RunOptions`:
 
 Present upstream, not carried here because none of it is needed to build:
 
-- `.github/` and `.claude/` â€” upstream's CI config and editor skills.
+- `.github/` and upstream's editor settings folder: CI config and editor
+  settings.
 - `oracle/` â€” the mGBA-backed co-simulation oracle. It is off by default
   (`GBARECOMP_BUILD_ORACLE=OFF`) and needs a `libmgba` this repository does not
   carry.

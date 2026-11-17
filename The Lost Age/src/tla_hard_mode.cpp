@@ -8,9 +8,9 @@
 // Golden Sun 1's Hard Mode: enemies get 1.5x HP and 1.25x Attack and
 // Defence. Every new game offers Hard Mode on the New Game checklist
 // (src/tla_new_game.cpp), and the settings screen's Auto-Sleep row becomes a
-// Difficulty row (Normal, Scaled, Hard, Hard Scaled). That one byte is the only switch, so answering Hard on a
-// Clear Data file, the checklist row and the settings row are the same thing
-// and never stack.
+// Difficulty row (Normal, Scaled, Hard, Hard Scaled). That one byte is the
+// only switch, so answering Hard on a Clear Data file, the checklist row and
+// the settings row are the same thing and never stack.
 //
 // Enemies. Setup 0x080AFBEC copies the monster's table entry into its unit
 // (r5): base HP +0x10, also max HP +0x34 and HP +0x38; base Attack +0x18;
@@ -26,24 +26,23 @@
 // "Play on EASY level?" (text 0x25, at 0x020085B2), "Play on HARD level?"
 // (0x27, at 0x02008648; Yes stores 2) and "Play on Normal level?" (0x28; No
 // asks again from Easy). Those stay the game's own; the checklist follows
-// them and shows Hard ticked when Hard was answered. (Until 5 November 2026
-// the runner forced the Hard question on files without Clear Data.)
+// them and shows Hard ticked when Hard was answered.
 //
-// Settings. Setup 0x0803FC38 copies Auto-Sleep [0x0200048A] into the screen;
-// A stores it back there and into the live flag 0x03001200 and branches
-// (0x08040528) past B's call to 0x0803F9C0; both then call 0x0803FD14 from
-// 0x0804058E. The runner shows Hard Mode in that byte while the screen is
-// open and takes it back on that last call, so Auto-Sleep itself stays 0
-// (after B the byte still holds what setup showed: no change). The idle count that sleeps after 10800 frames
-// (0x08013610 `beq` on the live flag) is always skipped, and the "In Sleep
-// Mode..." notice (0x1161, shown when the row is turned on, 0x080404D2) is
-// never shown. The row's label and help line are replaced (src/tla_text.cpp),
-// and its value is a word selector like Message speed's: "No" / "Yes", with
-// "< " / " >" while the cursor is on the row, centred on x 0x7C where the
-// row's two icons were (blanked, src/tla_text_speed.cpp). The redraw loads
-// the value's text ID 0x1144 + value at 0x08040346 (value in r2, screen r7,
-// cursor row halfword at +0x574), clears from x 0xA0 (0x08040350) and draws
-// at x 0xA0 (0x08040360).
+// Settings. Setup 0x0803FC38 copies Auto-Sleep [0x0200048A] into the screen.
+// A stores it back there and into the live flag 0x03001200, then branches
+// (0x08040528) past B's call to 0x0803F9C0. Both A and B then call 0x0803FD14
+// from 0x0804058E. The runner shows Hard Mode in that byte while the screen
+// is open and takes it back on that last call, so Auto-Sleep itself stays 0
+// (after B the byte still holds what setup showed, so nothing changes). The idle count
+// that sleeps after 10800 frames (0x08013610 `beq` on the live flag) is
+// always skipped, and the "In Sleep Mode..." notice (0x1161, shown when the
+// row is turned on, 0x080404D2) is never shown. The row's label and help line
+// are replaced (src/tla_text.cpp), and its value is a word selector like
+// Message speed's: "No" / "Yes", with "< " / " >" while the cursor is on the
+// row, centred on x 0x7C where the row's two icons were (blanked,
+// src/tla_text_speed.cpp). The redraw loads the value's text ID 0x1144 +
+// value at 0x08040346 (value in r2, screen r7, cursor row halfword at
+// +0x574), clears from x 0xA0 (0x08040350) and draws at x 0xA0 (0x08040360).
 
 #include "tla_rom_version.h"
 #include <cstdint>

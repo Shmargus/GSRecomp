@@ -1,4 +1,4 @@
-// color_lut.cpp — see color_lut.h. Present-time only.
+// color_lut.cpp: see color_lut.h. Present-time only.
 //
 // Ported from JRickey/gba-recomp (crates/screen/src/{color,profile,lut}.rs),
 // © Jrickey, MIT OR Apache-2.0, used with permission. See

@@ -15,9 +15,10 @@
 // While the expanded view's camera rule holds the camera `hold` rows below
 // where the game put it (tla_camera_hold_y), the room moved up that far and
 // the wind did not, so it sat on Felix (Extra Wide 80 rows, F12 0017,
-// 2026-10-14). Every row then shows the wind row `hold` further down; above
-// the wind's row 0 the approved continuation, below its row 159 the empty
-// rows 144..159. 0 changes nothing.
+// 2026-10-14). Every row therefore shows the wind row `hold` further down.
+// Above the wind's row 0 the margin uses the upward continuation described
+// above; below its row 159 it shows the empty rows 144..159. A `hold` of 0
+// changes nothing.
 //
 // Recognised by the wind itself, not a map list: the same wind is on Air's
 // Rock's entrance (map 82, BG0CNT 0x040D), inside (84, 0x040E: priority 2;

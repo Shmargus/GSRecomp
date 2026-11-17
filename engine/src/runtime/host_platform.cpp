@@ -1,7 +1,13 @@
 #include "host_platform.h"
 
+#include <cstdint>
 #include <cstdio>
 #include <thread>
+
+#if defined(__ANDROID__)
+#  include <dlfcn.h>
+#  include <unistd.h>
+#endif
 
 #if defined(_WIN32)
 #  define WIN32_LEAN_AND_MEAN
@@ -20,11 +26,12 @@ FramePacer::FramePacer(double target_hz) {
     // Raise the scheduler timer resolution to 1 ms so sleep_until is
     // accurate enough for ~16.74 ms frame pacing.
     if (timeBeginPeriod(1) == TIMERR_NOERROR) raised_timer_res_ = true;
-    // High-resolution waitable timer (Win10 1803+). sleep_until quantizes to
-    // the 64 Hz system tick under load; its phase drift against the 16.742 ms
-    // frame period measured as a 234 ms beat of 20-24 ms oversleeps (52 of 75
-    // late frames in the frame-phase ring). This timer honors sub-millisecond
-    // due times. Null on older Windows -> the hybrid sleep below still applies.
+    // High-resolution waitable timer (Win10 1803+). Under load, sleep_until
+    // rounds wake-ups to the 64 Hz system tick. That tick drifts against the
+    // 16.742 ms frame period and produced a 234 ms cycle of 20-24 ms
+    // oversleeps (52 of 75 late frames in the frame-phase ring). This timer
+    // honors sub-millisecond due times. It is null on older Windows, where
+    // the hybrid sleep below still applies.
 #ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 #endif
@@ -35,6 +42,54 @@ FramePacer::FramePacer(double target_hz) {
         TIMER_ALL_ACCESS);
 #endif
     reset();
+}
+
+// Android: tell the system how long each frame's work took against the
+// frame's time (Android 13+ APerformanceHint, fetched from libandroid.so as
+// the app supports Android 9). Measured on a Tensor G4 phone (14 November
+// 2026, simpleperf): the game thread was busy ~87% of the time on a middle
+// core the governor held at 1.2 of its 2.6 GHz, and frames ran 14.5..22.3 ms
+// apart. With the hint the governor can raise the clock before frames run
+// late. The work is the time from the end of one wait to the start of the
+// next.
+void FramePacer::report_work(clock::time_point now) {
+#if defined(__ANDROID__)
+    using GetManager = void* (*)();
+    using CreateSession = void* (*)(void*, const std::int32_t*, std::size_t, std::int64_t);
+    using UpdateTarget = int (*)(void*, std::int64_t);
+    using ReportActual = int (*)(void*, std::int64_t);
+    static UpdateTarget update_target = nullptr;
+    static ReportActual report_actual = nullptr;
+    if (!hint_tried_) {
+        hint_tried_ = true;
+        work_start_ = now;
+        void* android = dlopen("libandroid.so", RTLD_NOW | RTLD_LOCAL);
+        if (!android) return;
+        auto get_manager = reinterpret_cast<GetManager>(
+            dlsym(android, "APerformanceHint_getManager"));
+        auto create = reinterpret_cast<CreateSession>(
+            dlsym(android, "APerformanceHint_createSession"));
+        update_target = reinterpret_cast<UpdateTarget>(
+            dlsym(android, "APerformanceHint_updateTargetWorkDuration"));
+        report_actual = reinterpret_cast<ReportActual>(
+            dlsym(android, "APerformanceHint_reportActualWorkDuration"));
+        void* manager = get_manager ? get_manager() : nullptr;
+        if (!manager || !create || !update_target || !report_actual) return;
+        const std::int32_t tid = static_cast<std::int32_t>(gettid());
+        hint_session_ = create(manager, &tid, 1, period_.count());
+        std::fprintf(stderr, "[perf-hint] %s for the pacing thread (target %.2f ms)\n",
+                     hint_session_ ? "on" : "unavailable", period_.count() / 1e6);
+        return;
+    }
+    if (!hint_session_) return;
+    const auto work = std::chrono::duration_cast<std::chrono::nanoseconds>(now - work_start_);
+    if (work.count() > 0) {
+        update_target(hint_session_, period_.count());
+        report_actual(hint_session_, work.count());
+    }
+#else
+    (void)now;
+#endif
 }
 
 FramePacer::~FramePacer() {
@@ -74,16 +129,26 @@ void FramePacer::wait_for_next_frame() {
         return;
     }
     clock::time_point now = clock::now();
+    report_work(now);
     // If we've fallen more than one whole frame behind, resync instead
     // of trying to replay the lost time (avoids a catch-up death spiral
     // after a hitch or a breakpoint pause).
     if (now > next_ + period_) {
         next_ = now + period_;
+        work_start_ = now;
         return;
     }
     // Hybrid wait: sleep most of the gap (cheap, but coarse), then spin
     // the final 1.2 ms for deadline accuracy.
+#if defined(__ANDROID__)
+    // Phones: sleep all the way. The spin is 1.2 ms of a busy core before
+    // every frame (the figure is for Windows' coarse timers), and the vsync
+    // present lines the picture up afterwards. How late the phone's sleep
+    // wakes is not measured yet (TODO-EVIDENCE: frame gaps on the phone).
+    constexpr auto kSpinTail = std::chrono::microseconds(0);
+#else
     constexpr auto kSpinTail = std::chrono::microseconds(1200);
+#endif
     if (next_ - now > kSpinTail) {
 #if defined(_WIN32)
         if (wait_timer_) {
@@ -110,6 +175,7 @@ void FramePacer::wait_for_next_frame() {
     }
     period_ = std::chrono::nanoseconds(periods_.next_period_ns());
     next_ += period_;
+    work_start_ = clock::now();
 }
 
 std::vector<unsigned char> read_file(const std::string& path, std::string* error) {

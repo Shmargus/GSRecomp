@@ -1,4 +1,3 @@
-// emit_function.cpp — see emit_function.h.
 //
 // The per-function emitter shared by tools/gba_recompile/main.cpp and the
 // runtime self-heal. Output goes to a std::string through a printf-style
@@ -158,7 +157,7 @@ std::string emit_function_body_str(
 
     // Stage 2 idle-loop elision: an instruction is "idle-simple" if it can
     // appear inside a quiescent (busy-wait) loop body without making the loop
-    // unsafe to fast-forward — i.e. it has no architecturally-visible side
+    // unsafe to fast-forward, i.e. it has no architecturally-visible side
     // effect beyond writing a non-PC GP register / flags, and never transfers
     // control. Allowed: data-processing / MOV, single-register loads, the
     // multiplies, and MRS. Rejected (unsafe → ends an idle-candidate body):
@@ -168,11 +167,11 @@ std::string emit_function_body_str(
     // is evaluated for eligibility BEFORE it is itself classified unsafe.
     auto is_idle_simple = [](const armv4t::Instr& ins) -> bool {
         switch (ins.op) {
-            // Comparisons write only flags — always safe.
+            // Comparisons write only flags; always safe.
             case armv4t::IrOp::TST: case armv4t::IrOp::TEQ:
             case armv4t::IrOp::CMP: case armv4t::IrOp::CMN:
                 return true;
-            // GP-writing data processing / MOV / loads / MRS — safe unless
+            // GP-writing data processing / MOV / loads / MRS: safe unless
             // they write PC.
             case armv4t::IrOp::AND: case armv4t::IrOp::EOR:
             case armv4t::IrOp::SUB: case armv4t::IrOp::RSB:
@@ -460,7 +459,7 @@ std::string emit_function_body_str(
     //      + `return;`, so this trailing dispatch is dead code.
     //   2. The decode loop hit `fn.end_addr` (clipped to the next
     //      function's start by the finder). Execution is supposed
-    //      to FALL THROUGH into the next function — typically when
+    //      to FALL THROUGH into the next function, typically when
     //      two callers enter a shared suffix at different points
     //      (e.g., the BIOS's reset_vector and SWI 0x26's handler
     //      share code starting at 0x8C).

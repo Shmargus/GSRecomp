@@ -24,7 +24,7 @@ inline const std::array<Recording, 98> recordings{{
     {TLA_ROM(0x82C8EFCu), 5u, "Traversing Weyard"}, // song 42: Traversing Weyard
     {TLA_ROM(0x82CB414u), 6u, "Felix Battle"}, // song 50: Felix Battle
     {TLA_ROM(0x82D1990u), 7u, "Fallen Heroes (GS2 version)"}, // song 59: Fallen Heroes (GS2 version)
-    {TLA_ROM(0x82BBD20u), 8u, "Drums of Daila"}, // song 4: Drums of Daila (by elimination: only free 48 s loop; confirmed in Daila by Jimmy)
+    {TLA_ROM(0x82BBD20u), 8u, "Drums of Daila"}, // song 4: Drums of Daila (by elimination: only free 48 s loop; confirmed in Daila)
     {TLA_ROM(0x82BB850u), 9u, "Kandorean Temple Entrance"}, // song 3: Kandorean Temple Entrance
     {TLA_ROM(0x82BD3D4u), 10u, "Kandorean Temple Labyrinth"}, // song 9: Kandorean Temple Labyrinth
     {TLA_ROM(0x82CCA08u), 11u, "Boss Battle (GS2)"}, // song 52: Boss Battle (GS2)

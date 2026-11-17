@@ -1,4 +1,3 @@
-// gba_io.cpp — see gba_io.h.
 
 #include "gba_io.h"
 
@@ -23,10 +22,10 @@ extern "C" int runtime_unpacker_slot_dma_begin(uint32_t dst_lo, uint32_t bytes);
 extern "C" void runtime_unpacker_slot_dma_end(uint32_t dst, uint32_t src,
                                               uint32_t bytes);
 
-// Always-on MMIO write-trace ring (Axis 4). File-local statics mirroring the
-// runtime_arm.cpp ring style; lazily allocated on the first write. The cycle and
-// pc stamps come from the recomp runtime globals (declared here to avoid pulling
-// the ArmCpuState layout into this lib).
+// Always-on MMIO write-trace ring (memory and I/O accuracy). The statics are file-local and
+// follow the ring style of runtime_arm.cpp. The ring is allocated on the first
+// write. The cycle and pc stamps come from the recompiled-code runtime globals,
+// declared here so this library does not need the ArmCpuState layout.
 extern "C" unsigned long long g_runtime_cycles;
 extern "C" uint32_t runtime_current_pc(void);
 
@@ -91,9 +90,10 @@ bool dma_destination_overlaps_image(uint32_t dest, uint32_t step,
            last_exclusive > measured_ram_image_start();
 }
 
-// Unpacker-slot journal entry point: returns true (and tells the journal a DMA
-// is in flight) when the destination of this block overlaps the game's
-// overlay unpacker slot (g_game_ram_layout). The caller pairs it with runtime_unpacker_slot_dma_end().
+// Unpacker-slot journal entry point. Returns true, and tells the journal a DMA
+// is in flight, when the destination of this block overlaps the game's overlay
+// unpacker slot (g_game_ram_layout). The caller pairs it with
+// runtime_unpacker_slot_dma_end().
 bool unpacker_slot_dma_begin(uint32_t dest, uint32_t step,
                              uint32_t word_count, uint32_t dest_ctrl) {
     const uint64_t span = static_cast<uint64_t>(step) * word_count;
@@ -146,7 +146,7 @@ void GbaIo::serialize(gbarecomp::debug::SnapshotWriter& w) const {
 }
 
 uint64_t GbaIo::cosim_hash() const {
-    // Guest-architectural IO only — EXCLUDES unmapped_count_ / dma_runs_ /
+    // Guest-architectural IO only; EXCLUDES unmapped_count_ / dma_runs_ /
     // dma_words_ (emulator bookkeeping; see the header). Mirrors serialize()'s
     // field set minus those counters.
     uint64_t h = 1469598103934665603ull;
@@ -204,7 +204,7 @@ GbaIo::GbaIo() {
     io_[0x130] = 0xFF;
     io_[0x131] = 0x03;
     // SOUNDBIAS (0x088): default 0x0200 at power-on per GBATEK §
-    // "GBA Sound Channel A, B (DMA Sound) — SOUNDBIAS". The BIOS
+    // "GBA Sound Channel A, B (DMA Sound)", under SOUNDBIAS. The BIOS
     // reads this value during init (it computes audio offsets from
     // it); leaving it as 0 made our run drift from real hardware at
     // BIOS instruction #743 (LDRH from 0x04000088).
@@ -264,9 +264,9 @@ uint32_t GbaIo::dma_transfer_cost(uint32_t src, uint32_t dst, bool transfer_32,
 // Run a DMA channel in immediate mode.
 //
 // GBATEK § "GBA DMA Transfers":
-//   DMAxSAD  — source address (27 bits for DMA0; 28 bits for 1..3)
-//   DMAxDAD  — dest address   (27 bits for 0/1/2; 28 bits for DMA3)
-//   DMAxCNT_L— word count (16 bits; 0 = 0x10000 for DMA3, 0x4000 for others)
+//   DMAxSAD:   source address (27 bits for DMA0; 28 bits for 1..3)
+//   DMAxDAD:   dest address   (27 bits for 0/1/2; 28 bits for DMA3)
+//   DMAxCNT_L: word count (16 bits; 0 = 0x10000 for DMA3, 0x4000 for others)
 //   DMAxCNT_H bits:
 //     5..6   dest control (0=inc, 1=dec, 2=fixed, 3=inc+reload)
 //     7..8   src control  (0=inc, 1=dec, 2=fixed)
@@ -322,10 +322,11 @@ void GbaIo::run_immediate_dma(int channel) {
 
     // Always-on DMA-write watchpoint (MC-HP-002). DMA writes go straight through
     // bus_->write*, bypassing the recompiled-code runtime_trace path, so the CPU
-    // mem-write watchpoint can't see them. When GBARECOMP_DMA_WATCH_ADDR falls in
-    // a transfer's dest range, report the channel/source/dest/value so a corrupt
-    // value landing in RAM via DMA (e.g. an animation frame-pointer) is
-    // attributable. Pure observation. -1 = disabled.
+    // memory-write watchpoint cannot see them. When GBARECOMP_DMA_WATCH_ADDR
+    // falls in a transfer's destination range, the channel, source, destination
+    // and value are reported. That makes a corrupt value written to RAM by DMA
+    // (for example an animation frame pointer) traceable. It only observes.
+    // -1 means disabled.
     static long long dma_watch = -2;
     if (dma_watch == -2) {
         const char* e = std::getenv("GBARECOMP_DMA_WATCH_ADDR");
@@ -393,12 +394,13 @@ void GbaIo::run_immediate_dma(int channel) {
     }
 }
 
-// VBlank/HBlank-timed DMA. The CNT_H enable + running SAD/DAD were latched on
-// the rising enable edge (write16); here we actually transfer, once per trigger
-// (per VBlank-start for mode 1, per visible-line HBlank-start for mode 2). The
-// running SAD/DAD (dma_next_source_/dest_) carry across triggers, so an HBlank
-// channel walks a per-scanline source table — e.g. the WIN0H circle table that
-// draws a transition iris (MC-HP-003). Sound-FIFO mode 3 is handled separately
+// VBlank/HBlank-timed DMA. The CNT_H enable bit and the running SAD/DAD were
+// latched on the rising enable edge (in write16). This function does the
+// transfer, once per trigger: at each VBlank start for mode 1, and at each
+// visible-line HBlank start for mode 2. The running SAD/DAD
+// (dma_next_source_/dest_) carry across triggers, so an HBlank channel walks a
+// per-scanline source table, such as the WIN0H circle table that draws a
+// transition iris (MC-HP-003). Sound-FIFO mode 3 is handled separately
 // (run_sound_fifo_dma); DMA3 video-capture mode 3 is not modeled.
 std::atomic<bool> g_hblank_dma_latch{false};
 std::atomic<bool> g_hblank_dma_cpu_write_wins{false};
@@ -446,8 +448,9 @@ void GbaIo::run_timed_dma(int start_mode) {
             runtime_ram_image_dma_begin();
         }
         dma_steal_cycles_ += dma_transfer_cost(s, d, transfer_32, word_count);
-        // Per-frame table copy (g_hblank_dma_latch): taken at the first
-        // visible line's trigger, or when the channel starts mid-frame.
+        // Per-frame table copy (g_hblank_dma_latch): the source table is copied
+        // at the first visible line's trigger, or when the channel starts
+        // mid-frame, and later lines read from that copy.
         const bool use_latch = latch && src_ctrl == 0;
         if (!use_latch) {
             hblank_latch_valid_[channel] = false;
@@ -804,7 +807,8 @@ void GbaIo::write8(uint32_t off, uint8_t v) {
     switch (off) {
         case IoReg::HALTCNT:
             // 0x00 → HALT (CPU stops until next IRQ).
-            // 0x80 → STOP (deeper sleep; we treat the same for now).
+            // 0x80 → STOP (deeper sleep): treated the same as HALT, waiting for the
+            // next IRQ.
             halted_ = true;
             io_[off] = v;
             return;
@@ -822,7 +826,7 @@ void GbaIo::write8(uint32_t off, uint8_t v) {
         case IoReg::IF + 1: {  // 0x203: high byte of IF
             // Byte-write to IF: write-1-to-clear within that byte
             // only. The BIOS IRQ handler uses `STRB R1, [R3, #0x202]`
-            // to acknowledge — without this branch the IF bit never
+            // to acknowledge: without this branch the IF bit never
             // clears and the CPU re-enters the IRQ handler forever.
             io_[off] = static_cast<uint8_t>(io_[off] & ~v);
             return;
@@ -837,12 +841,10 @@ void GbaIo::write8(uint32_t off, uint8_t v) {
 void GbaIo::write16(uint32_t off, uint16_t v) {
     if (off + 1 >= kIoSize) { warn_unhandled(off, v, true, 2); return; }
     if (!g_mmio_split) mmio_cap_record(0x04000000u + off, v, 2);
-    // g_hblank_dma_cpu_write_wins: remember a CPU write to a BGxCNT that a
-    // running HBlank channel also writes. Only the four BG control
-    // registers: line tables of scroll and rotation registers are stopped
-    // and restarted every VBlank by some effects, where this would move a
-    // line, while a BGxCNT table is stopped for good before a spell sets
-    // its own layer.
+    // Remember CPU writes to BGxCNT while HBlank DMA controls that register.
+    // Spells stop those tables before setting up their own layers. Scroll and
+    // rotation tables may restart every VBlank, so saving writes to those
+    // registers would shift a scanline.
     if (!in_timed_dma_ && off >= 0x08u && off < 0x10u &&
         g_hblank_dma_cpu_write_wins.load(std::memory_order_relaxed)) {
         for (int ch = 0; ch < 4; ++ch) {
@@ -893,8 +895,8 @@ void GbaIo::write16(uint32_t off, uint16_t v) {
         case IoReg::SIOCNT: {
             // SIO control. In Normal mode with the internal shift clock
             // (bit 0 = 1), writing the start/busy bit (bit 7) kicks a
-            // transfer; on completion the bit auto-clears and — if bit 14
-            // (IRQ enable) is set — the Serial IRQ fires. Games (e.g. the
+            // transfer; on completion the bit auto-clears and, if bit 14
+            // (IRQ enable) is set, the Serial IRQ fires. Games (e.g. the
             // Minish Cap) re-arm it from the handler to get a periodic IRQ.
             // External-clock (slave) transfers never complete without a
             // partner, so we don't arm those. (GBATEK § "SIO Normal Mode".)
@@ -943,7 +945,7 @@ void GbaIo::write16(uint32_t off, uint16_t v) {
     // and start_mode=0 (immediate) triggers a DMA transfer.
     //
     // DMA channels live at IO offsets 0xBA (DMA0 CNT_H), 0xC6, 0xD2,
-    // 0xDE — each channel block is 12 bytes (SAD 4, DAD 4, CNT_L 2,
+    // 0xDE. Each channel block is 12 bytes (SAD 4, DAD 4, CNT_L 2,
     // CNT_H 2), starting at 0xB0/0xBC/0xC8/0xD4.
     for (int ch = 0; ch < 4; ++ch) {
         uint32_t cnt_h_off = 0xB0u + ch * 12u + 10u;
@@ -962,8 +964,8 @@ void GbaIo::write16(uint32_t off, uint16_t v) {
             if (!was_enabled && now_enabled && start_mode == 0) {
                 run_immediate_dma(ch);
             }
-            // The game turned the line table off: a register it set itself
-            // meanwhile keeps that value (g_hblank_dma_cpu_write_wins).
+            // When the game stops the line table, restore any CPU value written while
+            // DMA still controlled the register.
             if (was_enabled && !now_enabled && hblank_cpu_write_valid_[ch]) {
                 const uint32_t at = hblank_cpu_write_off_[ch];
                 store_u16(&io_[at], hblank_cpu_write_value_[ch]);
@@ -990,11 +992,8 @@ void GbaIo::write32(uint32_t off, uint32_t v) {
         }
         return;
     }
-    // 32-bit IO writes are routed as two 16-bit writes so the
-    // per-register quirks (DISPSTAT mask, IF write-1-to-clear, etc.)
-    // apply consistently. Suppress the nested write16 MMIO-ring taps so the
-    // 32-bit access is recorded as ONE size-4 entry (peer to the oracle), not
-    // two size-2 sub-writes — the split is purely our internal decomposition.
+    // Apply each halfword's register rules, including the DISPSTAT mask and
+    // IF write-one-to-clear. Log one 32-bit access to match the reference.
     g_mmio_split = true;
     write16(off, static_cast<uint16_t>(v & 0xFFFF));
     write16(off + 2, static_cast<uint16_t>((v >> 16) & 0xFFFF));

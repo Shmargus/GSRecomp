@@ -1,11 +1,11 @@
-// gba_scan — read a GBA ROM, parse its header, identify the save
+// gba_scan: read a GBA ROM, parse its header, identify the save
 // chip, and print a structured report. The recompiler uses this
 // upstream of `gba_recompile` to confirm the ROM matches what
 // `game.toml` claims.
 //
 // Output format is intentionally machine-friendly (one `key=value`
-// per line) so other tools — including the runner's pre-flight
-// hash/identity check — can parse it without a JSON dep yet.
+// per line) so other tools, including the runner's pre-flight
+// hash/identity check, can parse it without a JSON dep yet.
 
 #include <cstdint>
 #include <cstdio>

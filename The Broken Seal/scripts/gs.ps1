@@ -269,7 +269,7 @@ function Invoke-Track {
     param(
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][int]$TrackFrames,
-        # $null means the no-input track: the variable must be genuinely
+        # $null means the no-input track: the variable must really be
         # ABSENT, because an empty value silently enables a demo track.
         [string]$DemoInput
     )

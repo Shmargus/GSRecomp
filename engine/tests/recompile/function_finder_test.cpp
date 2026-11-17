@@ -412,7 +412,7 @@ int main() {
     // match, not a real resume point, and must still be dropped (and
     // counted).
     std::vector<std::uint8_t> fake_suffix_rom(0x80, 0);
-    put16(fake_suffix_rom, 0x2Eu, 0x1C00u);  // MOV r0, r0 — NOT a BL_prefix
+    put16(fake_suffix_rom, 0x2Eu, 0x1C00u);  // MOV r0, r0; NOT a BL_prefix
     put16(fake_suffix_rom, 0x30u, 0xF81Eu);  // BL_suffix-shaped halfword
 
     gbarecomp::FunctionFinder fake_suffix(
@@ -439,7 +439,7 @@ int main() {
     }
 
     // Fix C constraint: the BL_prefix half must never become an entry
-    // point "on its own" by virtue of this fix — the gate only ever
+    // point "on its own" by virtue of this fix: the gate only ever
     // matches IrOp::BL_suffix, so an alias_candidate seed sitting on the
     // BL_prefix half is untouched by it and follows the pre-existing
     // generic alias path (here: no containing host, so it stands alone,
@@ -474,7 +474,7 @@ int main() {
 
     // Fix D: the BL-pair combine/continuation logic (Fix A) must apply
     // identically when a walk's very first decoded instruction IS the
-    // BL_suffix halfword — not just when the walk decoded the matching
+    // BL_suffix halfword, not just when the walk decoded the matching
     // BL_prefix moments earlier in the same walk. This is exactly the
     // shape a genuine post-IRQ BL_suffix resume seed (Fix C) produces: its
     // own discover_one walk starts at the suffix address directly. Using
@@ -524,7 +524,7 @@ int main() {
     // Fix D negative control: a walk entering at a BL_suffix whose
     // continuation is ordinary code (not a data_range) must still combine
     // the pair, discover the real target, AND keep walking through the
-    // continuation normally — proving the fix only suppresses the
+    // continuation normally, proving the fix only suppresses the
     // continuation when it is proven to be a literal pool, not generally.
     std::vector<std::uint8_t> suffix_entry_ordinary_rom(0x80, 0);
     put16(suffix_entry_ordinary_rom, 0x10, 0xF000u);  // BL_prefix, imm11=0
@@ -620,10 +620,8 @@ int main() {
         return 1;
     }
 
-    // Fix E negative control: a NON-alias seed at the exact same address,
-    // walking into the exact same data_range, must still be a hard
-    // collision. This is the regression that matters most — the fix must
-    // not weaken the real gate for genuine seeds/symbols.
+    // Negative control for Fix E. A non-alias seed at the same address must
+    // still report a collision with the data range.
     gbarecomp::FunctionFinder nonalias_into_data(
         alias_into_data_rom.data(), alias_into_data_rom.size(), kBase);
     nonalias_into_data.set_speculative_literal_harvest(false);
@@ -650,7 +648,7 @@ int main() {
     }
 
     // Fix E control: an alias_candidate seed whose walk stays entirely in
-    // code (never touches a data_range) is unaffected — it is rolled into
+    // code (never touches a data_range) is unaffected; it is rolled into
     // its host as a mid-function alias like any other, and neither drop
     // counter moves.
     std::vector<std::uint8_t> alias_in_code_rom(0x40, 0);

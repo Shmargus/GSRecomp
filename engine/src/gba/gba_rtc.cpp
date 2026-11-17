@@ -1,4 +1,3 @@
-// gba_rtc.cpp — see gba_rtc.h.
 //
 // Ported from JRickey/gba-recomp (crates/gba-core/src/{rtc,hostclock}.rs),
 // © Jrickey, MIT OR Apache-2.0, used with permission. C++ port is ours.

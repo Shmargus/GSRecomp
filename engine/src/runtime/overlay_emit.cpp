@@ -1,4 +1,3 @@
-// overlay_emit.cpp — see overlay_emit.h.
 
 #include "overlay_emit.h"
 

@@ -1,8 +1,6 @@
-// The run code's text box, both games (Jimmy, 8 November 2026): "Type a
-// code" opens the system's own text box, so a code can be typed on the
-// keyboard or pasted from the clipboard. It stays open until the code is
-// valid or the player cancels. Where the system has none (Linux, for now),
-// the letter grid (run_code.h Entry) remains.
+// "Type a code" opens the system text box for typing or pasting a run
+// code. It stays open until the code is valid or the player cancels.
+// Linux uses the letter grid in run_code.h.
 #pragma once
 #include <functional>
 #include <string>

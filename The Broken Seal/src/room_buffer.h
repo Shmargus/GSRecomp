@@ -1,4 +1,4 @@
-// room_buffer.h — build a room's tilemap from the EWRAM map tables, check it
+// room_buffer.h: build a room's tilemap from the EWRAM map tables, check it
 // against live VRAM, and (optionally) supply it to the PPU for the margins.
 //
 // The check (GSR_ROOM_BUFFER) changes nothing on screen. It builds the tile
@@ -21,7 +21,7 @@
 //                           top-left, top-right, bottom-left, bottom-right
 //   per layer   the layer's own grid region is offset from the ground layer
 //               by (BGxHOFS - camera_x)/16, (BGxVOFS - camera_y)/16, taking
-//               the scroll registers UNMASKED — the game writes values wider
+//               the scroll registers UNMASKED: the game writes values wider
 //               than the hardware's 9 bits and the excess is the offset
 //               ("Per-layer sourcing, settled 2026-09-05")
 #pragma once

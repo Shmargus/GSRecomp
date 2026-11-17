@@ -212,8 +212,7 @@ auto kTransientCodeImages = std::to_array<TransientCodeImage>({
      16u},
     // Func_6abc's stack thunk (Func_6878 installs it at whatever depth it was
     // entered at) is a single position-independent image below, as are
-    // Func_9bb8, Func_15430, Func_15570 and Func_158e8; the DMA3 census behind
-    // that is in docs/GS011_TRANSIENT_IMAGES.md.
+    // Func_9bb8, Func_15430, Func_15570 and Func_158e8 (DMA3 census).
     // Func_a418 sits immediately below the 0x0300347c staging slot, so the
     // flash driver's working area is a contiguous run of separately installed
     // routines. DMA3 watch: src=0x0800a418, 31 words; entry observed through
@@ -336,22 +335,26 @@ auto kTransientCodeImages = std::to_array<TransientCodeImage>({
     // bit before any dispatch ever reaches it, discarding the AOT fn on first
     // touch.
     //
-    // The identity covers code only. Hashing whole halves also covered the
-    // image's main.toml data ranges (the IRQ table 0x030000E0..0x03000118,
-    // variables at 0x03000350.., inline words at 0x030008CC, 0x0300099C,
-    // 0x03000B5C, buffers 0x03000DF8..0x03001388), which the game writes, so
-    // every half failed and all of its code was compiled at runtime (76 of the
-    // 89 runtime compiles in sessions 20260923_090349/_093557). The runs
-    // below skip those ranges and the mixer Func_dc8's three self-modifying
-    // slots (0x03000828..0x030008CC, 0x03000A58..0x03000A98,
-    // 0x03000BD8..0x03000C70), each registered above with every variant its
-    // writer can produce and made a dispatch boundary in main.toml, so no
-    // AOT function runs a slot's bytes. AOT code calls AOT code directly, so
-    // that boundary is what makes these runs safe; main() refuses a main
-    // corpus generated without it. SHA-1s are from the pinned ROM at each
-    // run's source address; each run is registered once per mode, as ELF
-    // mapping symbols put both ARM and THUMB code in the image (e.g.
-    // gf_tfunc_03000658, gf_afunc_03000088).
+    // The identity covers code only. Hashing whole halves would also cover the
+    // image's main.toml data ranges, which the game writes: the IRQ table
+    // 0x030000E0..0x03000118, variables at 0x03000350.., inline words at
+    // 0x030008CC, 0x0300099C and 0x03000B5C, and buffers
+    // 0x03000DF8..0x03001388. Every half would then fail the identity check
+    // and all of its code would be compiled at runtime (76 of the 89 runtime
+    // compiles in sessions 20260923_090349/_093557 came from this).
+    //
+    // The runs below therefore skip those data ranges. They also skip the
+    // three self-modifying slots of the mixer Func_dc8 (0x03000828..0x030008CC,
+    // 0x03000A58..0x03000A98, 0x03000BD8..0x03000C70). Each slot is registered
+    // above with every variant its writer can produce, and main.toml makes it a
+    // dispatch boundary, so no AOT function runs a slot's bytes. AOT code
+    // calls AOT code directly, so that boundary is what makes these runs safe;
+    // main() refuses a main corpus generated without it.
+    //
+    // The SHA-1s are of the pinned ROM at each run's source address. Each run
+    // is registered once per mode, because the ELF mapping symbols put both
+    // ARM and THUMB code in the image (e.g. gf_tfunc_03000658,
+    // gf_afunc_03000088).
     {0x03000000u, 0x030000E0u, gs::rom(0x08000770u), 0,
      "425e210c9524665da2b651e29039187452e03538",
      "main_copy_03000000_code_0000_arm", nullptr, nullptr},
@@ -583,11 +586,12 @@ std::array<RelocatableCodeImage, 29> kRelocatableCodeImages{{
      &gsr_func6b84_pic_kImageSize,
      gsr_func6b84_pic_kDispatchTable,
      &gsr_func6b84_pic_kDispatchTableLen},
-    // CORRECTS the earlier Func_7998 registration (2026-09-23): that image
-    // started one ARM instruction late (ROM 0x08007998:0x18). Session
+    // The image starts at ROM 0x08007994, not 0x08007998 (an earlier
+    // registration, ROM 0x08007998:0x18, started one ARM instruction late;
+    // corrected 2026-09-23). Session
     // 20260923_202001 self-healed the same 28-byte piece (crc=0x66F864FE) at
-    // nine stack bases, all equal to ROM 0x08007994:0x1C — smull, smlal,
-    // ldm sp, smlal, lsl, orr, bx lr, no ELF symbol of its own, copied onto
+    // nine stack bases, all equal to ROM 0x08007994:0x1C (smull, smlal,
+    // ldm sp, smlal, lsl, orr, bx lr), no ELF symbol of its own, copied onto
     // the stack. The copier's own literal pool (ROM 0x080051C0) independently
     // confirms source 0x08007994 and size 0x1C (DMA3 CNT 0x84000007 = 7
     // words). config/usa/transient-func_7994-relocatable.toml.
@@ -625,9 +629,9 @@ std::array<RelocatableCodeImage, 29> kRelocatableCodeImages{{
      &gsr_funca0f8_pic_kDispatchTableLen},
     // Spell canvas "copy and fade": Func_54e4 DMA3-copies ROM 0x08001ea8,
     // 0x50 bytes (one ARM STT_FUNC entry, no interior $d) onto the stack.
-    // CORRECTED 2026-09-23: was registered at 0x140 bytes, misreading the
-    // wrapper's literal-pool word (a byte count the wrapper itself
-    // right-shifts by 2 to get a DMA3 word count) as a word count. Session
+    // The size is 0x50, not 0x140 (corrected 2026-09-23): the wrapper's
+    // literal-pool word is a byte count (the wrapper itself right-shifts it by
+    // 2 to get a DMA3 word count), and had been misread as a word count. Session
     // 20260923_202001 content-matched two contiguous fragments spanning
     // offset 0 to the full 0x50-byte end (the second uniquely matching this
     // routine's own tail bytes, not Func_1ef8's/203c's/2098's) to runtime
@@ -642,12 +646,12 @@ std::array<RelocatableCodeImage, 29> kRelocatableCodeImages{{
      &gsr_func1ea8_pic_kDispatchTableLen},
     // Spell canvas "copy and halve": Func_5534 DMA3-copies ROM 0x08001ef8,
     // 0x40 bytes (one ARM STT_FUNC entry, no interior $d) onto the stack.
-    // CORRECTED 2026-09-23: was registered at 0x100 bytes for the same
-    // pool-word-shift reason as Func_1ea8 above. Session 20260923_171845
+    // The size is 0x40, not 0x100 (corrected 2026-09-23), for the same
+    // pool-word reason as Func_1ea8 above. Session 20260923_171845
     // content-matched two contiguous fragments spanning offset 0 to the
     // full 0x40-byte end (the second uniquely matching this routine's own
-    // tail bytes) to runtime base 0x03007c7c — exactly 0x03007c14 + 0x50,
-    // the Func_1ea8 image's own confirmed instance placed right before it.
+    // tail bytes) to runtime base 0x03007c7c (exactly 0x03007c14 + 0x50,
+    // the Func_1ea8 image's own confirmed instance placed right before it).
     // config/usa/transient-func_1ef8-relocatable.toml.
     {gs::rom(0x08001EF8u),
      0,
@@ -692,15 +696,15 @@ std::array<RelocatableCodeImage, 29> kRelocatableCodeImages{{
      &gsr_func1fb8_pic_kImageSize,
      gsr_func1fb8_pic_kDispatchTable,
      &gsr_func1fb8_pic_kDispatchTableLen},
-    // CORRECTS the earlier Func_6c3a registration (2026-09-23): that image
-    // covered only a 16-byte interior slice (ROM 0x08006c3a..0x08006c4a) of
-    // this larger copied unit. Session 20260923_202001 self-healed two
+    // This is the whole copied unit. An earlier Func_6c3a registration
+    // (corrected 2026-09-23) covered only a 16-byte interior slice
+    // (ROM 0x08006c3a..0x08006c4a) of it. Session 20260923_202001 self-healed two
     // 22-byte THUMB pieces at offset 0 (crc=0x6241EAC1), directly equal to
     // ROM 0x08006c24:0x16. goldensun.elf sizes the copied unit as Func_6c24
     // (THUMB $t at 0x08006c24, $d at 0x08006c4a, size 0x44) followed by
     // Func_6c68. Two literal pools (ROM 0x08006c9c and 0x08007a98) hold the
-    // pair (0x08006c25, 0x08006c69) — Func_6c24's and Func_6c68's own THUMB
-    // entries — and Func_6c68 computes end-start=0x44 from them to size the
+    // pair (0x08006c25, 0x08006c69): Func_6c24's and Func_6c68's own THUMB
+    // entries, and Func_6c68 computes end-start=0x44 from them to size the
     // copy. config/usa/transient-func_6c24-relocatable.toml.
     {gs::rom(0x08006C24u),
      1,
@@ -714,11 +718,11 @@ std::array<RelocatableCodeImage, 29> kRelocatableCodeImages{{
     // (same shape as 0x080054e4/0x08005534). Its pool at ROM 0x08005670
     // holds byte-count 0x5C, DMA3 SAD reg 0x040000D4 and source 0x0800203C.
     // ROM 0x0800203c..0x08002098 is one coherent ARM routine, no interior
-    // $d. NOT directly confirmed at a runtime base: re-deriving the
-    // Func_1ea8 image (2026-09-23) resolved this image's earlier
-    // placeholder origin (0x03007c14) to a confirmed Func_1ea8 instance
-    // instead, so this image now uses an unattached label address
-    // (0x03007e00). config/usa/transient-func_203c-relocatable.toml.
+    // $d. NOT directly confirmed at a runtime base. The origin 0x03007c14,
+    // which was first assumed for this image, is a confirmed Func_1ea8
+    // instance (found 2026-09-23). So this image uses an unattached label
+    // address (0x03007e00) as its origin.
+    // config/usa/transient-func_203c-relocatable.toml.
     {gs::rom(0x0800203Cu),
      0,
      "edbf9a7eabc225926dd5c0ba22d1b928afab1b02",
@@ -732,12 +736,12 @@ std::array<RelocatableCodeImage, 29> kRelocatableCodeImages{{
     // onto the stack by the wrapper at 0x0800567C (same shape as
     // 0x080054e4/0x08005534/0x0800562c). Its pool at ROM 0x080056C0 holds
     // byte-count 0x5C, DMA3 SAD reg 0x040000D4 and source 0x08002098. NOT
-    // directly confirmed at a runtime base: shares its first 20 bytes with
-    // Func_1ea8/Func_1ef8/Func_203c, and every logged occurrence of that
-    // shared prologue crc is now explained by a longer, uniquely-matching
-    // fragment belonging to Func_1ea8 or Func_1ef8 except one
-    // (0x03007ce0, session 20260923_202001), used here as a plausible
-    // generation origin only. Found 2026-09-23 while re-checking the
+    // directly confirmed at a runtime base. Its first 20 bytes are shared with
+    // Func_1ea8/Func_1ef8/Func_203c. Every logged occurrence of that shared
+    // prologue crc is explained by a longer, uniquely matching fragment
+    // belonging to Func_1ea8 or Func_1ef8, except one (0x03007ce0, session
+    // 20260923_202001). That address is used here only as a plausible
+    // generation origin. Found 2026-09-23 while re-checking the
     // Func_1ea8/Func_1ef8 wrapper pools.
     // config/usa/transient-func_2098-relocatable.toml.
     {gs::rom(0x08002098u),
@@ -766,27 +770,24 @@ std::array<RelocatableCodeImage, 29> kRelocatableCodeImages{{
      &gsr_func1b70_pic_kImageSize,
      gsr_func1b70_pic_kDispatchTable,
      &gsr_func1b70_pic_kDispatchTableLen},
-    // Func_15afc and Func_15e10, the last two flash-driver routines still
-    // pinned to a single base. 0x03003a84 was treated as a fixed staging slot
-    // until the 10,800-frame campaign run aborted at ARM 0x030044f4: a DMA3
+    // Func_15afc and Func_15e10, the last two flash-driver routines that were
+    // pinned to a single base. 0x03003a84 looked like a fixed staging slot,
+    // but the 10,800-frame campaign run aborted at ARM 0x030044f4. A DMA3
     // watch records ch=3 dad=0x030044F4 src=0x08015AFC word=0/158 (158 words =
     // 0x278 bytes) with first word 0xE92D0060, an ARM STMDB sp! prologue, and
-    // goldensun.elf sizes Func_15afc at exactly 0x278 with an $a at the entry -
-    // DMA extent and ELF extent agree. The SHA-1 below is the ROM source bytes
-    // at 0x08015afc over that extent and matches, byte for byte, the identity
-    // the live-verified fixed row at 0x03003a84 already carried, which is an
+    // goldensun.elf sizes Func_15afc at exactly 0x278 with an $a at the entry,
+    // so the DMA extent and the ELF extent agree. The SHA-1 below is of the ROM
+    // source bytes at 0x08015afc over that extent. It matches, byte for byte,
+    // the identity of the live-verified fixed row at 0x03003a84, which is an
     // independent check that this is the same routine at a new base.
     //
-    // Func_15e10 is converted alongside it rather than after its own abort: it
-    // shares the same staging slot, so the pool will relocate it for the same
-    // reason. Conversion REMOVES an address assumption rather than adding one,
-    // and the resolver hashes the full extent before dispatching, so a wrong
-    // base aborts loudly instead of running.
+    // Func_15e10 shares the staging slot, so register it as relocatable too.
+    // Dispatch requires a hash match across the full image at its live base.
     //
     // ADDITIVE, like Func_1dc8: the fixed 0x03003a84 rows above stay. They are
     // a redundant identity gate here rather than a necessary one, but a
-    // redundant gate is safe and a missing gate is not; deleting them is a
-    // separate change that wants its own verified run.
+    // redundant gate is safe and a missing gate is not. Deleting them is a
+    // separate change that needs its own verified run.
     {gs::rom(0x08015AFCu),
      0,
      "f6ab01b56876f8d1b72a4bf5239bd5cbac620cb0",
@@ -803,12 +804,13 @@ std::array<RelocatableCodeImage, 29> kRelocatableCodeImages{{
      &gsr_func15e10_pic_kImageSize,
      gsr_func15e10_pic_kDispatchTable,
      &gsr_func15e10_pic_kDispatchTableLen},
-    // Closing the flash-driver pool FAMILY instead of discovering it one abort
-    // at a time. After Func_15afc and Func_15e10 were relocated, the campaign
-    // run advanced and then aborted at 0x030044f4 AGAIN - the same base, a
-    // different routine. A DMA3 watch on that address shows the slot cycling
-    // between src=0x08015AFC (158 words), src=0x08015E10 (31 words) and finally
-    // src=0x08015D74 (39 words). It is one pool, reused.
+    // These two complete the flash-driver pool FAMILY, so it is registered as
+    // a whole instead of being discovered one abort at a time. With Func_15afc
+    // and Func_15e10 relocatable, the campaign run still aborted at 0x030044f4
+    // - the same base, a different routine. A DMA3 watch on that address
+    // shows the slot cycling between src=0x08015AFC (158 words),
+    // src=0x08015E10 (31 words) and finally src=0x08015D74 (39 words). It is
+    // one pool, reused.
     //
     // In goldensun.elf the ARM STT_FUNCs in the contiguous run
     // 0x08015430..0x08015e10 are exactly: 15430, 15570, 155d0, 158e8, 15afc,
@@ -819,9 +821,8 @@ std::array<RelocatableCodeImage, 29> kRelocatableCodeImages{{
     //
     // Func_15d74 is directly attributed by the DMA watch above: 39 words = 156
     // bytes, and the ELF sizes it at exactly 156 with an $a at the entry.
-    // Func_155d0 is registered on the Func_15e10 precedent, which the very
-    // first run vindicated: an image that is never copied simply never
-    // verifies, while a missing one aborts a run.
+    // Func_155d0 is registered on the Func_15e10 precedent: an image that is
+    // never copied simply never verifies, while a missing one aborts a run.
     {gs::rom(0x08015D74u),
      0,
      "4058793ba5db0477fc9c5c556edb91984dee3de0",
@@ -850,10 +851,8 @@ std::array<RelocatableCodeImage, 29> kRelocatableCodeImages{{
     // 0x2c4 extent covers 224 bytes the short copy never wrote, so it can only
     // ever match the long copy.
     //
-    // GENERAL LESSON, recorded in docs/GS011_TRANSIENT_IMAGES.md: an image
-    // identity must cover the bytes the WRITER wrote, not the bytes a symbol
-    // table says the routine spans. This is the same defect class as hashing an
-    // overlay's mutable .data section.
+    // Hash the bytes actually copied by the writer. The symbol size can include
+    // bytes outside the copy, just as an overlay can include mutable data.
     {gs::rom(0x08009BB8u),
      0,
      "49496bc9fb68cacac07613ccb2ead86bc0583ffc",
@@ -887,12 +886,11 @@ std::array<RelocatableCodeImage, 29> kRelocatableCodeImages{{
      gsr_func9bb8code_pic_kDispatchTable,
      &gsr_func9bb8code_pic_kDispatchTableLen},
     // Func_b5138, a transient allocator block. Trace events #55889096-105
-    // (local/crash/terminal.log): allocator base 0x0300207c, next-free
-    // 0x030022ac; DMA3SAD=0x080b5138, DMA3DAD=0x0300207c,
-    // DMA3CNT=0x8400008c (0x230 bytes, matching the ELF STT_FUNC size
-    // exactly); exchange cpsr=0x1f, T clear => ARM. See
-    // config/usa/transient-func-b5138-relocatable.toml and
-    // docs/GS011_TRANSIENT_IMAGES.md.
+    // (a crash trace) show: allocator base 0x0300207c, next-free 0x030022ac;
+    // DMA3SAD=0x080b5138, DMA3DAD=0x0300207c, DMA3CNT=0x8400008c (0x230
+    // bytes, matching the ELF STT_FUNC size exactly); and a mode exchange with
+    // cpsr=0x1f, T clear, so the routine is ARM. See
+    // config/usa/transient-func-b5138-relocatable.toml.
     //
     // The image self-relocates a jump table into its own extent (see
     // kFuncB5138ExcludedRanges above), so the whole-extent hash
@@ -1040,8 +1038,8 @@ namespace gsr_runner {
 bool golden_sun_func1dc8_writer_pc(std::uint32_t pc,
                                    gsr::Func1dc8WriterRoute route) {
     const bool diagnostics = golden_sun_wide_diagnostics_enabled();
-    // Keep the fixed route when diagnostics are off;
-    // identity work is strictly observational and must not affect gameplay.
+    // With diagnostics off, use the fixed-base route only. The identity work
+    // below is strictly observational and must not affect gameplay.
     if (!diagnostics) {
         const std::uint32_t fixed =
             gsr::kFunc1dc8KnownFixedBase + gsr::writer_offset(route);
@@ -1127,10 +1125,8 @@ bool golden_sun_func1dc8_writer_pc(std::uint32_t pc,
 }  // namespace gsr_runner
 namespace {
 
-// Last base each relocatable image was verified at. A pooled routine is
-// entered many times in a row at the same base, so trying it first keeps the
-// common case to one hash instead of a scan over every entry offset. It is a
-// hint only — the identity hash still has to pass.
+// Try the last verified base first. Pooled routines often run there again,
+// so a single hash can avoid scanning every entry offset.
 struct RelocatableBaseHint {
     std::uint32_t base;
     bool valid;
@@ -1167,12 +1163,9 @@ std::uint64_t g_relocatable_profile_active_samples = 0;
 std::uint64_t g_relocatable_profile_active_sum = 0;
 std::uint32_t g_relocatable_profile_active_max = 0;
 
-// GBARECOMP_RELOCATABLE_PROFILE, if explicitly set, wins outright. Otherwise
-// falls back to the config UI's "Additional debug logging" toggle (default
-// OFF) — see runtime_arm.h. First call happens from live dispatch, well
-// after the config UI has loaded config.ini, so this reflects a saved
-// preference from the very first relocatable dispatch of the session
-// (cached after that, matching the existing once-per-run idiom).
+// GBARECOMP_RELOCATABLE_PROFILE overrides "Additional debug logging"
+// (default off). The first relocatable dispatch reads the setting after
+// config.ini has loaded and caches it for the session.
 bool relocatable_profile_enabled() {
     static const bool enabled = [] {
         return gbarecomp::env_flag("GBARECOMP_RELOCATABLE_PROFILE",
@@ -1241,14 +1234,9 @@ void report_relocatable_profile() {
     }
 }
 
-// GBARECOMP_RELOCATABLE_LOG=1 reports each (image, base) pair the first time
-// it is verified. The whole point of a position-independent image is that the
-// base set is NOT enumerated ahead of time, so this is the only way to see
-// which bases a run actually used — and the only honest way to claim the
-// mechanism replaced a set of per-base registrations rather than skipping
-// them. Off by default; one getenv at startup, no per-dispatch cost.
-// Same env-wins/toggle-fallback precedence as relocatable_profile_enabled
-// above.
+// GBARECOMP_RELOCATABLE_LOG=1 logs each image and base on its first verified
+// use. Read the override once at startup. The setting follows the same
+// rules as relocatable_profile_enabled.
 bool relocatable_log_enabled() {
     static const bool enabled = [] {
         return gbarecomp::env_flag("GBARECOMP_RELOCATABLE_LOG",
@@ -1290,7 +1278,7 @@ std::string live_sha1(std::uint32_t start, std::uint32_t size) {
 // ~700-byte image. When [base, base+size) provably stays inside one fast-RAM
 // backing array (no IWRAM/EWRAM/mirror-boundary crossing), resolve the
 // pointer once and let the caller index it directly instead. Returns null
-// (never unsafe to do so — the caller falls back to the per-byte slow path)
+// (never unsafe to do so; the caller falls back to the per-byte slow path)
 // whenever fast RAM isn't available or the range isn't provably contiguous.
 const std::uint8_t* bus_fast_ram_contiguous(std::uint32_t base,
                                             std::uint32_t size) {
@@ -1330,15 +1318,9 @@ bool relocatable_resident_at(const RelocatableCodeImage& image,
 
 // --- Cached relocatable identity (GS-cost: per-dispatch SHA-1 rehash) ----
 //
-// try_relocatable_dispatch's hint path calls relocatable_resident_at above
-// on EVERY dispatch through a pooled routine, even though the hint means
-// "this (image, base) pair already verified last time and nothing else has
-// touched it." One cache entry per image, keyed on the base it was last
-// verified at, lets a repeat dispatch skip the hash entirely while the pages
-// the image occupies are provably unchanged — see relocatable_identity.h's
-// "Page-epoch cache core" comment for why mask coverage has to be proven
-// per-base here rather than computed once at startup like the fixed-address
-// sibling's g_verified_identity_cache.
+// Cache the last verified base per image. Skip rehashing while the base
+// and its page epochs match. The image can span different pages at each
+// base, so compute the mask at verification time (see relocatable_identity.h).
 //
 // Several entries per image, for matches and non-matches alike: the scan path
 // (a dispatch at a base other than the hint's) ran 17,494 whole-image hashes
@@ -1387,7 +1369,7 @@ bool relocatable_live_matches_snapshot(const RelocatableCodeImage& image,
     }
     // With excluded ranges: memcmp over the spans between them. The per-byte
     // loop below tested every range for every byte and was 7% of the
-    // heaviest Nereid frames (logs/session_20260930_190323.hostprof.txt).
+    // heaviest Nereid frames (host profile).
     std::array<gsr::ByteRange, 16> excluded{};
     if (fast && image.excluded_ranges_len <= excluded.size()) {
         std::size_t count = 0;
@@ -1762,7 +1744,7 @@ void dump_recent_trace() {
 // blitter is ASSEMBLED at runtime: a ROM template is used as a skeleton and
 // the generator patches immediates, fills branch displacements and omits
 // instructions the current parameters do not need. The result is a coherent
-// ARM routine that is byte-identical to no ROM range — the live image at
+// ARM routine that is byte-identical to no ROM range: the live image at
 // 0x03006220 during the first scripted fight shares only its 3-word prologue
 // with the ROM template at 0x080EDCC4, then diverges by construction (measured
 // word alignment: 46 of 97 template words survive, the rest are patched or
@@ -1816,8 +1798,9 @@ void hard_mode_scale_enemy() {
     scale(kBaseDefenceOffset, kStatNumerator, kStatDenominator);
 }
 
-// The Difficulty row (hard_mode.h, shared_game/difficulty_row.h): the
-// screen's own byte only flips; the row's choice is kept beside it.
+// The Difficulty row (hard_mode.h, shared_game/difficulty_row.h). The
+// settings screen's own flag byte is only a toggle, so the row's full choice
+// is kept in separate state beside it.
 std::uint8_t g_hard_mode_saved_byte = 0;
 void hard_mode_settings_setup() {
     using namespace gsr::hard_mode;
@@ -1844,14 +1827,14 @@ void hard_mode_settings_teardown() {
     }
 }
 
-// Djinn on a left-out hero go to the first pick once, at the first battle
-// after the Djinn lesson (Jimmy, 4 November). The lesson after Flint scripts
-// a hand-over to party slots, which can leave Flint with dead Isaac; the
-// lesson battle then never ends. Only that once: the player may give Djinn
-// to left-out heroes in the Djinn menu and they stay there (Jimmy,
-// 4 November). Owned bits +0xF8 + element*4; the game's own move 0x0807A498
-// (from, element, index, to) and recalculation 0x08077428, as its Djinn
-// menu does (0x080AA9F8).
+// Djinn held by a left-out hero go to the first pick, once, at the first
+// battle after the Djinn lesson. The lesson after Flint scripts a hand-over
+// to party slots, which can leave Flint with a dead Isaac, and then the lesson
+// battle never ends. This happens only that once: afterwards the player may
+// give Djinn to left-out heroes in the Djinn menu and they stay there.
+// The owned-Djinn bits are at record +0xF8 + element*4. The moves use the
+// game's own routines, as its Djinn menu does (0x080AA9F8): the move
+// 0x0807A498 (from, element, index, to) and the recalculation 0x08077428.
 bool g_challenge_lesson_ended = false;
 
 void challenge_djinn_to_leader() {
@@ -1883,11 +1866,11 @@ void challenge_djinn_to_leader() {
 
 }  // namespace
 namespace gsr_runner {
-// The Djinn lesson after Flint needs Isaac alive (Jimmy, 4 November): while
-// story flag 0x16E is set (overlay rom_77a7c8 sets it at 0x02009D02 and
-// clears it at 0x0200A22C; battle reads it at 0x080B64B6..) a left-out Isaac
-// is spared, woken once with full HP. After it he goes down again, and his
-// Djinn move to the first pick at the next battle (once).
+// The Djinn lesson after Flint needs Isaac alive. While story flag 0x16E is
+// set (overlay rom_77a7c8 sets it at 0x02009D02 and clears it at 0x0200A22C;
+// battle reads it at 0x080B64B6..), a left-out Isaac is spared: he is woken
+// once with full HP. After the lesson he goes down again, and his Djinn move
+// to the first pick at the next battle (once).
 void challenge_spare_for_lesson() {
     namespace ch = gsr::challenge;
     constexpr unsigned kIsaac = 0;
@@ -1955,10 +1938,9 @@ void challenge_on_entry(std::uint32_t pc) {
         ch::keep_down();
         challenge_djinn_to_leader();
     } else if (pc == GS_ROM(0x080B6A60u)) {
-        // Battle's party list (out): the only builder, called by setup,
-        // commands and turns (10 callers, FACTS.md 12 November). Left-out
-        // heroes are left off. At most 4, 3 when [battle] +0x44 is set;
-        // record +0x12A = 2 per member.
+        // All 10 callers use this to build the battle party at r0 (FACTS.md,
+        // 12 November). Exclude unpicked heroes. The cap is 4, or 3 when
+        // [battle] +0x44 is set. Each included record gets 2 at +0x12A.
         const ch::Config c = ch::current();
         if (c.size == 0) return;
         challenge_spare_for_lesson();
@@ -2326,8 +2308,8 @@ bool verified_identity_local_words_current(std::size_t candidate_index,
     return checked;
 }
 
-// A PC already reported as dynamic. Generated code is hot — the blitter runs
-// per sprite — so everything below this point must stay silent after the
+// A PC already reported as dynamic. Generated code is hot (the blitter runs
+// per sprite), so everything below this point must stay silent after the
 // first report, which is also why the expensive candidate-by-candidate
 // diagnostic only runs the first time a PC is seen.
 bool dynamic_ram_pc_reported(std::uint32_t pc) {
@@ -2347,7 +2329,7 @@ void verified_ram_dispatch_noop() {}
 // return path retires it; a C++ RAII guard cannot span that tail transfer.
 void verified_ram_mark_active(std::uint32_t pc, int thumb);
 
-// ---- Particle stamp routines (docs/features/STATIC_RAM_CODE.md, group D) --
+// ---- Particle stamp routines (group D) --------------------------------
 //
 // Func_ed408 builds an ARM routine into a heap block; every possible output
 // is pre-compiled into gsr_stamps_*, packed at gsr_stamps_kImageOrigin. The
@@ -2540,10 +2522,10 @@ RuntimeGuestFn dispatch_dynamic_ram(std::uint32_t pc, int thumb) {
         verified_ram_mark_active(pc, thumb);
         return fn;
     }
-    // The builder reuses two measured IWRAM staging slots. The older
-    // 0x030057e0..0x03005a64 image is just as generated as the newer
-    // 0x03006000..0x03006500 image; leaving it on the interpreter path makes
-    // every pool tail-jump pay the full bridge cost while its native shard is
+    // The builder reuses two measured IWRAM staging slots. The image at
+    // 0x030057e0..0x03005a64 is generated just like the one at
+    // 0x03006000..0x03006500. If it stayed on the interpreter path, every pool
+    // tail-jump would pay the full bridge cost even though its native shard is
     // already queued.
     const bool generated_blitter = !thumb &&
         ((pc >= 0x030057E0u && pc < 0x03005A64u) ||
@@ -2556,19 +2538,19 @@ RuntimeGuestFn dispatch_dynamic_ram(std::uint32_t pc, int thumb) {
         const auto outcome = gbarecomp::overlay_request_compile(pc, thumb != 0);
         if (outcome != gbarecomp::OverlayRequestOutcome::Failed) {
             // This wait STOPS THE GAME. It is the only place the frame loop
-            // can stand still for seconds, and session_20260913_195033 caught
-            // it doing exactly that: frame 653242 spent 8.86 s inside the
-            // guest with one compile outstanding, while the same shard
-            // compiles standalone in 0.49 s. Where the rest of that time goes
-            // is not yet known, so measure the wait itself -- unconditionally,
-            // like the engine's [ram-compile] line, because the data has to come from
-            // an ordinary play session.
+            // can stand still for seconds: a measured run spent 8.86 s inside
+            // the guest at frame 653242 with one compile outstanding, while
+            // the same shard compiles standalone in 0.49 s. Where the rest of
+            // that time goes is not yet known, so the wait itself is measured
+            // and reported. This is unconditional, like the engine's
+            // [ram-compile] line, because the data has to come from an
+            // ordinary play session.
             //
-            // The wait lasts while the compile is still queued or running,
-            // in 10 s slices up to kMaxWaitSlices. A fixed 10 s aborted
-            // session_20260923_093557 with 0x0300614C queued behind three
-            // other shards; it healed moments after the abort. Only a
-            // compile known to have failed ends the wait early.
+            // The wait lasts while the compile is still queued or running, in
+            // 10 s slices up to kMaxWaitSlices. A single fixed 10 s wait
+            // aborted a run with 0x0300614C queued behind three other shards;
+            // that shard healed moments after the abort. Only a compile known
+            // to have failed ends the wait early.
             constexpr int kMaxWaitSlices = 12;
             const auto wait_t0 = std::chrono::steady_clock::now();
             RuntimeGuestFn fn = nullptr;
@@ -2688,8 +2670,8 @@ struct VerifiedRamActiveGuard {
                 // Re-entering the same validated PC is ordinary guest control
                 // flow, including MP2K's nested loop at 0x03000828. The guest
                 // call stack preserves recursion semantics; keep this as a
-                // native tail transfer. The prior crash came specifically
-                // from overlay_try_dispatch's non-tail retry.
+                // native tail transfer. The crash this guards against came
+                // specifically from overlay_try_dispatch's non-tail retry.
                 tail_redispatch = true;
                 return;
             }
@@ -2771,8 +2753,8 @@ RuntimeGuestFn verified_ram_dispatch_resolve(std::uint32_t pc, int thumb) {
     // below. This must come FIRST: the identity scan re-hashes the whole
     // containing candidate image (SHA-1 over ~1.2 KB) and then every
     // relocatable image at this base (~2.5 KB more) before it can conclude
-    // what it already concluded the first time. Generated code is HOT — a
-    // single fight dispatches these ~100,000 times — so paying that scan per
+    // what it already concluded the first time. Generated code is HOT (a
+    // single fight dispatches these ~100,000 times), so paying that scan per
     // dispatch made it crawl.
     const std::uint64_t key = verified_ram_key(pc, thumb);
 
@@ -2815,7 +2797,7 @@ RuntimeGuestFn verified_ram_dispatch_resolve(std::uint32_t pc, int thumb) {
     }
     if (active_guard.depth_exceeded) {
         // Not a same-pc self-dispatch, but this thread's nested
-        // verified-RAM native dispatch depth ran past the cap — e.g. an
+        // verified-RAM native dispatch depth ran past the cap, e.g. an
         // A->B->A cycle across distinct pcs. Refuse to recurse further and
         // bridge through the interpreter once. As with same-PC recursion,
         // returning null here would let runtime_dispatch select a static or
@@ -3004,12 +2986,9 @@ RuntimeGuestFn verified_ram_dispatch_resolve(std::uint32_t pc, int thumb) {
         std::abort();
     }
 
-    // No fixed-address image explains this PC. Try the position-independent
-    // ones, which are keyed by identity rather than by address: a pooled
-    // routine at a base nobody has ever recorded still dispatches, provided
-    // its live bytes hash to a registered image. This runs before every abort
-    // path below, including the mode mismatch — a stale ARM registration can
-    // overlap a THUMB thunk installed at the same stack address later.
+    // Try relocatable images before aborting. A live hash can identify pooled
+    // code at a new base. Check this before rejecting a mode mismatch, since
+    // a stale ARM row can overlap a later THUMB thunk on the same stack.
     if (RuntimeGuestFn fn = try_relocatable_dispatch(pc, thumb)) {
         mark_active();
         return fn;
@@ -3137,12 +3116,12 @@ RuntimeGuestFn verified_ram_dispatch_resolve(std::uint32_t pc, int thumb) {
         }
     }
     // The candidate-by-candidate byte report is evidence for a strict-static
-    // abort, but the shared EWRAM overlay slot currently has scores of
-    // candidates. Printing all of them during ordinary self-heal caused a
-    // 200-line synchronous stderr burst on the first unknown identity. Keep
-    // normal play concise; diagnostics can opt back into the full report.
-    // Controlled by the config UI's "Additional debug logging" toggle
-    // (default OFF); a strict-static run always reports in full.
+    // abort, but the shared EWRAM overlay slot has scores of candidates.
+    // Printing all of them during ordinary self-heal causes a 200-line
+    // synchronous stderr burst on the first unknown identity. So normal play
+    // stays concise, and diagnostics can opt in to the full report with the
+    // config UI's "Additional debug logging" toggle (default OFF). A
+    // strict-static run always reports in full.
     const bool verbose_identity_report =
         strict_static_run() || gsr_additional_debug_logging() != 0;
     if (!verbose_identity_report && g_dynamic_ram_pcs.empty()) {
@@ -3188,7 +3167,7 @@ RuntimeGuestFn verified_ram_dispatch_resolve(std::uint32_t pc, int thumb) {
     }
     // What the position-independent images saw. A relocatable routine has no
     // declared range to report, so report the base the PC would imply if this
-    // PC were its entry — the overwhelmingly common case — and the identity
+    // PC were its entry (the overwhelmingly common case), and the identity
     // actually resident there.
     for (std::size_t image_index = 0;
          verbose_identity_report && image_index < kRelocatableCodeImages.size();
@@ -3240,16 +3219,16 @@ RuntimeGuestFn verified_ram_dispatch(std::uint32_t pc, int thumb) {
     return fn;
 }
 
-// The static kDispatchTable already has a fixed AOT entry for this
-// transient-RAM pc, but runtime_ram_code_range_dirty() found a write
-// recorded somewhere in its containing 4 KiB page since boot/load — the
-// dirty bit is page-granular, not per-pc. verified_ram_dispatch() above
-// already ran for this exact pc/thumb earlier in the same runtime_dispatch
-// call, so its cache entry (if any) is guaranteed fresh here. A `Static`
-// entry means it independently confirmed, via the registered identity's own
-// SHA-1, that the reviewed ROM-sourced bytes at this pc still match live
-// memory — the write that dirtied the page landed elsewhere in the page, not
-// in this pc's own bytes — so the AOT entry is safe to use as-is.
+// Situation: the static kDispatchTable has a fixed AOT entry for this
+// transient-RAM pc, but runtime_ram_code_range_dirty() found a write recorded
+// somewhere in its containing 4 KiB page since boot/load. The dirty bit is
+// page-granular, not per-pc, so the write may not have touched this pc's bytes.
+// verified_ram_dispatch() above already ran for this exact pc/thumb earlier in
+// the same runtime_dispatch call, so its cache entry (if any) is guaranteed
+// fresh here. A `Static` entry means it independently confirmed, via the
+// registered identity's own SHA-1, that the reviewed ROM-sourced bytes at this
+// pc still match live memory. The write that dirtied the page landed elsewhere
+// in the page, so the AOT entry is safe to use as-is.
 int verified_ram_identity_confirmed(std::uint32_t pc, int thumb) {
     const auto cached = g_verified_ram_cache.find(verified_ram_key(pc, thumb));
     return cached != g_verified_ram_cache.end() &&
@@ -3271,7 +3250,7 @@ void print_usage() {
 }
 void reset_verified_identity_cache() { g_verified_identity_cache = {}; }
 void reset_relocatable_identity_cache() { g_relocatable_identity_cache = {}; }
-// Moved from main(): the per-image lines of the RAM cache report.
+// The per-image lines of the RAM cache report printed at exit.
 void print_ram_cache_image_detail() {
     for (std::size_t i = 0; i < kTransientCodeImages.size(); ++i) {
         if (g_verified_identity_hash_counts[i] == 0) continue;

@@ -120,7 +120,7 @@ uint32_t instr_cycle_base(IrOp op) noexcept {
             return 1;
 
         case IrOp::SWI:
-            return 3;  // 2S+1N — mode-change overhead is in the SWI entry
+            return 3;  // 2S+1N: mode-change overhead is in the SWI entry
 
         case IrOp::Undefined:
         default:

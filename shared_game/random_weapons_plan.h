@@ -1,10 +1,9 @@
 // Random Equipment (first Random Weapons): the seed's plan and the new
 // descriptions. Pure functions over ROM bytes (no engine), so a host bench
-// can run them on the real ROMs. Runtime part: random_weapons.h. Jimmy's
-// design (2, 5 and 6 November 2026, docs/NEXT_PRIORITY_MODES.md):
+// can run them on the real ROMs. Runtime part: random_weapons.h. Design:
 //  - every weapon takes the stat line of a random OTHER weapon (no newly
 //    rolled numbers) and a random unleash;
-//  - armour is folded in (6 November): every piece takes the stat line of a
+//  - armour is folded in: every piece takes the stat line of a
 //    random other piece of the same kind (body, arm, head, feet, undershirt);
 //  - who can equip it, its name, look, price, curse and use stay its own;
 //  - Scaling on: the other piece's stat line is scaled so its Attack (a

@@ -1,6 +1,6 @@
 // field_scene_renderer.h -- draws a described frame with the graphics card.
 //
-// Step 4 of "The Broken Seal/docs/NATIVE_SCENE_RENDERER_PLAN.md", Golden Sun's half. It takes a
+// Step 4 of the native scene renderer, Golden Sun's half. It takes a
 // FieldScene (what the game asked for) plus the frame's video memory, and
 // draws it through gbarecomp's generic GpuSurface.
 //
@@ -68,9 +68,10 @@ public:
     // Percentage of tiles inside the 240x160 window where the room rule
     // gives the console's own entry for layer `bg`, each tile row read with
     // that scanline's own registers; -1 if too few compared.
-    // from_record false: the layer's own scroll names its grid region.
-    // true: read the game's record of the layer's position + the row's
-    // offset from it instead (Lamakan Desert, see room_reference_for).
+    // With from_record false, the layer's own scroll selects the grid region.
+    // With true, the region comes from the game's record of the layer's
+    // position, plus the row's offset from that position (Lamakan Desert,
+    // see room_reference_for).
     int room_layer_agreement(const FieldScene& scene, int bg, int* compared,
                              bool from_record = false) const;
     // How a layer's room rule reads the grid: false if neither the layer's
@@ -229,16 +230,11 @@ public:
                                const std::uint8_t* art, const std::uint16_t* palettes,
                                int sets, std::uint32_t art_generation);
 
-    // Loads this frame's room tables -- rect, camera, id grid, atlas -- from
-    // an EWRAM byte buffer. `ewram[0]` must be GBA address 0x02000000,
-    // whether that is the live guest's EWRAM or a recorded snapshot's
-    // "EWRAM" section (The Broken Seal's src/map_recorder.cpp). The four
-    // addresses this reads and the per-layer rule draw() applies with them are
-    // documented in The Broken Seal's src/room_buffer.h, with their evidence
-    // in FACTS.md; nothing here is a new address. Safe to call every frame.
-    // Returns false ("not known") when the rect does not describe a real room -- draw() then falls back
-    // to video memory for every pixel of every field layer, same as any
-    // other per-pixel miss.
+    // Load the room rect, camera, cell grid and atlas for this frame. The
+    // buffer starts at guest address 0x02000000, whether live or captured.
+    // See The Broken Seal's room_buffer.h and FACTS.md for the addresses.
+    // Call every frame. If the rect is invalid, return false and draw from
+    // video memory.
     bool upload_room(const std::uint8_t* ewram, std::size_t ewram_bytes);
     bool room_known() const { return room_valid_; }
 
@@ -246,10 +242,11 @@ public:
     // SceneMargins); the renderer keeps the pointer, not a copy. Null: none.
     void set_scene_margins(const SceneMargins* margins) { margins_ = margins; }
 
-    // False until the game has loaded its first room -- the map number
-    // (FieldGameProfile::map_id_addr) is still 0. Nothing on screen then belongs to a world, so no
-    // layer may be widened into the margins. Set by upload_room(), which reads
-    // that address whether or not the room rect itself is usable.
+    // False until the game has loaded its first room, that is while the map
+    // number (FieldGameProfile::map_id_addr) is still 0. Nothing on screen
+    // then belongs to a world, so no layer may be widened into the margins.
+    // Set by upload_room(), which reads that address whether or not the room
+    // rect itself is usable.
     bool world_loaded() const { return world_loaded_; }
 
     // Diagnostic mirror of the room-buffer branch the background shader

@@ -92,7 +92,10 @@ HistoryFrame& FrameHistory::record(const std::uint8_t* rgb, std::uint32_t width,
     fr.host_ms = last_present_ms_ >= 0.0 ? now - last_present_ms_ : 0.0;
     fr.width = width;
     fr.height = height;
-    fr.rgb.assign(rgb, rgb + static_cast<std::size_t>(width) * height * 3u);
+    // No picture: a phone frame shown straight from the graphics card
+    // (gpu_present.h); its scene still replays on the PC.
+    if (rgb) fr.rgb.assign(rgb, rgb + static_cast<std::size_t>(width) * height * 3u);
+    else fr.rgb.clear();
     next_ = (next_ + 1) % kFrames;
     if (count_ < kFrames) ++count_;
     last_present_ms_ = now;
@@ -184,12 +187,16 @@ std::string FrameHistory::write(const std::string& note,
         std::snprintf(name, sizeof name, "frame_%03zu.ppm", i);
         std::snprintf(scene_name, sizeof scene_name, "frame_%03zu.bin", i);
         bool image_written = false;
-        if (std::FILE* f = std::fopen((dir + "/" + name).c_str(), "wb")) {
+        if (fr.rgb.empty()) {
+            // A frame shown straight from the graphics card: no picture.
+        } else if (std::FILE* f = std::fopen((dir + "/" + name).c_str(), "wb")) {
             std::fprintf(f, "P6\n%u %u\n255\n", fr.width, fr.height);
             std::fwrite(fr.rgb.data(), 1, fr.rgb.size(), f);
             image_written = close_file(f);
+            if (!image_written) ++write_failures;
+        } else {
+            ++write_failures;
         }
-        if (!image_written) ++write_failures;
         bool scene_written = false;
         if (!fr.scene.empty()) {
             scene_written = write_file(dir + "/" + scene_name, fr.scene.data(), fr.scene.size());

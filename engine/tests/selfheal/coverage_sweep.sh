@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# coverage_sweep.sh — self-heal coverage sweep across gameplay savestates.
+# coverage_sweep.sh: self-heal coverage sweep across gameplay savestates.
 #
 # The doctrine's definition of "done" is FULLY_STATIC: zero dispatch misses and
-# zero heals (PRINCIPLES.md "Coverage honesty is load-bearing"). This drives the
+# zero heals (PRINCIPLES.md "Coverage is reported"). This drives the
 # already-built MinishCapRecomp from every available savestate with the self-heal
 # recompiler ON and the headless walk driver, reads each run's
-# recomp_coverage.json, and asserts FULLY_STATIC for every scene — surfacing any
+# recomp_coverage.json, and asserts FULLY_STATIC for every scene, surfacing any
 # remaining finder gap (and flagging jump-table candidates) for review. A
 # NOT_STATIC scene fails the sweep, so it doubles as a coverage regression guard.
 #
 # Opt-in: needs the gitignored ROM/BIOS/savestates + a built MC. It does NOT
-# regen/relink — it measures the CURRENT build. Configure via env:
+# regen/relink; it measures the CURRENT build. Configure via env:
 #   GBARECOMP_ROOT  gbarecomp worktree (default: this script's ../..)
 #   MC_DIR          MinishCapRecomp project dir (REQUIRED)
 #   MC_BUILD        MC build dir       (default: $MC_DIR/build-selfheal)

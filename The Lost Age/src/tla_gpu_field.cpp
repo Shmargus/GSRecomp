@@ -104,16 +104,17 @@ struct GpuPresentation {
 };
 gbarecomp::TextureReadbackQueue<GpuPresentation> g_readback;
 
-// The iris wipe, window effect 9 (FACTS.md, 2026-10-16): the effect block
-// [0x0300007C] holds the type (s16 +0x528) and size step k (u16 +0x52A, 2 a
-// frame; bit 5 set counts down from 32). 0x080CFEF4 centres it on the
-// leader, actor [[0x0300006C] + 0x14 + id * 4] with id 8 when s16
-// [0x020004B6] != 0, else [0x02000454]: x = actor+8 - camera x, y =
-// (actor+0x10 - actor+0xC) - camera y - 16 (16.16, camera whole pixels).
-// Row y's half-width is sqrt((5k)^2 - 1.5 (y - cy)^2), clamped to 0..240.
-// The rows shown use the k read at the previous VBlank (F12 tla_rewind_0045
-// frames 99..111, every row); the centre was below the console's screen,
-// so the renderer could not fit it from the rows.
+// The iris wipe, window effect 9 (FACTS.md, 2026-10-16). The effect block
+// [0x0300007C] holds the type (s16 +0x528) and the size step k (u16 +0x52A;
+// it grows by 2 a frame, and with bit 5 set it counts down from 32).
+// 0x080CFEF4 centres the wipe on the leader, actor
+// [[0x0300006C] + 0x14 + id * 4]. The id is 8 when s16 [0x020004B6] != 0,
+// otherwise [0x02000454]. The centre is x = actor+8 - camera x and
+// y = (actor+0x10 - actor+0xC) - camera y - 16 (16.16, camera in whole
+// pixels). Row y's half-width is sqrt((5k)^2 - 1.5 (y - cy)^2), clamped to
+// 0..240. The rows on screen use the k read at the previous VBlank (F12
+// tla_rewind_0045 frames 99..111, every row). The centre was below the
+// console's screen, so the renderer could not fit it from the rows.
 gsr::IrisWindow iris_window(gba::GbaBus* bus, int* last_k) {
     gsr::IrisWindow out;
     const std::uint32_t block = bus->read32(0x0300007Cu);
@@ -882,8 +883,8 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
 
 }  // namespace
 
-// Called first by the present hook (src/tla_rewind.cpp). True when `rgb`
-// now holds the graphics card's picture (or the refusal colour).
+// The present hook calls this first (tla_rewind.cpp). True means `rgb`
+// contains the rendered frame or the refusal colour.
 bool tla_gpu_field_present(std::uint8_t* rgb, std::uint32_t width,
                            std::uint32_t height,
                            gbarecomp::HistoryFrame& frame, bool synchronous) {

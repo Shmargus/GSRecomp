@@ -1,4 +1,4 @@
-// bus_tests — ROM header parser, save chips (SRAM, EEPROM, Flash detection),
+// bus_tests: ROM header parser, save chips (SRAM, EEPROM, Flash detection),
 // BIOS-window and undocumented-IO writes, WAITCNT cycle tables, and the
 // bus write observers.
 
@@ -86,7 +86,7 @@ std::vector<uint8_t> build_synthetic_rom(const char* title,
     rom[0x02] = (branch >> 16) & 0xFF;
     rom[0x03] = (branch >> 24) & 0xFF;
 
-    // 0x004..0x09F: logo — we just fill with non-zero, non-0xFF varied
+    // 0x004..0x09F: logo; we just fill with non-zero, non-0xFF varied
     // bytes so looks_like_logo() accepts it.
     for (int i = 0; i < 156; ++i) {
         rom[0x04 + i] = static_cast<uint8_t>((i * 17 + 3) & 0xFF);

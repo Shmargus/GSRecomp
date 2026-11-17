@@ -1,4 +1,4 @@
-// gba_recompile — read a GBA ROM or BIOS image, discover functions
+// gba_recompile: read a GBA ROM or BIOS image, discover functions
 // reachable from the entry point + seeded symbols, lower their
 // ARM/THUMB bodies through the armv4t IR into C++ source, and write
 // the result to a per-game `generated/` directory (or, for BIOS, to
@@ -274,7 +274,7 @@ std::vector<FunctionSeed> load_symbols(const std::string& path) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Emitter — the per-function lowering lives in
+// Emitter: the per-function lowering lives in
 // src/recompile/emit_function.{h,cpp} (gbarecomp::emit_function_body),
 // shared with the Stage-2 runtime self-healing recompiler. write_body()
 // below calls it via the FILE* wrapper.
@@ -320,7 +320,7 @@ OutputNames names_for_mode(bool bios_mode) {
 // Each guest function is emitted as `void <name>(void)`, and that same
 // <name> is referenced from the header decl, the dispatch table, and
 // inter-function call sites in the bodies. The name comes from the seed
-// where known — but a seed name is just a symbol-table string and can be a
+// where known, but a seed name is just a symbol-table string and can be a
 // C++ keyword, the std namespace, or a duplicate of another local symbol.
 // Any of those breaks the C++ compile. Cart names are given a reserved
 // prefix (see sanitize_function_identifiers); BIOS names are kept unless
@@ -370,16 +370,16 @@ bool is_valid_c_identifier(const std::string& s) {
 // suffix. Mutates in place.
 //
 // Cart functions are emitted `extern "C"` into the SAME global symbol
-// namespace as the host program — libc, the GCC builtins, and the gbarecomp
-// runtime API. A guest function whose seed name is a libc name (`memcpy`,
+// namespace as the host program (libc, the GCC builtins, and the gbarecomp
+// runtime API). A guest function whose seed name is a libc name (`memcpy`,
 // `memset`, `abort`, …) would HIJACK the host's symbol at link: every host
-// call — including C-runtime startup, which runs before our constructors —
+// call (including C-runtime startup, which runs before our constructors)
 // would jump into guest code operating on an uninitialised g_cpu, a pre-main
 // hang. A reserved `gf_` prefix the host never uses makes the collision
 // impossible by construction, and subsumes C++ keyword / `std` namespace
-// collisions for free. BIOS functions are NOT prefixed — they
+// collisions for free. BIOS functions are NOT prefixed: they
 // dispatch through a separate table and their seed names (reset/swi/irq)
-// don't collide — but still get keyword/duplicate hardening.
+// don't collide, but still get keyword/duplicate hardening.
 void sanitize_function_identifiers(std::vector<Function>& funcs,
                                    bool prefix_guest,
                                    const std::string& symbol_prefix) {
@@ -1139,14 +1139,14 @@ int main(int argc, char** argv) {
 
     if (cli.bios_mode) {
         // GBA BIOS exception vector layout (ARM ARM A2.6):
-        //   0x00 reset       — power-on entry
-        //   0x04 undef       — undefined-instruction trap (skipped)
-        //   0x08 SWI         — software interrupt
-        //   0x0C prefetch    — prefetch abort (skipped)
-        //   0x10 data        — data abort (skipped)
-        //   0x14 reserved    — (skipped)
-        //   0x18 IRQ         — IRQ entry
-        //   0x1C FIQ         — FIQ entry (skipped — GBA doesn't use FIQ)
+        //   0x00 reset:     power-on entry
+        //   0x04 undef:     undefined-instruction trap (skipped)
+        //   0x08 SWI:       software interrupt
+        //   0x0C prefetch:  prefetch abort (skipped)
+        //   0x10 data:      data abort (skipped)
+        //   0x14 reserved:  (skipped)
+        //   0x18 IRQ:       IRQ entry
+        //   0x1C FIQ:       FIQ entry (skipped, GBA doesn't use FIQ)
         // All vectors are ARM-state. Each is a single B instruction
         // whose target the function-finder follows, so we don't need
         // to seed the actual handler bodies.
@@ -1183,7 +1183,7 @@ int main(int argc, char** argv) {
     //
     //  * AUTHORITATIVE range (readelf [[data_range]] or a manual
     //    [[jump_table]] hint): the operator asserted these bytes are data,
-    //    so flow into them is a genuine contradiction — HARD ERROR, and the
+    //    so flow into them is a genuine contradiction (HARD ERROR), and the
     //    human must resolve it (shrink the range / exclude the caller).
     //
     //  * AUTO jump_table (the finder's own speculative abs32-table guess):
@@ -1193,7 +1193,7 @@ int main(int argc, char** argv) {
     //    inside the table bytes, which are data). The data_range itself is
     //    correct; only the decoded branches are artifacts. Downgrade to a
     //    WARNING: keep the bytes as data and let the residual indirect
-    //    branches resolve through the runtime's honest self-heal path.
+    //    branches resolve through the runtime's reported self-heal path.
     //    Never a build failure.
     const auto& cols = finder.collisions();
     std::size_t fatal = 0, auto_jt = 0;
@@ -1339,7 +1339,7 @@ int main(int argc, char** argv) {
         }
     }
     // Flush the discovery summary now so it's observable before the
-    // (much slower) codegen pass — lets a measurement run read the
+    // (much slower) codegen pass: lets a measurement run read the
     // numbers without waiting for full generation.
     std::fflush(stdout);
 

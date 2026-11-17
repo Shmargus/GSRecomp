@@ -10,15 +10,15 @@
 // bit 4 Random Coins, bit 5 Scaled difficulty (every battle's enemies rise
 // to the party's level), bit 6 Random Weapons finds, bit 7 Random Armor
 // finds (chests and gifts holding a weapon, or armour, give a random piece).
-// More flags (version 3, 7 November 2026): bit 0 was Key Items, retired 8
-// November 2026 (key items never move): read and ignored, never written, so
-// a save made with it still loads. Version 2 bytes read with no more flags.
+// More flags (version 3, 7 November 2026): bit 0 was Key Items. It was
+// retired 8 November 2026 because key items never move; it is read and
+// ignored, never written, so a save made with it still loads. Version 2
+// bytes read with no more flags.
 // Version 4 (10 November 2026): Fair Play is a switch per randomized thing.
 // Flags bit 0 is Fair Psynergy; more flags bit 1 Fair Items, bit 2 Fair
 // Coins, bit 3 Fair Shops. In older versions bit 0 was the one Fair Play
-// switch and reads as all four. All zero
-// is Off, as every existing save is. A randomized Broken Seal run goes on to
-// The Lost Age with these bytes (Jimmy, 7 November 2026).
+// switch and reads as all four. All zero is Off, as every existing save is.
+// A randomized Broken Seal run goes on to The Lost Age with these bytes.
 #pragma once
 #include <array>
 #include <cstdint>

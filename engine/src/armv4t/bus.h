@@ -1,13 +1,11 @@
-// bus.h — Portable memory-bus interface used by the IR interpreter
+// bus.h: Portable memory-bus interface used by the IR interpreter
 // and by codegen-emitted helpers.
 //
-// This lives in the armv4t/ layer so the interpreter can stay
-// platform-portable (no gba/ dependency). The concrete GBA bus
-// (`gba::MemoryBus`) inherits from this — see `src/gba/gba_memory.h`.
+// The interpreter uses this interface without depending on GBA hardware.
+// The GBA implements it in `gba::MemoryBus` (src/gba/gba_memory.h).
 //
-// The interface deliberately exposes only the read/write primitives.
-// Unmapped-access logging, region classification, waitstate timing,
-// IO-side-effects — all of that lives in concrete implementations.
+// Implementations handle region decoding, waitstates, I/O side effects
+// and unmapped-access logging.
 
 #pragma once
 

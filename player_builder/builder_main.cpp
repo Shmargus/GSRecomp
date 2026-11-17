@@ -3,15 +3,15 @@
 // The Lost Age (TLAGame.dll); the description below is The Broken Seal's.
 //
 // The release ships only our own code: the engine (GoldenSunEngine.dll, run
-// by GoldenSunRecomp.exe), this builder, the translator (gba_recompile.exe), a trimmed compiler and
-// the configuration data. Everything from Golden Sun, code included, comes
-// from the player's ROM, here:
+// by GoldenSunRecomp.exe), this builder, the translator (gba_recompile.exe),
+// a trimmed compiler and the configuration data. Everything from Golden Sun,
+// code included, comes from the player's ROM, here:
 //
 //   1. check the ROM (SHA-1),
-//   2. translate it into C++ (data/game_code_plan.txt, copied from config/usa: the main
-//      program, the RAM-copied routines, the overlays, which the game's own
-//      decompressor unpacks via guest_call.h, the synthesized variants and
-//      the particle stamps),
+//   2. translate it into C++ following data/game_code_plan.txt (copied from
+//      config/usa). The plan covers the main program, the RAM-copied
+//      routines, the overlays (which the game's own decompressor unpacks via
+//      guest_call.h), the synthesized variants and the particle stamps,
 //   3. compile that with the bundled GCC and link GoldenSunGame.dll against
 //      the engine's import library.
 //
@@ -70,16 +70,14 @@ using gsr::builder::GuestMachine;
 
 namespace {
 
-// A ROM revision this release builds, from the game's revision list: its
-// language code (its folder under data/, configs from
-// The Broken Seal/tools/build_localized_*.py; USA/Europe uses data/ itself) and the two ROM
-// routines the stamp step runs, measured per revision.
+// Each supported revision maps to a config folder under data/ and two
+// measured ROM routines for stamp generation. USA/Europe uses data/ itself.
 struct RomRevision {
     const char* code;
     const char* sha1;
     std::uint32_t stamp_builder, stamp_allocator;
 };
-#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator)     {code, sha1, stamp_builder, stamp_allocator},
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language) {code, sha1, stamp_builder, stamp_allocator},
 
 #ifdef GSR_BUILDER_TLA
 constexpr RomRevision kRevisions[] = {
@@ -116,6 +114,17 @@ constexpr const char* kEngineFile = "TLAEngine.dll";
 #else
 constexpr const char* kGameLibrary = "GoldenSunGame.dll";
 constexpr const char* kEngineFile = "GoldenSunEngine.dll";
+#endif
+#elif defined(__ANDROID__)
+// On Android, link the game library against the bundled engine passed as
+// --engine-library.
+constexpr const char* kExeSuffix = "";
+#ifdef GSR_BUILDER_TLA
+constexpr const char* kGameLibrary = "libTLAGame.so";
+constexpr const char* kEngineFile = "libtla_engine.so";
+#else
+constexpr const char* kGameLibrary = "libGoldenSunGame.so";
+constexpr const char* kEngineFile = "libgs_engine.so";
 #endif
 #else
 constexpr const char* kExeSuffix = "";
@@ -378,7 +387,11 @@ struct Setup {
     fs::path rom;
     fs::path data;        // main.toml, transient-*.toml, overlays/, plan
     fs::path engine;      // include/, the engine's import library (kApiLibrary)
-    fs::path toolchain;   // bin/g++.exe
+    fs::path toolchain;   // bin/g++.exe (Android: sysroot/ and lib/clang/<v>/)
+#ifdef __ANDROID__
+    fs::path llvm;            // the app's Clang and lld (one program, libllvm.so)
+    fs::path engine_library;  // the app's engine plug-in, kEngineFile
+#endif
     fs::path recompiler;  // gba_recompile.exe
     fs::path work;        // generated sources, objects, logs
     fs::path out_dir;     // where the game library goes
@@ -389,6 +402,20 @@ struct Setup {
 };
 
 fs::path gen_dir(const Setup& s) { return s.work / "gen"; }
+
+#ifdef __ANDROID__
+// The phone's target: 64-bit ARM, the oldest Android the app installs on
+// (scripts/android/build_apk.py, MIN_SDK).
+constexpr int kAndroidApi = 28;
+constexpr const char* kAndroidTarget = "aarch64-linux-android28";
+// Clang's own headers and runtime, unpacked by the app beside the sysroot.
+fs::path android_resource_dir(const Setup& s) {
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(s.toolchain / "lib" / "clang", ec))
+        if (entry.is_directory()) return entry.path();
+    return s.toolchain / "lib" / "clang" / "missing";
+}
+#endif
 fs::path input_dir(const Setup& s) { return s.work / "inputs"; }
 fs::path logs_dir(const Setup& s) { return s.work / "logs"; }
 
@@ -514,57 +541,82 @@ struct Variant {
     std::string toml;
 };
 
-// Synthesized Func_dc8 variant, slot 1.
-Variant synth_dc8(const std::vector<std::uint8_t>& rom, std::uint32_t tmpl) {
-    constexpr std::uint32_t kEntry = 0x03000828u, kEnd = 0x030008CCu;
+// Fields that vary between the Func_dc8 TOML files. Each file carries the
+// patched ROM's identity, the rewritten code span, one ARM entry at its
+// start and a resume range covering the span.
+struct SynthSpan {
+    std::string dir;      // "<kind>_<tag>": input/output folder, symbol prefix, program id
+    std::string proof;    // second comment line: what the writer copies
+    std::string name;     // [program] name
+    std::uint32_t start = 0, end = 0;
+    std::string copy_name, copy_note, func_name, func_note, range_note;
+};
+
+Variant synth_variant(std::vector<std::uint8_t> patched, const SynthSpan& s) {
+    const std::string start = "0x" + hex(s.start, 8, false);
     Variant v;
-    v.rom = rom;
-    const std::uint32_t source = rom_offset(tmpl);
-    const std::uint32_t dest = rom_offset(kEntry);
-    for (int it = 0; it < 4; ++it) {
-        const std::uint32_t base = dest + static_cast<std::uint32_t>(it) * 0x24u;
-        std::memcpy(&v.rom[base], &rom[source], 8);
-        std::memcpy(&v.rom[base + 0x0C], &rom[source + 8], 16);
-    }
-    const std::string t = hex(tmpl, 8, false);
-    const std::string patched = sha1_hex(v.rom.data(), v.rom.size());
-    const std::string image = sha1_hex(&v.rom[rom_offset(kEntry)], kEnd - kEntry);
-    v.dir = "synth_dc8_" + t;
-    v.prefix = "gsr_synth_dc8_" + t + "_";
+    v.dir = s.dir;
+    v.prefix = "gsr_" + s.dir + "_";
     v.toml =
         "# Private generated input; do not commit.\n"
-        "# Ring event #3295783 proves ARM writer 0x03000800 and template 0x" + t + ".\n"
+        "# " + s.proof + "\n"
         "[program]\n"
-        "name = \"Golden Sun synthesized Func_dc8 variant 0x" + t + "\"\n"
-        "id = \"golden_sun_usa_synth_dc8_" + t + "\"\n"
+        "name = \"" + s.name + "\"\n"
+        "id = \"golden_sun_usa_" + s.dir + "\"\n"
         "load_address = 0x08000000\n"
         "size = 0x00800000\n"
-        "entry_pc = 0x03000820\n"
+        "entry_pc = " + start + "\n"
         "speculative_literal_harvest = false\n"
         "codegen_shards = 1\n"
         "\n"
         "[identity]\n"
-        "sha1 = \"" + patched + "\"\n"
+        "sha1 = \"" + sha1_hex(patched.data(), patched.size()) + "\"\n"
         "\n"
         "[[code_copy]]\n"
-        "runtime_start = 0x03000820\n"
-        "source_start = 0x08000f90\n"
-        "size = 0x000000ac\n"
-        "name = \"synthesized_Func_dc8_0x" + t + "\"\n"
-        "note = \"24-byte template repeated into four code holes; complete executable SHA-1 " + image + "\"\n"
+        "runtime_start = " + start + "\n"
+        "source_start = 0x" + hex(rom_address(s.start), 8, false) + "\n"
+        "size = 0x" + hex(s.end - s.start, 8, false) + "\n"
+        "name = \"" + s.copy_name + "\"\n"
+        "note = \"" + s.copy_note + "\"\n"
         "\n"
         "[[extra_func]]\n"
-        "addr = 0x03000820\n"
+        "addr = " + start + "\n"
         "mode = \"arm\"\n"
-        "name = \"Func_dc8_synth_0x" + t + "\"\n"
-        "note = \"ARM loop header immediately preceding the synthesized span; backedge from 0x030008c4\"\n"
+        "name = \"" + s.func_name + "\"\n"
+        "note = \"" + s.func_note + "\"\n"
         "\n"
         "[[resume_range]]\n"
-        "start = 0x03000820\n"
-        "end = 0x030008cc\n"
+        "start = " + start + "\n"
+        "end = 0x" + hex(s.end, 8, false) + "\n"
         "mode = \"arm\"\n"
-        "note = \"Whole loop including its 0x03000820 header; valid after writer completes until its next pass or IWRAM reset\"\n";
+        "note = \"" + s.range_note + "\"\n";
+    v.rom = std::move(patched);
     return v;
+}
+
+// Synthesized Func_dc8 variant, slot 1.
+Variant synth_dc8(const std::vector<std::uint8_t>& rom, std::uint32_t tmpl) {
+    constexpr std::uint32_t kStart = 0x03000820u, kEntry = 0x03000828u, kEnd = 0x030008CCu;
+    std::vector<std::uint8_t> patched = rom;
+    const std::uint32_t source = rom_offset(tmpl);
+    const std::uint32_t dest = rom_offset(kEntry);
+    for (int it = 0; it < 4; ++it) {
+        const std::uint32_t base = dest + static_cast<std::uint32_t>(it) * 0x24u;
+        std::memcpy(&patched[base], &rom[source], 8);
+        std::memcpy(&patched[base + 0x0C], &rom[source + 8], 16);
+    }
+    const std::string t = hex(tmpl, 8, false);
+    const std::string image = sha1_hex(&patched[rom_offset(kEntry)], kEnd - kEntry);
+    return synth_variant(std::move(patched), {
+        "synth_dc8_" + t,
+        "Ring event #3295783 proves ARM writer 0x03000800 and template 0x" + t + ".",
+        "Golden Sun synthesized Func_dc8 variant 0x" + t, kStart, kEnd,
+        "synthesized_Func_dc8_0x" + t,
+        "24-byte template repeated into four code holes; complete executable SHA-1 " + image,
+        "Func_dc8_synth_0x" + t,
+        "ARM loop header immediately preceding the synthesized span; backedge from 0x030008c4",
+        "Whole loop including its 0x03000820 header; valid after writer completes until its "
+        "next pass or IWRAM reset"});
 }
 
 // Synthesized Func_dc8 variant, slot 2.
@@ -572,50 +624,21 @@ Variant synth_dc8b(const std::vector<std::uint8_t>& rom, int variant) {
     constexpr std::uint32_t kLoopStart = 0x03000A58u, kLoopEnd = 0x03000A98u;
     constexpr std::uint32_t kTable = 0x030009C4u;
     constexpr std::uint32_t kHoles[4] = {0x03000A5Cu, 0x03000A68u, 0x03000A74u, 0x03000A80u};
-    Variant v;
-    v.rom = rom;
+    std::vector<std::uint8_t> patched = rom;
     const std::uint32_t source = rom_offset(kTable) + static_cast<std::uint32_t>(variant) * 8u;
     for (int i = 0; i < 4; ++i)
-        std::memcpy(&v.rom[rom_offset(kHoles[i])], &rom[source + static_cast<std::uint32_t>(i) * 8u], 8);
+        std::memcpy(&patched[rom_offset(kHoles[i])], &rom[source + static_cast<std::uint32_t>(i) * 8u], 8);
     const std::string n = std::to_string(variant);
-    const std::string patched = sha1_hex(v.rom.data(), v.rom.size());
-    const std::string image = sha1_hex(&v.rom[rom_offset(kLoopStart)], kLoopEnd - kLoopStart);
-    v.dir = "synth_dc8b_" + n;
-    v.prefix = "gsr_synth_dc8b_" + n + "_";
-    v.toml =
-        "# Private generated input; do not commit.\n"
-        "# Writer 0x03000a20..0x03000a50 copies table 0x030009c4 + " + n + " * 8.\n"
-        "[program]\n"
-        "name = \"Golden Sun synthesized Func_dc8 slot 2 variant " + n + "\"\n"
-        "id = \"golden_sun_usa_synth_dc8b_" + n + "\"\n"
-        "load_address = 0x08000000\n"
-        "size = 0x00800000\n"
-        "entry_pc = 0x" + hex(kLoopStart, 8, false) + "\n"
-        "speculative_literal_harvest = false\n"
-        "codegen_shards = 1\n"
-        "\n"
-        "[identity]\n"
-        "sha1 = \"" + patched + "\"\n"
-        "\n"
-        "[[code_copy]]\n"
-        "runtime_start = 0x" + hex(kLoopStart, 8, false) + "\n"
-        "source_start = 0x" + hex(rom_address(kLoopStart), 8, false) + "\n"
-        "size = 0x" + hex(kLoopEnd - kLoopStart, 8, false) + "\n"
-        "name = \"synthesized_Func_dc8_slot2_" + n + "\"\n"
-        "note = \"Eight table words in four holes; complete executable SHA-1 " + image + "\"\n"
-        "\n"
-        "[[extra_func]]\n"
-        "addr = 0x" + hex(kLoopStart, 8, false) + "\n"
-        "mode = \"arm\"\n"
-        "name = \"Func_dc8_slot2_synth_" + n + "\"\n"
-        "note = \"Mixer loop head; backedge from 0x03000a94, falls through to 0x03000a98\"\n"
-        "\n"
-        "[[resume_range]]\n"
-        "start = 0x" + hex(kLoopStart, 8, false) + "\n"
-        "end = 0x" + hex(kLoopEnd, 8, false) + "\n"
-        "mode = \"arm\"\n"
-        "note = \"Whole loop; valid after the writer's pass until its next pass or an IWRAM reset\"\n";
-    return v;
+    const std::string image = sha1_hex(&patched[rom_offset(kLoopStart)], kLoopEnd - kLoopStart);
+    return synth_variant(std::move(patched), {
+        "synth_dc8b_" + n,
+        "Writer 0x03000a20..0x03000a50 copies table 0x030009c4 + " + n + " * 8.",
+        "Golden Sun synthesized Func_dc8 slot 2 variant " + n, kLoopStart, kLoopEnd,
+        "synthesized_Func_dc8_slot2_" + n,
+        "Eight table words in four holes; complete executable SHA-1 " + image,
+        "Func_dc8_slot2_synth_" + n,
+        "Mixer loop head; backedge from 0x03000a94, falls through to 0x03000a98",
+        "Whole loop; valid after the writer's pass until its next pass or an IWRAM reset"});
 }
 
 // Synthesized Func_dc8 variant, slot 3.
@@ -623,49 +646,20 @@ Variant synth_dc8c(const std::vector<std::uint8_t>& rom, int variant) {
     constexpr std::uint32_t kSlotStart = 0x03000BD8u, kSlotEnd = 0x03000C70u;
     constexpr std::uint32_t kTable = 0x08000404u;
     constexpr std::uint32_t kSize = kSlotEnd - kSlotStart;
-    Variant v;
-    v.rom = rom;
-    std::memcpy(&v.rom[rom_offset(kSlotStart)],
+    std::vector<std::uint8_t> patched = rom;
+    std::memcpy(&patched[rom_offset(kSlotStart)],
                 &rom[kTable - kRomBase + static_cast<std::uint32_t>(variant) * kSize], kSize);
     const std::string n = std::to_string(variant);
-    const std::string image = sha1_hex(&v.rom[rom_offset(kSlotStart)], kSize);
-    const std::string patched = sha1_hex(v.rom.data(), v.rom.size());
-    v.dir = "synth_dc8c_" + n;
-    v.prefix = "gsr_synth_dc8c_" + n + "_";
-    v.toml =
-        "# Private generated input; do not commit.\n"
-        "# 0x080037d4 copies table 0x08000404 + " + n + " * 0x98 over 0x03000bd8.\n"
-        "[program]\n"
-        "name = \"Golden Sun synthesized Func_dc8 slot 3 variant " + n + "\"\n"
-        "id = \"golden_sun_usa_synth_dc8c_" + n + "\"\n"
-        "load_address = 0x08000000\n"
-        "size = 0x00800000\n"
-        "entry_pc = 0x" + hex(kSlotStart, 8, false) + "\n"
-        "speculative_literal_harvest = false\n"
-        "codegen_shards = 1\n"
-        "\n"
-        "[identity]\n"
-        "sha1 = \"" + patched + "\"\n"
-        "\n"
-        "[[code_copy]]\n"
-        "runtime_start = 0x" + hex(kSlotStart, 8, false) + "\n"
-        "source_start = 0x" + hex(rom_address(kSlotStart), 8, false) + "\n"
-        "size = 0x" + hex(kSize, 8, false) + "\n"
-        "name = \"synthesized_Func_dc8_slot3_" + n + "\"\n"
-        "note = \"ROM block " + n + " of table 0x08000404; complete executable SHA-1 " + image + "\"\n"
-        "\n"
-        "[[extra_func]]\n"
-        "addr = 0x" + hex(kSlotStart, 8, false) + "\n"
-        "mode = \"arm\"\n"
-        "name = \"Func_dc8_slot3_synth_" + n + "\"\n"
-        "note = \"Entered by fall-through from 0x03000bd4; leaves to 0x03000c70\"\n"
-        "\n"
-        "[[resume_range]]\n"
-        "start = 0x" + hex(kSlotStart, 8, false) + "\n"
-        "end = 0x" + hex(kSlotEnd, 8, false) + "\n"
-        "mode = \"arm\"\n"
-        "note = \"Whole block; valid until the next 0x080037d4 copy or an IWRAM reset\"\n";
-    return v;
+    const std::string image = sha1_hex(&patched[rom_offset(kSlotStart)], kSize);
+    return synth_variant(std::move(patched), {
+        "synth_dc8c_" + n,
+        "0x080037d4 copies table 0x08000404 + " + n + " * 0x98 over 0x03000bd8.",
+        "Golden Sun synthesized Func_dc8 slot 3 variant " + n, kSlotStart, kSlotEnd,
+        "synthesized_Func_dc8_slot3_" + n,
+        "ROM block " + n + " of table 0x08000404; complete executable SHA-1 " + image,
+        "Func_dc8_slot3_synth_" + n,
+        "Entered by fall-through from 0x03000bd4; leaves to 0x03000c70",
+        "Whole block; valid until the next 0x080037d4 copy or an IWRAM reset"});
 }
 
 // ---------------------------------------------------------------- stamps
@@ -1004,7 +998,67 @@ bool apply_block_timing(const Setup& s, std::string* error) {
     return true;
 }
 
-bool compile_and_link(const Setup& s, std::string* library_sha1, std::string* error) {
+// Hash the ROM, generated sources, engine headers, compiler, compile
+// arguments and exports. Skip building only when these inputs match the
+// record and its installed library is intact (compile_and_link). An
+// unreadable input gives an empty hash and forces a rebuild.
+//
+// Not covered: the C library headers of the bundled compiler's sysroot (the
+// generated code uses fixed-width integers and nothing else from them).
+std::string build_inputs_sha1(const Setup& s, const std::string& rom_sha1,
+                              const fs::path& compiler,
+                              const std::vector<std::string>& compile_args,
+                              const std::vector<fs::path>& sources) {
+    bool ok = true;
+    std::string text = "golden sun recompiled build inputs 1\n";
+    text += "rom " + rom_sha1 + "\n";
+    text += std::string("library ") + kGameLibrary + "\n";
+    auto add_file = [&](const std::string& label, const fs::path& p) {
+        const auto bytes = read_bytes(p);
+        std::error_code ec;
+        if (bytes.empty() && (!fs::is_regular_file(p, ec) || fs::file_size(p, ec) != 0))
+            ok = false;
+        text += label + " " + sha1_hex(bytes.data(), bytes.size()) + " " +
+                std::to_string(bytes.size()) + "\n";
+    };
+    auto add_tree = [&](const std::string& label, const fs::path& root) {
+        std::vector<fs::path> files;
+        std::error_code ec;
+        for (fs::recursive_directory_iterator it(root, ec), end; !ec && it != end;
+             it.increment(ec)) {
+            if (it->is_regular_file(ec)) files.push_back(it->path());
+        }
+        if (ec || files.empty()) ok = false;
+        std::sort(files.begin(), files.end());
+        for (const fs::path& f : files)
+            add_file(label + " " + f.lexically_relative(root).generic_string(), f);
+    };
+    // Hash the compiler driver and g++'s compiler executable.
+    add_file("compiler", compiler);
+    {
+        std::vector<fs::path> parts;
+        std::error_code ec;
+        for (fs::recursive_directory_iterator it(s.toolchain / "libexec", ec), end;
+             !ec && it != end; it.increment(ec)) {
+            if (it->is_regular_file(ec) &&
+                has_prefix(it->path().filename().string(), "cc1plus"))
+                parts.push_back(it->path());
+        }
+        std::sort(parts.begin(), parts.end());
+        for (const fs::path& p : parts) add_file("compiler part " + p.filename().string(), p);
+    }
+    for (const std::string& a : compile_args) text += "argument " + a + "\n";
+    add_tree("header", s.engine / "include");
+    add_tree("generated", gen_dir(s));
+    // Link inputs include the export table and the engine's library name.
+    text += "exports " + sha1_hex(make_def(sources).data(), make_def(sources).size()) + "\n";
+    text += std::string("engine ") + kEngineFile + "\n";
+    return ok ? sha1_hex(text.data(), text.size()) : std::string();
+}
+
+bool compile_and_link(const Setup& s, const std::string& rom_sha1,
+                      std::string* library_sha1, std::string* inputs_sha1,
+                      std::string* error) {
     const fs::path gen = gen_dir(s), obj = s.work / "obj";
     fs::create_directories(obj);
     const auto sources = game_sources(gen);
@@ -1012,6 +1066,24 @@ bool compile_and_link(const Setup& s, std::string* library_sha1, std::string* er
         *error = "no game code was generated";
         return false;
     }
+#ifdef __ANDROID__
+    // Android: the app's own Clang, with the flags the NDK's clang++ uses
+    // for the engine (scripts/android/build_apk.py).
+    const fs::path gxx = s.llvm;
+    const fs::path sysroot = s.toolchain / "sysroot";
+    std::vector<std::string> base = {
+        "clang++", "--target=" + std::string(kAndroidTarget),
+        "--sysroot=" + sysroot.string(),
+        "-resource-dir=" + android_resource_dir(s).string(),
+        "-fdata-sections", "-ffunction-sections", "-funwind-tables",
+        "-fstack-protector-strong", "-D_FORTIFY_SOURCE=2",
+        "-O2", "-DNDEBUG", "-std=c++20", "-Og", "-g0",
+        "-ferror-limit=20",
+        "-DGBARECOMP_OUTLINE_BUS=1",
+        "-fPIC", "-fno-semantic-interposition",
+        "-I" + (gen / "main").string(),
+        "-I" + (s.engine / "include").string()};
+#else
     const fs::path gxx = s.toolchain / "bin" / (std::string("g++") + kExeSuffix);
     std::vector<std::string> base = {
         "-O2", "-g", "-DNDEBUG", "-std=c++20", "-Og", "-g0",
@@ -1032,6 +1104,28 @@ bool compile_and_link(const Setup& s, std::string* library_sha1, std::string* er
     const fs::path sysroot = s.toolchain / "sysroot";
     if (fs::is_directory(sysroot)) base.push_back("--sysroot=" + sysroot.string());
 #endif
+#endif  // __ANDROID__
+
+    // Reuse an intact library if the build fingerprint matches.
+    *inputs_sha1 = build_inputs_sha1(s, rom_sha1, gxx, base, sources);
+    if (!inputs_sha1->empty()) {
+        const auto previous =
+            gsr_player::read_build_record(read_text(s.out_dir / kBuildStamp));
+        if (previous.inputs_sha1 && *previous.inputs_sha1 == *inputs_sha1 &&
+            previous.builder == gsr_player::kBuilderVersion &&
+            previous.rom_sha1 == rom_sha1 && previous.library_sha1 &&
+            !previous.library_sha1->empty()) {
+            const auto installed = read_bytes(s.out_dir / kGameLibrary);
+            if (!installed.empty() &&
+                sha1_hex(installed.data(), installed.size()) == *previous.library_sha1) {
+                emit("@stage The game code has not changed");
+                log_line("Build inputs " + *inputs_sha1 +
+                         " match the installed game library: nothing to compile.");
+                *library_sha1 = *previous.library_sha1;
+                return true;
+            }
+        }
+    }
 
     emit("@stage Compiling the game (%zu files)", sources.size());
     std::vector<fs::path> objects;
@@ -1076,7 +1170,29 @@ bool compile_and_link(const Setup& s, std::string* library_sha1, std::string* er
     const fs::path log = logs_dir(s) / "link.log";
     std::error_code ec;
     fs::remove(log, ec);
-#ifdef _WIN32
+#if defined(__ANDROID__)
+    // lld directly (the Clang driver would look for a program called
+    // ld.lld): the inputs and options the NDK's clang++ passes for -shared
+    // (measured with -### on NDK r29), plus the engine plug-in, which makes
+    // the game library load it.
+    const fs::path libs = sysroot / "usr" / "lib" / "aarch64-linux-android";
+    const fs::path api = libs / std::to_string(kAndroidApi);
+    const fs::path builtins = android_resource_dir(s) / "lib" / "linux" /
+                              "libclang_rt.builtins-aarch64-android.a";
+    const std::vector<std::string> link = {
+        "ld.lld", "-EL", "--fix-cortex-a53-843419", "-z", "now", "-z", "relro",
+        "-z", "max-page-size=16384", "--no-rosegment", "--use-android-relr-tags",
+        "--pack-dyn-relocs=relr", "--hash-style=gnu", "--eh-frame-hdr",
+        "-m", "aarch64linux", "-shared", "-soname", kGameLibrary,
+        "-o", dll_tmp.string(), (api / "crtbegin_so.o").string(),
+        "-L" + (android_resource_dir(s) / "lib" / "linux" / "aarch64").string(),
+        "-L" + api.string(), "-L" + libs.string(),
+        "@" + rsp.string(), "-Bsymbolic", "--gc-sections",
+        s.engine_library.string(),
+        "-lc++_shared", "-lm", builtins.string(), "-l:libunwind.a", "-ldl", "-lc",
+        builtins.string(), "-l:libunwind.a", "-ldl", (api / "crtend_so.o").string()};
+    const int rc = run_process(gxx, link, log);
+#elif defined(_WIN32)
     const int rc = run_process(gxx, {"-shared", "-o", dll_tmp.string(), "@" + rsp.string(),
                                      def.string(),
                                      (s.engine / kApiLibrary).string()},
@@ -1239,6 +1355,10 @@ int main(int argc, char** cargv) {
         else if (a == "--engine") s.engine = next();
         else if (a == "--toolchain") s.toolchain = next();
         else if (a == "--recompiler") s.recompiler = next();
+#ifdef __ANDROID__
+        else if (a == "--llvm") s.llvm = next();
+        else if (a == "--engine-library") s.engine_library = next();
+#endif
         else if (a == "--jobs" && i + 1 < argv.size()) s.jobs = std::stoi(argv[++i]);
         else if (a == "--keep-work") s.keep_work = true;
         else if (a == "--generate-only") s.generate_only = true;
@@ -1287,10 +1407,10 @@ int main(int argc, char** cargv) {
     if (!s.revision) {
         if (!gbarecomp::any_rom_allowed()) {
 #ifdef GSR_BUILDER_TLA
-            return fail("This release requires the English, Spanish, Italian, French or German Golden Sun: The Lost Age ROM.");
+            return fail("This release requires the English, Spanish, Italian, French, German or Reloaded 1.83 Golden Sun: The Lost Age ROM.");
 #else
             return fail(std::string("This release requires the ") + kGameName +
-                        ", Golden Sun (Spain), Golden Sun (Italy), Golden Sun (France) or Golden Sun (Germany) ROM.");
+                        ", Golden Sun (Spain), Golden Sun (Italy), Golden Sun (France), Golden Sun (Germany) or Golden Sun Reloaded 1.83a ROM.");
 #endif
         }
         s.revision = &kRevisions[0];
@@ -1301,8 +1421,17 @@ int main(int argc, char** cargv) {
 #else
     const fs::path engine_link_input = s.engine / "include" / "runtime_arm.h";
 #endif
+#ifdef __ANDROID__
+    const fs::path compiler = s.llvm;
+    if (s.engine_library.empty() || s.llvm.empty())
+        return fail("The app did not pass its compiler and engine (--llvm, --engine-library).");
+    for (const fs::path& need : {s.engine_library, android_resource_dir(s)})
+        if (!fs::exists(need)) return fail("Missing part of the app: " + need.string());
+#else
+    const fs::path compiler = s.toolchain / "bin" / (std::string("g++") + kExeSuffix);
+#endif
     for (const fs::path& need : {s.recompiler,
-                                 s.toolchain / "bin" / (std::string("g++") + kExeSuffix),
+                                 compiler,
                                  engine_link_input,
                                  s.data / kConfigFile}) {
         if (!fs::exists(need)) return fail("Missing part of the release: " + need.string());
@@ -1327,14 +1456,21 @@ int main(int argc, char** cargv) {
 #endif
     if (!s.generate_only) {
         if (!apply_block_timing(s, &error)) return fail(error);
-        std::string library_sha1;
-        if (!compile_and_link(s, &library_sha1, &error)) return fail(error);
+        std::string library_sha1, inputs_sha1;
+        if (!compile_and_link(s, rom_sha1, &library_sha1, &inputs_sha1, &error))
+            return fail(error);
         // Record the build inputs and the exact library produced by the linker.
+#ifdef __ANDROID__
+        const auto engine = read_bytes(s.engine_library);
+#else
         const auto engine = read_bytes(s.out_dir / kEngineFile);
-        const std::string stamp = gsr_player::write_build_record({
+#endif
+        gsr_player::BuildRecord record{
             rom_sha1, gsr_player::kBuilderVersion,
             engine.empty() ? "none" : sha1_hex(engine.data(), engine.size()),
-            library_sha1});
+            library_sha1};
+        if (!inputs_sha1.empty()) record.inputs_sha1 = inputs_sha1;
+        const std::string stamp = gsr_player::write_build_record(record);
         if (!write_text(s.out_dir / kBuildStamp, stamp))
             return fail("Could not save the build record in " + s.out_dir.string() + ".");
         if (!s.keep_work) {

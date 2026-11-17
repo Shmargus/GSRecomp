@@ -1,23 +1,21 @@
 // Random Treasure: the seed's plan. Pure functions (no engine), so a host
-// bench can run them on the real tables. Runtime part: each game's adapter
-// (The Broken Seal's src/treasure_randomizer_tbs.h). Jimmy's design (6
-// November 2026, docs/NEXT_PRIORITY_MODES.md section 5):
+// bench can run them on the real tables. Runtime part:
+// shared_game/treasure_randomizer.h, then each game's adapter. Design:
 //  - field treasures and NPC gifts trade contents; coin spots and item spots
 //    mix, and every coin spot gets a new amount (small ones common, thousands
 //    sometimes, the coin cap a rare jackpot);
-//  - key items never move (Jimmy, 8 November 2026: "Disable key item
-//    shuffling entirely in both games"): story items (`fixed`) and Psynergy
+//  - key items never move in either game: story items (`fixed`) and Psynergy
 //    items (type 6) stay at their own spots, whatever the options;
 //  - shops sell a random selection of their own kind; Bargains prices every
 //    item by tier, 5 to 1000 coins;
-//  - Fair Play (a switch per thing, 10 November 2026) strives for a fair
+//  - Fair Play (a switch per thing) strives for a fair
 //    progression: Items spreads healing items and gear evenly through the
 //    story, with gear loosely stronger as it goes; Coins gives amounts that
 //    grow with the story as the game's own do; Shops draws new stock near
 //    each shop's own level;
-//  - Random Weapons / Armor finds (7 November 2026): every spot that holds a
+//  - Random Weapons / Armor finds: every spot that holds a
 //    weapon (or armour) once the rest is dealt gives a random one from the
-//    whole game instead, any strength anywhere (Jimmy's choice).
+//    whole game instead, any strength anywhere.
 //
 // With every key item at home, every spot stays as reachable as in the
 // normal game. Gifts cannot hold coins (the gift routine gives items only).
@@ -87,8 +85,8 @@ void shuffle(std::vector<T>& v, Rng& rng) {
     for (std::size_t i = v.size(); i > 1; --i) std::swap(v[i - 1], v[rng.below(i)]);
 }
 
-// A coin amount. Starting shares, not measured for fun (Jimmy to judge): 75%
-// 1..500, 20% 500..10,000, 4% 10,000..100,000 (each spread evenly on a log
+// A coin amount. TODO-EVIDENCE: the shares are starting values, not measured.
+// 75% 1..500, 20% 500..10,000, 4% 10,000..100,000 (each spread evenly on a log
 // scale), 1% the cap.
 inline std::uint32_t coin_amount(Rng& rng) {
     const double u = rng.unit();
@@ -120,7 +118,8 @@ struct Plan {
 
 // How fast likelihood falls with distance in price order: weight
 // (1 - distance / count)^kStrengthFalloff. Shops and Fair Play's gear pacing
-// share it. A first guess, not measured; Jimmy judges it in play.
+// share it.
+// TODO-EVIDENCE: the exponent is a first guess, not measured.
 constexpr double kStrengthFalloff = 2.0;
 
 // The index drawn from `weight` (summing to `total` > 0); the last one with
@@ -136,7 +135,7 @@ inline std::size_t pick_weighted(const std::vector<double>& weight, double total
     return picked;
 }
 
-// Fair Items' gear pacing (Jimmy, 10 November 2026: loose). `gear` comes
+// Fair Items' gear pacing (loose). `gear` comes
 // back in the order it will be dealt through the story: for each place in
 // turn, a piece is drawn from those left, likeliest the one whose place in
 // the price order matches and rarer the further off. So gear is mostly
@@ -197,9 +196,9 @@ inline void new_coin_amounts(Plan& plan, std::span<const Spot> spots, bool fair)
 }
 
 // `shuffle_items`: chests, gifts (and shops) trade contents; `new_coins`:
-// every coin spot a new amount; with both, coin and item spots also mix
-// (Jimmy, 7 November 2026). Key items stay home in every mode. `fair_play`
-// is Fair Items, `fair_coins` Fair Coins.
+// every coin spot a new amount; with both, coin and item spots also mix.
+// Key items stay home in every mode. `fair_play` is Fair Items, `fair_coins`
+// Fair Coins.
 inline Plan make_plan(std::span<const Spot> spots, std::span<const Item> items, std::uint32_t seed,
                       bool fair_play, bool shuffle_items = true, bool new_coins = true,
                       bool fair_coins = false) {
@@ -291,12 +290,11 @@ inline Plan make_plan(std::span<const Spot> spots, std::span<const Item> items, 
 
 // Random Weapons / Armor finds: after make_plan, the game keeps as many
 // weapon (`weapons`) and armour (`armour`) finds as it had, but they move
-// anywhere (Jimmy, 7 November 2026: "shuffles into the entire pool and can
-// then be found anywhere"): each group's finds go to random item spots
-// (field or gift; never a story spot, a Psynergy item or coins), the
-// treasure there moving to the spots they left. Each find is then a piece of
-// its group from the pool (every named, priced, uncursed piece of the game),
-// each piece once until the pool runs out, then again.
+// anywhere (they shuffle into the entire pool): each group's finds go to
+// random item spots (field or gift; never a story spot, a Psynergy item or
+// coins), the treasure there moving to the spots they left. Each find is
+// then a piece of its group from the pool (every named, priced, uncursed
+// piece of the game), each piece once until the pool runs out, then again.
 inline void new_finds(Plan& plan, std::span<const Spot> spots, std::span<const Item> items, bool weapons,
                       bool armour, std::span<const std::uint16_t> weapon_pool,
                       std::span<const std::uint16_t> armour_pool) {
@@ -368,8 +366,8 @@ struct ShopPools {
     std::span<const std::uint16_t> items, weapons, armour;
 };
 
-// New stock for one shop (Jimmy, 7 November 2026: a chance of something new,
-// not a guarantee, and strong gear should be rare).
+// New stock for one shop (a chance of something new, not a
+// guarantee, and strong gear should be rare).
 //  - Each item the shop sold is replaced only some of the time
 //    (kShopReplaceChance); the rest stay as they are.
 //  - A replacement comes from the same group (weapons, armour, items), so a
@@ -379,12 +377,12 @@ struct ShopPools {
 //    (1 - place / count)^kStrengthFalloff, where place is its position
 //    in its group's price order (equal prices share a place): the cheapest
 //    weighs 1, the middle one 1/4 and the dearest almost nothing.
-//  - Fair Shops (Jimmy, 10 November 2026) measures that from the shop's own
-//    level instead: place becomes the distance, in the same price order,
+//  - Fair Shops measures that from the shop's
+//    own level instead: place becomes the distance, in the same price order,
 //    from the item being replaced. Something about as dear as what the shop
 //    sold is likeliest, and the further off (cheaper or dearer) the rarer,
 //    so a late shop is not filled with beginner gear.
-// The chance is a first guess, not measured; Jimmy judges it in play.
+// TODO-EVIDENCE: the chance is a first guess, not measured.
 // The result is sorted by group, then price.
 constexpr double kShopReplaceChance = 1.0 / 3.0;
 

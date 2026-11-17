@@ -1,4 +1,3 @@
-// map_recorder.cpp — see map_recorder.h.
 
 #include "map_recorder.h"
 
@@ -59,8 +58,8 @@ void ensure_session_dir() {
     g_session_ready = true;
 }
 
-// D4-equivalent (function_tracer.cpp): sticky write-failure flag so a
-// silently-lost capture shows up in the UI instead of just vanishing.
+// Sticky write-failure flag, the same idea as in function_tracer.cpp, so a
+// capture that could not be written shows up in the UI instead of vanishing.
 bool g_write_failed = false;
 std::string g_write_failed_path;
 
@@ -464,10 +463,8 @@ void log_frame_delta(std::uint64_t frame, const gba::GbaBus& bus) {
 constexpr char kSnapMagic[8] = {'G', 'S', 'R', 'S', 'N', 'A', 'P', '1'};
 constexpr std::uint32_t kSnapVersion = 1;
 constexpr std::size_t kTagBytes = 64;
-// 8 since 2026-09-16: LINEIO and AFFREF joined the six memory sections.
-// Readers look sections up by NAME out of the directory (see
-// tools/scene_renderer_check.cpp's load_snapshot), so older tools ignore the
-// two new ones and older captures simply do not offer them.
+// Readers find sections by name (load_snapshot in scene_renderer_check.cpp).
+// Older readers ignore LINEIO and AFFREF. Older captures omit them.
 constexpr std::size_t kSectionCount = 8;
 
 std::uint32_t g_snap_seq = 0;
@@ -491,17 +488,12 @@ bool write_snapshot_bin(const std::string& path, std::uint64_t frame,
     // Each scanline's own register file and affine reference, not just the
     // frame's last one.
     //
-    // Without these a snapshot cannot express a frame that rewrites a
-    // register mid-screen, and Golden Sun does that constantly: a battle
-    // rewrites BGxCNT twice down one frame, Tret swaps BG3's scroll between a
-    // room position and a scrolling accumulator in horizontal bands, and the
-    // room-transition iris rewrites WIN0H every row. A corpus of end-of-frame
-    // reads therefore PASSES a renderer that gets all of those wrong -- which
-    // is not hypothetical: the 2,429-snapshot gate reported the same 2,336
-    // identical frames before and after the fix for a battle fault that made
-    // every battle frame wrong (FACTS.md, 2026-09-16). Only a live F12 dump,
-    // which already carries these two sections, could tell the two renderers
-    // apart.
+    // LINEIO and AFFREF preserve register changes made during a frame. Battles
+    // rewrite BGxCNT, Tret switches BG3 scroll in bands, and the room iris
+    // changes WIN0H on each row. End-of-frame dumps miss these changes. The
+    // 2,429-capture comparison reported 2,336 matches both before and after a
+    // battle renderer fix. Live F12 captures showed the difference (FACTS.md,
+    // 2026-09-16).
     //
     // Same layout the F12 dump uses, so one reader serves both: 160 rows of
     // GbaPpu::kLineIoBytes, then 160 rows of four int32 affine references.
@@ -622,8 +614,8 @@ std::uint16_t g_prev_dispcnt_mode = 0;
 std::uint16_t g_prev_dispcnt_enable = 0;
 bool g_took_first_snapshot = false;
 
-// b) periodic cadence while a scene is active. 300 frames is an arbitrary
-// interval, not a measured threshold.
+// Periodic snapshot interval while a scene is active. 300 frames is an
+// arbitrary interval, not a measured threshold.
 constexpr std::uint64_t kPeriodicSnapshotFrames = 300;
 
 void take_snapshot(const std::string& reason_tag, const gba::GbaBus& bus) {
@@ -639,9 +631,9 @@ void take_snapshot(const std::string& reason_tag, const gba::GbaBus& bus) {
     g_took_first_snapshot = true;
 }
 
-// Checks triggers (a) mode/layer-enable change and (b) periodic cadence.
-// (c) manual snapshot is handled directly from the button callback, not
-// here. DISPCNT bit layout is the standard GBA one (GBATEK): bits 0-2 are
+// Takes a snapshot when the BG mode or layer-enable bits change, or when the
+// periodic interval has passed. The manual "Snapshot now" button calls
+// take_snapshot directly, not this function. DISPCNT bit layout is the standard GBA one (GBATEK): bits 0-2 are
 // the BG mode, bits 8-15 are the BG0-3/OBJ/WIN0/WIN1/OBJWIN enable bits --
 // both already exercised elsewhere in this codebase (dispcnt & 0x0100 <<
 // layer in gba_ppu.cpp's render_affine_bg/render_regular_bg call sites).
@@ -670,7 +662,7 @@ void check_snapshot_triggers(std::uint64_t frame, const gba::GbaBus& bus) {
     }
 }
 
-// ---- manual "Snapshot now" control (extension point c) -------------------
+// ---- manual "Snapshot now" control ----------------------------------------
 char g_label_buf[64] = "";
 bool g_window_focused = false;
 
@@ -817,8 +809,8 @@ void map_recorder_on_entry(std::uint32_t entry_pc) {
 // whose literal pool carries the field map signature {destination screenblock
 // base, 0x02010000, 0x02020000, 0x02020004}. Found by scanning the ROM for
 // that signature, then attributing each pool to the function it terminates;
-// cross-checked against the store PCs the VRAM trace recorded in
-// session_20260905_104619. Not a guess, and not a list to extend without
+// cross-checked against the store PCs the VRAM trace recorded in a
+// measured run. Not a guess, and not a list to extend without
 // re-running that scan.
 const std::uint32_t kFieldTilemapWriters[6] = {
     gs::rom(0x0800FEC8u), gs::rom(0x0800FF54u), gs::rom(0x08010230u),

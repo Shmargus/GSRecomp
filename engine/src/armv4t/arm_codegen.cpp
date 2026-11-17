@@ -1,4 +1,3 @@
-// arm_codegen.cpp — see arm_codegen.h.
 
 #include "arm_codegen.h"
 
@@ -91,12 +90,9 @@ uint32_t stm_pc_store_value(const Instr& ins) {
     return ((ins.pc + 4u) & ~2u) + 4u;
 }
 
-// True when this op writes PC and is NOT a branch — i.e. it incurs the
-// +2 pipeline-refill surcharge in the interpreter's cycle model (branch
-// refill is already folded into instr_cycle_base). Statically known
-// from the destination register / reg-list, so the codegen folds it into
-// the instruction's fixed cost. Mirrors interpreter.cpp's `wrote_pc &&
-// !branch_op` test.
+// Non-branch writes to PC cost two refill cycles. The branch cost already
+// includes its refill. The destination register or register list tells us
+// at codegen time whether to add the two cycles.
 bool writes_pc_nonbranch(const Instr& ins) {
     switch (ins.op) {
         case IrOp::AND: case IrOp::EOR: case IrOp::SUB: case IrOp::RSB:
@@ -108,10 +104,8 @@ bool writes_pc_nonbranch(const Instr& ins) {
         case IrOp::LDRSB: case IrOp::LDRSH:
             return ins.rd == 15u;
         case IrOp::LDM:
-            // Empty-list LDM loads PC at the 0x40-stride address; a
-            // non-empty list writes PC only when R15 is in the list.
-            // (STM never writes PC — it is a separate IrOp handled by
-            // the default case below.)
+            // An empty LDM list loads PC using the 0x40 stride. A nonempty list loads
+            // PC only if it names R15. STM is handled separately.
             return ins.block.reg_list == 0u ||
                    (ins.block.reg_list & (1u << 15)) != 0u;
         default:
@@ -171,11 +165,9 @@ const char* indent_for(Cond c) {
 // Op2 evaluation
 // ─────────────────────────────────────────────────────────────────────
 //
-// Op2Code carries:
-//   - `setup`: C statements that declare and compute the operand
-//   - `value_expr`: a C expression (variable or literal) for op2.value
-//   - `carry_expr`: a C expression for the shifter carry-out (0/1)
-//                   — `cpsr_c()` if the encoding leaves carry unchanged.
+// `setup` computes the operand. `value_expr` gives its value, and
+// `carry_expr` gives the shifter carry-out (0 or 1). If the instruction
+// leaves carry alone, `carry_expr` reads it with `cpsr_c()`.
 //
 // For S=1 logical ops the caller chains carry_expr into
 // arm_set_nzc_logic. For arithmetic ops the shifter carry is
@@ -277,13 +269,9 @@ Op2Code emit_op2(const Instr& ins, const CodegenCtx& ctx,
         // imm_carry_out is 0/1, or 2 meaning "carry unchanged".
         if (ctx.alu_immediate_override_pcs &&
             ctx.alu_immediate_override_pcs->count(ins.pc) != 0) {
-            // Opt-in, exact-PC enhancement hook. Only configured ARM/THUMB
-            // ALU immediates route through this chokepoint; memory offsets
-            // and branch displacements remain constants. The PC passed here is
-            // the CONFIG key (the address the override was reviewed at), not a
-            // guest address the image computes with, so it stays origin-based
-            // in a relocatable image — the runner matches it against the same
-            // reviewed constant.
+            // Only configured ARM or THUMB ALU immediates can be overridden. Memory
+            // offsets and branch displacements stay constant. Pass the original PC
+            // even for relocated code because that's the key in the override table.
             std::string imm_var = "_imm" + uniq_suffix(ins);
             std::ostringstream setup;
             setup << indent << "uint32_t " << imm_var
@@ -390,9 +378,7 @@ Op2Code emit_op2(const Instr& ins, const CodegenCtx& ctx,
                   << co_var << " = (" << op2_var << " >> 31) & 1u; } }\n";
                 break;
             case ShiftType::RRX:
-                // RRX from a register-form shift shouldn't occur
-                // — only imm-form ROR with count==0 produces RRX.
-                // Emit a defensive abort.
+                // Abort here because only immediate ROR #0 encodes RRX.
                 s << indent << "runtime_unimplemented_op(\"reg-shift RRX\", 0x"
                   << std::hex << ins.pc << std::dec << "u);\n";
                 s << indent << op2_var << " = 0u; " << co_var << " = 0u;\n";
@@ -485,7 +471,7 @@ std::string emit_direct_branch(uint32_t target, uint32_t branch_pc,
     // THUMB-emitted. We don't know that here; the dispatch
     // function's own preamble keeps cpsr.T set by the caller. For
     // ARM->ARM direct branches, T stays clear. For ARM->THUMB
-    // direct branches (which don't exist on ARMv4T — only BX
+    // direct branches (which don't exist on ARMv4T; only BX
     // switches modes), this would need updating.
     s << indent << "g_cpu.R[15] = " << fmt_guest_addr(ctx, target) << ";\n";
     // mGBA's ARMWritePC/ThumbWritePC refill consists of one non-sequential
@@ -513,14 +499,10 @@ std::string emit_direct_branch(uint32_t target, uint32_t branch_pc,
               << ", 0u, 0u);\n";
         }
         s << indent << "runtime_tick(" << cyc << ");\n";
-        // Stage 2 idle-loop elision: this backward branch closes a
-        // statically-eligible quiescent loop (see CodegenCtx::
-        // idle_backedge_pcs). Probe the runtime AFTER charging the
-        // branch cycles and just before resuming the header: if the
-        // loop is dynamically proven idle, the runtime fast-forwards
-        // the master clock by whole loop periods to one period before
-        // the next scheduled event (bit-identical — see
-        // runtime_idle_backedge), leaving us positioned at the header.
+        // Charge the branch before checking whether this backward loop is idle
+        // (see CodegenCtx::idle_backedge_pcs). If it is, runtime_idle_backedge
+        // advances whole iterations and stops one period before the next event,
+        // with execution still at the loop header.
         if (backward && ctx.idle_backedge_pcs &&
             ctx.idle_backedge_pcs->count(branch_pc) != 0) {
             s << indent << "runtime_idle_backedge("
@@ -542,12 +524,9 @@ std::string emit_direct_branch(uint32_t target, uint32_t branch_pc,
           << fmt_guest_addr(ctx, link_value & ~1u) << ");\n";
     }
 
-    // Branch executes here: pump its fixed cost before transferring, so
-    // the PPU/IRQ boundary lands between this branch and the target —
-    // matching the interpreter (pump branch cost, then check IRQ at the
-    // next boundary). For a link call (BL / BL_suffix) zero _cyc after,
-    // so the fall-through epilogue tick (reached when the callee C-
-    // returns) does not double-count.
+    // Charge the branch before transferring so IRQs are checked at the target,
+    // as in the interpreter. Clear _cyc for BL and BL_suffix so the caller's
+    // epilogue doesn't charge it again on return.
     s << indent << "runtime_tick(" << cyc << ");\n";
     if (is_link) s << indent << cyc << " = 0u;\n";
 
@@ -801,8 +780,8 @@ bool emit_data_processing(std::ostringstream& body, const Instr& ins,
         if (ins.rd == 15) {
             // PC writeback: not an exception return (already handled
             // above). Detect the `mov pc, lr` return idiom (DP-MOV
-            // with Op2 = plain R14, no shift) and emit a C-return
-            // — that's the AAPCS return for THUMB-callable code and
+            // with Op2 = plain R14, no shift) and emit a C-return.
+            // This is the AAPCS return for THUMB-callable code and
             // for older ARM ABIs that used MOV instead of BX. Any
             // other PC write is a computed jump → dispatch.
             const bool is_lr_return =
@@ -871,11 +850,8 @@ bool emit_branch(std::ostringstream& body, const Instr& ins,
             // return or the dispatch path (both exit the function).
             body << indent << "runtime_tick(" << cyc_var_for(ins) << ");\n";
             if (ins.rm == 14 || ctx.force_bx_c_return) {
-                // `bx lr` — the AAPCS function-return idiom. In the
-                // direct-C-call dispatch model, BL emits a real C
-                // call to the target; the target's `bx lr` is the
-                // matching C return. No dispatch, but still perform
-                // BX interworking before unwinding one host frame.
+                // BL emits a C call and `bx lr` returns from it. Apply BX interworking
+                // before returning to the host caller.
                 //
                 // Non-return BX (computed jump, trampoline, BX to a
                 // non-caller via BL/BLX from a different source)
@@ -899,11 +875,8 @@ bool emit_branch(std::ostringstream& body, const Instr& ins,
                  << fmt_guest_addr(ctx, ins.branch_target) << ";\n";
             return true;
         case IrOp::BL_suffix: {
-            // Lower half: target = LR + (imm11 << 1).
-            // New LR = (PC_lower + 2) | 1 so BX LR resumes in THUMB.
-            // Like ARM BL, this is a CALL — control resumes in this
-            // function after the callee's `bx lr` returns. No
-            // trailing `return;` (see emit_direct_branch comment).
+            // The low half of THUMB BL uses LR + (imm11 << 1) as the target and
+            // sets LR to (PC_lower + 2) | 1. Execution here resumes after the call.
             std::string sfx = uniq_suffix(ins);
             std::string target_var = "_blt" + sfx;
             body << indent << "uint32_t " << target_var << " = "
@@ -1042,7 +1015,7 @@ bool emit_memory(std::ostringstream& body, const Instr& ins,
              << "u, 0u) - runtime_mem_cycles(" << fmt_guest_addr(ctx, ins.pc)
              << ", " << (ins.thumb ? 2u : 4u) << "u, 1u);\n";
 
-        // Writeback first (unless Rn == Rd — Rd wins on loads).
+        // Write back before loading so Rd wins if it aliases Rn.
         if (mem.writeback) {
             body << indent << "if (" << static_cast<unsigned>(mem.rn) << "u != "
                  << static_cast<unsigned>(ins.rd) << "u) g_cpu.R["
@@ -1272,12 +1245,8 @@ bool emit_block_transfer(std::ostringstream& body, const Instr& ins,
     }
 
     if (blk.load && pc_in_list) {
-        // LDM with PC in the list is the AAPCS "function return"
-        // idiom when the base register is the stack pointer (R13):
-        // a matching prior STMFD/PUSH stored LR onto the stack, so
-        // popping into R15 is restoring the return address. Treat
-        // this exactly like `bx lr` — C-return so the caller's body
-        // continues at the instruction after the call.
+        // LDM from SP with PC in the list restores the return address saved by
+        // STMFD or PUSH. Emit a C return, just as for `bx lr`.
         //
         // When the base is NOT SP, the popped PC is a computed
         // jump (state-machine dispatch, jump tables popped from
@@ -1530,13 +1499,10 @@ std::string ArmCodegen::emit_instr(const Instr& ins, const CodegenCtx& ctx,
     // instruction is not fingerprinted. Zero cost when disarmed.
     os << "    if (g_runtime_insn_trace) runtime_insn_fp();\n";
 
-    // Per-instruction cycle accumulator. Starts at the cond-fail cost
-    // (1S fetch); the cond-pass block raises it to the full execute cost,
-    // and memory/multiply ops add their runtime-dependent component. A
-    // single runtime_tick(_cyc) at the instruction boundary (epilogue
-    // below) pumps the PPU/audio/timers and delivers any pending IRQ —
-    // matching the interpreter oracle, which pumps the full cost AFTER
-    // executing and checks IRQs at the next boundary.
+    // Start with the 1S fetch cost. If the condition passes, charge the full
+    // instruction cost plus any dynamic memory or multiply cycles.
+    // `runtime_tick(_cyc)` then advances devices and delivers pending IRQs at
+    // the instruction boundary, matching the interpreter.
     const std::string cyc_var = cyc_var_for(ins);
     os << "    uint32_t " << cyc_var << " = 1u;\n";
 

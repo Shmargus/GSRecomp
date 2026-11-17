@@ -23,6 +23,9 @@
 #include <sys/prctl.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#ifdef __ANDROID__
+#include "android_host.h"
+#endif
 #endif
 
 namespace gsr_collection {
@@ -243,6 +246,25 @@ class CollectionBuild {
         // "Skip the ROM check" (any_rom.h): the builder inherits it from here,
         // as it does from a game session.
         const bool any_rom = player && gsr_session::load_launcher_audio_settings(root).any_rom;
+#ifdef __ANDROID__
+        // The builder runs from the app's library folder, so it cannot find
+        // its parts beside itself: every path is given (android_host.cpp
+        // unpacked and linked them into the game folder).
+        const fs::path lib = gsr_android::native_library_dir();
+        std::vector<std::string> android_args = {program,
+            "--rom", romarg,
+            "--data", (root / "builder" / "data").string(),
+            "--engine", (root / "builder" / "engine").string(),
+            "--toolchain", (root / "builder" / "toolchain").string(),
+            "--recompiler", (root / "builder" / "gba_recompile").string(),
+            "--work", (root / "builder" / "work").string(),
+            "--out", root.string(),
+            "--llvm", (lib / "libllvm.so").string(),
+            "--engine-library", (lib / gsr_launcher::kGames[choice].engine).string()};
+        std::vector<char*> android_argv;
+        for (auto& argument : android_args) android_argv.push_back(argument.data());
+        android_argv.push_back(nullptr);
+#endif
         pid_t child = fork();
         if (child == 0) {
             if (prctl(PR_SET_PDEATHSIG, SIGTERM) != 0 || getppid() != parent) _exit(127);
@@ -254,7 +276,11 @@ class CollectionBuild {
                     "--no-ask-password", "--expand-environment=no", "--property", quota.c_str(),
                     "--property", memory.c_str(), "--", program.c_str(), "--rom", romarg.c_str(),
                     "--low-resources", static_cast<char*>(nullptr));
+#ifdef __ANDROID__
+                else execv(program.c_str(), android_argv.data());
+#else
                 else execl(program.c_str(), program.c_str(), "--rom", romarg.c_str(), static_cast<char*>(nullptr));
+#endif
             }
             _exit(127);
         }
@@ -352,8 +378,17 @@ inline bool skip_rom_check_on(const fs::path& collection, int choice) {
 inline std::string clean_build_rom_message(const fs::path& collection, int choice,
                                            bool ask_play) {
     const auto& game = gsr_launcher::kGames[choice];
-    const std::string rom = std::string(game.title) + " (" +
-                            game.rom_names[rom_language(collection, choice)] + ")";
+    const int revision = rom_language(collection, choice);
+    const std::string rom = std::string(game.title) + " (" + game.rom_names[revision] + ")";
+    if (!gsr_launcher::rom_is_language(game, revision)) {
+        // A supported patch (Reloaded) is built from its own ROM.
+        const std::string text = "\"Skip the ROM check\" is on. " + rom +
+                                 " is built from its own ROM, not a clean one.\n\n";
+        if (!ask_play) return text + "Next, choose your " + rom + " ROM.";
+        return text + "Two file windows open next, in this order:\n\n"
+                      "1. Choose your " + rom + " ROM. The game is built from it.\n"
+                      "2. Choose the ROM you want to PLAY (the same one).";
+    }
     std::string text = "\"Skip the ROM check\" is on: you can play a patched ROM, but the "
                        "game is always built from a clean, unpatched ROM.\n\n";
     if (!ask_play)

@@ -1,9 +1,9 @@
-// gba_audio.h — GBA sound channels + sample mixer.
+// gba_audio.h: GBA sound channels + sample mixer.
 //
 // Implemented and mixed into the output: SOUND1 (square + sweep),
 // SOUND2 (square), SOUND3 (wave RAM), SOUND4 (noise), and the
 // DMA-driven Direct Sound A / B FIFOs (the streamed-PCM path the
-// MP2K/m4a music driver uses) — fed via timer_overflow() + DMA refill,
+// MP2K/m4a music driver uses), fed via timer_overflow() + DMA refill,
 // mixed in mix_one_sample(). The mixer generates 16-bit signed samples;
 // the rate follows SOUNDBIAS resolution (32768 Hz default, 65536 Hz
 // when the BIOS raises it).
@@ -13,7 +13,7 @@
 //
 // References:
 //   GBATEK § "GBA Sound Channel 2 - Tone"
-//   GBATEK § "GBA Sound Channels 1-4 — Tone Generation"
+//   GBATEK § "GBA Sound Channels 1-4, Tone Generation"
 //   GBATEK § "GBA Sound Controller" (SOUNDCNT_L/H/X master)
 
 #pragma once
@@ -81,7 +81,7 @@ struct PsgMixResult {
 // addition, so scaling each channel by <<3 individually before summing
 // (as done here) is arithmetically identical to mGBA's sum-then-shift and
 // gives all four channels the same ×8 scale. Does not apply the DMG
-// volume-ratio shift or SOUNDCNT_L master volume multiply — callers in
+// volume-ratio shift or SOUNDCNT_L master volume multiply; callers in
 // GbaAudio::mix_one_sample apply those to the result afterward.
 PsgMixResult mix_psg_samples(const PsgChannelSamples& samples,
                              const PsgChannelRouting& routing);
@@ -129,18 +129,19 @@ public:
 
     uint32_t sample_rate() const { return kSystemHz / cycles_per_sample_; }
 
-    // Total samples generated since reset — useful for sync diff.
+    // Total samples generated since reset, useful for sync diff.
     uint64_t samples_generated() const { return samples_generated_; }
 
     // ── Always-on, non-destructive audio capture ring (observability) ──
-    // The playback FIFO (ring_) is consume-once and is drained by BOTH the
-    // SDL host pump and the legacy audio_samples TCP cmd (they compete). THIS
-    // ring is never drained: it records every generated mixed sample plus the
-    // raw per-channel PSG and Direct-Sound FIFO ([-128,127])
+    // The playback FIFO (ring_) is consume-once: both the SDL host pump and
+    // the legacy audio_samples TCP command drain it, so they compete for
+    // samples. THIS ring is never drained. It records every generated mixed
+    // sample plus the raw per-channel PSG and Direct Sound FIFO ([-128,127])
     // contributions, keyed by the absolute samples_generated_ index. Probes
-    // QUERY a [start,count] window backward from the live head — never arm,
-    // never drain (project ring-buffer discipline). Sample-generation is
-    // cycle-deterministic, so PSG channels are bit-reproducible across runs.
+    // query a [start,count] window backward from the live head. They never
+    // arm or drain it (the project's ring-buffer discipline). Sample
+    // generation is cycle-deterministic, so PSG channels are bit-reproducible
+    // across runs.
     struct CapSample {
         bool canonical_valid = false;
         uint32_t sample_rate = 0;
@@ -208,7 +209,7 @@ public:
 
     // Save-state serialization. Captures the full guest mixer state
     // (channels, FIFOs, master, soundbias, sample accumulator) plus the
-    // pending host output ring so playback resumes seamlessly. The
+    // pending host output ring so playback resumes without a gap. The
     // diagnostic FIFO trace ring is NOT serialized. See debug/snapshot.h.
     void serialize(gbarecomp::debug::SnapshotWriter& w) const;
     void deserialize(gbarecomp::debug::SnapshotReader& r,
@@ -231,7 +232,7 @@ private:
         uint8_t  waveform_phase  = 0;
         uint32_t envelope_cycles = 0;
         uint32_t length_cycles   = 0;
-        // Sweep state (SOUND1 only — the BIOS chime uses sweep).
+        // Sweep state (SOUND1 only; the BIOS chime uses sweep).
         uint8_t  sweep_shift     = 0;   // 0..7
         bool     sweep_decrease  = false;
         uint8_t  sweep_time      = 0;   // 0..7 (0 = disabled)

@@ -1,4 +1,4 @@
-// decoder_smoke — feed a fixed set of ARM and THUMB encodings through
+// decoder_smoke: feed a fixed set of ARM and THUMB encodings through
 // the decoders and assert each one produces an expected normalized-IR
 // string. A fast regression check; the jsmolka gba-suite ROMs (test_rom_arm /
 // test_rom_thumb) cover the larger conformance corpus.

@@ -12,15 +12,16 @@
 // auto-sleep flag").
 //
 // Hard Mode is stored as 2 (kHardModeValue); 0 and 1 both mean Off. Value 1
-// is the old Auto-Sleep On, which an existing save (or the title menu, at
-// 0x020084BA) may hold and which must read as Off. The settings screen only
-// knows 0/1, so the runner translates around it: on entry to setup it writes
-// 2 -> 1, else 0 to save +0x22A; on entry to teardown, after A/Start stored
-// the screen's byte (r5 = 0), it turns 1 back into 2 in both +0x22A and the
-// live flag; after B (r5 = -1) it restores the original save byte. A new
-// game asks "Hard Mode?" after naming (entry to Func_77f40) and stores 2 or
-// 0 to both places. Auto-Sleep's only effect, the 3-minute idle sleep in the
-// frame wait, is switched off by forcing the branch at kIdleBranchPc.
+// is the game's own Auto-Sleep On, which an existing save (or the title menu,
+// at 0x020084BA) may hold and which must read as Off. The settings screen only
+// knows 0/1, so the runner translates around it:
+// - On entry to setup, it writes 1 to save +0x22A if the value is 2, else 0.
+// - On entry to teardown after A/Start stored the screen's byte (r5 = 0), it
+//   turns 1 back into 2 in both +0x22A and the live flag.
+// - After B (r5 = -1), it restores the original save byte.
+// A new game asks "Hard Mode?" after naming (entry to Func_77f40) and stores
+// 2 or 0 to both places. Auto-Sleep's only effect, the 3-minute idle sleep in
+// the frame wait, is switched off by forcing the branch at kIdleBranchPc.
 //
 // Enemy stats: Func_79460 copies an enemy's table data into the unit, then
 // calls Func_77428 (`bl` at 0x080795BC) which rebuilds every stat from the

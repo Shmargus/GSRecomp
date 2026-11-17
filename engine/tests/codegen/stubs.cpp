@@ -1,4 +1,4 @@
-// tests/codegen/stubs.cpp — host-side glue for the codegen test
+// tests/codegen/stubs.cpp: host-side glue for the codegen test
 // runner.
 //
 // The codegen test binary links gbarecomp_armv4t directly but does
@@ -8,7 +8,7 @@
 //   - bus_read_*/bus_write_* against a singleton FlatBus
 //   - minimal kDispatchTable / kBiosDispatchTable definitions
 //   - runtime_dispatch_miss + runtime_unimplemented_op definitions that
-//     DO NOT abort — they record what was called so the runner can
+//     DO NOT abort; they record what was called so the runner can
 //     verify branch tests
 //   - cycle, yield and fast-path globals the armv4t lib references
 
@@ -126,7 +126,7 @@ extern "C" const DispatchEntry kDispatchTable[2] = {
 };
 extern "C" const unsigned kDispatchTableLen = 2u;
 
-// BIOS dispatch table — empty for L1 tests. The runtime consults
+// BIOS dispatch table; empty for L1 tests. The runtime consults
 // kBiosDispatchTable first for PC < 0x4000; with length 0 every BIOS
 // PC falls through to kDispatchTable, then to runtime_dispatch_miss,
 // which is the stubbed recorder above.
@@ -211,11 +211,11 @@ extern "C" void bus_write_u32_slow(uint32_t addr, uint32_t v) {
 // gbarecomp_armv4t has no defaults for runtime_dispatch_miss and
 // runtime_unimplemented_op (production builds get those from
 // src/runtime/runtime_arm_default_aborts.cpp). Tests link only the
-// armv4t lib, so we MUST supply them here — and we make them
+// armv4t lib, so we MUST supply them here, and we make them
 // record-instead-of-abort so the runner can verify branch /
 // unimplemented-op behavior cleanly.
 //
-// runtime_swi is NOT overridden — the production version in
+// runtime_swi is NOT overridden; the production version in
 // runtime_arm.cpp does the SVC exception entry and calls
 // runtime_dispatch(0x08). That dispatch falls through to the stub
 // runtime_dispatch_miss below, which records and returns. SWI tests
@@ -253,13 +253,13 @@ extern "C" void runtime_unimplemented_op(const char* op_name,
         codegen_test::g_unimplemented_op = nullptr;
     }
     codegen_test::g_unimplemented_pc = pc;
-    // Don't abort — let the runner report the failure cleanly.
+    // Don't abort; let the runner report the failure cleanly.
 }
 
 extern "C" void runtime_tick(uint32_t cycles) {
     // Accumulate so the runner can diff the recompiled instruction's
     // total cycle cost against the interpreter's per-instruction count.
-    // (No PPU/audio/IRQ side effects here — production runners link the
+    // (No PPU/audio/IRQ side effects here; production runners link the
     // real runtime_tick from runtime_bus_bridge.cpp for those.)
     codegen_test::g_ticked_cycles += cycles;
 }

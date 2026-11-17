@@ -1,4 +1,4 @@
-// gba_memory.h — GBA memory map and region descriptors.
+// gba_memory.h: GBA memory map and region descriptors.
 //
 // Layout per GBATEK § "GBA Memory Map":
 //
@@ -63,7 +63,7 @@ enum class Region : uint8_t {
     Oam,
     Rom,
     Save,
-    OpenBus,   // unmapped — read returns last-fetched instruction word
+    OpenBus,   // unmapped: read returns last-fetched instruction word
     Unknown,
 };
 
@@ -82,7 +82,7 @@ Region classify(uint32_t addr) noexcept;
 std::size_t resolve_offset(uint32_t addr, Region region) noexcept;
 
 // ─────────────────────────────────────────────────────────────────────
-// MemoryBus — the bus interface generated code talks to.
+// MemoryBus: the bus interface generated code talks to.
 //
 // Concrete implementations live in gba_bus.cpp; this header just
 // declares the read/write API so armv4t codegen sees a stable shape.

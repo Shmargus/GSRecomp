@@ -134,6 +134,3 @@ by Matthew Stan, licensed under the PolyForm Noncommercial License 1.0.0
 (`engine/LICENSE`), so this project is noncommercial. See `LICENSE` for the
 rest of the repository and [ATTRIBUTION.md](ATTRIBUTION.md) for who owns what.
 
----
-
-<sub>Portions of this project were developed with the assistance of AI-based development tools.</sub>

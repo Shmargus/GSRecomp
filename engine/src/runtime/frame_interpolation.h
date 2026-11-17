@@ -1,4 +1,4 @@
-// frame_interpolation.h — verified 2x presentation-state interpolation.
+// frame_interpolation.h: verified 2x presentation-state interpolation.
 //
 // Guest execution remains at the exact GBA cadence. This helper only keeps
 // read-only presentation snapshots and builds a midpoint IO image for a second

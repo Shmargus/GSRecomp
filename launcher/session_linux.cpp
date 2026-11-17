@@ -59,9 +59,15 @@
 #include "collection_settings.h"
 #include "english_save_test.h"
 #include "session_environment.h"
-#include "launcher_widescreen_diagnostics_policy.h"
+#include "launcher_input_record_policy.h"
 #include "../engine/src/runtime/seamless.h"
 #include "../engine/src/runtime/soft_reset.h"
+#include "../engine/src/runtime/touch_ui.h"
+#ifdef __ANDROID__
+// Android runs this session in SessionActivity. android_host.h provides
+// the file picker, game process, HTTPS requests and browser launch.
+#include "android_host.h"
+#endif
 
 namespace fs = std::filesystem;
 using namespace gsr_launcher;
@@ -131,7 +137,6 @@ std::string trim(std::string s) {
     return s;
 }
 
-// ---------------------------------------------------------------- the logo
 
 // ---------------------------------------------------------------- the ROM
 
@@ -169,6 +174,11 @@ std::string shell_quote(const std::string& s) {
 // *no_dialog when neither exists, so the launcher can ask for a typed path.
 std::string pick_rom_with_dialog(const std::string& start_dir, bool* no_dialog) {
     *no_dialog = false;
+#ifdef __ANDROID__
+    (void)start_dir;
+    return gsr_android::pick_file(session_game().rom_prompt,
+                                  gsr_android::storage_root() / "local" / "picked-rom.gba");
+#endif
     std::string cmd;
     if (have_program("zenity")) {
         cmd = "zenity --file-selection --title=" +
@@ -278,10 +288,8 @@ GameResult run_game(const std::string& rom) {
     fs::remove(g_root / "unpacker_journal.csv", ec);  // Unpacker audit
     const auto launch_time = fs::file_time_type::clock::now();
 
-    // Variables both platforms set the same way (session_environment.h). This
-    // is the player release's configuration: Enhanced Options and the
-    // graphics card on; the console compositor's fallback picture made
-    // widescreen slow on the Deck, so it is graphics card only.
+    // Player builds use Enhanced Options and GPU rendering. The CPU compositor
+    // made widescreen slow on Steam Deck. See session_environment.h.
     gsr::ChildEnvironmentPlan plan;
     gsr::CommonEnvironment common;
     common.controls_dir = (g_collection_root / "Controls").string();
@@ -324,6 +332,13 @@ GameResult run_game(const std::string& rom) {
     const bool developer_launcher = false;
 #endif
     gsr::add_music_environment(plan, g_collection_root, session_game_index);
+#ifdef __ANDROID__
+    // RAM overlays compile on the phone with the bundled Clang and lld.
+    // android_host.cpp links the tools into the game folder.
+    plan.put("GBARECOMP_HEAL_TOOLCHAIN", (g_root / "builder" / "toolchain").string());
+    plan.put("GBARECOMP_HEAL_LLVM", (gsr_android::native_library_dir() / "libllvm.so").string());
+    plan.put("GBARECOMP_HEAL_INCLUDE", (g_root / "builder" / "engine" / "include").string());
+#endif
     if (g_collection_tests_override || developer_launcher) {
         gsr::add_test_environment(
             plan, [&](const char* name) -> std::optional<bool> {
@@ -340,7 +355,7 @@ GameResult run_game(const std::string& rom) {
         const bool replay_requested = replay && *replay;
         // Only an explicit GBARECOMP_INPUT_RECORD records input.
         const auto policy = gsr::resolve_launcher_input_record_policy(
-            false, explicit_record, replay_requested, L"");
+            explicit_record, replay_requested);
         if (policy.replay_conflict) {
             SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, session_game().title,
                 "Input recording and input replay cannot be used together.", nullptr);
@@ -387,6 +402,32 @@ GameResult run_game(const std::string& rom) {
 
     const std::string game = gsr_session::engine(g_root, session_game_index).string();
     const std::string root_s = g_root.string();
+#ifdef __ANDROID__
+    {
+        // GameActivity loads the built game library in a separate process and
+        // writes to the session log.
+        if (log.fd >= 0) close(log.fd);
+        std::vector<std::string> args = {(g_root / session_game().library).string(), game,
+                                         "--rom", rom};
+        if (g_collection_play) {
+            args.push_back("--save");
+            args.push_back((g_test_progress.save.empty() ? g_managed.save : g_test_progress.save).string());
+        }
+        gsr_android::Environment set(plan.set.begin(), plan.set.end());
+        std::string error;
+        if (!gsr_android::start_child("game", args, set, plan.unset, result.log_path, &error, root_s)) {
+            launcher_log("Start game: could not start: " + error);
+            return result;
+        }
+        result.started = true;
+        launcher_log("Start game: running " + game + ", session log " +
+                     fs::path(result.log_path).filename().string() + ".");
+        result.exit_code = gsr_android::wait_child();
+        if (g_collection_play &&
+            !gsr_collection::sync_legacy_states(g_managed, result.storage_error))
+            launcher_log("Could not copy savestates: " + result.storage_error);
+    }
+#else
     std::string rom_arg = rom;
     std::string save_arg = (g_test_progress.save.empty() ? g_managed.save : g_test_progress.save).string();
     std::vector<char*> argv = {const_cast<char*>(game.c_str()),
@@ -434,6 +475,7 @@ GameResult run_game(const std::string& rom) {
         launcher_log("Could not copy savestates: " + result.storage_error);
     if (log.fd >= 0) close(log.fd);
     result.exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+#endif
 
     for (const std::string& dir : rewind_dirs(logs_dir))
         if (!rewinds_before.count(dir)) result.new_rewinds.push_back(dir);
@@ -452,6 +494,9 @@ GameResult run_game(const std::string& rom) {
 // ---------------------------------------------------------------- bug reports
 
 std::string os_release_name() {
+#ifdef __ANDROID__
+    return gsr_android::system_name();
+#endif
     std::istringstream in(read_text("/etc/os-release"));
     std::string line;
     while (std::getline(in, line)) {
@@ -494,7 +539,11 @@ std::vector<fs::path> make_bug_report(const GameResult& game) {
             fs::path(game.rom).replace_extension(".sav");
     const auto staged = stage_bug_report(
         {g_root, g_root, g_root, game.log_path, save, game.crashed},
+#ifdef __ANDROID__
+        report_info_text("System: Android, " + os_release_name(), game.new_rewinds.size(),
+#else
         report_info_text("System: Linux, " + os_release_name(), game.new_rewinds.size(),
+#endif
                          game.crashed, game.unpacker, game.exit_code));
     const auto& staging = staged.folder;
     if (!staged.errors.empty()) {
@@ -653,6 +702,23 @@ std::string send_reports(const std::vector<fs::path>& reports, const std::string
             std::string("https://") + gsr_online::kReportHost + gsr_online::kReportPath};
         if (!reddit.empty()) command.insert(command.begin() + 6, {"-H", "X-GSR-Reddit: " + reddit});
         std::string answer;
+#ifdef __ANDROID__
+        {
+            std::vector<std::string> headers;
+            for (std::size_t h = 0; h + 1 < command.size(); ++h)
+                if (command[h] == "-H") headers.push_back(command[h + 1]);
+            for (std::string& header : headers)
+                if (header == "X-GSR-Platform: linux") header = "X-GSR-Platform: android";
+            const int status = gsr_android::http_request(command.back(), headers,
+                                                         reports[i].string(), &answer);
+            if (status == 0) return "No connection to the report service.";
+            if (status != 200) {
+                answer = trim(answer);
+                return answer.empty() ? "The server said no (" + std::to_string(status) + ")." : answer;
+            }
+            continue;
+        }
+#endif
         const int rc = run_capture(command, &answer);
         if (rc == 127) return "curl is not installed on this system.";
         if (rc != 0) return "No connection to the report service (curl " + std::to_string(rc) + ").";
@@ -667,6 +733,11 @@ std::string send_reports(const std::vector<fs::path>& reports, const std::string
 }
 
 void open_with_desktop(const std::string& target) {
+#ifdef __ANDROID__
+    // Android opens links in the browser and skips folder links.
+    if (target.rfind("https://", 0) == 0) gsr_android::open_url(target);
+    return;
+#endif
     const std::string cmd = "xdg-open " + shell_quote(target) + " >/dev/null 2>&1 &";
     if (std::system(cmd.c_str()) != 0) {}
 }
@@ -713,10 +784,14 @@ void show_message(const std::string& title, const std::string& message, bool err
     if (g_collection_play) g_ui.after_message_quit = true;
 }
 
+// Phones enlarge the session window's text and rows (touch_ui.h).
+float g_touch_scale = 1.0f;
+
 void load_fonts(ImGuiIO& io) {
     // A system font when there is one (DejaVu and Noto ship with almost
     // every desktop, the Steam Deck included); ImGui's own otherwise.
-    for (const char* path : {"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    for (const char* path : {"/system/fonts/Roboto-Regular.ttf",  // Android
+                             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
                              "/usr/share/fonts/TTF/DejaVuSans.ttf",
                              "/usr/share/fonts/dejavu/DejaVuSans.ttf",
                              "/usr/share/fonts/noto/NotoSans-Regular.ttf",
@@ -724,11 +799,11 @@ void load_fonts(ImGuiIO& io) {
                              "/usr/share/fonts/google-noto/NotoSans-Regular.ttf"}) {
         std::error_code ec;
         if (fs::is_regular_file(path, ec) &&
-            io.Fonts->AddFontFromFileTTF(path, 18.0f))
+            io.Fonts->AddFontFromFileTTF(path, 18.0f * g_touch_scale))
             return;
     }
     ImFontConfig config;
-    config.SizePixels = 18.0f;
+    config.SizePixels = 18.0f * g_touch_scale;
     io.Fonts->AddFontDefault(&config);
 }
 
@@ -1004,7 +1079,12 @@ int gsr_session_main(int game, int argc, char** argv) {
     SDL_Window* window = SDL_CreateWindow(session_game().title, SDL_WINDOWPOS_CENTERED,
                                           SDL_WINDOWPOS_CENTERED, 720, 640,
                                           SDL_WINDOW_ALLOW_HIGHDPI |
-                                              (g_collection_play ? SDL_WINDOW_HIDDEN : 0));
+                                              (g_collection_play ? SDL_WINDOW_HIDDEN : 0)
+#ifdef __ANDROID__
+                                              // Use the full display without a status bar.
+                                              | SDL_WINDOW_FULLSCREEN_DESKTOP
+#endif
+                                              );
     if (!window) {
         std::fprintf(stderr, "The launcher window could not be created: %s\n",
                      SDL_GetError());
@@ -1019,8 +1099,10 @@ int gsr_session_main(int game, int argc, char** argv) {
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
+    g_touch_scale = gbarecomp::touch_ui::scale(window, 18.0f);
     load_fonts(io);
     style_ui();
+    gbarecomp::touch_ui::apply_style(window, g_touch_scale, 18.0f * g_touch_scale);
     ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer2_Init(renderer);
 
@@ -1047,11 +1129,28 @@ int gsr_session_main(int game, int argc, char** argv) {
         launcher_log("Start automatically: waiting for the update check.");
         g_ui.auto_start_began = std::max<Uint32>(1, SDL_GetTicks());
     }
+#ifdef __ANDROID__
+    // Redraw continuously during builds. Otherwise wait for input, waking at
+    // least every 100 ms to check for updates, automatic start and uploads.
+    // Give ImGui a few extra frames after each event.
+    constexpr int kSettleFrames = 3;
+    constexpr int kIdleWaitMs = 100;
+    int settle_frames = kSettleFrames;
+    bool build_was_running = false;
+#endif
     while (running && !g_ui.quit) {
+#ifdef __ANDROID__
+        if (settle_frames == 0 && !build_was_running)
+            SDL_WaitEventTimeout(nullptr, kIdleWaitMs);
+        if (settle_frames > 0) --settle_frames;
+#endif
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             ImGui_ImplSDL2_ProcessEvent(&event);
             if (event.type == SDL_QUIT) running = false;
+#ifdef __ANDROID__
+            settle_frames = kSettleFrames;
+#endif
         }
         if (!running) break;
 
@@ -1068,6 +1167,10 @@ int gsr_session_main(int game, int argc, char** argv) {
         const auto& build_error = build.error;
         const int done = build.done, total = build.total;
         const bool build_running = build.running;
+#ifdef __ANDROID__
+        if (build_was_running != build_running) settle_frames = kSettleFrames;
+        build_was_running = build_running;
+#endif
         if (build.finished) {
             const bool build_ok = build.succeeded;
             ready = build_ok && session_ready();
@@ -1096,31 +1199,36 @@ int gsr_session_main(int game, int argc, char** argv) {
         ImGui_ImplSDLRenderer2_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
+        gbarecomp::touch_ui::drag_scroll(window);
 
         const ImVec2 size = io.DisplaySize;
-        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        // Layout sizes grow with the phone's larger text (touch_ui.h); 1 on PC.
+        const float u = g_touch_scale;
+        ImGui::SetNextWindowPos(ImVec2(0 * u, 0));
         ImGui::SetNextWindowSize(size);
         ImGui::Begin("##launcher", nullptr,
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
                          ImGuiWindowFlags_NoBackground |
                          ImGuiWindowFlags_NoBringToFrontOnFocus);
         if (logo) {
-            const float w = std::min(size.x - 60.0f, 620.0f);
+            // The logo fits above the status text.
+            const float w = std::min({size.x - 60.0f * u, 620.0f * u,
+                std::max(1.0f, size.y - 40.0f * u - 170.0f * u - 90.0f * u) * logo_w / std::max(1, logo_h)});
             const float h = w * logo_h / std::max(1, logo_w);
-            ImGui::SetCursorPos(ImVec2((size.x - w) * 0.5f, 40.0f));
+            ImGui::SetCursorPos(ImVec2((size.x - w) * 0.5f, 40.0f * u));
             ImGui::Image(reinterpret_cast<ImTextureID>(logo), ImVec2(w, h));
         }
 
-        const float bottom = size.y - 40.0f;
+        const float bottom = size.y - 40.0f * u;
         if (g_release_notes_ready.exchange(false)) {
             std::lock_guard<std::mutex> lock(g_update_mutex);
             release_notes = g_release_notes;
         }
         // Over the logo, from y 40 down to just above the status text.
         if (!release_notes.empty()) {
-            ImGui::SetCursorPos(ImVec2(40.0f, 40.0f));
+            ImGui::SetCursorPos(ImVec2(40.0f * u, 40.0f * u));
             ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.03f, 0.02f, 0.08f, 0.88f));
-            if (ImGui::BeginChild("##notes", ImVec2(size.x - 80.0f, bottom - 170.0f - 5.0f - 40.0f),
+            if (ImGui::BeginChild("##notes", ImVec2(size.x - 80.0f * u, bottom - (170.0f + 5.0f + 40.0f) * u),
                                   true)) {
                 ImGui::PushTextWrapPos(0.0f);
                 ImGui::TextUnformatted(release_notes.c_str());
@@ -1143,12 +1251,12 @@ int gsr_session_main(int game, int argc, char** argv) {
             note = "Step 1 translates the game from your ROM, step 2 compiles it. "
                    "After an update this happens again.";
         }
-        ImGui::SetCursorPos(ImVec2(40.0f, bottom - 170.0f));
-        ImGui::PushTextWrapPos(size.x - 40.0f);
+        ImGui::SetCursorPos(ImVec2(40.0f * u, bottom - 170.0f * u));
+        ImGui::PushTextWrapPos(size.x - 40.0f * u);
         if (!text.empty()) ImGui::TextUnformatted(text.c_str());
         if (build_running) {
-            ImGui::Dummy(ImVec2(0, 4));
-            draw_build_progress(done, total, size.x - 80.0f, ImGui::GetTime());
+            ImGui::Dummy(ImVec2(0, 4 * u));
+            draw_build_progress(done, total, size.x - 80.0f * u, ImGui::GetTime());
         }
         if (!note.empty()) {
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.75f, 1.0f));
@@ -1175,13 +1283,13 @@ int gsr_session_main(int game, int argc, char** argv) {
             }
         }
 
-        const ImVec2 button(200.0f, 48.0f);
+        const ImVec2 button(200.0f * u, 48.0f * u);
         if (!g_collection_play && ready && !build_running) {
             const char* label = "Start the game automatically";
             const float box_w = ImGui::GetFrameHeight() +
                                 ImGui::GetStyle().ItemInnerSpacing.x +
                                 ImGui::CalcTextSize(label).x;
-            ImGui::SetCursorPos(ImVec2((size.x - box_w) * 0.5f, bottom - button.y - 44.0f));
+            ImGui::SetCursorPos(ImVec2((size.x - box_w) * 0.5f, bottom - button.y - 44.0f * u));
             if (ImGui::Checkbox(label, &g_ui.auto_start)) {
                 write_text(auto_start_path(), g_ui.auto_start ? "1\n" : "0\n");
                 launcher_log(g_ui.auto_start ? "Start automatically: on."
@@ -1192,7 +1300,7 @@ int gsr_session_main(int game, int argc, char** argv) {
                 }
             }
         }
-        ImGui::SetCursorPos(ImVec2(size.x * 0.5f - button.x - 10.0f, bottom - button.y));
+        ImGui::SetCursorPos(ImVec2(size.x * 0.5f - button.x - 10.0f * u, bottom - button.y));
         if (!g_collection_play) {
         ImGui::BeginDisabled(build_running || g_ui.dialog != Dialog::None);
         if (ImGui::Button(g_ui.remembered_rom.empty() ? "Pick ROM###rom" : "Play###rom",
@@ -1201,7 +1309,7 @@ int gsr_session_main(int game, int argc, char** argv) {
             pick_rom();
         }
         ImGui::EndDisabled();
-        ImGui::SameLine(0, 20.0f);
+        ImGui::SameLine(0, 20.0f * u);
         }
         if (ImGui::Button(g_collection_play ? "Cancel" : "Quit", button)) running = false;
         ImGui::End();
@@ -1217,7 +1325,7 @@ int gsr_session_main(int game, int argc, char** argv) {
             ImGui::OpenPopup("##dialog");
         ImGui::SetNextWindowPos(ImVec2(size.x * 0.5f, size.y * 0.5f), ImGuiCond_Always,
                                 ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(std::min(size.x - 60.0f, 600.0f), 0));
+        ImGui::SetNextWindowSize(ImVec2(std::min(size.x - 60.0f * u, 600.0f * u), 0));
         if (ImGui::BeginPopupModal("##dialog", nullptr,
                                    ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove |
                                        ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -1226,7 +1334,7 @@ int gsr_session_main(int game, int argc, char** argv) {
                 ImGui::TextUnformatted(g_ui.title.c_str());
                 ImGui::Separator();
                 ImGui::TextUnformatted(g_ui.message.c_str());
-                if (ImGui::Button("OK", ImVec2(120, 0))) {
+                if (ImGui::Button("OK", ImVec2(120 * u, 0))) {
                     g_ui.dialog = Dialog::None;
                     if (g_ui.after_message_quit) g_ui.quit = true;
                     ImGui::CloseCurrentPopup();
@@ -1237,13 +1345,13 @@ int gsr_session_main(int game, int argc, char** argv) {
                     "Type the full path of your Golden Sun ROM:");
                 ImGui::SetNextItemWidth(-1);
                 ImGui::InputText("##rom", g_ui.typed_path, sizeof(g_ui.typed_path));
-                if (ImGui::Button("Use this ROM", ImVec2(160, 0))) {
+                if (ImGui::Button("Use this ROM", ImVec2(160 * u, 0))) {
                     g_ui.pending_rom = trim(g_ui.typed_path);
                     g_ui.dialog = Dialog::None;
                     ImGui::CloseCurrentPopup();
                 }
                 ImGui::SameLine();
-                if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+                if (ImGui::Button("Cancel", ImVec2(120 * u, 0))) {
                     g_ui.dialog = Dialog::None;
                     if (g_collection_play) g_ui.quit = true;
                     ImGui::CloseCurrentPopup();
@@ -1258,7 +1366,7 @@ int gsr_session_main(int game, int argc, char** argv) {
                                            "help a lot:");
                     ImGui::BeginDisabled(state == 1 || state == 2);
                     ImGui::InputTextMultiline("##description", g_ui.description,
-                                              sizeof(g_ui.description), ImVec2(-1, 110));
+                                              sizeof(g_ui.description), ImVec2(-1, 110 * u));
                     ImGui::TextWrapped("Your Reddit username, if you'd like the developer to "
                                        "reach out to you (optional; leave it blank if not):");
                     ImGui::SetNextItemWidth(240);
@@ -1275,7 +1383,7 @@ int gsr_session_main(int game, int argc, char** argv) {
                 }
                 if (can_send && state != 2) {
                     ImGui::BeginDisabled(state == 1);
-                    if (ImGui::Button(state == 3 ? "Try again" : "Send report", ImVec2(180, 0))) {
+                    if (ImGui::Button(state == 3 ? "Try again" : "Send report", ImVec2(180 * u, 0))) {
                         if (g_ui.sender.joinable()) g_ui.sender.join();
                         g_ui.send_state = 1;
                         launcher_log("Bug report: sending " + std::to_string(g_ui.reports.size()) +
@@ -1297,17 +1405,17 @@ int gsr_session_main(int game, int argc, char** argv) {
                     ImGui::SameLine();
                 }
                 ImGui::BeginDisabled(state == 1);
-                if (ImGui::Button(state == 2 ? "Close" : "Don't send", ImVec2(140, 0))) {
+                if (ImGui::Button(state == 2 ? "Close" : "Don't send", ImVec2(140 * u, 0))) {
                     g_ui.dialog = Dialog::None;
                     ImGui::CloseCurrentPopup();
                     running = false;
                 }
                 ImGui::EndDisabled();
                 ImGui::SameLine();
-                if (ImGui::Button("Open folder", ImVec2(140, 0)))
+                if (ImGui::Button("Open folder", ImVec2(140 * u, 0)))
                     open_with_desktop(g_ui.reports.front().parent_path().string());
                 if (state == 3 || !can_send) {
-                    if (ImGui::Button("Open the report form instead", ImVec2(300, 0))) {
+                    if (ImGui::Button("Open the report form instead", ImVec2(300 * u, 0))) {
                         open_with_desktop(kBugReportUrl);
                         open_with_desktop(g_ui.reports.front().parent_path().string());
                     }
@@ -1327,7 +1435,7 @@ int gsr_session_main(int game, int argc, char** argv) {
                     "saves. The game is then prepared from your ROM once more, which takes a "
                     "few minutes.";
                 ImGui::TextUnformatted(text.c_str());
-                if (ImGui::Button("Open the download page", ImVec2(240, 0))) {
+                if (ImGui::Button("Open the download page", ImVec2(240 * u, 0))) {
                     launcher_log("Update: opened the page of " + release.tag + ".");
                     open_with_desktop(release.page.empty() ? gsr_online::kReleasesPage
                                                            : release.page);
@@ -1339,7 +1447,7 @@ int gsr_session_main(int game, int argc, char** argv) {
                     ImGui::CloseCurrentPopup();
                 }
                 ImGui::SameLine();
-                if (ImGui::Button("Not now", ImVec2(140, 0))) {
+                if (ImGui::Button("Not now", ImVec2(140 * u, 0))) {
                     launcher_log("Update: not now.");
                     if (g_ui.auto_start_paused) {
                         launcher_log("Start automatically: starting the game.");
@@ -1356,9 +1464,9 @@ int gsr_session_main(int game, int argc, char** argv) {
                     "Start it automatically from now on when you open the launcher? The "
                     "launcher still checks for updates first, and the \"Start the game "
                     "automatically\" box above the Play button changes this later.");
-                const bool yes = ImGui::Button("Yes", ImVec2(120, 0));
+                const bool yes = ImGui::Button("Yes", ImVec2(120 * u, 0));
                 ImGui::SameLine();
-                const bool no = ImGui::Button("No", ImVec2(120, 0));
+                const bool no = ImGui::Button("No", ImVec2(120 * u, 0));
                 if (yes || no) {
                     g_ui.auto_start = yes;
                     write_text(auto_start_path(), yes ? "1\n" : "0\n");
@@ -1373,9 +1481,9 @@ int gsr_session_main(int game, int argc, char** argv) {
                 ImGui::TextUnformatted(
                     "The game is ready.\n\nStart it now, or read what's new in this version "
                     "first? The Play button starts it whenever you are ready.");
-                const bool start = ImGui::Button("Start now", ImVec2(120, 0));
+                const bool start = ImGui::Button("Start now", ImVec2(120 * u, 0));
                 ImGui::SameLine();
-                const bool notes = ImGui::Button("What's new", ImVec2(120, 0));
+                const bool notes = ImGui::Button("What's new", ImVec2(120 * u, 0));
                 if (start || notes) {
                     if (start) {
                         launcher_log("Build: finished; the player chose to start now.");

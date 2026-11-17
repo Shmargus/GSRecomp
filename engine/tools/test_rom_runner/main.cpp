@@ -1,4 +1,4 @@
-// test_rom_runner — direct-boot a recompiled jsmolka gba-suite test
+// test_rom_runner: direct-boot a recompiled jsmolka gba-suite test
 // ROM and report pass/fail.
 //
 // Convention (per gba-suite README + lib/macros.inc):
@@ -16,8 +16,8 @@
 // The `eval:` block calls `m_vsync` which busy-loops on
 // DISPSTAT.VBlank. Our runtime doesn't pump the PPU, so execution
 // gets stuck in that loop AFTER the tests have already written
-// their final r12. So we just step for a budget and then read r12
-// — the value is stable by the time the loop appears.
+// their final r12. So we just step for a budget and then read r12;
+// the value is stable by the time the loop appears.
 //
 // We direct-boot (no BIOS): set PC=0x080000C0 (cart entry), SP to
 // a post-BIOS-like address, and dispatch the cart's recompiled
@@ -112,7 +112,7 @@ int main(int argc, char** argv) {
 
     // Step loop. Each runtime_dispatch executes one recompiled
     // function. The function may itself call sub-functions (direct
-    // C calls) — those don't count as separate dispatches. We also detect
+    // C calls); those don't count as separate dispatches. We also detect
     // "stuck PC" (same value for K consecutive dispatches) as a sign the
     // m_vsync busy loop has been entered, at which point r12 is stable.
     uint32_t prev_pc = ~0u;

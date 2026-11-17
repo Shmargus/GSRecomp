@@ -27,6 +27,15 @@ bool live_world_margin_capture(const Capture& settled, const Capture& live, Capt
         mix.ewram = live.ewram;
         mix.iwram = live.iwram;
         mix.scene.objects = live.scene.objects;
+        // A game window's own sprites stay out of the margins, as the main
+        // draw keeps them in the console's window (FieldSceneRenderer's
+        // menu_sprite rule: window open, priority 0). The settled capture is
+        // mode 2 with no window, so that rule cannot see them here: TLA's
+        // Djinn screen over the world map parks three priority-0 Djinn at
+        // y 170 (read as -86), drawn in the top margin (tla_rewind_0217).
+        if (live.window_open)
+            for (auto& o : mix.scene.objects)
+                if (o.priority == 0) o.present = false;
         mix.scene.object_transforms = live.scene.object_transforms;
         mix.scene.one_dimensional_objects = live.scene.one_dimensional_objects;
         // Sprite colours (the palette's second half) and sprite art.

@@ -11,13 +11,13 @@ int main(int argc, char** argv) {
             << "GoldenSunRecomp starter bootstrap\n"
             << "This is not the game runner.\n"
             << "Expected ROM SHA-1: " << GSR_EXPECTED_ROM_SHA1 << "\n"
-            << "Next: read AGENTS.md and TASKS.md.\n";
+            << "See README.md and BUILDING.md to build the game.\n";
         return 0;
     }
 
     std::cout
         << "GoldenSunRecomp repository scaffold is buildable.\n"
         << "No ROM or BIOS was loaded.\n"
-        << "Read PROJECT_PLAN.md before wiring the runtime.\n";
+        << "See README.md and BUILDING.md to build the game.\n";
     return 0;
 }

@@ -68,13 +68,8 @@ inline void add_common_environment(ChildEnvironmentPlan& plan, const CommonEnvir
     // present-in-place path; use the frame-boundary unwind path everywhere.
     plan.put("GBARECOMP_PRESENT_IN_PLACE", "0");
     if (c.save_import) plan.put("TLA_GS_SAVE_IMPORT", *c.save_import ? "1" : "0");
-    // The canonical GBA left/right Direct Sound buses, and the removed
-    // experimental audio paths off for older installed engines.
+    // The canonical GBA left/right Direct Sound buses.
     plan.put("GBARECOMP_AUDIO_STEREO", "1");
-    plan.put("GBARECOMP_AUDIO_NATIVE", "0");
-    plan.put("GBARECOMP_AUDIO_SHADOW", "0");
-    plan.put("GBARECOMP_TURBO_AUDIO", "0");
-    plan.put("GSR_MOD_FIELD_TEST", "0");
     plan.put("GBARECOMP_HEAL_CACHE", c.heal_cache);
     if (!c.heal_toolchain.empty()) plan.put("GBARECOMP_HEAL_TOOLCHAIN", c.heal_toolchain);
     // Enhanced Options (expanded-view fixes, room-buffer drawing and host
@@ -145,7 +140,7 @@ inline void add_test_environment(ChildEnvironmentPlan& plan, const TestOptionSta
     apply("GSR_OAM_SHADOW_TRACE", state("GSR_OBJ_RECORD"), "1");
 }
 
-// The BIOS logs have no launcher box any more; both sessions remove them.
+// The BIOS logs have no launcher option; both sessions remove them.
 inline constexpr const char* bios_log_variables[] = {
     "GBARECOMP_SWI_LOG", "GBARECOMP_BIOS_PC_LOG", "GBARECOMP_BIOS_READ_LOG"};
 

@@ -40,7 +40,9 @@ function Assert-Idle {
             throw 'LauncherProcessId does not identify a launcher in this collection.'
         }
     }
-    $busy = @(Get-Process -Name cmake,ninja,make,mingw32-make,gcc,'g++',cc,'c++',cc1,cc1plus,lto1,lto-wrapper,ld,collect2,gsr_builder,GoldenSunRecomp,TLARecomp,GoldenSunLauncher,GoldenSunCollection,TLALauncher -ErrorAction SilentlyContinue)
+    # A build, and also a running game or launcher (their files are rebuilt).
+    . (Join-Path $PSScriptRoot 'build_guard.ps1')
+    $busy = @(Get-GsrBuildProcesses) + @(Get-Process -Name GoldenSunRecomp,TLARecomp,GoldenSunLauncher,GoldenSunCollection,TLALauncher -ErrorAction SilentlyContinue)
     if ($LauncherProcessId -gt 0) { $busy = @($busy | Where-Object { $_.Id -ne $LauncherProcessId }) }
     if ($busy.Count) {
         $names = ($busy | Select-Object -ExpandProperty ProcessName -Unique) -join ', '
@@ -70,7 +72,7 @@ function Same-Path([string]$Left, [string]$Right) {
 
 function Remap-Value([string]$Value, [object[]]$Mappings) {
     # Preserve already-relocated paths in a partially updated cache. The old
-    # GS root is now the collection parent and otherwise matches those too.
+    # GS root is the collection parent and otherwise matches those too.
     $mapped = $Value
     for ($index = 0; $index -lt $Mappings.Count; ++$index) {
         $current = $Mappings[$index].New -replace '\\', '/'
@@ -126,10 +128,10 @@ function Get-Plan([string]$Name, [string]$Source, [string]$BuildDir, $Cache, [ob
         Set-Setting $settings 'GSR_RELEASE_LAUNCHER' 'BOOL' 'OFF'
         Set-Setting $settings 'GSR_BUILD_LOCAL_RUNNER' 'BOOL' 'ON'
     } else {
-        Set-Setting $settings 'TLA_RELEASE_LAUNCHER' 'BOOL' 'OFF'
-        Set-Setting $settings 'TLA_PLAYER_RELEASE' 'BOOL' 'OFF'
-        # Retired: the player builder now lives at the collection root.
-        $null = $settings.Remove('TLA_COLLECTION_ROOT')
+        # Settings that no longer exist (kept configurations may still hold them).
+        foreach ($retired in @('TLA_COLLECTION_ROOT', 'TLA_RELEASE_LAUNCHER', 'TLA_PLAYER_RELEASE')) {
+            $null = $settings.Remove($retired)
+        }
     }
     return [pscustomobject]@{
         Name = $Name; Source = $Source; BuildDir = $BuildDir; Settings = $settings

@@ -1,4 +1,4 @@
-// function_finder.h — Recompiler-side function discovery.
+// function_finder.h: Recompiler-side function discovery.
 //
 // Given the ROM bytes, an entry point, and a set of seed symbols,
 // walk the CFG to find every reachable function address and its
@@ -11,7 +11,7 @@
 //     BLX, or B-as-tail-call) or as a control-flow root from the
 //     entry / seed list".
 //   - Indirect branches (BX reg, LDR PC, ldm with PC, computed
-//     calls) are recorded as "indirect dispatch needed" — the
+//     calls) are recorded as "indirect dispatch needed": the
 //     runtime resolves them via the dispatch table at execution time.
 //   - Literal pools (data embedded in .text via `LDR rX, =const`) are
 //     not skipped: function bodies stop at the first unconditional
@@ -80,7 +80,7 @@ struct Function {
     bool has_indirect_transfer = false;
     // Mid-function alias entries (idea from psxrecomp): guest PCs that
     // fall strictly INSIDE this function's natural body and are reached as
-    // alternate ("resume") entries — e.g. an IRQ/SWI return landing mid
+    // alternate ("resume") entries: e.g. an IRQ/SWI return landing mid
     // busy-wait loop. They are NOT separate functions (that would split the
     // body and turn the loop's native gotos into per-iteration dispatch);
     // instead each is a labelled re-entry point and the body emits a resume
@@ -118,7 +118,7 @@ struct FinderStats {
     std::size_t jt_rejected_unsized = 0;       // confirmed, no bound, walk found <2
     std::size_t jt_rejected_bound_mismatch = 0;// bound said N but an entry wasn't code
     std::size_t jt_overlap_suppressed = 0;     // table already in a data_range (manual hint)
-    // Discovery-source breakdown — populated by run() against the
+    // Discovery-source breakdown: populated by run() against the
     // set of (addr, mode) keys seen across seeds vs walks.
     std::size_t manual_seeds_total = 0;     // # of seeds the caller added
     std::size_t discovered_by_walk_only = 0;
@@ -136,7 +136,7 @@ struct FinderStats {
     // BL long-branches: a direct call (BL) whose fall-through continuation
     // lands inside a declared data_range. A returning call cannot have a
     // literal pool as its return address, so this is a proven long-range
-    // unconditional branch, not a real call — the collision that would
+    // unconditional branch, not a real call. The collision that would
     // otherwise be recorded at the continuation is suppressed. See the
     // direct_call_continuation comment in discover_one().
     std::size_t long_branch_calls = 0;
@@ -147,7 +147,7 @@ struct FinderStats {
     // LR (see run()). That case is a real, supported resume entry point and
     // is NOT counted here. This counter only tracks the cases that remain
     // over-approximation: the halfword matches the BL_suffix bit pattern
-    // (0xF800..0xFFFF) but is not actually the second half of a real BL —
+    // (0xF800..0xFFFF) but is not actually the second half of a real BL,
     // e.g. a [[resume_range]] expansion landing on a coincidental bit
     // pattern in data, or at the very start of the image with no preceding
     // halfword at all. Dropped visibly (counted here), never silently.
@@ -156,7 +156,7 @@ struct FinderStats {
     // DID verify against a genuine preceding BL_prefix and were kept as
     // real post-IRQ resume entry points (see run()). This is the whole
     // point of that gate existing rather than dropping every BL_suffix-
-    // shaped alias seed unconditionally — it should be > 0 whenever the
+    // shaped alias seed unconditionally: it should be > 0 whenever the
     // ROM actually contains post-IRQ resumes on a BL pair's suffix half.
     std::size_t alias_seeds_kept_bl_suffix = 0;
     // Alias-candidate seeds (any [[resume_range]]/resume=true expansion,
@@ -164,18 +164,18 @@ struct FinderStats {
     // hitting a terminator. Real code never falls into its own literal
     // pool or jump table, so a walk from an alias entry point that lands
     // in data proves the entry point itself is unreachable (bogus by
-    // construction) — dropped, not reported as a data_range collision.
+    // construction): dropped, not reported as a data_range collision.
     // Counted SEPARATELY from alias_seeds_dropped_bl_suffix: that one is
     // a THUMB BL-pair-specific pre-walk filter, this one is a generic
     // walk-time outcome for every mode and every terminator shape (jump
     // tables, literal pools, any [[data_range]]). A non-alias seed that
-    // hits the same data_range is UNCHANGED — still a hard collision, see
-    // record_collision.
+    // hits the same data_range is UNCHANGED (still a hard collision, see
+    // record_collision).
     std::size_t alias_seeds_dropped_data_range = 0;
 };
 
-// A byte range the finder must not decode as code. See
-// docs/TOML_SCHEMA.md "[[data_range]]".
+// A byte range the finder must not decode as code (a config's
+// [[data_range]] entry).
 struct DataRange {
     uint32_t    start;
     uint32_t    end;        // [start, end)
@@ -192,7 +192,7 @@ struct CodeCopyRange {
 // Reviewed entry into code whose instruction bytes are produced at runtime.
 // The static finder treats this as an external control-flow boundary: the
 // containing host tail-dispatches to the entry, but no function is decoded
-// from the immutable image. RuntimeRamDispatchHook (or the honest miss tier)
+// from the immutable image. RuntimeRamDispatchHook (or the reported miss tier)
 // is responsible for resolving the active code identity.
 struct RuntimeCodeEntry {
     uint32_t    addr;
@@ -225,7 +225,7 @@ public:
     // seed's mode + name wins.
     void add_seed(const FunctionSeed& seed);
 
-    // Register a byte range as data — the finder will hard-error
+    // Register a byte range as data. The finder will hard-error
     // if control flow ever enters it. Caller supplies `note` for
     // the diagnostic; `origin_kind` is "data_range" for explicit
     // [[data_range]] entries or "jump_table" for auto-excluded
@@ -262,9 +262,8 @@ public:
         return auto_jump_tables_;
     }
 
-    // Non-empty when the recompile must abort. See
-    // docs/TOML_SCHEMA.md "[[data_range]]" — control flow into
-    // a data_range is a hard error.
+    // Non-empty when the recompile must abort: control flow into a
+    // [[data_range]] is a hard error.
     const std::vector<DataRangeCollision>& collisions() const {
         return collisions_;
     }
@@ -282,7 +281,7 @@ private:
     std::vector<FunctionSeed> seeds_;
     std::vector<Function>     functions_;
     std::unordered_map<uint64_t, std::size_t> visited_;  // key=(addr<<1)|mode
-    // Keys (addr<<1|mode) of explicit interior/resume seeds — candidates for
+    // Keys (addr<<1|mode) of explicit interior/resume seeds, candidates for
     // mid-function alias roll-up. See FunctionSeed::alias_candidate.
     std::unordered_set<uint64_t> alias_candidate_keys_;
     std::vector<AutoJumpTable> auto_jump_tables_;
@@ -294,7 +293,7 @@ private:
     // CMP-bound carried across an inverted switch guard. For the
     // `CMP Ri,#N; B{ls,cc} <dispatch>; B <default>` idiom the indexed
     // dispatch lives at the BRANCH TARGET, which the finder walks as its
-    // own seed with fresh tracker state — so the bound recovered at the
+    // own seed with fresh tracker state, so the bound recovered at the
     // compare must be parked here, keyed by the dispatch-target PC, and
     // re-seeded into reg_bound[reg] when that seed is walked.
     struct SeedBound { uint8_t reg; uint32_t max_index; };
@@ -316,7 +315,7 @@ private:
 
     // Speculative seeds harvested from PC-relative literal pools (a
     // loaded word that looks like a code pointer). Drained by run()
-    // like mode_switch_seeds_. Silent + speculative — a wrong guess is
+    // like mode_switch_seeds_. Silent + speculative: a wrong guess is
     // a dead function, never a hard data_range collision. (Stage 0.1,
     // ported from jrickey gba-recomp analyze.rs literal-pool scan.)
     std::vector<FunctionSeed>        literal_pool_seeds_;
@@ -350,12 +349,12 @@ private:
     bool current_walk_speculative_ = false;
     bool current_walk_dropped_ = false;
     // Set at the top of each discover_one when the walk's own (addr,
-    // mode) key is in alias_candidate_keys_ — i.e. this walk originated
+    // mode) key is in alias_candidate_keys_, i.e. this walk originated
     // from a [[resume_range]]/resume=true expansion, not a real seed.
     // When such a walk runs into a declared [[data_range]],
     // record_collision swallows it (like the speculative case above) and
     // counts it under alias_seeds_dropped_data_range instead of
-    // alias_seeds_dropped_bl_suffix — the two are separate drop reasons
+    // alias_seeds_dropped_bl_suffix: the two are separate drop reasons
     // and must not be collapsed into one counter.
     bool current_walk_alias_ = false;
 };

@@ -1,11 +1,11 @@
-// arm_decode.h — ARM (32-bit) instruction decoder.
+// arm_decode.h: ARM (32-bit) instruction decoder.
 //
 // Decodes one 32-bit ARM instruction word at a given PC into our
 // normalized IR. The decoder is reference-implementation style:
 // readable, with explicit shape checks, not a packed table.
 //
 // Coverage target: every ARMv4T ARM-state encoding the GBA actually
-// uses. Encodings reserved on ARMv4T (notably ARMv5T BLX-imm and the
+// uses. Encodings reserved on ARMv4T (such as ARMv5T BLX-imm and the
 // always-NV space) produce `IrOp::Undefined` with `is_undefined=true`.
 //
 // Reference: ARM ARM ARMv4T A3 "The ARM Instruction Set".

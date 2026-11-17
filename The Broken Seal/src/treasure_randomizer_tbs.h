@@ -19,14 +19,13 @@
 //   the room tables are byte-identical in the five ROMs.
 // - Shops: 0x080B41AC + id * 0x42 (treasure_plan.h's layout), 35 records,
 //   1..34 used; prices are item record +0 (0x0807B6A8 + id * 0x2C). Both are
-//   read from the ROM, so the plan is written into the running ROM image as
-//   Random Equipment does, and the pristine bytes return for other files.
+//   read from the ROM (shared_game/treasure_randomizer.h writes them).
 // - Random Weapons / Armor finds change the same field and gift lookups
 //   (treasure_plan.h new_finds); the pools are the generated ones.
-// - Sol Sanctum (Jimmy, 7 November 2026: never a story item there; it is
-//   left behind for good, and Skip Prologue skips it) never receives a
-//   Psynergy item: the planner moves one only to an "exact" spot, and the
-//   check below keeps Sol Sanctum's spots from ever being exact.
+// - Sol Sanctum never receives a Psynergy item. It holds no story item, it
+//   is left behind for good, and Skip Prologue skips it. The planner moves a
+//   Psynergy item only to an "exact" spot, and the check below keeps Sol
+//   Sanctum's spots from ever being exact.
 #pragma once
 #include <cstdint>
 #include <map>
@@ -39,6 +38,7 @@
 
 #include "../../shared_game/run_sheet.h"
 #include "../../shared_game/treasure_plan.h"
+#include "../../shared_game/treasure_randomizer.h"
 #include "random_psynergy_tbs.h"
 #include "random_weapons_tbs.h"
 #include "rom_version.h"
@@ -56,118 +56,28 @@ static_assert(sol_sanctum_takes_no_psynergy_items(), "a Psynergy item could be p
 constexpr unsigned kItemCount = 269, kShops = 35;
 constexpr std::uint32_t kRoom = 0x02000400u;
 
-struct State {
-    bool captured = false;
-    std::vector<Item> items;                       // pristine
-    std::vector<std::uint8_t> pristine_shops;      // kShops * kShopSize
-    std::vector<std::uint16_t> pristine_prices;
-    random_psynergy::Config applied;               // what the ROM image holds
-    unsigned equipment_seen = ~0u;
-    Plan plan;
-    std::map<std::uint16_t, Content> field;        // by flag
-    std::map<std::pair<std::uint16_t, std::uint16_t>, std::uint16_t> gifts;  // (pack, item) -> item
-    std::vector<std::vector<std::uint16_t>> shops;  // planned stock per shop (empty: unchanged)
-};
-inline State state;
+inline Randomizer state{{tbs_data::spots,
+                         {tbs_data::shop_items, tbs_data::shop_weapons, tbs_data::shop_armour},
+                         kItemCount, kShops}};
 
 inline std::uint32_t item_table() { return GS_ROM(0x0807B6A8u); }
 inline std::uint32_t shop_table() { return GS_ROM(0x080B41ACu); }
 
 inline random_psynergy::Config current() { return random_psynergy::tbs::current(); }
-inline bool any(const random_psynergy::Config& c) {
-    return c.treasure || c.coins || c.weapon_finds || c.armour_finds;
-}
-// Random Items, Coins or Weapons / Armor finds is on for the loaded file.
-inline bool active() { return any(state.applied); }
-
-inline void capture(gba::GbaBus& b) {
-    State& s = state;
-    if (s.captured) return;
-    s.items.resize(kItemCount);
-    s.pristine_prices.resize(kItemCount);
-    for (unsigned i = 0; i < kItemCount; ++i) {
-        const std::uint32_t r = item_table() + i * 0x2Cu;
-        s.items[i] = {b.read16(r), b.read8(r + 2), b.read8(r + 3), b.read8(r + 0xC)};
-        s.pristine_prices[i] = s.items[i].price;
-    }
-    s.pristine_shops.resize(kShops * kShopSize);
-    for (std::size_t i = 0; i < s.pristine_shops.size(); ++i) s.pristine_shops[i] = b.read8(shop_table() + i);
-    s.captured = true;
-}
-
-// The plan's lookups for the hooks, and the shops' stock.
-inline void build(const random_psynergy::Config& c) {
-    State& s = state;
-    s.field.clear();
-    s.gifts.clear();
-    s.shops.assign(kShops, {});
-    if (!any(c)) return;
-    s.plan = make_plan(tbs_data::spots, s.items, c.seed, c.fair_items, c.treasure, c.coins, c.fair_coins);
-    new_finds(s.plan, tbs_data::spots, s.items, c.weapon_finds, c.armour_finds, tbs_data::shop_weapons,
-              tbs_data::shop_armour);
-    for (std::size_t i = 0; i < std::size(tbs_data::spots); ++i) {
-        const Spot& spot = tbs_data::spots[i];
-        const Content& to = s.plan.contents[i];
-        if (spot.kind == SpotKind::Field) s.field[spot.key] = to;
-        else if (!to.coins) s.gifts[{spot.key, static_cast<std::uint16_t>(spot.value)}] = static_cast<std::uint16_t>(to.value);
-    }
-    Rng rng(c.seed, 4);
-    for (unsigned id = 1; id < kShops && c.treasure; ++id) {
-        const std::uint8_t* rec = &s.pristine_shops[id * kShopSize];
-        std::vector<std::uint16_t> original;
-        for (std::size_t k = 0; k < kShopStock && (rec[k * 2] | rec[k * 2 + 1] << 8); ++k)
-            original.push_back(static_cast<std::uint16_t>(rec[k * 2] | rec[k * 2 + 1] << 8));
-        if (original.empty()) continue;
-        s.shops[id] = shop_stock(original, {tbs_data::shop_items, tbs_data::shop_weapons, tbs_data::shop_armour},
-                                 s.items, rng, c.fair_shops);
-    }
-}
-
-// Writes the file's shops and prices into the ROM image when they differ
-// (or Random Equipment rewrote the item records, prices included).
-inline void apply(gba::GbaBus& b, const random_psynergy::Config& c) {
-    State& s = state;
-    const bool same = c == s.applied;
-    const unsigned equipment = random_weapons::state.generation;
-    if (same && equipment == s.equipment_seen) return;
-    std::uint8_t* rom = random_weapons::rom_image(b);
-    const std::uint32_t shops = shop_table() - 0x08000000u, items = item_table() - 0x08000000u;
-    if (!same) {
-        build(c);
-        for (unsigned id = 0; id < kShops; ++id) {
-            std::uint8_t* rec = rom + shops + id * kShopSize;
-            std::copy_n(&s.pristine_shops[id * kShopSize], kShopSize, rec);
-            const auto& stock = s.shops[id];
-            if (stock.empty()) continue;
-            for (std::size_t k = 0; k < kShopStock; ++k) {
-                const std::uint16_t v = k < stock.size() ? stock[k] : 0;
-                rec[k * 2] = static_cast<std::uint8_t>(v);
-                rec[k * 2 + 1] = static_cast<std::uint8_t>(v >> 8);
-            }
-        }
-    }
-    const std::vector<std::uint16_t> bargain = c.treasure && c.bargains ? bargain_prices(s.items)
-                                                                        : std::vector<std::uint16_t>{};
-    for (unsigned i = 0; i < kItemCount; ++i) {
-        const std::uint16_t v = bargain.empty() ? s.pristine_prices[i] : bargain[i];
-        rom[items + i * 0x2Cu] = static_cast<std::uint8_t>(v);
-        rom[items + i * 0x2Cu + 1] = static_cast<std::uint8_t>(v >> 8);
-    }
-    s.applied = c;
-    s.equipment_seen = equipment;
-}
+inline bool active() { return state.active(); }
 
 // Once a game frame, after Random Equipment's frame.
 inline void frame() {
     gba::GbaBus* b = gbarecomp::active_bus();
     if (!b || !b->rom_ptr()) return;
-    capture(*b);
-    apply(*b, current());
+    state.capture(*b, item_table(), shop_table());
+    state.apply(random_weapons::rom_image(*b), random_weapons::state.generation, item_table(), shop_table(),
+                current());
 }
 
 // Entry to the field pickup routine: apply the room's planned records.
 inline void on_pickup(gba::GbaBus& b) {
-    State& s = state;
+    const Randomizer& s = state;
     if (s.field.empty() || !active()) return;
     const std::uint32_t context = b.read32(gs::ram(0x03001EBCu));
     std::uint32_t at = context ? b.read32(context + 0x10u) : 0;
@@ -190,12 +100,8 @@ inline void on_pickup(gba::GbaBus& b) {
 // An amount above 0xFFFF for the record in r7 (the coin message and the coin
 // routine), else none.
 inline bool big_coins(gba::GbaBus& b, std::uint32_t record, std::uint32_t* amount) {
-    const State& s = state;
     if (!active() || record < 0x02000000u || record >= 0x02040000u) return false;
-    const auto it = s.field.find(static_cast<std::uint16_t>(b.read16(record + 6u)));
-    if (it == s.field.end() || !it->second.coins || it->second.value <= 0xFFFFu) return false;
-    *amount = it->second.value;
-    return true;
+    return state.big_coins(static_cast<std::uint16_t>(b.read16(record + 6u)), 0xFFFFu, amount);
 }
 
 // Entry hook: true when r0 was changed. pc, lr, r0, r7 from the entry.
@@ -213,10 +119,7 @@ inline bool on_entry(std::uint32_t pc, std::uint32_t lr, std::uint32_t r7, std::
     if (pc == GS_ROM(0x08091A58u)) {
         const std::uint16_t room = b->read16(kRoom);
         const std::uint16_t pack = b->read16(GS_ROM(0x0809F1A8u) + room * 8u);
-        const auto it = state.gifts.find({pack, static_cast<std::uint16_t>(*r0 & 0x1FFu)});
-        if (it == state.gifts.end()) return false;
-        *r0 = it->second;
-        return true;
+        return state.gift(pack, r0);
     }
     return false;
 }
@@ -224,29 +127,7 @@ inline bool on_entry(std::uint32_t pc, std::uint32_t lr, std::uint32_t r7, std::
 // The spoiler sheet's lines: where every treasure went, and the shops.
 inline void sheet_lines(const random_psynergy::Config& c, std::vector<run_sheet::Section>& out,
                         const run_sheet::ItemName& item) {
-    const State& s = state;
-    if (!any(c) || s.plan.contents.size() != std::size(tbs_data::spots)) return;
-    run_sheet::Section treasure{gbarecomp::ui_text("Treasure"), {}};
-    for (std::size_t i = 0; i < std::size(tbs_data::spots); ++i) {
-        const Spot& spot = tbs_data::spots[i];
-        if (spot.fixed) continue;
-        const Content& to = s.plan.contents[i];
-        std::string row = std::string(spot.place) + ": " +
-                          (to.coins ? std::to_string(to.value) + " " + gbarecomp::ui_text("coins")
-                                    : item(static_cast<std::uint16_t>(to.value)));
-        if (spot.kind == SpotKind::Gift) row += std::string(" (") + gbarecomp::ui_text("gift") + ")";
-        treasure.lines.push_back(row);
-    }
-    std::stable_sort(treasure.lines.begin(), treasure.lines.end());
-    out.push_back(std::move(treasure));
-    run_sheet::Section shops{gbarecomp::ui_text("Shops"), {}};
-    for (unsigned id = 1; id < kShops; ++id) {
-        if (s.shops[id].empty()) continue;
-        std::string row = std::string(gbarecomp::ui_text("Shop")) + " " + std::to_string(id) + ":";
-        for (std::size_t k = 0; k < s.shops[id].size(); ++k) row += (k ? ", " : " ") + item(s.shops[id][k]);
-        shops.lines.push_back(row);
-    }
-    if (!shops.lines.empty()) out.push_back(std::move(shops));
+    state.sheet_lines(c, out, item);
 }
 
 }  // namespace gsr::treasure::tbs

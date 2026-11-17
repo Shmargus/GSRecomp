@@ -1,13 +1,13 @@
-// bios_hle.h — opt-in High-Level Emulation of GBA BIOS SWI calls.
+// bios_hle.h: opt-in High-Level Emulation of GBA BIOS SWI calls.
 //
 // The recompiled real BIOS (LLE) is this project's default and remains the
-// correctness oracle (PRINCIPLES.md "BIOS is sacred — recompiled and
+// correctness oracle (PRINCIPLES.md "BIOS is sacred, recompiled and
 // dispatched"). HLE is an *alternative*, selected per-game via the config
 // (`[bios].hle = true`), the `--bios-hle` CLI flag, or the GBARECOMP_BIOS_HLE
 // env var. It is the PRINCIPLES.md "verified-enhancement HLE" carve-out: opt-in,
-// LLE stays load-bearing, and any SWI the HLE layer does not implement
+// LLE still does the real work, and any SWI the HLE layer does not implement
 // transparently falls through to the recompiled BIOS (so HLE never breaks a
-// game and is never load-bearing beyond what it covers).
+// game and is never relied on beyond what it covers).
 //
 // Mechanism: bios_hle_set_mode() installs (or clears) the runtime_swi hook
 // g_bios_hle_hook (declared in runtime_arm.h). With HLE on, runtime_swi calls
@@ -25,7 +25,7 @@
 namespace gba {
 
 enum class BiosHleMode {
-    Off,   // pure LLE — recompiled BIOS services every SWI (default)
+    Off,   // pure LLE: recompiled BIOS services every SWI (default)
     On,    // HLE where implemented, LLE fallback otherwise
 };
 
@@ -39,12 +39,12 @@ BiosHleMode bios_hle_mode();
 // Human-readable label for the banner.
 const char* bios_hle_mode_name(BiosHleMode mode);
 
-// Boot HLE — skip the BIOS intro. Instead of running the recompiled boot ROM
+// Boot HLE: skip the BIOS intro. Instead of running the recompiled boot ROM
 // (logo + chime) from reset, synthesize the machine state the real BIOS leaves
 // at cart handoff (per-mode stack pointers, System mode, cleared registers, the
 // zeroed user-IRQ-handler pointer at 0x03007FFC) and set PC to `cart_entry`
 // (normally 0x08000000). The recompiled BIOS stays linked and still services
-// IRQs (vector 0x18) and any SWIs HLE does not cover — only the boot ANIMATION
+// IRQs (vector 0x18) and any SWIs HLE does not cover; only the boot ANIMATION
 // is skipped. Call once, on a fresh boot (never when resuming a savestate),
 // AFTER reset_recomp_cpu(). LLE (the default) always plays the real intro.
 void bios_hle_boot_skip(uint32_t cart_entry);

@@ -590,7 +590,7 @@ void paint_squares(const Box& seen, u32 canvas, const std::vector<Triangle>& tri
 // Kept out of tla_spell_mesh_on_entry, which runs on every guest function
 // entry: this body's ~35 KB of locals made the entry hook probe ~9 stack
 // pages before its early returns (241-273 us per TLA frame in the 20 October
-// profile, local/kanban-investigation-20261021/performance/).
+// profile).
 __attribute__((noinline)) void paint_mesh_margins(gba::GbaBus* bus, u32 pc) {
     const Box seen = visible_canvas(bus);
     if (seen.empty()) return;

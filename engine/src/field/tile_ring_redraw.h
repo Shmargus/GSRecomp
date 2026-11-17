@@ -2,17 +2,21 @@
 //
 // Both Golden Sun games keep each of three field layers in a 256x256 tile
 // ring in video memory and, per frame, redraw only the strip the camera
-// scrolls onto: one column when a layer's x crosses an 8-pixel tile, one
-// two-tile row when its y crosses 16 pixels. A camera that jumps further
-// (our view-size inset, on a switch to or from Wide) leaves the tiles in
-// between from the old place until the camera leaves again (The Broken Seal
-// F12 gpu_rewind_0055). Called on entry to the game's camera follow, this
-// repaints every ring with the game's own row writer, which fills 16 cells
-// (32 tiles, the ring's width) of a two-tile row: 16 calls per layer. Only
+// scrolls onto: one column when a layer's x crosses an 8-pixel tile, or one
+// two-tile row when its y crosses 16 pixels.
+//
+// A camera that jumps further (our view-size inset, on a switch to or from
+// Wide) leaves the tiles in between showing the old place until the camera
+// leaves again (The Broken Seal F12 gpu_rewind_0055).
+//
+// This is called on entry to the game's camera follow. It repaints every ring
+// with the game's own row writer. One call fills 16 cells (32 tiles, the
+// ring's width) of a two-tile row, so a layer takes 16 calls. It runs only
 // after a jump of more than one strip within the same map, and only for the
-// field (its state in EWRAM, video mode 0). The addresses are the game's,
-// measured per game (The Broken Seal runner_main.cpp, The Lost Age
-// tla_widescreen.cpp); see each game's FACTS.md.
+// field (its state is in EWRAM, video mode 0).
+//
+// The addresses are the game's own, measured per game (The Broken Seal
+// runner_main.cpp, The Lost Age tla_widescreen.cpp); see each game's FACTS.md.
 #pragma once
 
 #include <array>

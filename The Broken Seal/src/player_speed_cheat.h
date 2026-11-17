@@ -18,9 +18,9 @@ constexpr std::uint32_t kAccumulatorY = 0x02030DD4u;
 const std::uint32_t kFieldRunWriterPc = gs::rom(0x0800EC8Eu);
 const std::uint32_t kFieldWalkWriterPc = gs::rom(0x0800ECA0u);
 constexpr std::uint32_t kFieldAccumulator = 0x02030EECu;
-// Ladders and pushing keep the game's own speed (Jimmy, 2026-10-01: "too
-// risky"). The climbing handler (0x0800F7F4) stores 0.5 px/frame at
-// 0x0800F80A and stops the player at a ladder's top by a height check made
+// Ladders and pushing keep the game's own speed (too risky to scale). The
+// climbing handler (0x0800F7F4) stores 0.5 px/frame at 0x0800F80A and stops
+// the player at a ladder's top by a height check made
 // each frame; at 1.5 px/frame the player passed that point in one frame, and
 // on the Tolbi-bound ship's mast an event sent the player back to the deck
 // instead of the climb off (gpu_rewind_0083), so the Anchor Charm at the top

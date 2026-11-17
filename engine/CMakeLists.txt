@@ -14,7 +14,7 @@ else()
 endif()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SDL2 — soft dependency. When present we build host_window.cpp with the
+# SDL2: soft dependency. When present we build host_window.cpp with the
 # real SDL backend; otherwise it compiles as a no-op stub. CI and headless
 # environments stay buildable either way.
 #
@@ -46,6 +46,25 @@ option(GBA_COSIM
     "Build the first-divergence co-simulation oracle (state hash + TCP park/step)"
     OFF)
 
+# Android: SDL2 is built from its source release inside the same CMake tree
+# (scripts/android/build_apk.py passes GSR_ANDROID_SDL2_DIR). Its Java half
+# goes into the APK; libSDL2.so ships beside libmain.so. Setting the two
+# variables here makes the find_path/find_library calls below no-ops.
+if(ANDROID)
+    set(GSR_ANDROID_SDL2_DIR "" CACHE PATH "SDL2 source release for Android builds")
+    if(NOT EXISTS "${GSR_ANDROID_SDL2_DIR}/include/SDL.h")
+        message(FATAL_ERROR "Android build needs GSR_ANDROID_SDL2_DIR (SDL2 source).")
+    endif()
+    if(NOT TARGET SDL2)
+        set(SDL_SHARED ON CACHE BOOL "" FORCE)
+        set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+        set(SDL_TEST OFF CACHE BOOL "" FORCE)
+        add_subdirectory("${GSR_ANDROID_SDL2_DIR}" sdl2_build)
+    endif()
+    set(SDL2_INCLUDE_DIR "${GSR_ANDROID_SDL2_DIR}/include")
+    set(SDL2_LIBRARY SDL2)
+endif()
+
 find_path(SDL2_INCLUDE_DIR
     NAMES SDL.h
     PATH_SUFFIXES SDL2 SDL2/include
@@ -76,7 +95,7 @@ if(GBARECOMP_STATIC_RELEASE)
     # SDL2 static depends on a list of Windows system libs that
     # libSDL2.dll already pulls in transitively when dynamic.
     # (From `pkg-config --static --libs sdl2`.)
-    # Use full paths to libSDL2.a + libSDL2main.a — `-lSDL2` would let
+    # Use full paths to libSDL2.a + libSDL2main.a: `-lSDL2` would let
     # the linker prefer libSDL2.dll.a (dynamic import) over libSDL2.a.
     set(SDL2_STATIC_SYSDEPS
         -lmingw32
@@ -116,7 +135,7 @@ if(GBARECOMP_STATIC_RELEASE)
 endif()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# armv4t — portable ARM7TDMI decoder, IR, codegen. Reusable for ARM9 later.
+# armv4t: portable ARM7TDMI decoder, IR, codegen. Reusable for ARM9 later.
 # Must NOT depend on src/gba or src/runtime.
 # ─────────────────────────────────────────────────────────────────────────────
 add_library(gbarecomp_armv4t STATIC
@@ -132,7 +151,7 @@ target_include_directories(gbarecomp_armv4t PUBLIC src/armv4t)
 set_property(TARGET gbarecomp_armv4t PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# recompile_core — function discovery + per-function codegen, as a LIBRARY.
+# recompile_core: function discovery + per-function codegen, as a LIBRARY.
 # Extracted from tools/gba_recompile so the SAME emitter serves both the
 # offline corpus build (the tool) and the Stage-2 runtime self-healing
 # recompiler (a dispatch miss → emit one function → gcc → DLL). Depends only
@@ -147,7 +166,7 @@ target_link_libraries(gbarecomp_recompile_core PUBLIC gbarecomp_armv4t)
 set_property(TARGET gbarecomp_recompile_core PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# gba — GBA-specific bus, IO, IRQ, DMA, timers, PPU, audio, input, save, BIOS.
+# gba: GBA-specific bus, IO, IRQ, DMA, timers, PPU, audio, input, save, BIOS.
 # Aggressively GBA-specific. Depends on armv4t for CPU types.
 # ─────────────────────────────────────────────────────────────────────────────
 add_library(gbarecomp_gba STATIC
@@ -165,7 +184,7 @@ add_library(gbarecomp_gba STATIC
     src/gba/file_replace.cpp
 )
 target_include_directories(gbarecomp_gba PUBLIC src/gba)
-# src/debug for snapshot.h — the save-state SnapshotWriter/Reader are
+# src/debug for snapshot.h: the save-state SnapshotWriter/Reader are
 # header-only, so this is an include-path dependency only (gbarecomp_gba
 # does NOT link gbarecomp_debug; that would invert the layering).
 target_include_directories(gbarecomp_gba PRIVATE src/debug)
@@ -181,7 +200,7 @@ target_include_directories(gbarecomp_ram_overlay PUBLIC src/runtime)
 set_property(TARGET gbarecomp_ram_overlay PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# runtime — what game binaries link against. Dispatch, host glue.
+# runtime: what game binaries link against. Dispatch, host glue.
 # ─────────────────────────────────────────────────────────────────────────────
 # ── Dear ImGui (host config UI) ──────────────────────────────────────────────
 # Only meaningful with SDL2, since both backends are SDL-based. Same
@@ -218,15 +237,22 @@ if(GBARECOMP_SDL2_OK)
         ${GBARECOMP_IMGUI_DIR}/backends/imgui_impl_sdlrenderer2.cpp
         # imgui_impl_opengl3: real multi-viewport support (panels torn off
         # into their own OS windows). imgui_impl_sdlrenderer2 has none
-        # upstream. Uses its own function loader — no GLEW/GLAD needed.
+        # upstream. Uses its own function loader, so no GLEW/GLAD is needed.
         ${GBARECOMP_IMGUI_DIR}/backends/imgui_impl_opengl3.cpp)
     target_include_directories(gbarecomp_imgui PUBLIC
         ${GBARECOMP_IMGUI_DIR}
         ${GBARECOMP_IMGUI_DIR}/backends
         ${SDL2_INCLUDE_DIR})
     target_link_libraries(gbarecomp_imgui PUBLIC ${SDL2_LIBRARY})
-    find_package(OpenGL)
-    if(OPENGL_FOUND)
+    if(ANDROID)
+        # Phones have OpenGL ES 3, not desktop OpenGL.
+        target_compile_definitions(gbarecomp_imgui PUBLIC IMGUI_IMPL_OPENGL_ES3)
+        target_link_libraries(gbarecomp_imgui PUBLIC GLESv3 EGL)
+    else()
+        find_package(OpenGL)
+    endif()
+    if(ANDROID)
+    elseif(OPENGL_FOUND)
         target_link_libraries(gbarecomp_imgui PUBLIC OpenGL::GL)
     elseif(WIN32 OR MSYS)
         # mingw's OpenGL find module can miss opengl32 in some MSYS2
@@ -257,6 +283,8 @@ add_library(gbarecomp_runtime STATIC
     src/runtime/screen_filter.cpp
     src/runtime/host_overlay.cpp
     src/runtime/host_config_ui.cpp
+    src/runtime/touch_controls.cpp
+    src/runtime/gpu_present.cpp
     src/runtime/frame_timing.cpp
     src/runtime/frame_interpolation.cpp
     src/runtime/color_lut.cpp
@@ -349,7 +377,7 @@ if(UNIX)
 endif()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# debug — TCP server + always-on ring buffers + snapshot. Always built.
+# debug: TCP server + always-on ring buffers + snapshot. Always built.
 # ─────────────────────────────────────────────────────────────────────────────
 add_library(gbarecomp_debug STATIC
     src/debug/tcp_debug_server.cpp
@@ -376,7 +404,7 @@ if(GBA_COSIM)
 endif()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# LTO — applied only to gbarecomp's own static libraries, driven by the
+# LTO: applied only to gbarecomp's own static libraries, driven by the
 # parent project's GSR_ENABLE_LTO/GSR_IPO_SUPPORTED (set and IPO-checked in
 # the top-level CMakeLists.txt before add_subdirectory(GBARECOMP_ROOT ...)).
 # Both variables are unset/false when gbarecomp is configured standalone, so
@@ -393,7 +421,7 @@ if(GSR_ENABLE_LTO AND GSR_IPO_SUPPORTED)
 endif()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# tools — small CLI utilities. Each is a separate executable.
+# tools: small CLI utilities. Each is a separate executable.
 # ─────────────────────────────────────────────────────────────────────────────
 function(target_link_gbarecomp_runtime_stack target_name)
     if(MINGW OR MSYS)
@@ -456,7 +484,7 @@ endif()
 add_executable(symbol_import tools/symbol_import/main.cpp)
 target_link_libraries(symbol_import PRIVATE gbarecomp_armv4t)
 
-# test_rom_runner — direct-boots a recompiled jsmolka gba-suite test
+# test_rom_runner: direct-boots a recompiled jsmolka gba-suite test
 # ROM and reports r12 at exit. Two targets per ROM (ARM + THUMB):
 # each ROM is recompiled at build time via gba_recompile and linked
 # into its own runner exe. Output is the test_rom_runner main
@@ -538,7 +566,7 @@ else()
                    "skipping test_rom_thumb target")
 endif()
 
-# bios_smoke — Phase 2.1 canary. Loads bios/gba_bios.bin, runs the
+# bios_smoke: Phase 2.1 canary. Loads bios/gba_bios.bin, runs the
 # interpreter from PC=0 for N instructions, prints a trace.
 add_executable(bios_smoke tools/bios_smoke/main.cpp
                           tools/bios_smoke/dispatch_stub.cpp)
@@ -548,7 +576,7 @@ if(WIN32 OR MSYS)
 endif()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# tests — per-subsystem. Run with ctest.
+# tests: per-subsystem. Run with ctest.
 # ─────────────────────────────────────────────────────────────────────────────
 enable_testing()
 
@@ -566,7 +594,7 @@ add_executable(relocatable_image_tests
 target_link_libraries(relocatable_image_tests PRIVATE gbarecomp_recompile_core)
 add_test(NAME relocatable_image_tests COMMAND relocatable_image_tests)
 
-# Self-heal proposal clustering — pure logic, links only the standalone
+# Self-heal proposal clustering: pure logic, links only the standalone
 # clustering TU (no runtime/bus/overlay dependencies).
 add_executable(selfheal_cluster_test
     tests/selfheal/cluster_test.cpp
@@ -580,8 +608,8 @@ add_test(NAME interpreter_smoke COMMAND interpreter_smoke)
 
 # Stage-2 self-heal over MUTABLE (IWRAM/EWRAM) code: owned-snapshot compile +
 # content-verified (CRC32) dispatch. Drives the real worker-thread compile
-# pipeline (needs a real g++ — see gxx_path() in overlay_compile.cpp); no
-# ROM/BIOS bytes, every function body is synthetic.
+# pipeline (needs a real g++; see gxx_path() in overlay_compile.cpp); no
+# ROM/BIOS bytes: every function body is synthetic.
 add_executable(ram_heal_tests
     tests/selfheal/ram_heal_test.cpp
     tools/bios_smoke/dispatch_stub.cpp)
@@ -691,7 +719,7 @@ target_link_libraries(ram_image_probe_tests PRIVATE gbarecomp_armv4t)
 add_test(NAME ram_image_probe_tests COMMAND ram_image_probe_tests)
 
 # ─────────────────────────────────────────────────────────────────────
-# codegen_tests — L1 per-IrOp diff harness.
+# codegen_tests: L1 per-IrOp diff harness.
 #
 # Architecture:
 #   1. tests/codegen/test_cases.cpp lists per-IrOp test cases.
@@ -746,7 +774,7 @@ target_link_libraries(codegen_tests PRIVATE gbarecomp_armv4t)
 add_test(NAME codegen_tests COMMAND codegen_tests)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# selfheal_stage2_bios_identical — Stage-2 GFP1 byte-identity gate. Proves a
+# selfheal_stage2_bios_identical: Stage-2 GFP1 byte-identity gate. Proves a
 # healed-to-native BIOS function (0xBA4 exclude fixture) executes instruction-
 # for-instruction identically to the fully-static corpus (static == bridge ==
 # heal_cold == heal_warm). Heavy + needs the gitignored ROM/BIOS + a built
@@ -763,7 +791,7 @@ if(GBARECOMP_SELFHEAL_MC_DIR)
             ENVIRONMENT "GBARECOMP_ROOT=${CMAKE_CURRENT_SOURCE_DIR};MC_DIR=${GBARECOMP_SELFHEAL_MC_DIR}"
             SKIP_RETURN_CODE 77
             TIMEOUT 2400)
-        # selfheal_coverage_sweep — drives the built MC from every savestate with
+        # selfheal_coverage_sweep: drives the built MC from every savestate with
         # the self-heal recompiler on and asserts FULLY_STATIC for each scene
         # (the doctrine's "done"). Surfaces remaining finder gaps; doubles as a
         # coverage regression guard. Same opt-in / SKIP-77 contract.
@@ -781,7 +809,7 @@ if(GBARECOMP_SELFHEAL_MC_DIR)
 endif()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Oracle binary — opt-in (-DGBARECOMP_BUILD_ORACLE=ON). Embeds libmgba
+# Oracle binary: opt-in (-DGBARECOMP_BUILD_ORACLE=ON). Embeds libmgba
 # (MPL-2.0). Per PRINCIPLES.md the native build has zero copyleft deps;
 # the oracle binary is the ONLY place libmgba may be linked, and it
 # runs as a SEPARATE PROCESS over TCP.
@@ -794,7 +822,7 @@ if(GBARECOMP_BUILD_ORACLE)
 endif()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# runtime.cmake — game projects include this to add
+# runtime.cmake: game projects include this to add
 # a runnable target that links generated C against the runtime libs.
 # ─────────────────────────────────────────────────────────────────────────────
 configure_file(

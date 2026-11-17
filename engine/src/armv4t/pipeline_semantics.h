@@ -1,4 +1,4 @@
-// pipeline_semantics.h — PC-visible pipeline rules.
+// pipeline_semantics.h: PC-visible pipeline rules.
 //
 // On ARM7TDMI the visible value of PC depends on the current instruction
 // set. Code that *reads* PC sees current_pc + offset_pc, where offset_pc

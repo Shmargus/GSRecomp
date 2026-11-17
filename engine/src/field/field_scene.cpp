@@ -94,18 +94,18 @@ void capture_layers(FieldScene* s, const std::uint8_t* io) {
 
 // Each sprite's position on the previous frame, for the X and Y wraps below.
 // A sprite leaving past the right edge reaches raw X 256+, which the hardware
-// reading puts left of the screen: Mia running from a battle (128-px
+// reads as a position left of the screen. Mia running from a battle (128-px
 // double-size box, raw 333 -> -179) was drawn in Extra Wide's left margin
-// (TBS gpu_rewind_0016 frames 100-119, 2026-10-14). Y the same way: a
-// world-map town in the bottom margin (raw 163 or 186) jumped to the top edge
-// for the two frames the menu takes to open, while no provider vouched for
-// it (TBS gpu_rewind_0020 frames 13-14, 0024 frames 116-117, 2026-10-14);
-// Extra Wide's top margin reaches raw 145..159 (y -111..-97), so that band
-// gets the same test. The same sprite a frame earlier says which
-// reading is meant. Known by its tile,
-// shape, size, colour depth and palette: slots are re-sorted every frame and
-// the affine bits toggle while a battler runs (same capture), but each keeps
-// its tiles.
+// (TBS gpu_rewind_0016 frames 100-119, 2026-10-14). Y behaves the same way:
+// a world-map town in the bottom margin (raw 163 or 186) jumped to the top
+// edge for the two frames the menu takes to open, while no provider vouched
+// for it (TBS gpu_rewind_0020 frames 13-14, 0024 frames 116-117,
+// 2026-10-14). Extra Wide's top margin reaches raw 145..159 (y -111..-97),
+// so that band gets the same test.
+// The same sprite on the previous frame says which reading is meant. It is
+// identified by its tile, shape, size, colour depth and palette. Slots are
+// re-sorted every frame and the affine bits toggle while a battler runs (same
+// capture), but each sprite keeps its tiles.
 struct Seen {
     unsigned identity = 0;
     int x = 0, y = 0;
@@ -161,18 +161,18 @@ void capture_objects(FieldScene* s, const std::uint8_t* oam, int extra_top,
         O.width  = kObjWidth[shape][size];
         O.height = kObjHeight[shape][size];
 
-        // Y is 8 bits and wraps; X is 9 bits and is signed -- the hardware
-        // fallback rules, used verbatim below whenever no provider answers.
-        // These mirror gba_ppu.cpp's render_scanline_wide (resolve_sy /
-        // resolve_sx) exactly, including the asymmetry between the two
-        // axes: Y's fallback threshold is 160 (an 8-bit field, so values
-        // 160..255 are read as negative), X's is the top bit of a 9-bit
-        // field (0x100), which is a different-looking test but agrees with
-        // "x >= 240" for every value that is natively visible -- 240..255
-        // is off-screen either way, so raw x in that range is the only
-        // place the two rules could differ, and it never differs in where
-        // it places the sprite (off-screen), only in the never-observed
-        // sign of that off-screen number.
+        // Y is 8 bits and wraps; X is 9 bits and is signed. These are the
+        // hardware fallback rules, used as they are below whenever no provider
+        // answers. They mirror gba_ppu.cpp's render_scanline_wide
+        // (resolve_sy / resolve_sx) exactly, including the asymmetry between
+        // the two axes. Y's threshold is 160 (an 8-bit field, so values
+        // 160..255 are read as negative). X's is the top bit of a 9-bit field
+        // (0x100). That looks different from an "x >= 240" test but agrees
+        // with it for every natively visible value. Raw x of 240..255 is
+        // off-screen either way, so it is the only range where the two rules
+        // could differ, and even there they place the sprite off-screen; only
+        // the sign of that off-screen number differs, and it has never been
+        // observed.
         const int raw_y = static_cast<int>(a0 & 0xFFu);
         const int raw_x = static_cast<int>(a1 & 0x1FFu);
         // This sprite on the previous frame, only when exactly one matches:
@@ -222,12 +222,12 @@ void capture_objects(FieldScene* s, const std::uint8_t* oam, int extra_top,
         } else {
             x = (raw_x & 0x100) ? raw_x - 0x200 : raw_x;
             // A raw X of 256+ read as negative matters on hardware only when
-            // the sprite reaches back onto the screen from the left. When,
-            // read that way, it would stay hidden even in the widened left
-            // margin, the only thing it can mean is a sprite the game placed
-            // past the right edge: world-map towns once their visibility
-            // tests admit the right margin (FACTS.md, 2026-09-24). Reading it
-            // as positive cannot move anything that would otherwise show.
+            // the sprite reaches back onto the screen from the left. If it
+            // would stay hidden even in the widened left margin when read
+            // that way, it can only be a sprite the game placed past the
+            // right edge, such as world-map towns whose visibility tests
+            // admit the right margin (FACTS.md, 2026-09-24). Reading it as
+            // positive cannot move anything that would otherwise show.
             const int box_w = O.double_size ? 2 * O.width : O.width;
             if ((raw_x & 0x100) &&
                 x + box_w <= -field_game_profile().expanded_extra_x) {
@@ -321,7 +321,7 @@ bool field_scene_frame_supported(unsigned dispcnt, const char** why) {
     // hardware itself renders no background for them either
     // (gba_ppu.cpp's render_scanline_internal only branches on mode 0/1/2),
     // and the measured 2,429-snapshot corpus never uses them (FACTS.md), so
-    // refusing is honest, not a guess.
+    // refusing is correct, not a guess.
     if (mode > 2) {
         if (why) *why = "the video mode uses a bitmap background";
         return false;

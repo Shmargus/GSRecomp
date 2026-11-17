@@ -1,4 +1,4 @@
-// no_bios_dispatch_table.cpp — the BIOS dispatch table of a build that links
+// no_bios_dispatch_table.cpp: the BIOS dispatch table of a build that links
 // no recompiled BIOS (GBARECOMP_LINK_BIOS off, or no locally generated BIOS
 // output). It is empty: such a build runs only in no-BIOS mode, where
 // runtime_dispatch sends every PC below 0x4000 to the runtime's own

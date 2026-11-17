@@ -26,7 +26,7 @@ inline std::uint32_t tla_ewram_word(const std::uint8_t* ewram, std::size_t at) {
 // end continues into the left. Half speed with the camera at the room's left
 // (x 0..416) shows BG3 x < 0 in the expanded left margin, which the art never
 // covers: repeat it at its width. As a distant backdrop it also fills the
-// strips past the room's edge (Jimmy, 2026-10-23).
+// strips past the room's edge.
 inline bool tla_backdrop_margins(const gsr::FieldScene& scene,
                                  gsr::SceneMargins& margins,
                                  std::uint32_t map,
@@ -81,7 +81,7 @@ inline bool tla_background_margins(const gsr::FieldScene& scene,
         for (int row = 1; row < gsr::FieldScene::kRows; ++row)
             if (reg_y(row) != y) return false;
         // Use the displayed scroll, not the newer live layer record:
-        // 0107/f000 has VOFS551 but the record already says550.
+        // 0107/f000 has VOFS 551 but the record already says 550.
         const int camera_y = std::int16_t(word(0x30E38) >> 16);
         const int dy = camera_y - std::int16_t(y);
         if (dy <= 0) return false;

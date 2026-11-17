@@ -1,4 +1,4 @@
-// tests/codegen/test_cases.h — shared between the generator and the
+// tests/codegen/test_cases.h: shared between the generator and the
 // runner. Defines the per-instruction L1 diff test corpus.
 //
 // L1 testing answers "does ArmCodegen::emit_instr produce C code that
@@ -14,7 +14,7 @@
 //           invokes the generated `tc_<idx>` function.
 //        c. Diffs registers, CPSR, and memory.
 //
-// A test case is intentionally minimal — single instruction, fully
+// A test case is intentionally minimal: single instruction, fully
 // pinned initial state, no surrounding control flow. The whole point
 // is to catch divergence at the per-IrOp level, BEFORE it compounds
 // in a 16 KB BIOS workload.
@@ -36,7 +36,7 @@ struct TestCase {
     uint32_t    word;          // 32-bit ARM word OR 16-bit THUMB halfword
                                // (zero-extended into uint32_t)
 
-    // Initial CPU state. r_init[15] is ignored for the recomp path —
+    // Initial CPU state. r_init[15] is ignored for the recomp path:
     // recompiled functions don't read R[15] from the register file
     // (the decoder bakes the PC-pipeline value in as an immediate).
     // The interpreter, by contrast, does read R[15]; the runner sets
@@ -49,9 +49,9 @@ struct TestCase {
     const TestMemInit* mem_init;
     size_t             mem_init_count;
 
-    // Recomp doesn't advance PC on non-branch ops — only branches
+    // Recomp doesn't advance PC on non-branch ops; only branches
     // write R[15]. The interpreter ALWAYS advances. To diff R[15]
-    // honestly the runner restores cpu.R[15] to its pre-step value
+    // accurately the runner restores cpu.R[15] to its pre-step value
     // when `branches` is false.
     bool        branches;
 

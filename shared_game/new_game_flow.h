@@ -1,16 +1,6 @@
-// New Game onboarding, both games (Jimmy, 7 November 2026;
-// docs/NEXT_PRIORITY_MODES.md section 6): one question at a time, each
-// highlighted option explained by the scrolling help bar.
-//   Names (after the hero's name) -> Difficulty -> Randomize -> Stats ->
-//   Scaling -> Shop prices -> Fair Play (a tick per randomized thing) ->
-//   Code (text box, else letter grid) ->
-//   Challenge -> picks ->
-//   Last choices (The Broken Seal: Seamless Mode, Skip Prologue; The Lost
-//   Age: skip Venus Lighthouse and Idejima) ->
-//   Autosave, the last question in both games.
-// Follow-ups appear only when they matter. B goes back one question. The
-// logic is here; each game paints View with its own window and font and
-// applies Result.
+// Shared New Game questions and Back navigation. Ask only the follow-up
+// questions that apply to the selected options. Each game draws View
+// using its own assets and applies Result.
 #pragma once
 #include <cstdint>
 #include <functional>
@@ -28,8 +18,8 @@ enum class Stage {
 };
 enum Difficulty { kNormal, kHard, kScaled, kHardScaled };
 enum Random { kWeapons, kArmor, kItems, kCoins, kPsynergy, kRandomCount };
-// Fair Play's switches (Jimmy, 10 November 2026): each strives for a fair
-// progression in its own thing, and shows only when that thing is randomized.
+// Fair Play's switches: each keeps the progression fair in its own area (items,
+// coins, shops or Psynergy), and shows only when that area is randomized.
 enum Fair { kFairItems, kFairCoins, kFairShops, kFairPsynergy, kFairCount };
 constexpr const char* kFairLabels[kFairCount] = {"Items", "Coins", "Shops", "Psynergy"};
 constexpr const char* kFairHelp[kFairCount] = {
@@ -43,8 +33,8 @@ constexpr const char* kFairHelp[kFairCount] = {
 struct Options {
     // Random Treasure (The Broken Seal): the Items and Coins rows, and
     // Weapons and Armor change what chests and gifts give, with the stat
-    // shuffle a follow-up (Jimmy, 7 November 2026). Without it (The Lost
-    // Age, for now) Weapons and Armor are the stat shuffle.
+    // shuffle a follow-up. Without it (The Lost Age) Weapons and Armor are
+    // the stat shuffle.
     bool items_and_coins = true;
     bool extras = false;           // the Last choices page
     // Its rows: Seamless Mode (The Broken Seal only), then the game's skip.

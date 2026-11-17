@@ -16,8 +16,8 @@
 //
 // One copy of the rules; each game installs its measured addresses (Game)
 // and its own catalogue: custom_battle_tbs.cpp (FACTS.md "Custom Battle
-// Mode" 2026-10-29, docs/features/CUSTOM_BATTLE_RESEARCH.md) and The Lost
-// Age's src/tla_custom_battle.cpp (its FACTS.md 2026-10-30).
+// Mode" 2026-10-29) and The Lost Age's
+// src/tla_custom_battle.cpp (its FACTS.md 2026-10-30).
 //
 // How the receptionist is driven (measured in both games; the TLA handler is
 // the same routine with moved addresses): her talk handler asks "...Would you
@@ -109,7 +109,7 @@ struct Game {
     std::uint32_t stat_adjust_pc, stat_adjust_return;
     std::uint32_t small_enemy_pc, enemy_data_pc;
     std::uint32_t party_count_pc, party_ids, battle_context_ptr, byte_flag_pc;
-    // Scaled difficulty (Jimmy, 7 November 2026): every battle's builder
+    // Scaled difficulty: every battle's builder
     // fetches each new enemy with slot_getter_pc returning to
     // `scale_getter_return`, just before its own "raise by the word at sp +
     // 0x20" step, which ordinary battles skip (word 0). There an enemy below
@@ -160,6 +160,17 @@ struct Game {
     bool (*met)(const Monster& monster);
 };
 void install(const Game& game);
+
+// Little-endian reads at ROM offset `at` (not a cartridge address); 0 past
+// the end, so a table that runs off the ROM reads as ended.
+inline unsigned rom_u8(Rom rom, std::uint32_t at) { return at < rom.size() ? rom[at] : 0u; }
+inline int rom_s16(Rom rom, std::uint32_t at) {
+    return static_cast<std::int16_t>(rom_u8(rom, at) | (rom_u8(rom, at + 1) << 8));
+}
+inline std::uint32_t rom_u32(Rom rom, std::uint32_t at) {
+    return rom_u8(rom, at) | (rom_u8(rom, at + 1) << 8) | (rom_u8(rom, at + 2) << 16) |
+           (std::uint32_t(rom_u8(rom, at + 3)) << 24);
+}
 
 // For the games' catalogues: the members Battle Mode can field from formation
 // `f` (none for a row without minimum counts; a member with maximum 0 never

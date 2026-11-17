@@ -1,9 +1,8 @@
-// Random Psynergy, one copy of the rules for both runners (The Broken Seal's
-// docs/features/SEEDED_PSYNERGY.md; Jimmy's design of 2 and 4 November
-// 2026). A new game can tick "Random Psynergy": a fresh random seed then
-// decides every hero's battle Psynergy and the levels they learn it at, for
-// the whole file. Djinn and class changes never change it; story Psynergy
-// (Move, Mind Read, Retreat, ...) and item Psynergy are untouched.
+// Random Psynergy, one copy of the rules for both runners. A new game
+// can tick "Random Psynergy": a fresh random seed then decides every hero's
+// battle Psynergy and the levels they learn it at, for the whole file. Djinn
+// and class changes never change it. Story Psynergy (Move, Mind Read,
+// Retreat, ...) and item Psynergy are untouched.
 //
 // Both games rebuild a character's 32 Psynergy words (record +0x58, every 4
 // bytes, id in the low half) in one routine (each game's measured address):
@@ -14,8 +13,8 @@
 // unflagged (story) words and the items, and takes the plan's grants in place
 // of the class list. Each game: its FACTS.md "Random Psynergy".
 //
-// Fair Play (6 November 2026, Jimmy: "early healing"): one hero there from
-// the start (a pick, in a challenge) learns Cure or Ply at level 1, the level
+// Fair Play ("early healing"): one hero who is in the party from the start
+// (a pick, in a challenge) learns Cure or Ply at level 1, the level at which
 // the normal game's classes first teach them (both games' pools: 90 Cure and
 // 93 Ply at level 1). The rest of the plan is drawn as without it.
 //
@@ -94,12 +93,13 @@ constexpr std::uint16_t kIdMask = 0x3FFFu, kItemMask = 0x1FFu;
 constexpr std::uint32_t kItemSize = 0x2Cu, kItemKind = 0xCu, kItemAbility = 0x28u;
 constexpr std::uint8_t kItemGrantsAbility = 3;
 
-// Per seed: the last learning level and spells per hero. The Broken Seal's
-// measured ranges (30..54, 8..16), the level up to 60 (Jimmy, 4 November).
-// 16 also keeps the list's room for story and item Psynergy.
+// Per seed, each hero gets a last learning level and a number of spells.
+// The Broken Seal's measured ranges are 30..54 for the level and 8..16 for
+// the spells; the level may go up to 60. Capping spells at 16 also keeps room
+// in the list for story and item Psynergy.
 constexpr int kLastLevelMin = 30, kLastLevelMax = 60;
 constexpr int kCountMin = 8, kCountMax = 16;
-// One new spell in ten ignores the level curve (Jimmy, 4 November).
+// One new spell in ten ignores the level curve.
 constexpr unsigned kLuckyOneIn = 10;
 
 inline Config current(const Game& g) {

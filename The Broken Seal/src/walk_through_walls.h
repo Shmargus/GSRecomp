@@ -18,7 +18,9 @@ namespace gsr::walk_through_walls {
 const std::uint32_t kDebugByteBranchPc = gs::rom(0x0800ED22u);  // beq: byte 0
 const std::uint32_t kDebugKeyBranchPc = gs::rom(0x0800ED34u);   // beq: L up
 
-constexpr bool is_branch(std::uint32_t pc) {
+// Not constexpr: the addresses are runtime constants (gs::rom), which Clang
+// rejects in a constexpr function.
+inline bool is_branch(std::uint32_t pc) {
     return pc == kDebugByteBranchPc || pc == kDebugKeyBranchPc;
 }
 

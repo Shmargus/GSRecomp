@@ -1,4 +1,4 @@
-// sha1.cpp — straight FIPS 180-4 SHA-1.
+// sha1.cpp: straight FIPS 180-4 SHA-1.
 
 #include "sha1.h"
 

@@ -110,15 +110,13 @@ void hold_overclock(bool hold) {
     }
 }
 
-// The arena's BG2CNT line table (FACTS.md, 2026-10-04): block at
-// [0x03000028], index word at +0, tables at block + 0x20 + index * 0x140.
-// At VBlank 0x08125C1E points HBlank DMA0 at the table the index names; the
-// game fills the other one and flips the index once per frame of work. With
-// two frames per VBlank the second fills the table on screen (a misplaced
-// band near the top while the camera moves). So on every skipped wait the index is put
-// back to the one the last VBlank used, and before the next real wait the
-// game's own choice is handed back if nothing flipped it since: that table
-// is the complete one. Golden Sun 1's fix for the same scheme.
+// Arena BG2CNT line tables (FACTS.md, 2026-10-04): [0x03000028] points to
+// the block, with the index at +0 and tables at +0x20 + index * 0x140.
+// At VBlank 0x08125C1E points HBlank DMA0 at the indexed table. The game
+// fills the other table and flips the index. A skipped wait would let the
+// next frame overwrite the active table, causing a band during camera
+// movement. Keep DMA's index on skipped waits. Restore the game's index
+// before the next real wait if the game hasn't changed it since.
 constexpr uint32_t kArenaBlockSlot = 0x03000028u;
 
 uint32_t arena_index_address(gba::GbaBus* b) {
@@ -313,14 +311,6 @@ void tla_install_battle_speed(gbarecomp::RunOptions& options) {
     g_next_alu_immediate = options.thumb_alu_immediate_override;
     options.thumb_alu_immediate_override = battle_speed_alu_immediate;
     options.conditional_branch_override = battle_speed_branch;
-}
-
-// Called by the present hook (src/tla_rewind.cpp): ">>" at the native top
-// left while 2x runs, the two chevrons touching.
-bool tla_battle_speed_paint(uint8_t* rgb, uint32_t width, uint32_t height) {
-    if (!indicator_visible()) return false;
-    tla_paint_text(rgb, width, height, 4, 4, ">>", 5);
-    return true;
 }
 
 bool tla_battle_speed_active() { return indicator_visible(); }

@@ -4,13 +4,6 @@ project(TLARecomp LANGUAGES CXX)
 # The collection owns the launcher; this tree builds the TLA engine and builder.
 # The shared engine and the player builder live at the collection root.
 set(GSR_PLAYER_BUILDER_DIR "${CMAKE_SOURCE_DIR}/../player_builder")
-# Retained for existing release configurations; launcher mode belongs to the
-# GoldenSunCollection target in the Broken Seal tree.
-option(TLA_RELEASE_LAUNCHER "Collection player release configuration" OFF)
-option(TLA_PLAYER_RELEASE "Exclude private harvested RAM code from player engine" OFF)
-# The harvested RAM code is never compiled ahead of time (it was ~90% of the
-# game-code compile, 2026-10-23, and player releases cannot ship it): it
-# compiles while the game runs, in every build.
 set(GSR_RELEASE_VERSION "dev" CACHE STRING "Collection release version")
 set(GSR_RELEASE_REPOSITORY "Shmargus/GSRecomp" CACHE STRING
     "Shared GitHub owner/repository for collection releases")
@@ -171,8 +164,8 @@ set(TLA_GAME_INCLUDE_DIRS
 # below) and the exe exports everything the game code calls. OFF builds one
 # exe.
 option(TLA_SPLIT_GAME_CODE "Build translated game code as a separate library" ON)
-if(TLA_SPLIT_GAME_CODE AND NOT (MINGW OR CMAKE_SYSTEM_NAME STREQUAL "Linux"))
-    message(FATAL_ERROR "TLA_SPLIT_GAME_CODE requires MinGW or Linux.")
+if(TLA_SPLIT_GAME_CODE AND NOT (MINGW OR CMAKE_SYSTEM_NAME STREQUAL "Linux" OR ANDROID))
+    message(FATAL_ERROR "TLA_SPLIT_GAME_CODE requires MinGW, Linux or Android.")
 endif()
 if(TLA_SPLIT_GAME_CODE)
     # Both platforms compile the player's code separately from the LTO engine.
@@ -214,6 +207,20 @@ if(TLA_SPLIT_GAME_CODE AND MINGW)
     target_link_options(TLAPlayer PRIVATE -Wl,--stack,16777216)
     target_link_libraries(TLAPlayer PRIVATE shell32)
     add_dependencies(TLAPlayer TLARecomp TLAGame)
+elseif(TLA_SPLIT_GAME_CODE AND ANDROID)
+    # Android: the engine is a plug-in, libtla_engine.so, shipped in the app.
+    # The phone builds libTLAGame.so from the player's ROM (player builder)
+    # and links it against this; the launcher's game process loads the game
+    # library, which brings the engine, and calls gsr_game_main
+    # (game_module.cpp). The engine's references to the game's tables are
+    # resolved from the game library at that load.
+    add_library(TLARecomp SHARED ${TLA_ENGINE_SOURCES}
+        "${GBARECOMP_ROOT}/src/runtime/game_module.cpp")
+    set_target_properties(TLARecomp PROPERTIES OUTPUT_NAME tla_engine)
+    target_link_libraries(TLARecomp PRIVATE android log)
+    # -Bsymbolic: the engine's own calls (gsr_game_main to the runner's
+    # main) stay inside it, whatever else the process has loaded.
+    target_link_options(TLARecomp PRIVATE -Wl,-z,undefs -Wl,-Bsymbolic)
 elseif(TLA_SPLIT_GAME_CODE)
     add_executable(TLARecomp ${TLA_ENGINE_SOURCES})
 else()
@@ -287,7 +294,7 @@ else()
     endif()
 endif()
 
-if(TLA_SPLIT_GAME_CODE AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(TLA_SPLIT_GAME_CODE AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR ANDROID))
     # GSRecomp's ELF split: PIC table access avoids executable copy relocations.
     target_compile_options(TLARecomp PRIVATE -fPIC)
     set_target_properties(tla_game_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -297,9 +304,15 @@ if(TLA_SPLIT_GAME_CODE AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
         INTERPROCEDURAL_OPTIMIZATION FALSE
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
     target_link_options(TLAGame PRIVATE -Wl,-Bsymbolic)
-    target_link_libraries(TLARecomp PRIVATE TLAGame)
-    set_target_properties(TLARecomp PROPERTIES
-        BUILD_WITH_INSTALL_RPATH ON INSTALL_RPATH "$ORIGIN")
+    if(ANDROID)
+        # The reverse of Linux: the game library needs the engine plug-in,
+        # as the phone's own build links it (player_builder).
+        target_link_libraries(TLAGame PRIVATE TLARecomp)
+    else()
+        target_link_libraries(TLARecomp PRIVATE TLAGame)
+        set_target_properties(TLARecomp PROPERTIES
+            BUILD_WITH_INSTALL_RPATH ON INSTALL_RPATH "$ORIGIN")
+    endif()
 elseif(TLA_SPLIT_GAME_CODE)
     set(TLA_GAME_TABLE_FILES ${TLA_GAME_SOURCES})
     list(FILTER TLA_GAME_TABLE_FILES INCLUDE REGEX "/(dispatch_table|expected|rom_identity)\\.cpp$")
@@ -311,6 +324,7 @@ endif()
 # gs_save_check: synthetic parser checks; optional read-only .sav inspection.
 add_executable(gs_save_check EXCLUDE_FROM_ALL tools/gs_save_check.cpp src/gs_save.cpp)
 
+if(NOT ANDROID)
 # tla_frame_check: draws a saved F12 frame (gpu_frame.bin, memory.bin) with
 # the console compositor and the graphics card, offline. Built on request:
 #   cmake --build build/tla --target tla_frame_check
@@ -334,6 +348,7 @@ target_include_directories(tla_frame_check PRIVATE
 target_include_directories(tla_frame_check PRIVATE ${SDL2_INCLUDE_DIR})
 find_package(OpenGL REQUIRED)
 target_link_libraries(tla_frame_check PRIVATE gbarecomp_gba ${SDL2_LIBRARY} OpenGL::GL)
+endif()
 
 if(EXISTS "${GSR_PLAYER_BUILDER_DIR}/builder_main.cpp")
     add_executable(tla_builder

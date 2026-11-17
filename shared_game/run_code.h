@@ -1,12 +1,11 @@
-// The run code, both games (Jimmy, 6 November 2026; docs/NEXT_PRIORITY_MODES.md
-// section 5): one eight-character code carries a randomizer run's seed and
-// its choices (Weapons, Armor, Items, Coins, Psynergy, Stats, Scaling,
-// Bargains, Fair Play), so a friend who types it at New Game
-// plays the same run. Difficulty and Challenge Mode are separate choices,
-// not in it. Weapons and Armor are the ticks; Stats says the pieces' stats
-// shuffle too. Fair Play is four choices, one per randomized thing (10
-// November 2026): Psynergy, Items, Coins, Shops. They took two bits from the
-// seed, so codes made before that day no longer read.
+// The run code, both games: one eight-character code carries a randomizer run's
+// seed and its choices (Weapons, Armor, Items, Coins, Psynergy, Stats,
+// Scaling, Bargains, Fair Play), so a friend who types it at New Game plays
+// the same run. Difficulty and Challenge Mode are separate choices, not in
+// it. Weapons and Armor are the ticks; Stats says the pieces' stats shuffle
+// too. Fair Play is four choices, one per randomized thing: Psynergy,
+// Items, Coins, Shops. Their bits come out of the seed's share of the code
+// (the layout below).
 //
 // 40 bits: seed (25, never 0), choices (12), check (3), mixed by a reversible
 // 40-bit scramble so neighbouring seeds give unrelated codes; eight symbols

@@ -1,4 +1,4 @@
-// host_window.h — minimal host window + input surface.
+// host_window.h: minimal host window + input surface.
 //
 // Soft-dependency on SDL2. When the build can find SDL2 the cpp
 // uses it; otherwise the same symbols compile as no-op stubs so
@@ -70,7 +70,7 @@ public:
     // `screen` is the per-game color model from [video].screen in game.toml
     // (raw|unlit|frontlit|backlit|classic), or nullptr for none. The
     // GBARECOMP_SCREEN env var, when set, overrides it.
-    // `linear_filter` selects linear (vs nearest) texture scaling — the
+    // `linear_filter` selects linear (vs nearest) texture scaling, the
     // launcher's "Linear filtering" toggle; default preserves the historical
     // nearest look.
     bool open(int scale = 3, int base_w = 240, int base_h = 160,
@@ -98,15 +98,15 @@ public:
     bool drawable_size(int* width, int* height) const;
 
     // Load player keybinds + system hotkeys from `dir` (the exe directory):
-    //   * keybinds.ini — [player1] section, SDL scancode names. Absent file
+    //   * keybinds.ini: [player1] section, SDL scancode names. Absent file
     //     => the built-in defaults: A=X B=Z L=C R=V Start=Return
     //     Select=RShift + arrow keys.
-    //   * config.ini [KeyMap] — hotkey bindings (SDL keycode names with
+    //   * config.ini [KeyMap]: hotkey bindings (SDL keycode names with
     //     Ctrl+/Alt+/Shift+ prefixes): Fullscreen, Pause, Turbo (Fast
     //     Forward hold in the UI), WindowBigger, WindowSmaller, VolumeUp,
     //     VolumeDown, DisplayPerf, Menu, TurboToggle (Fast Forward toggle),
     //     CheatMenu, AutoFireA, AutoFireB, QuitGame.
-    //   * config.ini [KeyMap.Pad] — the controller half of the same rows,
+    //   * config.ini [KeyMap.Pad]: the controller half of the same rows,
     //     same names, SDL game-controller button strings (mirrors
     //     keybinds.ini's [player1]/[player1_pad] split).
     // Never called => built-in defaults for both (all hotkeys unbound on
@@ -199,7 +199,7 @@ public:
         int      save_slot = 0;
         int      load_slot = 0;
         // True when Turbo should be active this pump. Speeds up the frame
-        // limiter — how much is `turbo_multiplier`, unless `turbo_uncapped`,
+        // limiter: how much is `turbo_multiplier`, unless `turbo_uncapped`,
         // in which case the limiter is switched off entirely (as fast as the
         // host allows; audio will not keep up). Both come from the config
         // menu's Fast Forward page and are meaningless while fast_forward is

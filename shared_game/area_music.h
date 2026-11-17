@@ -94,10 +94,11 @@ public:
         gbarecomp::game_options_update({}, prefixes);
     }
 
-    // The accepted header store precedes ALL target-specific initialisation.
-    // Both measured drivers still use R7 for voicegroup, tracks and reverb.
-    // Leave the stored header and R2 priority as requested: the game's
-    // StartOrContinue equality/priority checks must keep their original input.
+    // The accepted header store happens before ALL target-specific
+    // initialisation. Both measured drivers still use R7 for the voicegroup,
+    // tracks and reverb. The stored header and the R2 priority are left as
+    // the game requested them, because the game's StartOrContinue equality and
+    // priority checks must see their original input.
     void header_write(std::uint32_t pc, std::uint32_t address,
                       std::uint32_t source, std::uint32_t width) {
         if (pc != player_.header_store || address != player_.info || width != 4) return;

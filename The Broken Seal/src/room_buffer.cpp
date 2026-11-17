@@ -1,4 +1,3 @@
-// room_buffer.cpp — see room_buffer.h.
 
 #include "room_buffer.h"
 
@@ -81,8 +80,8 @@ Rect read_room_rect(const gba::GbaBus& bus) {
 // A rect is usable when it describes a real room.
 //
 // The origin need not be 0,0: requiring it blanked the whole margin in rooms
-// that break it (Goma Cave Entrance, session_20260905_210710: 3.7M samples
-// declined for "no room"). Accept any rect with real extent.
+// that break it (Goma Cave Entrance: 3.7M samples declined for "no room").
+// Any rect with real extent is accepted.
 //
 // Still excluded: the all-zero between-rooms marker, and the (0,1,8,256)
 // constant the world map parks here, both measured.
@@ -137,20 +136,20 @@ void note_rect(const Rect& r) {
 // The registers hold camera + region offset, wider than the hardware's 9 bits;
 // the part the hardware discards is the offset. Measured equivalent to reading
 // the offsets out of the writers' arguments (91.5/94.3/95.3% against
-// 90.7/93.9/95.3% over session_20260905_125143), and preferable for drawing:
+// 90.7/93.9/95.3% over one measured run), and preferable for drawing:
 // it is live, per layer, needs no observation to warm up, and cannot drift
 // from the registers the renderer is using on this very scanline. The
 // writer-argument capture in map_recorder.cpp is what established the layout
 // and stays as evidence.
 //
-// Measured in TILES (8px), not cells (16px). Goma Cave, session
-// 20260911_005648: the room is 496x464 -- a whole number of cells -- BG3 and
-// BG1 matched 99.32% and 99.81%, and BG2 refused every one of the 298 checked
-// frames with an offset of exactly 0,8 px. Half a cell. A whole-cell offset
-// cannot express that, so the layer declined all session and the margin fell
-// back to the hardware's wrapped ring. The atlas record already holds four 8px
-// tiles per cell, so tile granularity costs nothing and a whole-cell offset
-// still resolves to exactly the tiles it did before.
+// Measured in TILES (8px), not cells (16px). In Goma Cave the room is 496x464,
+// a whole number of cells. BG3 and BG1 matched 99.32% and 99.81%, but BG2
+// refused every one of the 298 checked frames: its offset is exactly 0,8 px,
+// half a cell. A whole-cell offset cannot express that, so the layer declined
+// every frame and the margin fell back to the hardware's wrapped ring. The
+// atlas record already holds four 8px tiles per cell, so tile granularity
+// costs nothing, and a whole-cell offset still resolves to exactly the same
+// tiles.
 //
 // Returns false if a register is mid-update and not a whole number of tiles,
 // rather than drawing a half-shifted row.
@@ -426,21 +425,17 @@ void note_camera_delta(std::int32_t dx, std::int32_t dy) {
 
 // ---- the buffer ---------------------------------------------------------
 //
-// There is deliberately no copy of the room here. The id grid in EWRAM is
-// already a flat 128x128 array covering the whole room, and the atlas beside
-// it is already a flat table; once the per-layer region offset is known, any
-// cell in the room is two array reads. Copying them into a host buffer would
-// add nothing except a second thing to keep in step with event edits — a
-// pillar moved by Move patches a handful of grid cells, and reading the grid
-// live picks that up for free.
+// Read the 128x128 cell grid and its atlas directly from EWRAM. Once we
+// know the layer offset, a cell takes two reads. This picks up live edits
+// such as a pillar moved with Move.
 //
 // So "the room buffer" is: the room rect, the three region offsets, and this
 // resolver. That makes a pixel beyond the native screen edge an ordinary
 // lookup.
 //
 // tile_x/tile_y are world tile (8 px) coordinates with the room's top-left at
-// 0,0. Returns false when the answer is not known — no room loaded, offsets
-// not yet observed, or outside the room — and the caller must then fall back
+// 0,0. Returns false when the answer is not known (no room loaded, offsets
+// not yet observed, or outside the room) and the caller must then fall back
 // to whatever it would have done anyway. Never guesses.
 bool entry_for_tile(const gba::GbaBus& bus, const std::uint8_t* io,
                     unsigned layer, std::int32_t tile_x, std::int32_t tile_y,
@@ -572,7 +567,7 @@ void check_layer(const gba::GbaBus& bus, const std::uint8_t* io, unsigned layer,
             // 12), which is why the match rate depended on which room and
             // where the player stood. Using the layer's own cell lifts BG2
             // from 66.9% to 93.9% and BG1 from 62.0% to 95.3% when re-run
-            // offline over session_20260905_125143.
+            // offline over a recorded run.
             bool cell_ok = true;
             for (unsigned row = 0; row < 2u; ++row) {
                 for (unsigned col = 0; col < 2u; ++col) {

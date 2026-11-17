@@ -1,4 +1,4 @@
-// runtime_bus_bridge.h — public surface for binding the active bus
+// runtime_bus_bridge.h: public surface for binding the active bus
 // to the recompiled-code runtime.
 
 #pragma once
@@ -73,14 +73,10 @@ bool has_frame_present_override_hook();
 void set_frame_present_shutdown_hook(std::function<void()> hook);
 void notify_frame_present_shutdown();
 
-// Savestate-load hook. Called once a savestate has fully applied (guest PC,
-// frame_count() and all other snapshot state already updated) — after every
-// do_savestate_load() success, regardless of trigger (hotkey, TCP debug
-// command, or the --load-state startup arg; see runtime.cpp's shared
-// do_savestate_load lambda). A load can move runtime_current_frame()
-// discontinuously (backward, or forward by however much guest time the save
-// itself recorded), which any observer treating frame numbers as elapsed-time
-// deltas within an open span must resynchronize against. Empty disables it.
+// Called after any successful savestate load, once the guest PC and frame
+// counter are restored. Frame numbers can jump in either direction. Reset
+// any observer that measures elapsed time from a previous frame. Empty
+// disables the hook.
 void set_savestate_load_hook(std::function<void()> hook);
 
 // Fires the hook installed by set_savestate_load_hook(), if any. Called from
@@ -93,14 +89,9 @@ void notify_savestate_loaded();
 // captured by the callback leave scope.
 void runtime_set_guest_step_boundary_hook(std::function<void()> hook);
 
-// Turbo render-skip gate. Called at most once per guest frame, exactly when
-// that frame's scanline counter wraps to 0 — i.e. BEFORE that frame's own
-// HBlank scanline rendering starts, with the newly-started frame's index.
-// Returning false skips that frame's PPU pixel work (scanline rendering and
-// widescreen margin rows) only; every guest-observable PPU effect (HBlank/
-// VBlank timing, DISPSTAT, VCOUNT, IRQs, HBlank/VBlank DMA, per-frame state
-// latches) still runs unconditionally every frame regardless of the return
-// value. Empty hook (default) always renders.
+// Runs at scanline 0 before the new frame's pixel work. Return false to
+// skip drawing that frame and its margins. PPU timing, status registers,
+// IRQs, DMA and per-frame latches still run. An empty hook always draws.
 void runtime_set_frame_render_gate_hook(
     std::function<bool(unsigned long long)> hook);
 

@@ -1,4 +1,4 @@
-// arm_decode.cpp — ARM-state decoder.
+// arm_decode.cpp: ARM-state decoder.
 //
 // Encodings with no decoder here fall through to `Undefined`.
 
@@ -33,7 +33,7 @@ void zero_instr(Instr& i, uint32_t word, uint32_t pc) {
 // 8-bit immediate rotated by 2 * rot4. Returns the value and the carry
 // produced by the rotation (1 if rotated > 0 and bit 31 of the result
 // set; 0 if rotated > 0 and bit 31 clear; 2 if rotation was 0, meaning
-// the shifter carry is unchanged from CPSR.C — the codegen must read
+// the shifter carry is unchanged from CPSR.C; the codegen must read
 // the current CPSR).
 struct ImmExpand {
     uint32_t value;
@@ -370,7 +370,7 @@ Instr ArmDecoder::decode(uint32_t word, uint32_t pc) {
         // PSR transfer: cond 00 I 10 P 0 1111 Rd ...  (S=22 distinguishes
         // CPSR vs SPSR). Detect by the dead "00x10x00" bit pattern across
         // bits 24..20 where the data-processing opcode would be TST/TEQ/
-        // CMP/CMN with S=0 — illegal for DP, used by MRS/MSR.
+        // CMP/CMN with S=0: illegal for DP, used by MRS/MSR.
         uint32_t opcode4 = bits(word, 24, 21);
         bool s_bit = bit(word, 20);
         if (!s_bit && (opcode4 == 0b1000 || opcode4 == 0b1010)) {

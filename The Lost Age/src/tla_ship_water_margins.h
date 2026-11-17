@@ -13,16 +13,16 @@
 // repeat in the margins. Other native rows contain local water details; those
 // keep the original map. The room source ends at the authored water strip.
 // Recognised by that content alone, not the map number: over every saved
-// capture it matches only the ship deck (local/scene-repeat-20261020/
-// FINDINGS.md). Unlike the haze it is not a whole-screen repeat, so the
-// shared repeating-layer rule does not cover it.
+// capture it matches only the ship deck. Unlike the haze it is not a
+// whole-screen repeat, so the shared repeating-layer rule does not cover it.
 //
 // The open sea elsewhere uses the same water (Atteka inlet, map 234, F12
 // 0137), where the room has islands and coast in the margins and the repeat
 // painted water over them. So the room's own BG3 across the whole expanded
 // view must hold nothing but water in the pattern's colours, see-through
-// tiles and one filler entry where its water ends (deck 0070: only 0x200, 160 cells; local water
-// details 0x33DC/0x33DD keep palette 3); 0137 has dozens of other entries.
+// tiles and one filler entry where its water ends (deck 0070: only 0x200,
+// 160 cells; local water details 0x33DC/0x33DD keep palette 3). Map 234
+// (0137) has dozens of other entries.
 // `ewram` (the 256 KB work RAM: id grid 0x02010000, atlas 0x02020000, as the
 // field profile) may be null: then the room is not consulted.
 inline bool tla_ship_water_margins(const gsr::FieldScene& scene,

@@ -124,8 +124,4 @@ inline std::string popup_game_names(std::string message, int game) {
     return message;
 }
 
-inline std::string build_games_message(int game, int language) {
-    return popup_game_names(collection_popup_text(language).build_question, game);
-}
-
 }  // namespace gsr_collection

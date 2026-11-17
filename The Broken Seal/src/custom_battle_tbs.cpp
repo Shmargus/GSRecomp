@@ -20,8 +20,7 @@
 namespace gsr::custom_battle::tbs {
 namespace {
 
-// Measured, verified ROM; FACTS.md "Custom Battle Mode" 2026-10-29 and
-// docs/features/CUSTOM_BATTLE_RESEARCH.md.
+// Measured, verified ROM; FACTS.md "Custom Battle Mode" 2026-10-29.
 //
 // The receptionist (room code overlay rom_7fb4a8 at 0x02008000; her handler
 // 0x02008B94 keeps text base 0x2930 in r6, literal 0x02008D48): text 0x2935
@@ -91,18 +90,13 @@ constexpr unsigned kFormationCount = 0x17Cu;
 // The save's Clear Data flag (seamless_mode.h), saved and loaded with the
 // 0x02000000 block.
 constexpr std::uint32_t kClearFlag = 0x0200044Fu;
-// The Bosses page: the Golden Sun Wiki's "Bosses in Golden Sun" list (Jimmy,
-// 29 Oct), matched by name and fight to these IDs: Mystery Woman/Man, Bandit
+// The Bosses page: the Golden Sun Wiki's "Bosses in Golden Sun" list,
+// matched by name and fight to these IDs: Mystery Woman/Man, Bandit
 // (Vault), Tret, Saturos (Mercury Lighthouse), Killer Ape, Hydros Statue,
 // Manticore, Kraken, Toadonpa, Storm Lizard, Tempest Lizard, Saturos and
 // Menardi (Venus Lighthouse), Fusion Dragon, Deadbeard.
 constexpr unsigned kBossIds[] = {0x7D, 0x7A, 0x1D, 0x93, 0x7B, 0x4E, 0x83, 0x59,
                                  0x79, 0x8D, 0x91, 0x92, 0x7C, 0x7E, 0x94, 0x95};
-
-unsigned rom_u8(Rom rom, std::uint32_t at) { return at < rom.size() ? rom[at] : 0u; }
-int rom_s16(Rom rom, std::uint32_t at) {
-    return static_cast<std::int16_t>(rom_u8(rom, at) | (rom_u8(rom, at + 1) << 8));
-}
 
 // Each room's earliest guide section (adventure_walkthrough_data.h).
 unsigned room_section(unsigned room) {

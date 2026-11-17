@@ -1,4 +1,4 @@
-// config.h — TOML config loader for gba_recompile.
+// config.h: TOML config loader for gba_recompile.
 //
 // One TOML file per binary, loaded via --config <path>. See
 // docs/TOML_SCHEMA.md for the format.
@@ -181,7 +181,7 @@ struct Config {
 // populates `out`. On parse/structural error returns false and
 // writes a human-readable diagnostic to stderr.
 //
-// Identity hash verification is NOT performed here — call
+// Identity hash verification is NOT performed here; call
 // verify_identity() against the actual binary bytes after loading.
 bool load_config(const std::string& path, Config& out);
 

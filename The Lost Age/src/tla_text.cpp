@@ -248,7 +248,8 @@ void tla_menu_paint_text(uint8_t* rgb, uint32_t width, uint32_t height,
 
 void TlaValueCaption::arm(uint32_t text_id, const char* word, bool selected) {
     const std::string label = tla_menu_label(word);
-    text = selected ? std::string("< ") + label + " >" : label;
+    text = selected ? gsr::instant_text::kArrowLeft + label + gsr::instant_text::kArrowRight
+                    : label;
     id = text_id;
     armed = true;
 }

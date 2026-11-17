@@ -7,9 +7,12 @@
 // The revisions are src/tla_rom_revisions.inc, the counterparts
 // src/tla_rom_addresses.inc; the lookups are the engine's (rom_revision.h).
 namespace tla_rom {
-// In the row order of src/tla_rom_revisions.inc.
+// The language the loaded ROM plays as, in the row order of
+// src/tla_rom_revisions.inc. A patched revision (Reloaded) reports the
+// language it is a patch of; reloaded() tells it apart.
 enum class Version : std::uint8_t { English, Spanish, Italian, French, German };
 Version version();
+bool reloaded();
 const char* sha1();
 const char* name();
 bool spanish();

@@ -1,4 +1,4 @@
-// asset_picker.h — Resolve user-supplied assets (BIOS, ROM, save) by
+// asset_picker.h: Resolve user-supplied assets (BIOS, ROM, save) by
 // CLI path -> sidecar cache -> OS file dialog (Win32 only), validating
 // each with size + SHA-1 + CRC32. Hashes are WARN-and-try so the user
 // can boot with a region/revision we haven't catalogued yet, but a

@@ -1,4 +1,4 @@
-// temporal_blend.h — VFX-FLICKER-02/03: optional temporal blend ("LCD
+// temporal_blend.h: VFX-FLICKER-02/03: optional temporal blend ("LCD
 // ghosting") of the final presented RGB888 frame, whole-frame or flicker-only.
 //
 // Real GBA hardware's LCD has a slow pixel response, so two frames drawn in
@@ -23,36 +23,25 @@
 
 namespace gbarecomp {
 
-// Combo values, shared by host_config_ui.cpp (draws the "Flicker reduction"
-// combo) and host_window.cpp (applies the weight at present time).
-// Index -> weight is the PREVIOUS presented frame's contribution to the
-// blended output. 0 = Off (the caller must skip blending entirely — this
-// module makes no attempt at a zero-weight fast path, see
-// temporal_blend_apply below). 3 = Strong is an exact 50/50 average, which
-// fully stabilizes content the game alternates on an exact 2-frame period.
-// Light/Medium are lighter approximations of the same LCD-ghosting effect
-// for content that isn't an exact 2-frame alternation and would look
-// smeary at a full 50/50 blend.
+// The Flicker reduction setting selects the previous frame's weight.
+// Off bypasses the blend. Strong averages the two frames equally, which
+// stabilizes a two-frame flicker. Light and Medium leave more of the
+// current frame so ordinary movement smears less.
 inline constexpr int kTemporalBlendLevelCount = 4;  // Off/Light/Medium/Strong
 inline constexpr float kTemporalBlendWeights[kTemporalBlendLevelCount] = {
-    0.0f,    // Off — never actually applied; caller passes through instead.
+    0.0f,    // Off: never actually applied; caller passes through instead.
     0.175f,  // Light  (~17.5% previous-frame contribution)
     0.325f,  // Medium (~32.5% previous-frame contribution)
-    0.5f,    // Strong — exact 50/50, matches an exact 2-frame alternation.
+    0.5f,    // Strong: exact 50/50, matches an exact 2-frame alternation.
 };
 
 // Blends `current` (an RGB888 buffer, `byte_count` bytes) with `prev` (the
 // same length) into `out`, using `weight` as the previous frame's
 // contribution: out[i] = round(current[i] * (1 - weight) + prev[i] * weight).
 //
-// `out` must not alias `current` or `prev` (the caller owns three distinct
-// buffers — see host_window.cpp's Backend::temporal_blend_out /
-// temporal_blend_prev). Callers are expected to skip calling this entirely
-// when weight == 0 (Off) or when there is no previous frame yet; this
-// function does not special-case either — it always performs the blend
-// arithmetic on whatever it is given, so an all-zero `prev` from a caller
-// that ignored the "no previous frame yet" rule would visibly darken frame 1
-// instead of passing it through untouched.
+// `out`, `current` and `prev` must be separate buffers. Skip blending when
+// Off or before the first real previous frame. A zeroed `prev` darkens
+// the first frame.
 inline void temporal_blend_apply(const uint8_t* current, const uint8_t* prev,
                                   uint8_t* out, std::size_t byte_count,
                                   float weight) {
@@ -64,30 +53,20 @@ inline void temporal_blend_apply(const uint8_t* current, const uint8_t* prev,
     }
 }
 
-// VFX-FLICKER-03: selective flicker filter. The whole-frame blend above
-// smears ordinary motion along with the alternating content it was meant to
-// fix. This variant only blends a pixel that is alternating on an exact
-// 2-frame period — the same trick the Kolima barrier and world map
-// translucency use — and passes every other pixel through untouched, so
-// normal movement stays sharp.
+// Blend pixels that alternate on a two-frame cycle, as in the Kolima
+// barrier and world-map translucency. Everything else stays sharp.
 //
-// `current` (frame N), `prev` (frame N-1) and `prev2` (frame N-2) must all
-// be the same length (`byte_count`, a multiple of 3 for RGB888). Comparison
-// is PER PIXEL — all 3 channels of a pixel together, never per byte: a
-// per-byte compare would treat a pixel where only one channel happens to
-// match frame N-2 as flicker, even though the pixel as a whole is not part
-// of any 2-frame alternation (ordinary motion can produce that by
-// coincidence).
+// All three frames are RGB888 and have the same `byte_count`, a multiple
+// of 3. Compare whole pixels. A match in one channel can be ordinary
+// motion.
 //
 // Per pixel: if it matches frame N-2 exactly AND differs from frame N-1, it
 // is alternating on an exact 2-frame period, so blend it with `prev` at
 // `weight` (same meaning as temporal_blend_apply's weight). Otherwise
 // (static pixels and moving pixels both) copy `current` through unchanged.
 //
-// `out` must not alias `current`, `prev`, or `prev2`. Callers must not call
-// this until both `prev` and `prev2` hold real previous PRESENTED frames —
-// see host_window.cpp's present(), which passes frames 1 and 2 through
-// untouched instead (no prev2 yet to compare against).
+// `out` must be separate from all inputs. Pass the first two presented
+// frames through because there is no N-2 frame yet.
 inline void temporal_blend_apply_selective(const uint8_t* current,
                                             const uint8_t* prev,
                                             const uint8_t* prev2, uint8_t* out,
@@ -122,14 +101,14 @@ inline void temporal_blend_apply_selective(const uint8_t* current,
 
 // Item indices for the TemporalBlend setting, all sharing the four weights above:
 //   0     = Off
-//   1..3  = Flicker only (selective) — Light/Medium/Strong
-//   4..6  = Whole frame              — Light/Medium/Strong
+//   1..3  = Flicker only (selective), Light/Medium/Strong
+//   4..6  = Whole frame, Light/Medium/Strong
 // Flicker-only indexes kTemporalBlendWeights directly; whole-frame subtracts
 // 3 first to land on the same four weights. The F1 combo offers only 0..3;
 // the whole-frame values are still accepted from an older settings file.
 inline constexpr int kTemporalBlendItemCount = 7;
 
-// Default is "Flicker only — Strong": an exact 50/50 blend is what fully
+// Default is "Flicker only, Strong": an exact 50/50 blend is what fully
 // stabilizes a true 2-frame alternation, and selective mode (unlike a
 // whole-frame blend) leaves ordinary motion untouched.
 inline constexpr int kTemporalBlendDefaultIndex = 3;
@@ -139,7 +118,7 @@ inline constexpr bool temporal_blend_index_is_selective(int index) {
 }
 
 // Weight for a combo index; 0.0f (a no-op weight) for Off or any
-// out-of-range index — callers are expected to skip blending on Off the
+// out-of-range index: callers are expected to skip blending on Off the
 // same way they do for temporal_blend_apply, see kTemporalBlendWeights above.
 inline constexpr float temporal_blend_weight_for_index(int index) {
     return (index >= 1 && index <= 3)   ? kTemporalBlendWeights[index]

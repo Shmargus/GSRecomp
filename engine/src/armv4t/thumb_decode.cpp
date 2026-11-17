@@ -1,4 +1,4 @@
-// thumb_decode.cpp — THUMB-state decoder.
+// thumb_decode.cpp: THUMB-state decoder.
 //
 // Like the ARM decoder, the layout is reference-implementation style:
 // one function per THUMB format.
@@ -106,7 +106,7 @@ Instr ThumbDecoder::fmt3_alu_imm(uint16_t hw, uint32_t pc) {
 // THUMB Format-4 has 16 ALU op codes. Most are straight ARM data-
 // processing ops where the second operand is Rs. The four shift-by-
 // register variants (LSL/LSR/ASR/ROR) are special: they encode as
-// "Rd = Rd <SHIFT> Rs[7:0]" — the shift TYPE is the op, the COUNT
+// "Rd = Rd <SHIFT> Rs[7:0]"; the shift TYPE is the op, the COUNT
 // is in Rs. In ARM-IR terms they map to `MOVS Rd, Rd <SHIFT> Rs`,
 // with the shift type selected by op and `by_register = true` so
 // the shifter pulls the count from Rs[7:0] at execute time.
@@ -134,7 +134,7 @@ Instr ThumbDecoder::fmt4_alu_reg(uint16_t hw, uint32_t pc) {
         return i;
     }
     // NEG Rd, Rs (op 9): Rd = -Rs. ARM equivalent is
-    // `RSB Rd, Rs, #0` — Rn = Rs (subtraction source), Op2 = 0
+    // `RSB Rd, Rs, #0`: Rn = Rs (subtraction source), Op2 = 0
     // (immediate). The default "Rn = Rd, Op2 = Rs" path would compute
     // Rs - Rd instead (NEG R0,R0 with R0=0x7E would give 0, not
     // 0xFFFFFF82).
@@ -442,7 +442,7 @@ Instr ThumbDecoder::fmt18_uncond_branch(uint16_t hw, uint32_t pc) {
 //                PC  = target
 //
 // We keep the two halves as distinct IR records so the interpreter
-// can run them sequentially in a single fetch/decode/step loop —
+// can run them sequentially in a single fetch/decode/step loop;
 // no special pairing required by the decoder.
 //
 // `branch_target` on the upper half is the *partial* target (so a
@@ -473,7 +473,7 @@ Instr ThumbDecoder::decode(uint16_t hw, uint32_t pc) {
     uint32_t top3 = static_cast<uint32_t>(hw) >> 13;
     switch (top3) {
         case 0b000: {
-            // 000xx ... — shift by imm OR add/sub
+            // 000xx ...: shift by imm OR add/sub
             if (bits(hw, 12, 11) == 0b11) return fmt2_add_sub(hw, pc);
             return fmt1_shift_imm(hw, pc);
         }

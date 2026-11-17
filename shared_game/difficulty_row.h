@@ -1,8 +1,6 @@
-// The settings screen's Difficulty row, one copy of the rules for both
-// runners (Jimmy, 11 November 2026). It is the game's own Auto-Sleep row (each
-// game's hard mode file), cycling Normal, Scaled, Hard, Hard Scaled: Hard
-// is each game's Hard Mode byte, Scaled the run's Scaled flag
-// (random_psynergy_format.h), the same two choices New Game makes.
+// Both games reuse the Auto-Sleep row for Normal, Scaled, Hard and Hard
+// Scaled. Hard sets the game's Hard Mode byte. Scaled sets the run's
+// Scaled flag (random_psynergy_format.h).
 //
 // The game's row holds two values. Left takes one off and Right adds one,
 // wrapping, and either redraws the row (TBS 0x0801D800..0x0801D83E, TLA

@@ -71,7 +71,6 @@ int encounter_literal(uint32_t pc, uint32_t original, uint32_t* out_value) {
 }  // namespace
 
 int tla_encounter_rate() { return g_rate; }
-int tla_encounter_rate_count() { return kCount; }
 
 void tla_set_encounter_rate(int rate) {
     if (rate < 0 || rate >= kCount) return;

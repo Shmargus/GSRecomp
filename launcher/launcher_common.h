@@ -50,12 +50,13 @@ inline std::string read_text(const fs::path& path) {
 }
 
 // Whether `path` is a supported ROM (with `language` >= 0, only that one of
-// game.rom_sha1s), or with the launcher's "Skip the ROM check" on, any
-// readable file. The error text is for the player.
+// game.rom_sha1s, or with `same_language` any revision playing as the same
+// language: clean USA/Europe or Reloaded), or with the launcher's "Skip the
+// ROM check" on, any readable file. The error text is for the player.
 inline bool validate_rom(const fs::path& path, std::string* error,
                          const GameIdentity& game = session_game(),
                          bool any_rom = gbarecomp::any_rom_allowed(),
-                         int language = -1) {
+                         int language = -1, bool same_language = false) {
     std::error_code ec;
     if (!fs::is_regular_file(path, ec)) {
         *error = "That file could not be opened.";
@@ -79,9 +80,9 @@ inline bool validate_rom(const fs::path& path, std::string* error,
         *error += "\n\nFound SHA-1:\n" + actual;
         return false;
     }
-    if (language >= 0 && actual != game.rom_sha1s[language]) {
-        int found = 0;
-        while (actual != game.rom_sha1s[found]) ++found;  // accepts_rom checked above
+    const int found = rom_revision_of(game, actual);  // accepts_rom checked above
+    if (language >= 0 && found != language &&
+        (!same_language || rom_language_row(game, found) != rom_language_row(game, language))) {
         *error = std::string("That is the ") + game.rom_names[found] + " ROM, but the flag under " +
                  game.title + " is set to " + game.rom_names[language] +
                  ".\n\nClick the flag to switch, or choose the " + game.rom_names[language] + " ROM.";
@@ -92,7 +93,7 @@ inline bool validate_rom(const fs::path& path, std::string* error,
 
 // Replaces each needle with its replacement, matching case-insensitively,
 // and only the whole folder name: it must be followed by the end of the text
-// or one of \ / " ' space CR LF ("Jim" must not match "Jimmy").
+// or one of \ / " ' space CR LF ("Al" must not match "Alex").
 inline std::string scrub_paths(
     std::string text,
     const std::vector<std::pair<std::string, std::string>>& swaps) {
@@ -297,14 +298,10 @@ inline StagedReport stage_bug_report(const ReportSources& sources, std::string i
     return staged;
 }
 
-// What the game code in a release is built from: its release version, then
-// one "path sha1" line per file: the engine, the builder, the translator and everything in
-// builder/data and builder/engine. Written beside the game library after a
-// build (GoldenSunGame.release.txt); any difference, such as a new release
-// unzipped over an old one, means building again. The engine check in
-// game_code_ready already caught a new engine; this also catches a release
-// that changes only the builder, the translator or its data. The toolchain is
-// left out: it is large, and it only changes together with the builder.
+// Fingerprint the release version and hash each engine, builder, translator,
+// builder/data and builder/engine file. Save it beside the game library as
+// GoldenSunGame.release.txt. A mismatch makes the installed build stale.
+// Toolchain changes ship with a different builder.
 inline std::string release_fingerprint(const fs::path& root,
                                        const GameIdentity& game = session_game()) {
     std::vector<fs::path> files = {root / game.executable};

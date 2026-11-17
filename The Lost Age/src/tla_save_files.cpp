@@ -92,9 +92,8 @@ sf::Entry extension_entry(int file) {
 }
 
 // Challenge Mode's bytes are RAM 0x02000028 (src/tla_new_game.cpp), so
-// payload +0x28, group +0x38. On the cartridge a file is the group whose
-// first sector carries its slot; the newest generation (+0xA) wins, as the
-// save layer's own table keeps it.
+// payload +0x28, group +0x38. On the cartridge a file is the newest group
+// that names it (sf::newest_record).
 constexpr std::size_t kChallengeOffset = sf::kRecordHeader + 0x28;
 bool challenge_file(int file) {
     if (file >= sf::kRows) {
@@ -102,21 +101,9 @@ bool challenge_file(int file) {
         return sf::valid(r, kRecordBytes - sf::kRecordHeader) &&
                tla_challenge_bytes(r + kChallengeOffset);
     }
-    gba::GbaBus* b = sf::bus();
-    if (!b || !b->save().flash_enabled()) return false;
-    const std::vector<std::uint8_t> flash = b->save().flash_bytes();
-    const std::uint8_t* bytes = nullptr;
-    int best = -1;
-    for (std::size_t s = 0; s + kRecordBytes <= flash.size(); s += kRecordBytes) {
-        const std::uint8_t* group = flash.data() + s;
-        if (!sf::present(group) || group[7] != file) continue;
-        const int generation = group[0xA] | (group[0xB] << 8);
-        if (generation > best) {
-            best = generation;
-            bytes = group + kChallengeOffset;
-        }
-    }
-    return tla_challenge_bytes(bytes);
+    const std::vector<std::uint8_t> flash = sf::cartridge_flash();
+    const std::uint8_t* group = sf::newest_record(flash, file, kRecordBytes);
+    return group && tla_challenge_bytes(group + kChallengeOffset);
 }
 
 // 0x080432A4's flags over nine files.

@@ -1,5 +1,6 @@
-// Random Equipment (first Random Weapons), The Broken Seal's places (rules: shared_game/
-// random_weapons.h and random_weapons_plan.h, one copy with The Lost Age).
+// Random Equipment (first Random Weapons), The Broken Seal's places (rules:
+// shared_game/random_weapons.h and random_weapons_plan.h, one copy with The
+// Lost Age).
 //
 // Measured, verified ROMs (FACTS.md "Random Weapons", 5 November 2026):
 // - Item records 0x0807B6A8 + id * 0x2C, ids 0..268 (269 and up are enemy text);

@@ -93,11 +93,12 @@ inline bool tla_same_weather(const std::vector<gsr::SceneObject>& a,
 }
 
 // Apojii's rain and Prox's snow are screen-space sprite layouts
-// (0093/0097/0098, 0161..0163).
-// Continue it at its original density and animation phase. Rainbow Water
-// is attached to the stream: repeating its sprites across the screen puts
-// copies on unrelated ground and sea (0094/0095). Keep its real placements.
-// `replay` null (or no menu holding the weather) repeats the live sprites.
+// (0093/0097/0098, 0161..0163). This continues such a layer into the margins
+// at its original density and animation phase. Rainbow Water is attached to
+// the stream, so repeating its sprites across the screen would put copies on
+// unrelated ground and sea (0094/0095); its real placements are kept.
+// If `replay` is null (or no menu is holding the weather), the live sprites
+// are repeated.
 inline void tla_weather_sprite_margins(gsr::FieldScene& scene,
                                        gsr::SceneMargins& margins,
                                        const std::vector<std::uint8_t>& vram,

@@ -1,4 +1,4 @@
-// condition_codes.h — ARMv4T condition codes.
+// condition_codes.h: ARMv4T condition codes.
 //
 // CPSR holds the N, Z, C, V flags in bits 31..28. Every ARM instruction
 // carries a 4-bit condition field in bits 31..28 of the instruction word
@@ -29,7 +29,7 @@ enum class Cond : uint8_t {
     GT = 0xC,  // Z clear and N == V     : signed >
     LE = 0xD,  // Z set or N != V        : signed ≤
     AL = 0xE,  // always
-    NV = 0xF,  // (never; reserved on ARMv4T — undefined / used for
+    NV = 0xF,  // (never; reserved on ARMv4T: undefined / used for
                //  unconditional space on ARMv5+)
 };
 

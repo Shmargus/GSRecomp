@@ -1,4 +1,4 @@
-// relocatable_image_test.cpp — position-independent RAM code images.
+// relocatable_image_test.cpp: position-independent RAM code images.
 //
 // A game that DMA-copies a ROM routine into a working area executes it at
 // whatever base its allocator hands out. `gba_recompile --relocatable-image`
@@ -15,7 +15,7 @@
 // OVER-rewriting: an immediate, a memory offset or a shift count wrongly
 // treated as an address would fold to a different constant.
 //
-// The other direction — an address the emitter MISSED, left as a literal —
+// The other direction (an address the emitter MISSED, left as a literal)
 // survives that comparison (a missed literal equals itself), so it is caught
 // separately: a relocatable body must contain no `0x........u` literal equal
 // to any guest address in or adjacent to the image extent.

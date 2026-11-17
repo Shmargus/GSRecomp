@@ -1,5 +1,5 @@
-// TBS native world-map routes. Evidence: FACTS "Retreat visited-town list"
-// and local/retreat-travel-20261102; these are entry aliases, NOT actor IDs.
+// TBS native world-map routes. Evidence: FACTS "Retreat visited-town list";
+// these are entry aliases, NOT actor IDs.
 #pragma once
 #include "../../shared_game/retreat_travel.h"
 #include "rom_version.h"

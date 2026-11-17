@@ -1,8 +1,8 @@
-// runtime_arm_types.h — POD types + bit/constant macros shared by the
+// runtime_arm_types.h: POD types + bit/constant macros shared by the
 // recompiler ABI surface (runtime_arm.h) AND the Stage-2 self-healing
 // overlay shim (src/runtime/overlay_runtime_arm.h, overlay_abi.h).
 //
-// This header carries ONLY plain types and #defines — NO `extern g_cpu`,
+// This header carries ONLY plain types and #defines; NO `extern g_cpu`,
 // NO function declarations, NO inline functions. That separation is what
 // lets the overlay shim `#define g_cpu (*g_ovl->cpu)` and provide its own
 // thunks without colliding with runtime_arm.h's real declarations.
@@ -10,7 +10,7 @@
 // ArmCpuState's layout is a hard cross-module contract: a runtime-compiled
 // overlay DLL reads/writes the host exe's `g_cpu` through a pointer in the
 // callbacks struct, so both sides MUST agree on this struct byte-for-byte.
-// Keeping it here (single source of truth) is deliberate — never duplicate it.
+// This is its one definition; never duplicate it.
 
 #pragma once
 
@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-// Bank indexes match armv4t::BankedSlot — User=0, FIQ=1, IRQ=2,
+// Bank indexes match armv4t::BankedSlot: User=0, FIQ=1, IRQ=2,
 // Supervisor=3, Abort=4, Undefined=5.
 // A guest transfer that never comes back to the emitting function (B, a
 // computed jump, a fall-through). `call` is a void call expression. GCC 15+

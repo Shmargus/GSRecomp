@@ -1,4 +1,3 @@
-// gba_ppu.cpp — see gba_ppu.h.
 
 #include "gba_ppu.h"
 
@@ -601,7 +600,7 @@ void render_scanline_internal(uint8_t* rgb,
     // = color-special-effect enable) chosen by region, priority WIN0 > WIN1 >
     // OBJ-window > outside. WIN0/WIN1 are COORDINATE windows: WINnH gives
     // [X1,X2), WINnV gives [Y1,Y2). The per-scanline WIN0H the game rewrites
-    // each line is what carves the circular IRIS used by room transitions — it
+    // each line is what carves the circular IRIS used by room transitions; it
     // blanks everything outside the circle to the backdrop, hiding the room's
     // VRAM/palette reload (MC-HP-003). With no window enabled, every layer is on.
     const bool win0_en   = (dispcnt & 0x2000u) != 0;
@@ -610,7 +609,8 @@ void render_scanline_internal(uint8_t* rgb,
     const bool any_window = win0_en || win1_en || objwin_en;
     uint16_t winin  = static_cast<uint16_t>(io[0x48] | (io[0x49] << 8));
     uint16_t winout = static_cast<uint16_t>(io[0x4A] | (io[0x4B] << 8));
-    // y within WINnV [Y1,Y2)? GBATEK: Y2>height or Y1>Y2 → Y2=height.
+    // Is y within WINnV [Y1,Y2)? Per GBATEK, if Y2 is past the screen height
+    // or Y1 > Y2, Y2 is treated as the screen height.
     auto win_v_row = [&](uint32_t vreg) -> bool {
         uint32_t v  = static_cast<uint32_t>(io[vreg] | (io[vreg + 1] << 8));
         uint32_t y1 = (v >> 8) & 0xFFu, y2 = v & 0xFFu;
@@ -1031,8 +1031,8 @@ void render_scanline_internal(uint8_t* rgb,
         // Alpha blend top (1st target) with the layer below (2nd target). Per
         // GBATEK this occurs when effect==1 OR top is a semi-transparent OBJ
         // (mode 1 forces alpha regardless of BLDCNT). NOT gated on EVA!=0:
-        // EVA=0/EVB=16 is a valid blend (1st target fully fades into the 2nd) —
-        // the Oak-intro character fade endpoint that previously snapped back to
+        // EVA=0/EVB=16 is a valid blend (1st target fully fades into the 2nd):
+        // the Oak-intro character fade endpoint, which must not snap back to
         // opaque, leaving body/feet (BG2 + semi-transparent OBJ) out of sync.
         if ((effect == 1 || (top[x].layer == 4 && top[x].semi)) &&
             top[x].target1 && second[x].valid && second[x].target2 &&
@@ -1064,7 +1064,7 @@ void render_scanline_internal(uint8_t* rgb,
 // render_scanline_internal above, so OFF-mode stays byte-identical by construc-
 // tion. For central hx in [0,240) the per-pixel logic is the same as vanilla;
 // margin columns extend the BG scroll / affine extrapolation / OBJ sampling into
-// the surrounding map. WIN0/WIN1 register tests are NOT widened — a margin hx
+// the surrounding map. WIN0/WIN1 register tests are NOT widened; a margin hx
 // falls outside [X1,X2) so it naturally resolves to WINOUT (the conservative
 // policy for columns the game never authored). OAM X keeps its 9-bit signed
 // decode and is tested against the expanded viewport, so wrapped-negative sprites
@@ -1365,13 +1365,12 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
     }
     auto window_control = [&](uint32_t x) -> uint16_t {
         int hx = logical_x(x);
-        // A margin clamp used to live here, answering margin columns with
-        // the nearest native column's window control. It was meant to stop
-        // WINOUT enabling text layers beside the world; instead it switched
-        // the background layers OFF across the whole margin, because the
-        // edge column is often outside the game's window rectangle. Removed
-        // 2026-09-05 -- it cost far more than the stray tiles it fixed, and
-        // those need a different answer.
+        // Margin columns are not clamped to the nearest native column's
+        // window control. Such a clamp meant to stop WINOUT enabling text
+        // layers beside the world, but it switched the background layers OFF
+        // across the whole margin, because the edge column is often outside
+        // the game's window rectangle. It cost far more than the stray tiles
+        // it hid (dropped 2026-09-05), and those need a different answer.
         if (g_ws_tilemap_provider &&
             (hx < 0 || hx >= static_cast<int>(kVanW))) {
             // Minish's room provider treats expanded columns as lying outside
@@ -1638,9 +1637,8 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
             // provider reports Unavailable for an ordinary field scene, and
             // the `continue` below then dropped every margin pixel the room
             // buffer had just supplied. That is why margins stayed black in
-            // sessions whose own counters reported tens of millions of
-            // entries supplied (session_20260905_233225: 91.5M supplied,
-            // margins black).
+            // runs whose own counters reported tens of millions of entries
+            // supplied (one run: 91.5M supplied, margins black).
             if (outside_native && !field_source_answered && !remapped) {
                 if (g_ws_tilemap_provider) {
                     uint16_t ext;
@@ -2031,14 +2029,13 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
                 }
             }
             // Confined to the authentic window, so it cannot appear in the
-            // margins. Until 2026-09-17 this was every OBJ the game could not
-            // authenticate, which kept battle enemies, spell effects and the
-            // world map's towns and caves out of the widened view entirely --
-            // the "objects cull too early" report. What actually has to be
-            // held back is far narrower: a game that parks its unused sprites
+            // margins. Confining every OBJ the game could not authenticate would
+            // keep battle enemies, spell effects and the world map's towns
+            // and caves out of the widened view entirely, so only a narrow
+            // set is held back: a game that parks its unused sprites
             // off-screen instead of disabling them, whose park position falls
             // inside the new margins. `g_ws_obj_park_provider` lets the game
-            // name exactly those slots, and everything else now draws where it
+            // name exactly those slots, and everything else draws where it
             // really is. An OBJ with no park provider at all is never confined.
             const bool obj_parked =
                 g_ws_obj_park_provider &&
@@ -2210,7 +2207,7 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
         // that when a menu opens: every native pixel has a real layer on top
         // and is unaffected, while the margin's backdrop pixels darken. The
         // result is the extra area dimming on its own while the middle of the
-        // screen stays bright (user-reported 2026-09-11). Reconstructed margin
+        // screen stays bright (reported 2026-09-11). Reconstructed margin
         // layers are still ordinary blend targets and still fade with a real
         // whole-screen fade; only "nothing was drawn here" is exempt.
         if (x_margin && top[x].layer == 5) {
@@ -2221,8 +2218,8 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
         // Alpha blend top (1st target) with the layer below (2nd target). Per
         // GBATEK this occurs when effect==1 OR top is a semi-transparent OBJ
         // (mode 1 forces alpha regardless of BLDCNT). NOT gated on EVA!=0:
-        // EVA=0/EVB=16 is a valid blend (1st target fully fades into the 2nd) —
-        // the Oak-intro character fade endpoint that previously snapped back to
+        // EVA=0/EVB=16 is a valid blend (1st target fully fades into the 2nd):
+        // the Oak-intro character fade endpoint, which must not snap back to
         // opaque, leaving body/feet (BG2 + semi-transparent OBJ) out of sync.
         if ((effect == 1 || (top[x].layer == 4 && top[x].semi)) &&
             top[x].target1 && second[x].valid && second[x].target2 &&
@@ -2273,7 +2270,7 @@ void GbaPpu::render(uint8_t* rgb,
         }
     } timer{t0};
     if (!view_expanded()) {
-        // Faithful path — literally unchanged from before view expansion existed.
+        // Faithful path: literally unchanged from before view expansion existed.
         for (uint32_t y = 0; y < kScreenHeight; ++y) {
             const int32_t* refs = affine_line_ref_valid_[y]
                 ? &affine_line_ref_[y][0][0] : nullptr;
@@ -2450,9 +2447,9 @@ void GbaPpu::render_scanline(uint32_t y,
                              const uint8_t* vram,
                              const uint8_t* oam,
                              const uint8_t* pal) {
-    // This, not render(), is the entry the headless/run loop uses — one call
-    // per scanline. Count scanlines; the caller divides by kScreenHeight to get
-    // a per-frame figure.
+    // This, not render(), is the entry the headless/run loop uses: it is
+    // called once per scanline. Count scanlines; the caller divides by
+    // kScreenHeight to get a per-frame figure.
     struct ScanTimer {
         std::chrono::steady_clock::time_point t0 =
             std::chrono::steady_clock::now();
@@ -2664,12 +2661,11 @@ void GbaPpu::dump_row_state(uint16_t dispcnt) {
             std::fclose(f);
         }
     }
-    // One full-row block per distinct screen, capped.
-    // BG2PA is deliberately NOT part of this: the camera push-in steps it a
-    // little every frame, so including it spent all 16 blocks on the first 18
-    // frames of the battle and never reached the screens worth looking at
-    // (session_20260912_103331). A screen is the display mode, the layer
-    // controls and the window band.
+    // One full-row block per distinct screen, up to a cap. A screen is the
+    // display mode, the layer controls and the window band. BG2PA is
+    // deliberately NOT part of it: the camera push-in steps BG2PA a little
+    // every frame, so including it spent all 16 blocks on the first 18 frames
+    // of the battle and never reached the screens worth looking at.
     const unsigned long long signature =
         (static_cast<unsigned long long>(u16_at(row0, 0x00)) << 48) ^
         (static_cast<unsigned long long>(u16_at(row0, 0x0A)) << 32) ^

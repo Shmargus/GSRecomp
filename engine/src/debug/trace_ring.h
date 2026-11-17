@@ -1,4 +1,4 @@
-// trace_ring.h — STUB. Always-on event ring buffer.
+// trace_ring.h: STUB. Always-on event ring buffer.
 //
 // Per RULE 0b in DEBUG.md: this ring records continuously from process
 // start. Probes query for a window of interest; they NEVER arm a trace

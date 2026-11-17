@@ -100,7 +100,7 @@ const EffectCaptureProfile& effect_capture_profile() {
         p.add_template = GS_ROM(0x080EDC88u);
         p.add_reverse_template = GS_ROM(0x080EDCA0u);
         // Func_ed408 mode 1: copy each non-zero source byte (stamp variant
-        // 13, flags 3 mode 1, measured 2026-09-23; session_20260923_124739).
+        // 13, flags 3 mode 1, measured 2026-09-23).
         p.replace_template = GS_ROM(0x080EDB00u);
         p.replace_reverse_template = GS_ROM(0x080EDB10u);
         return p;

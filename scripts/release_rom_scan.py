@@ -13,13 +13,18 @@ copied run of 47 bytes or more is seen) appear anywhere in a file. Windows
 with fewer than 8 different byte values (padding, fills, simple tables) are
 left out: they say nothing about where bytes came from. --skip names folders
 left unscanned: the unmodified third-party compilers the release ships.
+A zip or APK is read through: each file inside it is scanned as it is after
+unpacking, and so is a zip inside that (the Android app's payload); --skip
+applies to the folders inside as well.
 Nothing is written; the ROMs are only read.
 """
 
 from __future__ import annotations
 
 import argparse
+import io
 import sys
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +33,7 @@ WINDOW = 32         # bytes compared per window
 ROM_STEP = 16       # ROM windows start every ROM_STEP bytes
 MIN_DISTINCT = 8    # windows with fewer different byte values are skipped
 CHUNK = 16 << 20    # file bytes hashed at a time
+FILTER_BITS = 24    # RomIndex.filter: one flag per value of a hash's top bits
 
 _MIX = np.array([0x9E3779B97F4A7C15, 0xC2B2AE3D27D4EB4F,
                  0x165667B19E3779F9, 0x27D4EB2F165667C5], dtype=np.uint64)
@@ -76,13 +82,26 @@ class RomIndex:
         order = np.argsort(hashes[keep], kind="stable")
         self.hashes = hashes[keep][order]
         self.offsets = offsets[keep][order]
+        # Use the high bits as a quick filter. If a prefix occurs in the ROM hash
+        # list, check the full hash in the sorted list. On 16 November 2026,
+        # np.isin re-sorted the ROM list for each file and took 306 s on a 112 MB
+        # release.
+        self.filter = np.zeros(1 << FILTER_BITS, dtype=bool)
+        self.filter[(self.hashes >> np.uint64(64 - FILTER_BITS)).astype(np.intp)] = True
 
-    def matches(self, data: np.ndarray, base: int):
-        """(file offset, ROM offset) of every verified window match."""
-        hashes = window_hashes(data)
-        hits = np.nonzero(np.isin(hashes, self.hashes))[0]
-        for i in hits:
-            at = np.searchsorted(self.hashes, hashes[i])
+    def matches(self, data: np.ndarray, base: int, hashes: np.ndarray | None = None):
+        """(file offset, ROM offset) of every verified window match.
+        `hashes` is window_hashes(data) when the caller already has it."""
+        if hashes is None:
+            hashes = window_hashes(data)
+        flagged = np.nonzero(
+            self.filter[(hashes >> np.uint64(64 - FILTER_BITS)).astype(np.intp)])[0]
+        if flagged.size == 0 or self.hashes.size == 0:
+            return
+        first = np.searchsorted(self.hashes, hashes[flagged])
+        found = first < self.hashes.size
+        found[found] = self.hashes[first[found]] == hashes[flagged[found]]
+        for i, at in zip(flagged[found], first[found]):
             while at < self.hashes.size and self.hashes[at] == hashes[i]:
                 rom_at = int(self.offsets[at])
                 if np.array_equal(data[i:i + WINDOW],
@@ -91,18 +110,45 @@ class RomIndex:
                 at += 1
 
 
-def scan_file(path: Path, roms: list[RomIndex]) -> list[str]:
-    raw = np.frombuffer(path.read_bytes(), dtype=np.uint8)
+ARCHIVES = (".zip", ".apk")
+
+
+def scan_bytes(name: str, data: bytes, roms: list[RomIndex],
+               skip: frozenset = frozenset(), counted: list | None = None) -> list[str]:
+    """Matches in one file's bytes; for a zip or APK, in every file inside.
+    `counted` collects [files, bytes] actually compared."""
+    if name.lower().endswith(ARCHIVES) and zipfile.is_zipfile(io.BytesIO(data)):
+        found = []
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            for member in archive.infolist():
+                if member.is_dir() or any(
+                        part.lower() in skip for part in member.filename.split("/")):
+                    continue
+                found += scan_bytes(f"{name}!{member.filename}", archive.read(member),
+                                    roms, skip, counted)
+                if len(found) >= 5:
+                    break
+        return found
+    if counted is not None:
+        counted[0] += 1
+        counted[1] += len(data)
+    raw = np.frombuffer(data, dtype=np.uint8)
     found = []
     for start in range(0, max(raw.size, 1), CHUNK):
         chunk = raw[start:start + CHUNK + WINDOW - 1]
+        hashes = window_hashes(chunk)  # once, for every ROM
         for rom in roms:
-            for file_at, rom_at in rom.matches(chunk, start):
-                found.append(f"{path}: offset 0x{file_at:X} = {rom.path.name} "
+            for file_at, rom_at in rom.matches(chunk, start, hashes):
+                found.append(f"{name}: offset 0x{file_at:X} = {rom.path.name} "
                              f"0x{0x08000000 + rom_at:08X}")
                 if len(found) >= 5:
                     return found
     return found
+
+
+def scan_file(path: Path, roms: list[RomIndex], skip: frozenset = frozenset(),
+              counted: list | None = None) -> list[str]:
+    return scan_bytes(str(path), path.read_bytes(), roms, skip, counted)
 
 
 def main() -> int:
@@ -114,7 +160,7 @@ def main() -> int:
     args = parser.parse_args()
 
     roms = [RomIndex(path) for path in args.rom]
-    skip = {name.lower() for name in args.skip}
+    skip = frozenset(name.lower() for name in args.skip)
     files = []
     for folder in args.folders:
         if folder.is_file():
@@ -126,10 +172,10 @@ def main() -> int:
                 files.append(path)
 
     problems = []
+    counted = [0, 0]
     for path in files:
-        problems += scan_file(path, roms)
-    total = sum(path.stat().st_size for path in files)
-    print(f"ROM scan: {len(files)} files, {total / 2**20:.0f} MB checked against "
+        problems += scan_file(path, roms, skip, counted)
+    print(f"ROM scan: {counted[0]} files, {counted[1] / 2**20:.0f} MB checked against "
           f"{len(roms)} ROM(s).")
     if problems:
         print("ROM bytes found in the release:")

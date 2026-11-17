@@ -16,9 +16,10 @@ inline bool tla_world_map(unsigned map) {
 
 // A lighthouse's beam in the ending (F12 tla_rewind_0181..0184): the game
 // freezes the camera and swaps the world map for its 256x160 snapshot in
-// BG1 (mode 0, BG1CNT 0x0682: 256 colours; the affine registers unchanged;
-// the snapshot is the last mode-2 frame's picture, 0183 f7 against f8) and
-// adds BG0's glow to it (BLDCNT 0x3F41: alpha, BG0 alone the first target;
+// BG1 (mode 0, BG1CNT 0x0682: 256 colours; the affine registers are
+// unchanged). The snapshot is the last mode-2 frame's picture (0183 f7
+// against f8). The game then adds BG0's glow to it (BLDCNT 0x3F41: alpha,
+// BG0 alone the first target;
 // BLDALPHA 0x100F/0x1010). The glow's colours ramp to white for the fade
 // (15-16 of the 256 BG colours change, the snapshot's stay). The world
 // map's quake uses the same snapshot without blending (0151: BLDCNT 0).

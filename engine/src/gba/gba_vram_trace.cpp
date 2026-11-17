@@ -121,11 +121,11 @@ bool regular_bg_range_intersects(const std::uint8_t* io, unsigned bg,
     return false;
 }
 
-// Affine BG2/BG3 maps are one contiguous screenblock run (no vertical
-// screenblock-row aliasing like text mode), (16 << size_code) tiles square
-// at one byte per map entry, so the map is (16 << size_code)^2 bytes
-// starting at the BGCNT screen base. Derived live from BGCNT; never a fixed
-// screen base or size.
+// Affine BG2/BG3 maps are one contiguous run of screenblocks, with no
+// vertical screenblock-row aliasing as in text mode. The map is
+// (16 << size_code) tiles square at one byte per map entry, so it occupies
+// (16 << size_code)^2 bytes starting at the BGCNT screen base. Both values
+// are derived live from BGCNT, never from a fixed screen base or size.
 bool affine_range_intersects(const std::uint8_t* io, unsigned bg,
                              std::uint32_t address, std::uint64_t size) {
     const std::uint16_t cnt = load16(io, IoReg::BG0CNT + bg * 2u);
@@ -403,7 +403,7 @@ void flush_effect_at_exit() {
 }
 
 // Numbered like the F12 frame dumps so a second capture session cannot
-// silently overwrite the first one the user played for.
+// silently overwrite the first one that was captured.
 bool ensure_effect_files() {
     if (g_effect_open_failed) return false;
     if (g_effect_writers_file && g_effect_columns_file) return true;
@@ -897,12 +897,12 @@ unsigned& affine_dma_records() {
 
 // A per-writer budget for the Mode 0 stream, replacing a single shared count.
 // The point of this trace is to ENUMERATE the writers, not to sample writes,
-// and a shared count does not do that: in session_20260905_092954 one chatty
+// and a shared count does not do that: in one measured run one chatty
 // writer pair (`0x0800FF1E` / `0x0800FF26`, the BG3 tilemap builder) took all
 // 512 records at a single room load, so the BG1 and BG2 writers were never
 // recorded at all. The two capacities below are how many distinct writers to
 // keep room for and how many examples of each are enough to read its
-// addressing pattern — sizes of the answer wanted, not thresholds tuned to a
+// addressing pattern: sizes of the answer wanted, not thresholds tuned to a
 // measurement.
 constexpr unsigned kMode0MaxWriters = 64u;
 constexpr unsigned kMode0RecordsPerWriter = 4u;
@@ -927,7 +927,7 @@ bool mode0_pc_budget(std::uint32_t pc) {
 
 void reset_mode0_pc_budget() { g_mode0_used = 0; }
 
-// Per-visit budgets, not per-session. In session_20260905_084755 all 512
+// Per-visit budgets, not per-session. In one measured run all 512
 // affine CPU records were spent between cycle 7,878,553 and 57,203,487 --
 // the first ~3.4 s of a run that reached cycle 595M, i.e. boot, before the
 // savestate load -- so the overworld play the session was captured for

@@ -80,8 +80,8 @@ inline const Game& game() {
 }
 
 // Challenge Mode's bytes are RAM 0x02000028 (challenge_mode.h), so sector
-// +0x38 of a file's first block. On the cartridge the newest copy of the
-// block wins (generation +0xA, as the save layer's own table keeps it).
+// +0x38 of a file's first block. On the cartridge it is the newest copy of
+// that block (newest_record).
 constexpr std::size_t kChallengeSectorOffset = kRecordHeader + 0x28;
 inline bool challenge_file(int file) {
     const std::uint8_t* bytes = nullptr;
@@ -89,18 +89,10 @@ inline bool challenge_file(int file) {
     if (file >= kRows) {
         const std::uint8_t* r = record(file, 0);
         if (valid(r, kChecksumBytes)) bytes = r + kChallengeSectorOffset;
-    } else if (gba::GbaBus* b = bus(); b && b->save().flash_enabled()) {
-        flash = b->save().flash_bytes();
-        int best = -1;
-        for (std::size_t s = 0; s + kRecordBytes <= flash.size(); s += kRecordBytes) {
-            const std::uint8_t* sector = flash.data() + s;
-            if (!present(sector) || sector[7] != file) continue;
-            const int generation = sector[0xA] | (sector[0xB] << 8);
-            if (generation > best) {
-                best = generation;
-                bytes = sector + kChallengeSectorOffset;
-            }
-        }
+    } else {
+        flash = cartridge_flash();
+        if (const std::uint8_t* sector = newest_record(flash, file, kRecordBytes))
+            bytes = sector + kChallengeSectorOffset;
     }
     return bytes && gsr::challenge::decode(bytes).size > 0;
 }

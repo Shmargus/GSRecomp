@@ -1,4 +1,3 @@
-// overlay_loader.cpp — see overlay_loader.h.
 
 #include "overlay_loader.h"
 
@@ -58,13 +57,9 @@ struct HealedEntry {
     uint32_t crc = 0;
     uint32_t end = 0;
     uint64_t native_calls = 0;
-    // True iff `addr` lives in IWRAM/EWRAM: the bytes this entry was compiled
-    // from can change under the game at any time, so overlay_resolve
-    // re-verifies [addr, end) on every dispatch via heal_entry_crc_ok() and
-    // only calls `fn` on a match. That re-verification is cheap in the common
-    // case — see heal_entry_crc_ok()'s comment — but it is never skipped
-    // outright. False (ROM/BIOS-backed) entries skip this — those images are
-    // immutable for the run, so dispatch stays zero-overhead.
+    // RAM-backed code can change during play. overlay_resolve calls
+    // heal_entry_crc_ok() for [addr, end) before using `fn`. ROM and BIOS
+    // images are immutable for the session and skip this check.
     bool     ram_backed = false;
     bool     relocatable = false;
     std::shared_ptr<const std::vector<uint8_t>> code_bytes;
@@ -82,14 +77,14 @@ struct HealedEntry {
 // bytes were already compiled moments earlier.
 //
 // HealSlot keeps ONE hot "incumbent" (serviced exactly like the old single
-// entry — zero added cost on the common non-alternating path) plus a bounded
+// entry; zero added cost on the common non-alternating path) plus a bounded
 // set of OTHER resident variants keyed by content CRC. On an incumbent CRC
 // miss, the alternates are checked (each re-verified with the SAME
-// unconditional CRC32 check over the SAME byte range as the incumbent —
+// unconditional CRC32 check over the SAME byte range as the incumbent:
 // nothing is ever entered on a stale or unverified basis); a match is
 // promoted to incumbent and the displaced incumbent joins the alternates
-// (never discarded, never unloaded — only the mapping/position changes).
-// Only a genuinely new variant falls through to miss/bridge/re-enqueue.
+// (never discarded, never unloaded; only the mapping/position changes).
+// Only a new variant falls through to miss/bridge/re-enqueue.
 // Keep enough resident variants for generated RAM code that has a modest
 // multi-body working set, while retaining a finite per-key bound (one address
 // has legitimately produced 10 distinct CRCs).
@@ -104,19 +99,18 @@ struct RequestIdentity {
     uint64_t base_key = 0;
     uint64_t digest = 0;
     std::shared_ptr<const std::vector<uint8_t>> bytes;
-    // Number of leading bytes of *bytes (starting at pc, since a RAM
-    // snapshot's byte 0 == pc) that `digest` and operator== actually compare.
-    // For BIOS/ROM (bytes == nullptr) this is unused. For a RAM snapshot it
-    // is EITHER the full snapshot size (unknown/first-seen extent) OR the
-    // largest real compiled extent ever observed for this (pc,thumb) — see
-    // request_identity(). Once an extent is known, compare exactly that
-    // extent so unrelated bytes after a short body cannot defeat in-flight
-    // deduplication. Narrowing this window can only ever cause an EXTRA
-    // transient miss (two distinct bodies look like "the same request" and
-    // one gets skipped) — never a wrong-body execution: the installed
-    // entry's real [addr,end) is still re-verified against LIVE bytes by
-    // heal_entry_crc_ok/heal_slot_resolve_ram on every dispatch, independent
-    // of how the dedup key was computed.
+    // Number of leading bytes of *bytes that `digest` and operator== compare.
+    // A RAM snapshot starts at pc, so its byte 0 is pc. Unused for BIOS/ROM
+    // (bytes == nullptr). For a RAM snapshot it is either the full snapshot
+    // size (extent unknown, first sighting) or the largest real compiled
+    // extent ever observed for this (pc,thumb); see request_identity().
+    // Once an extent is known, only that extent is compared, so unrelated
+    // bytes after a short body cannot defeat in-flight deduplication.
+    // A narrower window can only cause an extra transient miss: two distinct
+    // bodies look like the same request and one is skipped. It can never
+    // run the wrong body, because the installed entry's real [addr,end) is
+    // re-verified against LIVE bytes by heal_entry_crc_ok and
+    // heal_slot_resolve_ram on every dispatch, whatever the dedup key was.
     std::size_t window = 0;
 
     bool operator==(const RequestIdentity& o) const {
@@ -168,7 +162,7 @@ RequestIdentity request_identity(const OverlayWorkItem& w) {
             // is known, compare exactly [pc, pc+extent), not a rounded-up
             // prefix that can include unrelated mutable bytes. First
             // sighting of a key (no recorded extent yet) keeps the bounded
-            // minimum window so genuinely-distinct pending bodies remain
+            // minimum window so distinct pending bodies remain
             // independently discoverable.
             const auto it = s_ram_extent_seen.find(k.base_key);
             if (it != s_ram_extent_seen.end()) {
@@ -257,8 +251,8 @@ uint64_t                                  s_relocatable_alias_misses = 0;
 // runtime_bus_bridge.cpp rather than re-parsing the env var; diagnostic-only.
 // heal_entry_crc_ok is a LEAF: it calls only runtime_ram_code_guard (which
 // calls gba::crc32 only on a cache miss) and never re-enters
-// overlay_try_dispatch/heal_slot_resolve_ram, so — unlike the runtime_tick
-// CostTimer that double-counted through IRQ re-entrancy — a clock read around
+// overlay_try_dispatch/heal_slot_resolve_ram, so, unlike the runtime_tick
+// CostTimer that double-counted through IRQ re-entrancy, a clock read around
 // it measures one real, non-overlapping span per call. Because the guard skips
 // the CRC32 on a cache hit, this mostly prices the guard's lookup, not a hash.
 // At >1M calls/run the clock-read overhead is itself non-trivial; compare
@@ -270,7 +264,7 @@ uint64_t s_cost_ram_crc_bytes = 0;
 // Lazily initialized on first call (NOT a namespace-scope static-init lambda):
 // g_cost_probe_enabled() itself is backed by a static-init lambda in
 // runtime_bus_bridge.cpp (a different TU), and cross-TU static init order is
-// unspecified — evaluating it from *this* TU's own static init could run
+// unspecified: evaluating it from *this* TU's own static init could run
 // before that flag's env-var read has happened, silently reading a
 // zero-initialized false. Deferring to first real call (well after main())
 // sidesteps the whole static-initialization-order question.
@@ -340,9 +334,9 @@ std::thread                 s_warm_thread;
 std::atomic<bool>           s_warm_load_done{false};
 
 // ── Frame-tagged self-heal/SMC instrumentation (diagnostic) ─────────────
-// See overlay_loader.h. Game-thread-only (every event source below —
+// See overlay_loader.h. Game-thread-only (every event source below:
 // runtime_dispatch_miss, runtime_mutable_ram_code_miss, overlay_try_dispatch,
-// overlay_request_compile, overlay_drain_ready — runs on the game thread), so
+// overlay_request_compile, overlay_drain_ready; each runs on the game thread), so
 // no locking. Disabled (near-zero cost) unless GBARECOMP_FRAME_EVENTS is set.
 struct FrameEventCounts {
     uint64_t frame            = 0;
@@ -840,7 +834,7 @@ HealBackend resolve_backend() {
         if (std::strcmp(be, "gcc") == 0) return HealBackend::Gcc;
         if (std::strcmp(be, "tcc") == 0) return HealBackend::Tcc;
         // auto-no-gcc: pretend this is a toolchain-less player box even though
-        // gcc is present — force tcc + the bundled include (heal_simulate_shipped
+        // gcc is present. Force tcc + the bundled include (heal_simulate_shipped
         // in overlay_compile.cpp).
         if (std::strcmp(be, "auto-no-gcc") == 0) return HealBackend::Tcc;
         // anything else (incl. "auto") → auto-resolve below
@@ -922,13 +916,13 @@ int overlay_condition_passes(unsigned cond) {
 // The actual match test delegates to runtime_ram_code_guard() (runtime_arm),
 // which caches the CRC32 result per (addr,end,crc) and only re-hashes when
 // the page-epoch counters for [addr,end) show a write since the last check.
-// Those counters are bumped by every write path that can touch guest RAM —
+// Those counters are bumped by every write path that can touch guest RAM:
 // generated-code fast stores and the interpreter's slow-store fallback
 // (note_ram_write_for_identity, armv4t/runtime_arm.h), GbaBus::write8/16/32
-// (note_ram_code_write_bus, gba/gba_bus.cpp — the same chokepoint DMA and
+// (note_ram_code_write_bus, gba/gba_bus.cpp: the same chokepoint DMA and
 // timed DMA transfers use), and savestate load (GbaBus::deserialize bumps
 // every page unconditionally). So this is not a weaker check than the old
-// unconditional gba::crc32() call — it is the same check, skipped only when
+// unconditional gba::crc32() call. It is the same check, skipped only when
 // nothing could have changed the bytes since it last ran.
 bool heal_entry_crc_ok(const HealedEntry& e, gba::GbaBus* bus,
                        const uint8_t** live_out) {
@@ -952,10 +946,10 @@ bool heal_entry_crc_ok(const HealedEntry& e, gba::GbaBus* bus,
 }
 
 // Insert `h` as the new incumbent of `slot`, displacing any current
-// incumbent into `alternates` (never discarding it — see the HealSlot
+// incumbent into `alternates` (never discarding it: see the HealSlot
 // comment above). Evicts the least-recently-used alternate first if that
 // would exceed kMaxVariantsPerKey resident variants. Eviction only drops the
-// cached HealedEntry from the map — the underlying loaded module is never
+// cached HealedEntry from the map; the underlying loaded module is never
 // unloaded anywhere in this file (overlay_loader_shutdown leaves every DLL
 // loaded for the process lifetime), so a dropped alternate can never
 // invalidate a pointer still referenced elsewhere; the next sighting of that
@@ -975,11 +969,11 @@ void heal_slot_promote(HealSlot& slot, HealedEntry h) {
     if (slot.incumbent.fn) {
         if (slot.incumbent.crc == h.crc && slot.incumbent.end == h.end) {
             // Re-installing the content already resident as incumbent
-            // (e.g. a re-scan) — nothing to displace.
+            // (e.g. a re-scan). Nothing to displace.
             slot.incumbent = h;
             return;
         }
-        // The alternates set is keyed by content identity (crc, end) — drop
+        // The alternates set is keyed by content identity (crc, end): drop
         // any existing alternate that is about to become a duplicate of the
         // displaced incumbent (can only happen via a racing async compile;
         // see overlay_drain_ready) so the cap always bounds DISTINCT variants.
@@ -1013,7 +1007,7 @@ enum class HealResolveResult {
 // Dispatch-time resolution for a RAM-backed slot: check the incumbent first
 // (hot path, no scan). On a miss, walk the bounded alternates set looking for
 // one whose CRC verifies against the CURRENT live bytes; a match is promoted
-// to incumbent (swap — the displaced incumbent joins the alternates) and
+// to incumbent (swap: the displaced incumbent joins the alternates) and
 // returned. Every candidate is re-verified with heal_entry_crc_ok before it
 // is ever considered dispatch-eligible.
 HealResolveResult heal_slot_resolve_ram(HealSlot& slot, gba::GbaBus* bus,
@@ -1042,7 +1036,7 @@ HealResolveResult heal_slot_resolve_ram(HealSlot& slot, gba::GbaBus* bus,
 }
 
 // ── Region resolution: the code image a PC lives in ─────────────────
-// BIOS and ROM are immutable for the run — zero-copy, pointer straight into
+// BIOS and ROM are immutable for the run: zero-copy, pointer straight into
 // the backing image. IWRAM/EWRAM are mutable, so this takes a bounded,
 // SYNCHRONOUS snapshot on the calling (game) thread and hands the async
 // worker an owned, private copy it can safely read without a data race.
@@ -1083,7 +1077,7 @@ bool region_bytes(uint32_t pc, OverlayWorkItem* w) {
         region_base = 0x02000000u;
         region_end  = 0x02040000u;
     } else {
-        // Not BIOS, ROM, IWRAM, or EWRAM — no code image to heal from.
+        // Not BIOS, ROM, IWRAM, or EWRAM: no code image to heal from.
         return false;
     }
 
@@ -1236,12 +1230,12 @@ void worker_main() {
 //   ROM/BIOS-backed (immutable): the cart ROM / BIOS snapshot never change for
 //   the run, so recomputing the extent + CRC32 against LIVE bytes from this
 //   background thread is as safe as doing it on the game thread (no concurrent
-//   writer exists). This is the ONLY verification a ROM/BIOS entry ever gets —
-//   overlay_try_dispatch's ROM/BIOS path never re-checks at call time — so it
+//   writer exists). This is the ONLY verification a ROM/BIOS entry ever gets:
+//   overlay_try_dispatch's ROM/BIOS path never re-checks at call time, so it
 //   must not be skipped or weakened.
 //
 //   RAM-backed (mutable): re-deriving against LIVE bytes at process start is
-//   pointless (IWRAM/EWRAM holds pre-boot state, essentially never one of the
+//   pointless (IWRAM/EWRAM holds pre-boot state, almost never one of the
 //   cached variants) and unsafe from a non-game thread (the game thread writes
 //   IWRAM/EWRAM with no lock, by design). Instead, trust the cache filename's
 //   pc/thumb/crc and the persisted ".c" sidecar's header comment for `end`:
@@ -1251,10 +1245,8 @@ void worker_main() {
 //   EVERY dispatch attempt before calling its native fn, so that entry-time
 //   check, not the install, is what gates execution.
 //
-// Both paths publish through the SAME s_ready queue the compile worker uses
-// — neither ever touches g_healed directly — so overlay_drain_ready (called
-// once per frame on the game thread) remains the single writer to g_healed
-// and the dispatch hot path stays lock-free.
+// Both paths use the worker's s_ready queue. Only overlay_drain_ready
+// writes g_healed on the game thread, so dispatch stays lock-free.
 
 // Parse "<pc:08X>_<crc:08X>_<a|t>.dll" (23 chars). false for anything that
 // doesn't match the exact shape written by overlay_compile_one.
@@ -1282,7 +1274,7 @@ bool parse_cache_filename(const std::string& fn, uint32_t* pc, uint32_t* crc,
 // next to the DLL at ORIGINAL compile time: "// function 0xPPPPPPPP
 // mode=(thumb|arm) end=0xEEEEEEEE". Cross-checks pc/thumb against the
 // filename's own record (both were written by that same compile) and refuses
-// — no guess — on any parse failure, mismatch, or missing sidecar.
+// (no guess) on any parse failure, mismatch, or missing sidecar.
 bool read_end_from_sidecar(const fs::path& c_path, uint32_t want_pc,
                            bool want_thumb, uint32_t* out_end) {
     std::FILE* f = std::fopen(c_path.string().c_str(), "rb");
@@ -1306,7 +1298,7 @@ bool read_end_from_sidecar(const fs::path& c_path, uint32_t want_pc,
 }
 
 // ROM/BIOS half. `seen` dedups across the gcc and tcc namespaces so the
-// higher-priority one (scanned first) wins — consumption is producer-blind.
+// higher-priority one (scanned first) wins: consumption is producer-blind.
 int warm_scan_rom_bios(const std::string& dir, HealBackend backend,
                        std::unordered_set<uint64_t>& seen) {
     std::error_code ec;
@@ -1333,7 +1325,7 @@ int warm_scan_rom_bios(const std::string& dir, HealBackend backend,
         std::string err;
         r.ok = overlay_compile_one(w, dir, &g_callbacks,
                                    /*compile_if_missing=*/false, backend, &r.c, &err);
-        if (!r.ok) continue;  // stale/mismatched on disk — heals normally at runtime
+        if (!r.ok) continue;  // stale/mismatched on disk; heals normally at runtime
         {
             std::lock_guard<std::mutex> lk(s_ready_mtx);
             s_ready.push_back(r);
@@ -1445,14 +1437,13 @@ int warm_scan_ram() {
 // for an immutable key it hasn't reached yet arrives at
 // overlay_request_compile. Let overlay_compile_one derive the exact cache
 // filename from the immutable image, without listing the cache directory.
-// RAM misses use the normal
-// worker path instead. A targeted RAM lookup would rebuild the index of every
+// RAM misses use the normal worker path instead. A targeted RAM lookup would rebuild the index of every
 // RAM DLL in both cache directories on each miss, blocking the game thread
 // while the background scanner already does the same work.
 //
 // This lookup publishes through the SAME s_ready queue as everything else in
 // this file, so the caller must still drive overlay_drain_ready() to install
-// it — it never touches g_healed directly.
+// it; it never touches g_healed directly.
 
 bool warm_load_rom_bios_key_now(uint32_t pc, bool want_thumb, uint64_t key) {
     OverlayWorkItem w;
@@ -1467,7 +1458,7 @@ bool warm_load_rom_bios_key_now(uint32_t pc, bool want_thumb, uint64_t key) {
         r.ok = overlay_compile_one(w, dir, &g_callbacks,
                                    /*compile_if_missing=*/false, backend,
                                    &r.c, &err);
-        if (!r.ok) continue;  // absent/stale on disk — heals normally
+        if (!r.ok) continue;  // absent/stale on disk; heals normally
         {
             std::lock_guard<std::mutex> lk(s_ready_mtx);
             s_ready.push_back(r);
@@ -1480,8 +1471,8 @@ bool warm_load_rom_bios_key_now(uint32_t pc, bool want_thumb, uint64_t key) {
 
 // Entry point for s_warm_thread. Runs concurrently with BIOS boot + the first
 // frames; never blocks the game thread. Skips the RAM half entirely when RAM
-// healing isn't enabled (those entries could never dispatch anyway — see
-// overlay_try_dispatch's `!s_ram_heal_enabled` gate — so scanning for them,
+// healing isn't enabled (those entries could never dispatch anyway; see
+// overlay_try_dispatch's `!s_ram_heal_enabled` gate; scanning for them,
 // reading sidecars, and LoadLibrary-ing their DLLs would be pure waste).
 void warm_load_background() {
     const auto t0 = std::chrono::steady_clock::now();
@@ -1499,7 +1490,7 @@ void warm_load_background() {
     // Published AFTER both scans (and their s_ready pushes) are queued, so
     // any game-thread miss that observes s_warm_load_done==true is
     // guaranteed the full on-disk cache is at least published to s_ready
-    // (drained lazily via the normal per-frame overlay_drain_ready) — the
+    // (drained lazily via the normal per-frame overlay_drain_ready), the
     // targeted lookup above becomes a pure no-op from that point on.
     s_warm_load_done.store(true, std::memory_order_release);
 }
@@ -1630,7 +1621,7 @@ void overlay_loader_shutdown() {
         // Do not make clean exit wait for every cold miss accumulated during
         // the session.  Work already removed by worker_main is allowed to
         // finish (overlay_compile_one uses temp files + atomic rename), but
-        // queued work is no longer useful once the game is exiting.  Clear it
+        // queued work is useless once the game is exiting.  Clear it
         // while holding the same mutex the worker uses, so no new queued item
         // can race with the discard.  This preserves cache correctness and
         // keeps the worker join bounded by at most one active compile.
@@ -1872,7 +1863,7 @@ OverlayRequestOutcome overlay_request_compile(uint32_t pc, bool thumb) {
     // Production rule: the game thread NEVER compiles. Hand the region to the
     // worker thread; the game thread keeps interpreting this PC until the shard
     // is installed at a frame boundary (overlay_drain_ready). First hit
-    // enqueues — it does not compile.
+    // enqueues; it does not compile.
     if (s_frame_events_enabled) ++frame_event_bucket().compile_enqueued;
     ram_churn_record(s_ram_churn_current_frame, "compile_enqueued", pc,
                      thumb,
@@ -1905,7 +1896,7 @@ void overlay_drain_ready() {
         if (r.has_request) s_inflight.erase(r.request);
         if (r.ok) {
             // Game-thread install: publish the worker-produced code into the
-            // dispatch map. This validates + installs only — it never compiles.
+            // dispatch map. This validates + installs only; it never compiles.
             // The new content becomes the incumbent (it's the live content
             // that just missed); any previous incumbent for this key is
             // preserved as an alternate, not discarded.
@@ -1947,7 +1938,7 @@ void overlay_drain_ready() {
                 // stderr writes (F12 0084 session: 10,729 cached RAM entries).
                 // Record the real extent this compile discovered so future
                 // request_identity() calls for this key can narrow their
-                // dedup comparison window — never below any extent we've
+                // dedup comparison window, never below any extent we've
                 // actually seen (monotonic max, never shrinks).
                 uint32_t& seen = s_ram_extent_seen[r.key];
                 const uint32_t len = h.end - h.addr;
@@ -2001,13 +1992,12 @@ bool overlay_query(uint32_t pc, bool thumb, uint64_t* native_calls) {
     if (it == g_healed.end()) return false;
     HealSlot& slot = it->second;
     if (!slot.incumbent.ram_backed) {
-        // Immutable ROM/BIOS content: presence alone is the answer, exactly
-        // as before.
+        // Immutable ROM/BIOS content: presence alone is the answer.
         if (native_calls) *native_calls = slot.incumbent.native_calls;
         return true;
     }
     // RAM-backed: "healed" means the CURRENT live bytes actually resolve to
-    // some resident variant right now (mirrors overlay_try_dispatch — a
+    // some resident variant right now (mirrors overlay_try_dispatch; a
     // stale incumbent left over from a still-in-flight recompile of newer
     // content must not report true just because the key exists).
     HealedEntry* match = nullptr;
@@ -2020,9 +2010,8 @@ bool overlay_query(uint32_t pc, bool thumb, uint64_t* native_calls) {
 }
 
 uint64_t overlay_game_thread_compile_ns() {
-    // The game thread never compiles any more (both gcc and tcc run on the
-    // worker thread). Always 0 — kept so the coverage banner's stall metric
-    // stays wired and reads as a clean zero.
+    // The coverage report keeps this field at zero. GCC and TCC compile on
+    // the worker thread.
     return 0;
 }
 
@@ -2069,9 +2058,8 @@ void overlay_relocatable_alias_counters(uint64_t* hits, uint64_t* misses) {
     if (misses) *misses = s_relocatable_alias_misses;
 }
 
-// Sticky: true once the heal feature initialized this session, and stays true
-// after overlay_loader_shutdown() so the exit coverage report (which runs
-// after shutdown drains/joins the worker) honestly states the feature was on.
+// Keep this flag after shutdown because the exit report reads it after
+// the compile worker is gone.
 bool overlay_was_enabled() { return s_ever_active; }
 
 void overlay_note_frame(uint64_t frame) {
@@ -2140,7 +2128,7 @@ extern "C" void (*overlay_resolve(uint32_t pc, int thumb))(void) {
     auto it = gbarecomp::g_healed.find(
         gbarecomp::heal_key(pc, thumb != 0));
     if (it == gbarecomp::g_healed.end() || !it->second.incumbent.fn) {
-        // Never healed yet for this (pc,thumb) — the only branch with no prior
+        // Never healed yet for this (pc,thumb): the only branch with no prior
         // crc to report. Logged once per PC/mode, like record_and_log_miss: a
         // hot routine waiting for its compile missed ~17 times a frame, and the
         // launcher's write-through session log stalled the game ~0.76 ms per
@@ -2170,7 +2158,7 @@ extern "C" void (*overlay_resolve(uint32_t pc, int thumb))(void) {
     // key's other resident variants (the game's self-assembled code toggles
     // among a few recurring bodies at one address) before paying for an
     // interpreter bridge; each candidate gets the same CRC32 check. Only
-    // genuinely new content falls through to a miss and re-enqueue
+    // new content falls through to a miss and re-enqueue
     // (overlay_request_compile allows that for a key already in g_healed); the
     // on-disk cache is keyed by CRC, so a variant seen before is a cache hit.
     // The slot is left as it is: its variants did not become wrong, they just
@@ -2180,7 +2168,7 @@ extern "C" void (*overlay_resolve(uint32_t pc, int thumb))(void) {
     const gbarecomp::HealResolveResult result =
         gbarecomp::heal_slot_resolve_ram(slot, bus, &match);
     if (result == gbarecomp::HealResolveResult::kRegionGone) {
-        // region shrank/vanished under us — treat as a miss. crc is the
+        // region shrank/vanished under us; treat as a miss. crc is the
         // incumbent's own recorded value (what it expected, never re-verified).
         std::fprintf(stderr,
             "[dispatch-miss] reason=region-gone pc=0x%08X crc=0x%08X\n", pc,
@@ -2193,7 +2181,7 @@ extern "C" void (*overlay_resolve(uint32_t pc, int thumb))(void) {
         if (gbarecomp::s_frame_events_enabled)
             ++gbarecomp::frame_event_bucket().ram_crc_mismatch;
         gbarecomp::overlay_note_ram_crc_mismatch(pc, thumb != 0);
-        // crc is the incumbent's resident value — the one that just failed
+        // crc is the incumbent's resident value: the one that just failed
         // to match live bytes. Compare against the crc on the [ram-compile]
         // line this triggers to see whether the recompile rediscovers the
         // exact same body. Logged once per PC/mode/crc, like not-healed: TLA

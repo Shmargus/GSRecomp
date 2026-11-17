@@ -1,8 +1,7 @@
-// Palette effects on a held world-map picture. The game recolours its
-// frozen native picture while menus/casts have stopped the affine map.
-// Keep the expanded borders in step without following a menu's own banks.
-// Original TBS rule (F12 0102/0062/0063); TLA Retreat 0199 has the same
-// whole-palette change. No pixels inside the native window are touched.
+// Menus and spell casts can recolour the frozen world map. Apply that
+// palette change to the margins while ignoring the menu's palette banks.
+// The native view comes from the game. See The Broken Seal captures
+// 0102/0062/0063 and The Lost Age Retreat capture 0199.
 #pragma once
 #include <algorithm>
 #include <array>

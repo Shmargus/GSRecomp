@@ -1,4 +1,5 @@
 #include "frame_capture.h"
+#include "host_overlay.h"
 
 #include <algorithm>
 #include <cstring>
@@ -106,29 +107,11 @@ std::string gpu_field_dump_bytes(const GpuFieldCapture& capture) {
     return out;
 }
 
-// "BUG REPORT SAVED" at the top right, in a small built-in font (the game's
-// menu font is only read once a menu has opened), white on a dark box.
+// "BUG REPORT SAVED" at the top right, in the engine's small font
+// (host_overlay.h; the game's menu font is only read once a menu has
+// opened), white on a dark box.
 void paint_bug_report_notice(std::uint8_t* rgb, std::uint32_t width,
                              std::uint32_t height, const char* text) {
-    struct Glyph { char c; const char* rows[7]; };
-    static const Glyph kGlyphs[] = {
-        {'A', {".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"}},
-        {'B', {"####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."}},
-        {'C', {".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."}},
-        {'D', {"####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."}},
-        {'E', {"#####", "#....", "#....", "####.", "#....", "#....", "#####"}},
-        {'G', {".###.", "#...#", "#....", "#.###", "#...#", "#...#", ".####"}},
-        {'H', {"#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"}},
-        {'I', {"#####", "..#..", "..#..", "..#..", "..#..", "..#..", "#####"}},
-        {'L', {"#....", "#....", "#....", "#....", "#....", "#....", "#####"}},
-        {'O', {".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."}},
-        {'P', {"####.", "#...#", "#...#", "####.", "#....", "#....", "#...."}},
-        {'R', {"####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"}},
-        {'S', {".####", "#....", "#....", ".###.", "....#", "....#", "####."}},
-        {'T', {"#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."}},
-        {'U', {"#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."}},
-        {'V', {"#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."}},
-    };
     const int text_w = static_cast<int>(std::strlen(text)) * 6 - 1;
     const int box_w = text_w + 8, box_h = 7 + 8;
     const int x0 = static_cast<int>(width) - box_w - 4, y0 = 4;
@@ -146,12 +129,10 @@ void paint_bug_report_notice(std::uint8_t* rgb, std::uint32_t width,
         }
     int cx = x0 + 4;
     for (const char* s = text; *s; ++s, cx += 6) {
-        for (const Glyph& g : kGlyphs) {
-            if (g.c != *s) continue;
-            for (int ry = 0; ry < 7; ++ry)
-                for (int rx = 0; rx < 5; ++rx)
-                    if (g.rows[ry][rx] == '#') put(cx + rx, y0 + 4 + ry, 255, 255, 255);
-        }
+        const std::uint8_t* rows = gbarecomp::overlay_glyph(*s);
+        for (int ry = 0; ry < 7; ++ry)
+            for (int rx = 0; rx < 5; ++rx)
+                if (rows[ry] & (0x80u >> rx)) put(cx + rx, y0 + 4 + ry, 255, 255, 255);
     }
 }
 

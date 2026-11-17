@@ -1,4 +1,4 @@
-// host_overlay.h — minimal RGB888 overlay primitives for in-window UI.
+// host_overlay.h: minimal RGB888 overlay primitives for in-window UI.
 //
 // The smallest way to draw text over a packed RGB888 frame: a 5x7 bitmap font
 // in an 8x8 cell plus a rectangle fill. The host window uses it for the guest
@@ -26,11 +26,16 @@ void overlay_fill(uint8_t* rgb, int w, int h, int x, int y, int rw, int rh,
 
 // Draw `s` at (x, y), 8 pixels per character cell. Characters are upper-cased
 // and anything outside ASCII 32..95 renders as a space, which keeps the font
-// table to 64 glyphs — enough for button names and SDL scancode names.
+// table to 64 glyphs, enough for button names and SDL scancode names.
 void overlay_text(uint8_t* rgb, int w, int h, int x, int y, const char* s,
                   uint8_t r, uint8_t g, uint8_t bl);
 
 // Width in pixels the string will occupy (8 px per character).
 int overlay_text_width(const char* s);
+
+// The 5x7 glyph of `c` (upper-cased; outside ASCII 32..95 a blank space):
+// eight rows, bit 7 the leftmost of the five columns, row 7 blank. The one
+// font every on-screen notice draws with, whatever its spacing or colours.
+const uint8_t* overlay_glyph(char c);
 
 }  // namespace gbarecomp

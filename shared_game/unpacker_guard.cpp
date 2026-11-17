@@ -158,11 +158,12 @@ std::uint32_t area_end(std::uint32_t a) {
     return (a & 0xFF000000u) + 0x01000000u;
 }
 
-// Why Func_2544's state at a dispatch at `pc` inside it is one no correct run
-// has, or null. r0 is the next input byte; r1 the last output byte (its
-// format-0 path writes at ++r1, starting at dst-1) or the next one (the other
-// path writes at r1++), so it may stand one byte past the area or the start
-// of the routine at a correct end.
+// Returns why Func_2544's state at a dispatch at `pc` inside it is one no
+// correct run has, or null if the state is possible. r0 is the next input
+// byte. r1 is the last output byte on the format-0 path (which writes at
+// ++r1, starting at dst-1) and the next output byte on the other path (which
+// writes at r1++). So at a correct end r1 may stand one byte past the area,
+// or at the start of the routine.
 const char* format0_impossible(std::uint32_t pc) {
     const std::uint32_t entry_sp = g_entry.r[13];
     const std::uint32_t src = g_entry.r[0], dst = g_entry.r[1];

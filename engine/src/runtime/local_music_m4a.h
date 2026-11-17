@@ -1,4 +1,4 @@
-// local_music_m4a.h — local recordings (host_local_music) standing in for
+// local_music_m4a.h: local recordings (host_local_music) standing in for
 // one m4a ("Sappy") music player's songs. The game supplies the player's
 // addresses, its song-header -> recording table and the two places where
 // the driver saturates a voice's left and right gain. While a recording
@@ -17,9 +17,10 @@
 
 namespace gbarecomp::m4a_music {
 
-// One gain saturation: a conditional branch, the outcome of it that reaches
-// `MOVS Rd,#255`, and that MOVS. Configured as a conditional-branch and a
-// Thumb ALU immediate override.
+// One place where the driver clamps a voice's gain to 255. `branch_pc` is a
+// conditional branch, `decision` is the branch outcome that leads to
+// `MOVS Rd,#255`, and `movs_pc` is that MOVS. The branch is hooked as a
+// conditional-branch override and the MOVS as a Thumb ALU immediate override.
 struct GainSite {
     std::uint32_t branch_pc;
     std::uint32_t decision;
@@ -53,9 +54,11 @@ public:
     // Music mod on (launcher cog, its first-run question or F1 > Audio).
     static bool enabled() { return game_option_get(kOptionMusicMod, 0) != 0; }
 
-    // An enhancement may keep the requested header for the game's continue
-    // checks while initialising another song's native tracks. Follow the song
-    // actually playing, including missing-recording fallback to those tracks.
+    // An enhancement may keep the requested header (`source`) for the game's
+    // "is this song already playing" checks while the game initialises a
+    // different song's native tracks (`selected`). Follow the song that is
+    // actually playing, including the fallback to those native tracks when no
+    // recording exists.
     void set_playback_header(std::uint32_t source, std::uint32_t selected) {
         source_header_ = source;
         selected_header_ = selected;
@@ -80,7 +83,8 @@ public:
         player_state(header, 0, 1.0f, true);
     }
 
-    // Conditional-branch override: steer an owned voice to the MOVS #255.
+    // Conditional-branch override: send a voice owned by a recording down the
+    // path that reaches the MOVS #255.
     bool branch(std::uint32_t pc, std::uint32_t track, std::uint32_t* decision) const {
         if (!decision || !mute(track)) return false;
         if (pc == player_.left.branch_pc) *decision = player_.left.decision;
@@ -89,8 +93,8 @@ public:
         return true;
     }
 
-    // Thumb ALU immediate override: that MOVS then stores 0. The original
-    // store, channel ownership and timing remain.
+    // Thumb ALU immediate override: that MOVS then loads 0 instead of 255. The
+    // original store, channel ownership and timing are unchanged.
     bool immediate(std::uint32_t pc, std::uint32_t track, std::uint32_t* value) const {
         if (!value || (pc != player_.left.movs_pc && pc != player_.right.movs_pc) ||
             !mute(track))
@@ -141,17 +145,19 @@ private:
     // MPlayVolumeControl and the fade routine both write the track's public
     // volume at +0x13; 64 is unity (MPlayMain's initial value). Follow that
     // final value, rather than multiplying a fade by the same volume twice.
-    // A mixed recording has one gain: use the first live, initialised track.
-    // In particular, skip C0 tracks: their volume still belongs to the old
-    // song until MPlayMain clears the initialisation flag (0x40).
+    // A mixed recording has a single gain, so use the first live, initialised
+    // track. Skip tracks whose flags have both 0x80 and 0x40 set: their volume
+    // still belongs to the old song until MPlayMain clears the initialisation
+    // flag (0x40).
     float volume_gain() const {
         for (std::uint32_t i = 0; i < player_.track_count; ++i) {
             const std::uint32_t track = player_.tracks + i * player_.track_bytes;
             if ((bus_read_u8(track) & 0xC0u) == 0x80u)
                 return float(bus_read_u8(track + 0x13)) / 64.0f;
         }
-        // Before the first track is initialised, retain the existing fade
-        // behaviour. Once tracks run, they carry jingles' duck/recovery too.
+        // Before the first track is initialised, use the player's fade level.
+        // Once tracks run, their volume also carries the duck and recovery
+        // around jingles.
         return bus_read_u16(player_.info + 0x24)
                    ? float(bus_read_u16(player_.info + 0x28) & 0xFFFCu) / 256.0f
                    : 1.0f;

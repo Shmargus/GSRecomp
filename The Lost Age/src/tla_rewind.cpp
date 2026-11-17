@@ -1,10 +1,9 @@
 // Golden Sun: The Lost Age -- F12 saves the last 2 seconds (always on).
 //
-// The ring and the folder it writes are the engine's shared F12 history
-// (frame_history.h, logs/tla_rewind_NNNN/): each presented picture, its
-// renderer snapshot (tla_gpu_field_snapshot), the rows' registers and the
-// memory at the press, so the session's input recording can replay the
-// moment on the bench. "F12 SAVED" shows for 3 seconds afterwards.
+// F12 saves the shared frame history under logs/tla_rewind_NNNN/. It holds
+// presented frames, renderer snapshots, scanline registers and memory at
+// the key press, so the recorded input can replay that moment. Show
+// "F12 SAVED" for 3 seconds.
 
 #include <algorithm>
 #include <cstdint>
@@ -12,6 +11,7 @@
 #include <new>
 
 #include "frame_history.h"
+#include "host_overlay.h"
 #include "runtime_bus_bridge.h"
 #include "tla.h"
 #include "../../shared_game/unpacker_guard.h"
@@ -79,32 +79,18 @@ bool present(uint8_t* rgb, uint32_t width, uint32_t height) {
 
 }  // namespace
 
-// The runner's own 5x7 letters, white with a dark shadow, one cell every
-// `advance` pixels.
+// The engine's 5x7 letters (host_overlay.h), white with a dark shadow, one
+// cell every `advance` pixels.
 void tla_paint_text(uint8_t* rgb, uint32_t width, uint32_t height, int x0,
                     int y0, const char* text, int advance) {
-    static const struct { char c; uint8_t rows[7]; } kGlyphs[] = {
-        {'F', {0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10}},
-        {'1', {0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E}},
-        {'2', {0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F}},
-        {'S', {0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E}},
-        {'A', {0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11}},
-        {'V', {0x11, 0x11, 0x11, 0x11, 0x11, 0x0A, 0x04}},
-        {'E', {0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F}},
-        {'D', {0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E}},
-        {'>', {0x10, 0x18, 0x0C, 0x06, 0x0C, 0x18, 0x10}},
-    };
     for (int pass = 0; pass < 2; ++pass) {  // shadow first, then letter
         const int d = pass == 0 ? 1 : 0;
         const uint8_t v = pass == 0 ? 0x28 : 0xF8;
         for (int i = 0; text[i]; ++i) {
-            const uint8_t* rows = nullptr;
-            for (const auto& g : kGlyphs)
-                if (g.c == text[i]) rows = g.rows;
-            if (!rows) continue;
+            const uint8_t* rows = gbarecomp::overlay_glyph(text[i]);
             for (int y = 0; y < 7; ++y)
                 for (int x = 0; x < 5; ++x) {
-                    if (!(rows[y] & (0x10 >> x))) continue;
+                    if (!(rows[y] & (0x80 >> x))) continue;
                     const int px = x0 + i * advance + x + d, py = y0 + y + d;
                     if (px < 0 || py < 0 || px >= static_cast<int>(width) ||
                         py >= static_cast<int>(height))

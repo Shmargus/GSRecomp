@@ -1,4 +1,4 @@
-// arm_ir.h — Normalized intermediate representation for ARM and THUMB.
+// arm_ir.h: Normalized intermediate representation for ARM and THUMB.
 //
 // Goal: capture the *semantics* of an ARM7TDMI instruction in a form
 // that's identical whether the source was ARM (32-bit) or THUMB
@@ -61,7 +61,7 @@ struct Op2 {
 enum class IrOp : uint16_t {
     Undefined = 0,
 
-    // Data processing (DP) — same op for ARM and THUMB encodings; the
+    // Data processing (DP): same op for ARM and THUMB encodings; the
     // decoder normalizes to this set.
     AND, EOR, SUB, RSB, ADD, ADC, SBC, RSC,
     TST, TEQ, CMP, CMN,
@@ -96,16 +96,15 @@ enum class IrOp : uint16_t {
 
 const char* ir_op_name(IrOp op) noexcept;
 
-// ── ARM7TDMI per-instruction cycle accounting (single source of truth) ──
+// ARM7TDMI instruction timing
 //
-// Used by the IR interpreter (the timing oracle), the recompiler codegen,
-// and the runtime tick helpers — so the recompiled cycle stream advances
-// the PPU / audio / timers exactly like the interpreter does, byte-for-byte.
+// The interpreter and generated code use the same cycle costs to advance
+// the PPU, audio and timers.
 //
 // `instr_cycle_base` is the FIXED part of an op's cost: the 1S fetch plus
 // any internal (I) cycles, with the branch pipeline-refill folded in. The
 // memory-access (N/S) cycles and operand-dependent multiply cycles are NOT
-// included here — they depend on the runtime target region / operand and
+// included here: they depend on the runtime target region / operand and
 // are added at execute time via `Bus::access_cycles` and `mul_wait_cycles`.
 // Two further fixed surcharges (statically known at codegen) are layered on
 // by the caller, matching the interpreter:
@@ -206,7 +205,7 @@ struct Instr {
     // PSR transfer operands (used by MRS / MSR).
     PsrTransfer psr;
 
-    // Classification flags — populated by the decoder, mostly hints
+    // Classification flags: populated by the decoder, mostly hints
     // for the block discoverer and the codegen.
     bool is_branch;
     bool is_call;

@@ -1,9 +1,9 @@
-// crash_handler.h — Host-side, always-on crash reporting.
+// crash_handler.h: Host-side, always-on crash reporting.
 //
 // Platform infrastructure, not game code: installed once from the game's
 // entry point, before anything else initializes (SDL, the guest bus, the
 // ROM/BIOS loaders). It must never be read by the guest or influence
-// emulation in any way — it only observes the host process from the outside
+// emulation in any way; it only observes the host process from the outside
 // and writes plain files next to the executable when that process dies
 // abnormally.
 //
@@ -16,7 +16,7 @@
 //
 // It also distinguishes "the process crashed" from "the process was
 // externally killed" (Stop-Process -Force / TerminateProcess), because the
-// latter cannot run any handler at all — see crash_handler_install()'s doc
+// latter cannot run any handler at all; see crash_handler_install()'s doc
 // comment below for how that is surfaced.
 //
 // This header is platform-free on purpose: everything platform-specific is
@@ -39,7 +39,7 @@ namespace gbarecomp {
 // On startup, if the PREVIOUS run's run_state.txt says that run was still
 // "live" and no crash_report.txt exists for it, this logs one line via
 // std::fprintf(stderr, ...) naming the situation explicitly:
-//   "previous run ended without a clean exit and without a crash report —
+//   "previous run ended without a clean exit and without a crash report,
 //    externally terminated or hard hang"
 // That is the only way to tell a real crash apart from an external kill,
 // because an external kill cannot run our handler at all.

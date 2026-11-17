@@ -1,4 +1,3 @@
-// gba_rom_header.cpp — see gba_rom_header.h.
 
 #include "gba_rom_header.h"
 

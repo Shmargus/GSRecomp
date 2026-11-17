@@ -38,12 +38,13 @@ foreach ($gameRepo in @($repo, (Join-Path $collectionRoot 'The Lost Age'))) {
 }
 
 # Last choices.
-$saved = @{ target = 'Both'; test = $true; version = '' }
+$saved = @{ target = 'Both'; test = $true; version = ''; android = $false }
 try {
     $j = Get-Content -Raw -LiteralPath $settingsPath | ConvertFrom-Json
     if ($j.target) { $saved.target = $j.target }
     if ($null -ne $j.test) { $saved.test = [bool]$j.test }
     if ($j.version) { $saved.version = [string]$j.version }
+    if ($null -ne $j.android) { $saved.android = [bool]$j.android }
 } catch { }
 
 # ---- Window ----------------------------------------------------------------
@@ -100,15 +101,24 @@ $form.Controls.Add($test)
 $launcherOnly = New-Object System.Windows.Forms.CheckBox
 $launcherOnly.Text = 'Launcher only'
 $launcherOnly.AutoSize = $true
-$launcherOnly.Location = New-Object System.Drawing.Point(450, 56)
+$launcherOnly.Location = New-Object System.Drawing.Point(418, 56)
 $form.Controls.Add($launcherOnly)
 
 # A per-release choice: never remembered, so ordinary releases stay ordinary.
 $ashleyEdition = New-Object System.Windows.Forms.CheckBox
 $ashleyEdition.Text = 'Ashley Edition'
 $ashleyEdition.AutoSize = $true
-$ashleyEdition.Location = New-Object System.Drawing.Point(590, 56)
+$ashleyEdition.Location = New-Object System.Drawing.Point(532, 56)
 $form.Controls.Add($ashleyEdition)
+
+# The Android app, made after the platforms chosen on the left
+# (make_release.ps1 -Android). Remembered like the platform choice.
+$android = New-Object System.Windows.Forms.CheckBox
+$android.Text = 'Android app'
+$android.AutoSize = $true
+$android.Location = New-Object System.Drawing.Point(652, 56)
+$android.Checked = $saved.android
+$form.Controls.Add($android)
 
 $versionLabel = New-Object System.Windows.Forms.Label
 $versionLabel.Text = 'Version:'
@@ -140,6 +150,7 @@ function Update-Info {
     $test.Enabled = [bool]$rom -and -not $launcherOnly.Checked
     $ashleyEdition.Enabled = -not $launcherOnly.Checked
     if ($launcherOnly.Checked) { $ashleyEdition.Checked = $false }
+    $android.Enabled = -not $launcherOnly.Checked
     if ($launcherOnly.Checked) {
         $lines += 'Updates the root launcher and artwork for both games. Players extract the zip over their collection.'
     } elseif ($rom) {
@@ -213,6 +224,7 @@ function Set-Running([bool]$running) {
     $test.Enabled = (-not $running) -and [bool]$rom -and -not $launcherOnly.Checked
     $launcherOnly.Enabled = -not $running
     $ashleyEdition.Enabled = (-not $running) -and -not $launcherOnly.Checked
+    $android.Enabled = (-not $running) -and -not $launcherOnly.Checked
 }
 
 function Read-Log {
@@ -247,7 +259,8 @@ $timer.Add_Tick({
 })
 
 $makeBtn.Add_Click({
-    $busy = Get-Process -Name ninja, cc1plus, lto1, ld, collect2, mingw32-make -ErrorAction SilentlyContinue
+    . (Join-Path $PSScriptRoot 'build_guard.ps1')
+    $busy = Get-GsrBuildProcesses
     if ($busy) {
         [void][System.Windows.Forms.MessageBox]::Show($form,
             'Another build is running. Wait for it to finish first.', 'Make release', 'OK', 'Warning')
@@ -256,7 +269,7 @@ $makeBtn.Add_Click({
     $target = @('Windows', 'Linux', 'Both') | Where-Object { $radios[$_].Checked } | Select-Object -First 1
     try {
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $settingsPath) | Out-Null
-        @{ target = $target; test = $test.Checked; version = $version.Text.Trim() } | ConvertTo-Json | Set-Content -LiteralPath $settingsPath -Encoding ascii
+        @{ target = $target; test = $test.Checked; version = $version.Text.Trim(); android = $android.Checked } | ConvertTo-Json | Set-Content -LiteralPath $settingsPath -Encoding ascii
     } catch { }
 
     $switches = @()
@@ -265,6 +278,7 @@ $makeBtn.Add_Click({
     if (-not $test.Checked) { $switches += '-NoTest' }
     if ($launcherOnly.Checked) { $switches += '-LauncherOnly' }
     if ($ashleyEdition.Checked) { $switches += '-AshleyEdition' }
+    if ($android.Checked -and -not $launcherOnly.Checked) { $switches += '-Android' }
     $versionText = $version.Text.Trim()
     if ($versionText -and $versionText -notmatch '^[A-Za-z0-9._-]+$') {
         [void][System.Windows.Forms.MessageBox]::Show($form,

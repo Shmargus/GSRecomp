@@ -1,4 +1,4 @@
-// overlay_emit.h — emit the full C source for ONE runtime-recompiled
+// overlay_emit.h: emit the full C source for ONE runtime-recompiled
 // overlay function (Stage-2 self-healing).
 //
 // Rooted at a guest PC against a contiguous code image (cart ROM or a BIOS
@@ -18,7 +18,7 @@ namespace gbarecomp {
 // Returns the .c text for the overlay function at `pc` (thumb selects the
 // ISA), or an empty string if the finder discovered no function entry there.
 // `out_end` (optional) receives the discovered function's exclusive end
-// address — the [pc, end) byte range whose CRC keys the on-disk cache.
+// address: the [pc, end) byte range whose CRC keys the on-disk cache.
 std::string emit_overlay_c(uint32_t pc, bool thumb,
                            const uint8_t* bytes, std::size_t size,
                            uint32_t base, uint32_t* out_end = nullptr,

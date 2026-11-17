@@ -1,4 +1,3 @@
-// file_replace.cpp — see file_replace.h.
 
 #include "file_replace.h"
 

@@ -1,4 +1,4 @@
-// gba_audio.cpp — see gba_audio.h. SOUND1/2 (square), SOUND3 (wave RAM),
+// gba_audio.cpp: see gba_audio.h. SOUND1/2 (square), SOUND3 (wave RAM),
 // SOUND4 (noise), and Direct Sound A/B FIFOs, mixed in mix_one_sample().
 
 #include "gba_audio.h"
@@ -111,7 +111,7 @@ void GbaAudio::serialize(gbarecomp::debug::SnapshotWriter& w) const {
     w.u16(soundbias_);
     w.u32(cycles_per_sample_);
     w.u32(cycle_accumulator_);
-    // Pending host output ring so playback resumes seamlessly.
+    // Pending host output ring so playback resumes without a gap.
     w.u32(static_cast<uint32_t>(ring_.size()));
     if (!ring_.empty()) w.bytes(ring_.data(), ring_.size() * sizeof(int16_t));
     w.u64(ring_head_);
@@ -121,7 +121,7 @@ void GbaAudio::serialize(gbarecomp::debug::SnapshotWriter& w) const {
     w.u32(sample_index_);
     // Optional tail extension. Old v1 states end at sample_index_; keeping
     // this append-only lets the current runtime load them while new states
-    // retain the PSG channels that were previously treated as transient.
+    // retain the PSG channels that older states treated as transient.
     w.u32(kAudioStateExtensionMagic);
     w.bytes(&ch3_, sizeof(ch3_));
     w.bytes(&ch4_, sizeof(ch4_));
@@ -362,8 +362,9 @@ void GbaAudio::write_io8_impl(uint32_t off, uint8_t v) {
             ch2_.envelope_step    = static_cast<uint8_t>(v & 0x7);
             ch2_.envelope_increase = (v & 0x08) != 0;
             ch2_.envelope_initial = static_cast<uint8_t>((v >> 4) & 0xF);
-            // Envelope of 0 with direction "decrease" silences the
-            // DAC at next trigger; spec quirk we model on trigger.
+            // An initial envelope of 0 with direction "decrease" silences
+            // the DAC at the next trigger. This hardware quirk is modelled
+            // when the trigger is handled.
             break;
         }
         // SOUND2CNT_H (0x06C..0x06D): frequency + length-enable + initial
@@ -610,7 +611,7 @@ void GbaAudio::ring_push(int16_t s) {
     ring_[ring_head_] = s;
     ring_head_ = (ring_head_ + 1) % kRingSize;
     if (ring_head_ == ring_tail_) {
-        // Overrun — drop oldest by advancing tail.
+        // Overrun: drop oldest by advancing tail.
         ring_tail_ = (ring_tail_ + 1) % kRingSize;
     }
     ++samples_generated_;
@@ -1066,9 +1067,10 @@ int16_t GbaAudio::mix_one_sample(uint32_t direct_slot, bool include_direct,
 
     if (tap) {
         // Raw per-channel synthesis values for the always-on capture ring.
-        // ch[] are the raw hardware-domain PSG values (deterministic from the
-        // IO write stream → bit-reproducible). direct_* are the raw FIFO DAC
-        // bytes for this slot ([-128,127]); zero when include_direct=false.
+        // ch[] holds the raw hardware-domain PSG values. They depend only on
+        // the IO write stream, so they are bit-reproducible. direct_* holds
+        // the raw FIFO DAC bytes for this slot ([-128,127]), or zero when
+        // include_direct=false.
         tap->ch[0] = static_cast<int16_t>(ch1_sample);
         tap->ch[1] = static_cast<int16_t>(ch2_sample);
         tap->ch[2] = static_cast<int16_t>(ch3_sample);
@@ -1138,8 +1140,9 @@ void GbaAudio::run_sample_event() {
         ++sample_index_;
     }
     for (uint32_t i = 0; i < samples; ++i) {
-        // cap_push first (keyed by samples_generated_ pre-increment), then
-        // ring_push which bumps samples_generated_ — keeps the two aligned.
+        // Call cap_push first, since it is keyed by samples_generated_ before
+        // the increment, then ring_push, which bumps samples_generated_.
+        // This keeps the two rings aligned.
         cap_push(caps[i]);
         ring_push(current_samples_[i]);
     }

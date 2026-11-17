@@ -152,13 +152,10 @@ def select_overlay_seeds(
 
     selected: dict[tuple[int, str], dict[str, Any]] = {}
     for symbol in symbols:
-        # A record only reaches the corpus after passing every entry-level
-        # check, so an `unresolved` one differs from a proven one solely in
-        # that its declared extent contains further mapping-symbol
-        # transitions — literal pools. Its entry address and mode carry the
-        # same evidence, and an overlay is dispatched only after its live
-        # bytes hash-match, so seeding the whole ELF-bounded set is the same
-        # standard applied consistently rather than a new claim.
+        # Both proven and unresolved records pass the same entry and mode checks.
+        # Unresolved means that the ELF extent also contains mapping-symbol
+        # transitions such as literal pools. Seed both sets. Dispatch still
+        # requires the live overlay's hash to match.
         if symbol["confidence"] not in ("proven", "unresolved"):
             continue
         addr = int(symbol["runtime_address"], 16)

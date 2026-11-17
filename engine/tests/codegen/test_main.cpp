@@ -1,4 +1,4 @@
-// tests/codegen/test_main.cpp — the L1 codegen test runner.
+// tests/codegen/test_main.cpp: the L1 codegen test runner.
 //
 // For each entry in kTestCases:
 //   1. Build an armv4t::CPUState + a per-test FlatBus from the
@@ -9,8 +9,7 @@
 //      memory + branch-side-effects (dispatch target, SWI imm).
 //
 // Any divergence is a real codegen bug to fix in arm_codegen.cpp.
-// Per PRINCIPLES.md "Interpreter is informative, never load-bearing":
-// the interpreter is the semantic reference. If the diff fails the
+// The interpreter is the semantic reference. If the diff fails, the
 // FIX goes in the recompiler, never in the interpreter or in the
 // generated code.
 
@@ -130,7 +129,7 @@ armv4t::Instr decode_one(const TestCase& tc) {
 
 // Compute the singleton bus region: union of all mem_init addresses,
 // rounded out generously. For simplicity we just give every test a
-// 64 KB window from 0 — every test case's working set fits.
+// 64 KB window from 0; every test case's working set fits.
 struct BusGeom { uint32_t base; uint32_t size; };
 BusGeom default_bus_geom() { return {0u, 64u * 1024u}; }
 

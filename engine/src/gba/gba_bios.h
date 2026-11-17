@@ -1,10 +1,10 @@
-// gba_bios.h — GBA BIOS loader.
+// gba_bios.h: GBA BIOS loader.
 //
 // Per PRINCIPLES.md "BIOS is sacred": this class loads the user's
 // dump of the real GBA BIOS, hash-verifies it, and exposes the bytes
 // for the bus to read. We never HLE SWIs, never stub BIOS code, and
 // never skip the BIOS intro. The interpreter executes BIOS bytes the
-// same way it executes cartridge bytes — that's the whole point.
+// same way it executes cartridge bytes; that's the whole point.
 //
 // The expected SHA-1 of the canonical GBA BIOS is hardcoded as a
 // default; callers can override it via `load_from_file(path, sha1,...)`
@@ -25,7 +25,7 @@ public:
     static constexpr const char* kExpectedSha1 =
         "300c20df6731a33952ded8c436f7f186d25d3492";
     // CRC32 of the canonical GBA BIOS (per zlib / IEEE 802.3). Kept
-    // as informational metadata — the picker computes CRC32 of any
+    // as informational metadata: the picker computes CRC32 of any
     // supplied dump but the gate is SHA-1 alone (CRC32 is a 32-bit
     // hash and SHA-1 is already strictly stronger; carrying both as
     // hard checks just produces extra noise when one of our hardcoded

@@ -1,4 +1,3 @@
-// interpreter.cpp — see interpreter.h.
 
 #include "interpreter.h"
 
@@ -298,14 +297,15 @@ BankedSlot mode_to_bank(uint8_t m) {
 }
 
 // Swap the R8..R12 FIQ/normal bank on a mode change, mirroring the runtime's
-// bank_out/bank_in (runtime_arm.cpp): the outgoing mode's live R8..R12 are
-// saved into r8_12_fiq (if leaving FIQ) or r8_12_user (otherwise), then the
-// incoming mode's are loaded from the matching bank. For a non-FIQ<->non-FIQ
-// move this leaves R8..R12 unchanged but keeps r8_12_user synced to the live
-// normal bank, the invariant the recompiled backend maintains and the cosim
-// cpu sub-hash checks. Callers apply it wherever they bank R13/R14, except
-// enter_irq/enter_swi (bios_smoke-only, not the cosim/self-heal path), which
-// do not.
+// bank_out/bank_in (runtime_arm.cpp). The outgoing mode's live R8..R12 are
+// saved into r8_12_fiq (if leaving FIQ) or r8_12_user (otherwise). Then the
+// incoming mode's registers are loaded from the matching bank. A move
+// between two non-FIQ modes leaves R8..R12 unchanged, but still keeps
+// r8_12_user in sync with the live normal bank. The recompiled backend
+// maintains that invariant and the cosim cpu sub-hash checks it. Callers
+// apply this wherever they bank R13/R14. The exceptions are enter_irq and
+// enter_swi, which are used only by bios_smoke (not the cosim/self-heal
+// path) and do not call it.
 void swap_r8_12_banks(CPUState& cpu, uint8_t old_mode, uint8_t new_mode) {
     const bool old_fiq = old_mode == static_cast<uint8_t>(Mode::FIQ);
     const bool new_fiq = new_mode == static_cast<uint8_t>(Mode::FIQ);
@@ -366,8 +366,8 @@ void exception_return(CPUState& cpu, uint32_t new_pc) {
     uint8_t old_mode = cpu.cpsr.mode;
     if (old_mode == static_cast<uint8_t>(Mode::User) ||
         old_mode == static_cast<uint8_t>(Mode::System)) {
-        // No SPSR in these modes — exception return is undefined
-        // on hardware. We just set PC and bail.
+        // Exception return is undefined without an SPSR. In these modes we set PC
+        // and leave the rest of the state alone.
         cpu.R[15] = new_pc;
         return;
     }
@@ -627,7 +627,7 @@ Interpreter::Result Interpreter::step(CPUState& cpu, Bus& bus, const Instr& i,
         case IrOp::LDRSB: case IrOp::LDRSH: {
             uint32_t base = read_reg(cpu, i.mem.rn, i);
             // THUMB PC-relative addressing (LDR Rd, [PC, #imm]) forces
-            // bits[1:0] of the PC value to zero — ARM ARM A4.1.20.
+            // bits[1:0] of the PC value to zero (ARM ARM A4.1.20).
             // Without this, an instruction at an odd halfword boundary
             // (e.g. PC=0x11E) reads a misaligned word and produces a
             // rotated value that matches no symbol in the constant
@@ -718,8 +718,8 @@ Interpreter::Result Interpreter::step(CPUState& cpu, Bus& bus, const Instr& i,
                 }
             }
 
-            // Writeback: pre-indexed only when explicit W; post-indexed
-            // always (but ignore if Rn == Rd on a load — Rd wins).
+            // Pre-indexed writeback needs W. Post-indexed writeback is implicit.
+            // On loads Rd wins if it aliases Rn.
             bool do_wb = i.mem.writeback;
             if (do_wb && !(i.mem.rn == i.rd &&
                            (i.op == IrOp::LDR || i.op == IrOp::LDRB ||
@@ -796,7 +796,7 @@ Interpreter::Result Interpreter::step(CPUState& cpu, Bus& bus, const Instr& i,
                     if (reg == 15) {
                         // LDM with R15: when the S bit is set AND
                         // we're in a privileged non-User/System mode,
-                        // this is an exception return — SPSR → CPSR
+                        // this is an exception return: SPSR → CPSR
                         // (and bank-swap). Otherwise plain PC load.
                         // ARMv4T loads PC as a word; bit 0 is forced
                         // clear (no interworking).
@@ -1029,10 +1029,10 @@ Interpreter::Result Interpreter::step(CPUState& cpu, Bus& bus, const Instr& i,
 
             // A mode change swaps the banked R13/R14 (below) and the
             // R8..R12 FIQ/normal bank (swap_r8_12_banks) in and out,
-            // matching the runtime's bank_out/bank_in. System↔SVC (the
-            // common BIOS transition) shares the User bank for R13/R14 so
-            // only r8_12_user is touched (kept synced to the live normal
-            // bank — the cosim cpu-subhash invariant).
+            // matching the runtime's bank_out/bank_in. System and SVC (the
+            // common BIOS transition) share the User bank for R13/R14, so
+            // only r8_12_user is touched. It is kept in sync with the live
+            // normal bank because the cosim cpu sub-hash checks it.
             uint8_t new_mode = static_cast<uint8_t>(newv & 0x1Fu);
             uint8_t old_mode = cpu.cpsr.mode;
             cpu.cpsr.n = (newv >> 31) & 1u;

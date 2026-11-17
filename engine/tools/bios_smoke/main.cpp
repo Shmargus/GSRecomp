@@ -1,4 +1,4 @@
-// bios_smoke — Phase 2.1 bring-up canary, since extended into the
+// bios_smoke: Phase 2.1 bring-up canary, since extended into the
 // interpreter oracle (--rom, --tcp, --emit-target-seeds).
 //
 // Loads the GBA BIOS, sets the CPU to the reset state (PC=0,
@@ -52,7 +52,7 @@
 namespace {
 
 constexpr const char* kDefaultBios = "bios/gba_bios.bin";
-// Single source of truth in gba_irq.h; the recompiled runtime uses the same.
+// Defined once, in gba_irq.h; the recompiled runtime uses the same.
 constexpr uint32_t kGbaIrqDelayCycles = gba::kIrqWakeDelayCycles;
 
 struct Args {
@@ -212,7 +212,7 @@ int main(int argc, char** argv) {
     //    who doesn't know about --bios; the picker falls back to a
     //    Win32 file dialog (and caches the validated path) when the
     //    CLI / default path isn't present. CRC32 + SHA-1 mismatch is a
-    //    user-warning, not a hard fail — the user may have a region
+    //    user-warning, not a hard fail; the user may have a region
     //    revision we haven't catalogued. Wrong SIZE still hard-fails.
     {
         gbarecomp::AssetSpec spec;
@@ -288,12 +288,12 @@ int main(int argc, char** argv) {
         bus.set_rom(rom_bytes.data(), rom_bytes.size());
         if (header.save_type == gba::SaveType::EEPROM) {
             bus.save().configure_eeprom(8 * 1024);
-            // Oracle fidelity: the recomp loads <rom>.sav into EEPROM, so an
-            // oracle that boots with empty EEPROM takes a DIFFERENT game path at
-            // the first save read (DataDoubleReadWithStatus) and every later
-            // recomp-vs-oracle diff is two different game moments. Load the same
-            // .sav so the oracle matches. Gated by GBARECOMP_LOAD_SAV to keep
-            // existing empty-save smoke runs unchanged.
+            // The recomp loads <rom>.sav into EEPROM. An oracle that boots
+            // with empty EEPROM takes a different game path at the first save
+            // read (DataDoubleReadWithStatus), so every later recomp-vs-oracle
+            // diff would compare two different game moments. Load the same
+            // .sav so the oracle matches. Gated by GBARECOMP_LOAD_SAV so
+            // existing empty-save smoke runs are unchanged.
             if (std::getenv("GBARECOMP_LOAD_SAV")) {
                 std::filesystem::path sp(args.rom);
                 sp.replace_extension(".sav");
@@ -478,25 +478,25 @@ int main(int argc, char** argv) {
     };
 
     // ── Stage 0.2: profile-guided seed harvesting ────────────────────
-    // When --emit-target-seeds is set, accumulate (always-on from reset,
-    // queried once at exit) every INDIRECT control-transfer destination the
-    // interpreter actually reaches: function entries reached via function
-    // pointers / indirect tailcalls / computed calls that the recompiler's
-    // STATIC walk cannot follow. Direct B/BL targets are already discovered
-    // statically (the walk follows them) so they are counted but NOT emitted.
-    // Returns (bx lr, pop {pc}, mov pc,lr) are dropped via the decoder's
-    // is_return flag; the remaining indirect destinations are gated to
-    // addresses bearing a recognized function prologue (THUMB `push {..,lr}`
-    // / ARM `stmfd sp!,{..,lr}`), which rejects jump-table case labels and
-    // non-prologue return sites that aren't real function entries. Known
-    // gate cost: a leaf reached ONLY by pointer that never pushes lr is
-    // missed (rare; Stage 1 self-healing catches it at runtime). The result
-    // is written as a REVIEW-REQUIRED seed TSV in the imported_symbols.tsv
-    // format — never auto-merged into game.toml / symbols.
+    // With --emit-target-seeds, record every INDIRECT control-transfer
+    // destination the interpreter reaches (recording is on from reset; the
+    // result is read once at exit). These are function entries reached
+    // through function pointers, indirect tail calls or computed calls,
+    // which the recompiler's static walk cannot follow. Direct B/BL targets
+    // are already found by the static walk, so they are counted but not
+    // emitted. Returns (bx lr, pop {pc}, mov pc,lr) are dropped using the
+    // decoder's is_return flag. The remaining destinations must start with
+    // a recognised function prologue (THUMB `push {..,lr}` or ARM
+    // `stmfd sp!,{..,lr}`); that rejects jump-table case labels and return
+    // sites that are not real function entries. Known cost of this gate: a
+    // leaf function reached only by pointer that never pushes lr is missed
+    // (rare; Stage 1 self-healing catches it at runtime). The result is
+    // written as a seed TSV in the imported_symbols.tsv format that needs
+    // review and is never merged automatically into game.toml or symbols.
     const bool seed_armed = !args.emit_target_seeds.empty();
     struct SeedRec { uint8_t thumb = 0; uint64_t hits = 0; };
     std::map<uint32_t, SeedRec> rom_seeds;   // statically-recompilable ROM entries
-    std::map<uint32_t, SeedRec> dyn_seeds;   // IWRAM/EWRAM (dynamic code — Stage 4)
+    std::map<uint32_t, SeedRec> dyn_seeds;   // IWRAM/EWRAM (dynamic code, Stage 4)
     uint64_t seed_branches = 0, seed_returns = 0, seed_direct_call = 0,
              seed_direct_branch = 0, seed_bios = 0, seed_other = 0,
              seed_no_prologue = 0;
@@ -506,7 +506,7 @@ int main(int argc, char** argv) {
     };
     auto arm_has_prologue = [&](uint32_t a) -> bool {
         // STMFD sp!, {..., lr} (Full Descending) in the first two instrs
-        // — same predicate as the recompiler's literal-pool harvest gate.
+        // (same predicate as the recompiler's literal-pool harvest gate).
         for (int j = 0; j < 2; ++j) {
             armv4t::Instr i = armv4t::ArmDecoder::decode(bus.read32(a), a);
             if (i.op == armv4t::IrOp::STM && !i.block.load &&
@@ -523,8 +523,8 @@ int main(int argc, char** argv) {
         ++seed_branches;
         if (branch_insn.is_return) { ++seed_returns; return; }
         if (!branch_insn.is_indirect) {
-            // Direct, statically-resolvable transfer — the static walk
-            // already follows these. Count for honesty, don't emit.
+            // Direct, statically-resolvable transfer; the static walk
+            // already follows these. Count them for the report; don't emit.
             if (branch_insn.is_call) ++seed_direct_call;
             else                     ++seed_direct_branch;
             return;
@@ -590,10 +590,11 @@ int main(int argc, char** argv) {
             }
         }
 
-        // Fingerprint the about-to-execute instruction (post IRQ/halt handling,
-        // so an IRQ-vector entry is captured here just as the recomp captures
-        // it at the vector function's prologue). Only reached when we actually
-        // step the CPU — the halted-no-IRQ path returns above without emitting.
+        // Fingerprint the instruction about to execute (after IRQ and halt
+        // handling, so an IRQ-vector entry is captured here just as the
+        // recomp captures it at the vector function's prologue). This point
+        // is only reached when the CPU actually steps; the halted-with-no-IRQ
+        // path returns earlier without emitting.
         fp_emit();
 
         uint32_t pc = cpu.R[15];
@@ -672,15 +673,16 @@ int main(int argc, char** argv) {
         return true;
     };
 
-    // Restore a runtime savestate INTO THE INTERPRETER (offline oracle).
-    // load_state restores memory/IO/PPU/devices plus the recomp global
-    // g_cpu; we then map g_cpu (ArmCpuState) into the interpreter's CPUState
-    // (a different struct) and drop the recomp-only host call-return stack
-    // (the interpreter resumes purely from R[15] + the guest stack in IWRAM).
-    // The ROM-SHA1 gate is skipped (rom_sha1=nullptr) since the oracle is
-    // launched with the matching --rom. This lets the interpreter execute
-    // the SAME ARM code from a recomp savestate, so we can diff intended vs
-    // recompiled behavior at a transition (e.g. an entity's animation index).
+    // Restore a runtime savestate into the interpreter (offline oracle).
+    // load_state restores memory, IO, PPU and devices, plus the recomp's
+    // global g_cpu. We then copy g_cpu (ArmCpuState) into the interpreter's
+    // CPUState (a different struct) and drop the recomp-only host
+    // call-return stack, since the interpreter resumes purely from R[15]
+    // and the guest stack in IWRAM. The ROM-SHA1 check is skipped
+    // (rom_sha1=nullptr) because the oracle is launched with the matching
+    // --rom. This lets the interpreter run the same ARM code from a recomp
+    // savestate, so intended and recompiled behaviour can be diffed at a
+    // transition (e.g. an entity's animation index).
     auto do_savestate_load = [&](const std::string& path,
                                  std::string& e) -> bool {
         gbarecomp::debug::SnapshotContext sc;
@@ -695,13 +697,14 @@ int main(int argc, char** argv) {
         // mirror it into the interpreter's CPUState via the shared bridge.
         gbarecomp::load_arm_cpu_into_interp(g_cpu, cpu);
         vblank_count = ppu.frame_count();  // re-sync frame clock to restored PPU
-        // Re-origin the fingerprint cycle clock + ring at the load point so the
-        // interp and recomp share a cycle origin for diff_cycle_trace.py. The
-        // snapshot restored cycles_elapsed to the (large) absolute count saved in
-        // the state; the recomp's g_runtime_cycles is NOT snapshotted and starts
-        // at 0, so without this the clocks differ and the diff's cycle-based
-        // anchor can pick the wrong loop iteration. We diff relative to the
-        // load, so zeroing both is correct.
+        // Re-origin the fingerprint cycle clock and ring at the load point so
+        // the interpreter and recomp share a cycle origin for
+        // diff_cycle_trace.py. The snapshot restored cycles_elapsed to the
+        // (large) absolute count saved in the state, but the recomp's
+        // g_runtime_cycles is not snapshotted and starts at 0. Without this
+        // the clocks differ and the diff's cycle-based anchor can pick the
+        // wrong loop iteration. The diff is relative to the load, so zeroing
+        // both is correct.
         cycles_elapsed = 0;
         fp_write = 0;
         fp_count = 0;
@@ -768,13 +771,14 @@ int main(int argc, char** argv) {
     }
 
     // Stage 0.2: deterministic demo-input driver for the headless profiling
-    // run. A no-input headless run idles on the title/menu screen and never
-    // exercises the indirect-dispatch-heavy gameplay code we want to profile,
-    // so when --emit-target-seeds is active (and we own the loop, i.e. not
-    // --window / --tcp) we synthesize a button track: each button is held 6
-    // frames then released 6 (edge-triggered menus need the release), cycling
-    // Start/A to blow through menus + directions/B to move and interact in
-    // game. Frame-indexed (no RNG) so the profile is reproducible.
+    // run. A headless run with no input idles on the title/menu screen and
+    // never exercises the indirect-dispatch-heavy gameplay code we want to
+    // profile. So when --emit-target-seeds is active (and we own the loop,
+    // i.e. not --window or --tcp) we synthesize a button track: each button
+    // is held 6 frames, then released 6 (edge-triggered menus need the
+    // release). Start/A cycle to get through menus; directions/B move and
+    // interact in game. The track is indexed by frame (no RNG), so the
+    // profile is reproducible.
     enum : uint16_t {
         KEY_A = 1u << 0, KEY_B = 1u << 1, KEY_START = 1u << 3,
         KEY_RIGHT = 1u << 4, KEY_LEFT = 1u << 5,
@@ -864,7 +868,7 @@ int main(int argc, char** argv) {
                 sf << buf;
             }
         }
-        // Dynamic-code (IWRAM/EWRAM) sidecar — Stage 4 surface, visibility only.
+        // Dynamic-code (IWRAM/EWRAM) sidecar: Stage 4 surface, visibility only.
         const std::string dyn_path = args.emit_target_seeds + ".dynamic";
         std::ofstream df(dyn_path);
         if (df) {
@@ -915,7 +919,7 @@ int main(int argc, char** argv) {
                 static_cast<unsigned long long>(ppu.frame_count()),
                 frames_presented);
 
-    // Sanity probes — count non-zero bytes in PAL, VRAM, OAM. If the
+    // Sanity probes: count non-zero bytes in PAL, VRAM, OAM. If the
     // BIOS rendered anything, PAL will have palette entries; VRAM
     // will have tile data; OAM may have sprite entries.
     auto count_nonzero = [](const uint8_t* p, std::size_t n) {
@@ -927,7 +931,7 @@ int main(int argc, char** argv) {
                 count_nonzero(bus.pal_ptr(),  1024),
                 count_nonzero(bus.vram_ptr(), 96 * 1024),
                 count_nonzero(bus.oam_ptr(),  1024));
-    // Print the first 16 PAL entries (as 16-bit colors) — the BIOS
+    // Print the first 16 PAL entries (as 16-bit colors). The BIOS
     // intro sets a specific palette.
     std::printf("pal[0..15]:");
     const uint8_t* pal = bus.pal_ptr();
@@ -936,7 +940,7 @@ int main(int argc, char** argv) {
         std::printf(" %04x", v);
     }
     std::printf("\n");
-    // DISPCNT — knowing the BG mode tells us how to interpret VRAM.
+    // DISPCNT: knowing the BG mode tells us how to interpret VRAM.
     uint16_t final_dispcnt = bus.io().read16(0x000);
     {
         const uint8_t* io = bus.io().raw();
@@ -1009,7 +1013,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    // Raw OAM hex dump — 32 bytes per line, first 256 bytes.
+    // Raw OAM hex dump, 32 bytes per line, first 256 bytes.
     std::printf("OAM raw (first 256 bytes):\n");
     const uint8_t* oam = bus.oam_ptr();
     for (int row = 0; row < 8; ++row) {

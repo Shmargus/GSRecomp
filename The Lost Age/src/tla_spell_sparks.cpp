@@ -1,18 +1,20 @@
 // Golden Sun: The Lost Age -- spell sparks past the console's canvas.
 //
 // Golden Sun 1's skipped-spark capture (its FACTS.md, 2026-10-02), re-found
-// on this ROM (FACTS.md, 2026-10-08). Twelve battle spell routines (kLoops) move a
-// particle record, then bounds tests (x past the canvas, y < 0) jump
-// straight to the instruction after the stamp call, so a spark that left
-// the 128x128 canvas keeps moving but is not drawn. Here the stamp call is
+// on this ROM (FACTS.md, 2026-10-08). Twelve battle spell routines (kLoops)
+// move a particle record, then run bounds tests (x past the canvas, y < 0)
+// that jump straight to the instruction after the stamp call. A spark that
+// left the 128x128 canvas therefore keeps moving but is not drawn. Here the
+// stamp call is
 // `mov lr, rN` / `bl lr` (0xF800), not GS1's `bl 0x080072F4` (`bx r4`).
-// Plasma's loop is 0x08149A84..0x08149B0C (bench: state 2 with Plasma,
-// the stack at the frame wait held 0x08149B2F); the other ten were found
-// by the same shape over the whole ROM: of 2075 `bl lr` calls, these have
-// a bounce `b` to the join and x and y bound tests to it. Supernova was
-// found later from GS1's loop (FACTS.md, 2026-10-30).
+// Plasma's loop is 0x08149A84..0x08149B0C (found on the bench: in state 2
+// with Plasma, the stack at the frame wait held 0x08149B2F). The other ten
+// were found by searching the whole ROM for the same shape: of 2075 `bl lr`
+// calls, these are the ones with a bounce `b` to the join plus x and y
+// bounds tests that branch to it. Supernova was found later from GS1's loop
+// (FACTS.md, 2026-10-30).
 //
-// On a taken test the game's own skipped path is dry-run (tla_dry_run.h):
+// On a taken test the game's own skipped path is dry-run (dry_run.h):
 // the remaining bounds tests are treated as passed, and at the stamp call
 // its routine (lr), canvas (r0), art (r1), box (r2, r3) and size ([sp],
 // [sp+4]) go to the host spark capture. The game's own state and decisions
@@ -28,7 +30,7 @@
 #include "runtime.h"
 #include "runtime_bus_bridge.h"
 #include "tla.h"
-#include "tla_dry_run.h"
+#include "dry_run.h"
 
 namespace {
 
@@ -58,14 +60,14 @@ const SkippedSparkLoop kLoops[] = {
 void capture_skipped_spark(const SkippedSparkLoop& loop, std::uint32_t pc) {
     gba::GbaBus* bus = gbarecomp::active_bus();
     if (!bus) return;
-    TlaDryRunBus dry(bus);
+    gbarecomp::DryRunBus dry(bus);
     armv4t::CPUState cpu{};
     gbarecomp::load_arm_cpu_into_interp(g_cpu, cpu);
     cpu.R[15] = pc + 2u;  // the branch not taken
     cpu.cpsr.t = true;
     cpu.thumb = true;
     // The longest path (a divide helper) is a few hundred steps.
-    tla_dry_run(cpu, dry, 4096, [&](armv4t::CPUState& c) {
+    gbarecomp::dry_run(cpu, dry, 4096, [&](armv4t::CPUState& c) {
         const std::uint32_t at = c.R[15];
         if (!c.thumb) return false;
         if (at == loop.join) return true;

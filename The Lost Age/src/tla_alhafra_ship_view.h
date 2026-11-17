@@ -10,10 +10,10 @@
 // the east end of the town's land, grid cells x28..38 / y33..43 (pixels
 // 448..624 / 528..704; BG3 grass 5/6/9/0x17, BG2 empty below row 38, the same
 // grid in 0040 and 0053). No capture's console view shows it, and in the
-// widened view it stood as a lone green square in the top-left margin of the
-// open sea. Jimmy's choice (2026-10-23): while the camera's left edge is past
-// that land (x >= 624, so none of it can be on the console's screen), the
-// margins draw those cells as the open water beside them (column 39, BG3
+// widened view it appears as a lone green square in the top-left margin of
+// the open sea. While the camera's left edge is past that land (x >= 624, so
+// none of it can be on the console's screen), the margins draw those cells
+// as the open water beside them (column 39, BG3
 // water 2 / BG2 empty in rows 33..43). Only the margins' copy of memory
 // changes; the game's own memory is untouched.
 inline bool tla_alhafra_ship_view(const std::uint8_t* ewram, std::size_t bytes,

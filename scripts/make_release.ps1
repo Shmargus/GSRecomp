@@ -19,6 +19,9 @@ param(
     [switch]$NoWindows,
     # Skip the Linux release (step 8, built in WSL Ubuntu).
     [switch]$NoLinux,
+    # Also make the Android app (step 9, scripts/android/build_apk.py). It
+    # needs the Android tools listed in BUILDING.md "Android launcher".
+    [switch]$Android,
     # Only the collection launcher (see above).
     [switch]$LauncherOnly,
     # Include Ashley's F1 sticker and dedication in this full release only.
@@ -30,6 +33,26 @@ param(
 $ErrorActionPreference = 'Stop'
 $buildMutex = $null
 $ownsMutex = $false
+# Show-Steps prints the time each release step took.
+$stepTimes = New-Object System.Collections.Generic.List[string]
+$stepName = $null
+$stepClock = [Diagnostics.Stopwatch]::StartNew()
+$totalClock = [Diagnostics.Stopwatch]::StartNew()
+function Start-Step([string]$name) {
+    if ($script:stepName) {
+        $script:stepTimes.Add(('{0,7:N1} min  {1}' -f $script:stepClock.Elapsed.TotalMinutes, $script:stepName))
+    }
+    $script:stepName = $name
+    $script:stepClock.Restart()
+}
+function Show-Steps {
+    Start-Step $null
+    if ($script:stepTimes.Count -eq 0) { return }
+    Write-Host ''
+    Write-Host 'Time per part:'
+    foreach ($line in $script:stepTimes) { Write-Host $line }
+    Write-Host ('{0,7:N1} min  in all' -f $script:totalClock.Elapsed.TotalMinutes)
+}
 try {
     if (-not [Environment]::Is64BitProcess) { throw 'Use 64-bit PowerShell.' }
     $collectionRoot = Split-Path -Parent $PSScriptRoot
@@ -37,6 +60,13 @@ try {
     Set-Location -LiteralPath $repo
 
     $tlaRepo = Join-Path $collectionRoot 'The Lost Age'
+    # Every revision after USA/Europe in a game's revision list (the languages,
+    # then patched ROMs such as Reloaded) ships its own builder configs.
+    function Get-LaterRevisionCodes([string]$revisionList) {
+        @(Get-Content -LiteralPath $revisionList | ForEach-Object {
+            if ($_ -match '^GSR_ROM_REVISION\("([a-z]{2})"') { $Matches[1] }
+        } | Select-Object -Skip 1)
+    }
     # The shared engine lives at the collection root, beside both games.
     $engineRoot = Join-Path $collectionRoot 'engine'
     $engineCMake = $engineRoot -replace '\\', '/'
@@ -129,10 +159,10 @@ try {
     $corpus      = Join-Path $repo 'local/gs011/main'
     $optDir      = Join-Path $repo 'build/gs011_opt'
 
-    $busy = Get-Process -Name ninja, cc1plus, lto1, ld, collect2, mingw32-make `
-        -ErrorAction SilentlyContinue
+    . (Join-Path $PSScriptRoot 'build_guard.ps1')
+    $busy = Get-GsrBuildProcesses
     if ($busy) { throw 'Another build is running. Wait for it to finish, then run this again.' }
-    if ($NoWindows -and $NoLinux) { throw 'Nothing to make: both -NoWindows and -NoLinux were given.' }
+    if ($NoWindows -and $NoLinux -and -not $Android) { throw 'Nothing to make: both -NoWindows and -NoLinux were given.' }
     if ($AshleyEdition -and $LauncherOnly) { throw 'Ashley Edition needs a full release; turn off Launcher only.' }
     $releaseVersion = if ($Version.Trim()) { $Version.Trim() } else { 'dev' }
     if ($Repository -notmatch '^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$') {
@@ -219,6 +249,7 @@ try {
         # parallel, applies the CPU and memory caps and shows its progress. (A
         # bare `cmake --build ... | Out-Null` hid a full engine rebuild with a
         # serial LTO link and looked hung.) Normally quick after build_dev.bat.
+        Start-Step 'Windows: The Broken Seal engine'
         Write-Host 'Checking the engine build is current (build_game.ps1).'
         $powershell = Join-Path $PSHOME 'powershell.exe'
         if (-not (Test-Path -LiteralPath $powershell)) { $powershell = Join-Path $PSHOME 'pwsh.exe' }
@@ -226,6 +257,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'The engine build failed. See the build output above.' }
         }
 
+        Start-Step 'Windows: launcher, builders, The Lost Age engine'
         # ---- 2. Launcher, builder, translator: the release build tree --------
         # Configured like build\gs011_opt but without LTO (none of these three
         # needs it) and with the player launcher.
@@ -291,7 +323,6 @@ try {
             # build_game.ps1 also enables LTO; keep it on here so building
             # release tools never invalidates the engine's existing objects.
             '-DTLA_SPLIT_GAME_CODE=ON', '-DTLA_ENABLE_LTO=ON',
-            '-DTLA_RELEASE_LAUNCHER=ON', '-DTLA_PLAYER_RELEASE=ON',
             "-DGSR_RELEASE_VERSION=$releaseVersion", "-DGSR_REPORT_HOST=$reportHost",
             "-DGSR_RELEASE_REPOSITORY=$Repository"
         )
@@ -333,6 +364,7 @@ try {
             if (-not $f -or -not (Test-Path -LiteralPath $f)) { throw "Build output missing: $f" }
         }
 
+        Start-Step 'Windows: release folder and compiler'
         # ---- 3. A clean release folder -----------------------------------------
         Remove-ReleaseTree $outDir
         Copy-CollectionFiles $outDir
@@ -372,7 +404,7 @@ try {
             Copy-Item -Destination (Join-Path $dataDir 'overlays')
 
         # Each localized revision carries its own code configs and overlay sources.
-        foreach ($language in @('es', 'it', 'fr', 'de')) {
+        foreach ($language in (Get-LaterRevisionCodes (Join-Path $repo 'src/rom_revisions.inc'))) {
             $languageConfig = Join-Path $repo "config/$language"
             $languageData = Join-Path $dataDir $language
             New-Item -ItemType Directory -Force -Path (Join-Path $languageData 'overlays') | Out-Null
@@ -486,11 +518,11 @@ public static class GsrManifest {
         $headers = New-Object 'System.Collections.Generic.HashSet[string]'
         # Union both corpora's distinct standard includes before trimming GCC.
         $headerProbe = Join-Path $releaseRoot 'collection-header-probe.cpp'
-        $includeLines = foreach ($root in @((Join-Path $repo 'local/gs011'), (Join-Path $tlaRepo 'local/tla_block'))) {
-            Get-ChildItem -LiteralPath $root -Recurse -File -Include '*.cpp', '*.h' |
-                Select-String -Pattern '^\s*#\s*include\s*<' | ForEach-Object { $_.Line.Trim() }
-        }
-        $includeLines | Sort-Object -Unique | Set-Content -LiteralPath $headerProbe -Encoding ascii
+        # (Select-String over both corpora took 22 s here, 16 November 2026.)
+        $includeLines = & $python (Join-Path $PSScriptRoot 'release_include_lines.py') `
+            (Join-Path $repo 'local/gs011') (Join-Path $tlaRepo 'local/tla_block')
+        if ($LASTEXITCODE -ne 0) { throw 'Could not list the standard headers the game code includes.' }
+        $includeLines | Set-Content -LiteralPath $headerProbe -Encoding ascii
         $sample += $headerProbe
         foreach ($src in $sample) {
             if (-not (Test-Path -LiteralPath $src)) { continue }
@@ -565,7 +597,7 @@ $($packages -join "`r`n")
         Copy-Item -LiteralPath $tlaTranslator -Destination $tlaBuilderDir
         Copy-Item -LiteralPath (Join-Path $tlaRepo 'config/tla/main.toml') -Destination $tlaData
         Get-ChildItem -LiteralPath (Join-Path $tlaRepo 'config/tla/reloc') -Filter '*.toml' | Copy-Item -Destination (Join-Path $tlaData 'reloc')
-        foreach ($language in @('es', 'it', 'fr', 'de')) {
+        foreach ($language in (Get-LaterRevisionCodes (Join-Path $tlaRepo 'src/tla_rom_revisions.inc'))) {
             $languageData = Join-Path $tlaData $language
             New-Item -ItemType Directory -Force -Path (Join-Path $languageData 'reloc') | Out-Null
             Copy-Item -LiteralPath (Join-Path $tlaRepo "config/$language/main.toml") -Destination $languageData
@@ -590,6 +622,7 @@ $($packages -join "`r`n")
         New-Item -ItemType Directory -Force -Path (Join-Path $outDir 'Music') | Out-Null
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'release/MUSIC_README.txt') -Destination (Join-Path $outDir 'Music/README.txt')
 
+        Start-Step 'Windows: checks'
         # ---- 6. Checks -------------------------------------------------------------
         foreach ($forbidden in @('GoldenSunGame.dll', 'TLAGame.dll', 'libGoldenSunGame.so', 'libTLAGame.so', 'gssplash.jpg', '*.gba', '*.sav', '*.state*', '*.ini', 'recompiled*.cpp', 'bios*.bin')) {
             $hit = Get-ChildItem -LiteralPath $outDir -Recurse -Filter $forbidden -ErrorAction SilentlyContinue
@@ -600,6 +633,7 @@ $($packages -join "`r`n")
         Write-Host ('Release folder: {0:N0} MB' -f ($size / 1MB))
 
         if (-not $NoTest) {
+            Start-Step 'Windows: test builds of both games'
             $testRom = Get-ReleaseTestRom $repo
             $testDir = Join-Path $releaseRoot 'release-test'
             Remove-ReleaseTree $testDir
@@ -625,10 +659,14 @@ $($packages -join "`r`n")
         }
 
         # ---- 7. Zip ------------------------------------------------------------------
+        Start-Step 'Windows: zip'
         $editionSuffix = if ($AshleyEdition) { '-Ashley' } else { '' }
         $zip = Join-Path $releaseRoot ('GoldenSunRecompiled{0}-{1}.zip' -f $editionSuffix, (Get-Date -Format 'yyyy-MM-dd'))
         if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
-        Compress-Archive -Path $outDir -DestinationPath $zip -CompressionLevel Optimal
+        # Keep the folder as the zip's top entry. On 16 November 2026 ZipFile
+        # took 7 s versus 24 s for Compress-Archive, with the same size.
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [IO.Compression.ZipFile]::CreateFromDirectory($outDir, $zip, [IO.Compression.CompressionLevel]::Optimal, $true)
         Write-Host ''
         Write-Host "Release ready: $outDir" -ForegroundColor Green
         Write-Host ('Zip for GitHub: {0} ({1:N0} MB)' -f $zip, ((Get-Item -LiteralPath $zip).Length / 1MB)) -ForegroundColor Green
@@ -641,6 +679,7 @@ $($packages -join "`r`n")
     # and a zip made on Linux, which keeps the programs' executable bit). It
     # uses the block-timing game code step 1 just brought up to date.
     if (-not $NoLinux) {
+        Start-Step 'Linux release'
         $distro = 'Ubuntu-24.04'
         $wsl = Join-Path $env:SystemRoot 'System32\wsl.exe'
         $have = (Test-Path -LiteralPath $wsl) -and
@@ -672,6 +711,7 @@ $($packages -join "`r`n")
             & $wsl -d $distro -u root --cd $collectionRoot --exec bash @linuxArgs
             if ($LASTEXITCODE -ne 0) {
                 Write-Host "The Linux release failed (the Windows release above is complete)." -ForegroundColor Red
+                Show-Steps
                 exit 1
             }
             if (-not $LauncherOnly) {
@@ -682,8 +722,34 @@ $($packages -join "`r`n")
             Write-Host "Linux release ready: $(Join-Path $releaseRoot 'linux')" -ForegroundColor Green
         }
     }
+
+    # 9. Android app
+    # build_apk.py packages the launcher, engines, builders, translator and
+    # compiler. The player's ROM supplies the game code. --release disables
+    # app debugging.
+    if ($Android -and $LauncherOnly) {
+        Write-Host 'Android app skipped: it has no launcher-only package.' -ForegroundColor Yellow
+    } elseif ($Android) {
+        Start-Step 'Android app'
+        Write-Host ''
+        Write-Host 'Android app.'
+        & $python (Join-Path $PSScriptRoot 'android/build_apk.py') --release --version $releaseVersion
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host 'The Android app failed (the releases above are complete).' -ForegroundColor Red
+            Show-Steps
+            exit 1
+        }
+        $builtApk = Join-Path $releaseRoot 'android/GoldenSunRecompiled.apk'
+        # Scan the APK and the collection archive inside it (assets/payload.zip).
+        Assert-NoRomBytes $builtApk $builtApk
+        $apk = Join-Path $releaseRoot ('GoldenSunRecompiled-android-{0}.apk' -f (Get-Date -Format 'yyyy-MM-dd'))
+        Copy-Item -LiteralPath $builtApk -Destination $apk -Force
+        Write-Host ('Android app ready: {0} ({1:N0} MB)' -f $apk, ((Get-Item -LiteralPath $apk).Length / 1MB)) -ForegroundColor Green
+    }
+    Show-Steps
     exit 0
 } catch {
+    Show-Steps
     Write-Host "Release stopped: $($_.Exception.Message)" -ForegroundColor Red
     exit 1
 } finally {

@@ -77,7 +77,7 @@ void expect_uniform_pixels(int drawable_width, int drawable_height,
 }  // namespace
 
 int main() {
-    // Integer letterbox (the default) — exact multiples are unchanged.
+    // Integer letterbox (the default); exact multiples are unchanged.
     expect_layout(720, 480, 240, 160, ScalingMode::IntegerLetterbox,
                   0, 0, 720, 480, 3, "integer exact 3x");
     // ...and non-multiples snap DOWN to a whole scale and letterbox (no
@@ -111,8 +111,8 @@ int main() {
     expect_uniform_pixels(1152, 640, 288, 160, "uniform widescreen 4x");
     expect_uniform_pixels(1280, 720, 288, 160, "uniform widescreen 720p");
 
-    // Aspect fill keeps the previous behaviour exactly, for anyone who prefers
-    // maximum window coverage over uniform pixels.
+    // Aspect fill is for anyone who prefers maximum window coverage over
+    // uniform pixels.
     expect_layout(720, 480, 240, 160, ScalingMode::AspectFill,
                   0, 0, 720, 480, 3, "fill exact 3x");
     expect_layout(1000, 700, 240, 160, ScalingMode::AspectFill,
@@ -160,8 +160,9 @@ int main() {
     const auto small = gbarecomp::compute_minimal_sharp_layout(200, 150, 240, 160);
     assert(small.width == 198 && small.height == 132 && small.integer_scale == 0);
 
-    // Real display/window sizes either fill with <scale pixels clipped from
-    // extra scenery, or retain bars at the selected envelope. Native survives.
+    // For real display and window sizes, the view either fills the window
+    // (clipping fewer than one scale step of pixels from the extra scenery) or
+    // keeps bars at the selected envelope. The native view always survives.
     for (const auto& size : {std::pair{1366, 768}, std::pair{1920, 1080},
                              std::pair{3440, 1440}, std::pair{800, 1200}}) {
         const auto view = gbarecomp::resolve_aspect_view_geometry(

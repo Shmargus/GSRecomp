@@ -1,4 +1,4 @@
-// gba_rtc.h — cartridge GPIO port + S-3511A Real-Time Clock.
+// gba_rtc.h: cartridge GPIO port + S-3511A Real-Time Clock.
 //
 // Device emulation (NOT HLE): the guest's own recompiled driver bit-bangs
 // the 3 serial pins on the GPIO data port at 0x080000C4..0x080000C9; we

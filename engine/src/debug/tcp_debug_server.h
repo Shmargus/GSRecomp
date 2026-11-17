@@ -1,4 +1,4 @@
-// tcp_debug_server.h — native debug TCP server.
+// tcp_debug_server.h: native debug TCP server.
 //
 // Mirrors the mGBA oracle's command shape (oracle/main.cpp) but
 // against the NATIVE runtime's CPU/bus/PPU state. The diff harness
@@ -7,7 +7,7 @@
 //
 // Operates command-driven: the server's run() blocks on a single
 // client at a time, dispatching commands until the client sends
-// "quit". Frame stepping is explicit — `step` runs one PPU frame,
+// "quit". Frame stepping is explicit: `step` runs one PPU frame,
 // other commands inspect current state. This is the shape diff_frame
 // needs to sync native and oracle on the same PPU-frame boundary.
 //
@@ -81,11 +81,11 @@ public:
         std::function<std::string()> misses_query;
         // Free-run control (game core on its own thread; server on the main
         // thread). `continue` (alias `resume`) frees the server to answer OBSERVATION commands
-        // while the game thread is busy/wedged — the whole point: a hung core
-        // stays introspectable. `pause` parks the game at a frame boundary
+        // while the game thread is busy/wedged (the whole point: a hung core
+        // stays introspectable). `pause` parks the game at a frame boundary
         // (waits, best-effort). `run_status` reports the live run-state. `step`
         // stays synchronous (signals the game thread and waits) for oracle
-        // lockstep. All optional — null in single-threaded / non-TCP harnesses.
+        // lockstep. All optional: null in single-threaded / non-TCP harnesses.
         std::function<void()>        resume;       // free-run (continue)
         std::function<void()>        pause;        // park at frame boundary
         std::function<std::string()> run_status;   // JSON: run-state/parked/pc

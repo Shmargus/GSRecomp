@@ -1,9 +1,9 @@
-// interpreter.h — Reference IR interpreter.
+// interpreter.h: Reference IR interpreter.
 //
 // Executes one decoded `Instr` against a `CPUState` and a `Bus`. It is the
 // semantic and timing reference for the recompiled code. Generated code
 // never calls it; the runtime may bridge a dispatch miss through it (see
-// PRINCIPLES.md "Honest self-healing").
+// PRINCIPLES.md "Self-healing").
 //
 // Design points:
 // - Stateless API: each call takes everything it needs. No hidden

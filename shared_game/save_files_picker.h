@@ -114,6 +114,33 @@ inline bool valid(const std::uint8_t* record, std::size_t summed) {
 }
 inline std::uint32_t workspace(const Game& g) { return bus()->read32(g.workspace); }
 
+// The cartridge's flash as it stands; empty when the game has none.
+inline std::vector<std::uint8_t> cartridge_flash() {
+    gba::GbaBus* b = bus();
+    return b && b->save().flash_enabled() ? b->save().flash_bytes()
+                                          : std::vector<std::uint8_t>{};
+}
+
+// The newest copy of `file`'s first record in `flash` (records of
+// `record_bytes`): the one whose header names the file (byte 7) with the
+// highest generation (+0xA), as the save layer's own table keeps it.
+// Null when the cartridge holds none.
+inline const std::uint8_t* newest_record(const std::vector<std::uint8_t>& flash, int file,
+                                         std::size_t record_bytes) {
+    const std::uint8_t* newest = nullptr;
+    int best = -1;
+    for (std::size_t s = 0; s + record_bytes <= flash.size(); s += record_bytes) {
+        const std::uint8_t* r = flash.data() + s;
+        if (!present(r) || r[7] != file) continue;
+        const int generation = r[0xA] | (r[0xB] << 8);
+        if (generation > best) {
+            best = generation;
+            newest = r;
+        }
+    }
+    return newest;
+}
+
 // A file in the extension, answered as both games' save layers answer their
 // flash records (TBS 0x08005A78/0x08005920/0x08005AC0, TLA 0x08015E44/
 // 0x08015CA4/0x08015E8C). A record is `bytes` long: "CAMELOT", +7 `number`
@@ -181,15 +208,15 @@ inline std::uint32_t call(std::uint32_t pc, std::uint32_t r0 = 0, std::uint32_t 
 // The file a row of the box stores (the save layers' answer).
 inline int row_file(const Game& g, int row) { return stored_file(base(g) + row); }
 
-// The Autosave's row shows "Auto" where the hero's name goes (Jimmy, 11
-// November 2026: "Autosave" ran into the text beside it); the name field is
-// 12 bytes from +0x10, plain letters, 0-terminated (every save in Saves/).
+// The Autosave's row shows "Auto" where the hero's name goes ("Autosave" would
+// run into the text beside it); the name field is 12 bytes from +0x10, plain
+// letters, 0-terminated (every save in Saves/).
 constexpr std::size_t kNameAt = 0x10, kNameBytes = 12;
 constexpr char kAutosaveName[] = "Auto";
 static_assert(sizeof kAutosaveName <= kNameBytes);
 
-// An empty Autosave row reads "No autosaved data" (Jimmy, 8 November 2026)
-// instead of the game's usual empty-file line.
+// An empty Autosave row reads "No autosaved data" instead of the game's
+// usual empty-file line.
 //
 // How: the file box draws each row's line by calling the game's text routine
 // (Game::text) with the text id in r0 and the row's y (row * 16) in r3. For
@@ -234,8 +261,8 @@ inline bool autosave_character(std::uint32_t text_id, std::uint32_t* character) 
     return true;
 }
 
-// Each file's row names the party leader (Jimmy, 11 November 2026), not the
-// game's own choice. The header builder (TBS 0x0801F818, TLA 0x08043358; the
+// Each file's row names the party leader, not the game's own
+// choice. The header builder (TBS 0x0801F818, TLA 0x08043358; the
 // same bytes in all ten ROMs) copies the 12-byte name of the field identity's
 // record (word 0x02000434 / 0x02000454: Isaac / Felix, even when he is not
 // in the party) to summary +0x10, and the party order's first four ids
@@ -252,8 +279,7 @@ constexpr std::size_t kClassAt = 0x1D, kRecordClass = 0x129;
 constexpr unsigned kCharacters = 8;
 inline void show_leaders(const Game& g, Entries& stored) {
     if (!g.first_record) return;
-    std::vector<std::uint8_t> flash;
-    if (gba::GbaBus* b = bus(); b && b->save().flash_enabled()) flash = b->save().flash_bytes();
+    const std::vector<std::uint8_t> flash = cartridge_flash();
     for (int f = 0; f < kFiles; ++f) {
         Entry& e = stored[f];
         const unsigned leader = e[kLeaderAt];
@@ -266,7 +292,7 @@ inline void show_leaders(const Game& g, Entries& stored) {
         if (!r || !present(r)) continue;
         const std::uint8_t* hero = r + kRecordHeader + g.characters + leader * g.character_size;
         std::memcpy(e.data() + kNameAt, hero, kNameBytes);
-        // The level too (Jimmy, 11 November). +0x1C is also "file in use":
+        // The level too. +0x1C is also "file in use":
         // every reader in both ROMs (pickers, detail panels, first-empty and
         // Clear Data questions) and ours only test it for zero or draw it,
         // so a nonzero level only ever replaces a nonzero one.
@@ -455,9 +481,9 @@ inline void on_entry(const Game& g, std::uint32_t pc) {
         const auto all = all_entries(g);
         int file = first_from(base(g) + row,
             [&](int f) { return eligible(mode, all[f], f); });
-        // Saving from the Autosave (Jimmy, 8 November 2026): start on the
-        // first empty file, not file 1; with all eight full, file 1 as
-        // before (the game still asks before saving over a file).
+        // Saving from the Autosave: start on the first empty
+        // file, not file 1; with all eight full, file 1 as before (the game
+        // still asks before saving over a file).
         if (mode == 0 && base(g) + row == kAutosaveShown) {
             const auto empty = std::find_if(all.begin() + kAutosaveShown + 1, all.end(),
                 [](const Entry& e) { return e[0x1C] == 0; });
@@ -474,9 +500,8 @@ inline void on_entry(const Game& g, std::uint32_t pc) {
         fill_table(g, base(g), all);
         g_cpu.R[0] = static_cast<std::uint32_t>(file - base(g));
     } else if (pc == g.step && (lr == pk + g.up_return || lr == pk + g.down_return)) {
-        // Up/Down step one file through all nine (Jimmy, 3 November: stop
-        // on every file); past the box's edge the window moves instead of
-        // wrapping.
+        // Up/Down step one file through all nine (stopping on every
+        // file); past the box's edge the window moves instead of wrapping.
         const int was = base(g), from = was + static_cast<int>(g_cpu.R[8]);
         const int file = step(from, lr == pk + g.up_return ? -1 : 1, [](int) { return true; });
         const int window = base_showing(was, file);
@@ -544,7 +569,7 @@ bool paint(const Game& g, Put& put, Pixel& pixel) {
     const int w = b->read16(g_picker.window + 8), h = b->read16(g_picker.window + 0xA);
     if (w < 3 || h < 3) return false;
     // Rows are 16 pixels from 4 inside the window's corner, the border 4
-    // wide (Jimmy's F12 0086, TBS: window tile (1, 2), rows from y 20). The
+    // wide (F12 0086, TBS: window tile (1, 2), rows from y 20). The
     // window's blues become the same shades of red; letters, shadows and the
     // game's own highlight are not blue and stay.
     for (int row = 0; row < kRows; ++row) {

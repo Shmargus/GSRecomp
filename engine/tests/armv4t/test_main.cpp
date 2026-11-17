@@ -1,4 +1,4 @@
-// armv4t_tests — STUB.
+// armv4t_tests: STUB.
 //
 // Real test population comes from jsmolka/gba-tests and
 // nba-emu/hw-test. The decoder + an IR interpreter must pass those

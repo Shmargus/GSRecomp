@@ -60,6 +60,10 @@ void write_host_backtrace(std::FILE* f) {
     void* frames[64];
 #if defined(_WIN32)
     const int count = CaptureStackBackTrace(0, 64, frames, nullptr);
+#elif defined(__ANDROID__)
+    // backtrace() exists only from Android 13; the list stays empty.
+    const int count = 0;
+    (void)frames;
 #else
     const int count = backtrace(frames, 64);
 #endif

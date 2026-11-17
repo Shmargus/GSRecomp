@@ -1,4 +1,4 @@
-// tests/codegen/stubs.h — exposes the host-side glue that
+// tests/codegen/stubs.h: exposes the host-side glue that
 // stubs.cpp provides to the test runner.
 
 #pragma once

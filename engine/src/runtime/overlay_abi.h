@@ -1,4 +1,4 @@
-// overlay_abi.h — the ONLY contract between the host exe and a
+// overlay_abi.h: the ONLY contract between the host exe and a
 // runtime-compiled overlay DLL (Stage-2 self-healing recompiler).
 //
 // A dispatch miss → emit that one function's C → gcc → DLL → LoadLibrary.
@@ -10,7 +10,7 @@
 // be catastrophic if silently wrong.
 //
 // VERSIONING: GBA_OVERLAY_ABI_VERSION gates every load. Bump it on ANY
-// change to this struct OR to ArmCpuState's layout (runtime_arm_types.h) —
+// change to this struct OR to ArmCpuState's layout (runtime_arm_types.h):
 // a cached DLL built against a different ABI is rejected (FreeLibrary +
 // delete + recompile). The struct is APPEND-ONLY: never reorder or remove.
 
@@ -24,8 +24,9 @@
 extern "C" {
 #endif
 
-// ABI v6: invalidate pre-resync PIC code; generated dispatches now restore
-// the overlay-local image base before every computed transfer.
+// ABI v6: generated dispatches restore the overlay-local image base before
+// every computed transfer. The bump rejects cached position-independent
+// overlay DLLs built without that restore.
 #define GBA_OVERLAY_ABI_VERSION 6u
 
 typedef struct GbaOverlayCallbacks {
@@ -114,9 +115,9 @@ typedef struct GbaOverlayCallbacks {
 } GbaOverlayCallbacks;
 
 // Exported by every overlay DLL:
-//   uint32_t overlay_abi(void);                       — returns the ABI version
-//   void     overlay_init(const GbaOverlayCallbacks*); — stores the callbacks
-//   void     func_XXXXXXXX(void);                      — the recompiled function
+//   uint32_t overlay_abi(void);                        : returns the ABI version
+//   void     overlay_init(const GbaOverlayCallbacks*); : stores the callbacks
+//   void     func_XXXXXXXX(void);                      : the recompiled function
 
 #ifdef __cplusplus
 }  // extern "C"

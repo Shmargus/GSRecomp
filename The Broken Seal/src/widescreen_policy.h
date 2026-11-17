@@ -296,13 +296,11 @@ inline constexpr bool golden_sun_expanded_viewport_branch_override(
     return false;
 }
 
-// B328 computes the body's own top-left after B27E's separate +0x0C path.
-// A rejected B27E does not reject that body: its computed Y may still be in
-// the expanded view (session 20260906_162111: 225 -> 199, down to 222 -> 196).
-// Require the same current execution identity, not acceptance of the parent.
-// Keep this predicate pure: the runner supplies the current execution identity
-// and the exact parent record, while diagnostics remain observational and are
-// not required for behavior.
+// B328 computes the body position after B27E handles the shadow at +0x0C.
+// The body can still be visible when B27E rejects the shadow (session
+// 20260906_162111: 225 -> 199 down to 222 -> 196). Require a parent record
+// from this call: same staging address, frame, call depth and return PC.
+// The runner supplies those values so the check needs no diagnostic state.
 struct GoldenSunObjB328ParentMatch {
     bool valid = false;
     std::uint32_t staging_address = 0;
@@ -358,15 +356,11 @@ inline constexpr std::size_t kGoldenSunOamShadowSlotCount =
 inline constexpr std::uint32_t kGoldenSunOamStart = 0x07000000u;
 inline constexpr std::uint32_t kGoldenSunOamBytes = 1024u;
 
-// The game builds its sprite list in more than one place and uploads
-// whichever is current, so watching a single address misses whole frames.
-// Measured from the upload DMAs themselves (source, destination 0x07000000,
-// 1024 bytes): `session_20260906_131954` took 177 of 256 uploads from
-// kGoldenSunOamShadowStart and 79 from the address below;
-// `session_20260906_113648` split 196/60. A third address, 0x03002000,
-// supplied 10 of 256 in `session_20260906_105904`, but that range is reused
-// for unrelated purposes (actor records, a transient code image) and is
-// deliberately NOT recognised here without evidence of its geometry.
+// Watch both sprite-list sources. In captures of 1,024-byte DMAs to
+// 0x07000000, kGoldenSunOamShadowStart and the address below split 256
+// uploads 177/79 in one run and 196/60 in another. A third run took 10
+// of 256 from 0x03002000. That range also holds actor records and transient
+// code, so its sprite geometry still needs verification.
 //
 // Size and stride are not assumed: the upload is 1024 bytes to OAM, which is
 // the hardware's 128 slots of 8 bytes.
@@ -650,9 +644,9 @@ inline constexpr GoldenSunObjYEdgeAliasStep golden_sun_obj_y_edge_alias_step(
     return result;
 }
 
-// Historical cadence predicate retained for focused diagnostics/tests. The
-// runtime's visible provenance validity is now bounded by exact OAM identity,
-// not by this short frame-age window.
+// Frame-age check kept for focused diagnostics and tests. At runtime, whether
+// provenance is still valid is decided by exact OAM identity (see
+// golden_sun_obj_provenance_attrs_match), not by this short frame-age window.
 inline constexpr bool golden_sun_obj_provenance_frame_fresh(
     std::uint64_t writer_frame, std::uint64_t render_frame) {
     if (writer_frame == UINT64_MAX || render_frame < writer_frame) {
@@ -1005,7 +999,7 @@ inline constexpr unsigned golden_sun_wide_margin_policy(
 inline constexpr std::uint16_t kGoldenSunFieldUnavailableTile = 0xffffu;
 
 // Optional metadata kept separate from the rendered entry so game-owned
-// presentation policy can identify an unavailable raw entry (notably 0xffff)
+// presentation policy can identify an unavailable raw entry (such as 0xffff)
 // without changing the lookup result.
 struct GoldenSunFieldTilemapMetadata {
     std::uint16_t map_id = 0;
@@ -1022,13 +1016,15 @@ inline constexpr bool golden_sun_palace_out_of_room(
     return metadata.has_raw_entry &&
            metadata.map_id == kGoldenSunPalaceNoMapId;
 }
-// State1's complete 128x128 field table proves metatile 0x017/raw 0xF200 is
-// the un-authored fill (raw 0xF200 is the fill on any id: also seen at id
-// 0x000 in Bilibin, gpu_frame_0084, 2026-09-29): it occupies 13,531/16,384
-// cells and forms the solid rows/columns outside the active 32x32 room. Metatile 0x003 is authored room
-// data and must not be suppressed. The equal-scroll field uses BG3 as the
-// coordinate-level boundary and suppresses BG1/BG2 there too; the separate
-// split-scroll Palace path does not use BG3 as a cross-layer boundary.
+// State1's complete 128x128 field table shows that metatile 0x017 with raw
+// entry 0xF200 is the un-authored fill. It occupies 13,531 of 16,384 cells and
+// forms the solid rows and columns outside the active 32x32 room. Raw 0xF200
+// is the fill under any metatile id; it was also seen at id 0x000 in Bilibin
+// (gpu_frame_0084, 2026-09-29). Metatile 0x003 is authored room data and must
+// not be suppressed.
+// The equal-scroll field uses BG3 as the coordinate-level boundary and
+// suppresses BG1/BG2 there too. The separate split-scroll Palace path does not
+// use BG3 as a cross-layer boundary.
 inline constexpr std::uint16_t kGoldenSunFieldNoMapId = 0x017u;
 inline constexpr std::uint16_t kGoldenSunFieldNoMapTile = 0xF200u;
 
@@ -1039,7 +1035,7 @@ inline constexpr std::uint16_t kGoldenSunFieldNoMapTile = 0xF200u;
 // in that same session's screenshot. Its exact paired raw value was not
 // separately measured, so this rejects the metatile ID alone rather than an
 // (id, raw) pair. 0x003 (authored room data, per above) and 0x067 (only 69
-// occurrences — too sparse to distinguish fill from legitimate scattered
+// occurrences; too sparse to distinguish fill from legitimate scattered
 // content) are deliberately left unsuppressed.
 inline constexpr std::uint16_t kGoldenSunFieldNoMapId2 = 0x01Au;
 
@@ -1277,12 +1273,12 @@ inline bool golden_sun_field_bg3_inward_entry_2d(
 // Per-cell "authored" bitmap for the field's 128x128 metatile table (EWRAM
 // 0x02010000..0x02020000, one u32 entry per cell). A bit is set only when
 // the guest has actually written that cell since the map was last reset.
-// This replaces relying on a single measured sentinel ID/value to detect
-// un-authored fill: that approach only recognised the exact 0x017/0xF200
-// pair seen in one room and let other rooms' different residual fill IDs
-// (e.g. Bilibin's 0x01a) through as visible junk. Kept as a pure,
-// independently testable value type; the runner owns the one live instance
-// and mirrors EWRAM writes into it only while an expanded view is active.
+// This detects un-authored fill without relying on one measured sentinel
+// ID/value. A sentinel would only recognise the exact 0x017/0xF200 pair seen
+// in one room and would let other rooms' different residual fill IDs (e.g.
+// Bilibin's 0x01a) through as visible junk. It is a pure, independently
+// testable value type; the runner owns the one live instance and mirrors
+// EWRAM writes into it only while an expanded view is active.
 class GoldenSunFieldAuthoredMap {
 public:
     static constexpr std::uint32_t kCells = 128u * 128u;
@@ -1733,11 +1729,11 @@ inline constexpr bool golden_sun_obj_dimensions(unsigned shape,
 }
 
 // May a sprite with no earlier on-screen frame enter the bottom margin at
-// OAM row `y` (160..199)? B328's widened fall-through was kept closed for
-// those because a positive Y there is also a wrapped row: a sprite whose
-// box reaches past row 255 shows its bottom at the top of the console's own
-// screen. Admit only boxes that end by row 256 (affine double size counts
-// twice), which cannot wrap. The ship's oars (64x32 affine at 160..199,
+// OAM row `y` (160..199)? B328's widened fall-through stays closed for such
+// sprites by default, because a positive Y there is also a wrapped row: a
+// sprite whose box reaches past row 255 shows its bottom at the top of the
+// console's own screen. Admit only boxes that end by row 256 (affine double
+// size counts twice), which cannot wrap. The ship's oars (64x32 affine at 160..199,
 // gpu_rewind_0092) pass; a 32x64 body below row 192 does not.
 inline constexpr bool golden_sun_obj_bottom_margin_cannot_wrap(
     int y, std::uint16_t attr0, std::uint16_t attr1) {
@@ -1754,14 +1750,15 @@ static_assert(!golden_sun_obj_bottom_margin_cannot_wrap(199, 0x8000u, 0xC000u),
 static_assert(!golden_sun_obj_bottom_margin_cannot_wrap(199, 0x6300u, 0xC000u),
               "double-size 64x32 is 64 tall");
 
-// The row to draw a sprite at when a provided Y would hide what the console
-// shows. A box wholly outside the expanded view, whose own 8-bit OAM reading
-// puts the whole box on the console's 160 rows, is drawn at that reading.
-// Flint on the Djinn-join world map: recorded -176, OAM 80 (gpu_rewind_0012
-// of bug_report_20261005_094058). A box the reading only cuts into at the
-// console's bottom edge is the hardware wrapping a sprite that belongs above
-// the screen; the handheld shows a sliver there, and taking that reading
-// drew the whole sprite in the bottom margin: the Vale storm villagers
+// The row to draw a sprite at when the provided Y would hide something the
+// console shows. If the box is wholly outside the expanded view, but its own
+// 8-bit OAM reading puts the whole box on the console's 160 rows, the sprite
+// is drawn at that reading. Example: Flint on the Djinn-join world map,
+// recorded -176, OAM 80 (gpu_rewind_0012 of bug_report_20261005_094058).
+// If the OAM reading only cuts into the box at the console's bottom edge, the
+// hardware is wrapping a sprite that belongs above the screen. The handheld
+// shows a sliver there, and taking that reading would draw the whole sprite
+// in the bottom margin. Examples: the Vale storm villagers
 // (recorded -114, 64-row affine double box at OAM 142; gpu_rewind_0001 of
 // bug_report_20261005_122036) and the Sol Sanctum statues (32x64 at OAM
 // 123, recorded -133; logs/gpu_rewind_0134).

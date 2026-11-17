@@ -1,8 +1,8 @@
-// arm_codegen.h — IR → C code emission.
+// arm_codegen.h: IR → C code emission.
 //
 // Lowers each decoded `Instr` to a sequence of C statements that
 // operate on the recomp ABI (g_cpu / bus_read_* / bus_write_* /
-// arm_shift_* / arm_set_* / runtime_dispatch — see runtime_arm.h).
+// arm_shift_* / arm_set_* / runtime_dispatch; see runtime_arm.h).
 //
 // The output is meant to be dropped directly into a `void fname(void)`
 // body emitted by tools/gba_recompile/main.cpp. Each call to
@@ -14,10 +14,9 @@
 //     emits a trailing `return;` so the runtime exec loop re-enters
 //     runtime_dispatch with the new PC.
 //
-// Generated code never calls the interpreter (PRINCIPLES.md "Honest
-// self-healing"). If emit_instr can't lower an op it returns
-// `not_implemented = true` and the caller emits a
-// `runtime_unimplemented_op(...)` abort, not an interpreter fallback.
+// If emit_instr can't lower an instruction, it sets `not_implemented` and
+// the caller emits `runtime_unimplemented_op(...)`. See the self-healing
+// rules in PRINCIPLES.md.
 
 #pragma once
 
@@ -52,25 +51,17 @@ struct CodegenCtx {
     bool current_function_thumb = false;
     bool force_bx_c_return = false;
 
-    // Stage 2 idle-loop elision. Set of back-edge branch PCs whose
-    // in-function backward branch closes a statically-eligible
-    // quiescent loop (no stores / calls / SWI / mode-change / PC-write
-    // in the body — only DP/MOV, loads, MUL, MRS, and this single
-    // conditional back-edge). For those branches emit_direct_branch
-    // emits a runtime_idle_backedge() probe before the `goto` so the
-    // runtime can dynamically prove the loop idle and fast-forward the
-    // scheduler to the next event boundary. nullptr → no elision.
-    // Populated per-function by emit_function.cpp's pre-scan.
+    // Backward branches eligible for idle-loop skipping. The loop may contain
+    // DP/MOV, loads, MUL and MRS, with one conditional branch back to the
+    // start. emit_function.cpp finds candidates and emit_direct_branch adds
+    // a `runtime_idle_backedge()` probe before the `goto`. The runtime skips
+    // whole iterations only after confirming the loop is idle. Null disables it.
     const std::unordered_set<uint32_t>* idle_backedge_pcs = nullptr;
 
-    // Position-independent RAM image. A routine the game DMA-copies into a
-    // relocatable working area (or onto the stack) executes at whatever base
-    // its allocator handed out, so one translation must serve every base.
-    // When image_size != 0 every guest address this function derives from its
-    // own PC is emitted as `(<image_base_var> + offset)` — offset taken
-    // against image_origin in wrapping uint32 arithmetic — instead of the
-    // address the corpus was generated at. image_base_var names the local the
-    // emitted prologue snapshots g_runtime_image_base into.
+    // When image_size is nonzero, emit PC-relative guest addresses as
+    // `image_base_var` plus their offset from image_origin (wrapping uint32).
+    // The prologue saves g_runtime_image_base in that local so one translation
+    // can run at any base, including on the guest stack.
     //
     // Compile-time-only quantities (goto labels, temporary-name suffixes,
     // names_by_key lookups, alias/resume tokens) stay origin-based: they never

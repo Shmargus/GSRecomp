@@ -9,12 +9,10 @@
 // the shown rows must hold the pattern at least twice. The margins then copy
 // the nearest shown period, so no row the game did not stream is ever drawn.
 //
-// Measured over every saved capture (local/scene-repeat-20261020/
-// FINDINGS.md, tools/scene_repeat_bench.cpp): it finds Yampi's haze and Air's
-// Rock's mist (8 map rows), Champa's sunlight (4 rows, 2 columns sideways)
-// on every frame the per-map rules it replaces did (archived in
-// Archive/2026-10-20-per-map-margin-rules). Typical cost a few microseconds
-// per layer.
+// Measured over every saved capture (tools/scene_repeat_bench.cpp): it finds
+// Yampi's haze, Air's Rock's mist (8 map rows) and Champa's sunlight (4 rows,
+// 2 columns sideways) on every frame where the per-map rules it replaces did.
+// Typical cost is a few microseconds per layer.
 
 #include <cstddef>
 #include <cstdint>

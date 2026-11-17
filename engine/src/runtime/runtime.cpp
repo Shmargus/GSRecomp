@@ -3,7 +3,7 @@
 // This translation unit is itself interpreter-free: it initializes the
 // recomp ABI state (g_cpu via runtime_arm.h) and drives execution by
 // calling runtime_dispatch(pc). Two distinct gaps are handled very
-// differently downstream (per PRINCIPLES.md "Honest self-healing"):
+// differently downstream (per PRINCIPLES.md "Self-healing"):
 //   * a CODEGEN gap (unlowered IrOp) → runtime_unimplemented_op aborts
 //     loudly; that abort is the gate, never papered over.
 //   * a DISPATCH gap (undiscovered/excluded function) → runtime_dispatch_miss
@@ -61,7 +61,7 @@ extern "C" unsigned long long g_cost_irq_handler_calls;
 #include "snapshot.h"
 #include "tcp_debug_server.h"
 #ifdef GBA_COSIM
-#include "cosim.h"           // cosim_init() — first-divergence oracle TCP server
+#include "cosim.h"           // cosim_init(): first-divergence oracle TCP server
 #endif
 
 #include <algorithm>
@@ -86,7 +86,7 @@ extern "C" unsigned long long g_cost_irq_handler_calls;
 
 // Authoritative IRQ-entry counter, incremented in runtime_irq (runtime_arm.cpp)
 // at the actual vectoring site. The TCP `counters` command surfaces it via
-// ctx.irq_entries (the run-loop local never increments — IRQs are taken in
+// ctx.irq_entries (the run-loop local never increments: IRQs are taken in
 // runtime_tick, not here). See MC-HP-002 IRQ-delivery comparison.
 extern "C" unsigned long long g_runtime_irq_entries;
 // Set by runtime_should_yield while a host-only frame present runs inside an
@@ -99,7 +99,7 @@ extern "C" void runtime_yield_restore_pc(void);
 
 // Present-in-place hook setter (defined in runtime_bus_bridge.cpp). Registering
 // a hook makes the per-VBlank frame-present yield present + resume in place
-// instead of unwinding the guest stack — see the windowed runner below.
+// instead of unwinding the guest stack: see the windowed runner below.
 void runtime_set_frame_present_hook(std::function<bool()>);
 
 #ifndef GBARECOMP_DEFAULT_GAME_CONFIG
@@ -125,7 +125,7 @@ struct Args {
     std::string bios;
     std::string bios_sha1 = gba::GbaBios::kExpectedSha1;
     // SHA-1 is the gate (40 hex chars, way stronger than a 32-bit
-    // CRC). CRC32 is left at 0 = "no check" — the asset picker will
+    // CRC). CRC32 is left at 0 = "no check": the asset picker will
     // still compute + display it, but only SHA-1 mismatch raises the
     // warning dialog.
     std::uint32_t bios_crc32 = 0;
@@ -147,7 +147,7 @@ struct Args {
     std::string dump_bmp;
     std::string dump_png;    // --dump-png: final framebuffer as PNG (preferred)
     std::string load_state;  // --load-state <path>: headless savestate load
-    // [video] screen = raw|unlit|frontlit|backlit|classic — present-time
+    // [video] screen = raw|unlit|frontlit|backlit|classic: present-time
     // color simulation (see color_lut). Empty = raw (passthrough). The
     // GBARECOMP_SCREEN env var overrides this at launch; --screen overrides
     // the TOML (launcher-driven).
@@ -158,12 +158,12 @@ struct Args {
     int  volume = 100;            // --volume 0..100: pushed-sample gain
     bool volume_given = false;    // else the F1 menu's saved [Audio] value
     bool linear_filter = false;   // --linear-filter 1: linear texture scaling
-    // [bios] hle = true|false — service SWIs via High-Level Emulation instead
+    // [bios] hle = true|false: service SWIs via High-Level Emulation instead
     // of the recompiled real BIOS (LLE). Default false = LLE (the oracle);
     // unimplemented SWIs fall back to LLE even when true. --bios-hle /
     // --no-bios-hle and GBARECOMP_BIOS_HLE override at launch. See bios_hle.h.
     bool bios_hle = false;
-    // [bios] hle_keep_intro = true|false — when HLE is on, KEEP the real
+    // [bios] hle_keep_intro = true|false: when HLE is on, KEEP the real
     // recompiled BIOS boot intro (only HLE the SWIs) instead of skipping it.
     // Default false: HLE mode also boot-skips (synthesizes the post-boot state
     // and jumps to the cart). --bios-hle-keep-intro / GBARECOMP_BIOS_HLE_KEEP_INTRO
@@ -248,7 +248,7 @@ bool parse_u64(std::string_view text, uint64_t* out) {
 
 // Parse a hex CRC32 from TOML/CLI. Accepts "0x21A2AE0A", "21A2AE0A",
 // "21a2ae0a". Returns 0 on unparseable input (which means "no CRC
-// check" downstream — that's the intended fallback).
+// check" downstream: that's the intended fallback).
 std::uint32_t parse_hex_u32(const std::string& s) {
     if (s.empty()) return 0;
     const char* p = s.c_str();
@@ -352,7 +352,7 @@ bool write_bmp(const std::string& path, const uint8_t* rgb,
 }  // namespace
 
 // Minimal, dependency-free PNG writer (8-bit RGB). Uses stored/uncompressed
-// DEFLATE blocks so we need no zlib — just the shared CRC-32 (gba::crc32, the
+// DEFLATE blocks so we need no zlib: just the shared CRC-32 (gba::crc32, the
 // PNG/zlib IEEE poly) and Adler-32. Mirrors the spirit of write_bmp; preferred output for
 // visual inspection since the Read tool renders PNG but not BMP. Given
 // external linkage (declared in runtime_bus_bridge.h) so game-owned tooling
@@ -929,7 +929,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     find_config_arg(argc, argv, &args);
 
     std::string err;
-    // load_config is tolerant of a missing TOML — standalone .exe
+    // load_config is tolerant of a missing TOML: standalone .exe
     // releases ship without one and rely on the built-in defaults
     // above plus the picker. A malformed TOML still fails hard.
     if (!load_config(&args, &err)) {
@@ -992,7 +992,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     }
 
     // Resolve ROM the same way. The per-game TOML supplies the
-    // expected hash + (optionally) CRC32 — both come pre-filled via
+    // expected hash + (optionally) CRC32: both come pre-filled via
     // load_config.
     if (args.rom_sha1.empty()) {
         std::fprintf(stderr,
@@ -1380,7 +1380,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                header.save_type == gba::SaveType::Flash512) {
         // FLASH (every pret Gen3 game). Without this, IdentifyFlash fails,
         // gFlashMemoryPresent stays FALSE and AgbMain's
-        // `SetMainCallback2(NULL)` gate blanks the screen — the game never
+        // `SetMainCallback2(NULL)` gate blanks the screen: the game never
         // boots past the copyright screen.
         std::size_t flash_bytes =
             (header.save_type == gba::SaveType::Flash1M) ? 0x20000u : 0x10000u;
@@ -1600,7 +1600,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
 
     // ── Recompiler exec gate ──────────────────────────────────────
     //
-    // The runtime is recompiler-driven (PRINCIPLES.md "Honest self-healing").
+    // The runtime is recompiler-driven (PRINCIPLES.md "Self-healing").
     // step_once() calls runtime_dispatch(PC) for whatever the recompiled
     // CPU's PC currently is. A codegen gap (runtime_unimplemented_op) aborts
     // loudly; that abort is the gate. A dispatch miss is bridged and
@@ -1630,20 +1630,22 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     static const bool cost_probe_on = gbarecomp::env_flag("GBARECOMP_COST_PROBE");
 
     // -- GBARECOMP_HEADROOM_PROBE ---------------------------------------
-    // Per-frame CPU headroom, as a measurement tool. It was written to place
-    // the step points of an automatic CPU Overclock; that controller was
-    // removed (the setting is a pinned Off/On), and this stays because it is
-    // the only direct measure of how much of a frame the guest has to spare.
-    // The guest either finishes its work and HALTs until the
-    // next VBlank, or it never gets there -- and "never gets there" is the
-    // definition of needing more cycles than the frame has. That is measured
-    // rather than inferred: pump_idle below is the single door every halted
-    // cycle goes through, so summing its chunks per frame gives exactly how
-    // much of the frame the guest spent asleep.
+    // Per-frame CPU headroom, as a measurement tool. It was written to find
+    // the step points an automatic CPU Overclock would need. The Overclock
+    // setting is a pinned Off/On, so no such controller exists. The probe
+    // stays because it is the only direct measure of how much of a frame the
+    // guest has to spare.
+    // Each frame, the guest either finishes its work and HALTs until the next
+    // VBlank, or it never gets there. Never getting there means it needs more
+    // cycles than the frame has. This is measured, not inferred: pump_idle
+    // below is the single door every halted cycle goes through, so summing its
+    // chunks per frame gives exactly how much of the frame the guest spent
+    // asleep.
     //
-    // Deliberately just the raw series -- frame, idle cycles, frame length,
-    // and the overclock factor in force. It must not bake in an answer by
-    // logging only frames that already cross some threshold picked up front.
+    // The output is only the raw series: frame, idle cycles, frame length and
+    // the overclock factor in force. It does not log only the frames that
+    // already cross some threshold picked in advance, because that would bake
+    // an answer into the data.
     // Off by default and gated like the cost probe above: one cached bool,
     // no getenv on any hot path.
     static const bool headroom_probe_on = gbarecomp::env_flag("GBARECOMP_HEADROOM_PROBE");
@@ -1755,7 +1757,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         if (until_sample < chunk) chunk = until_sample;
         if (chunk == 0 || chunk == 0xFFFFFFFFu) chunk = 1;
         if (chunk > max_cycles) chunk = max_cycles;
-        // Real elapsed hardware time (CPU is halted, nothing executing) —
+        // Real elapsed hardware time (CPU is halted, nothing executing);
         // use the unscaled door so GBARECOMP_CPU_OVERCLOCK never desyncs
         // PPU/audio/timer cadence during HALT. See runtime_bus_bridge.cpp.
         runtime_tick_realtime(chunk);
@@ -1776,7 +1778,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     };
 
     // Per-game default filenames (overridable by env) so concurrent / serial
-    // runs of different games don't clobber each other's miss logs — the cause
+    // runs of different games don't clobber each other's miss logs: the cause
     // of "which game is this frag from?" ambiguity. Tag = sanitized 4-char game
     // code (e.g. BPEE), falling back to "unknown".
     auto game_tag = [&]() {
@@ -1789,7 +1791,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     // banner (+ reviewed TOML proposal) and, when GBARECOMP_FP_SAVE names a
     // path, a dump of the always-on per-instruction fingerprint ring. The fp
     // ring records from machine reset (no arm-then-run gap), so this is a
-    // pure query of recorded history — two builds run identically diff
+    // pure query of recorded history: two builds run identically diff
     // bit-for-bit on these files. (Arm with GBARECOMP_INSN_TRACE=1.)
     auto emit_exit_diagnostics = [&]() {
         const std::string tag = game_tag();
@@ -1999,14 +2001,15 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     };
 
     // ── Differential-oracle WRAM trace (gbaref/snesref/mdref method) ──
-    // GBARECOMP_WRAM_TRACE=path emits one JSONL record per changed work-RAM byte
-    // per frame — the SAME shape gbaref (the libretro GBA reference) writes — so
-    // oracle/ref_diff.py can diff the recompiled run against a known-good core
-    // WITHOUT savestate alignment or scripted boot (diff by value/order, not
-    // frame). Defined BEFORE the TCP block so it fires in ALL drive modes — TCP
-    // (each step), windowed play, and headless — at full region parity. The
-    // interpreter (bios_smoke) shares src/gba/* device models with this runtime
-    // so it can't arbitrate device/bus bugs — gbaref can. Range-limit with
+    // GBARECOMP_WRAM_TRACE=path writes one JSONL record per changed work-RAM
+    // byte per frame, in the same shape gbaref (the libretro GBA reference)
+    // writes. oracle/ref_diff.py can then compare the recompiled run against a
+    // known-good core without savestate alignment or a scripted boot; it
+    // compares by value and order, not by frame number. This block is defined
+    // before the TCP block so it fires in every drive mode (TCP, each step,
+    // windowed play, and headless) with full region parity. The interpreter
+    // (bios_smoke) shares src/gba/* device models with this runtime, so it
+    // cannot settle device or bus bugs; gbaref can. Limit the range with
     // GBARECOMP_WRAM_TRACE_LO/_HI (GBA absolute addresses).
     std::FILE* wram_trace_log = nullptr;
     uint32_t wram_trace_lo = 0x00000000u, wram_trace_hi = 0xFFFFFFFFu;
@@ -2015,7 +2018,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     uint64_t wram_last_traced = ppu.frame_count();
     // Full-parity region set: every WRITABLE GBA region mGBA exposes via its
     // libretro memory map, so gbaref and this trace cover the same address space
-    // (BIOS/ROM are const — skipped). base, host ptr, length, prev-frame shadow.
+    // (BIOS/ROM are const: skipped). base, host ptr, length, prev-frame shadow.
     struct TraceRegion { uint32_t base; const uint8_t* ptr; std::size_t len;
                          std::vector<uint8_t> prev; };
     std::vector<TraceRegion> wram_regions;
@@ -2057,25 +2060,26 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         wram_trace_primed = true;
         ++wram_trace_frame;
         // Flush every frame: when the bug HANGS, no further frame presents, so
-        // the process is killed — the last pre-hang frame must already be on disk.
+        // the process is killed: the last pre-hang frame must already be on disk.
         std::fflush(wram_trace_log);
     };
 
     if (args.tcp_port > 0) {
         // ── Free-run threading model ───────────────────────────────────────
-        // The game CORE runs on a dedicated thread; the TCP server runs on THIS
-        // (main) thread. Synchronous `step` (oracle lockstep) signals the game
-        // thread and waits — same observable behavior as before, so existing
-        // diff/lockstep scripts are unaffected. `continue` lets the game
-        // free-run, which frees the server thread to answer OBSERVATION commands
-        // (registers / read_* / symbol / misses) WHILE the game thread is wedged
-        // in a busy-spin freeze — a hung core stays fully introspectable (the
-        // MC-HP-002 need; before this, a never-returning step took the whole
-        // debugger down with it). Observation reads g_cpu/bus racily: aligned
-        // 32-bit reads are tear-free on x86, and the GBARECOMP_SAMPLE sampler
-        // already relies on exactly this. Mutating ops (savestate/load) require
-        // the game PARKED at a frame boundary (the only place the host
-        // call-return stack is consistent) — enforced by park_and_wait below.
+        // The game core runs on a dedicated thread; the TCP server runs on
+        // this (main) thread. A synchronous `step` (oracle lockstep) signals
+        // the game thread and waits, so existing diff and lockstep scripts
+        // behave as they always did. `continue` lets the game free-run, which
+        // frees the server thread to answer observation commands (registers,
+        // read_*, symbol, misses) even while the game thread is wedged in a
+        // busy-spin freeze. A hung core therefore stays fully inspectable
+        // (the MC-HP-002 need); otherwise a step that never returns would take
+        // the whole debugger down with it. Observation reads g_cpu and the bus
+        // without locking: aligned 32-bit reads do not tear on x86, and the
+        // GBARECOMP_SAMPLE sampler already relies on this. Mutating ops
+        // (savestate/load) need the game parked at a frame boundary, the only
+        // place the host call-return stack is consistent. park_and_wait below
+        // enforces this.
         enum RunState { RS_PAUSED = 0, RS_RUNNING = 1, RS_STEP = 2, RS_QUIT = 3 };
         std::mutex              ctl_m;
         std::condition_variable ctl_cv;
@@ -2118,7 +2122,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
 
         // Park the game at a frame boundary (best-effort, timeout). Returns true
         // if parked; false if the core is wedged/running past the timeout (then a
-        // mutating op must refuse — you cannot snapshot a mid-dispatch hung core).
+        // mutating op must refuse: you cannot snapshot a mid-dispatch hung core).
         auto park_and_wait = [&](int timeout_ms) -> bool {
             std::unique_lock<std::mutex> lk(ctl_m);
             if (ctl_state == RS_RUNNING) ctl_state = RS_PAUSED;
@@ -2192,7 +2196,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
             return std::string(buf);
         };
         // The recomp vectors IRQs in runtime_irq (runtime_arm.cpp), called from
-        // runtime_tick — NOT in this run loop — so the local irq_entries never
+        // runtime_tick, NOT in this run loop, so the local irq_entries never
         // increments. Surface the authoritative global counter from the actual
         // delivery site instead (MC-HP-002 IRQ-delivery comparison).
         (void)irq_entries;
@@ -2201,19 +2205,16 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         ctx.halt_steps = &halt_steps;
         ctx.vblank_irqs_raised = &vblank_irqs_raised;
         ctx.steps = &taken;
-        // The recomp's authoritative cycle clock is g_runtime_cycles (ticked in
-        // runtime_tick, used by the fp ring) — NOT the local `cycles_elapsed`,
-        // which only grows in the HALT idle pump (pump_idle) and stays ~0 on the
-        // TCP dispatch path. Surface the real clock so cross-engine cycle diffs
-        // (oracle/cycle_onset.py) align with the interp's cycles_elapsed.
-        // (The local `cycles_elapsed` is still used by the save-state ctx.)
+        // Use g_runtime_cycles for instruction traces and interpreter diffs.
+        // The local `cycles_elapsed` only advances in pump_idle and is still used
+        // by savestates.
         ctx.cycles_elapsed = reinterpret_cast<uint64_t*>(&g_runtime_cycles);
         ctx.last_step_cycles = &last_step_cycles;
         ctx.sync_frames = &vblank_count;
         bool ok = server.run(args.tcp_port, ctx);
         // Server returned (client sent `quit`). Stop the game thread. If it is
         // wedged in a freeze it will not observe RS_QUIT until the frame returns
-        // (it never will) — but a clean quit is always issued while parked, so
+        // (it never will), but a clean quit is always issued while parked, so
         // join() returns; a wedged session is ended with taskkill instead.
         {
             std::lock_guard<std::mutex> lk(ctl_m);
@@ -2261,7 +2262,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     // Cached outcome of turbo_present_decimator.should_present(), computed
     // once per guest frame by the frame-render-gate hook (before that
     // frame's own scanlines render) and reused verbatim by the present hook
-    // below — should_present() is stateful/mutating, so it must be called
+    // below: should_present() is stateful/mutating, so it must be called
     // exactly once per frame, not once at frame-start AND again at
     // frame-end.
     bool turbo_frame_should_present = true;
@@ -2758,7 +2759,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         }
         return changed;
     };
-    // Wall-clock frame limiter — constructed only for windowed runs so
+    // Wall-clock frame limiter: constructed only for windowed runs so
     // the Windows timer-resolution bump doesn't apply to headless/TCP
     // batch runs (which intentionally run uncapped).
     std::optional<FramePacer> pacer;
@@ -3065,7 +3066,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         }
         // Turbo: either a bounded multiple of real time (audio survives) or
         // no cap at all, per the config menu's Speed tab. Releasing the key
-        // restores 1x — the pacer, not vsync, is always the game clock.
+        // restores 1x: the pacer, not vsync, is always the game clock.
         if (pacer) {
             const bool no_cap = ev.fast_forward && ev.turbo_uncapped;
             pacer->set_uncapped(no_cap);
@@ -3447,7 +3448,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
 
     // Present-in-place (structural fix for frame-boundary resume dispatch-misses).
     // When windowed, register a hook so the per-VBlank frame-present yield presents
-    // the frame from INSIDE runtime_should_yield and resumes the guest in place —
+    // the frame from INSIDE runtime_should_yield and resumes the guest in place;
     // the guest never unwinds to the runner, so its interrupted interior PC is
     // never re-dispatched (which would self-heal through the interpreter
     // every frame). Returns true to request quit. Headless/TCP leave the hook
@@ -3503,7 +3504,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                 win.set_guest_frame(frame);
                 const uint64_t fp_t0 = FramePhaseRing::now_ns();
                 // Decided already (before this frame rendered a single
-                // scanline) by the frame-render-gate hook above — do NOT
+                // scanline) by the frame-render-gate hook above: do NOT
                 // call the stateful decimator a second time here.
                 const bool turbo_do_present = turbo_frame_should_present;
                 // SDL/event/config work can mutate host and savestate state;
@@ -3665,8 +3666,8 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     // title/file-select screen and never reaches the indirect-dispatch-
     // heavy gameplay code (e.g. the genuine finder gaps the self-heal
     // surfaces). This synthesizes a reproducible, frame-indexed button
-    // track — each button held 6 frames then released 6 (edge-triggered
-    // menus need the release) — cycling Start/A to clear menus + select
+    // track: each button held 6 frames then released 6 (edge-triggered
+    // menus need the release), cycling Start/A to clear menus + select
     // the loaded save, and directions/B to move + interact in-world.
     // Ported from tools/bios_smoke (Stage 0.2) so the input is identical
     // across the interpreter profiler and this recompiled runtime. Has no
@@ -3712,7 +3713,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     uint64_t demo_last_frame = ~uint64_t{0};
 
     // Headless --frames is a count of frames to run from where we start, not
-    // an absolute PPU frame index — so a --load-state run executes args.frames
+    // an absolute PPU frame index, so a --load-state run executes args.frames
     // more frames past the restored frame counter instead of breaking on the
     // first step when the loaded index already exceeds the cap.
     const uint64_t headless_base_frame = ppu.frame_count();
@@ -3818,7 +3819,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                 win.set_guest_frame(frame);
                 const uint64_t fp_t0 = FramePhaseRing::now_ns();
                 // Decided already (before this frame rendered a single
-                // scanline) by the frame-render-gate hook installed above —
+                // scanline) by the frame-render-gate hook installed above;
                 // do NOT call the stateful decimator a second time here.
                 const bool turbo_do_present = turbo_frame_should_present;
                 const bool view_changed = sync_resize_driven_view();
@@ -3912,7 +3913,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     frame_phase.dump();  // HP-002: flush the phase ring (env-gated CSV)
     // HP-002: flush the always-on MMIO write ring (gba_io.cpp) to CSV.
     // GBARECOMP_MMIO_DUMP=<path>. Offline analysis derives the scanline of
-    // each write as (cycle % 280896) / 1232 — e.g. histogramming BG scroll
+    // each write as (cycle % 280896) / 1232: e.g. histogramming BG scroll
     // writes by VCOUNT to find mid-frame updates that shear the display.
     if (const char* mmio_dump = std::getenv("GBARECOMP_MMIO_DUMP")) {
         if (*mmio_dump) {
@@ -4019,8 +4020,8 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         }
     }
     // Rasteriser share of wall time. Frame interpolation re-runs render() for
-    // each intermediate frame WITHOUT re-running guest logic, so this number —
-    // not total throughput — is what decides whether interpolation is
+    // each intermediate frame WITHOUT re-running guest logic, so this number,
+    // not total throughput, is what decides whether interpolation is
     // affordable. Works headless, unlike the windowed frame-phase ring.
     {
         const std::uint64_t rns = gba::gba_ppu_render_ns();

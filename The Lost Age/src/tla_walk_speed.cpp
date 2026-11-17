@@ -176,12 +176,14 @@ const gbarecomp::GameOptionSwitch kGameSwitches[] = {
      gsr::autosave::kOptionKey},
     {gsr::enemy_hp_bar::kSwitchLabel, gsr::enemy_hp_bar::kSwitchCaption,
      gsr::enemy_hp_bar::kOptionKey},
+#ifndef __ANDROID__  // phones: no tracker windows (gsr::trackers)
     {gsr::djinn_tracker::kSwitchLabel, gsr::djinn_tracker::kSwitchCaption,
      gsr::djinn_tracker::kOptionKey},
     {gsr::djinn_tracker::kShowAllLabel, gsr::djinn_tracker::kShowAllCaption,
      gsr::djinn_tracker::kShowAllKey},
     {gsr::treasure_tracker::kSwitchLabel, gsr::treasure_tracker::kSwitchCaption,
      gsr::treasure_tracker::kOptionKey},
+#endif
     {gbarecomp::walk_through_walls::kSwitchLabel,
      gbarecomp::walk_through_walls::kSwitchCaption,
      gbarecomp::walk_through_walls::kOptionKey}};

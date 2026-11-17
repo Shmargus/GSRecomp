@@ -25,22 +25,24 @@
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
 #include "tla.h"
+#include "../../shared_game/instant_text.h"
 
 namespace {
 
+namespace it = gsr::instant_text;
 constexpr uint32_t kMessageSpeedAddress = 0x0200046Cu;
-constexpr uint32_t kInstant = 3u;
+constexpr uint32_t kInstant = it::kInstant;
 
 const uint32_t kAllowanceSeedPc = TLA_ROM(0x08039890u);
 const uint32_t kWordStopPc = TLA_ROM(0x08039E8Au);
-constexpr uint32_t kInstantAllowance = 255u;
+constexpr uint32_t kInstantAllowance = it::kAllowance;
 
 const uint32_t kChoiceCountPc = TLA_ROM(0x0803FCBEu);
-constexpr uint32_t kChoiceCountWithInstant = 4u;
+constexpr uint32_t kChoiceCountWithInstant = it::kChoiceCount;
 
 // Settings screen struct: row values at +0x594 (Message speed +0x596).
-constexpr uint32_t kScreenMessageSpeedOffset = 0x596u;
-constexpr uint32_t kMessageSpeedRow = 2u;
+constexpr uint32_t kScreenMessageSpeedOffset = it::kScreenValueOffset;
+constexpr uint32_t kMessageSpeedRow = it::kRow;
 const uint32_t kBounceRowComparePc = TLA_ROM(0x0803FC00u);
 
 // Caption: text ID = value + 0x113B, drawn at x 0xA0 on line 0x28. The
@@ -50,7 +52,7 @@ const uint32_t kBounceRowComparePc = TLA_ROM(0x0803FC00u);
 // where the icons were (Golden Sun 1's layout, re-measured).
 const uint32_t kCaptionBaseLiteralPc = TLA_ROM(0x080402F4u);
 const uint32_t kCaptionBase = TLA_TEXT(0x113Bu);
-constexpr const char* kSpeedWords[4] = {"Slow", "Normal", "Fast", "Instant"};
+using it::kSpeedWords;
 TlaValueCaption g_caption;
 
 // Caption clear `movs r1,#0xa0` (to x 0xC8) and draw `movs r2,#0xa0`. The
@@ -62,10 +64,10 @@ const uint32_t kCaptionDrawXPc = TLA_ROM(0x0804030Cu);
 
 // Rows drawn as words instead of icons: Message speed here and Hard Mode on
 // the Auto-Sleep row (src/tla_hard_mode.cpp). Each row's icon table is
-// loaded once by setup (then one icon per entry) and once per icon by the
-// redraw: Message speed 0x0805EA7C {0x22, 0x23, 0x24} at 0x0803FFEA /
-// 0x080401D8, Auto-Sleep 0x0805EA81 {0x27, 0x28} at 0x08040068 /
-// 0x0804024E. The icon loader 0x08045048 hands its picture to the OBJ
+// loaded once by setup (which then reads one icon per entry) and once per
+// icon by the redraw. Message speed: table 0x0805EA7C {0x22, 0x23, 0x24},
+// loaded at 0x0803FFEA / 0x080401D8. Auto-Sleep: table 0x0805EA81
+// {0x27, 0x28}, loaded at 0x08040068 / 0x0804024E. The icon loader 0x08045048 hands its picture to the OBJ
 // upload 0x080142D4 at `adds r2,r5,#0` (0x08045092); a source of
 // 0xFFFFFFFF makes the upload zero-fill the slot (0x0801432A -> 0x03000258).
 struct WordRow {
@@ -76,7 +78,7 @@ const WordRow kWordRows[] = {
     {TLA_ROM(0x08040068u), 2u, TLA_ROM(0x0804024Eu), 0x27u, 0x28u},
 };
 const uint32_t kIconSourcePc = TLA_ROM(0x08045092u);
-constexpr uint32_t kBlankIconSource = 0xFFFFFFFFu;
+constexpr uint32_t kBlankIconSource = it::kBlankIconSource;
 const WordRow* g_blank_row = nullptr;
 uint32_t g_blank_icons_pending = 0;
 

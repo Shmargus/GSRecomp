@@ -1,7 +1,7 @@
-// overlay_runtime_arm.h — the Stage-2 overlay shim.
+// overlay_runtime_arm.h: the Stage-2 overlay shim.
 //
 // A runtime-recompiled overlay .c includes THIS instead of "runtime_arm.h".
-// The generated function body is byte-identical to the static corpus — it
+// The generated function body is byte-identical to the static corpus: it
 // still says `g_cpu.R[15] = ...`, `runtime_tick(...)`, `bus_read_u32(...)`,
 // etc. The only difference is the prelude: here, `g_cpu` is a macro for
 // `(*g_ovl->cpu)` and every runtime_*/bus_*/arm_* name is a static-inline

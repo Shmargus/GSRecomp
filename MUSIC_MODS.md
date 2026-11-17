@@ -198,8 +198,8 @@ You can write these by hand (an audio editor shows sample positions), or
 let the tool work them out from your ROM:
 
 ```
-python "The Broken Seal/tools/music_loops.py" --rom "The Broken Seal.gba" --music "Music/TBS"
-python "The Broken Seal/tools/music_loops.py" --game tla --rom "The Lost Age.gba" --music "Music/TLA"
+python "The Broken Seal/tools/music_loops.py" --rom "ROMs/The Broken Seal.gba" --music "Music/TBS"
+python "The Lost Age/tools/music_loops.py" --rom "ROMs/The Lost Age.gba" --music "Music/TLA"
 ```
 
 It needs Python 3 with `numpy`, and `ffmpeg` on your PATH (or pass

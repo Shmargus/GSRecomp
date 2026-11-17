@@ -96,8 +96,8 @@ int keys_literal(uint32_t* out_value) {
     if (pressed & (kKeyA | kKeyB | kKeyStart)) {
         return 0;  // the game closes the screen
     }
-    // The game's own five rows, Difficulty last (tla_hard_mode.cpp); the old
-    // page two now lives in the Quality of Life menu.
+    // The game's own five rows, Difficulty last (tla_hard_mode.cpp). Page
+    // two lives in the Quality of Life menu.
     tla_difficulty_row_keys(row, b->read32(kKeyBlock + kRepeatOffset));
     return 0;
 }
@@ -150,7 +150,8 @@ void tla_install_settings_page(gbarecomp::RunOptions& options) {
         TLA_ROM(0x0803A7ACu), TLA_ROM(0x0804E127u), TLA_ROM(0x0804E0D4u),
         TLA_ROM(0x08013560u), TLA_ROM(0x081C0010u),
         TLA_TEXT(0x1155u), TLA_TEXT(0x1159u), TLA_ROM(0x08045048u),
-        42u, 23u, tla_publish_menu_art, quality_of_life_rows}; // Sleep 42 (pause icon table); 23 picked by Jimmy from the icon sheet, 11 November 2026. TODO-EVIDENCE: sheet not confirmed as TLA's.
+        42u, 23u, tla_publish_menu_art, quality_of_life_rows}; // Sleep 42 (pause icon table); 23 from the icon sheet
+        // TODO-EVIDENCE: sheet not confirmed as TLA's.
     gsr::qol::install(profile);
     next_quality_keys = options.keyinput_filter;
     options.keyinput_filter = quality_keys;

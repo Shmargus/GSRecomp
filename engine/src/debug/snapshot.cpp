@@ -1,4 +1,4 @@
-// snapshot.cpp — save-state container orchestrator. See snapshot.h.
+// snapshot.cpp: save-state container orchestrator. See snapshot.h.
 //
 // Container layout (all little-endian):
 //

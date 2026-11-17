@@ -1,4 +1,4 @@
-// pool_ldm_probe_test.cpp — CRASH-03 provenance seam coverage (synthetic,
+// pool_ldm_probe_test.cpp: CRASH-03 provenance seam coverage (synthetic,
 // no ROM/BIOS). Proves the bounded diagnostic in the pool-LDM probe:
 //   1. probe arming emits exactly one payload-free [pool-ldm-crc] reason=arm
 //      line whose CRC matches an independent IEEE CRC-32 of the tracked

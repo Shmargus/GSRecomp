@@ -1,4 +1,3 @@
-// gba_bios.cpp — see gba_bios.h.
 
 #include "gba_bios.h"
 

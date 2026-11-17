@@ -17,9 +17,10 @@ inline std::optional<SaveLanguageImport> pending_save_language_import(
     if (game < 0 || game >= static_cast<int>(std::size(gsr_launcher::kGames)))
         throw std::runtime_error("Unknown game for save conversion.");
     const auto& identity = gsr_launcher::kGames[game];
-    if (language < 0 || language >= gsr_launcher::rom_language_count(identity))
+    if (language < 0 || language >= gsr_launcher::rom_revision_count(identity))
         throw std::runtime_error("Unknown language for save conversion.");
-    if (language == 0) return std::nullopt;
+    // A patched revision (Reloaded) is its own game: no English save offered.
+    if (language == 0 || !gsr_launcher::rom_is_language(identity, language)) return std::nullopt;
     const auto target = managed_paths(collection, identity.stem, language);
     const auto source = managed_paths(collection, identity.stem, 0).save;
     const auto declined = target.root / "local" / "save-language-import" /

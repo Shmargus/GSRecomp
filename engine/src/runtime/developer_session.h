@@ -46,8 +46,9 @@ inline bool enabled() {
 }
 
 // The decision for either `beq` that guards a game's debug path (the debug
-// byte's, then the L key's), as a conditional-branch override: not taken
-// while the cheat is on; off, the game's own (its debug byte is clear).
+// byte's, then the L key's), as a conditional-branch override. While the
+// cheat is on, the branch is not taken, so the debug path runs. While it is
+// off, the game's own decision stands (its debug byte is clear).
 inline int decide_branch(std::uint32_t original, std::uint32_t* out_decision) {
     if (!enabled()) return 0;
     *out_decision = 0u;

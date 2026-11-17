@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Filled in by build_apk.py: @PACKAGE@, @LABEL@. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="@PACKAGE@">
+
+    <!-- The renderer needs OpenGL ES 3.1 (engine gl_platform.h). -->
+    <uses-feature android:glEsVersion="0x00030001" android:required="true" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+
+    <!-- Update check and Send report, as on PC. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- extractNativeLibs: the builder, the translator and Clang ship as
+         lib*.so in the app's library folder, the one place Android lets an
+         app run programs from; they must be real files there. -->
+    <application
+        android:label="@LABEL@"
+        android:icon="@mipmap/ic_launcher"
+        android:debuggable="@DEBUGGABLE@"
+        android:allowBackup="false"
+        android:hasCode="true"
+        android:extractNativeLibs="true"
+        android:hardwareAccelerated="true"
+        android:largeHeap="true"
+        android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+
+        <!-- SDL reads the app's metadata for environment settings on every
+             getenv until it finds some (SDLActivity
+             getManifestEnvironmentVariables), a Java call each time; the menu
+             asks every frame (~3% of the game thread, simpleperf 14 November
+             2026). One entry ends that. Back stays a key (android_main.cpp
+             sets the same hint). -->
+        <meta-data android:name="SDL_ENV.SDL_ANDROID_TRAP_BACK_BUTTON" android:value="1" />
+
+        <!-- The collection window (the PC's GoldenSunLauncher). -->
+        <activity
+            android:name="io.github.shmargus.gsrecomp.LauncherActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- A game session: ROM, build, bug report (the PC's session process). -->
+        <activity
+            android:name="io.github.shmargus.gsrecomp.SessionActivity"
+            android:process=":session"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation" />
+
+        <!-- The game (the PC's game program). -->
+        <!-- Test builds (DEBUGGABLE in build_apk.py) let adb start the game
+             directly; a shared APK keeps it closed (it loads the library
+             its arguments name). -->
+        <activity
+            android:name="io.github.shmargus.gsrecomp.GameActivity"
+            android:process=":game"
+            android:exported="@DEBUGGABLE@"
+            android:screenOrientation="sensorLandscape"
+            android:preferMinimalPostProcessing="true"
+            android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation" />
+    </application>
+</manifest>

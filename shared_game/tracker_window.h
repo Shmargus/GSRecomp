@@ -1,8 +1,9 @@
 // Tracker windows (Djinn Tracker, Treasure Tracker): one look and behaviour.
 // A window in the F1 menu's own frame. Where the graphics card draws
 // (OpenGL, ImGui viewports) it can be its own desktop window. Linux fullscreen
-// keeps it inside the game window. Dragged by its title line, resized from any edge;
-// position and size saved as <name>X, <name>Y, <name>Width, <name>Height.
+// keeps it inside the game window. It is dragged by its title line and
+// resized from any edge; its position and size are saved as <name>X,
+// <name>Y, <name>Width and <name>Height.
 #pragma once
 #ifdef GBARECOMP_HAVE_IMGUI
 #include "game_options.h"
@@ -106,8 +107,11 @@ inline bool begin(Window& w, ImVec2 default_size, const char* title, ImGuiWindow
         pos.y = std::clamp(pos.y, main->WorkPos.y, last_visible.y);
     }
     ImGui::SetNextWindowPos(pos, position_condition);
-    ImGui::SetNextWindowSize(size, ImGuiCond_Appearing);
-    ImGui::SetNextWindowSizeConstraints(ImVec2(160.0f, 120.0f), ImVec2(FLT_MAX, FLT_MAX));
+    // Sizes are for the PC menu font; a phone enlarges it (touch_ui.h).
+    const float ui_scale = ImGui::GetIO().FontGlobalScale;
+    ImGui::SetNextWindowSize(ImVec2(size.x * ui_scale, size.y * ui_scale), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(160.0f * ui_scale, 120.0f * ui_scale),
+                                        ImVec2(FLT_MAX, FLT_MAX));
     ImGuiWindowClass window_class;
     if (own_window) {
         window_class.ViewportFlagsOverrideSet = ImGuiViewportFlags_NoAutoMerge;

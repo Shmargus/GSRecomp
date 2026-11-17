@@ -1,4 +1,4 @@
-// symbol_lookup.h — runtime address -> recompiled-function-name lookup.
+// symbol_lookup.h: runtime address -> recompiled-function-name lookup.
 //
 // Turns raw guest PCs in debug output (trace dumps, dispatch-miss reports,
 // TCP) into `<FunctionName+0xoffset>`. Names come from the decomp symbols
@@ -8,7 +8,7 @@
 // than weak externs because MinGW PE-COFF weak symbols don't reliably
 // resolve from static archives (see runtime_arm.cpp header). A binary
 // without a generated map simply never registers one and the lookup
-// returns nullptr (no annotation) — graceful, and no link dependency.
+// returns nullptr (no annotation): graceful, and no link dependency.
 #pragma once
 
 #include <cstdint>

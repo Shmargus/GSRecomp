@@ -1,4 +1,4 @@
-// gba_rom_header.h — GBA cartridge header parser.
+// gba_rom_header.h: GBA cartridge header parser.
 //
 // Layout per GBATEK § "GBA Cartridge Header":
 //

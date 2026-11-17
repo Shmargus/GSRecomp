@@ -1,4 +1,4 @@
-// host_platform.h — Host-side file reading and the wall-clock frame limiter.
+// host_platform.h: Host-side file reading and the wall-clock frame limiter.
 
 #pragma once
 
@@ -19,12 +19,12 @@ std::vector<unsigned char> read_file(const std::string& path,
 // ── FramePacer ─────────────────────────────────────────────────────
 // Wall-clock frame limiter. Emulation speed must be governed by the
 // GBA's real frame rate (59.7275 Hz), NOT by the host monitor's refresh
-// rate — relying on SDL's PRESENTVSYNC made the game run at monitor
+// rate. Relying on SDL's PRESENTVSYNC made the game run at monitor
 // speed (e.g. 2.75x on a 164 Hz panel).
 //
 // Maintains a monotonic deadline advanced by exactly one GBA frame
-// period each call. wait_for_next_frame() blocks until that deadline using a hybrid
-// sleep-then-spin (Windows' default ~15.6 ms timer granularity is too
+// period each call. wait_for_next_frame() blocks until that deadline using a
+// hybrid sleep-then-spin (Windows' default ~15.6 ms timer granularity is too
 // coarse for a 16.74 ms target, so the pacer raises timer resolution to
 // 1 ms for its lifetime and spins the final 1.2 ms). If the host falls
 // more than a frame behind, the deadline resyncs to now rather than
@@ -54,7 +54,7 @@ public:
     bool uncapped() const { return uncapped_; }
 
     // Run the deadline at `mult` times the target rate: 1.0 = real time,
-    // 4.0 = Turbo at 4x, values <= 0 ignored. This is a PACING change only —
+    // 4.0 = Turbo at 4x, values <= 0 ignored. This is a PACING change only:
     // emulation still advances one GBA frame per call, so the guest's own
     // sense of time (cycle counts, timers, audio rate) is untouched; it just
     // gets wall-clock permission to run sooner. Unlike set_uncapped() the
@@ -81,6 +81,12 @@ private:
     // windows.h out of this header); why it exists: see the constructor.
     // Null = pre-1803 Windows, which falls back to the hybrid sleep.
     void* wait_timer_ = nullptr;
+    // Android: the system's performance hint session for the pacing thread
+    // (APerformanceHint, see report_work), and when the last wait ended.
+    void* hint_session_ = nullptr;
+    bool hint_tried_ = false;
+    clock::time_point work_start_{};
+    void report_work(clock::time_point now);
 };
 
 }  // namespace gbarecomp

@@ -1,5 +1,4 @@
-// Challenge Mode, one copy of the rules for both runners (docs/
-// NEXT_PRIORITY_MODES.md "Challenge Mode", Jimmy's design of 4 November 2026).
+// Challenge Mode, one copy of the rules for both runners.
 //
 // - Chosen per save file at New Game and locked for that file: Solo, Duo or
 //   Triple (The Lost Age adds a four-character choice, No 2nd party).
@@ -14,6 +13,7 @@
 // loads, copies and erases with the file and save states carry it. The
 // bytes: challenge_format.h.
 #pragma once
+#include <algorithm>
 #include <array>
 #include <cstdint>
 
@@ -35,12 +35,13 @@ struct Game {
     std::uint32_t field_context; // RAM word, nonzero on the field
     std::uint32_t battle_context;// RAM word, nonzero in battle
     int heroes;                  // character ids 0..heroes-1
-    int max_party;               // members at most (Jimmy, 4 November: TBS 4)
+    int max_party;               // members at most (TBS 4)
     // A revive kind beyond the three both games share (TLA 0x49); 0 = none.
     std::uint32_t extra_revive_kind = 0;
     // The picks take the first places in the order, in pick order (TLA: the
     // first four fight, the rest wait behind). False: only the leader moves.
     bool picks_lead = false;
+    std::uint32_t max_hp_offset = 0;  // max HP, u16 (revive_first_pick); 0 = unknown
 };
 
 inline const Game* game = nullptr;
@@ -143,8 +144,8 @@ inline int djinn_recipient(unsigned element, std::uint32_t counts_offset) {
 
 // The Djinn menu's give check (TBS 0x080AE778): after one Djinni moves from
 // `from` to `to`, every two members' Djinn totals must be within one. The
-// same rule over the picks only (Jimmy, 5 November): left-out heroes may
-// take or hand over any number. `ids` and `totals` are the menu's members.
+// same rule over the picks only: left-out heroes may take or hand over any
+// number. `ids` and `totals` are the menu's members.
 inline bool djinn_give_balanced(const unsigned* ids, const int* totals, int n,
                                 int from, int to) {
     int t[8];
@@ -199,6 +200,33 @@ inline void wake_picks(std::uint32_t max_hp_offset, std::uint32_t max_pp_offset,
 // lesson); -1 none. Set by the game each frame before frame().
 inline int spared = -1;
 
+// A revival the game gives a left-out hero while every pick is down, out of
+// battle, goes to the first pick instead, at the same share of max HP.
+// After a party defeat the Sanctum brings back a hero by name. The phone
+// capture android_rewind_0002 (14 November 2026, solo Ivan) shows Ivan, Isaac
+// and Garet all at 0 HP in the Sanctum: keep_down leaves the revived Isaac
+// down, so no pick is revived. This handles only that case; if a pick is
+// alive there is nothing to move.
+inline void revive_first_pick(gba::GbaBus& b, const Config& c) {
+    if (!game->max_hp_offset || b.read32(game->battle_context) != 0) return;
+    for (int i = 0; i < c.size; ++i)
+        if (joined(b, c.picks[i]) && b.read16(record(c.picks[i]) + game->hp_offset) != 0) return;
+    if (!joined(b, c.picks[0])) return;
+    for (unsigned id = 0; id < static_cast<unsigned>(game->heroes); ++id) {
+        if (picked(c, id) || !joined(b, id) || static_cast<int>(id) == spared) continue;
+        const std::uint32_t from = record(id);
+        if (b.read16(from + game->hp_offset) == 0) continue;
+        std::uint32_t share = b.read16(from + game->hp_share_offset);
+        if (share == 0 || share > 0x4000u) share = 0x4000u;
+        const std::uint32_t to = record(c.picks[0]);
+        const std::uint32_t max_hp = b.read16(to + game->max_hp_offset);
+        const std::uint32_t hp = std::max<std::uint32_t>(1u, max_hp * share / 0x4000u);
+        b.write16(to + game->hp_offset, static_cast<std::uint16_t>(std::min(hp, max_hp)));
+        b.write16(to + game->hp_share_offset, static_cast<std::uint16_t>(share));
+        return;
+    }
+}
+
 // The left-out members down now. Also called by each game just before battle
 // lists who is alive, so a heal earlier in the same frame cannot count.
 inline void keep_down(gba::GbaBus& b, const Config& c) {
@@ -216,13 +244,13 @@ inline void keep_down() {
     if (c.size > 0) keep_down(*b, c);
 }
 
-// The battle's party list without the left-out heroes (Jimmy, 12 November:
-// hidden in battle only). The game's builder (TBS 0x080B6A60) takes the first
-// `cap` members in party order, writes their ids as u16s to `out` (if not 0)
-// with an 0xFF end, marks each record's `battle_mark` byte 2 and returns the
-// count. The same over the members who fight: picks, and a spared hero.
+// The battle's party list without the left-out heroes (hidden in battle
+// only). The game's builder (TBS 0x080B6A60) takes the first `cap` members
+// in party order, writes their ids as u16s to `out` (if not 0) with an 0xFF
+// end, marks each record's `battle_mark` byte 2 and returns the count. This
+// does the same over the members who fight: the picks, and a spared hero.
 // The Lost Age's waiting list (0x0811A0B0) is the members after the first
-// four, none when 3 may fight: `skip` 4 there.
+// four, and is empty when 3 may fight; `skip` is 4 there.
 inline std::uint32_t battle_party(gba::GbaBus& b, const Config& c, std::uint32_t out, int cap,
                                   std::uint32_t battle_mark, int skip = 0) {
     const int count = joined_count(b);
@@ -251,6 +279,7 @@ inline void frame() {
     const Config c = current();
     gbarecomp::set_cheats_blocked(c.size > 0);
     if (c.size == 0) return;
+    revive_first_pick(*b, c);
     keep_down(*b, c);
     if (b->read32(game->field_context) == 0 || b->read32(game->battle_context) != 0) return;
     for (int i = 0; i < c.size; ++i)
@@ -275,7 +304,7 @@ inline void frame() {
         if (b->read8(game->order + i) != c.picks[i]) place(c.picks[i], i);
 }
 
-// Level 1 for the picks (Jimmy, 4 November). A new game builds each hero at
+// Level 1 for the picks. A new game builds each hero at
 // level 0 and raises it to its story level (TBS: Isaac and Garet 1, Ivan 4,
 // Mia 10) before the questions are asked. Each game keeps the level-0 record
 // from just before that raise; once the picks are known, a pick above level

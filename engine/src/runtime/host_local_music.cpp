@@ -1,4 +1,4 @@
-// host_local_music.cpp — host-side "local music" player: WAV or FLAC
+// host_local_music.cpp: host-side "local music" player for WAV or FLAC
 // recordings streamed beside the game audio, looping at loops.txt's jump.
 // Compiles to nothing without SDL2, like host_window.cpp's real backend.
 

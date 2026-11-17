@@ -1,4 +1,3 @@
-// tcp_debug_server.cpp — see tcp_debug_server.h.
 
 #include "tcp_debug_server.h"
 
@@ -135,7 +134,7 @@ uint64_t frame_counter(const TcpDebugServer::Context& ctx) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Region readers — pull bytes directly from the bus's backing arrays
+// Region readers: pull bytes directly from the bus's backing arrays
 // rather than going through bus.read8(), which would mask side effects
 // like IF write-1-to-clear.
 // ─────────────────────────────────────────────────────────────────────
@@ -238,8 +237,8 @@ void cmd_audio_samples(gba::GbaBus& bus, std::string_view req,
 
 // Always-on, non-destructive capture-ring query. Unlike audio_samples (which
 // drains the playback FIFO), this reads a [start,count] window of the capture
-// ring backward from the live head without consuming anything — the probe
-// queries history, it does not arm/drain (ring-buffer discipline). Params:
+// ring backward from the live head without consuming anything. The probe
+// queries history; it does not arm/drain (ring-buffer discipline). Params:
 //   "count"  : samples to return (default 8192, cap 65536)
 //   "start"  : absolute sample index (samples_generated numbering). If absent,
 //              returns the most recent `count` samples (start = head - count).
@@ -436,12 +435,12 @@ void cmd_runtime_trace(const TcpDebugServer::Context& ctx,
     out += "]}";
 }
 
-// ── Cycle-anchor sampler (Axis 2) ──────────────────────────────────────
+// ── Cycle-anchor sampler (cycle timing) ──────────────────────────────────────
 // {"cmd":"cyc_anchor","pc":P,"hits":H} -> {ok,pc,armed,fp_count,count,cyc:[...]}.
 // Filters the always-on insn-fingerprint ring by guest PC and returns the
 // cumulative g_runtime_cycles stamp of each execution. Consecutive-hit Δ is the
 // offset-cancelled cycle ruler peered against the NBA oracle's cyc_anchor.
-// armed=0 means GBARECOMP_INSN_TRACE is off (ring empty) — the recomp build with
+// armed=0 means GBARECOMP_INSN_TRACE is off (ring empty); the recomp build with
 // the ring armed is where this returns live data; the bios_smoke interpreter
 // mirrors into its own local ring and leaves this (recomp) ring empty.
 void cmd_cyc_anchor(std::string_view req, std::string& out) {
@@ -474,13 +473,13 @@ void cmd_cyc_anchor(std::string_view req, std::string& out) {
     out += "]}";
 }
 
-// ── IRQ raise/take ring query (Axis 3) ─────────────────────────────────
+// ── IRQ raise/take ring query (interrupt timing) ─────────────────────────────────
 // {"cmd":"irq_cap","count":C} -> {ok,total,count,entries:[{cycle,src,ret,cpsr,
 // from_halt}...]}. Dumps the most recent N IRQ vectorings (TAKE-time) from the
 // always-on IRQ-vector ring. `src` is the active IE&IF source mask at the
 // vector; `from_halt` distinguishes the wake-from-HALT path. NOTE: raise-time
-// (the IF-set instant) is not separately recorded — take-time only (burndown
-// Axis-3 gap). Populated by runtime_irq in the recompiled runtime.
+// (the IF-set instant) is not separately recorded; take-time only (a known
+// gap in interrupt-timing accuracy). Populated by runtime_irq in the recompiled runtime.
 void cmd_irq_cap(std::string_view req, std::string& out) {
     uint64_t count = 256, parsed = 0;
     if (extract_uint(req, "\"count\"", parsed) ||
@@ -509,7 +508,7 @@ void cmd_irq_cap(std::string_view req, std::string& out) {
     out += "]}";
 }
 
-// ── MMIO write-trace ring query (Axis 4) ───────────────────────────────
+// ── MMIO write-trace ring query (memory and I/O) ───────────────────────────────
 // {"cmd":"mmio_cap","count":C,"start":S?} -> {ok,total,oldest,first,count,
 // entries:[{cycle,addr,value,size,pc}...]}. Non-destructive window query of the
 // always-on IO write-trace ring (gba_io.cpp). Default returns the most recent
@@ -557,7 +556,7 @@ void cmd_mmio_cap(std::string_view req, std::string& out) {
     out += "]}";
 }
 
-// ── Determinism hook (Axis 7) ──────────────────────────────────────────
+// ── Determinism hook (determinism) ──────────────────────────────────────────
 // {"cmd":"state_hash"} -> {ok,cycles,iwram,ewram,vram,pal,oam,hash}. A cheap
 // read-only FNV-1a-64 over IWRAM+EWRAM+VRAM+PAL+OAM plus g_runtime_cycles, so a
 // run-twice determinism probe can compare end-state in one call. Per-region
@@ -728,7 +727,7 @@ void dispatch(const TcpDebugServer::Context& ctx, std::string_view req,
     }
     // Free-run control. `continue`/`resume` and `pause` are NON-BLOCKING: they set the game
     // thread's run-state and return immediately, so the server (this thread)
-    // stays free to answer observation commands while the game free-runs — even
+    // stays free to answer observation commands while the game free-runs, even
     // while it is wedged in a busy-spin freeze (observe-the-hung-core). Place
     // these BEFORE the generic readers so the short tokens match first.
     if (contains("\"continue\"") || contains("\"resume\"")) {

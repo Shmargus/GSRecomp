@@ -1,4 +1,4 @@
-// interpreter_smoke — feed concrete ARM/THUMB programs through the
+// interpreter_smoke: feed concrete ARM/THUMB programs through the
 // decoder + interpreter and assert the resulting CPU/memory state.
 //
 // A fast, in-tree check of interpreter behaviour; the jsmolka gba-suite
@@ -431,7 +431,7 @@ void test_thumb_bl_suffix_resume_matches_sequential() {
         armv4t::Interpreter::step(cpu_resume, bus_resume, i);
     }
     // cpu_resume.R[15] is now 0x102 (the suffix) and R[14] holds the partial
-    // target the prefix computed — exactly the state a post-IRQ resume at
+    // target the prefix computed: exactly the state a post-IRQ resume at
     // the BL_suffix halfword observes. Simulate entry there directly (no
     // memory of having "just run" the prefix beyond the live LR value).
     {

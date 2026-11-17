@@ -1,4 +1,4 @@
-// cpu_state.h — ARM7TDMI register file.
+// cpu_state.h: ARM7TDMI register file.
 //
 // The ARM7TDMI is a single CPU that switches between ARM and THUMB
 // instruction sets at runtime. We model that as a single CPUState with

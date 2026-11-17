@@ -1,11 +1,7 @@
-// overlay_test.cpp — the RGB888 overlay primitives behind the rebind menu.
+// overlay_test.cpp: the RGB888 overlay primitives behind the rebind menu.
 //
-// The font table is hand-written bitmap data, which is exactly the kind of
-// thing that rots silently: a wrong byte just makes one letter look odd, and
-// nobody notices until they need to read a key name. These tests pin the
-// properties that matter — glyphs actually mark pixels, distinct characters
-// are distinct, clipping never writes out of bounds, and the alpha blend and
-// advance width behave — rather than golden-imaging every glyph.
+// Check the hand-written glyphs for visible pixels, distinct shapes,
+// clipping, alpha blending and advance widths.
 
 #include <cstdio>
 #include <cstring>

@@ -1,8 +1,7 @@
 // field_scene.h -- what the game asked to be drawn this frame.
 //
-// Step 1 of "The Broken Seal/docs/NATIVE_SCENE_RENDERER_PLAN.md". Nothing here draws anything.
-// It captures, once per frame, everything a renderer needs in order to produce
-// that frame WITHOUT reading emulated memory again while it draws.
+// Capture the draw state once per frame so the renderer can draw without
+// reading live emulated memory.
 //
 // Why this exists before any GPU code. The existing renderer decides each
 // pixel while the frame is still being emulated, reading live registers as it
@@ -239,12 +238,9 @@ struct FieldScene {
                 layer.affine_ref_y + y * layer.affine_pd};
     }
 
-    // True when no row differs from row 0 in any field a draw call depends on.
-    // Golden Sun's battle frames measure this way (FACTS.md, 2026-09-12).
-    // The renderer no longer needs this to decide whether it can draw a
-    // frame at all -- window and scroll registers are read per row from
-    // `row_io`/`io_bytes` regardless -- but it stays as a description of
-    // the frame for diagnostics.
+    // True if every row has the same draw state as row 0. Used for diagnostics
+    // only. The renderer always reads window and scroll registers per row.
+    // Golden Sun battle measurements are in FACTS.md (2026-09-12).
     bool rows_uniform = true;
 
     // Which room this frame belongs to, so a renderer can tell whether the
@@ -289,12 +285,9 @@ bool field_scene_frame_supported(unsigned dispcnt, const char** why);
 // Writes the description back out as hardware state: register file, object
 // table and palette memory.
 //
-// This exists to TEST the description, not to run the game. If the capture
-// drops any field the renderer reads, the rebuilt state differs from the
-// original and the rendered picture changes -- which is the gate for step 2 of
-// "The Broken Seal/docs/NATIVE_SCENE_RENDERER_PLAN.md". Video memory is not rebuilt: tile art is
-// deliberately not part of the description (see the header comment), so the
-// caller passes the original through.
+// Rebuild the captured state for renderer tests. Missing draw state
+// changes the rendered pixels. Pass the original video memory separately
+// because the capture omits tile art.
 //
 // `io` must already hold the frame's register file; only the fields the
 // description owns are overwritten, so unrelated hardware registers (timers,

@@ -16,6 +16,7 @@
 #include "game_options.h"
 #include "gs_text_encode.h"
 #include "menu_text.h"
+#include "rom_unpack.h"
 #include "runtime.h"
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
@@ -52,19 +53,20 @@ struct Roster {
 } g_roster, g_fight;
 int g_fight_target = 0;
 
-// The questions, one per Yes/No of hers. Yes/No screens take her answer;
-// on the Panel screen her Yes/No waits under the opponent panel, which
-// answers it Yes (one picked) or No (done choosing). After each pick she asks to add
-// another while one still fits.
+// The questions, one per Yes/No prompt of the receptionist ("she"/"her"
+// below). On the Yes/No screens her prompt takes the player's answer. On the
+// Panel screen her prompt waits under the opponent panel, which answers it
+// Yes (one picked) or No (done choosing). After each pick she asks whether
+// to add another, while one still fits.
 enum class Screen { Idle, Choose, Strength, Panel, AddMore, Review, FightYes };
 struct Picker {
     Screen screen = Screen::Idle;
     std::vector<const Monster*> list;  // what this save offers
     std::vector<const Monster*> picks;
     bool scaled = true;
-    // The panel: up over her menu, its page, the cursor
-    // on each page (into what fits), the first visible row, and the answer
-    // it is closing her menu with.
+    // The panel: whether it is up over her menu, its current page, the cursor
+    // on each page (an index into what fits), the first visible row, and the
+    // answer (0 Yes, 1 No) it is closing her menu with.
     bool open = false;
     Page page = Page::Monsters;
     std::array<std::size_t, static_cast<std::size_t>(Page::Count)> cursors{};
@@ -131,16 +133,6 @@ Rom rom_bytes() {
     return bus && bus->rom_ptr() ? Rom(bus->rom_ptr(), bus->rom_size()) : Rom();
 }
 
-unsigned rom_u8(Rom rom, std::uint32_t at) {
-    return at < rom.size() ? rom[at] : 0u;
-}
-int rom_s16(Rom rom, std::uint32_t at) {
-    return static_cast<std::int16_t>(rom_u8(rom, at) | (rom_u8(rom, at + 1) << 8));
-}
-std::uint32_t rom_u32(Rom rom, std::uint32_t at) {
-    return rom_u8(rom, at) | (rom_u8(rom, at + 1) << 8) | (rom_u8(rom, at + 2) << 16) |
-           (std::uint32_t(rom_u8(rom, at + 3)) << 24);
-}
 std::uint32_t offset(std::uint32_t address) { return address - mods::kRomBase; }
 
 void build_arenas(Rom rom) {
@@ -211,111 +203,6 @@ std::vector<const Monster*> available() {
     return out;
 }
 
-// The game's unpacker (TBS 0x08002544, TLA's ARM copy 0x080128A8), both
-// formats, from ROM offset `at`. False on data that would not unpack (never
-// seen; guards the preparation).
-bool unpack(Rom rom, std::uint32_t at,
-            std::vector<std::uint8_t>& out) {
-    constexpr std::size_t kLimit = 0x40000;  // EWRAM, where the game unpacks it
-    out.clear();
-    const auto copy = [&](std::size_t distance, unsigned count) {
-        if (distance == 0 || distance > out.size()) return false;
-        for (unsigned k = 0; k < count; ++k) out.push_back(out[out.size() - distance]);
-        return out.size() <= kLimit;
-    };
-    const unsigned format = rom_u8(rom, at++);
-    if (format == 1) {
-        // A flag byte (high bit first) per eight items: 0 a byte, 1 a copy
-        // of (low nibble + 1) bytes, or (next byte + 0x11); 0/0 ends it.
-        for (;;) {
-            const unsigned flags = rom_u8(rom, at++);
-            for (int bit = 7; bit >= 0; --bit) {
-                if (!((flags >> bit) & 1u)) {
-                    out.push_back(std::uint8_t(rom_u8(rom, at++)));
-                    continue;
-                }
-                const unsigned a = rom_u8(rom, at), b = rom_u8(rom, at + 1);
-                at += 2;
-                const unsigned distance = ((a & 0xF0u) << 4) | b;
-                unsigned count = a & 0xFu;
-                if (count == 0) {
-                    if (distance == 0) return true;
-                    count = rom_u8(rom, at++) + 0x10u;
-                }
-                if (!copy(distance, count + 1)) return false;
-            }
-        }
-    }
-    if (format != 0) return false;
-    // A bit stream, low bit first, refilled a halfword at a time; `spare` is
-    // what the routine keeps in r4 (bits held beyond the next 16).
-    std::uint32_t bits = 0;
-    int spare = 0;
-    if (at & 1u) {
-        bits = rom_u8(rom, at++);
-        spare = 8;
-    }
-    const auto take = [&](int n) {
-        spare -= n;
-        if (spare >= 0) return;
-        spare += 16;
-        bits |= (rom_u8(rom, at) | (rom_u8(rom, at + 1) << 8)) << spare;
-        at += 2;
-    };
-    const auto bit = [&] {
-        const bool set = bits & 1u;
-        bits >>= 1;
-        return set;
-    };
-    take(16);
-    for (;;) {
-        if (out.size() > kLimit) return false;
-        if (bit()) {
-            out.push_back(std::uint8_t(bits));
-            bits >>= 8;
-            take(9);
-            continue;
-        }
-        unsigned count;
-        if (!bit()) { count = 2; take(2); }
-        else if (!bit()) { count = 3; spare -= 3; }  // refilled below
-        else if (!bit()) { count = 4; take(4); }
-        else if (!bit()) { count = 5; take(5); }
-        else if (bit()) {
-            count = bits & 3u;
-            bits >>= 2;
-            if (count) {
-                count += 7;
-                take(8);
-            } else {
-                count = bits & 0x7Fu;
-                if (count == 0) return true;
-                count += 0xA;
-                bits >>= 7;
-                take(15);
-            }
-        }
-        else if (!bit()) { count = 6; take(7); }
-        else { count = 7; take(7); }
-        unsigned distance;
-        if (bit()) {
-            distance = bits & 0x1Fu;
-            bits >>= 5;
-            take(6);
-        } else {
-            // Far copies: 12 bits once 0x821 bytes are out, else as many as
-            // the bytes out past 0x21 need.
-            const std::uint32_t past = std::uint32_t(out.size()) - 0x21u;
-            int width = 12;
-            if (past < 0x800u) for (width = 0; width < 11 && (past >> width); ++width) {}
-            distance = (bits & ((1u << width) - 1u)) + 0x20u;
-            bits >>= width;
-            take(1 + width);
-        }
-        if (!copy(distance + 1u, count)) return false;
-    }
-}
-
 // The asset of `sprite` from the (asset, sprite) pairs, ~0u when the pairs
 // do not list it: the game's loader then gives up too (The Lost Age's
 // Poseidon, Dullahan and Doom Dragon load their artwork another way).
@@ -332,10 +219,15 @@ unsigned sprite_asset(Rom rom, unsigned sprite) {
     return asset;
 }
 
+// The game unpacks a sprite into EWRAM, so nothing larger is valid.
+constexpr std::size_t kSpriteLimit = 0x40000;
+
 bool unpack_sprite(Rom rom, unsigned asset, std::vector<std::uint8_t>& data) {
     const auto source = rom_u32(rom, offset(g_game.asset_table) + asset * 4u);
-    return source >= mods::kRomBase &&
-           unpack(rom, source - mods::kRomBase, data) && data.size() >= 4;
+    const std::uint32_t at = source - mods::kRomBase;
+    return source >= mods::kRomBase && at < rom.size() &&
+           gsr::rom_unpack(rom.data() + at, rom.size() - at, &data, kSpriteLimit) &&
+           data.size() >= 4;
 }
 
 // Monster `id`'s battle picture, first frame (custom_battle.h), from the
@@ -390,9 +282,11 @@ const Picture& picture(unsigned id) {
     return pic;
 }
 
-// From the entry of her last line's set-text call: her script goes on at
-// `resume`, one of her own call returns. `line`: that call sets our line
-// (her question's text ID, text intake below); otherwise it is skipped.
+// Called at the entry of the set-text call for her last line. Her script
+// continues at `resume`, which is one of her own call-return addresses. If
+// `line` is given, that call shows our line in place of her question (the
+// text intake below swaps it in by her question's text ID). Otherwise the
+// call is skipped.
 void resume_her_script(std::uint32_t resume, const std::string* line) {
     g_cpu.R[14] = resume | 1u;
     if (line) {
@@ -501,8 +395,9 @@ std::string screen_line() {
     }
 }
 
-// The fight goes ahead (chosen or random): her own Yes runs on, flag 0x173
-// and "step into the circle". From her No, she asks again and is answered.
+// The fight goes ahead (chosen or random). From her Yes, her own script runs
+// on: it sets flag 0x173 and says "step into the circle". From her No, she
+// asks again and that question is then answered.
 void fight(bool at_yes) {
     g_line_pos = -1;
     if (at_yes) {
@@ -669,10 +564,10 @@ void close_panel(bool yes) {
     g_picker.closing = yes ? 0 : 1;
 }
 
-// Once a frame while the panel is up: the game's own new presses and key
-// repeat of the frame just run. A menu that still hears directions moved
-// its hidden cursor and played the move sound itself; for one that does not,
-// the panel plays it.
+// Once a frame while the panel is up: reads the game's own new presses and
+// key repeat from the frame just run. A menu that still hears directions
+// moves its hidden cursor and plays the move sound itself. For a menu that
+// does not, the panel plays the sound.
 void panel_keys() {
     Picker& p = g_picker;
     if (p.fresh) {
@@ -728,11 +623,11 @@ void panel_keys() {
     }
 }
 
-// Her menu's frame wait while the panel is up: run the panel and play its
-// sounds. Her menu reads its keys through a register the wait keeps, so it
-// points at a zero block while the panel is up; once the panel is done it
-// points back at the live keys, with A pressed for her menu at once and the
-// menu's own sound left out.
+// Her menu's frame wait while the panel is up: runs the panel and plays its
+// sounds. Her menu reads its keys through a register that the wait keeps, so
+// that register points at a zero block while the panel is up. Once the panel
+// is done it points back at the live keys, with A pressed for her menu at
+// once and the menu's own sound left out.
 void panel_frame() {
     Picker& p = g_picker;
     if (p.closing < 0) panel_keys();

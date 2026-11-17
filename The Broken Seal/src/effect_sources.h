@@ -131,7 +131,7 @@ inline constexpr int kMinimumLive = 6;
 // game's sparks, they land where the game lit pixels. If we are reading an
 // image buffer or the wrong system, they do not.
 //
-// The scoring has to be done carefully, because a bright canvas flatters any
+// Scoring needs care: a bright canvas flatters any
 // guess -- one of these canvases is 55% lit, so "landed on a drawn pixel" is
 // nearly free, and a degenerate answer that piles every spark on the middle
 // scores 100%. Two guards, both against fits that fooled us (FACTS.md,

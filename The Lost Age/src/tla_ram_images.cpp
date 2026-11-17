@@ -416,8 +416,7 @@ std::unordered_map<uint64_t, const Member*> g_member_hit;
 // A pc no family routine matched (overlay code served by self-heal, other
 // static code): the search is skipped until a store lands in the bytes it
 // read, [lo, hi), watched exactly (ram_code_words.h). Without this every
-// call repeated the whole candidate search (~4-6% of TLA Turbo battle time,
-// session 20261030_121810).
+// call repeated the whole candidate search (~4-6% of TLA Turbo battle time).
 struct MemberMiss { uint32_t lo, hi; unsigned long long signature; };
 std::unordered_map<uint64_t, MemberMiss> g_member_miss;
 

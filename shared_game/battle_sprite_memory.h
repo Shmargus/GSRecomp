@@ -4,7 +4,8 @@
 
 namespace gsr::custom_battle::sprites {
 
-// GS1 08003FA4 / 08003F3C: 96 {u16 size, u16 byte offset} grants.
+// GS1 08003FA4 / 08003F3C: the allocator hands out 96 grants, each
+// {u16 size, u16 byte offset}.
 // The original allocator owns the first page; only its failed fighter
 // requests use the engine's existing second 32 KiB page. FACTS, F12 0063.
 // The allocator's ROM addresses are GS1's and live with its caller

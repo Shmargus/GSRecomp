@@ -11,8 +11,14 @@
 namespace gsr::trackers {
 
 // Once at startup, after anything else that installs extra ImGui drawing.
+// Phones have no tracker windows: their screen is the game and its buttons,
+// and the F1 Game page does not list the tracker switches there.
 inline void install(const djinn_tracker::Game& djinn, const treasure_tracker::Game& treasure,
                     const tracker_text::Config& text) {
+#if defined(__ANDROID__)
+    (void)djinn; (void)treasure; (void)text;
+    return;
+#endif
     tracker_text::config = &text;
     djinn_tracker::install(djinn);
     treasure_tracker::install(treasure);
@@ -20,6 +26,10 @@ inline void install(const djinn_tracker::Game& djinn, const treasure_tracker::Ga
 
 // Emulation thread, once per frame.
 inline void sample(const std::uint8_t* ewram, const std::uint8_t* rom, std::size_t rom_size) {
+#if defined(__ANDROID__)
+    (void)ewram; (void)rom; (void)rom_size;
+    return;
+#endif
     if (rom && tracker_text::config && !tracker_text::ready.load(std::memory_order_relaxed)) {
         const auto& text = *tracker_text::config;
         const auto* djinn = djinn_tracker::game;

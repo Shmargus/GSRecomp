@@ -39,10 +39,7 @@
 #include <cstring>
 #include <vector>
 
-#if defined(_WIN32)
-#include <windows.h>
-#endif
-#include <GL/gl.h>
+#include "gl_platform.h"
 
 namespace gbarecomp {
 namespace {
@@ -448,10 +445,11 @@ void main()
 //
 // Port notes: parameters keep their upstream default values as #defines,
 // except the five the sliders set (Params[0..4]: scanline hardness, curvature
-// %, mask depth %, brightness %, glow %); the GL_ES / SIMPLE_LINEAR_GAMMA branches and the pragma lines are dropped. Every
-// sample goes through src_texel(); reads outside the picture return black, as
-// upstream's clamp-to-border wrap does. TextureSize == InputSize here, so the
-// upstream size ratios in main() are 1.
+// %, mask depth %, brightness %, glow %). The GL_ES and SIMPLE_LINEAR_GAMMA
+// branches and the pragma lines are dropped. Every sample goes through
+// src_texel(); reads outside the picture return black, as upstream's
+// clamp-to-border wrap does. TextureSize == InputSize here, so the upstream
+// size ratios in main() are 1.
 const char* kLottesFragment = R"GLSL(
 #define hardScan (-Params[0])
 #define hardPix -3.0
@@ -1206,7 +1204,12 @@ GLuint compile(GLenum type, const char* const* sources, GLsizei count,
                const char* what) {
     GLuint shader = glCreateShader(type);
     if (!shader) return 0;
-    glShaderSource(shader, count, sources, nullptr);
+    // The first piece carries the version line.
+    std::vector<std::string> texts(sources, sources + count);
+    if (count > 0) texts[0] = gl_shader_source(sources[0]);
+    std::vector<const char*> pieces;
+    for (const std::string& t : texts) pieces.push_back(t.c_str());
+    glShaderSource(shader, count, pieces.data(), nullptr);
     glCompileShader(shader);
     GLint ok = 0;
     glGetShaderiv(shader, kCompileStatus, &ok);
@@ -1414,7 +1417,7 @@ bool screen_filter_draw(SDL_Renderer* renderer, SDL_Texture* texture,
 
     SDL_RendererInfo info{};
     if (SDL_GetRendererInfo(renderer, &info) != 0 || !info.name ||
-        std::strcmp(info.name, "opengl") != 0)
+        std::strcmp(info.name, gl_sdl_render_driver()) != 0)
         return false;
     // `dest` is in renderer-output pixels and the draw below is raw GL, so
     // SDL's logical size (the native 240x160 path) does not apply to it.

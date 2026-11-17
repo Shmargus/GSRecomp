@@ -9,7 +9,7 @@
 // loaded one with its own artwork and colours. The loaded set's cells, and
 // everything inside the 240x160, stay on video memory.
 //
-// Evidence (21 October 2026, kanban snow investigation, ROM SHA-1 b5006632):
+// Evidence (21 October 2026, snow investigation, ROM SHA-1 b5006632):
 //  * selector, Thumb 0x0802C58C..0x0802C6B2: cell word at 0x02020000 (the
 //    first layer's ring); bits 24..29 divided by 10 (0x08002054): 3 -> set 3,
 //    2 -> set 2, 4 -> set 1, else set 0; set record 0x0802ED34 + 36 * set,
@@ -148,7 +148,7 @@ private:
                 colours_[s][c] = std::uint16_t(out[c * 2] | (out[c * 2 + 1] << 8));
             for (int k = 0; k < 4; ++k) {
                 if (!asset(s, 3 + k, &off) ||
-                    !tla_rom::unpack(rom + off, rom_bytes - off, &out, kBlock) ||
+                    !gsr::rom_unpack(rom + off, rom_bytes - off, &out, kBlock) ||
                     out.size() != kBlock)
                     return false;
                 std::copy(out.begin(), out.end(),

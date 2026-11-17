@@ -159,9 +159,10 @@ inline std::vector<fs::path> associated_directories(const fs::path& source) {
 }
 } // namespace storage_detail
 
-// Each game's ROM language, chosen with the flag under its cartridge: the
-// row of its revision list (launcher_game.h rom_codes; 0 USA/Europe). Each
-// language has its own ROM, save and savestates, named "<game> (<name>)";
+// Each game's ROM revision, chosen with the buttons under its cartridge (or
+// by picking a supported patched ROM, collection_rom.h prepare_rom): the row
+// of its revision list (launcher_game.h rom_codes; 0 USA/Europe). Each
+// revision has its own ROM, save and savestates, named "<game> (<name>)";
 // scripts/build_game.ps1 reads the same file.
 inline fs::path rom_language_file(const fs::path& root, int game = 0) {
     return root / "local" / (game ? "lost-age-language.txt" : "broken-seal-language.txt");
@@ -171,12 +172,12 @@ inline int rom_language(const fs::path& root, int game = 0) {
     std::string value;
     file >> value;
     const auto& identity = gsr_launcher::kGames[game];
-    for (int language = 1; language < gsr_launcher::rom_language_count(identity); ++language)
+    for (int language = 1; language < gsr_launcher::rom_revision_count(identity); ++language)
         if (value == identity.rom_codes[language]) return language;
     return 0;
 }
 inline bool set_rom_language(const fs::path& root, int language, int game = 0) {
-    if (language < 0 || language >= gsr_launcher::rom_language_count(gsr_launcher::kGames[game])) return false;
+    if (language < 0 || language >= gsr_launcher::rom_revision_count(gsr_launcher::kGames[game])) return false;
     std::error_code error;
     fs::create_directories(rom_language_file(root, game).parent_path(), error);
     std::ofstream file(rom_language_file(root, game), std::ios::trunc);
@@ -191,7 +192,7 @@ inline ManagedFiles managed_paths(const fs::path& root, const std::string& game_
     const auto absolute = fs::absolute(root).lexically_normal();
     const int game = game_stem == "The Lost Age";
     if (language == -1) language = rom_language(absolute, game);
-    if (language < 0 || language >= gsr_launcher::rom_language_count(gsr_launcher::kGames[game]))
+    if (language < 0 || language >= gsr_launcher::rom_revision_count(gsr_launcher::kGames[game]))
         throw std::runtime_error("Unknown ROM language.");
     const auto name = language ? game_stem + " (" + gsr_launcher::kGames[game].rom_names[language] + ")" : game_stem;
     return {absolute, absolute / "ROMs" / (name + ".gba"), absolute / "Saves" / (name + ".sav"), absolute / "Saves" / name};

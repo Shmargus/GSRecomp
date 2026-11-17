@@ -1,4 +1,4 @@
-// save_extension.h — companion file name for a game's battery extension
+// save_extension.h: companion file name for a game's battery extension
 // (gba_save.h configure_extension). The one rule, shared with the launcher.
 
 #pragma once

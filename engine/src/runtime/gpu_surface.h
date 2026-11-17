@@ -13,7 +13,7 @@
 //
 // Availability is a runtime question, not a build-time one: a machine may give
 // us a context too old for shaders and framebuffers. `init()` reports that
-// honestly and the caller keeps using whatever it was using before. There is
+// accurately and the caller keeps using whatever it was using before. There is
 // no partial mode.
 #pragma once
 
@@ -203,7 +203,16 @@ private:
     int depth_w_ = 0, depth_h_ = 0;
 
     GpuProgram blit_program_ = 0;
-    std::size_t vbo_capacity_ = 0;
+
+    // One framebuffer per colour target texture, so switching the target
+    // between passes is a framebuffer bind. Re-attaching textures to the one
+    // framebuffer made the phone's driver rebuild the attachment every pass
+    // (Pixel 9 Pro profile, 16 November 2026: bind_color_target 3.4% of the
+    // game thread, the attachment's preparation under the clear 4.4%).
+    // fbo_ stays the main target's own.
+    struct Targets;
+    Targets* targets_ = nullptr;
+    unsigned framebuffer_for(GpuTexture texture);
 
     // Saved GL state, restored by end_frame.
     struct SavedState;

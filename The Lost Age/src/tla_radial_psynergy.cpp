@@ -12,10 +12,11 @@ std::uint16_t keys(std::uint16_t value) {
     return next_keys ? next_keys(value) : value;
 }
 // Auto Field Psynergy (FACTS "Auto Field Psynergy", 5 November 2026). The
-// field loop's A (0x080CC192..0x080CC22E): actor 8 while the halfword
-// 0x020004B6 is set, else [0x02000454]; talk when 0x080CD91C(actor) != -1 and
-// is above 0x3F or 0x080CCE94 of it is nonzero; else check when 0x080CC54C()
-// is nonzero. The dispatcher finds the target with 0x080CE31C(kind), then
+// field loop handles A (0x080CC192..0x080CC22E) like this. The actor is
+// actor 8 while the halfword 0x020004B6 is set, else [0x02000454]. It talks
+// when 0x080CD91C(actor) != -1 and the result is above 0x3F or 0x080CCE94 of
+// it is nonzero; otherwise it checks when 0x080CC54C() is nonzero. The
+// dispatcher finds the target with 0x080CE31C(kind), then
 // searches the room's events ([field] + 0x10) with 0x080CE458(category,
 // kind, target) for 0x80000005, 0x10000005, 5, 0x50000005
 // (0x080CE7F0..0x080CE86E); event bit 0x80 matches anywhere in the room.
@@ -32,16 +33,18 @@ std::uint32_t find(std::uint32_t category, unsigned kind) {
 }
 }  // namespace
 
-// Field button poll 0x08026E60 (returns 0 while [0x0300006C] is 0; while the
-// byte at field + 0xCAC is set every button queues one fixed action instead,
-// 0x08026E72..0x08026EEA): masks 0x02000470.. (L 0x200 at 0x02000478,
-// R 0x100 at 0x0200047A) pick the shortcut words 0x02000480 / 0x02000482
-// (written by the game's setter 0x080FD52C) for the cast routine 0x08026DD0,
-// which queues field + 0x166 as the Psynergy menu does, for the dispatcher
-// 0x080CE61C. Ability records
-// 0x080B7C14 (12 bytes, ids to 0x2DE, field kind +6 as dispatcher 0x080CE64A
-// reads it); icons 0x08054A14 (260, count 0x0803D4D0) in the common OBJ
-// colours 0x08017B10; names text 0x5A7 + id.
+// Field button poll 0x08026E60. It returns 0 while [0x0300006C] is 0. While
+// the byte at field + 0xCAC is set, every button queues one fixed action
+// instead (0x08026E72..0x08026EEA). Otherwise the masks at 0x02000470..
+// (L 0x200 at 0x02000478, R 0x100 at 0x0200047A) pick the shortcut words
+// 0x02000480 / 0x02000482 (written by the game's setter 0x080FD52C). Those
+// go to the cast routine 0x08026DD0, which queues field + 0x166 as the
+// Psynergy menu does, for the dispatcher 0x080CE61C.
+// Ability records: 0x080B7C14 (12 bytes, ids to 0x2DE; the field kind at +6
+// is what dispatcher 0x080CE64A reads). Icons: 0x08054A14 (260 entries; the
+// count routine is 0x0803D4D0, asked at build time because Reloaded moves the
+// table and returns 0xFFFF) in the common OBJ colours 0x08017B10. Names: text
+// 0x5A7 + id.
 void tla_install_radial_psynergy(gbarecomp::RunOptions& options) {
     static const radial::AutoCast auto_cast = {
         0x02000470u, 0x03001154u, 0x10u, a_acts, find,
@@ -55,7 +58,7 @@ void tla_install_radial_psynergy(gbarecomp::RunOptions& options) {
         0x02000520u, 0x02000040u, 0x02000458u, 0x02000480u, 0x02000482u,
         TLA_TEXT(0x5A7u),
         TLA_ROM(0x080A9F54u) - 0x08000000u, TLA_ROM(0x08060C30u) - 0x08000000u,
-        tla_publish_menu_art, &auto_cast,
+        tla_publish_menu_art, &auto_cast, TLA_ROM(0x0803D4D0u),
     };
     radial::install(profile);
     next_keys = options.keyinput_filter;

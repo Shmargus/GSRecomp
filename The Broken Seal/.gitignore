@@ -118,17 +118,17 @@ RUN BATTLE PROBE.ps1
 TRACE MAP.ps1
 logs/mmio_map_*.csv
 
-# Local Claude Code settings carry absolute paths; never commit them.
+# Local editor settings carry absolute paths; never commit them.
 .claude/settings.local.json
 
 # Superseded working notes: handoffs, old status files and closed issues.
 # Kept on disk, out of the repo -- the live documentation is README.md,
-# AGENTS.md, ARCHITECTURE.md, ROADMAP.md, FACTS.md and docs/.
+# ARCHITECTURE.md, ROADMAP.md, FACTS.md and docs/.
 docs/OLD/
 
 
 # Not part of the source repository (kept on disk, never committed):
-# captures, archives, blog drafts and editor/agent settings.
+# captures, archives, blog drafts and editor settings.
 old/
 BLOG_POST*.html
 *.jpg

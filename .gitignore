@@ -26,7 +26,7 @@
 /hang_trace.csv
 *.toml.frag
 
-# Agent instructions, status notes and collection docs stay on disk only.
+# Working notes, status notes and collection docs stay on disk only.
 /AGENTS.md
 /STATUS.md
 /docs/

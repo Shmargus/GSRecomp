@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include "rom_version.h"
+#include "../../shared_game/instant_text.h"
 
 // Golden Sun USA/Europe metadata belongs to the project runner, not the
 // reusable ARMv4T runtime. These identities were measured from the generated
@@ -35,13 +36,13 @@ const std::uint32_t kWordStopPc = gs::rom(0x08016EDCu);
 // One page of dialogue is far below this. The counter is decremented once per
 // parsed token and the slot is a full word, so a large value simply means the
 // parser reaches its own exit before the allowance runs out.
-constexpr std::uint32_t kInstantBudget = 255u;
+constexpr std::uint32_t kInstantBudget = instant_text::kAllowance;
 
 // Message speed lives at 0x02000240 + 0x20C; 0 = Slow, 1 = Normal, 2 = Fast.
 // Instant text is a fourth value, 3, so the in-game option selects
 // Slow / Normal / Fast / Instant.
 constexpr std::uint32_t kMessageSpeedAddress = 0x0200044Cu;
-constexpr std::uint32_t kMessageSpeedInstant = 3u;
+constexpr std::uint32_t kMessageSpeedInstant = instant_text::kInstant;
 
 constexpr bool matches(std::uint32_t pc, std::uint32_t width) {
     return width == 4u && (pc == kBudgetSeedPc || pc == kWordStopPc);
@@ -51,7 +52,7 @@ constexpr bool matches(std::uint32_t pc, std::uint32_t width) {
 // the screen's input loop 0x0801D4CC wraps left/right by it. 0x0801D072 is
 // `movs r3,#3`, Message speed's count. Four makes value 3 reachable.
 const std::uint32_t kChoiceCountPc = gs::rom(0x0801D072u);
-constexpr std::uint32_t kChoiceCountWithInstant = 4u;
+constexpr std::uint32_t kChoiceCountWithInstant = instant_text::kChoiceCount;
 
 // The settings screen's per-frame routine 0x0801CF48 bounces the selected
 // icon of the Message-speed row through slot (row * 3 + value) at +0x5D4 of
@@ -59,8 +60,8 @@ constexpr std::uint32_t kChoiceCountWithInstant = 4u;
 // next row's first icon. 0x0801CFC6 is `ble` on the row index (r6) that skips
 // the bounce; forcing it taken leaves no icon bouncing for Instant.
 const std::uint32_t kIconBounceBranchPc = gs::rom(0x0801CFC6u);
-constexpr std::uint32_t kMessageSpeedRow = 2u;
-constexpr std::uint32_t kScreenMessageSpeedOffset = 0x596u;
+constexpr std::uint32_t kMessageSpeedRow = instant_text::kRow;
+constexpr std::uint32_t kScreenMessageSpeedOffset = instant_text::kScreenValueOffset;
 
 // The Message-speed caption is text ID 0xC0A + value, loaded at 0x0801D6AE
 // (`ldr r3,=0xC0A`; the screen's value is in r2, the cursor row in r9).
@@ -70,16 +71,16 @@ constexpr std::uint32_t kScreenMessageSpeedOffset = 0x596u;
 // ASCII) and ends the string on 0 (0x080182A6 -> 0x0801831A). Its text ID is
 // what it passed to the line start 0x08019BAC(state, id) from 0x080180BE:
 // USA also keeps it at [sp+0x30], Spain only in a register the character
-// loop reuses, so the runner records it there (kLineStartPc). The caption is the word, with "< " and " >" around it
-// while the cursor is on this row.
+// loop reuses, so the runner records it there (kLineStartPc). The caption is
+// the word, with "< " and " >" around it while the cursor is on this row.
 const std::uint32_t kCaptionBaseLiteralPc = gs::rom(0x0801D6AEu);
 const std::uint32_t kCaptionBase = gs::text(0x00000C0Au);
 const std::uint32_t kDecodedCharPc = gs::rom(0x080180D0u);
 const std::uint32_t kLineStartPc = gs::rom(0x08019BACu);
 const std::uint32_t kLineStartReturn = gs::rom(0x080180C2u);
-constexpr const char* kSpeedWords[4] = {"Slow", "Normal", "Fast", "Instant"};
-constexpr char kArrowLeft[] = "< ";
-constexpr char kArrowRight[] = " >";
+using instant_text::kArrowLeft;
+using instant_text::kArrowRight;
+using instant_text::kSpeedWords;
 
 // Menu text advances by the per-character width table 0x080370D4, indexed by
 // code - 0x20 (it matches every advance in the 2026-09-14 glyph trace).
@@ -87,7 +88,7 @@ constexpr char kArrowRight[] = " >";
 // Speech icons sit at 0x64 and 0x7C with a 24-pixel pitch, spanning
 // 0x64..0x94, so the caption is centred on 0x7C.
 const std::uint32_t kGlyphWidthTable = gs::rom(0x080370D4u);
-constexpr std::uint32_t kCaptionCentreX = 0x7Cu;
+constexpr std::uint32_t kCaptionCentreX = instant_text::kCaptionCentreX;
 
 // The Message-speed row is text only: its three icons are uploaded blank and
 // the caption word sits where they began. Setup reads the row's icon table
@@ -105,10 +106,10 @@ constexpr std::uint32_t kSetupIconCount = 3u;
 const std::uint32_t kIconSourcePc = gs::rom(0x08021732u);
 constexpr std::uint32_t kFirstMessageSpeedIcon = 34u;
 constexpr std::uint32_t kLastMessageSpeedIcon = 36u;
-constexpr std::uint32_t kBlankIconSource = 0xFFFFFFFFu;
+constexpr std::uint32_t kBlankIconSource = instant_text::kBlankIconSource;
 const std::uint32_t kCaptionClearXPc = gs::rom(0x0801D6B8u);
 const std::uint32_t kCaptionDrawXPc = gs::rom(0x0801D6C6u);
-constexpr std::uint32_t kCaptionClearX = 0x54u;
+constexpr std::uint32_t kCaptionClearX = instant_text::kCaptionClearX;
 
 // Two ROM tables are indexed by the Message-speed byte and hold only three
 // entries, so index 3 reads the next bytes: the dialogue delay table

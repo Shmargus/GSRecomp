@@ -109,12 +109,10 @@ const std::uint32_t kQuestionText = TLA_TEXT(0x24u);
 const std::uint32_t kYesNoPc = TLA_ROM(0x08038378u);        // 0 = Yes
 const std::uint32_t kMessageClosePc = TLA_ROM(0x08038140u);
 
-// While the picture is covered: the frame it was covered at. Each covered
-// stretch (start to the naming; the question to the end of the import) ran
-// within 555 frames: that was the shortest whole Seamless session, naming
-// included (logs/session_20261015_181714, 555 frames). Past 600 frames
-// (10 s) a step was missed: the picture comes back and the player goes on
-// by hand instead of facing a black screen.
+// Remember when the screen was covered. In the shortest complete Seamless
+// run, the wait before naming and the wait during import each took at most
+// 555 frames. After 600 frames (10 s), show the screen again so the player
+// can finish by hand.
 constexpr unsigned long long kNotCovered = ~0ull;
 constexpr unsigned long long kCoverLimitFrames = 600;
 unsigned long long g_covered_at = kNotCovered;
@@ -195,6 +193,8 @@ std::string shell_quote(const std::string& value) {
 
 std::shared_ptr<PickerResult> browse_for_save(SDL_Window* owner_window = nullptr) {
     auto result = std::make_shared<PickerResult>();
+    // Headless import checks use TLA_GS_SAVE_TEST_FILE, _SLOT and _WAIT_FRAMES.
+    // See "Golden Sun save import" in FACTS.md.
     if (g_headless) {
         if (const char* file = std::getenv("TLA_GS_SAVE_TEST_FILE")) result->path = utf8_path(file);
         result->done.store(true, std::memory_order_release);

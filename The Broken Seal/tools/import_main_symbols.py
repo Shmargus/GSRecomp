@@ -528,7 +528,7 @@ def import_symbols(
     return corpus, report
 
 
-def _write_json(path: Path, document: dict[str, Any]) -> str:
+def write_json(path: Path, document: dict[str, Any]) -> str:
     payload = (json.dumps(document, indent=2, ensure_ascii=True) + "\n").encode("utf-8")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(payload)
@@ -582,8 +582,8 @@ def main() -> int:
             evidence_source=evidence_source,
             evidence_revision=args.evidence_revision,
         )
-        corpus_sha256 = _write_json(args.output.expanduser().resolve(), corpus)
-        report_sha256 = _write_json(
+        corpus_sha256 = write_json(args.output.expanduser().resolve(), corpus)
+        report_sha256 = write_json(
             args.unresolved_output.expanduser().resolve(), report
         )
     except (OSError, ElfFormatError) as error:

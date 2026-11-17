@@ -11,7 +11,7 @@
 
 foreach(var NM GAME_LIST ENGINE_LIST OUT)
     if(NOT DEFINED ${var})
-        message(FATAL_ERROR "gsr_engine_exports.cmake: ${var} is not set")
+        message(FATAL_ERROR "engine_exports.cmake: ${var} is not set")
     endif()
 endforeach()
 
@@ -54,8 +54,8 @@ foreach(line IN LISTS undefined_lines)
     endif()
 endforeach()
 
-# Keep the same symbol types as the previous matcher. Variables must be DATA
-# imports; importing a function thunk in their place corrupts the game.
+# Only these nm symbol types are exported. Variables must be DATA imports;
+# importing a function thunk in their place corrupts the game.
 gsr_nm("${ENGINE_LIST}" "--defined-only" engine_text)
 string(REGEX MATCHALL "\n[A-Za-z_][A-Za-z0-9_@$.]* [A-TX-Zabd-uxyz] "
        defined_lines "${engine_text}")

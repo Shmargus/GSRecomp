@@ -10,8 +10,8 @@ extern "C" uint8_t g_runtime_mem_cost[16][2][2];
 extern "C" uint32_t g_runtime_mem_cost_key;
 extern "C" const uint8_t* g_runtime_waitcnt_live;
 // always_inline: plain `static inline` was left out of line in the big
-// generated functions and was 20% of the heaviest Nereid frames
-// (logs/session_20260930_190323.hostprof.txt).
+// generated functions and was 20% of the heaviest Nereid frames (one
+// profiled run).
 // Below the cart (BIOS, EWRAM, IWRAM, IO, PAL, VRAM, OAM) the cost does not
 // depend on WAITCNT or S/N: GbaBus::access_cycles (gba_bus.cpp) gives EWRAM
 // 3 / 6, PAL and VRAM 1 / 2, everything else 1, for 16- / 32-bit. With a

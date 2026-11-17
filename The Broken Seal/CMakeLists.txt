@@ -7,7 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Link-time (interprocedural) optimization for GoldenSunRecomp + the
 # gbarecomp static libraries it links. Off for gsr_bootstrap and every
-# third_party/* target (imgui, toml++, gba_suite, mgba) — those keep whatever
+# third_party/* target (imgui, toml++, gba_suite, mgba); those keep whatever
 # flags they already had. Degrades gracefully: if the toolchain can't do IPO
 # (checked below, not assumed), the build proceeds without it instead of
 # failing. Override with -DGSR_ENABLE_LTO=OFF.
@@ -24,15 +24,6 @@ if(GSR_ENABLE_LTO)
             "unsupported (${GSR_IPO_SUPPORT_ERROR}); building without it.")
     endif()
 endif()
-# Parallel LTRANS (post-analysis codegen) job count for GCC's -flto=N on the
-# final GoldenSunRecomp link. This does NOT bound the whole-program-analysis
-# (WPA) pass that precedes it — WPA is single-threaded in GCC and is the
-# actual peak-memory phase for a binary this size (~168 MB, ~400k alias
-# thunks), so raising this number buys wall-clock time on the codegen phase
-# only, not memory headroom. Left at a conservative fraction of logical
-# cores rather than the full core count so LTRANS workers don't compound
-# against that WPA peak on a 16 GB box. Set to "" to omit the explicit -flto=N
-# override, or to 1 for a fully serial (lowest-memory) LTRANS.
 # GSR_DEBUG_SYMBOLS=OFF (player releases): the same optimised build without
 # debug information, which every compile and the LTO link otherwise carry (the
 # split-off .debug file is ~600 MB). The exe keeps its plain symbol table, so
@@ -44,6 +35,15 @@ if(NOT GSR_DEBUG_SYMBOLS AND NOT MSVC)
     add_link_options(-g0)
 endif()
 
+# Parallel LTRANS (post-analysis codegen) job count for GCC's -flto=N on the
+# final GoldenSunRecomp link. This does NOT bound the whole-program-analysis
+# (WPA) pass that precedes it. WPA is single-threaded in GCC and is the
+# actual peak-memory phase for a binary this size (~168 MB, ~400k alias
+# thunks), so raising this number buys wall-clock time on the codegen phase
+# only, not memory headroom. Left at a conservative fraction of logical
+# cores rather than the full core count so LTRANS workers don't compound
+# against that WPA peak on a 16 GB box. Set to "" to omit the explicit -flto=N
+# override, or to 1 for a fully serial (lowest-memory) LTRANS.
 set(GSR_LTO_JOBS "8" CACHE STRING
     "Parallel LTRANS job count (-flto=N) for the GoldenSunRecomp link when LTO is enabled; empty = compiler default")
 
@@ -65,9 +65,9 @@ enable_testing()
 add_test(NAME bootstrap_help COMMAND gsr_bootstrap --help)
 
 # The spell-spark stamper. Host-side drawing of the effects the game clips to
-# its own 128-wide canvas; see src/effect_particles.h for why that clip cannot
-# be widened in place. Pure logic, no ROM and no graphics device, so it runs in
-# the public suite alongside the Python checks.
+# its own 128-wide canvas; see engine/src/field/effect_particles.h for why
+# that clip cannot be widened in place. Pure logic, no ROM and no graphics
+# device, so it runs in the public suite alongside the Python checks.
 add_executable(gsr_effect_particles_test
     tests/cpp/effect_particles_test.cpp
     "${CMAKE_SOURCE_DIR}/../engine/src/field/effect_particles.cpp")
@@ -85,7 +85,7 @@ add_test(NAME effect_burst COMMAND gsr_effect_burst_test)
 # Reading the particles out of guest memory, which is the half that cannot be
 # shared between effect systems -- they disagree on where the array is and what
 # a position means. Its refusal path is the important part: position rules
-# alone accepted a source on all three real captures, so the reader now has to
+# alone accepted a source on all three real captures, so the reader has to
 # agree with the canvas the game itself drew.
 add_executable(gsr_effect_sources_test
     tests/cpp/effect_sources_test.cpp
@@ -124,15 +124,15 @@ set(GSR_LAUNCHER_DIR "${CMAKE_SOURCE_DIR}/../launcher")
 set(GSR_PLAYER_BUILDER_DIR "${CMAKE_SOURCE_DIR}/../player_builder")
 # Root of the generated game code (every overlay, transient and variant
 # folder below). ../scripts/build_game.ps1 points it (and each folder setting)
-# at the block-timing copy local/gs011_block (scripts/block_timing.py), the
-# default since 2026-09-30; -PerInstruction points it back at local/gs011.
+# at the block-timing copy local/gs011_block (scripts/block_timing.py) by
+# default; -PerInstruction points it back at local/gs011.
 set(GSR_GAME_CODE_ROOT "${CMAKE_SOURCE_DIR}/local/gs011"
     CACHE PATH "Root of the generated game code folders")
 # The ROM revision the game code was generated from; ../scripts/build_game.ps1
 # sets it from the collection's ROM (local/game_code_revision.txt).
 set(GSR_GAME_ROM_SHA1 "5c4695205413df7db52b9a184815a07783999971"
     CACHE STRING "SHA-1 of the ROM the game code was generated from")
-set(GSR_GENERATED_DIR "${CMAKE_SOURCE_DIR}/local/gs009/main"
+set(GSR_GENERATED_DIR "${CMAKE_SOURCE_DIR}/local/gs011/main"
     CACHE PATH "Private gba_recompile output directory")
 set(GSR_TRANSIENT_FUNC2D5C_DIR
     "${GSR_GAME_CODE_ROOT}/transient_func2d5c"
@@ -567,8 +567,9 @@ if(GSR_BUILD_LOCAL_RUNNER)
         endif()
     endforeach()
 
-    # No Nintendo code in the program: the game runs in no-BIOS mode. Turn this on only for a comparison build against the
-    # real BIOS, with its locally generated recompiled output present.
+    # No Nintendo code in the program: the game runs in no-BIOS mode. Turn this
+    # on only for a comparison build against the real BIOS, with its locally
+    # generated recompiled output present.
     set(GBARECOMP_LINK_BIOS OFF CACHE BOOL
         "Link the locally generated recompiled BIOS (comparison builds only)")
     add_subdirectory("${GBARECOMP_ROOT}" gbarecomp_build EXCLUDE_FROM_ALL)
@@ -820,15 +821,14 @@ if(GSR_BUILD_LOCAL_RUNNER)
         ${GSR_STAMPS_SOURCES}
         ${GSR_PROACTIVE_OVERLAY_SOURCES})
     # GSR_SPLIT_GAME_CODE: the engine (our code only) is GoldenSunRecomp.exe
-    # (on Windows now GoldenSunEngine.dll, run by GoldenSunRecomp.exe, below)
+    # (on Windows GoldenSunEngine.dll, run by GoldenSunRecomp.exe, below)
     # and the translated game code is GoldenSunGame.dll beside it, so a
     # release can ship the engine prebuilt and the player's PC builds only
     # the DLL from their ROM (ROADMAP.md, "Player builder"). Windows joins
     # the two when the game starts: the DLL exports the tables the engine
     # reads (GoldenSunGame.def, generated below) and the exe exports
-    # everything the game code calls. The default since 2026-09-26 (Jimmy:
-    # played through Vale, performs like the single LTO exe); OFF builds
-    # the single exe.
+    # everything the game code calls. It performs like the single LTO exe;
+    # OFF builds the single exe.
     option(GSR_SPLIT_GAME_CODE "Build the game code as GoldenSunGame.dll" ON)
     if(GSR_SPLIT_GAME_CODE AND MINGW)
         # Windows: the engine is a plug-in, GoldenSunEngine.dll (target
@@ -850,6 +850,20 @@ if(GSR_BUILD_LOCAL_RUNNER)
         target_link_options(GoldenSunPlayer PRIVATE -Wl,--stack,16777216)
         target_link_libraries(GoldenSunPlayer PRIVATE shell32)
         add_dependencies(GoldenSunPlayer GoldenSunRecomp GoldenSunGame)
+    elseif(GSR_SPLIT_GAME_CODE AND ANDROID)
+        # Android: the engine is a plug-in, libgs_engine.so, shipped in the
+        # app. The phone builds libGoldenSunGame.so from the player's ROM and
+        # links it against this (player_builder); the launcher's game
+        # process loads the game library, which brings the engine, and calls
+        # gsr_game_main (game_module.cpp). The engine's references to the
+        # game's tables are resolved from the game library at that load.
+        add_library(GoldenSunRecomp SHARED ${GSR_ENGINE_SOURCES}
+            "${GBARECOMP_ROOT}/src/runtime/game_module.cpp")
+        set_target_properties(GoldenSunRecomp PROPERTIES OUTPUT_NAME gs_engine)
+        target_link_libraries(GoldenSunRecomp PRIVATE android log)
+        # -Bsymbolic: the engine's own calls (gsr_game_main to the
+        # runner's main) stay inside it, whatever else the process loaded.
+        target_link_options(GoldenSunRecomp PRIVATE -Wl,-z,undefs -Wl,-Bsymbolic)
     elseif(GSR_SPLIT_GAME_CODE)
         add_executable(GoldenSunRecomp ${GSR_ENGINE_SOURCES})
     else()
@@ -919,7 +933,7 @@ if(GSR_BUILD_LOCAL_RUNNER)
         # Incremental LTO (GCC 15+): the link splits the program into pieces
         # by a stable rule (-flto-partition=cache) and keeps each finished
         # piece in <build>/lto-cache. A later link recompiles only the pieces
-        # whose code changed, so an engine-only change no longer redoes the
+        # whose code changed, so an engine-only change does not redo the
         # whole game's final optimisation. The first link after enabling this
         # is a full one. One build per tree at a time (the cache has no file
         # locking on Windows), which ../scripts/build_game.ps1 already enforces.
@@ -974,6 +988,11 @@ if(GSR_BUILD_LOCAL_RUNNER)
             INTERPROCEDURAL_OPTIMIZATION FALSE
             LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
         target_link_options(GoldenSunGame PRIVATE -Wl,-Bsymbolic)
+        if(ANDROID)
+            # The reverse of Linux: the game library needs the engine
+            # plug-in, as the phone's own build links it (player_builder).
+            target_link_libraries(GoldenSunGame PRIVATE GoldenSunRecomp)
+        else()
         target_link_libraries(GoldenSunRecomp PRIVATE GoldenSunGame)
         # The library is found beside the engine and nowhere else (no build
         # path baked in). No ENABLE_EXPORTS: only the engine symbols the
@@ -985,11 +1004,12 @@ if(GSR_BUILD_LOCAL_RUNNER)
         set_target_properties(GoldenSunRecomp PROPERTIES
             BUILD_WITH_INSTALL_RPATH ON INSTALL_RPATH "$ORIGIN")
         target_link_options(GoldenSunRecomp PRIVATE -static-libstdc++ -static-libgcc)
+        endif()
     elseif(GSR_SPLIT_GAME_CODE AND NOT MSVC)
         # The game code: no LTO (it calls shared engine helpers, which is
-        # what LTO used to copy into it), compiled once and reused until the
-        # translated code changes. Objects first, so the exe's export list
-        # can be read from them before the exe links.
+        # what LTO would otherwise copy into it), compiled once and reused
+        # until the translated code changes. Objects first, so the exe's export
+        # list can be read from them before the exe links.
         add_library(gsr_game_objects OBJECT ${GSR_GAME_SOURCES})
         set_target_properties(gsr_game_objects PROPERTIES
             INTERPROCEDURAL_OPTIMIZATION FALSE)
@@ -1103,6 +1123,15 @@ if(GSR_BUILD_LOCAL_RUNNER)
             add_executable(GoldenSunCollection WIN32 ${GSR_COLLECTION_SOURCES})
             target_compile_definitions(GoldenSunCollection PRIVATE
                 UNICODE _UNICODE NOMINMAX)
+        elseif(ANDROID)
+            # Android: the app's main library. SDL's Java activities load
+            # libmain.so and call SDL_main (launcher/android_main.cpp), which
+            # runs the collection window, a game session or a game.
+            add_library(GoldenSunCollection SHARED ${GSR_COLLECTION_SOURCES}
+                "${GSR_LAUNCHER_DIR}/android_main.cpp"
+                "${GSR_LAUNCHER_DIR}/android_host.cpp")
+            set_target_properties(GoldenSunCollection PROPERTIES OUTPUT_NAME main)
+            target_link_libraries(GoldenSunCollection PRIVATE android log)
         else()
             add_executable(GoldenSunCollection ${GSR_COLLECTION_SOURCES})
         endif()
@@ -1132,6 +1161,9 @@ if(GSR_BUILD_LOCAL_RUNNER)
         if(WIN32)
             target_link_libraries(GoldenSunCollection PRIVATE bcrypt comdlg32 gdiplus
                 shlwapi winhttp shell32 dwmapi)
+        elseif(ANDROID)
+            find_package(Threads REQUIRED)
+            target_link_libraries(GoldenSunCollection PRIVATE Threads::Threads)
         else()
             find_package(Threads REQUIRED)
             target_link_libraries(GoldenSunCollection PRIVATE Threads::Threads)

@@ -1,4 +1,4 @@
-// thumb_decode.h — THUMB (16-bit) instruction decoder.
+// thumb_decode.h: THUMB (16-bit) instruction decoder.
 //
 // Decodes one 16-bit THUMB halfword at a given PC into the same Instr
 // IR as the ARM decoder. The smoke test feeds both decoders into one

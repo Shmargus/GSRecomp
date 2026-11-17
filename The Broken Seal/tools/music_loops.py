@@ -29,7 +29,7 @@ end in file time. The engine reads it (host_local_music.cpp).
 Needs numpy and ffmpeg (to decode the FLAC files).
   python tools/music_loops.py --rom "../ROMs/The Broken Seal.gba" \\
       --music "../Music/TBS"
-  python tools/music_loops.py --game tla --rom "../ROMs/The Lost Age.gba" \\
+  python "../The Lost Age/tools/music_loops.py" --rom "../ROMs/The Lost Age.gba" \\
       --music "../Music/TLA"
 """
 
@@ -262,12 +262,12 @@ def clock(frames: int, rate: int) -> str:
     return f'{int(seconds // 60)}:{seconds % 60:06.3f}'
 
 
-def main() -> int:
+def main(*, default_game: str = 'tbs') -> int:
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     parser.add_argument('--rom', required=True)
     parser.add_argument('--music', required=True,
                         help='folder of "<disc>-<NN> - <title>.flac" files')
-    parser.add_argument('--game', choices=sorted(GAMES), default='tbs')
+    parser.add_argument('--game', choices=sorted(GAMES), default=default_game)
     parser.add_argument('--table', help="song header -> album track table "
                         "(default: the game's own)")
     parser.add_argument('--ffmpeg', default=shutil.which('ffmpeg') or 'ffmpeg')

@@ -1,4 +1,4 @@
-// overlay_loader.h — Stage-2 self-heal dispatch tier + background compiler.
+// overlay_loader.h: Stage-2 self-heal dispatch tier + background compiler.
 //
 // Stage 1 bridges a dispatch miss through the interpreter on EVERY hit. Stage 2
 // closes the loop: the first miss for a PC enqueues a background compile (emit
@@ -16,7 +16,7 @@
 // runtime is a pure Stage-1 bridge. Healing of mutable IWRAM/EWRAM code is a
 // further opt-in (GBARECOMP_SELFHEAL_RAM=1).
 //
-// Doctrine (PRINCIPLES.md): healed-from-cache is STILL NOT fully static — the
+// Doctrine (PRINCIPLES.md): healed-from-cache is STILL NOT fully static; the
 // build is done only when the merged TOML makes the static corpus cover it.
 // See self_heal.h.
 // GBARECOMP_STRICT_STATIC=1 is the acceptance gate: it disables cache loading,
@@ -91,19 +91,17 @@ void (*overlay_wait_resolve(uint32_t pc, bool thumb,
 // reports how many times the native function has been dispatched.
 bool overlay_query(uint32_t pc, bool thumb, uint64_t* native_calls);
 
-// Total wall-time the GAME THREAD has spent compiling shards. Both producers
-// (gcc and tcc) run on the worker thread, so the game thread never compiles and
-// this is always 0 — kept so the coverage banner's stall metric stays wired.
-// Nanoseconds, monotonic.
+// Compile time on the game thread, in nanoseconds. Always zero because
+// GCC and TCC run on the worker thread.
 uint64_t overlay_game_thread_compile_ns();
 
 // Aggregate counters for the coverage banner + the live `misses` TCP command.
 // Any out-param may be null.
-//   ram_healed          — currently-healed functions whose PC is IWRAM/EWRAM
+//   ram_healed:            currently-healed functions whose PC is IWRAM/EWRAM
 //                          (content-verified on every dispatch; see
 //                          overlay_resolve).
-//   ram_revalidations   — CRC32 rechecks performed against live RAM bytes.
-//   ram_crc_mismatches  — of those, how many found stale bytes and forced a
+//   ram_revalidations:     CRC32 rechecks performed against live RAM bytes.
+//   ram_crc_mismatches:    of those, how many found stale bytes and forced a
 //                          miss + re-heal instead of calling the native fn.
 void overlay_counters(uint64_t* healed_native, uint64_t* native_calls_total,
                       uint64_t* inflight, uint64_t* failed,
@@ -131,19 +129,19 @@ void overlay_relocatable_alias_counters(uint64_t* hits, uint64_t* misses);
 // written at shutdown, so it can be joined on `frame` with the per-frame
 // phase CSV from GBARECOMP_FRAME_PHASE.
 //
-// overlay_note_frame — called once per presented frame (from the runtime's
+// overlay_note_frame: called once per presented frame (from the runtime's
 // present hook, both the present-in-place and fallback paths) so later
 // self-heal events on the game thread attribute to the right frame bucket.
 void overlay_note_frame(uint64_t frame);
-// overlay_note_dispatch_miss — a Stage-1 interpreter-bridge entry
+// overlay_note_dispatch_miss: a Stage-1 interpreter-bridge entry
 // (runtime_dispatch_miss) fired this frame. `outcome` is the request/cache
 // result observed immediately before the bridge (no guest bytes are logged).
 void overlay_note_dispatch_miss(uint32_t pc, bool thumb,
                                 OverlayRequestOutcome outcome);
-// overlay_note_smc_fallback — a mutable-RAM AOT guard miss
+// overlay_note_smc_fallback: a mutable-RAM AOT guard miss
 // (runtime_mutable_ram_code_miss) fired this frame.
 void overlay_note_smc_fallback(uint32_t pc, bool thumb);
-// overlay_note_bridge_miss — wall-time (nanoseconds) spent synchronously
+// overlay_note_bridge_miss: wall-time (nanoseconds) spent synchronously
 // inside runtime_bridge_interpret for one dispatch-miss bridge this frame, plus
 // the instructions interpreted. Accumulated per frame; dumped as microseconds.
 void overlay_note_bridge_miss(uint32_t pc, bool thumb, uint64_t ns,
@@ -157,9 +155,8 @@ void overlay_note_bridge_miss(uint32_t pc, bool thumb, uint64_t ns,
 // stale-RAM detection.
 void overlay_note_ram_crc_mismatch(uint32_t pc, bool thumb);
 
-// True once the heal feature initialized this session; stays true after
-// shutdown, so the exit coverage report states it honestly (the loader is
-// torn down before the report runs). Prefer this for end-of-run summaries.
+// True if healing started this session. Remains true after shutdown for
+// the exit coverage report.
 bool overlay_was_enabled();
 
 // ── Test-only ─────────────────────────────────────────────────────────────

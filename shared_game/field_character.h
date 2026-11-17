@@ -135,7 +135,7 @@ inline void on_entry(std::uint32_t pc) {
     const auto context = bus->read32(game->actor_context);
     if (native_lead < std::size(kHeroes) && ram(context, 0x34u)) {
         const auto actor = bus->read32(context + 0x14u + native_lead * 4u);
-        // Every action, talking and story scenes included (Jimmy, 3 Nov);
+        // Every action, talking and story scenes included;
         // one-off poses still fall back to the original body below.
         if (ram(actor, 0x54u) && bus->read32(actor + 0x50u) == sprite) {
             // Each action has its own program whose first word is the action
@@ -155,16 +155,18 @@ inline void on_entry(std::uint32_t pc) {
     const unsigned pose = bus->read8(sprite + game->pose_offset);
     // Poses 0-5 mean the same for every hero. Only the main heroes (TBS
     // Isaac, TLA Isaac/Felix) have 6-8 (jump; the game raises the actor for
-    // the bounce) and 9 (a pose-1 idle); the others hold unrelated animations
-    // there, so use their walk and stand. Field Psynergy casts 20 then 21
-    // (F12 TBS 0069, TLA 0208/0209), the ring cast every hero has. Ladder
-    // and vine poses 10-13 walk (below), and so do the room-exit stair
-    // poses 23-26 (only Isaac draws them, sinking into or rising out of the
-    // stairs; F12 TBS 0093/0094 Ivan: 26 climbing out under the facing
+    // the bounce) and 9 (a pose-1 idle). The other heroes hold unrelated
+    // animations there, so they use their walk and stand instead.
+    // Field Psynergy casts 20 then 21 (F12 TBS 0069, TLA 0208/0209), the ring
+    // cast every hero has.
+    // Ladder and vine poses 10-13 walk (see below). So do the room-exit stair
+    // poses 23-26, which only Isaac draws, sinking into or rising out of the
+    // stairs (F12 TBS 0093/0094 Ivan: 26 climbing out under the facing
     // 0xC000, 24 arriving under 0x4000; TLA Isaac's 23-26 are the same ROM
-    // drawings). Every other pose (pushing, story
-    // gestures) stands, so the original body never shows and a held story
-    // pose does not walk in place (Jimmy, 4 Nov; F12 TBS 0081 Sanctum pose 22).
+    // drawings).
+    // Every other pose (pushing, story gestures) stands, so the original body
+    // never shows and a held story pose does not walk in place (F12 TBS 0081
+    // Sanctum pose 22).
     constexpr unsigned kSharedPose[] = {0, 1, 2, 3, 4, 5, 2, 2, 2, 1};
     constexpr unsigned kWalkPose = 2;
     constexpr unsigned kStandPose = 1;

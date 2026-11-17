@@ -1,4 +1,4 @@
-// crc32.h — the engine's one IEEE 802.3 CRC-32 (poly 0xEDB88320, init and
+// crc32.h: the engine's one IEEE 802.3 CRC-32 (poly 0xEDB88320, init and
 // final XOR 0xFFFFFFFF), the same flavor PNG / zip / Ethernet use. Header
 // only and in armv4t (the lowest engine library) so every layer can include
 // it without linking anything. Pairs with sha1.h for asset validation: the

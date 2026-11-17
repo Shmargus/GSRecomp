@@ -1,4 +1,4 @@
-// config.cpp — TOML loader for gba_recompile. See config.h /
+// config.cpp: TOML loader for gba_recompile. See config.h /
 // docs/TOML_SCHEMA.md.
 
 #include "config.h"

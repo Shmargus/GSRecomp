@@ -15,8 +15,8 @@ struct Slot {
     std::size_t offset;      // of its group in the image it was read from
     bool extension = false;  // files 4-9: the battery extension, not flash
     // A Challenge Mode, Random Psynergy or Random Weapons file (payload
-    // +0x28 / +0x30 / +0x38,
-    // src/tla_new_game.cpp): fresh games only, never updated (Jimmy, 5 Nov).
+    // +0x28 / +0x30 / +0x38, src/tla_new_game.cpp): fresh games only, never
+    // updated.
     bool locked = false;
 };
 // Files 1-3, from the cartridge's flash image.

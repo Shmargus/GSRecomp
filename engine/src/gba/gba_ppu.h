@@ -1,4 +1,4 @@
-// gba_ppu.h — GBA PPU: scanline timing, VBlank/HBlank/VCount events, and
+// gba_ppu.h: GBA PPU covering scanline timing, VBlank/HBlank/VCount events, and
 // the software compositor (BG, OBJ, windows, blending).
 //
 // Cycle accounting per GBATEK § "GBA Picture Processing Unit":
@@ -154,7 +154,7 @@ public:
     void serialize(gbarecomp::debug::SnapshotWriter& w) const;
     void deserialize(gbarecomp::debug::SnapshotReader& r);
 
-    // Total frames completed since reset — useful for sync points.
+    // Total frames completed since reset, useful for sync points.
     uint64_t frame_count() const { return frame_count_; }
 
     // Frame size, and render() below fills an RGB888 buffer of it.
@@ -166,7 +166,7 @@ public:
     // ── View-area expansion (opt-in enhancement; default OFF = faithful) ──
     // Generic "render extra margin columns/rows" runner capability. With every
     // margin 0 the PPU runs the LITERAL vanilla path (render_scanline_internal),
-    // so OFF-mode is byte-identical to the faithful build BY CONSTRUCTION — not
+    // so OFF-mode is byte-identical to the faithful build BY CONSTRUCTION, not
     // by algebraic equivalence (per the widescreen design review). Horizontal
     // widening reuses each scanline's latched register state. Vertical widening
     // synthesizes host rows from the nearest captured edge scanline, preserving
@@ -342,7 +342,7 @@ private:
     WsMarginDiagnosticsCallback wide_margin_diagnostics_callback_ = nullptr;
     bool wide_margin_diagnostics_active_ = false;
 
-    // View-area margins (present-time host state; NOT serialized — see above).
+    // View-area margins (present-time host state; NOT serialized, see above).
     uint32_t extra_left_   = 0;
     uint32_t extra_right_  = 0;
     uint32_t extra_top_    = 0;
@@ -410,7 +410,7 @@ extern "C" int (*g_ws_field_tilemap_source)(int bg, int screen_x, int screen_y,
 extern "C" void (*g_ws_field_tilemap_source_begin)(int screen_y,
                                                      uint16_t dispcnt,
                                                      const uint8_t* io);
-// Temporary counters for diagnosing the expanded view, read by the game's
+// Counters for diagnosing the expanded view, read by the game's
 // room-buffer report. [0] wide scanlines rendered, [1] entries supplied by the
 // game, [2] objects skipped as parked, [3] margin samples left blank.
 extern "C" unsigned long long g_ws_expanded_diag[4];

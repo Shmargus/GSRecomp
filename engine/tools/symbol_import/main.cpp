@@ -1,4 +1,4 @@
-// symbol_import — STUB.
+// symbol_import: STUB.
 //
 // Eventually: read symbol output from a disassembler / decomp (e.g.
 // zeldaret/tmc) and emit a normalized symbols TSV that game configs

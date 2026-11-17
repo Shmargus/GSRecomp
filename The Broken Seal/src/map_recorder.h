@@ -1,14 +1,11 @@
-// map_recorder.h — GSR_MAP_RECORD scene recorder.
+// map_recorder.h: GSR_MAP_RECORD scene recorder.
 //
 // A general SCENE recorder covering every scene class GBA hardware actually
 // presents: Mode 0 field (towns/dungeons/indoor rooms -- hardware cannot tell
 // these apart, see FACTS.md "Scene classes"), Mode 2 overworld, Mode 1 battle.
 //
-// Central design constraint, do not "optimise" away: this dumps COMPLETE
-// memory images (full EWRAM/IWRAM/VRAM/PAL/OAM/IO) rather than selected
-// addresses, so analysis of unmapped structures (AGENTS.md: no guessed
-// offsets) can happen offline (tools/decode_snap.py) instead of guessing up
-// front what to log.
+// Dump all of EWRAM, IWRAM, VRAM, PAL, OAM and IO so tools/decode_snap.py
+// can examine structures offline before we know their addresses.
 //
 // Golden Sun-specific tooling: lives entirely in src/, matches
 // function_tracer.h's style and shares its "Snapshot now" / "Mark window"
@@ -42,7 +39,8 @@ void map_recorder_on_entry(std::uint32_t entry_pc);
 // observer, which map_recorder_on_entry installs (see map_recorder.cpp on
 // why it cannot be installed from main()), or chained from
 // golden_sun_wide_ewram_write_observer when widescreen owns the slot -- so
-// the recorder can build a per-frame bitmap of which 32-byte EWRAM lines were written.
+// the recorder can build a per-frame bitmap of which 32-byte EWRAM lines were
+// written.
 // Used to recover the room-bounds struct offsets: a room load is detected
 // from the existing per-frame page-CRC diff (the metatile grid at
 // 0x02010000 being wholesale rewritten), and the last few frames' bitmaps

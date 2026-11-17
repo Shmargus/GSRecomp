@@ -1,4 +1,4 @@
-// gen_codegen_tests — build-time generator. Reads the L1 test
+// gen_codegen_tests: build-time generator. Reads the L1 test
 // corpus (test_cases.cpp) and emits one recompiled C function per
 // case into <build>/codegen_tests/test_funcs.cpp, alongside the kTestFns
 // lookup table. The runner then links the result and runs each function.
@@ -11,8 +11,7 @@
 //     with a body produced by ArmCodegen::emit_instr
 //   - exposes `const TestFn kTestFns[]` + `const unsigned kTestFnsCount`
 //
-// Per PRINCIPLES.md "Interpreter is informative, never load-bearing":
-// the generator never calls the interpreter. It calls ArmCodegen
+// The generator never calls the interpreter. It calls ArmCodegen
 // directly, the same way tools/gba_recompile does.
 
 #include "test_cases.h"

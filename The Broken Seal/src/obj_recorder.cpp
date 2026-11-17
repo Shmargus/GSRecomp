@@ -1,4 +1,3 @@
-// obj_recorder.cpp — see obj_recorder.h.
 
 #include "obj_recorder.h"
 #include "env_flag.h"

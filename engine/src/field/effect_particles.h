@@ -106,9 +106,8 @@ struct EffectCanvas {
 // `art_offset` selects captured artwork; unset uses `kSpriteOffsets[index]`.
 // Out-of-range reads are refused. Geometry still comes from `kSpriteSizes`.
 //
-// Unlike the game, a spark that falls partly outside the buffer is drawn for
-// the part that fits and the rest is dropped -- the same rule, just against a
-// boundary that is now far enough out to be off-screen.
+// Clip sparks to this larger buffer. Its edge is offscreen, so a spark
+// can extend past the game's canvas and still be drawn.
 bool stamp_spark(EffectCanvas* canvas, const EffectSpark& spark,
                  const std::uint8_t* art, std::size_t art_bytes);
 

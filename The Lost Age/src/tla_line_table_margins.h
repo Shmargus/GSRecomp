@@ -6,32 +6,38 @@
 #include "field_scene.h"
 
 // Jupiter Lighthouse's cloud wave (F12 tla_rewind_0171, map 290): ROM
-// 0x080D607C builds the table the DMA below reads. Its state is at B =
-// [0x03000088]: byte +0xF00 the shown buffer (two of 160 x 12 bytes from B;
-// the VBlank routine 0x080D5FF8 points DMA0 at it), byte +0xF01 0 for BG1..BG3
-// or else BG3 alone, u16 +0xF02 a counter it raises per build; per axis
-// (HOFS, VOFS) a multiplier +0xF08/+0xF0C, a per-row step +0xF10/+0xF14 and a
-// strength +0xF18/+0xF1C. Row r = base + offset(acc), acc = multiplier *
-// (counter + u16 [0x03001126]) + r * step; offset = (sine * strength) >> 16
-// (the IWRAM smull 0x03000220), +255 when negative, bits 8..23; sine the s16
-// ROM table at 0x080F08B0 (256 entries) at (acc >> 16) & 0xFF. Step 0 writes
-// the base. Standing still, shown tables used counter + camera 2 before the
-// saved sum (0167, 0171, 0175 all frames), or 1 or 0 (0168: 38 and 1 of 120);
-// walking the stairs moves the camera after the build, -5..+1 (0179: the
-// old -2..0 guess missed 37 of 120 frames, which drew the plain, unrippled
-// fallback: the flicker). The sum is searched nearest first over one sine
-// period (256), which holds every table the builder can make with a
-// multiplier of 0x10000. Every row 1..159 matched on all frames of 0167,
-// 0168, 0171, 0175, 0179. Rows above and below the
-// console continue the same rows; a table that does not reproduce every row
-// is left to the row-1 rule below.
-// Row 0 is the game's own fault: 0x080D5FF8 stores entry 0's three words
-// all at 0x04000014, so BG1 ends with BG3's scroll and BG2/BG3 keep what the
-// last line's transfer left. One stray line at the console's top edge,
-// mid-picture in a taller view: the stripe of F12 tla_rewind_0175 (BG1
-// 0xF5,0x3D, BG3 0x114,0x40 against row 1's 0x180,0x465 and 0xF5,0x3D).
-// Expanded views only (the caller): row 0 gets the entry the game meant,
-// the formula at row 0 for waved layers and row 1's constant otherwise.
+// 0x080D607C builds the table the DMA below reads. Its state is at
+// B = [0x03000088]:
+// - byte +0xF00: the shown buffer (two buffers of 160 x 12 bytes from B; the
+//   VBlank routine 0x080D5FF8 points DMA0 at it);
+// - byte +0xF01: 0 for BG1..BG3, otherwise BG3 alone;
+// - u16 +0xF02: a counter the builder raises on every build;
+// - per axis (HOFS, VOFS): a multiplier at +0xF08/+0xF0C, a per-row step at
+//   +0xF10/+0xF14 and a strength at +0xF18/+0xF1C.
+// Row r = base + offset(acc), where acc = multiplier * (counter + u16
+// [0x03001126]) + r * step, and offset = (sine * strength) >> 16 (the IWRAM
+// smull 0x03000220), plus 255 when negative, taken from bits 8..23. The sine
+// is the s16 ROM table at 0x080F08B0 (256 entries) indexed by
+// (acc >> 16) & 0xFF. A step of 0 writes the base.
+// The renderer does not know which counter and camera values the build used,
+// so it searches for them. Standing still, the shown tables used
+// counter + camera 2 before the saved sum (0167, 0171, 0175 all frames), or 1
+// or 0 (0168: 38 and 1 of 120 frames). Walking the stairs moves the camera
+// after the build, by -5..+1 (0179: the old guess of -2..0 missed 37 of 120
+// frames, which drew the plain, unrippled fallback and flickered). The sum is
+// searched nearest first over one sine period (256), which covers every table
+// the builder can make with a multiplier of 0x10000. Every row 1..159 matched
+// on all frames of 0167, 0168, 0171, 0175 and 0179. Rows above and below the
+// console's rows continue the same rows. A table that does not reproduce
+// every row is left to the row-1 rule below.
+// Row 0 is a fault in the game itself: 0x080D5FF8 stores entry 0's three
+// words all at 0x04000014, so BG1 ends with BG3's scroll and BG2/BG3 keep
+// whatever the last line's transfer left. That shows as one stray line at the
+// console's top edge, which is mid-picture in a taller view: the stripe of
+// F12 tla_rewind_0175 (BG1 0xF5,0x3D, BG3 0x114,0x40, against row 1's
+// 0x180,0x465 and 0xF5,0x3D). In expanded views only (the caller), row 0 gets
+// the entry the game meant: the formula at row 0 for waved layers, and row
+// 1's constant otherwise.
 inline bool tla_cloud_wave(gsr::FieldScene& scene, gsr::SceneMargins& margins,
                            const std::uint8_t* io, const std::uint8_t* ewram,
                            std::size_t ewram_bytes, const std::uint8_t* iwram,

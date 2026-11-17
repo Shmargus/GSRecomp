@@ -1,4 +1,4 @@
-// cluster_test.cpp — unit test for self_heal_cluster_misses (the jump-table-
+// cluster_test.cpp: unit test for self_heal_cluster_misses (the jump-table-
 // aware grouping of self-heal dispatch misses). Pure logic, no runtime deps:
 // links only src/runtime/self_heal_cluster.cpp.
 

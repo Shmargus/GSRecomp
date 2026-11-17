@@ -20,19 +20,20 @@ once per block (engine/src/armv4t/runtime_arm.h, "Block timing"):
     branches) is dropped, with the same exceptions.
   * `runtime_tick(` becomes `runtime_tick_deferred(`.
   * `runtime_mem_cycles(A, W, 0u|1u)` becomes `gsr_bt_mem_cycles(...)` and
-    `runtime_insn_fetch(` `gsr_bt_insn_fetch(`: inline reads of the engine's
-    memory timing table (runtime_bus_bridge.cpp, g_runtime_mem_cost), with a
-    call to runtime_mem_cycles whenever WAITCNT differs from the value the
-    table was built for. The same numbers without a call into the engine;
-    after the fixes above these calls were ~23% of the heaviest Ragnarok
-    frames (logs/session_20260930_184503.hostprof.txt). Data-access costs
-    (third argument 2u) keep calling the engine: they can take the
-    prefetch path.
-  * `arm_cond_passes(` becomes `gsr_bt_cond_passes(`, the same condition
-    table inline (runtime_arm.cpp's is out of line, a call into the engine
-    per conditional instruction: 4.2% of the heaviest Ragnarok frames in the
-    same profile). Every call site passes a constant, so it folds to a flag
-    test.
+    `runtime_insn_fetch(` becomes `gsr_bt_insn_fetch(`. Both read the
+    engine's memory timing table inline (runtime_bus_bridge.cpp,
+    g_runtime_mem_cost) and call runtime_mem_cycles only when WAITCNT differs
+    from the value the table was built for. The numbers are the same, but
+    there is no call into the engine. With the rewrites above applied, these
+    calls were ~23% of the heaviest Ragnarok frames
+    (logs/session_20260930_184503.hostprof.txt). Data-access costs (third
+    argument 2u) keep calling the engine, because they can take the prefetch
+    path.
+  * `arm_cond_passes(` becomes `gsr_bt_cond_passes(`, which uses the same
+    condition table inline. runtime_arm.cpp's version is out of line, so each
+    conditional instruction made a call into the engine (4.2% of the heaviest
+    Ragnarok frames in the same profile). Every call site passes a constant,
+    so the inline version folds to a flag test.
 
 The player build does the same rewrite in C++ (player_builder/
 block_timing.cpp), which must give byte-for-byte the same output; change
@@ -126,11 +127,9 @@ def inline_mem_cycles(line, stats):
 
 def transform(text, stats):
     lines = text.split('\n')
-    # Labels a jump inside a function returns to: possible loop heads, which
-    # keep their check. A label reached only from the resume switch at the
-    # top of a function (`case P: goto L_P;`) is an entry point, and the
-    # entry has already checked in; the spell-effect stamps have one at every
-    # instruction (local/gs011/stamps), which kept every check there.
+    # Check labels targeted by jumps within the function. Resume-only labels
+    # already check at function entry. Treating those labels as loop heads
+    # kept every per-instruction check in spell-effect stamps.
     loop_labels = set()
     for line in lines:
         if 'goto L_' in line and 'case ' not in line:

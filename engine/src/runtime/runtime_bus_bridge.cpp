@@ -1,4 +1,4 @@
-// runtime_bus_bridge.cpp — overrides the weak bus-accessor stubs in
+// runtime_bus_bridge.cpp: overrides the weak bus-accessor stubs in
 // runtime_arm.cpp with real implementations that delegate to the
 // active gba::GbaBus.
 //
@@ -19,7 +19,7 @@
 #include "runtime.h"  // guest_call, guest_return_now
 
 #ifdef GBA_COSIM
-#include "../debug/cosim.h"   // cosim_on_tick() — first-divergence checkpoint hook
+#include "../debug/cosim.h"   // cosim_on_tick(): first-divergence checkpoint hook
 #endif
 
 #include <algorithm>
@@ -53,7 +53,7 @@ extern "C" uint32_t g_runtime_break_pc = 0;
 // Count of PPU VBlank-start events (scanline 159->160), incremented
 // unconditionally in runtime_tick regardless of DISPSTAT IRQ-enable.
 // The debug step-one-frame primitive (runtime.cpp step_frame) stops when
-// this advances, so the recomp's TCP `step` parks at VBlank-start — the
+// this advances, so the recomp's TCP `step` parks at VBlank-start: the
 // same PPU phase the interpreter (tools/bios_smoke step_one_frame) and
 // mGBA (runFrame) park at. Stopping at scanline-WRAP (ppu.frame_count())
 // would park ~68 scanlines / one frame of game logic later than the oracles
@@ -64,7 +64,7 @@ extern "C" unsigned long long g_runtime_vblank_starts = 0;
 // ── Phase profiler (GBARECOMP_PHASE_PROF=1) ─────────────────────────────────
 // De-confounds the guest-PC sampler's biggest attribution trap: PPU pixel
 // composition runs per-visible-scanline inside tick_devices, which runs inside
-// runtime_tick — called from EVERY recompiled guest instruction, including the
+// runtime_tick, called from EVERY recompiled guest instruction, including the
 // WaitForVBlank busy-spin. A guest-PC profiler therefore charges composition to
 // whatever PC was live (usually the spin). Timing render_scanline directly
 // measures composition's true wall-time share. ~160 timed calls/frame, so the
@@ -117,9 +117,9 @@ extern "C" unsigned long long g_cost_halt_calls;
 extern "C" unsigned long long g_cost_halt_iters;
 // ── Halt-bucket breakdown ──────────────────────────────────────────────────
 // Sub-divides the halt/idle pump bucket into (a) per-iteration overhead
-// OUTSIDE tick_devices — pump_idle's own duplicated horizon min(),
+// OUTSIDE tick_devices (pump_idle's own duplicated horizon min(),
 // runtime_tick's own bookkeeping, recompute_event_budget, drain_dma_steal,
-// the IRQ-eligibility check — versus (b) tick_devices itself, split into PPU
+// the IRQ-eligibility check), versus (b) tick_devices itself, split into PPU
 // scanline render vs everything else (audio/timers/dma have counters above).
 // Same idiom as the probe above: single bool check per call site when off,
 // CostTimer when on. Diagnostic-only.
@@ -218,9 +218,9 @@ extern "C" uint32_t g_runtime_frame_present_in_irq = 0;
 // Defined in runtime_arm.cpp so the unpacker-slot journal can record it.
 extern "C" bool g_frame_present_in_progress;
 
-// Cumulative guest-cycle clock. Incremented by runtime_tick on EVERY tick —
+// Cumulative guest-cycle clock. Incremented by runtime_tick on EVERY tick:
 // both the per-instruction exec ticks emitted by generated code and the
-// halt-pump chunks — so it is the authoritative total guest-cycle count.
+// halt-pump chunks, so it is the authoritative total guest-cycle count.
 // (runtime.cpp's `cycles_elapsed` only sums the halt path, so it is not
 // comparable to the interpreter's fixed-quantum clock.) runtime_trace_event
 // stamps this onto every ring entry so the recomp and the bios_smoke
@@ -242,7 +242,7 @@ extern "C" uint8_t* g_fast_iwram = nullptr;
 // Direct ROM pointer/size for the inline fast path in runtime_arm.h, plus the
 // "is this cart eligible" flag. Installed by set_active_bus(); g_fast_rom_ok
 // stays false (slow path only) until proven true from the bus's own RTC /
-// save-type state — see set_active_bus() below.
+// save-type state: see set_active_bus() below.
 extern "C" const uint8_t* g_fast_rom      = nullptr;
 extern "C" uint32_t       g_fast_rom_size = 0;
 extern "C" int            g_fast_rom_ok   = 0;
@@ -373,18 +373,18 @@ static void sampler_loop() {
 
 // ── HOST profiler (GBARECOMP_HOST_PROF=<path>) ──────────────────────────────
 // The sampler above records the GUEST pc, which answers "what game code is
-// hot". It cannot answer "what HOST code is hot" — dispatch lookups, the
-// per-instruction tick, bus helpers — which is the question that matters for
+// hot". It cannot answer "what HOST code is hot" (dispatch lookups, the
+// per-instruction tick, bus helpers), which is the question that matters for
 // throughput. External profilers are not usable here: the MinGW build emits
 // DWARF, and Windows Performance Analyzer wants PDB, so a 29,000-function
 // binary shows up as raw addresses.
 //
 // So: sample the emulation thread's instruction pointer directly. Suspend it,
-// read RIP, resume — the standard sampling-profiler move. ~1 kHz, so the cost
+// read RIP, resume. That is the standard sampling-profiler move. ~1 kHz, so the cost
 // is negligible and it perturbs timing far less than instrumenting anything.
 // Writes "rip count" lines plus the module base; symbolise offline against
 // `nm` output (the exe keeps ~83k symbols). Fully off unless the env var is
-// set — no thread, no clock reads, nothing.
+// set: no thread, no clock reads, nothing.
 //
 // The tick is a HIGH-RESOLUTION waitable timer on an absolute 1 ms schedule
 // (see host_prof_loop). std::this_thread::sleep_for(1ms) runs at the Windows
@@ -741,9 +741,9 @@ void host_prof_end_idle() {
 }
 
 // GBARECOMP_SAMPLE, if explicitly set, wins outright. Otherwise falls back
-// to the config UI's "Additional debug logging" toggle (default OFF) — see
+// to the config UI's "Additional debug logging" toggle (default OFF): see
 // runtime_arm.h. Read once here, at the single point this thread can ever
-// start (called once from set_active_bus, at cart load — after the config
+// start (called once from set_active_bus, at cart load, after the config
 // UI has loaded config.ini): flipping the toggle later in the same run
 // cannot retroactively start this background sampler thread.
 static bool sample_requested() {
@@ -797,7 +797,7 @@ void set_active_bus(gba::GbaBus* bus) {
     g_fast_rom      = bus ? bus->rom_ptr()  : nullptr;
     g_fast_rom_size = bus ? static_cast<uint32_t>(bus->rom_size()) : 0u;
     // "This cart can never take the RTC/GPIO or EEPROM Region::Rom branches
-    // in gba_bus.cpp" — i.e. it has no active RTC and its save type is not
+    // in gba_bus.cpp": i.e. it has no active RTC and its save type is not
     // EEPROM. Both are properties of the loaded cart, fixed for the run, and
     // read straight from the bus's own accessors (never guessed). A false
     // value here (including "no bus installed") just routes every ROM access
@@ -922,11 +922,11 @@ void runtime_set_guest_step_boundary_hook(std::function<void()> hook) {
 
 // Always-on hang watchdog capture. Called once when the watchdog trips;
 // snapshots the live CPU/object state to stderr and hang_dump.log next to
-// the runner. Pure observation — does not alter execution. See PRINCIPLES.md
+// the runner. Pure observation; does not alter execution. See PRINCIPLES.md
 // "always-on ring first": the freeze documents itself, no attach timing.
 static void dump_hang_state(const char* reason) {
     if (!g_active_bus) return;
-    // Full CPU register snapshot — the hang is a busy loop, so r0..r15 pin the
+    // Full CPU register snapshot: the hang is a busy loop, so r0..r15 pin the
     // object/pointer it is walking. Also dump the object r0 points at and the
     // word at +0x5c (a frame-list pointer in the case this was written for) so
     // a corrupt value is attributable without a second run.
@@ -979,7 +979,7 @@ static void dump_hang_state(const char* reason) {
     std::fprintf(stderr, "[hang-watchdog] wrote hang_fp_tail.csv (%u records); "
                  "arm GBARECOMP_INSN_TRACE=1 if 0.\n", fpn);
 
-    // Recent mem-write/branch trace ring (always on — emitted unconditionally
+    // Recent mem-write/branch trace ring (always on, emitted unconditionally
     // by codegen, independent of GBARECOMP_INSN_TRACE). A busy-spin loop only
     // reads, so this ring is frozen at the instant the spin began and still
     // holds the WRITES that produced the corrupt state (e.g. whoever wrote the
@@ -1031,9 +1031,9 @@ static inline bool is_io_addr(uint32_t addr) {
 // Stage 2: is a load from `addr` safe to treat as side-effect-free and stable
 // inside an idle-candidate loop? Only writable RAM whose every mutation bumps
 // g_idle_disturb_epoch (EWRAM/IWRAM) and immutable memory (ROM, BIOS) qualify.
-// Everything else — MMIO (read side effects / FIFOs), the cartridge GPIO window
+// Everything else is rejected, i.e. MMIO (read side effects / FIFOs), the cartridge GPIO window
 // (RTC etc. clock state out on read), save/flash (0x0E/0x0F, command state
-// machine), palette/VRAM/OAM, open-bus/unmapped — is rejected: a load from such
+// machine), palette/VRAM/OAM, open-bus/unmapped. A load from such
 // a region bumps the disturbance epoch so the loop can never reach a confirmed
 // fixed point and is never elided. Registers + epoch are sufficient to prove a
 // fixed point ONLY with this guard.
@@ -1361,7 +1361,7 @@ extern "C" uint32_t runtime_mul_cycles(uint32_t rs_value,
 
 // True while inside tick_devices. Timed/FIFO DMA fires from there and
 // accumulates its stolen cycles in GbaIo; the drain (which itself ticks
-// devices) must run OUTSIDE this window to avoid re-entrancy — this guard
+// devices) must run OUTSIDE this window to avoid re-entrancy; this guard
 // makes that explicit.
 static bool g_in_device_tick = false;
 struct DeviceTickGuard {
@@ -1380,7 +1380,7 @@ struct DeviceTickGuard {
 static bool g_skip_frame_render = false;
 
 // Advance the devices (audio, timers, PPU) by `cycles`, rendering scanlines
-// and raising IRQ-pending bits (IF) as events occur — but WITHOUT taking the
+// and raising IRQ-pending bits (IF) as events occur, but WITHOUT taking the
 // IRQ. Shared by runtime_tick's normal path and the wake-from-HALT latency
 // pump, so the delay window ticks devices identically without re-vectoring.
 static void tick_devices(gba::GbaBus* bus, gba::GbaPpu* ppu, uint32_t cycles) {
@@ -1424,7 +1424,7 @@ static void tick_devices(gba::GbaBus* bus, gba::GbaPpu* ppu, uint32_t cycles) {
                     ppu->frame_count(), std::memory_order_relaxed);
             // Earliest point the newly-started frame's index is known, and
             // strictly before that frame's own scanline 0 HBlank render
-            // below — the decision is committed before any of its pixel
+            // below; the decision is committed before any of its pixel
             // work runs, never retrofitted after the fact.
             g_skip_frame_render = gbarecomp::g_frame_render_gate_hook &&
                 !gbarecomp::g_frame_render_gate_hook(ppu->frame_count());
@@ -1452,7 +1452,7 @@ static void tick_devices(gba::GbaBus* bus, gba::GbaPpu* ppu, uint32_t cycles) {
                     ++g_prof_scanline_count;
                 }
             }
-            // HBlank-timed DMA fires on each visible-line HBlank — AFTER the
+            // HBlank-timed DMA fires on each visible-line HBlank, AFTER the
             // line is rendered, so line N used the value the previous HBlank's
             // DMA loaded (matching the HBlank-IRQ ordering below and hardware:
             // the DMA at HBlank N loads the register used by line N+1). This is
@@ -1555,7 +1555,7 @@ static inline void cyc_probe(const char* what, uint32_t amt) {
 // next scheduled device event; when it reaches 0, runtime_tick materializes
 // (tick_devices) and reschedules. tick_devices chunks internally to exact
 // sub-event boundaries, so materializing a batched delta is bit-identical to
-// per-instruction ticking — at a fraction of the call overhead.
+// per-instruction ticking, at a fraction of the call overhead.
 static unsigned long long g_pending_cycles = 0;
 static long long          g_event_budget   = 0;
 
@@ -1573,13 +1573,13 @@ static inline void recompute_event_budget(gba::GbaBus* bus, gba::GbaPpu* ppu) {
 }
 
 // Charge DMA-stolen bus cycles (accumulated by the GbaIo DMA loops) to the
-// master clock and advance devices for that window — i.e. model cycle-stealing.
+// master clock and advance devices for that window, i.e. model cycle-stealing.
 // Called OUTSIDE tick_devices (end of runtime_tick for timed/FIFO DMA; after a
 // guest write for immediate DMA), so its own tick_devices is not re-entrant.
 // Guarded against the (currently unreachable) in-tick case for safety.
 static inline void drain_dma_steal(gba::GbaBus* bus, gba::GbaPpu* ppu) {
     // NOTE: deliberately NOT wrapped in a CostTimer. This function is called
-    // on EVERY runtime_tick (~65M times per 1800 frames) — a per-call
+    // on EVERY runtime_tick (~65M times per 1800 frames). A per-call
     // std::chrono::steady_clock::now() pair at that frequency measurably
     // distorts wall time. Its cost is captured indirectly: when cyc!=0 it
     // calls tick_devices (timed) and recompute_event_budget (timed); its own
@@ -1648,7 +1648,7 @@ extern "C" void runtime_resync_horizon(void) {
     recompute_event_budget(bus, ppu);
 }
 
-// runtime_tick_common — the shared body behind both tick doors: runtime_tick
+// runtime_tick_common is the shared body behind both tick doors: runtime_tick
 // (the scaled, CPU-work door every generated-code / bridge / finterp call site
 // uses) and runtime_tick_realtime (the unscaled, real-hardware-time door the
 // halt/idle pump uses). A single static function with two thin callers is
@@ -1674,7 +1674,7 @@ static void runtime_tick_common(uint32_t cycles) {
     // THIS call is still on the stack). An early version of this probe timed
     // the whole body and got both effects: ~2.2x wall-time inflation from the
     // per-call clock reads, and double-counted totals from the recursion.
-    // Use g_cost_pump_idle_ns (single-level, non-recursive — pump_idle itself
+    // Use g_cost_pump_idle_ns (single-level and non-recursive: pump_idle itself
     // is never re-entered) for the trustworthy "everything reachable from one
     // halt-loop iteration" total instead.
     if (g_cost_probe) ++g_cost_tick_total_calls;
@@ -1682,7 +1682,7 @@ static void runtime_tick_common(uint32_t cycles) {
     g_runtime_cycles += cycles;
     // Lazy device catch-up: advance the master clock every instruction (cheap),
     // but materialize device state only when the next-event horizon is reached.
-    // (IRQ-eligibility is still checked every instruction below — that is cheap,
+    // (IRQ-eligibility is still checked every instruction below; that is cheap,
     // and IF can only change at a flush, so checking between flushes is exact.)
     g_pending_cycles += cycles;
     g_event_budget   -= static_cast<long long>(cycles);
@@ -1712,13 +1712,13 @@ static void runtime_tick_common(uint32_t cycles) {
             // Newly-pended bits stay in IF for the next check. These cycles
             // really elapse on hardware, so they also advance the cumulative
             // cycle clock (the oracle counts them in cycles_elapsed); omitting
-            // them left g_runtime_cycles 7 cycles/IRQ short of the oracle —
+            // them left g_runtime_cycles 7 cycles/IRQ short of the oracle:
             // harmless for execution (the PPU/audio above are ticked
             // regardless) but it broke cycle-aligned diffing.
             bus->io().clear_halt();
             // Materialize any cycles accumulated before the wake first (preserve
             // device ordering), then the wake-latency window, then re-arm the
-            // horizon — all devices are now current as of this cycle.
+            // horizon: all devices are now current as of this cycle.
             if (g_pending_cycles) {
                 tick_devices(bus, ppu, static_cast<uint32_t>(g_pending_cycles));
                 g_pending_cycles = 0;
@@ -1746,11 +1746,11 @@ static void runtime_tick_common(uint32_t cycles) {
 #endif
 }
 
-// runtime_tick_realtime — the real-elapsed-hardware-time door. Used ONLY by
+// runtime_tick_realtime: the real-elapsed-hardware-time door. Used ONLY by
 // the halt/idle pump (runtime.cpp pump_idle -> here), which advances the
 // master clock while the CPU is halted and no instruction is executing.
 // That time is real hardware time, not CPU work, so it is NEVER scaled by
-// GBARECOMP_CPU_OVERCLOCK regardless of the setting — calls straight through
+// GBARECOMP_CPU_OVERCLOCK regardless of the setting. It calls straight through
 // to the shared body with no scaling logic at all.
 extern "C" void runtime_tick_realtime(uint32_t cycles) {
     cost_bk(kBkTickRealtime);
@@ -1760,10 +1760,10 @@ extern "C" void runtime_tick_realtime(uint32_t cycles) {
 // ── GBARECOMP_CPU_OVERCLOCK ─────────────────────────────────────────────────
 // Opt-in guest CPU overclock. Scales ONLY the per-instruction
 // cost arriving here (the runtime_tick door every generated-code, bridge,
-// and finterp call site uses — real CPU work). Never scales: the halt/idle
+// and finterp call site uses; real CPU work). Never scales: the halt/idle
 // pump (routes through runtime_tick_realtime above, a separate door),
 // drain_dma_steal's DMA-stolen cycles, kIrqWakeDelayCycles, or the
-// shadow-tick path — none of those reach the scaling logic below, since
+// shadow-tick path. None of those reach the scaling logic below, since
 // they either bypass runtime_tick entirely or add to g_runtime_cycles
 // directly inside runtime_tick_common rather than through the `cycles`
 // parameter.
@@ -1771,7 +1771,7 @@ extern "C" void runtime_tick_realtime(uint32_t cycles) {
 // PPU/audio/timer/IRQ cadence is driven by master cycles, which are totally
 // unaffected: scaling down the cost charged per instruction just lets more
 // instructions execute before the same number of master cycles elapse, i.e.
-// more guest CPU work per true hardware frame. Self-limiting — a guest that
+// more guest CPU work per true hardware frame. Self-limiting: a guest that
 // isn't CPU-bound simply reaches the next halt/event sooner in wall time.
 //
 // The env var supplies the INITIAL value only, read once at process start into
@@ -1782,7 +1782,7 @@ extern "C" void runtime_tick_realtime(uint32_t cycles) {
 //
 // Live-changeable design:
 //  - g_overclock_factor_q8 is a std::atomic<unsigned> read with
-//    memory_order_relaxed from runtime_tick — the hottest function in the
+//    memory_order_relaxed from runtime_tick, the hottest function in the
 //    runtime (~65M calls per 1800 frames). A relaxed atomic load compiles to
 //    the same plain load as a non-atomic read on x86-64: no lock, no getenv,
 //    no string compare on this path. At factor <= 1 the function returns
@@ -1852,7 +1852,7 @@ extern "C" void runtime_tick(uint32_t cycles) {
     // charged cycle ever outstanding. An instruction may charge 0 scaled
     // cycles this call (its cost fully absorbed into the carry); that never
     // stalls g_event_budget or starves a device flush, because the master clock
-    // genuinely has not advanced yet. The next call whose sum reaches `factor`
+    // really has not advanced yet. The next call whose sum reaches `factor`
     // pays out the accumulated charge and runtime_tick_common runs its normal
     // budget/flush/IRQ bookkeeping on it.
     const unsigned long long carry = g_overclock_carry.load(std::memory_order_relaxed);
@@ -1916,11 +1916,12 @@ extern "C" void runtime_idle_backedge(uint32_t header_pc) {
     const bool undisturbed = s.valid && (epoch == s.last_epoch);
     const unsigned long long delta = s.valid ? (now - s.last_cycles) : 0ull;
 
-    // Rolling fixed point: the prior iteration left identical {R0-R14, CPSR},
-    // nothing disturbed the watched state, and the period is stable. The loaded
-    // poll value flows into a register, so an unchanged register set proves the
-    // load returned the same value — no explicit load trace needed given the
-    // static no-store / no-MMIO filter and the disturbance epoch.
+    // Rolling fixed point: the previous iteration left identical R0-R14 and
+    // CPSR, nothing disturbed the watched state, and the period is stable.
+    // The polled value is loaded into a register, so an unchanged register
+    // set proves the load returned the same value. No explicit load trace is
+    // needed, because codegen only marks loops with no stores and no MMIO
+    // access, and the disturbance epoch catches any other change.
     //
     // Under a CPU overclock runtime_tick charges each pass a varying share of
     // its cost (the carry), so the period never repeats and the loop was
@@ -1952,9 +1953,11 @@ extern "C" void runtime_idle_backedge(uint32_t header_pc) {
 
     if (confirmed && s.period != 0ull &&
         g_event_budget > static_cast<long long>(s.period)) {
-        // next_event - now == g_event_budget (Stage-1 horizon). Skip whole
-        // periods that all end strictly before it: periods = (budget-1)/period
-        // guarantees now+skipped < next_event, so NO event fires in the hook.
+        // g_event_budget is the number of cycles until the next scheduled
+        // device event (the Stage-1 horizon). Skip only whole loop periods
+        // that all end strictly before that event. Using
+        // periods = (budget - 1) / period guarantees now + skipped is still
+        // before the event, so no event fires inside this hook.
         const unsigned long long budget =
             static_cast<unsigned long long>(g_event_budget);
         const unsigned long long periods = (budget - 1ull) / s.period;
@@ -1981,7 +1984,7 @@ extern "C" void runtime_idle_backedge(uint32_t header_pc) {
 
 // Frame-present hook (present-in-place). When set, the per-VBlank frame-present
 // yield does NOT unwind the guest stack: it calls this hook (which presents the
-// frame, polls input, paces) and resumes the guest in place — so R15 is never
+// frame, polls input, paces) and resumes the guest in place, so R15 is never
 // re-dispatched from an arbitrary interior PC, eliminating the whole class of
 // frame-boundary resume dispatch-misses. The hook returns true to request quit
 // (then the yield DOES unwind, so the runner can exit). Set by the windowed
@@ -1994,7 +1997,7 @@ std::function<bool()> g_frame_present_hook;
 extern "C" uint32_t g_runtime_frame_pace_pending = 0;
 // Sticky quit: once the present hook requests exit, EVERY subsequent yield must
 // unwind (return true) so the guest's whole host call stack pops back to the
-// runner — one return only frees one frame. Cleared when a hook is (re)set.
+// runner; one return only frees one frame. Cleared when a hook is (re)set.
 bool g_frame_present_quit = false;
 
 void runtime_set_frame_present_hook(std::function<bool()> h) {
@@ -2014,7 +2017,7 @@ static bool runtime_should_yield_decide(void) {
     // Called once per guest instruction (the generated prologue calls this with
     // g_cpu.R[15] == the current PC). While PC is in the BIOS, keep the bus's
     // biosPrefetch latch current; when the BIOS hands control to the cart it
-    // then holds the prefetch at the exit instruction — exactly what a later
+    // then holds the prefetch at the exit instruction, exactly what a later
     // cart read of the protected BIOS region must return (mGBA biosPrefetch;
     // for the GBA SWI return at BIOS 0x188 that is mem[0x190]=0xE3A02004). A
     // single compare per instruction; the image read happens only inside the
@@ -2043,17 +2046,11 @@ static bool runtime_should_yield_decide(void) {
 
     bool halted = bus && bus->io().halted();
 
-    // Some games, including Pokemon FireRed, busy-wait on a VBlank flag instead
-    // of entering HALT. Yield once per VBlank-start in normal guest modes so the
-    // host runner can present frames, poll input, and honor --frames even while
-    // the guest stays inside one long-running dispatch. Do NOT yield from inside
-    // an exception handler; runtime_irq runs the whole IRQ chain synchronously
-    // (runtime_dispatch(0x18) between ++/-- g_irq_nest_depth), so unwinding there
-    // would unwind that nested dispatch and abandon the handler before it acks
-    // the interrupt — the FireRed VBlank freeze. The cpsr mode alone is NOT a
-    // sufficient guard: a GBA IRQ dispatcher (intr_main) switches IRQ→System mode
-    // mid-handler to allow nested IRQs, so it would pass a User/System-mode test
-    // while still inside the IRQ. Gate on the live IRQ nesting depth too.
+    // Some games, including FireRed, poll a VBlank flag without halting.
+    // Yield at VBlank start so a long dispatch can present and poll input.
+    // Never yield with an IRQ on the stack. The handler must finish to ack
+    // the interrupt, and intr_main can switch to System mode while handling
+    // it. Check g_irq_nest_depth as well as CPSR.
     static const bool yield_on_vblank = gbarecomp::env_flag("GBARECOMP_YIELD_ON_VBLANK", true);
     if (yield_on_vblank &&
         g_runtime_vblank_starts != g_runtime_yielded_vblank_start) {
@@ -2062,11 +2059,9 @@ static bool runtime_should_yield_decide(void) {
             const bool in_irq = g_irq_nest_depth != 0u;
             if (in_irq && !g_frame_present_hook) return false;
             g_runtime_yielded_vblank_start = g_runtime_vblank_starts;
-            // Present-in-place when a hook is registered (windowed runner): the
-            // frame is presented from here and the guest resumes WITHOUT
-            // unwinding — no interior-PC re-dispatch, so no frame-boundary
-            // dispatch-miss. Only unwind (return true) when the hook asks to
-            // quit. With no hook (headless/TCP), keep the original unwind path.
+            // In windowed runs, present from inside dispatch and resume at once.
+            // Unwind only if the hook asks to quit. Headless and TCP runs without a
+            // hook still unwind at the frame boundary.
             if (g_frame_present_hook) {
                 if (g_frame_present_in_progress) return false;
                 g_runtime_frame_present_in_irq = in_irq ? 1u : 0u;
@@ -2083,14 +2078,10 @@ static bool runtime_should_yield_decide(void) {
         }
     }
 
-    // ── Always-on hang watchdog ──────────────────────────────────────
-    // A healthy GBA game HALTs (VBlankIntrWait) ~60x/sec; a known freeze
-    // class is a busy-spin (seen in a sound mixer) that NEVER halts. The PPU
-    // still ticks, so frame counters keep advancing — "no frames" is the wrong
-    // signal; "no HALT" is the right one. If we go many seconds of wall-clock
-    // with no HALT, snapshot the live state ONCE and keep running
-    // (observation, not a fix). Disable with GBARECOMP_HANG_WATCHDOG=0; tune
-    // seconds with GBARECOMP_HANG_SECONDS.
+    // Watch for a stretch with no HALT. A game stuck in a spin loop can keep
+    // advancing PPU frames. On timeout, save one snapshot and keep running.
+    // GBARECOMP_HANG_WATCHDOG=0 disables it. GBARECOMP_HANG_SECONDS sets the
+    // wall-clock threshold.
     static const bool wd_on = gbarecomp::env_flag("GBARECOMP_HANG_WATCHDOG", true);
     if (wd_on) {
         static const long long wd_secs = [] {
@@ -2116,7 +2107,7 @@ static bool runtime_should_yield_decide(void) {
     }
 
     if (g_runtime_break_pc != 0u && g_cpu.R[15] == g_runtime_break_pc) {
-        return true;  // debug breakpoint hit — unwind to the exec loop
+        return true;  // debug breakpoint hit; unwind to the exec loop
     }
     return halted;
 }

@@ -28,6 +28,10 @@
 #include "../engine/src/runtime/seamless.h"
 #include "../shared_game/custom_battle_option.h"
 #include "../engine/src/runtime/soft_reset.h"
+#ifdef __ANDROID__
+#include "android_host.h"
+#endif
+#include "../engine/src/runtime/touch_ui.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -220,6 +224,9 @@ std::vector<fs::path> asset_directories(const fs::path& root) {
 }
 
 fs::path collection_root() {
+#ifdef __ANDROID__
+    return gsr_android::storage_root();
+#endif
     const auto directory = executable_directory();
     for (auto at = directory; !at.empty(); at = at.parent_path()) {
         if (fs::is_directory(at / "games") ||
@@ -355,11 +362,18 @@ public:
     ~Child() {
 #ifdef _WIN32
         if (process_) CloseHandle(process_);
-#else
+#elif !defined(__ANDROID__)
         if (pid_ > 0) waitpid(pid_, nullptr, WNOHANG);
 #endif
     }
     bool running() {
+#ifdef __ANDROID__
+        if (pid_ <= 0) return false;
+        if (!gsr_android::take_child_exit(&exit_code_)) return true;
+        pid_ = -1;
+        finished_ = true;
+        return false;
+#endif
 #ifdef _WIN32
         if (!process_) return false;
         if (WaitForSingleObject(process_, 0) == WAIT_TIMEOUT) return true;
@@ -388,7 +402,11 @@ public:
                bool restarting = false) {
         if (running()) return false;
         finished_ = false;
+#ifdef __ANDROID__
+        const auto executable = fs::path("/proc/self/exe");  // unused: the app starts its parts
+#else
         const auto executable = executable_file();
+#endif
         const auto game = gsr_session::game_root(root, choice);
         std::error_code ec;
         if (!fs::is_regular_file(executable, ec)) {
@@ -430,6 +448,14 @@ public:
             return false;
         }
         CloseHandle(info.hThread); process_ = info.hProcess;
+        started_game_ = choice;
+#elif defined(__ANDROID__)
+        // The session is the app's SessionActivity, in its own process.
+        std::vector<std::string> arguments{"--session-game", choice ? "LostAge" : "BrokenSeal",
+            "--collection-play", "--collection-update-checked", "--collection-root", root.string()};
+        if (seamless_slot >= 0) { arguments.push_back("--seamless-slot"); arguments.push_back(std::to_string(seamless_slot)); }
+        if (!gsr_android::start_child("session", arguments, {}, {}, {}, &error, game.string())) return false;
+        pid_ = 1;
         started_game_ = choice;
 #else
         int status_pipe[2];
@@ -547,13 +573,29 @@ bool make_background(SDL_Renderer* renderer, Texture& background) {
     return true;
 }
 
-// The language flags under each cartridge, one button per language: which
-// language ROM the launcher expects (collection_storage.h rom_language). USA/Europe is the US and UK
-// flags split on the diagonal; Spain, Italy, France and Germany their own. Drawn here, 4x4 samples a
-// pixel, on a 300x200 design grid.
+// The buttons under each cartridge, one per revision, showing which ROM the
+// launcher expects (collection_storage.h rom_language). USA/Europe is the US
+// and UK flags split on the diagonal. Spain, Italy, France and Germany use
+// their own flags. Reloaded (revision 5) is a plain badge: a gold "R" on
+// deep red, not the patch's own art. All are drawn here on a 300x200 design
+// grid, with 4x4 samples per pixel.
 bool make_flag(SDL_Renderer* renderer, int language, Texture& flag) {
     struct Rgb { float r, g, b; };
     const auto color = [language](float x, float y) -> Rgb {
+        if (language == 5) {
+            // A gold "R": stem, a bowl (a ring's right half joined to the
+            // stem by two bars) and a diagonal leg.
+            const bool stem = x >= 100 && x < 132 && y >= 28 && y < 172;
+            const float bx = x - 150, by = y - 72, r = std::sqrt(bx * bx + by * by);
+            const bool bowl = (x >= 132 && x < 150 && ((y >= 28 && y < 56) || (y >= 88 && y < 116))) ||
+                              (x >= 150 && r < 44 && r >= 16);
+            // Distance from (x, y) to the leg's centre line (150,104)-(200,172).
+            const float lx = 50, ly = 68, t = std::clamp(((x - 150) * lx + (y - 104) * ly) / (lx * lx + ly * ly), 0.0f, 1.0f);
+            const float ex = x - (150 + t * lx), ey = y - (104 + t * ly);
+            const bool leg = ex * ex + ey * ey < 15.0f * 15.0f && y < 172;
+            if (stem || bowl || leg) return {255, 205, 60};
+            return {120, 16, 28};
+        }
         if (language == 4) return y < 200.0f / 3 ? Rgb{0, 0, 0} : y < 400.0f / 3 ? Rgb{221, 0, 0} : Rgb{255, 206, 0};
         if (language == 3) return x < 100 ? Rgb{0, 85, 164} : x < 200 ? Rgb{255, 255, 255} : Rgb{239, 65, 53};
         if (language == 2) return x < 100 ? Rgb{0, 146, 70} : x < 200 ? Rgb{255, 255, 255} : Rgb{206, 43, 55};
@@ -616,18 +658,24 @@ InsertionPose insertion_pose(float progress, float drop, float scale) {
     return {-lift + (drop + lift) * smootherstep(t), 1 - smootherstep((t - 0.18f) / 0.82f)};
 }
 
+// Phones enlarge the launcher's dialogs (touch_ui.h); 1 on desktop.
+float g_touch_scale = 1.0f;
+
 ImFont* load_font(ImGuiIO& io, bool heading) {
 #ifdef _WIN32
     const auto windows = fs::path(std::getenv("WINDIR") ? std::getenv("WINDIR") : "C:/Windows");
     const auto path = windows / "Fonts" / (heading ? "georgiab.ttf" : "segoeui.ttf");
+#elif defined(__ANDROID__)
+    // Every Android has these (the system's serif and sans fonts).
+    const auto path = fs::path("/system/fonts") / (heading ? "NotoSerif-Bold.ttf" : "Roboto-Regular.ttf");
 #else
     const auto path = fs::path("/usr/share/fonts/truetype/dejavu") / (heading ? "DejaVuSerif-Bold.ttf" : "DejaVuSans.ttf");
 #endif
     std::error_code ec;
     if (fs::is_regular_file(path, ec)) {
-        if (auto* font = io.Fonts->AddFontFromFileTTF(path.string().c_str(), heading ? 32.0f : 20.0f)) return font;
+        if (auto* font = io.Fonts->AddFontFromFileTTF(path.string().c_str(), (heading ? 32.0f : 20.0f) * g_touch_scale)) return font;
     }
-    ImFontConfig config; config.SizePixels = heading ? 32.0f : 20.0f;
+    ImFontConfig config; config.SizePixels = (heading ? 32.0f : 20.0f) * g_touch_scale;
     return io.Fonts->AddFontDefault(&config);
 }
 
@@ -676,14 +724,16 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); io.IniFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
+    g_touch_scale = gbarecomp::touch_ui::scale(window, 20.0f);
     ImFont* body = load_font(io, false);
     ImFont* heading = load_font(io, true);
+    gbarecomp::touch_ui::apply_style(window, g_touch_scale, 20.0f * g_touch_scale);
     ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer2_Init(renderer);
-    Texture logo, cartridges[2], background, flags[5];
-    if (!make_background(renderer, background) || !make_flag(renderer, 0, flags[0]) ||
-        !make_flag(renderer, 1, flags[1]) || !make_flag(renderer, 2, flags[2]) || !make_flag(renderer, 3, flags[3]) ||
-        !make_flag(renderer, 4, flags[4])) {
+    Texture logo, cartridges[2], background, flags[gsr_launcher::kMaxRevisions];
+    bool flags_made = make_background(renderer, background);
+    for (int f = 0; flags_made && f < gsr_launcher::kMaxRevisions; ++f) flags_made = make_flag(renderer, f, flags[f]);
+    if (!flags_made) {
         std::fprintf(stderr, "Cannot create launcher background: %s\n", SDL_GetError());
         ImGui_ImplSDLRenderer2_Shutdown(); ImGui_ImplSDL2_Shutdown(); ImGui::DestroyContext();
         return 1;
@@ -809,7 +859,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
     // Each game's language flags (make_flag); clicking one picks it.
     int rom_language[2] = {preview.empty() ? gsr_collection::rom_language(root,0) : 0,
                            preview.empty() ? gsr_collection::rom_language(root,1) : 0};
-    Box flag_boxes[2][5]{};
+    Box flag_boxes[2][gsr_launcher::kMaxRevisions]{};
     const Uint64 start = SDL_GetPerformanceCounter();
     int result = 0;
     int preview_frames = 0;
@@ -890,6 +940,14 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
         }
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+#ifdef __ANDROID__
+            // Android's Back button is the phone's Escape.
+            if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) &&
+                event.key.keysym.sym == SDLK_AC_BACK) {
+                event.key.keysym.sym = SDLK_ESCAPE;
+                event.key.keysym.scancode = SDL_SCANCODE_ESCAPE;
+            }
+#endif
             ImGui_ImplSDL2_ProcessEvent(&event);
             if (event.type == SDL_QUIT) alive = false;
             if (event.type == SDL_CONTROLLERDEVICEADDED) add_controller(event.cdevice.which);
@@ -976,13 +1034,14 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             int flag_hit = -1, flag_game = -1;
             if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT)
                 for (int game = 0; game < 2; ++game)
-                    for (int flag = 0; flag < 5; ++flag)
+                    for (int flag = 0; flag < gsr_launcher::kMaxRevisions; ++flag)
                         if (gsr_launcher::kGames[game].rom_sha1s[flag] &&
                             flag_boxes[game][flag].contains(float(event.button.x),float(event.button.y))) {
                             flag_hit = flag; flag_game = game;
                         }
             if (flag_hit >= 0) {
-                // Each language has its own ROM, saves and game build.
+                // Each revision (language or Reloaded) has its own ROM,
+                // saves and game build.
                 if (preview.empty() && flag_hit != rom_language[flag_game] && !build.running && building_choice < 0 &&
                     pending_choice < 0 && insertion_choice < 0) {
                     rom_language[flag_game] = flag_hit;
@@ -1039,9 +1098,15 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             } else {
                 fs::path rom;
                 // "Skip the ROM check": ask for the ROM to play every time.
-                if (gsr_collection::prepare_rom(window, root, choice, rom, error,
-                        gsr_collection::skip_rom_check_on(root, choice), "The ROM to PLAY - ") &&
-                    runtime_saves_in_saves(game, choice, error)) {
+                const bool prepared = gsr_collection::prepare_rom(window, root, choice, rom, error,
+                        gsr_collection::skip_rom_check_on(root, choice), "The ROM to PLAY - ");
+                if (prepared && gsr_collection::rom_language(root, choice) != rom_language[choice]) {
+                    // The picked ROM switched revision (Reloaded or back):
+                    // that one has its own build, so check it, then play.
+                    rom_language[choice] = gsr_collection::rom_language(root, choice);
+                    refresh_builds();
+                    pending_choice = choice;
+                } else if (prepared && runtime_saves_in_saves(game, choice, error)) {
                     fade_only = false;
                     insertion_choice = selected = choice;
                     insertion_started = double(SDL_GetPerformanceCounter() - start) / SDL_GetPerformanceFrequency();
@@ -1059,7 +1124,11 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             if (gsr_collection::clean_build_rom(window, root, choice, clean, error) &&
                 gsr_collection::prepare_rom(window, root, choice, rom, error, !clean.empty(),
                                             "Step 2 of 2 - the ROM to PLAY (patched or clean) - ")) {
-                if (!clean.empty()) rom = clean;
+                // A picked ROM that switched revision (Reloaded) is itself a
+                // supported ROM: the build comes from it, not the clean one.
+                const int revision = gsr_collection::rom_language(root, choice);
+                if (revision != rom_language[choice]) rom_language[choice] = revision;
+                else if (!clean.empty()) rom = clean;
                 if (builder.start(root, choice, rom, error, reduced_build)) {
                     building_language = gsr_collection::rom_language(root, choice);
                     building_choice = selected = choice;
@@ -1088,6 +1157,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
         }
         if (pending_choice >= 0) selected = pending_choice;
         ImGui_ImplSDLRenderer2_NewFrame(); ImGui_ImplSDL2_NewFrame(); ImGui::NewFrame();
+        gbarecomp::touch_ui::drag_scroll(window);
         const float width = io.DisplaySize.x, height = io.DisplaySize.y;
         const float scale = std::min(width / 820.0f, height / 600.0f);
         const float center = width / 2, footer = height - 104 * scale;
@@ -1155,7 +1225,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                     namespace art = gbarecomp::cartridge_art;
                     const float flag_w = 30 * scale, flag_h = 20 * scale, gap = 14 * scale;
                     const float flag_y = 513 * scale;
-                    const int flag_count = gsr_launcher::rom_language_count(gsr_launcher::kGames[i]);
+                    const int flag_count = gsr_launcher::rom_revision_count(gsr_launcher::kGames[i]);
                     for (int f = 0; f < flag_count; ++f) {
                         const float fx = x + (f - (flag_count - 1) / 2.0f) * (flag_w + gap);
                         flag_boxes[i][f] = {{fx - flag_w / 2 - 4 * scale, flag_y - flag_h / 2 - 4 * scale},
@@ -1251,13 +1321,14 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             }
         }
         // A generous hit target surrounds the small, vector-drawn gold cog.
-        settings_box = {{width - 54 * scale, 12 * scale}, {width - 12 * scale, 54 * scale}};
+        const float cog_size = std::max(42 * scale, gbarecomp::touch_ui::min_target(window));
+        settings_box = {{width - 12 * scale - cog_size, 12 * scale}, {width - 12 * scale, 12 * scale + cog_size}};
         ImGui::SetNextWindowPos(settings_box.min);
-        ImGui::SetNextWindowSize({42 * scale, 42 * scale});
+        ImGui::SetNextWindowSize({cog_size, cog_size});
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
         ImGui::Begin("##settings_cog", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
                      ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
-        if (ImGui::InvisibleButton("Settings", {42 * scale, 42 * scale}) && !starting && !checking && !build.running) {
+        if (ImGui::InvisibleButton("Settings", {cog_size, cog_size}) && !starting && !checking && !build.running) {
             settings_game = selected; settings_open = request_settings = true;
         }
         const bool cog_hovered = ImGui::IsItemHovered() || ImGui::IsItemFocused();
@@ -1539,9 +1610,13 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                     text.build_question : text.build_single_question, confirm_build);
                 ImGui::TextWrapped("%s", message.c_str());
                 ImGui::Spacing();
+#ifndef __ANDROID__
+                // The limits are Windows job objects / Linux cgroups; a phone
+                // has neither (the build would refuse to start).
                 ImGui::Checkbox(text.build_less_resources, &reduced_build);
                 ImGui::TextWrapped("%s", text.build_resource_notice);
                 ImGui::Spacing();
+#endif
                 bool start_build = ImGui::Button(offer_both_builds ? text.build_both : text.build_start);
                 ImGui::SetItemDefaultFocus();
                 bool both = offer_both_builds;
@@ -1688,7 +1763,12 @@ int main(int argc, char** argv) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0) { std::fprintf(stderr, "%s\n", SDL_GetError()); return 1; }
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
     SDL_Window* window = SDL_CreateWindow("Golden Sun Recompiled", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                                          820, 600, SDL_WINDOW_RESIZABLE | (preview.empty() ? SDL_WINDOW_SHOWN : SDL_WINDOW_HIDDEN));
+                                          820, 600, SDL_WINDOW_RESIZABLE | (preview.empty() ? SDL_WINDOW_SHOWN : SDL_WINDOW_HIDDEN)
+#ifdef __ANDROID__
+                                          // The whole screen, under no status bar.
+                                          | SDL_WINDOW_FULLSCREEN_DESKTOP
+#endif
+                                          );
     if (!window) { std::fprintf(stderr, "%s\n", SDL_GetError()); SDL_Quit(); return 1; }
     SDL_SetWindowMinimumSize(window, 640, 470);
 #ifdef _WIN32

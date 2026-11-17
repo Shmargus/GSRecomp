@@ -1,4 +1,3 @@
-// asset_picker.cpp — see asset_picker.h.
 
 #include "asset_picker.h"
 
@@ -182,7 +181,7 @@ AssetResult resolve_asset(const std::string& argv_path,
 
     // 1. Explicit argv path: if it loads and validates, take it (cache
     //    for next launch). If it doesn't even load (missing file / bad
-    //    size), fall through to the cached path and the picker — the
+    //    size), fall through to the cached path and the picker: the
     //    user may have typed the wrong path or be on a release build
     //    where the dev default doesn't exist.
     if (!argv_path.empty()) {

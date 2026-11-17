@@ -163,6 +163,41 @@ python3 scripts/developer_build_stamp.py --root "<collection>" --game LostAge --
 
 Use `BrokenSeal` for the first game.
 
+## Android launcher (sideload)
+
+Double-click **build_android.bat** (`scripts/android/build_apk.py`). It makes
+`Releases/android/GoldenSunRecompiled.apk`: the collection launcher, both
+engines, both player builders and the translator for 64-bit ARM phones, a
+Clang/lld that runs on the phone, and the builder data. Like the PC player
+release it holds no game code: the player picks each ROM on the phone and the
+launcher builds the game there. `--check-games` also compiles this PC's
+generated code for both games the way the phone will and checks every guest
+jump became a host jump (Clang has no guarantee like GCC 15's; measured 14
+November 2026: none missed in The Lost Age's 211 files). `--package-only`
+repacks without compiling.
+
+How it maps onto the PC launcher (`launcher/android_host.h`): the collection
+window, a game session and the game are three activities in three processes
+(`scripts/android/java`), so each starts clean as a PC program does. The
+collection lives in the app's private storage (`files/collection`, PC layout);
+the programs ship as `lib*.so` in the app's library folder (the only place
+Android runs programs from) and are linked into each game folder. On the
+phone the engine is a plug-in (`libgs_engine.so`, `libtla_engine.so`); the
+built game library links against it and the game process loads it
+(`launcher/android_main.cpp`, engine `game_module.cpp`). Code the game builds
+in RAM is compiled while playing by the app's own Clang and lld (engine
+`overlay_compile.cpp`), as the PC does with g++.
+
+Tools under `%LOCALAPPDATA%\Android`: NDK r29 (`Sdk/ndk/29.0.14206865`),
+build-tools 36.1.0, platform android-36, Temurin JDK 21 (`jdk-21`), the SDL
+2.32.10 source (`SDL2-2.32.10`) and the LLVM 21.1.8 source (`llvm`: llvm,
+clang, lld). The first run builds LLVM's table generators with MinGW GCC and
+then Clang+lld for the phone (`llvm-build/`, about an hour). The APK is
+signed with `local/android/gsrecomp-sideload.keystore`, made on first use;
+keep it, or a new APK will not install over the old one (and its saves).
+Needs Android 9 and OpenGL ES 3.1. The app icon is made from
+`assets/launcher_logo.png` at build time (Pillow).
+
 ## Player releases
 
 Double-click **make_release.bat** to open the release window and package both
@@ -177,6 +212,16 @@ the packaged-builder tests. Use a full release for engine/compiler updates;
 **Launcher only** does not update either game's engine or bundled builder.
 Keep builds sequential. Packaging creates local archives; it does not commit,
 push, tag or publish a GitHub release.
+
+**Android app** (tick it in the window, or `-Android`): after the chosen
+platforms, `scripts/android/build_apk.py --release` makes
+`Releases/GoldenSunRecompiled-android-<date>.apk`, with the release version as
+the app's version and not open to adb debugging. Needs the Android tools
+under "Android launcher (sideload)". The ROM scan reads inside the APK and
+inside the collection it unpacks on the phone. For phone testing with adb,
+keep using `build_android.bat` (a debuggable APK).
+
+The release prints how long each part took when it ends (or stops).
 
 The tests prepare each game's code using the packaged tools and your ROM.
 The release flow also scans the output for protected game data. ROMs, BIOS

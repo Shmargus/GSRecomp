@@ -1,4 +1,4 @@
-// file_replace.h — replace a file's contents without ever losing the old
+// file_replace.h: replace a file's contents without ever losing the old
 // copy. Shared by the battery-save flush and save-state slots.
 
 #pragma once

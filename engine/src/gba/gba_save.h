@@ -1,4 +1,4 @@
-// gba_save.h — Cartridge save chip controller (SRAM, Flash, EEPROM).
+// gba_save.h: Cartridge save chip controller (SRAM, Flash, EEPROM).
 //
 // The chip type is detected from the Nintendo SDK signature strings (see
 // detect_save_type in gba_rom_header.h). Per-chip behaviour:

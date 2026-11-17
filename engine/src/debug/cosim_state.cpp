@@ -1,14 +1,14 @@
-// cosim_state.cpp — full guest-architectural-state canonical hash. See
+// cosim_state.cpp: full guest-architectural-state canonical hash. See
 // COSIM_ORACLE.md and cosim_state.h. Active ONLY in the GBA_COSIM build; the whole
 // translation unit is empty otherwise, so it is safe in the shared source list.
 //
 // Principle: hash exactly the state a real GBA exposes to the running program plus
-// the device-timing quantities that determine WHEN a guest-visible bit flips —
-// never our emulator's host-only bookkeeping. This list is refined by the
+// the device-timing quantities that determine WHEN a guest-visible bit flips,
+// and never our emulator's host-only bookkeeping. This list is refined by the
 // injected-divergence and recomp-vs-recomp gates.
 //
 // v1 note: memories are hashed DIRECTLY every checkpoint (no incremental
-// page-hash). That is more robust (no dirty-tracking bugs) and cheap enough for an
+// page-hash). That is more reliable (no dirty-tracking bugs) and cheap enough for an
 // oracle at coarse stride; incremental page-hash-on-write is a future perf item if
 // fine-stride drilling needs it.
 #ifdef GBA_COSIM
@@ -28,7 +28,7 @@
 // master clock, exactly as a guest IO read does (runtime_bus_bridge.cpp). Without
 // this, state_hash reads timer/PPU counters that lag by the unflushed cycles, and
 // two backends sitting at different lazy-flush boundaries diff spuriously. Fires no
-// new events (the budget already accounts for these cycles) — a pure read-
+// new events (the budget already accounts for these cycles); a pure read-
 // consistency op. See COSIM_ORACLE.md "reading parked state must be side-effect-free".
 extern "C" void runtime_mmio_catch_up(void);
 
@@ -56,7 +56,7 @@ uint64_t hash_serialized(Fn&& serialize_into) {
     return fnv(kFnvOff, buf.data(), buf.size());
 }
 
-// CPU hash — R[0..14] (PC/R[15] EXCLUDED, see header), cpsr, and the full banked
+// CPU hash: R[0..14] (PC/R[15] EXCLUDED, see header), cpsr, and the full banked
 // register file. No host-only fields exist in ArmCpuState (it is a flat POD ABI
 // contract), so the whole struct minus PC is guest-architectural.
 uint64_t hash_cpu(const ArmCpuState& c) {

@@ -1,4 +1,4 @@
-// sha1.h — minimal SHA-1 (FIPS 180-4). Used by the BIOS loader and
+// sha1.h: minimal SHA-1 (FIPS 180-4). Used by the BIOS loader and
 // ROM hash verifier. We don't depend on OpenSSL/CryptoAPI; this keeps
 // the recompiler tools portable across Windows/Linux/Mac.
 

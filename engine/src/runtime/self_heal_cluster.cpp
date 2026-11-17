@@ -1,11 +1,11 @@
-// self_heal_cluster.cpp — pure clustering of self-heal dispatch misses.
+// self_heal_cluster.cpp: pure clustering of self-heal dispatch misses.
 //
 // Split out from runtime_arm_default_aborts.cpp (and free of any runtime
 // dependency) so it can be unit-tested in isolation: see
 // engine/tests/selfheal/cluster_test.cpp. The runtime's proposal writer
 // (self_heal_write_report) uses it to recognize when a tight run of
 // consecutive same-mode misses is the case targets of a computed-jump
-// switch the finder could not size — and to propose ONE sized
+// switch the finder could not size, and to propose ONE sized
 // [[jump_table]] over N scattered [[extra_func]] (learned on another game,
 // where 9 healed fragments in 0x08062894..0x08062920 were really a single
 // jump table at 0x08062870).

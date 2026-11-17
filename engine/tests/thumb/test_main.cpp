@@ -1,4 +1,4 @@
-// thumb_tests — STUB. See tests/armv4t/test_main.cpp.
+// thumb_tests: STUB. See tests/armv4t/test_main.cpp.
 
 #include <cstdio>
 
