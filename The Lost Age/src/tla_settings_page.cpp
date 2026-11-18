@@ -130,9 +130,11 @@ bool tla_settings_page_paint(uint8_t* rgb, uint32_t width, uint32_t height) {
 namespace {
 std::vector<gsr::qol_menu::Row> quality_of_life_rows() {
     std::vector<gsr::qol_menu::Row> rows;
-    for (int i = 0; i < kRowCount; ++i)
+    for (int i = 0; i < kRowCount; ++i) {
         rows.push_back({kRowLabels[i], kRowHelp[i], [i] { return row_value(i); },
             [i](int direction) { change_row(i, direction > 0); }});
+        if (i == kScreenRow) rows.push_back(gsr::qol::aspect_row());
+    }
     gsr::qol::append_switches(rows);
     return rows;
 }

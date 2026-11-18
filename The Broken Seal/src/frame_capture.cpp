@@ -85,25 +85,26 @@ std::string gpu_field_dump_bytes(const GpuFieldCapture& capture) {
         std::memcpy(&header[16], frm.data(), 8);
     }
 
-    std::string table;
-    std::string data;
+    // One allocation, one copy of each section: this runs every frame for the
+    // rewind ring, and growing a separate data string then copying it again
+    // was 2-3% of the phone's game thread (GS1 FACTS, battle profile of
+    // 18 November 2026).
+    std::uint64_t data_bytes = 0;
+    for (const Section& s : sections) data_bytes += s.length;
+    std::string out;
+    out.reserve(header.size() + kSectionCount * 24u + data_bytes);
+    out += header;
     std::uint64_t data_off = 88 + kSectionCount * 24u;
     for (const Section& s : sections) {
-        std::string name_field(8, '\0');
-        std::memcpy(&name_field[0], s.name,
-                   std::min(std::strlen(s.name), std::size_t{8}));
-        table += name_field;
-        put_u64(table, data_off);
-        put_u64(table, s.length);
-        if (s.length) data.append(reinterpret_cast<const char*>(s.data), s.length);
+        char name_field[8] = {};
+        std::memcpy(name_field, s.name, std::min(std::strlen(s.name), std::size_t{8}));
+        out.append(name_field, 8);
+        put_u64(out, data_off);
+        put_u64(out, s.length);
         data_off += s.length;
     }
-
-    std::string out;
-    out.reserve(header.size() + table.size() + data.size());
-    out += header;
-    out += table;
-    out += data;
+    for (const Section& s : sections)
+        if (s.length) out.append(reinterpret_cast<const char*>(s.data), s.length);
     return out;
 }
 

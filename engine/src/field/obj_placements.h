@@ -28,6 +28,7 @@
 // 2026-10-14: a town blipping in at the bottom).
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 #include "gba_bus.h"
@@ -55,8 +56,10 @@ public:
     // the scene changes; the game names its scene with three words.
     void sync(unsigned long long now, std::uint32_t a, std::uint32_t b,
               std::uint32_t c) {
-        if (now < frame_ || a != key_[0] || b != key_[1] || c != key_[2])
+        if (now < frame_ || a != key_[0] || b != key_[1] || c != key_[2]) {
             placed_ = {};
+            pos_ = {};
+        }
         frame_ = now;
         key_ = {a, b, c};
     }
@@ -72,9 +75,15 @@ public:
             if (p.record == record) { slot = &p; break; }
             if (!slot || p.frame < slot->frame) slot = &p;  // else the oldest
         }
-        if (slot->record != record) *slot = Placed{};
+        const std::size_t index = static_cast<std::size_t>(slot - placed_.data());
+        if (slot->record != record) {
+            *slot = Placed{};
+            pos_[index] = {};
+        }
         slot->record = record;
         slot->frame = now;
+        pos_[index][slot->next] = pos_key(static_cast<std::uint16_t>(y & 0xFF),
+                                          static_cast<std::uint16_t>(x & 0x1FF));
         Placement& p = slot->recent[slot->next];
         slot->next = (slot->next + 1) % kHistory;
         p.frame = now;
@@ -123,7 +132,17 @@ public:
         };
         const Placement* best = nullptr;
         bool best_live = false, best_tile = false;
-        for (const Placed& r : placed_) {
+        const std::uint32_t key = pos_key(raw_y, raw_x);
+        for (std::size_t i = 0; i < placed_.size(); ++i) {
+            // Most records hold no placement at this raw position, and such a
+            // record can never answer: skip it before reading its sprite
+            // words (phone profile, 18 November 2026: this search was 3.8% of
+            // the game thread, mostly those reads).
+            const auto& keys = pos_[i];
+            bool any = false;
+            for (std::uint32_t k : keys) any |= (k == key);
+            if (!any) continue;
+            const Placed& r = placed_[i];
             if (r.record == 0u || r.frame + kLifetime < now) continue;
             const bool record_kind = same_kind(bus.read16(r.record + 4u),
                                                bus.read16(r.record + 6u),
@@ -162,7 +181,14 @@ private:
         std::array<Placement, kHistory> recent{};
         int next = 0;
     };
+    // Nonzero key per placement slot: set with the slot's placement.
+    static constexpr std::uint32_t pos_key(std::uint16_t raw_y, std::uint16_t raw_x) {
+        return 0x80000000u | (std::uint32_t(raw_y) << 9) | raw_x;
+    }
     std::array<Placed, 512> placed_{};
+    // Raw positions of placed_[i].recent, packed, so find() can rule a record
+    // out without walking its placements: kept in step with placed_.
+    std::array<std::array<std::uint32_t, kHistory>, 512> pos_{};
     unsigned long long frame_ = 0;
     std::array<std::uint32_t, 3> key_{};
 };

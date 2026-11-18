@@ -858,8 +858,23 @@ bool update_save(bool extension, const std::vector<std::uint8_t>& expected,
     error = "The game's save file is unavailable.";
     return false;
 }
+std::atomic<int> g_view_aspect_request{-1};
+std::atomic<int> g_view_aspect_current{0};
+std::atomic<int> g_view_aspect_choices{0};
 }  // namespace
 void request_exit(int code) { g_requested_exit_code.store(code); }
+void request_view_aspect(int aspect) {
+    g_view_aspect_request.store(aspect, std::memory_order_relaxed);
+}
+int take_view_aspect_request() {
+    return g_view_aspect_request.exchange(-1, std::memory_order_relaxed);
+}
+void publish_view_aspect(int aspect, int choices) {
+    g_view_aspect_current.store(aspect, std::memory_order_relaxed);
+    g_view_aspect_choices.store(choices, std::memory_order_relaxed);
+}
+int view_aspect() { return g_view_aspect_current.load(std::memory_order_relaxed); }
+int view_aspect_choices() { return g_view_aspect_choices.load(std::memory_order_relaxed); }
 bool update_flash_save(const std::vector<std::uint8_t>& expected,
                        const std::vector<std::uint8_t>& replacement,
                        std::string& error) {

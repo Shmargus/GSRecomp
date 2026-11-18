@@ -691,6 +691,13 @@ int shown_width(const Backend* b, int w, int h) {
     return h * 4 / 3;
 }
 
+// How many aspect ratios can be picked now; 0 in the Original view size. The
+// F1 menu's Aspect ratio list follows the same rule (host_config_ui.cpp).
+int aspect_choice_count(const Backend* b) {
+    if (!b->widescreen_game_allowed || !b->widescreen) return 0;
+    return b->aspect_view_available ? kViewAspectCount : 2;
+}
+
 // Resize and re-centre the window to the current shown width at the current
 // scale. Fullscreen and resize-driven views own their geometry.
 void apply_aspect_window_size(Backend* b) {
@@ -4294,6 +4301,15 @@ HostWindow::Events HostWindow::pump() {
             }
             b->cfg.binds_changed = false;
         }
+        // An aspect ratio requested by game code (Quality of Life menu) goes
+        // through the same path as a change made in this menu.
+        if (const int requested = take_view_aspect_request();
+            requested >= 0 && requested < aspect_choice_count(b) &&
+            requested != b->aspect) {
+            b->cfg.aspect = requested;
+            if (requested == ViewAspectMinimalSharpPixels) b->cfg.integer_scale = true;
+            b->cfg.video_changed = true;
+        }
         if (b->aspect_view_available && b->cfg.widescreen && b->cfg.aspect == ViewAspectMinimalSharpPixels)
             b->cfg.integer_scale = true;
         if (b->cfg.video_changed || b->cfg.color_save ||
@@ -4472,6 +4488,7 @@ HostWindow::Events HostWindow::pump() {
             b->cfg.enhancements_changed = false;
         }
         runtime_publish_view_mode(b->fixed_view_mode);
+        publish_view_aspect(b->aspect, aspect_choice_count(b));
         runtime_publish_no_slowdown(
             b->overclock_factor == kOverclockFactors[1]);
         if (b->cfg.layers_changed) {

@@ -128,6 +128,7 @@ inline constexpr gbarecomp::UiTranslation kTable[] = {
     {"Fits inside the selected view size. Window follows its shape; Pixel-perfect fit adds only enough scenery to fill it.", "Se ajusta al tamaño de vista elegido. Ventana sigue su forma; Ajuste a píxeles enteros añade solo el escenario necesario para llenarla."},
     {"4:3 shows the middle of the wide picture; 3:2 shows the full width.",
      "4:3 muestra el centro de la imagen ancha; 3:2 la muestra entera."},
+    {"How much of the world you see. Aspect ratio needs Wide or Extra Wide.", "Cuánto del mundo ves. La relación de aspecto requiere Ancha o Muy ancha."},
     {"Choose Wide or Extra Wide to change the aspect ratio.",
      "Elige Ancha o Muy ancha para cambiar la relación de aspecto."},
     {"Not yet available", "Aún no disponible"},
@@ -386,6 +387,8 @@ inline constexpr gbarecomp::UiTranslation kTable[] = {
     {"Original", "Original"},
     {"Wide", "Ancha"},
     {"Extra Wide", "Muy ancha"},
+    {"Set the aspect ratio. Needs view size Wide or Extra Wide.", "Cambia la proporción. Requiere la vista Ancha o Muy ancha."},
+    {"Needs Wide", "Requiere Ancha"},
 
     // Settings page one: Message speed's words (the game's own Lento /
     // Normal / Rápido, plus ours) and Hard Mode's row.

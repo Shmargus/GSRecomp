@@ -497,6 +497,7 @@ std::vector<gsr::qol_menu::Row> quality_of_life_rows() {
     rows.push_back({kRowLabels[kScreenRow], kRowHelp[kScreenRow],
         [] { return std::string(gbarecomp::kViewModeLabels[std::clamp(runtime_get_view_mode(), 0, gbarecomp::kViewModeCount - 1)]); },
         [](int direction) { runtime_request_view_mode(step(runtime_get_view_mode(), gbarecomp::kViewModeCount, direction)); }});
+    rows.push_back(gsr::qol::aspect_row());
     rows.push_back({kRowLabels[kNoSlowdownRow], kRowHelp[kNoSlowdownRow],
         [] { return runtime_get_no_slowdown() ? "On" : "Off"; },
         [](int) { runtime_request_no_slowdown(!runtime_get_no_slowdown()); }});

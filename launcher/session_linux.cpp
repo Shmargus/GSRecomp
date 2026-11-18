@@ -561,13 +561,30 @@ std::vector<fs::path> make_bug_report(const GameResult& game) {
             parts > 1 ? "_part" + std::to_string(i + 1) + "of" + std::to_string(parts) : "";
         const fs::path archive = reports / (name + suffix + ".tar.gz");
         fs::remove(archive, ec);
-        std::string cmd = "tar -czf " + shell_quote(archive.string()) + " -C " +
-                          shell_quote(staging.string()) + " .";
-        if (!game.new_rewinds.empty())
-            cmd += " -C " + shell_quote(logs_dir.string()) + " " +
-                   shell_quote(game.new_rewinds[i]);
-        cmd += " >/dev/null 2>&1";
-        if (std::system(cmd.c_str()) != 0 || !fs::is_regular_file(archive, ec)) {
+        // The capture goes into the staged folder for its archive and back
+        // after: one -C only. Android's toybox tar applies just the last -C,
+        // so "-C staging . -C logs capture" packed the whole logs folder,
+        // met its own archive there and failed (Pixel 9 Pro, 18 November
+        // 2026: every report with an F12 capture stayed unpacked).
+        fs::path moved;
+        if (!game.new_rewinds.empty()) {
+            moved = staging / game.new_rewinds[i];
+            fs::rename(logs_dir / game.new_rewinds[i], moved, ec);
+            if (ec) moved.clear();
+        }
+        const std::string cmd = "tar -czf " + shell_quote(archive.string()) + " -C " +
+                                shell_quote(staging.string()) + " . >/dev/null 2>&1";
+        const int tar_status = std::system(cmd.c_str());
+        if (!moved.empty()) {
+            std::error_code back_ec;
+            fs::rename(moved, logs_dir / game.new_rewinds[i], back_ec);
+        }
+        if (!game.new_rewinds.empty() && moved.empty())
+            launcher_log("Bug report: could not stage capture " + game.new_rewinds[i] + ".");
+        if (moved.empty() != game.new_rewinds.empty() || tar_status != 0 ||
+            !fs::is_regular_file(archive, ec)) {
+            launcher_log("Bug report: packing " + archive.filename().string() +
+                         " failed (tar status " + std::to_string(tar_status) + ").");
             for (const fs::path& made : archives) fs::remove(made, ec);
             fs::remove(archive, ec);
             return {staging};
@@ -1603,7 +1620,7 @@ int gsr_session_main(int game, int argc, char** argv) {
                                  : std::string("the file")) +
                             " (" + std::to_string(std::max<std::uintmax_t>(1, bytes >> 20)) +
                             " MB) to the developer: the game's log and screen captures, your "
-                            "save file, your settings and your Linux version, plus the Reddit "
+                            "save file, your settings and your OS version, plus the Reddit "
                             "username above only if you typed one. Your user name is taken out. "
                             "Nothing is sent unless you press Send report.";
                     } else {

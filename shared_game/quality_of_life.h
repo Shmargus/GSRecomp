@@ -1,7 +1,9 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
+#include <string>
 #include <vector>
 #include "quality_of_life_menu.h"
 #include "gba_bus.h"
@@ -116,4 +118,21 @@ inline void append_switches(std::vector<qol_menu::Row>& rows) {
     }
 }
 inline int step(int value, int count, int direction) { return (value + count + direction) % count; }
+// Aspect ratio, the F1 menu's list. It only applies to the Wide and Extra Wide
+// view sizes; in Original the row says so and does nothing.
+inline qol_menu::Row aspect_row() {
+    return {"Aspect ratio", "Set the aspect ratio. Needs view size Wide or Extra Wide.",
+        [] {
+            const int count = gbarecomp::view_aspect_choices();
+            if (count <= 0) return std::string("Needs Wide");
+            return std::string(gbarecomp::kViewAspectLabels[
+                std::clamp(gbarecomp::view_aspect(), 0, count - 1)]);
+        },
+        [](int direction) {
+            const int count = gbarecomp::view_aspect_choices();
+            if (count <= 0) return;
+            gbarecomp::request_view_aspect(
+                step(std::clamp(gbarecomp::view_aspect(), 0, count - 1), count, direction));
+        }};
+}
 } // namespace gsr::qol

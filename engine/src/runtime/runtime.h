@@ -214,4 +214,14 @@ bool guest_call(std::uint32_t pc, std::uint32_t r0, std::uint32_t r1,
 // had answered. For a question the game asks that we answer for the player.
 void guest_return_now(std::uint32_t entry_pc, std::uint32_t value);
 
+// Aspect ratio for game code (the Quality of Life menu). A request is applied
+// by the host window on its next pump, the same way as a change in the F1
+// menu. view_aspect_choices() is how many ratios can be picked right now: 0
+// while the view size is Original (aspect only applies to Wide/Extra Wide).
+void request_view_aspect(int aspect);
+int  take_view_aspect_request();
+void publish_view_aspect(int aspect, int choices);
+int  view_aspect();
+int  view_aspect_choices();
+
 }  // namespace gbarecomp

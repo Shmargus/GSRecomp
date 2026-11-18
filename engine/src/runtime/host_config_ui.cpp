@@ -1205,6 +1205,26 @@ void draw_video_page(ConfigUiState* st) {
                                : "Keeps pixel sizes uniform. Off scales to fit the selected aspect ratio.");
             if (setting_checkbox("V-Sync", &st->vsync)) st->video_changed = true;
             caption("Synchronizes frames with the display to prevent tearing.");
+            // View size sits right above Aspect ratio, which only applies to
+            // Wide and Extra Wide.
+            if (st->fixed_view_modes_available && st->fixed_view_mode_count > 1 &&
+                st->fixed_view_mode_labels) {
+                const int mode = std::clamp(st->fixed_view_mode, 0,
+                                            st->fixed_view_mode_count - 1);
+                if (setting_combo("View size", st->fixed_view_mode_labels[mode])) {
+                    for (int i = 0; i < st->fixed_view_mode_count; ++i) {
+                        if (native_selectable(st->fixed_view_mode_labels[i], i == mode)) {
+                            st->fixed_view_mode = i;
+                            st->widescreen = i != 0;
+                            st->enhancements_changed = true;
+                        }
+                        if (i == mode) ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+                caption("How much of the world you see. Aspect ratio needs Wide "
+                        "or Extra Wide.");
+            }
             // Only changes the picture in Expanded View (a wider-than-3:2 view).
             const bool aspect_active = st->widescreen_available && st->widescreen;
             const int aspect_count = st->aspect_view_available ? kViewAspectCount : 2;
