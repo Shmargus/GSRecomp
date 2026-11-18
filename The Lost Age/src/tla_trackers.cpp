@@ -28,7 +28,10 @@
 // "Treasure Tracker", 2026-10-30): the table is the ROM's treasure table
 // 0x080F2204 (tla_treasure_tracker_data.h); location lookup 0x080CA280 over
 // the records at 0x080EF4A4, room keys 0x080F17A8 + room * 8 + 2; current
-// room/entrance 0x02000420/0x02000422.
+// room/entrance 0x02000420/0x02000422. Rewards: item names text 0x25F + id
+// (461 items), a tablet's summon ability name 0x5A7 + id (FACTS.md "Random
+// Weapons", 5 November 2026); the item word is re-read from the running
+// table, which Random Treasure rewrites.
 
 #include "../../shared_game/trackers.h"
 #include "tla_treasure_tracker_data.h"
@@ -121,17 +124,18 @@ constexpr dt::Djinni kDjinn[72] = {
 const dt::Game kDjinnGame = {kDjinn, 18, 9, 0x520u, 8, TLA_ROM(0x08300000u) - 0x08000000u, TLA_ROM(0x08017B10u) - 0x08000000u, {243, 244, 245, 246}};
 
 const tt::Game kTreasureGame = {tt::tla_data::places, tt::tla_data::place_names, tt::tla_data::containers,
-                                    tt::tla_data::treasures, TLA_ROM(0x080F17A8u) - 0x08000000u, TLA_ROM(0x080EF4A4u) - 0x08000000u, 0x420u};
+                                    tt::tla_data::treasures, TLA_ROM(0x080F17A8u) - 0x08000000u, TLA_ROM(0x080EF4A4u) - 0x08000000u, 0x420u,
+                                    TLA_ROM(0x080F2204u) - 0x08000000u};
 
 const gsr::tracker_text::Config kTrackerText = {gsr::tracker_text::tla_data::names,
     TLA_ROM(0x080A9F54u) - 0x08000000u, TLA_ROM(0x08060C30u) - 0x08000000u,
-    static_cast<unsigned>(tla_rom::version())};
+    static_cast<unsigned>(tla_rom::version()), TLA_TEXT(0x25Fu), 461u, TLA_TEXT(0x5A7u)};
 
 }  // namespace
 
 void tla_trackers_sample() {
     if (const auto* bus = gbarecomp::active_bus())
-        gsr::trackers::sample(bus->ewram_ptr(), bus->rom_ptr(), bus->rom_size());
+        gsr::trackers::sample(bus->ewram_ptr(), bus->rom_ptr(), bus->rom_size(), &tla_tracker_reward);
 }
 
 void tla_install_trackers() { gsr::trackers::install(kDjinnGame, kTreasureGame, kTrackerText); }

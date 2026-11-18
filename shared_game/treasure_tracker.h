@@ -49,12 +49,15 @@ struct Game {
     std::uint32_t room_records;           // ROM offsets (address - 0x08000000)
     std::uint32_t location_records;
     std::uint32_t current_room;           // EWRAM offset: room, then entrance (u16)
+    std::uint32_t reward_table = 0;       // ROM offset of The Lost Age's treasure table
+    std::span<const EntranceName> entrance_names{};
 };
 
 constexpr std::size_t kMaxTreasures = 512;
 inline const Game* game = nullptr;
 // Bit i of taken[i / 32] = treasures[i] taken in the loaded save.
 inline std::array<std::atomic<std::uint32_t>, kMaxTreasures / 32> taken{};
+inline std::array<std::atomic<unsigned>, kMaxTreasures> rewards{};
 inline std::atomic<int> current_place{-1};
 
 // The game's location lookup: the name offset for (room, entrance), 0 if none.
@@ -80,7 +83,8 @@ inline std::uint32_t location(const Game& g, const std::uint8_t* rom, std::size_
 }
 
 // Emulation thread, once per frame.
-inline void sample(const std::uint8_t* ewram, const std::uint8_t* rom, std::size_t rom_size) {
+inline void sample(const std::uint8_t* ewram, const std::uint8_t* rom, std::size_t rom_size,
+                   unsigned (*planned_reward)(unsigned)) {
     if (!game || !ewram) return;
     const Game& g = *game;
     for (std::size_t w = 0; w < taken.size(); ++w) {
@@ -91,11 +95,25 @@ inline void sample(const std::uint8_t* ewram, const std::uint8_t* rom, std::size
     }
     if (!rom) return;
     const std::uint8_t* at = ewram + g.current_room;
-    const std::uint32_t name = location(g, rom, rom_size, at[0] | (at[1] << 8), at[2] | (at[3] << 8));
+    const unsigned room = at[0] | (at[1] << 8), entrance = at[2] | (at[3] << 8);
+    auto name = location(g, rom, rom_size, room, entrance);
+    for (const auto& e : g.entrance_names)
+        if (room == e.room && entrance == e.entrance) name = e.offset;
     int place = -1;
     for (const auto& p : g.place_names)
         if (p.offset == name) place = int(p.place);
     current_place.store(place, std::memory_order_relaxed);
+
+    for (std::size_t i = 0; i < g.treasures.size(); ++i) {
+        const auto& t = g.treasures[i];
+        unsigned reward = t.sub == kTablet ? 0 : planned_reward(t.flag);
+        const auto word = std::size_t(g.reward_table) + t.reward_word;
+        if (!reward && t.reward_word && word + 1 < rom_size) {
+            const unsigned value = rom[word] | (rom[word + 1] << 8);
+            reward = (value & 0x8000u) ? kCoins | (value & 0x7FFFu) : value;
+        }
+        rewards[i].store(reward ? reward : t.reward, std::memory_order_relaxed);
+    }
 }
 
 #ifdef GBARECOMP_HAVE_IMGUI
@@ -132,8 +150,8 @@ inline void draw() {
     open.resize(places, false);
     const int here = current_place.load(std::memory_order_relaxed);
     const bool arrived = here >= 0 && here != shown_place;
+    shown_place = here;
     if (arrived) {
-        shown_place = here;
         for (std::size_t p = 0; p < places; ++p) open[p] = int(p) == here;
     }
     const auto title = tracker_text::format("%s  %d/%d",
@@ -161,8 +179,13 @@ inline void draw() {
                 const auto& t = g.treasures[k];
                 if (chests_only && t.sub != kChest) continue;
                 const bool got = is_taken(k);
-                if (contents) ImGui::TextColored(got ? dim : text, "%s %s: %s", got ? "x" : "-", container(g, t.sub), tracker_text::contents(t.contents).c_str());
-                else ImGui::TextColored(got ? dim : text, "%s %s", got ? "x" : "-", container(g, t.sub));
+                if (contents) {
+                    const unsigned value = rewards[k].load(std::memory_order_relaxed);
+                    const unsigned reward = value ? value : t.reward;
+                    const auto label = (reward & kCoins) ? tracker_text::coins(reward & ~kCoins)
+                                                       : tracker_text::reward_name(reward, t.sub == kTablet);
+                    ImGui::TextColored(got ? dim : text, "%s %s: %s", got ? "x" : "-", container(g, t.sub), label.c_str());
+                } else ImGui::TextColored(got ? dim : text, "%s %s", got ? "x" : "-", container(g, t.sub));
             }
             ImGui::Unindent();
         }

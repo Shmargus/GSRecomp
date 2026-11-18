@@ -9433,7 +9433,9 @@ void apply_obj_y_continuity_if_enabled(gsr::FieldScene* scene,
 void gpu_field_capture_hook() {
     load_menu_font();
     if (const auto* bus = gbarecomp::active_bus())
-        gsr::trackers::sample(bus->ewram_ptr(), bus->rom_ptr(), bus->rom_size());
+        gsr::trackers::sample(bus->ewram_ptr(), bus->rom_ptr(), bus->rom_size(), [](unsigned flag) {
+            return gsr::treasure::tbs::state.tracker_reward(static_cast<std::uint16_t>(flag));
+        });
     if (!gpu_field_enabled()) return;
     // Snapshot the latest completed effect copy, including fading history.
     g_gpu_field_capture.effects = gsr::effect_capture_take();

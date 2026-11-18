@@ -21,6 +21,7 @@
 #include "random_psynergy_format.h"
 #include "run_sheet.h"
 #include "treasure_plan.h"
+#include "treasure_tracker_types.h"
 
 namespace gsr::treasure {
 
@@ -143,6 +144,15 @@ struct Randomizer {
         if (it == field.end() || !it->second.coins || it->second.value <= limit) return false;
         *amount = it->second.value;
         return true;
+    }
+
+    // The Treasure Tracker's reward for the field treasure with this flag:
+    // the planned item ID or kCoins | amount; 0 when nothing is planned.
+    unsigned tracker_reward(std::uint16_t flag) const {
+        if (!active()) return 0;
+        const auto it = field.find(flag);
+        if (it == field.end()) return 0;
+        return it->second.coins ? treasure_tracker::kCoins | it->second.value : it->second.value;
     }
 
     // The spoiler sheet's lines: where every treasure went, and the shops.

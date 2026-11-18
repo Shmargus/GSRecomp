@@ -762,6 +762,10 @@ bool tla_new_game_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t he
     return true;
 }
 
+unsigned tla_tracker_reward(unsigned flag) {
+    return gsr::treasure::tla::state.tracker_reward(static_cast<std::uint16_t>(flag));
+}
+
 void tla_new_game_reset() {
     g_flow = {};
     g_early = g_chosen = false;

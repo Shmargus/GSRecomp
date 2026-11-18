@@ -17,7 +17,8 @@
 // Measured, verified ROM 5c4695205413df7db52b9a184815a07783999971 (FACTS.md,
 // "Treasure Tracker", 2026-10-30): location lookup 0808B158 over the records
 // at 0809DDD8, room keys 0809F1A8 + room * 8 + 2; current room/entrance
-// 02000400/02000402.
+// 02000400/02000402. Rewards are item IDs, named from text 0x182 + id
+// (FACTS.md "Item names"; gs::text gives the other ROMs' block); 269 items.
 #pragma once
 #include "rom_version.h"
 #include "../../shared_game/trackers.h"
@@ -66,12 +67,13 @@ namespace gsr::treasure_tracker::tbs {
 
 inline const Game kGame = {tbs_data::places, tbs_data::place_names, tbs_data::containers,
                            tbs_data::treasures, gs::rom(0x0809F1A8u) - 0x08000000u,
-                           gs::rom(0x0809DDD8u) - 0x08000000u, 0x400u};
+                           gs::rom(0x0809DDD8u) - 0x08000000u, 0x400u, 0u,
+                           tbs_data::entrance_names};
 
 } // namespace gsr::treasure_tracker::tbs
 
 namespace gsr::trackers::tbs {
 inline const tracker_text::Config kText = {tracker_text::tbs_data::names,
     gs::rom(0x080736B8u) - 0x08000000u, gs::rom(0x0803842Cu) - 0x08000000u,
-    static_cast<unsigned>(gs::rom_version())};
+    static_cast<unsigned>(gs::rom_version()), gs::text(0x182u), 269u};
 }

@@ -708,6 +708,12 @@ $($packages -join "`r`n")
                 $env:TLA_ROM = '/mnt/' + $tlaRomFull.Substring(0, 1).ToLower() + ($tlaRomFull.Substring(2) -replace '\\', '/')
                 $env:WSLENV = (@($env:WSLENV, 'GSR_ROM', 'TLA_ROM') | Where-Object { $_ }) -join ':'
             }
+            # bash rejects Windows line endings; a Windows-side save can add them.
+            $linuxScript = Join-Path $PSScriptRoot 'make_release_linux.sh'
+            $linuxText = [IO.File]::ReadAllText($linuxScript)
+            if ($linuxText.Contains("`r")) {
+                [IO.File]::WriteAllText($linuxScript, $linuxText.Replace("`r`n", "`n"))
+            }
             & $wsl -d $distro -u root --cd $collectionRoot --exec bash @linuxArgs
             if ($LASTEXITCODE -ne 0) {
                 Write-Host "The Linux release failed (the Windows release above is complete)." -ForegroundColor Red

@@ -123,6 +123,9 @@ void tla_new_game_imported_run(const std::uint8_t* bytes);
 void tla_new_game_draw_page();
 // Scaled difficulty is on for the loaded file (tla_new_game.cpp).
 bool tla_scaled_difficulty();
+// The Treasure Tracker's planned reward for a field treasure flag (Random
+// Treasure): item ID or coins, 0 when none (shared_game/treasure_randomizer.h).
+unsigned tla_tracker_reward(unsigned flag);
 // Sets it (the settings screen's Difficulty row, tla_hard_mode.cpp).
 void tla_set_scaled_difficulty(bool on);
 // Left/Right on the settings screen's Difficulty row (tla_hard_mode.cpp).

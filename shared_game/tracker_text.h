@@ -5,7 +5,6 @@
 #include "host_config_ui.h"
 #include <array>
 #include <atomic>
-#include <charconv>
 #include <cstdio>
 #include <span>
 #include <string>
@@ -16,12 +15,18 @@ namespace gsr::tracker_text {
 struct Ids { std::array<std::uint16_t, 5> language; };
 struct Token { const char* english; Ids ids; };
 struct Names {
-    std::span<const Ids> djinn, places, contents;
+    std::span<const Ids> djinn, places;
     std::span<const Token> tokens;
 };
-struct Config { Names names; std::size_t text_table, tree_table; unsigned language; };
+struct Config {
+    Names names;
+    std::size_t text_table, tree_table;
+    unsigned language, item_text, item_count;
+    unsigned ability_text = 0;
+};
 inline const Config* config = nullptr;
 inline std::unordered_map<std::string, std::string> names;
+inline std::unordered_map<unsigned, std::string> reward_names;
 inline std::atomic<bool> ready{false};
 
 template<class... Args> inline std::string format(const char* text, Args... args) {
@@ -46,7 +51,7 @@ inline std::string utf8(const std::string& latin1) {
 // Called only while the initial name cache is private to the game thread.
 inline void add(mods::TextEncoder& decoder, const char* english, const Ids& ids) {
     const unsigned id = ids.language[config->language];
-    if (!id) return;  // authored labels such as coin amounts and "Summon"
+    if (!id) return;
     std::string value;
     if (!decoder.decode(id, &value) || utf8(value).empty()) {
         std::fprintf(stderr, "[trackers] could not decode name text 0x%X\n", id);
@@ -79,13 +84,24 @@ inline std::string route(const char* english) {
     return result;
 }
 
-inline std::string contents(const char* english) {
-    const std::string_view text(english);
-    unsigned amount = 0;
-    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), amount);
-    const std::string_view suffix(parsed.ptr, text.data() + text.size());
-    if (parsed.ec == std::errc{} && (suffix == " coin" || suffix == " coins"))
-        return format(gbarecomp::ui_text(amount == 1 ? "%u coin" : "%u coins"), amount);
-    return name(english);
+inline void add_reward(mods::TextEncoder& decoder, unsigned id) {
+    std::string value;
+    if (decoder.decode(id, &value)) {
+        value = utf8(value);
+        if (!value.empty()) reward_names.try_emplace(id, std::move(value));
+    }
+}
+
+inline const char* reward_name(unsigned value, bool summon) {
+    if (ready.load(std::memory_order_acquire)) {
+        const unsigned base = summon ? config->ability_text : config->item_text;
+        const auto found = reward_names.find(base + value);
+        if (found != reward_names.end()) return found->second.c_str();
+    }
+    return gbarecomp::ui_text(summon ? "Summon" : "Treasure");
+}
+
+inline std::string coins(unsigned amount) {
+    return format(gbarecomp::ui_text(amount == 1 ? "%u coin" : "%u coins"), amount);
 }
 } // namespace gsr::tracker_text
