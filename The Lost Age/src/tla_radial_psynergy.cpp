@@ -77,3 +77,8 @@ bool tla_radial_psynergy_paint(std::uint8_t* rgb, std::uint32_t w, std::uint32_t
         content(draw, width, (tile_x + 1) * 8, (tile_y + 1) * 8);
     });
 }
+
+bool tla_radial_psynergy_visible() {
+    std::lock_guard<std::mutex> guard(radial::lock);
+    return radial::open;
+}

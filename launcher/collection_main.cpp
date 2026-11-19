@@ -30,6 +30,7 @@
 #include "../engine/src/runtime/soft_reset.h"
 #ifdef __ANDROID__
 #include "android_host.h"
+#include "../engine/src/runtime/android_display.h"
 #endif
 #include "../engine/src/runtime/touch_ui.h"
 
@@ -577,7 +578,8 @@ bool make_background(SDL_Renderer* renderer, Texture& background) {
 // launcher expects (collection_storage.h rom_language). USA/Europe is the US
 // and UK flags split on the diagonal. Spain, Italy, France and Germany use
 // their own flags. Reloaded (revision 5) is a plain badge: a gold "R" on
-// deep red, not the patch's own art. All are drawn here on a 300x200 design
+// deep red, not the patch's own art. The Brazilian Portuguese patch
+// (revision 6) is Brazil's flag. All are drawn here on a 300x200 design
 // grid, with 4x4 samples per pixel.
 bool make_flag(SDL_Renderer* renderer, int language, Texture& flag) {
     struct Rgb { float r, g, b; };
@@ -595,6 +597,17 @@ bool make_flag(SDL_Renderer* renderer, int language, Texture& flag) {
             const bool leg = ex * ex + ey * ey < 15.0f * 15.0f && y < 172;
             if (stem || bowl || leg) return {255, 205, 60};
             return {120, 16, 28};
+        }
+        if (language == 6) {
+            // Brazil: a yellow rhombus on green, a blue disc crossed by a
+            // white band.
+            const float dx = x - 150, dy = y - 100;
+            if (dx * dx + dy * dy < 52.0f * 52.0f) {
+                const float bx = x - 120, by = y - 210, band = std::sqrt(bx * bx + by * by);
+                return band >= 120 && band < 132 ? Rgb{255, 255, 255} : Rgb{0, 39, 118};
+            }
+            if (std::abs(dx) / 125 + std::abs(dy) / 85 < 1) return {254, 221, 0};
+            return {0, 151, 57};
         }
         if (language == 4) return y < 200.0f / 3 ? Rgb{0, 0, 0} : y < 400.0f / 3 ? Rgb{221, 0, 0} : Rgb{255, 206, 0};
         if (language == 3) return x < 100 ? Rgb{0, 85, 164} : x < 200 ? Rgb{255, 255, 255} : Rgb{239, 65, 53};
@@ -774,6 +787,8 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
     int build_choice = -1;
     int confirm_build = -1;
     bool request_build_dialog = false, offer_both_builds = false, reduced_build = false;
+    // The build window's "Start the game when the build finishes" checkbox;
+    // every way of opening that window ticks it.
     bool play_after_build = false;
     // When both games need building, the player may build the other one
     // too: it is built straight after, then play_game starts.
@@ -863,7 +878,38 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
     const Uint64 start = SDL_GetPerformanceCounter();
     int result = 0;
     int preview_frames = 0;
+#ifdef __ANDROID__
+    // Asks for a 60 Hz screen, as the game does. Unasked, a 120 Hz phone
+    // ran this window at 120: 36% of a core idle on the cartridge screen
+    // (Pixel 9 Pro, 16 November 2026). Asked again whenever the window comes
+    // back, since Android gives it a new surface.
+    bool frame_rate_asked = false;
+    // Untouched, the screen draws 30 pictures a second instead of 60: the
+    // glow is the only thing moving, and each picture's cost is mostly
+    // handing it to the screen (eglSwapBuffers 43%) and SDL converting the
+    // menu's shapes (SDL_RenderGeometryRaw 23%; simpleperf, Pixel 9 Pro,
+    // 18 November 2026, 40% of a core at 60). Any event, a transition or a
+    // fade brings back 60, until a second after the last touch or press.
+    Uint64 last_input = SDL_GetPerformanceCounter();
+    // The visible "Golden Sun Recompiled" folder (android_host.h): asked at
+    // each start until allowed; checked again when the app comes back from
+    // Android's settings page.
+    bool request_files_prompt = preview.empty() && !gsr_android::has_file_access();
+    bool files_prompt_open = request_files_prompt, files_recheck = false;
+#endif
     while (alive) {
+#ifdef __ANDROID__
+        if (!frame_rate_asked && !hidden) {
+            android_set_frame_rate(60.0);
+            frame_rate_asked = true;
+        }
+        if (files_recheck && !hidden) {
+            files_recheck = false;
+            std::string link_error;
+            if (gsr_android::has_file_access() && !gsr_android::link_shared_folders(&link_error))
+                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Your files", link_error.c_str(), window);
+        }
+#endif
         if (preview.empty()) for (int game = 0; game < 2; ++game) {
             const int ready = readiness.result(game);
             if (ready >= 0) { built[game] = ready == 1; checking_builds[game] = false; }
@@ -941,12 +987,20 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
 #ifdef __ANDROID__
+            last_input = SDL_GetPerformanceCounter();
             // Android's Back button is the phone's Escape.
             if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) &&
                 event.key.keysym.sym == SDLK_AC_BACK) {
                 event.key.keysym.sym = SDLK_ESCAPE;
                 event.key.keysym.scancode = SDL_SCANCODE_ESCAPE;
             }
+            if (event.type == SDL_APP_DIDENTERFOREGROUND ||
+                (event.type == SDL_WINDOWEVENT &&
+                 (event.window.event == SDL_WINDOWEVENT_SHOWN ||
+                  event.window.event == SDL_WINDOWEVENT_RESTORED ||
+                  event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)))
+                frame_rate_asked = false;
+            if (event.type == SDL_APP_DIDENTERFOREGROUND) files_recheck = true;
 #endif
             ImGui_ImplSDL2_ProcessEvent(&event);
             if (event.type == SDL_QUIT) alive = false;
@@ -970,6 +1024,9 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 continue;
             }
             if (music_prompt_open) continue;
+#ifdef __ANDROID__
+            if (files_prompt_open) continue;
+#endif
             if (confirm_build >= 0) {
                 if ((event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) ||
                     (event.type == SDL_CONTROLLERBUTTONDOWN && event.cbutton.button == SDL_CONTROLLER_BUTTON_B)) {
@@ -1582,12 +1639,23 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             ImGui::Separator();
             ImGui::BeginDisabled(checking_builds[settings_game] || building_choice >= 0);
             if (ImGui::Button(built[settings_game] ? "Rebuild game" : "Build game")) {
-                confirm_build = settings_game;
+                confirm_build = play_game = settings_game;
                 offer_both_builds = false; reduced_build = false; request_build_dialog = true;
-                play_after_build = false;
+                play_after_build = true;  // the build window's checkbox, on each time
+                then_build = -1;
                 settings_open = false; ImGui::CloseCurrentPopup();
             }
             ImGui::EndDisabled();
+#ifdef __ANDROID__
+            // The visible folder in the phone's file manager; without file
+            // access, the prompt that asks for it.
+            ImGui::SameLine();
+            if (ImGui::Button("Open files folder")) {
+                if (gsr_android::has_file_access()) gsr_android::open_shared_folder();
+                else request_files_prompt = true;
+                settings_open = false; ImGui::CloseCurrentPopup();
+            }
+#endif
             ImGui::SameLine();
             if (ImGui::Button("Done", {90 * scale, 0})) { settings_open = false; ImGui::CloseCurrentPopup(); }
             ImGui::SameLine(); ImGui::TextDisabled("Esc / B to return");
@@ -1617,6 +1685,9 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 ImGui::TextWrapped("%s", text.build_resource_notice);
                 ImGui::Spacing();
 #endif
+                // Asked on every build, ticked each time the window opens.
+                ImGui::Checkbox(text.build_play_after, &play_after_build);
+                ImGui::Spacing();
                 bool start_build = ImGui::Button(offer_both_builds ? text.build_both : text.build_start);
                 ImGui::SetItemDefaultFocus();
                 bool both = offer_both_builds;
@@ -1699,6 +1770,27 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             ImGui::EndPopup();
         }
         music_prompt_open = request_music_prompt || ImGui::IsPopupOpen("Music mod");
+#ifdef __ANDROID__
+        if (request_files_prompt && !music_prompt_open && !settings_open && !notes_open) {
+            ImGui::OpenPopup("Your files"); request_files_prompt = false;
+        }
+        ImGui::SetNextWindowPos({center, height / 2}, ImGuiCond_Always, {0.5f, 0.5f});
+        ImGui::SetNextWindowSize({std::min(width - 32, 520 * scale), 0}, ImGuiCond_Always);
+        if (ImGui::BeginPopupModal("Your files", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings)) {
+            ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "Your files");
+            ImGui::Separator();
+            ImGui::TextWrapped("Golden Sun Recompiled can keep your ROMs, saves and music in a folder called "
+                               "\"Golden Sun Recompiled\" on your phone, so you can open it with your file manager "
+                               "or from a PC. Put a save there to bring it into The Lost Age, or recordings for the "
+                               "Music mod.\n\nAndroid will ask you to allow \"All files access\" for this app.");
+            ImGui::Separator();
+            if (ImGui::Button("Allow")) { gsr_android::ask_file_access(); ImGui::CloseCurrentPopup(); }
+            ImGui::SameLine();
+            if (ImGui::Button("Not now")) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        files_prompt_open = request_files_prompt || ImGui::IsPopupOpen("Your files");
+#endif
         ImGui::PopFont(); ImGui::PopStyleColor(10);
         ImGui::Render();
         SDL_SetRenderDrawColor(renderer, 10, 22, 32, 255); SDL_RenderClear(renderer);
@@ -1716,7 +1808,15 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             alive = false;
         }
         SDL_RenderPresent(renderer);
+#ifdef __ANDROID__
+        const bool untouched =
+            double(SDL_GetPerformanceCounter() - last_input) / SDL_GetPerformanceFrequency() > 1.0 &&
+            insertion_choice < 0 && opacity >= 1;
+        // Present waits for the 60 Hz vsync; 25 ms more skips one.
+        SDL_Delay(untouched ? 25 : 8);
+#else
         SDL_Delay(8);
+#endif
     }
     for (auto* controller : controllers) SDL_GameControllerClose(controller);
     ImGui_ImplSDLRenderer2_Shutdown(); ImGui_ImplSDL2_Shutdown(); ImGui::DestroyContext();

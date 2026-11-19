@@ -9,6 +9,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <mutex>
@@ -109,6 +110,11 @@ bool prepare_collection(std::string* error) {
         std::getline(in, unpacked);
     }
     std::error_code ec;
+    // Before unpacking, which writes Music/README.txt. Not fatal: without
+    // the visible folder the app keeps its own.
+    std::string link_error;
+    if (!link_shared_folders(&link_error))
+        std::fprintf(stderr, "[files] %s\n", link_error.c_str());
     if (unpacked != version) {
         // Refresh the unpacked app files on upgrade. Saves, ROMs and built games
         // live elsewhere in the collection.
@@ -142,6 +148,82 @@ bool prepare_collection(std::string* error) {
         link(lib / builders[i], dir / "builder" / "gsr_builder");
         link(lib / "libgba_recompile.so", dir / "builder" / "gba_recompile");
         link(root / "toolchain", dir / "builder" / "toolchain");
+    }
+    return true;
+}
+
+fs::path shared_root() {
+    static const fs::path dir = Jni().call_text("sharedFolder");
+    return dir;
+}
+
+bool has_file_access() {
+    Jni jni;
+    jmethodID has = jni.method("hasFileAccess", "()Z");
+    return has && jni.env->CallBooleanMethod(jni.activity, has);
+}
+
+void ask_file_access() {
+    Jni jni;
+    if (jmethodID ask = jni.method("askFileAccess", "()V"))
+        jni.env->CallVoidMethod(jni.activity, ask);
+}
+
+void open_shared_folder() {
+    Jni jni;
+    if (jmethodID open = jni.method("openSharedFolder", "()V"))
+        jni.env->CallVoidMethod(jni.activity, open);
+}
+
+bool link_shared_folders(std::string* error) {
+    const fs::path root = storage_root(), shared = shared_root();
+    std::error_code ec;
+    if (!has_file_access() || shared.empty()) {
+        // Access taken away after linking: the links lead nowhere the app may
+        // go, so the app's own empty folders come back (the visible folder
+        // keeps the files; allowing access again relinks it).
+        for (const char* folder : {"ROMs", "Saves", "Music"}) {
+            if (!fs::is_symlink(fs::symlink_status(root / folder, ec))) continue;
+            fs::remove(root / folder, ec);
+            fs::create_directories(root / folder, ec);
+        }
+        return true;
+    }
+    for (const char* folder : {"ROMs", "Saves", "Music"}) {
+        const fs::path in_app = root / folder, visible = shared / folder;
+        fs::create_directories(visible, ec);
+        if (ec) {
+            *error = "Could not create " + visible.string() + ": " + ec.message();
+            return false;
+        }
+        if (fs::is_symlink(fs::symlink_status(in_app, ec))) {
+            if (fs::read_symlink(in_app, ec) == visible) continue;
+            fs::remove(in_app, ec);
+        } else if (fs::is_directory(in_app, ec)) {
+            // The app's files go across first; a file of the same name
+            // already in the visible folder is the player's and stays.
+            // Copy, not rename: the two are different file systems.
+            fs::copy(in_app, visible,
+                     fs::copy_options::recursive | fs::copy_options::skip_existing, ec);
+            if (ec) {
+                *error = "Could not copy " + in_app.string() + " to " + visible.string() + ": " +
+                         ec.message();
+                return false;
+            }
+            fs::path kept = root / "local" / (std::string(folder) + " before shared folder");
+            for (int n = 2; fs::exists(kept, ec); ++n)
+                kept = root / "local" / (std::string(folder) + " before shared folder " + std::to_string(n));
+            fs::rename(in_app, kept, ec);
+            if (ec) {
+                *error = "Could not move " + in_app.string() + " aside: " + ec.message();
+                return false;
+            }
+        }
+        fs::create_symlink(visible, in_app, ec);
+        if (ec) {
+            *error = "Could not link " + in_app.string() + ": " + ec.message();
+            return false;
+        }
     }
     return true;
 }

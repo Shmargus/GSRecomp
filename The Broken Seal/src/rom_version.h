@@ -31,7 +31,7 @@ namespace gs {
 
 // The language the loaded ROM plays as, in the row order of
 // src/rom_revisions.inc. A patched revision (Reloaded) reports the language
-// it is a patch of; gs::reloaded() tells it apart.
+// it is a patch of; gs::reloaded() and gs::portuguese() tell them apart.
 enum class RomVersion : std::uint8_t { Usa, Spain, Italy, France, Germany };
 
 // The SHA-1 the game library was generated from (lower-case hex).
@@ -40,6 +40,14 @@ RomVersion rom_version();
 const char* rom_version_name();
 // Golden Sun Reloaded 1.83a (an English patch; rom_version() is Usa).
 bool reloaded();
+// Kyle the Runner's Brazilian Portuguese Beta 1.01 (a patch of USA/Europe;
+// rom_version() is Usa, addresses as USA). Our menus show in Portuguese.
+bool portuguese();
+// The unmodified USA/Europe ROM itself (not a language or a patch of it).
+bool usa_europe_rom();
+// Where the loaded ROM keeps plain text (gsr::mods::PlainText), as ROM
+// offsets; false when its text is the game's own Huffman format.
+bool plain_text(std::uint32_t* offsets, std::uint32_t* base);
 
 std::uint32_t rom(std::uint32_t usa);
 std::uint32_t ovl(const char* overlay_id, std::uint32_t usa);

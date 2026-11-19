@@ -30,6 +30,24 @@ fs::path native_library_dir();
 // and set *error.
 bool prepare_collection(std::string* error);
 
+// The visible folder on the phone's storage ("Golden Sun Recompiled"),
+// where ROMs, Saves and Music live once the player allows file access, so
+// their file manager and a PC over USB can reach them.
+fs::path shared_root();
+// Whether the player allowed it (All files access on Android 11+).
+bool has_file_access();
+// Opens the system page that allows it; the answer arrives when the app
+// comes back to the front.
+void ask_file_access();
+// With file access: makes the collection's ROMs, Saves and Music links to
+// the visible folder, first copying in what the app already held (a file
+// already there wins; the app's old folders are kept in local/). Without
+// access, or on failure, nothing changes. Returns false and sets *error
+// when a folder could not be moved.
+bool link_shared_folders(std::string* error);
+// Opens the visible folder in the phone's own file manager.
+void open_shared_folder();
+
 // Start one session or game at a time. Pass arguments without argv[0] and
 // apply the environment changes. Redirect stdout and stderr to the output
 // file, or use the session log if it is empty. False sets *error.

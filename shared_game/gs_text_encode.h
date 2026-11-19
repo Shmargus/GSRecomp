@@ -20,6 +20,18 @@ constexpr std::size_t kTreeTable = 0x3842C;
 constexpr std::uint32_t kLastTextLine = 0x29E1;  // real text ends here
 constexpr std::size_t kMaxRomBytes = 16u * 1024u * 1024u;
 
+// Plain text, as Kyle the Runner's Portuguese patches of both games store it
+// (their rewritten text routines, FACTS.md "Portuguese (Kyle the Runner)"):
+// line N starts at base + the 32-bit offset at offsets + 4*N, one byte per
+// character, ending in 0; same line numbers as USA/Europe. ROM offsets.
+struct PlainText {
+    std::size_t offsets = 0;
+    std::size_t base = 0;
+};
+// Set once at start by a game whose ROM stores plain text; every TextEncoder
+// made afterwards reads that table instead of the Huffman tables it is given.
+void set_plain_text(PlainText table);
+
 class TextEncoder {
 public:
     // The ROM must outlive the encoder and must not change while it is used
@@ -27,8 +39,7 @@ public:
     // The Lost Age passes its own (same format, other addresses).
     explicit TextEncoder(std::span<const std::uint8_t> rom,
                          std::size_t text_table = kTextTable,
-                         std::size_t tree_table = kTreeTable)
-        : rom_(rom), text_table_(text_table), tree_table_(tree_table) {}
+                         std::size_t tree_table = kTreeTable);
 
     // Encodes ASCII text (each char is its own 12-bit code) followed by the
     // terminating 0, LSB first. False when a needed (previous, next)
@@ -54,6 +65,7 @@ private:
 
     std::span<const std::uint8_t> rom_;
     std::size_t text_table_, tree_table_;
+    PlainText plain_;  // offsets == 0: Huffman
     std::map<std::uint32_t, std::map<std::uint32_t, Path>> cache_;
     std::map<std::uint32_t, std::map<Path, std::uint32_t>> reverse_;
 };

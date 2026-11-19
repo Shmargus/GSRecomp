@@ -1,10 +1,15 @@
 package io.github.shmargus.gsrecomp;
 
+import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.DocumentsContract;
+import android.provider.Settings;
 
 import org.libsdl.app.SDLActivity;
 
@@ -26,6 +31,7 @@ import java.util.zip.ZipInputStream;
 public abstract class GsrActivity extends SDLActivity {
     private static final int REQUEST_CHILD = 1;
     private static final int REQUEST_PICK = 2;
+    private static final int REQUEST_FILES = 3;
     // If a child exits without reporting a code, use 128 + SIGKILL.
     private static final int KILLED = 137;
 
@@ -82,12 +88,17 @@ public abstract class GsrActivity extends SDLActivity {
     // string on success.
     public String unpackPayload(String destination) {
         File root = new File(destination);
+        // The check reads the names as written, not where links lead: Music
+        // may be the app's link to the visible folder (android_host.cpp
+        // link_shared_folders), and Music/README.txt belongs there.
+        java.nio.file.Path base = root.toPath().toAbsolutePath().normalize();
         try (ZipInputStream zip = new ZipInputStream(getAssets().open("payload.zip"))) {
             byte[] buffer = new byte[1 << 16];
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
                 File out = new File(root, entry.getName());
-                if (!out.getCanonicalPath().startsWith(root.getCanonicalPath() + File.separator))
+                java.nio.file.Path at = out.toPath().toAbsolutePath().normalize();
+                if (!at.startsWith(base) || at.equals(base))
                     return "bad path in payload: " + entry.getName();
                 if (entry.isDirectory()) {
                     out.mkdirs();
@@ -147,6 +158,65 @@ public abstract class GsrActivity extends SDLActivity {
                 pick.setType("*/*");
                 // The caller labels the choice because the system picker has no title.
                 startActivityForResult(pick, REQUEST_PICK);
+            }
+        });
+    }
+
+    // ---- the visible "Golden Sun Recompiled" folder (ROMs, Saves, Music) ----
+
+    public String sharedFolder() {
+        return new File(Environment.getExternalStorageDirectory(), "Golden Sun Recompiled").getPath();
+    }
+
+    public boolean hasFileAccess() {
+        if (Build.VERSION.SDK_INT >= 30) return Environment.isExternalStorageManager();
+        return checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            == PackageManager.PERMISSION_GRANTED;
+    }
+
+    // Android 11+: the system's All files access page for this app; the
+    // launcher checks again when it comes back to the front.
+    public void askFileAccess() {
+        runOnUiThread(new Runnable() {
+            public void run() {
+                if (Build.VERSION.SDK_INT >= 30) {
+                    try {
+                        startActivity(new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                                 Uri.parse("package:" + getPackageName())));
+                    } catch (Exception e) {
+                        try {
+                            startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));
+                        } catch (Exception ignored) {
+                        }
+                    }
+                } else {
+                    requestPermissions(new String[] { Manifest.permission.READ_EXTERNAL_STORAGE,
+                                                      Manifest.permission.WRITE_EXTERNAL_STORAGE },
+                                       REQUEST_FILES);
+                }
+            }
+        });
+    }
+
+    // Opens the folder in the phone's own Files app (the system document
+    // browser), falling back to any app that opens folders.
+    public void openSharedFolder() {
+        runOnUiThread(new Runnable() {
+            public void run() {
+                Uri folder = DocumentsContract.buildDocumentUri(
+                    "com.android.externalstorage.documents", "primary:Golden Sun Recompiled");
+                Intent view = new Intent(Intent.ACTION_VIEW);
+                view.setDataAndType(folder, DocumentsContract.Document.MIME_TYPE_DIR);
+                view.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                try {
+                    startActivity(view);
+                } catch (Exception e) {
+                    try {
+                        view.setDataAndType(folder, "resource/folder");
+                        startActivity(view);
+                    } catch (Exception ignored) {
+                    }
+                }
             }
         });
     }

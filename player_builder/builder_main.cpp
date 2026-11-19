@@ -564,7 +564,8 @@ Variant synth_variant(std::vector<std::uint8_t> patched, const SynthSpan& s) {
         "name = \"" + s.name + "\"\n"
         "id = \"golden_sun_usa_" + s.dir + "\"\n"
         "load_address = 0x08000000\n"
-        "size = 0x00800000\n"
+        // The whole patched ROM; a patched revision may pass 8 MiB.
+        "size = 0x" + hex(static_cast<std::uint32_t>(patched.size()), 8, false) + "\n"
         "entry_pc = " + start + "\n"
         "speculative_literal_harvest = false\n"
         "codegen_shards = 1\n"
@@ -1407,10 +1408,10 @@ int main(int argc, char** cargv) {
     if (!s.revision) {
         if (!gbarecomp::any_rom_allowed()) {
 #ifdef GSR_BUILDER_TLA
-            return fail("This release requires the English, Spanish, Italian, French, German or Reloaded 1.83 Golden Sun: The Lost Age ROM.");
+            return fail("This release requires the English, Spanish, Italian, French, German, Reloaded 1.83 or Portuguese Beta 1 Golden Sun: The Lost Age ROM.");
 #else
             return fail(std::string("This release requires the ") + kGameName +
-                        ", Golden Sun (Spain), Golden Sun (Italy), Golden Sun (France), Golden Sun (Germany) or Golden Sun Reloaded 1.83a ROM.");
+                        ", Golden Sun (Spain), Golden Sun (Italy), Golden Sun (France), Golden Sun (Germany), Golden Sun Reloaded 1.83a or Portuguese Beta 1.01 ROM.");
 #endif
         }
         s.revision = &kRevisions[0];

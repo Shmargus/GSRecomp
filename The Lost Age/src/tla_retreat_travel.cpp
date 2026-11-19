@@ -204,3 +204,8 @@ bool tla_retreat_travel_paint(std::uint8_t* rgb, std::uint32_t w, std::uint32_t 
     travel::paint(draw, width, (travel::kTileX + 1) * 8, (travel::kTileY + 1) * 8);
     return true;
 }
+
+// Whether tla_retreat_travel_paint paints or reads the picture this frame.
+bool tla_retreat_travel_visible() {
+    return native_running || native_casting || travel::showing;
+}

@@ -561,27 +561,32 @@ std::vector<fs::path> make_bug_report(const GameResult& game) {
             parts > 1 ? "_part" + std::to_string(i + 1) + "of" + std::to_string(parts) : "";
         const fs::path archive = reports / (name + suffix + ".tar.gz");
         fs::remove(archive, ec);
-        // The capture goes into the staged folder for its archive and back
+        // The capture is copied into the staged folder for its archive, as
+        // frame differences (launcher_common.h stage_capture), and removed
         // after: one -C only. Android's toybox tar applies just the last -C,
         // so "-C staging . -C logs capture" packed the whole logs folder,
         // met its own archive there and failed (Pixel 9 Pro, 18 November
         // 2026: every report with an F12 capture stayed unpacked).
-        fs::path moved;
+        fs::path capture;
         if (!game.new_rewinds.empty()) {
-            moved = staging / game.new_rewinds[i];
-            fs::rename(logs_dir / game.new_rewinds[i], moved, ec);
-            if (ec) moved.clear();
+            capture = staging / game.new_rewinds[i];
+            std::string error;
+            if (!stage_capture(logs_dir / game.new_rewinds[i], capture, &error)) {
+                launcher_log("Bug report: could not stage capture " + game.new_rewinds[i] +
+                             ": " + error);
+                std::error_code clean_ec;
+                fs::remove_all(capture, clean_ec);
+                capture.clear();
+            }
         }
-        const std::string cmd = "tar -czf " + shell_quote(archive.string()) + " -C " +
-                                shell_quote(staging.string()) + " . >/dev/null 2>&1";
-        const int tar_status = std::system(cmd.c_str());
-        if (!moved.empty()) {
-            std::error_code back_ec;
-            fs::rename(moved, logs_dir / game.new_rewinds[i], back_ec);
+        int tar_status = -1;
+        if (capture.empty() == game.new_rewinds.empty()) {
+            const std::string cmd = "tar -czf " + shell_quote(archive.string()) + " -C " +
+                                    shell_quote(staging.string()) + " . >/dev/null 2>&1";
+            tar_status = std::system(cmd.c_str());
         }
-        if (!game.new_rewinds.empty() && moved.empty())
-            launcher_log("Bug report: could not stage capture " + game.new_rewinds[i] + ".");
-        if (moved.empty() != game.new_rewinds.empty() || tar_status != 0 ||
+        if (!capture.empty()) fs::remove_all(capture, ec);
+        if (capture.empty() != game.new_rewinds.empty() || tar_status != 0 ||
             !fs::is_regular_file(archive, ec)) {
             launcher_log("Bug report: packing " + archive.filename().string() +
                          " failed (tar status " + std::to_string(tar_status) + ").");

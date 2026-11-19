@@ -268,6 +268,31 @@ inline std::uint32_t battle_party(gba::GbaBus& b, const Config& c, std::uint32_t
     return static_cast<std::uint32_t>(n);
 }
 
+// The picks join and the first pick leads (all picks, in pick order, where
+// picks_lead).
+inline void join_picks(gba::GbaBus& b, const Config& c) {
+    for (int i = 0; i < c.size; ++i)
+        if (!joined(b, c.picks[i])) join(b, c.picks[i]);
+    // Over the limit (a file from before the join rule): guests outside the
+    // heroes leave first.
+    for (unsigned id = 7; joined_count(b) > game->max_party && id >= static_cast<unsigned>(game->heroes); --id)
+        if (joined(b, id) && !picked(c, id)) leave(b, id);
+    const int count = joined_count(b);
+    // Pick p to place `to`: the members between move one place back.
+    const auto place = [&](std::uint8_t p, int to) {
+        for (int i = to; i < count; ++i) {
+            if (b.read8(game->order + i) != p) continue;
+            for (int j = i; j > to; --j) b.write8(game->order + j, b.read8(game->order + j - 1));
+            b.write8(game->order + to, p);
+            return;
+        }
+    };
+    if (b.read8(game->order) != c.picks[0]) place(c.picks[0], 0);
+    if (!game->picks_lead) return;
+    for (int i = 1; i < c.size && i < count; ++i)
+        if (b.read8(game->order + i) != c.picks[i]) place(c.picks[i], i);
+}
+
 // Once a game frame. Every left-out member who is in the party stays down,
 // as the game's own HP setter leaves them (TBS 0x080782A0): HP 0 and HP share
 // 0 (story joins, inns and full heals included). On the field, outside
@@ -282,26 +307,7 @@ inline void frame() {
     revive_first_pick(*b, c);
     keep_down(*b, c);
     if (b->read32(game->field_context) == 0 || b->read32(game->battle_context) != 0) return;
-    for (int i = 0; i < c.size; ++i)
-        if (!joined(*b, c.picks[i])) join(*b, c.picks[i]);
-    // Over the limit (a file from before the join rule): guests outside the
-    // heroes leave first.
-    for (unsigned id = 7; joined_count(*b) > game->max_party && id >= static_cast<unsigned>(game->heroes); --id)
-        if (joined(*b, id) && !picked(c, id)) leave(*b, id);
-    const int count = joined_count(*b);
-    // Pick p to place `to`: the members between move one place back.
-    const auto place = [&](std::uint8_t p, int to) {
-        for (int i = to; i < count; ++i) {
-            if (b->read8(game->order + i) != p) continue;
-            for (int j = i; j > to; --j) b->write8(game->order + j, b->read8(game->order + j - 1));
-            b->write8(game->order + to, p);
-            return;
-        }
-    };
-    if (b->read8(game->order) != c.picks[0]) place(c.picks[0], 0);
-    if (!game->picks_lead) return;
-    for (int i = 1; i < c.size && i < count; ++i)
-        if (b->read8(game->order + i) != c.picks[i]) place(c.picks[i], i);
+    join_picks(*b, c);
 }
 
 // Level 1 for the picks. A new game builds each hero at

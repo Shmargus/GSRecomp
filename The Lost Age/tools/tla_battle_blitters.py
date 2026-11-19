@@ -49,7 +49,7 @@ GROUP = 32
 
 def build(rom, r1, r2, flags, mode):
     mu = Uc(UC_ARCH_ARM, UC_MODE_THUMB)
-    mu.mem_map(0x08000000, 0x01000000)
+    mu.mem_map(0x08000000, 0x02000000)  # cartridge space: a patched ROM may pass 16 MiB
     mu.mem_write(0x08000000, rom)
     mu.mem_map(0x02000000, 0x40000)
     mu.mem_map(0x03000000, 0x8000)
@@ -173,7 +173,7 @@ note = "routine body, every instruction an entry"
 name = "Golden Sun: The Lost Age battle blitters %s"
 id = "golden_sun_tla_%s"
 load_address = 0x08000000
-size = 0x01000000
+size = 0x%08X
 entry_pc = 0x%08X
 speculative_literal_harvest = false
 codegen_shards = 1
@@ -187,7 +187,7 @@ source_start = 0x%08X
 size = 0x%08X
 name = "%s"
 note = "packed builder outputs"
-''' % (len(group), STRIDE, name, name, ORIGIN, sha, ORIGIN, src, size, name))
+''' % (len(group), STRIDE, name, name, len(img), ORIGIN, sha, ORIGIN, src, size, name))
             f.write("".join(entries))
         print("%s 0x%08X:%X" % (name, ORIGIN, size))
 

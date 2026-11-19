@@ -32,7 +32,16 @@ struct TreeBits {
     }
 };
 
+PlainText g_plain_text;
+
 }  // namespace
+
+void set_plain_text(PlainText table) { g_plain_text = table; }
+
+TextEncoder::TextEncoder(std::span<const std::uint8_t> rom,
+                         std::size_t text_table, std::size_t tree_table)
+    : rom_(rom), text_table_(text_table), tree_table_(tree_table),
+      plain_(g_plain_text) {}
 
 bool TextEncoder::codes_for(std::uint32_t prev,
                             const std::map<std::uint32_t, Path>** out) {
@@ -97,6 +106,12 @@ bool TextEncoder::codes_for(std::uint32_t prev,
 
 bool TextEncoder::encode(const std::string& text,
                          std::vector<std::uint8_t>* out, std::string* why) {
+    if (plain_.offsets) {
+        if (!out) return false;
+        out->assign(text.begin(), text.end());
+        out->push_back(0);
+        return true;
+    }
     std::vector<std::uint8_t> bytes;
     unsigned acc = 0;
     int n = 0;
@@ -133,6 +148,17 @@ bool TextEncoder::encode(const std::string& text,
 
 bool TextEncoder::line_bytes(std::uint32_t number, std::size_t* start,
                              std::size_t* size) const {
+    if (plain_.offsets) {
+        const std::size_t entry = plain_.offsets + std::size_t(number) * 4u;
+        if (entry + 4 > rom_.size()) return false;
+        const std::size_t s = plain_.base + rd32(rom_, entry);
+        std::size_t e = s;
+        while (e < rom_.size() && rom_[e] != 0) ++e;
+        if (e >= rom_.size()) return false;
+        *start = s;
+        *size = e + 1 - s;  // with the terminating 0
+        return true;
+    }
     const std::size_t entry = text_table_ + (number >> 8) * 8;
     if (entry + 8 > rom_.size()) return false;
     const std::uint32_t data = rd32(rom_, entry);
@@ -159,6 +185,11 @@ bool TextEncoder::decode(std::uint32_t number, std::string* out,
                          std::size_t max_chars) {
     std::size_t start, size;
     if (!out || !line_bytes(number, &start, &size)) return false;
+    if (plain_.offsets) {
+        if (size - 1 > max_chars) return false;
+        out->assign(rom_.begin() + start, rom_.begin() + start + size - 1);
+        return true;
+    }
     std::string text;
     std::size_t pos = 0;  // bit position from start, LSB first
     std::uint32_t prev = 0;
@@ -197,6 +228,7 @@ bool rebuild_text_block(std::vector<std::uint8_t>* rom, std::uint32_t block,
         return false;
     };
     if (!rom) return fail("no rom");
+    if (g_plain_text.offsets) return fail("this ROM stores plain text, not Huffman blocks");
     const std::uint32_t first = block * 256u;
     if (first > kLastTextLine) return fail("block is past the real text");
     const std::uint32_t lines =

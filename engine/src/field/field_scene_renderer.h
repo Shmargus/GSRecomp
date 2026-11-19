@@ -277,7 +277,11 @@ public:
     // something this renderer cannot reproduce, having drawn nothing -- the
     // caller must then use the emulated hardware path for the WHOLE frame.
     // There is no correct way to draw part of it (FACTS.md).
-    bool draw(const FieldScene& scene);
+    // `side_picture`: an extra draw in the same frame (the world map's live
+    // margins), drawn plain and kept out of the flicker history; counted,
+    // its sprites taken out make the frame's own look like every-other-frame
+    // flicker and they come out half see-through.
+    bool draw(const FieldScene& scene, bool side_picture = false);
 
     // The finished picture, for presenting or for comparison.
     gbarecomp::GpuTexture output_texture() const;

@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -296,6 +297,94 @@ inline StagedReport stage_bug_report(const ReportSources& sources, std::string i
     summary.close();
     if (!summary) staged.errors += "Could not write report_info.txt\n";
     return staged;
+}
+
+// The file in a report's capture folder that lists its differenced frames.
+constexpr char kFrameDifferencesFile[] = "frame_differences.txt";
+
+// Copies one F12 capture folder into a report (`out`, created here), with
+// each frame_NNN.bin and frame_NNN.ppm from 001 on stored as its difference
+// from the frame before: every byte XORed with frame N-1's byte, when both
+// are the same size. Neighbouring frames are almost the same, so the
+// differences are almost all zeros, and zip/gzip (which look only 32 KB
+// back, less than one frame) shrink them to nearly nothing. Measured,
+// tla_rewind_0217: 26.8 MB packed before, about 1.2 MB after; gpu_rewind_0103
+// about 12 MB before, 2.9 MB after. kFrameDifferencesFile names each
+// differenced file; The Broken Seal/tools/restore_report_frames.py turns
+// them back.
+inline bool stage_capture(const fs::path& capture, const fs::path& out, std::string* error) {
+    std::error_code ec;
+    if (!fs::create_directory(out, ec) || ec) {
+        *error = "Could not create " + out.filename().string() + ": " + ec.message();
+        return false;
+    }
+    std::vector<fs::path> files;
+    for (fs::directory_iterator it(capture, ec), end; it != end && !ec; it.increment(ec)) {
+        std::error_code type_ec;
+        if (it->is_regular_file(type_ec)) files.push_back(it->path());
+    }
+    if (ec) {
+        *error = "Could not list " + capture.filename().string() + ": " + ec.message();
+        return false;
+    }
+    // frame_NNN.bin / frame_NNN.ppm: N, or -1 for any other file.
+    const auto frame_number = [](const std::string& name) {
+        if (name.size() != 13 || name.rfind("frame_", 0) != 0 || name[9] != '.') return -1;
+        const std::string ext = name.substr(10);
+        if (ext != "bin" && ext != "ppm") return -1;
+        int n = 0;
+        for (std::size_t i = 6; i < 9; ++i) {
+            if (name[i] < '0' || name[i] > '9') return -1;
+            n = n * 10 + (name[i] - '0');
+        }
+        return n;
+    };
+    std::string listed;
+    for (const fs::path& file : files) {
+        const std::string name = file.filename().string();
+        const int n = frame_number(name);
+        std::string previous;
+        if (n > 0) {
+            char before[16];
+            std::snprintf(before, sizeof before, "frame_%03d.%s", n - 1, name.c_str() + 10);
+            std::error_code size_ec;
+            if (fs::file_size(capture / before, size_ec) == fs::file_size(file, size_ec) &&
+                !size_ec)
+                previous = read_text(capture / before);
+        }
+        if (previous.empty()) {
+            if (!fs::copy_file(file, out / file.filename(), ec)) {
+                *error = "Could not copy " + name + ": " + ec.message();
+                return false;
+            }
+            continue;
+        }
+        std::string bytes = read_text(file);
+        if (bytes.size() != previous.size()) {
+            *error = "Could not read " + name;
+            return false;
+        }
+        for (std::size_t i = 0; i < bytes.size(); ++i) bytes[i] ^= previous[i];
+        std::ofstream written(out / file.filename(), std::ios::binary | std::ios::trunc);
+        written.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        written.close();
+        if (!written) {
+            *error = "Could not write " + name;
+            return false;
+        }
+        listed += name + "\n";
+    }
+    std::ofstream list(out / kFrameDifferencesFile, std::ios::binary | std::ios::trunc);
+    list << "Each file below holds its bytes XOR the frame before it (frame_NNN-1, same\n"
+            "extension), restored in order. Bug report from the launcher; restore with\n"
+            "The Broken Seal/tools/restore_report_frames.py.\n\n"
+         << listed;
+    list.close();
+    if (!list) {
+        *error = std::string("Could not write ") + kFrameDifferencesFile;
+        return false;
+    }
+    return true;
 }
 
 // Fingerprint the release version and hash each engine, builder, translator,

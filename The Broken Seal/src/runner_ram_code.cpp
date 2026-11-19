@@ -955,7 +955,8 @@ std::array<RelocatableCodeImage, 29> kRelocatableCodeImages{{
 
 }  // namespace
 namespace gsr_runner {
-// The SHA-1s above are the USA ROM's bytes at each image's source. A localized
+// The SHA-1s above are the USA ROM's bytes at each image's source. A patched
+// ROM may rewrite one (Portuguese: Func_15430, Func_15570); a localized
 // ROM moves and re-points those routines (the copies are otherwise the same
 // code, FACTS.md "Spanish overlays and transient RAM code"), so for it each
 // ROM-backed identity is the loaded ROM's own bytes at the mapped source,
@@ -963,7 +964,7 @@ namespace gsr_runner {
 // game starts; images with no ROM source (overlays, synth templates) keep
 // their registry identity.
 void set_revision_identities(const std::vector<std::uint8_t>& rom) {
-    if (gs::rom_version() == gs::RomVersion::Usa) return;
+    if (gs::usa_europe_rom()) return;
     static std::deque<std::string> storage;
     const auto rom_bytes = [&rom](std::uint32_t rom_start, std::uint32_t size,
                                   const char* name) {

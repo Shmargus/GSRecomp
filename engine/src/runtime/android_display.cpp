@@ -1,4 +1,6 @@
-// Android only. Dear ImGui's SDL2 backend refreshes its monitor list every
+// Android only: display calls shared by the games and the launcher.
+//
+// gsr_cached_display_dpi: Dear ImGui's SDL2 backend refreshes its monitor list every
 // frame (ImGui_ImplSDL2_UpdateMonitors from ImGui_ImplSDL2_NewFrame), and on
 // Android SDL_GetDisplayDPI is a Java call (SDLActivity.getDisplayDPI). Phone
 // profile, 18 November 2026: 1.1% of the game thread in Vale with no menu
@@ -6,8 +8,13 @@
 // engine/CMakeLists.txt points that one backend file's SDL_GetDisplayDPI here.
 // The answer is kept per display and asked again only when the display's
 // bounds change (rotation, a folding phone), which SDL reads natively.
-#include <SDL.h>
+#include "android_display.h"
 
+#include <SDL.h>
+#include <SDL_system.h>
+#include <jni.h>
+
+#include <cstdio>
 #include <cstring>
 
 extern "C" int gsr_cached_display_dpi(int display, float* ddpi, float* hdpi, float* vdpi) {
@@ -33,4 +40,19 @@ extern "C" int gsr_cached_display_dpi(int display, float* ddpi, float* hdpi, flo
     if (hdpi) *hdpi = e.h;
     if (vdpi) *vdpi = e.v;
     return e.result;
+}
+
+// The phone log of 14 November 2026 showed the screen at 120 Hz under a
+// 60 Hz game; with this the game's screen ran at 60 (16 November).
+void android_set_frame_rate(double hz) {
+    JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity) return;
+    jclass type = env->GetObjectClass(activity);
+    jmethodID method = type ? env->GetMethodID(type, "setFrameRate", "(F)V") : nullptr;
+    if (method) env->CallVoidMethod(activity, method, static_cast<jfloat>(hz));
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    if (type) env->DeleteLocalRef(type);
+    env->DeleteLocalRef(activity);
+    std::fprintf(stderr, "[frame-rate] asked the system for %.3f Hz\n", hz);
 }

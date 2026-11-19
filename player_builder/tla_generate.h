@@ -57,11 +57,14 @@ std::string tla_expected(const std::string& name,
 
 std::string tla_config(const std::string& name, std::uint32_t origin,
                         std::uint32_t source, std::uint32_t size,
-                        std::uint32_t entry, const std::string& sha) {
+                        std::uint32_t entry, const std::string& sha,
+                        std::size_t rom_size) {
+    // The program is the whole input ROM; a patched one may pass 16 MiB.
     return "# Generated locally from the player's ROM.\n[program]\n"
            "name = \"Golden Sun: The Lost Age " + name + "\"\n"
            "id = \"golden_sun_tla_" + name + "\"\n"
-           "load_address = 0x08000000\nsize = 0x01000000\n"
+           "load_address = 0x08000000\nsize = 0x" +
+           hex(static_cast<std::uint32_t>(rom_size), 8, true) + "\n"
            "entry_pc = 0x" + hex(entry, 8, true) + "\n"
            "speculative_literal_harvest = false\ncodegen_shards = 1\n"
            "\n[identity]\nsha1 = \"" + sha + "\"\n"
@@ -186,7 +189,7 @@ void tla_mixers(const Setup& s, const std::vector<std::uint8_t>& rom,
                 throw std::runtime_error("cannot write TLA mixer input");
             TlaImage image{name, {}, {}, path, start, end - start};
             image.config = tla_config(name, start, source_of(start), end - start, start,
-                                      sha1_hex(variant.data(), variant.size())) +
+                                      sha1_hex(variant.data(), variant.size()), variant.size()) +
                            tla_entry(start, false, name + "_entry") + tla_arm_range(start + 4, end);
             image.expected = tla_expected(name, tla_slice(variant, source_of(start), end - start));
             images.push_back(std::move(image));
@@ -252,7 +255,8 @@ void tla_blitters(const Setup& s, const std::vector<std::uint8_t>& rom,
     for (std::size_t i = first_image; i < images.size(); ++i) {
         auto& image = images[i];
         const auto source = 0x08F00000u + static_cast<std::uint32_t>((i - first_image) * 32 * stride);
-        image.config = tla_config(image.name, image.origin, source, image.size, image.origin, sha) + image.config;
+        image.config = tla_config(image.name, image.origin, source, image.size, image.origin, sha,
+                                  packed_rom.size()) + image.config;
     }
     log_line("TLA: " + std::to_string(routines.size()) + " distinct battle blitters");
 }

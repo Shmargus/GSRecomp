@@ -97,7 +97,7 @@ def main():
 name = "Golden Sun: The Lost Age mixer variant %s"
 id = "golden_sun_tla_%s"
 load_address = 0x08000000
-size = 0x01000000
+size = 0x%08X
 entry_pc = 0x%08X
 speculative_literal_harvest = false
 codegen_shards = 1
@@ -123,7 +123,7 @@ start = 0x%08X
 end = 0x%08X
 mode = "arm"
 note = "every instruction is an entry"
-''' % (name, why, name, name, start, hashlib.sha1(img).hexdigest(), start,
+''' % (name, why, name, name, len(img), start, hashlib.sha1(img).hexdigest(), start,
        src, size, name, start, name, start + 4, end))
         data = img[rom_off(start):rom_off(start) + size]
         with open(os.path.join(d, "expected.cpp"), "w", newline="\n") as f:

@@ -3251,7 +3251,8 @@ gbarecomp::GpuTexture FieldSceneRenderer::output_texture() const {
     return surface_ ? surface_->target_texture() : 0;
 }
 
-bool FieldSceneRenderer::draw(const FieldScene& scene) {
+bool FieldSceneRenderer::draw(const FieldScene& scene, bool side_picture) {
+    if (side_picture) return draw_frame(scene, FlickerPhase::Plain);
     // Sprites shown on every other frame: draw the other phase first, then
     // this frame mixed with it (sprite_flicker.h). Off, or nothing
     // alternating, is the plain single draw.

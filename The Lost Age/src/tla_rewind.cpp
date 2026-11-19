@@ -11,6 +11,7 @@
 #include <new>
 
 #include "frame_history.h"
+#include "gpu_present.h"
 #include "host_overlay.h"
 #include "runtime_bus_bridge.h"
 #include "tla.h"
@@ -19,6 +20,9 @@
 namespace {
 
 gbarecomp::FrameHistory g_history("tla_rewind_");
+// Phones: the battle HP bar and ">>" over the card's picture when the frame
+// is shown straight from the card (neither painter reads the picture).
+gbarecomp::GpuOverlayLayer g_overlay_layer;
 
 bool present(uint8_t* rgb, uint32_t width, uint32_t height) {
     // A backwards guest clock (a state load) starts a new history in
@@ -41,7 +45,15 @@ bool present(uint8_t* rgb, uint32_t width, uint32_t height) {
         g_history.back(0).height == height && tla_battle_spell_setup_frame();
     const bool synchronous = held_frame || tla_settings_page_overlay_visible() ||
         tla_gs_save_import_visible();
-    bool drawn = tla_gpu_field_present(rgb, width, height, frame, synchronous);
+    // Anything painted on the copied picture below needs it; otherwise a
+    // phone may show the card's picture directly (gpu_present.h). The HP bar
+    // and ">>" go to the overlay layer instead (g_overlay_layer).
+    const bool cpu_paint = synchronous || tla_custom_battle_visible() ||
+        tla_retreat_travel_visible() || tla_radial_psynergy_visible() ||
+        tla_save_files_visible() || tla_new_game_visible() ||
+        g_history.report_notice_showing(runtime_current_frame());
+    bool drawn = tla_gpu_field_present(rgb, width, height, frame, synchronous, !cpu_paint);
+    const bool direct = gbarecomp::gpu_present_current() != nullptr;
     if (held_frame) {
         const auto& last = g_history.back(0);
         std::copy(last.rgb.begin(), last.rgb.end(), rgb);
@@ -51,19 +63,21 @@ bool present(uint8_t* rgb, uint32_t width, uint32_t height) {
         drawn = true;
     }
     // The indicator belongs to the delivered picture, not the live guest.
+    std::uint8_t* const layer = direct ? g_overlay_layer.begin(width, height) : rgb;
     if (frame.battle_2x) {
-        tla_paint_text(rgb, width, height, 4, 4, ">>", 5);
+        tla_paint_text(layer, width, height, 4, 4, ">>", 5);
         drawn = true;
     }
     drawn = tla_settings_page_paint(rgb, width, height) || drawn;
     drawn = tla_gs_save_import_paint(rgb, width, height) || drawn;
-    drawn = tla_enemy_hp_bar_paint(rgb, width, height) || drawn;
+    drawn = tla_enemy_hp_bar_paint(layer, width, height) || drawn;
+    if (direct) g_overlay_layer.finish();
     drawn = tla_custom_battle_paint(rgb, width, height) || drawn;
     drawn = tla_retreat_travel_paint(rgb, width, height) || drawn;
     drawn = tla_radial_psynergy_paint(rgb, width, height) || drawn;
     drawn = tla_save_files_paint(rgb, width, height) || drawn;
     drawn = tla_new_game_paint(rgb, width, height) || drawn;
-    g_history.record(rgb, width, height, std::move(frame));
+    g_history.record(direct ? nullptr : rgb, width, height, std::move(frame));
 
     std::string unpacker_note;
     const auto notice = g_history.update_report(

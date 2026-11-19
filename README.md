@@ -71,10 +71,6 @@ version changed; updating can make the launcher prepare your game code again.
   Extra Wide and back redraws the screen and fixes it.
 - TLA, music mods: the opening scene before Venus Lighthouse keeps the
   original music.
-- TLA: Raging Flood has the wrong shape, gets cut off at the edges and causes
-  slowdown.
-- TLA: Great Gabomba has an effect that can show bits of text, and slowdown
-  during its ritual.
 - TLA: Supernova doesn't fill the wider view yet, and some other summon
   graphics have smaller issues at the edges.
 - TLA: world-map quakes can still glitch at the edges; Jupiter Lighthouse's

@@ -7,8 +7,9 @@
 // --session-game) and sets session_game_index once at its start.
 namespace gsr_launcher {
 
-// Revisions a game may list: five languages and one supported patch.
-inline constexpr int kMaxRevisions = 6;
+// Revisions a game may list: five languages and two supported patches
+// (Reloaded, Brazilian Portuguese).
+inline constexpr int kMaxRevisions = 7;
 
 struct GameIdentity {
     const char* stem;            // the game's folder in the collection
@@ -76,8 +77,8 @@ inline bool rom_is_language(const GameIdentity& game, int revision) {
 #endif
 inline constexpr GameIdentity kGames[2] = {
     {"The Broken Seal", "Golden Sun Recompiled", L"Golden Sun Recompiled",
-     "Select the Golden Sun ROM (USA/Europe, Spain, Italy, France, Germany or Reloaded 1.83a)",
-     L"Select the Golden Sun ROM (USA/Europe, Spain, Italy, France, Germany or Reloaded 1.83a)",
+     "Select the Golden Sun ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83a or Portuguese Beta 1.01)",
+     L"Select the Golden Sun ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83a or Portuguese Beta 1.01)",
      GSR_GAME_BINARIES("GoldenSunRecomp", "GoldenSunGame", "GoldenSunEngine", "gs_engine"),
      "GoldenSunGame.build.txt", L"GoldenSunGame.build.txt",
      "GoldenSunGame.release.txt",
@@ -103,8 +104,8 @@ inline constexpr GameIdentity kGames[2] = {
 #undef GSR_ROM_REVISION
     {"The Lost Age", "Golden Sun: The Lost Age Recompiled",
      L"Golden Sun: The Lost Age Recompiled",
-     "Select the Golden Sun: The Lost Age ROM (USA/Europe, Spain, Italy, France, Germany or Reloaded 1.83)",
-     L"Select the Golden Sun: The Lost Age ROM (USA/Europe, Spain, Italy, France, Germany or Reloaded 1.83)",
+     "Select the Golden Sun: The Lost Age ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83 or Portuguese Beta 1)",
+     L"Select the Golden Sun: The Lost Age ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83 or Portuguese Beta 1)",
      GSR_GAME_BINARIES("TLARecomp", "TLAGame", "TLAEngine", "tla_engine"),
      "TLAGame.build.txt", L"TLAGame.build.txt",
      "TLAGame.release.txt",

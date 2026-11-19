@@ -29,6 +29,7 @@ inline constexpr gbarecomp::UiTranslation kTable[] = {
     {"Cheats", "Cheats"},
     {"Help", "Hilfe"},
     {"Back", "Zurück"},
+    {"Save capture", "Aufnahme speichern"},
     {"Quit Game", "Spiel beenden"},
     {"Progress could not be saved to the PC.", "Fortschritt konnte nicht auf dem PC gespeichert werden."},
     {"Check free disk space. Retrying...", "Freien Speicherplatz prüfen. Neuer Versuch läuft..."},

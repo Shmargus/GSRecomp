@@ -209,3 +209,5 @@ bool tla_save_files_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t 
     };
     return sf::paint(game(), put, pixel);
 }
+
+bool tla_save_files_visible() { return sf::g_picker.open; }

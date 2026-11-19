@@ -13,6 +13,13 @@
     <!-- Update check and Send report, as on PC. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- ROMs, Saves and Music live in a visible "Golden Sun Recompiled"
+         folder on the phone's storage, for the player's file manager and a
+         PC over USB (android_host.cpp link_shared_folders). Android 11+:
+         All files access; Android 9-10: the storage permission. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
 
     <!-- extractNativeLibs: the builder, the translator and Clang ship as
          lib*.so in the app's library folder, the one place Android lets an
@@ -26,6 +33,7 @@
         android:extractNativeLibs="true"
         android:hardwareAccelerated="true"
         android:largeHeap="true"
+        android:requestLegacyExternalStorage="true"
         android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
 
         <!-- SDL reads the app's metadata for environment settings on every

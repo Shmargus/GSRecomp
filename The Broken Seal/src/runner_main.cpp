@@ -81,6 +81,8 @@
 #include "../../shared_game/italian_menu.h"
 #include "../../shared_game/french_menu.h"
 #include "../../shared_game/german_menu.h"
+#include "../../shared_game/portuguese_menu.h"
+#include "../../shared_game/gs_text_encode.h"
 #include "obj_placements.h"
 #include "runtime.h"
 #include "memory_snapshot.h"
@@ -9131,7 +9133,8 @@ gsr::GpuFieldCapture g_world_settled_capture;
 
 bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
                             const gsr::GpuFieldCapture& capture,
-                            std::uint32_t width, std::uint32_t height);
+                            std::uint32_t width, std::uint32_t height,
+                            bool side_picture = false);
 
 // ---- World-map margin hold ------------------------------------------------
 //
@@ -9238,6 +9241,45 @@ bool text_row_single_colour(const std::uint8_t* regs, int y,
     return true;
 }
 
+// A world-map frame worth holding: no menu yet, and no screen fade under way
+// (BLDCNT brightness effect with a non-zero BLDY), or the "held" margins
+// would be a darkened copy.
+bool world_map_settled(const gsr::GpuFieldCapture& capture, bool world_source_ok) {
+    const std::vector<std::uint8_t>& io = capture.io;
+    const unsigned bldcnt = io[0x50] | (static_cast<unsigned>(io[0x51]) << 8);
+    const bool fading = ((bldcnt >> 6) & 3u) >= 2u && (io[0x54] & 0x1Fu) != 0u;
+    return !fading && !capture.window_open && world_source_ok && capture.pal.size() >= 512;
+}
+
+// Whether world_map_margin_hold paints on this frame's copied picture: a
+// menu (mode 0) or a transition mixing modes on the world map's blocks. The
+// plain sailing view (mode 2 throughout) paints nothing, so a phone may show
+// it straight from the card (world_map_remember_settled).
+bool world_map_needs_cpu(const gsr::GpuFieldCapture& capture) {
+    if (!world_map_blocks(capture.io)) return false;
+    if ((capture.io[0] & 7u) != 2u) return true;
+    const gsr::FieldScene& sc = capture.scene;
+    for (int y = 0; y < gsr::FieldScene::kRows; ++y)
+        if (sc.row_io_valid[y] && (sc.row_io[y][0] & 7u) != 2u) return true;
+    return false;
+}
+
+// A frame shown straight from the card has no copied picture to hold: keep
+// the settled capture, and the first menu frame redraws the held margins
+// from it (world_map_margin_hold's other-size branch, as after a resize).
+void world_map_remember_settled(const gsr::GpuFieldCapture& capture, bool world_source_ok) {
+    if (!world_map_blocks(capture.io)) {
+        g_world_margin_rgb.clear();
+        g_world_settled_capture = {};
+        return;
+    }
+    if (!world_map_settled(capture, world_source_ok)) return;
+    g_world_margin_rgb.clear();
+    g_world_margin_w = g_world_margin_h = 0;
+    g_world_settled_capture = capture;
+    g_world_palette_effect.save(capture.pal);
+}
+
 void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
                            std::uint32_t height,
                            gsr::FieldSceneRenderer& renderer,
@@ -9275,14 +9317,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
                 std::memcpy(row + std::size_t{x} * 3u, colour, 3);
         }
         if (mixed) return;  // a transition, not a view to hold
-        // Save only a settled world-map frame: no menu yet, and no screen
-        // fade under way (BLDCNT brightness effect with a non-zero BLDY),
-        // or the "held" margins would be a darkened copy.
-        const unsigned bldcnt = io[0x50] | (static_cast<unsigned>(io[0x51]) << 8);
-        const bool fading = ((bldcnt >> 6) & 3u) >= 2u && (io[0x54] & 0x1Fu) != 0u;
-        if (!fading && !capture.window_open &&
-            world_source_ok &&
-            capture.pal.size() >= 512) {
+        if (world_map_settled(capture, world_source_ok)) {
             g_world_margin_rgb.assign(rgb, rgb + std::size_t{width} * height * 3u);
             g_world_margin_w = width;
             g_world_margin_h = height;
@@ -9327,7 +9362,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     // capture at this size and hold that instead.
     if ((g_world_margin_w != width || g_world_margin_h != height) &&
         g_world_settled_capture.valid &&
-        draw_gpu_field_capture(renderer, g_world_settled_capture, width, height)) {
+        draw_gpu_field_capture(renderer, g_world_settled_capture, width, height, true)) {
         std::vector<std::uint8_t> resized(std::size_t{width} * height * 3u);
         if (!surface.read_texture_rgb(renderer.output_texture(),
                                       static_cast<int>(width), static_cast<int>(height),
@@ -9363,7 +9398,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     const std::vector<std::uint8_t>* margin_src = &g_world_margin_rgb;
     if (gsr::live_world_margin_capture(g_world_settled_capture, capture, mix)) {
         live_margins.resize(std::size_t{width} * height * 3u);
-        if (draw_gpu_field_capture(renderer, mix, width, height) &&
+        if (draw_gpu_field_capture(renderer, mix, width, height, true) &&
             surface.read_texture_rgb(renderer.output_texture(),
                                      static_cast<int>(width),
                                      static_cast<int>(height),
@@ -9581,7 +9616,8 @@ bool gpu_field_paint_refused(std::uint8_t* rgb, std::uint32_t width,
 
 bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
                             const gsr::GpuFieldCapture& capture,
-                            std::uint32_t width, std::uint32_t height) {
+                            std::uint32_t width, std::uint32_t height,
+                            bool side_picture) {
     if (!renderer.set_output_size(static_cast<int>(width),
                                   static_cast<int>(height))) return false;
     renderer.upload_vram(capture.vram.data(),
@@ -9696,7 +9732,7 @@ bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
     const bool rain = golden_sun_rain_margins(capture.scene, margins,
                                               capture.vram);
     renderer.set_scene_margins(rain ? &margins : nullptr);
-    const bool drawn = renderer.draw(capture.scene);
+    const bool drawn = renderer.draw(capture.scene, side_picture);
     renderer.set_scene_margins(nullptr);
     return drawn;
 }
@@ -9801,15 +9837,14 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
     const bool battle = frame.battle_2x;
     const bool source_ok = g_world_map_source_ok && renderer.world_map_used();
     // Phones: the card's picture straight to the window, no copy back
-    // (gpu_present.h). Not for the world map, whose margins are held on the
-    // copied picture (world_map_margin_hold).
+    // (gpu_present.h). Also on the world map's sailing view; its menus and
+    // transitions paint on the copied picture (world_map_needs_cpu).
     if (direct_ok && !synchronous && gbarecomp::gpu_present_accepting() &&
-        !world_map_blocks(g_gpu_field_capture.io)) {
+        !world_map_needs_cpu(g_gpu_field_capture)) {
         g_gpu_readback.invalidate();
         gbarecomp::gpu_present_offer({static_cast<unsigned>(renderer.output_texture()),
                                       static_cast<int>(width), static_cast<int>(height)});
-        world_map_margin_hold(rgb, width, height, renderer, surface,
-                              g_gpu_field_capture, source_ok);  // forgets the held view
+        world_map_remember_settled(g_gpu_field_capture, source_ok);
         frame.battle_2x = battle;
         frame.gpu_drawn = true;
         frame.scene = gsr::gpu_field_dump_bytes(g_gpu_field_capture);
@@ -9922,73 +9957,9 @@ void paint_enemy_hp_bar(std::uint8_t* rgb, std::uint32_t width,
 // The battle ">>" go over whatever picture was
 // going to be shown, the GPU renderer's or the emulated hardware's.
 // Phones: the battle HP bar and speed sign as a layer over the graphics
-// card's picture (gpu_present_set_overlay) when the frame is shown straight
-// from the card. They paint into `scratch` (kSentinel where nothing is
-// painted; neither painter reads the picture), and only the box that changed
-// is sent on. The sentinel colour is not one either painter uses.
-struct OverlayLayer {
-    static constexpr std::uint8_t kSentinel[3] = {1, 2, 3};
-    std::vector<std::uint8_t> scratch, rgba;
-    std::uint32_t width = 0, height = 0;
-    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;  // last painted box; x1 == x0: none
-
-    std::uint8_t* begin(std::uint32_t w, std::uint32_t h) {
-        if (w != width || h != height) {
-            width = w;
-            height = h;
-            scratch.resize(std::size_t{w} * h * 3u);
-            for (std::size_t i = 0; i < scratch.size(); i += 3)
-                std::memcpy(&scratch[i], kSentinel, 3);
-            rgba.assign(std::size_t{w} * h * 4u, 0);
-            x0 = y0 = x1 = y1 = 0;
-        }
-        return scratch.data();
-    }
-
-    void finish() {
-        // This frame's painted box.
-        int nx0 = static_cast<int>(width), ny0 = static_cast<int>(height), nx1 = 0, ny1 = 0;
-        for (std::uint32_t y = 0; y < height; ++y) {
-            const std::uint8_t* row = &scratch[std::size_t{y} * width * 3u];
-            for (std::uint32_t x = 0; x < width; ++x) {
-                if (std::memcmp(row + x * 3u, kSentinel, 3) == 0) continue;
-                nx0 = std::min(nx0, static_cast<int>(x));
-                nx1 = std::max(nx1, static_cast<int>(x) + 1);
-                ny0 = std::min(ny0, static_cast<int>(y));
-                ny1 = std::max(ny1, static_cast<int>(y) + 1);
-            }
-        }
-        const bool painted = nx1 > nx0;
-        // Clear the last box, fill this one and put the sentinel back.
-        for (int y = y0; y < y1; ++y)
-            std::memset(&rgba[(std::size_t(y) * width + x0) * 4u], 0, std::size_t(x1 - x0) * 4u);
-        if (painted) {
-            for (int y = ny0; y < ny1; ++y) {
-                for (int x = nx0; x < nx1; ++x) {
-                    std::uint8_t* s = &scratch[(std::size_t(y) * width + x) * 3u];
-                    std::uint8_t* d = &rgba[(std::size_t(y) * width + x) * 4u];
-                    if (std::memcmp(s, kSentinel, 3) == 0) continue;
-                    d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = 255;
-                    std::memcpy(s, kSentinel, 3);
-                }
-            }
-        }
-        // Sent: the union of the old and new boxes.
-        int dx0 = painted ? nx0 : x0, dy0 = painted ? ny0 : y0;
-        int dx1 = painted ? nx1 : x1, dy1 = painted ? ny1 : y1;
-        if (x1 > x0 && painted) {
-            dx0 = std::min(dx0, x0); dy0 = std::min(dy0, y0);
-            dx1 = std::max(dx1, x1); dy1 = std::max(dy1, y1);
-        }
-        x0 = painted ? nx0 : 0; y0 = painted ? ny0 : 0;
-        x1 = painted ? nx1 : 0; y1 = painted ? ny1 : 0;
-        gbarecomp::gpu_present_set_overlay(rgba.data(), static_cast<int>(width),
-                                           static_cast<int>(height), dx0, dy0,
-                                           std::max(0, dx1 - dx0), std::max(0, dy1 - dy0),
-                                           painted);
-    }
-};
-OverlayLayer g_overlay_layer;
+// card's picture when the frame is shown straight from the card
+// (gpu_present.h GpuOverlayLayer; neither painter reads the picture).
+gbarecomp::GpuOverlayLayer g_overlay_layer;
 
 bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
                                  std::uint32_t height) {
@@ -10006,7 +9977,7 @@ bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
     // Anything the runner paints on the picture below needs the copied
     // picture; otherwise a phone may show the card's texture directly.
     // The battle HP bar and speed sign are not in the list: on a phone they
-    // go to the overlay layer (OverlayLayer).
+    // go to the overlay layer (GpuOverlayLayer).
     const bool cpu_paint = held || gsr::qol::menu.showing ||
         gsr::custom_battle::panel_view().open ||
         gsr::save_files::tbs::g_picker.open || gsr::retreat_travel::showing ||
@@ -10977,6 +10948,8 @@ int main(int argc, char** argv) {
                                 .enemy_base_slot = gs::ram(0x03001F28u)});
     options.rom_patch = [](std::vector<std::uint8_t>* rom) {
         set_revision_identities(*rom);
+        if (std::uint32_t offsets = 0, base = 0; gs::plain_text(&offsets, &base))
+            gsr::mods::set_plain_text({offsets, base});
         gsr::custom_battle::prepare_animation_assets(rom);
     };
     // No Nintendo code runs by default: our own stand-ins
@@ -11085,7 +11058,7 @@ int main(int argc, char** argv) {
     gbarecomp::config_ui_set_game_switches(
         kGameSwitches + kPlayerGameSwitchCount,
         gbarecomp::developer_session() ? kGameSwitchCount - kPlayerGameSwitchCount : 0);
-    // Localized ROMs get their own F1 menu and settings page two.
+    // Localized and Portuguese ROMs get their own F1 menu and settings page two.
     if (gs::rom_version() == gs::RomVersion::Spain)
         gbarecomp::config_ui_set_translations(
             gsr::spanish_menu::kTable,
@@ -11102,6 +11075,10 @@ int main(int argc, char** argv) {
         gbarecomp::config_ui_set_translations(
             gsr::german_menu::kTable,
             static_cast<int>(std::size(gsr::german_menu::kTable)));
+    else if (gs::portuguese())
+        gbarecomp::config_ui_set_translations(
+            gsr::portuguese_menu::kTable,
+            static_cast<int>(std::size(gsr::portuguese_menu::kTable)));
     options.launcher_region = gs::rom_version_name();
     options.launcher_game_config = "game.toml";
     options.launcher_expose_widescreen = true;

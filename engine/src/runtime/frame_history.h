@@ -58,6 +58,10 @@ struct HistoryFrame {
     std::vector<std::int32_t> refs;    // 160 x 4 affine references
 };
 
+// Asks for one capture, as an F12 press would, at the next update_report
+// (the phone menu's Save capture: a phone has no F12).
+void frame_history_request_capture();
+
 class FrameHistory {
 public:
     enum class ReportNotice { None, Manual, Automatic };

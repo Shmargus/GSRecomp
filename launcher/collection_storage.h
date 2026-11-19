@@ -34,6 +34,22 @@ inline std::string text(const fs::path& path) {
 inline bool path_present(const fs::path& path) {
     return fs::exists(fs::symlink_status(path));
 }
+// A managed folder (ROMs, Saves) that is a real folder. On phones it may also
+// be the app's own link to the same folder in the visible "Golden Sun
+// Recompiled" folder (android_host.cpp link_shared_folders); any other link
+// is refused, so nothing is moved or removed somewhere unexpected.
+inline bool managed_folder(const fs::path& dir) {
+    if (!fs::is_directory(dir)) return false;
+    if (!fs::is_symlink(fs::symlink_status(dir))) return true;
+#ifdef __ANDROID__
+    std::error_code ec;
+    const auto target = fs::read_symlink(dir, ec);
+    return !ec && target.filename() == dir.filename() &&
+           target.parent_path().filename() == "Golden Sun Recompiled";
+#else
+    return false;
+#endif
+}
 inline bool same_bytes(const fs::path& a, const fs::path& b) {
     if (!fs::is_regular_file(a) || !fs::is_regular_file(b)) return false;
     if (fs::equivalent(a, b)) return true;
@@ -254,7 +270,7 @@ inline bool sync_legacy_states(const ManagedFiles& files, std::string& error) {
         if (!managed) throw std::runtime_error("Invalid managed ROMs or Saves path.");
         const auto rom_directory = files.root / "ROMs";
         if (!path_present(rom_directory)) return true;
-        if (!fs::is_directory(rom_directory) || fs::is_symlink(fs::symlink_status(rom_directory)))
+        if (!managed_folder(rom_directory))
             throw std::runtime_error("Expected a regular ROMs folder: " + text(rom_directory));
         const auto resolved_roms = fs::canonical(rom_directory);
         for (const auto& source : files_in(files.rom.parent_path())) {

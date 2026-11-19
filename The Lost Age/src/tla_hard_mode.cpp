@@ -25,8 +25,11 @@
 // 0x02003860 (any slot with Clear Data, set by 0x080432A4) is non-zero:
 // "Play on EASY level?" (text 0x25, at 0x020085B2), "Play on HARD level?"
 // (0x27, at 0x02008648; Yes stores 2) and "Play on Normal level?" (0x28; No
-// asks again from Easy). Those stay the game's own; the checklist follows
-// them and shows Hard ticked when Hard was answered.
+// asks again from Easy). The New Game flow's Difficulty question replaces
+// them: the gate's `beq` past the questions (0x020085B0, Spain/Italy/France/
+// Germany 0x020085AA, after `cmp r3, #0`; target 0x0200869C / 0x02008696) is
+// always taken, so every new game starts at Normal and the flow's choice
+// applies at the opening.
 //
 // Settings. Setup 0x0803FC38 copies Auto-Sleep [0x0200048A] into the screen.
 // A stores it back there and into the live flag 0x03001200, then branches
@@ -73,6 +76,11 @@ const uint32_t kSettingsSetupEntry = TLA_ROM(0x0803FC38u);
 const uint32_t kSettingsCloseEntry = TLA_ROM(0x0803FD14u);
 const uint32_t kSettingsCloseReturn = TLA_ROM(0x08040593u);
 
+// The title overlay's level-question gate: `cmp r3, #0; beq` (both halfwords
+// measured in all six revisions' unpacked asset 1610).
+const uint32_t kLevelQuestionGatePc = TLA_OVL("title", 0x020085B0u);
+constexpr uint32_t kLevelQuestionGateWords = 0xD0742B00u;
+
 const uint32_t kIdleBranchPc = TLA_ROM(0x08013616u);
 const uint32_t kSleepNoticeBranchPc = TLA_ROM(0x080404D2u);
 
@@ -99,6 +107,15 @@ int hard_mode_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
     if (pc == kIdleBranchPc || pc == kSleepNoticeBranchPc) {
         *out_decision = 1u;  // taken: no idle count, no notice
         return original != 1u;
+    }
+    if (pc >= 0x02000000u && pc < 0x02040000u) {
+        const uint32_t live_pc = g_runtime_image_base + (pc - 0x02000000u);
+        gba::GbaBus* b = gbarecomp::active_bus();
+        if (live_pc == kLevelQuestionGatePc && b &&
+            b->read32(live_pc - 2u) == kLevelQuestionGateWords) {
+            *out_decision = 1u;  // taken: no level questions
+            return original != 1u;
+        }
     }
     return g_next_branch ? g_next_branch(pc, original, out_decision) : 0;
 }

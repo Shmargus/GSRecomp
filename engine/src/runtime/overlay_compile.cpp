@@ -359,12 +359,38 @@ int run_process(const std::vector<std::string>& args, const std::string& logpath
     argv.push_back(nullptr);
     envp.push_back(nullptr);
 
+    pid_t pid = 0;
+#if defined(__ANDROID__)
+    // Android's posix_spawn forks: it copies the whole game process, and the
+    // copy then resets every signal through ART's signal chain, which logs a
+    // stack each time. The game thread stalls meanwhile: a phone profile
+    // (18 November 2026, Lost Age doors) had the compile thread 75% in fork
+    // in every window where the game thread lost most of its time. vfork
+    // shares the memory until the compiler starts; the child only opens the
+    // log, redirects to it and execs (async-signal-safe calls only).
+    const std::string& log = logpath;
+    pid = vfork();
+    if (pid == 0) {
+        const int fd = open(log.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd >= 0) {
+            dup2(fd, STDOUT_FILENO);
+            dup2(fd, STDERR_FILENO);
+            if (fd > STDERR_FILENO) close(fd);
+        }
+        if (program) execve(program, argv.data(), envp.data());
+        else execvpe(argv[0], argv.data(), envp.data());
+        _exit(127);
+    }
+    if (pid < 0) {
+        if (err) *err = "cannot start " + args[0] + ": " + std::strerror(errno);
+        return -1;
+    }
+#else
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
     posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, logpath.c_str(),
                                      O_WRONLY | O_CREAT | O_TRUNC, 0644);
     posix_spawn_file_actions_adddup2(&actions, STDOUT_FILENO, STDERR_FILENO);
-    pid_t pid = 0;
     const int spawned = program
         ? posix_spawn(&pid, program, &actions, nullptr, argv.data(), envp.data())
         : posix_spawnp(&pid, argv[0], &actions, nullptr,
@@ -374,6 +400,7 @@ int run_process(const std::vector<std::string>& args, const std::string& logpath
         if (err) *err = "cannot start " + args[0] + ": " + std::strerror(spawned);
         return -1;
     }
+#endif
     int status = 0;
     while (waitpid(pid, &status, 0) < 0) {
         if (errno != EINTR) return -1;

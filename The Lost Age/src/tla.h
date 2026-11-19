@@ -25,6 +25,7 @@ void tla_install_custom_battle(gbarecomp::RunOptions& options);
 void tla_custom_battle_on_entry(std::uint32_t pc);
 bool tla_custom_battle_text(std::uint32_t text_id, std::string& out);
 bool tla_custom_battle_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
+bool tla_custom_battle_visible();
 void tla_custom_battle_reset();
 
 // src/tla_save_files.cpp: nine save files on the game's own file screens
@@ -32,6 +33,7 @@ void tla_custom_battle_reset();
 void tla_install_save_files(gbarecomp::RunOptions& options);
 void tla_save_files_on_entry(std::uint32_t pc);
 bool tla_save_files_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
+bool tla_save_files_visible();
 // "No autosaved data" on an empty Autosave row (save_files_picker.h).
 bool tla_save_files_text(std::uint32_t text_id, std::string& out);
 
@@ -40,6 +42,7 @@ void tla_install_retreat_travel(gbarecomp::RunOptions& options);
 bool tla_retreat_travel_on_entry(std::uint32_t pc);
 void tla_retreat_travel_reset();
 bool tla_retreat_travel_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
+bool tla_retreat_travel_visible();
 
 // Radial Psynergy menu and the L2/R2 field shortcuts (hotkeys; one copy with
 // The Broken Seal, shared_game/radial_psynergy.h).
@@ -47,6 +50,7 @@ void tla_install_radial_psynergy(gbarecomp::RunOptions& options);
 bool tla_radial_psynergy_on_entry(std::uint32_t pc);
 void tla_radial_psynergy_reset();
 bool tla_radial_psynergy_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
+bool tla_radial_psynergy_visible();
 
 // src/tla_enemy_hp_bar.cpp: the enemy's HP over its name while choosing a
 // target (F1 switch; one copy with The Broken Seal, enemy_hp_bar.h).
@@ -116,6 +120,7 @@ void tla_install_new_game(gbarecomp::RunOptions& options);
 // True when the routine was answered (the caller stops there).
 bool tla_new_game_on_entry(std::uint32_t pc);
 bool tla_new_game_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
+bool tla_new_game_visible();
 void tla_new_game_reset();
 // The import took a Broken Seal file; `bytes` = its payload +0x30..+0x3F (the
 // run's blocks). A randomized run then goes on in this game.
@@ -241,7 +246,8 @@ void tla_gpu_field_on_entry(std::uint32_t pc);
 // tla_flat_map::past_table). True when that call was answered.
 bool tla_flat_map_on_entry(std::uint32_t pc);
 bool tla_gpu_field_present(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height,
-                           gbarecomp::HistoryFrame& frame, bool synchronous);
+                           gbarecomp::HistoryFrame& frame, bool synchronous,
+                           bool direct_ok);
 void tla_rewind_reset();
 void tla_gpu_field_dump(const std::string& path);
 std::string tla_gpu_field_snapshot(std::uint32_t width, std::uint32_t height,

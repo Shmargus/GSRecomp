@@ -100,6 +100,7 @@ void config_ui_open_cheats() {
 #include "imgui_impl_sdlrenderer2.h"
 #include "imgui_impl_opengl3.h"
 #include "frame_timing.h"
+#include "frame_history.h"
 #include "temporal_blend.h"
 
 namespace gbarecomp {
@@ -2110,6 +2111,7 @@ void draw_phone_menu(ConfigUiState* st) {
     tiles[count++] = {"Game", 5};
     tiles[count++] = {"Cheats", 6};
     tiles[count++] = {"Help", 7};
+    tiles[count++] = {"Save capture", -3};  // what F12 saves on a computer
     tiles[count++] = {"Quit Game", -2};
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -2189,6 +2191,11 @@ void draw_phone_menu(ConfigUiState* st) {
                 if (native_button(tiles[i].name, ImVec2(tile_w, tile_h))) {
                     if (tiles[i].id == -2) {
                         st->request_quit = true;
+                    } else if (tiles[i].id == -3) {
+                        // Back to the game; the next presented frame saves
+                        // the last two seconds as F12 does.
+                        frame_history_request_capture();
+                        resume = true;
                     } else {
                         g_phone_page = tiles[i].id;
                         g_selected_page = tiles[i].id;

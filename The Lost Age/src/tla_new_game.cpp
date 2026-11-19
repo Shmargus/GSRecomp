@@ -16,8 +16,8 @@
 // ordinary choices keep the question. Answers wait until the opening hook
 // below before they modify the new party.
 // The title overlay's new game (asset 1610, unpacked to 0x02008000) names the
-// characters (0x02008580) and asks the level questions only while 0x02003860
-// (Clear Data) is set. Then at 0x020086A0 it calls 0x080D2AA4(0, 8) (veneer
+// characters (0x02008580); its own level questions are skipped
+// (tla_hard_mode.cpp). Then at 0x020086A0 it calls 0x080D2AA4(0, 8) (veneer
 // 0x080C8268), which sets the opening's room and entrance, and goes on to the
 // game. On that entry the checklist opens and the game waits in its frame
 // routine 0x08013560(1), as The Broken Seal's does, until Begin; then the call
@@ -264,10 +264,8 @@ void apply_choices(const gsr::new_game::Result& r) {
     if (!b) return;
     const bool hard = r.difficulty == ng::kHard || r.difficulty == ng::kHardScaled;
     const bool scaled = r.difficulty == ng::kScaled || r.difficulty == ng::kHardScaled;
-    // Hard Mode: the difficulty byte (tla_hard_mode.cpp). Easy (Clear Data)
-    // stays Easy unless Hard is chosen.
-    if (hard) b->write8(kDifficulty, kHard);
-    else if (b->read8(kDifficulty) == kHard) b->write8(kDifficulty, 0u);
+    // Hard Mode: the difficulty byte (tla_hard_mode.cpp); otherwise Normal.
+    b->write8(kDifficulty, hard ? kHard : 0u);
     gbarecomp::game_option_set(gsr::autosave::kOptionKey, r.autosave ? 1 : 0);
     // Always written, so a new game never keeps an earlier game's choice.
     ch::store(r.challenge);
@@ -426,6 +424,27 @@ void skip_opening(std::uint32_t args[4]) {
     for (const std::uint16_t flag : kSkipOpeningFlags) {
         const std::uint32_t at = kStoryFlags + (flag >> 3);
         b->write8(at, static_cast<std::uint8_t>(b->read8(at) | (1u << (flag & 7u))));
+    }
+    // Echo (Venus Djinni 7), which the world map's tutorial would give next:
+    // the Djinn grant 0x080B0AB8's own steps with Felix as the recipient
+    // (a Challenge pick instead when Felix is left out): hand-over
+    // 0x080B0B78(id, element, index), set 0x080B0E04(id, element, index),
+    // then its obtained flag 0x30 + element * 20 + index (FACTS). The picks
+    // otherwise join on the first field frame, after this; join them now so
+    // a challenge without Felix has someone to take it (Jimmy's PC save,
+    // 18 November 2026: Solo Piers, no Echo).
+    constexpr std::uint32_t kVenus = 0, kEcho = 7;
+    int echo_to = static_cast<int>(kFelix);
+    if (ch::excluded(kFelix)) {
+        ch::join_picks(*b, ch::current());
+        echo_to = ch::djinn_recipient(kVenus, 0x118u);
+    }
+    const std::uint32_t echo_flag = 0x30u + kVenus * 20u + kEcho;
+    const std::uint32_t echo_at = kStoryFlags + (echo_flag >> 3);
+    if (echo_to >= 0 && !(b->read8(echo_at) & (1u << (echo_flag & 7u)))) {
+        gbarecomp::guest_call(TLA_ROM(0x080B0B78u) | 1u, std::uint32_t(echo_to), kVenus, kEcho, 0, nullptr);
+        gbarecomp::guest_call(TLA_ROM(0x080B0E04u) | 1u, std::uint32_t(echo_to), kVenus, kEcho, 0, nullptr);
+        b->write8(echo_at, static_cast<std::uint8_t>(b->read8(echo_at) | (1u << (echo_flag & 7u))));
     }
     for (std::uint32_t i = 0; i < std::size(kSkipRoomHistory); ++i)
         b->write16(kRoom + 4u + i * 2u, kSkipRoomHistory[i]);
@@ -844,3 +863,5 @@ void tla_set_scaled_difficulty(bool on) {
 bool tla_challenge_bytes(const std::uint8_t* bytes) {
     return bytes && ch::decode(bytes).size > 0;
 }
+
+bool tla_new_game_visible() { return flow_open(); }

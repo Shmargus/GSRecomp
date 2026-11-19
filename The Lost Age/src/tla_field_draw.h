@@ -53,6 +53,9 @@ struct TlaFieldFrame {
     // Flicker reduction's weight for sprites shown every other frame
     // (FieldSceneRenderer::set_flicker_smoothing); 0 = off.
     float flicker_weight = 0.0f;
+    // An extra draw this frame (live world-map margins): FieldSceneRenderer::
+    // draw's side_picture.
+    bool side_picture = false;
     unsigned ripple_phase = 0;
     int camera_hold_y = 0;      // tla_camera_hold_y
     // tla_camera_kept_bounds (x, y), whole pixels.
@@ -241,5 +244,5 @@ inline bool tla_field_draw(gsr::FieldSceneRenderer& renderer, gsr::FieldScene& s
         }
     }
     renderer.set_scene_margins(&margins);
-    return renderer.draw(scene);
+    return renderer.draw(scene, in.side_picture);
 }

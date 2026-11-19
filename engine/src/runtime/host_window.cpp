@@ -65,7 +65,7 @@
 #include <dwmapi.h>
 #endif
 #if defined(__ANDROID__)
-#include <jni.h>
+#include "android_display.h"
 #endif
 #include "gl_platform.h"
 #include "touch_controls.h"
@@ -597,26 +597,6 @@ std::uint64_t performance_counter_ns() {
 double emulation_normal_hz(const Backend* b) {
     return b->cfg.enhanced_timing ? kEnhancedGuestHz : kGbaFrameHz;
 }
-
-#if defined(__ANDROID__)
-// Tells Android how many pictures a second the game shows (GsrActivity
-// setFrameRate), so a 120 Hz screen can run at the game's rate instead of
-// refreshing twice for each picture. The phone log of 14 November
-// 2026 shows the screen at 120 Hz under a 60 Hz game. Battery effect not
-// measured yet.
-void android_set_frame_rate(double hz) {
-    JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
-    jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
-    if (!env || !activity) return;
-    jclass type = env->GetObjectClass(activity);
-    jmethodID method = type ? env->GetMethodID(type, "setFrameRate", "(F)V") : nullptr;
-    if (method) env->CallVoidMethod(activity, method, static_cast<jfloat>(hz));
-    if (env->ExceptionCheck()) env->ExceptionClear();
-    if (type) env->DeleteLocalRef(type);
-    env->DeleteLocalRef(activity);
-    std::fprintf(stderr, "[frame-rate] asked the system for %.3f Hz\n", hz);
-}
-#endif
 
 void reset_emulation_speed(Backend* b) {
     b->emulation_speed.reset();

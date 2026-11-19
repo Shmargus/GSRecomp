@@ -9,10 +9,16 @@
 namespace tla_rom {
 // The language the loaded ROM plays as, in the row order of
 // src/tla_rom_revisions.inc. A patched revision (Reloaded) reports the
-// language it is a patch of; reloaded() tells it apart.
+// language it is a patch of; reloaded() and portuguese() tell them apart.
 enum class Version : std::uint8_t { English, Spanish, Italian, French, German };
 Version version();
 bool reloaded();
+// Kyle the Runner's Brazilian Portuguese Beta 1 (a patch of English;
+// version() is English, addresses as English). Our menus show in Portuguese.
+bool portuguese();
+// Where the loaded ROM keeps plain text (gsr::mods::PlainText), as ROM
+// offsets; false when its text is the game's own Huffman format.
+bool plain_text(std::uint32_t* offsets, std::uint32_t* base);
 const char* sha1();
 const char* name();
 bool spanish();

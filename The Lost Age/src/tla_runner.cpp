@@ -36,6 +36,8 @@
 #include "../../shared_game/spanish_menu.h"
 #include "../../shared_game/italian_menu.h"
 #include "../../shared_game/french_menu.h"
+#include "../../shared_game/portuguese_menu.h"
+#include "../../shared_game/gs_text_encode.h"
 #include "../../shared_game/german_menu.h"
 
 namespace {
@@ -107,7 +109,14 @@ int main(int argc, char** argv) {
     else if (tla_rom::version()==tla_rom::Version::German)
         gbarecomp::config_ui_set_translations(gsr::german_menu::kTlaTable.data(),
             static_cast<int>(gsr::german_menu::kTlaTable.size()));
+    else if (tla_rom::portuguese())
+        gbarecomp::config_ui_set_translations(gsr::portuguese_menu::kTable,
+            static_cast<int>(std::size(gsr::portuguese_menu::kTable)));
     else gbarecomp::config_ui_set_translations(nullptr,0);
+    // Feature text reads (trackers, Custom Battle, area names) follow the
+    // ROM's own text format.
+    if (std::uint32_t offsets = 0, base = 0; tla_rom::plain_text(&offsets, &base))
+        gsr::mods::set_plain_text({offsets, base});
     tla_install_ram_images();
 
     gbarecomp::RunOptions options;

@@ -797,15 +797,28 @@ std::vector<fs::path> make_bug_report(const fs::path& root, const fs::path& game
                       : L"";
         const fs::path zip = reports / (name + suffix + L".zip");
         fs::remove(zip, ec);
+        // The capture goes in as frame differences (launcher_common.h
+        // stage_capture), copied into the staged folder for this zip only.
+        fs::path capture;
+        if (!rewinds.empty()) {
+            capture = staging / rewinds[i];
+            std::string error;
+            if (!stage_capture(logs_dir / rewinds[i], capture, &error)) {
+                launcher_log(L"Bug report: " + utf8_to_wide(error));
+                fs::remove_all(capture, ec);
+                for (const fs::path& made : zips) fs::remove(made, ec);
+                return {staging};
+            }
+        }
         // Each file by name, not ".": entries stored as "./name" make
         // Windows' own zip viewer show the zip as empty.
         std::wstring arguments = L"-a -c -f \"" + zip.wstring() + L"\" -C \"" +
                                  staging.wstring() + L"\"";
         for (const auto& entry : fs::directory_iterator(staging, ec))
             arguments += L" \"" + entry.path().filename().wstring() + L"\"";
-        if (!rewinds.empty())
-            arguments += L" -C \"" + logs_dir.wstring() + L"\" \"" + rewinds[i] + L"\"";
-        if (!run_tar(arguments) || !fs::is_regular_file(zip, ec)) {
+        const bool packed = run_tar(arguments) && fs::is_regular_file(zip, ec);
+        if (!capture.empty()) fs::remove_all(capture, ec);
+        if (!packed) {
             for (const fs::path& made : zips) fs::remove(made, ec);
             fs::remove(zip, ec);
             return {staging};

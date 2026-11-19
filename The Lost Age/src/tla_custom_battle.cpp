@@ -287,3 +287,5 @@ bool tla_custom_battle_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32
                     (view.tile_y + 1) * 8, pixel);
     return true;
 }
+
+bool tla_custom_battle_visible() { return cb::panel_view().open; }

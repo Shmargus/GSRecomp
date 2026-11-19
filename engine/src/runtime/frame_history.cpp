@@ -1,6 +1,7 @@
 #include "frame_history.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
@@ -110,12 +111,21 @@ const HistoryFrame& FrameHistory::oldest_first(std::size_t i) const {
     return ring_[(next_ + kFrames - count_ + i) % kFrames];
 }
 
+namespace {
+std::atomic<bool> g_capture_requested{false};
+}  // namespace
+
+void frame_history_request_capture() { g_capture_requested = true; }
+
 FrameHistory::ReportNotice FrameHistory::update_report(
     const std::string* automatic_note, const char* note_file) {
     const auto frame = runtime_current_frame();
     auto saved = ReportNotice::None;
     if (automatic_note && !write(*automatic_note, note_file).empty())
         saved = ReportNotice::Automatic;
+    if (g_capture_requested.exchange(false) && saved == ReportNotice::None &&
+        !write().empty())
+        saved = ReportNotice::Manual;
 #ifdef GBARECOMP_HAVE_SDL2
 #ifdef _WIN32
     const bool down = (GetAsyncKeyState(VK_F12) & 0x8000) != 0;

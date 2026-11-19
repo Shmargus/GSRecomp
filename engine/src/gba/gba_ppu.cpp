@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "snapshot.h"
+#include "../armv4t/env_flag.h"
 
 namespace gba {
 
@@ -2449,17 +2450,23 @@ void GbaPpu::render_scanline(uint32_t y,
                              const uint8_t* pal) {
     // This, not render(), is the entry the headless/run loop uses: it is
     // called once per scanline. Count scanlines; the caller divides by
-    // kScreenHeight to get a per-frame figure.
+    // kScreenHeight to get a per-frame figure. Timed only with
+    // GBARECOMP_COST_PROBE: two clock reads per scanline were 0.9-1.1% of
+    // the phone's game thread (The Broken Seal FACTS, "Phone profile"), for
+    // an end-of-run statistic (runtime.cpp ppu_render_total_ms).
+    static const bool timed = gbarecomp::env_flag("GBARECOMP_COST_PROBE");
     struct ScanTimer {
+        bool on;
         std::chrono::steady_clock::time_point t0 =
-            std::chrono::steady_clock::now();
+            on ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
         ~ScanTimer() {
+            if (!on) return;
             g_ppu_render_ns += static_cast<std::uint64_t>(
                 std::chrono::duration_cast<std::chrono::nanoseconds>(
                     std::chrono::steady_clock::now() - t0).count());
             ++g_ppu_render_frames;
         }
-    } timer;
+    } timer{timed};
     if (!affine_ref_valid_) reload_affine_references(io);
     if (y < kScreenHeight) {
         if (y == 0) {

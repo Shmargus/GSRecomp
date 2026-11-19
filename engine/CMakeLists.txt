@@ -249,9 +249,9 @@ if(GBARECOMP_SDL2_OK)
         target_compile_definitions(gbarecomp_imgui PUBLIC IMGUI_IMPL_OPENGL_ES3)
         target_link_libraries(gbarecomp_imgui PUBLIC GLESv3 EGL)
         # The backend asks SDL for the display DPI every frame, a Java call
-        # on phones: send it to a per-display cache (android_display_dpi.cpp).
+        # on phones: send it to a per-display cache (android_display.cpp).
         target_sources(gbarecomp_imgui PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/android_display_dpi.cpp)
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/android_display.cpp)
         set_source_files_properties(
             ${GBARECOMP_IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
             PROPERTIES COMPILE_DEFINITIONS "SDL_GetDisplayDPI=gsr_cached_display_dpi")

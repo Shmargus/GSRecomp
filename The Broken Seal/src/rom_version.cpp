@@ -27,9 +27,9 @@ using OverlayRow = rr::OverlayRowN<kColumns>;
 
 constexpr Row kRomAddrs[] = {
 #define GS_RAM_ADDR(usa, germany)
-#define GS_ROM_ADDR(usa, spain, italy, france, germany, reloaded) {usa, {spain, italy, france, germany, reloaded}},
-#define GS_OVL_ADDR(id, usa, spain, italy, france, germany, reloaded)
-#define GS_TEXT_ID(usa, spain, italy, france, germany, reloaded)
+#define GS_ROM_ADDR(usa, spain, italy, france, germany, reloaded, portuguese) {usa, {spain, italy, france, germany, reloaded, portuguese}},
+#define GS_OVL_ADDR(id, usa, spain, italy, france, germany, reloaded, portuguese)
+#define GS_TEXT_ID(usa, spain, italy, france, germany, reloaded, portuguese)
 #include "rom_addresses.inc"
 #undef GS_ROM_ADDR
 #undef GS_OVL_ADDR
@@ -38,9 +38,9 @@ constexpr Row kRomAddrs[] = {
 };
 constexpr OverlayRow kOvlAddrs[] = {
 #define GS_RAM_ADDR(usa, germany)
-#define GS_ROM_ADDR(usa, spain, italy, france, germany, reloaded)
-#define GS_OVL_ADDR(id, usa, spain, italy, france, germany, reloaded) {#id, usa, {spain, italy, france, germany, reloaded}},
-#define GS_TEXT_ID(usa, spain, italy, france, germany, reloaded)
+#define GS_ROM_ADDR(usa, spain, italy, france, germany, reloaded, portuguese)
+#define GS_OVL_ADDR(id, usa, spain, italy, france, germany, reloaded, portuguese) {#id, usa, {spain, italy, france, germany, reloaded, portuguese}},
+#define GS_TEXT_ID(usa, spain, italy, france, germany, reloaded, portuguese)
 #include "rom_addresses.inc"
 #undef GS_ROM_ADDR
 #undef GS_OVL_ADDR
@@ -49,9 +49,9 @@ constexpr OverlayRow kOvlAddrs[] = {
 };
 constexpr Row kTextIds[] = {
 #define GS_RAM_ADDR(usa, germany)
-#define GS_ROM_ADDR(usa, spain, italy, france, germany, reloaded)
-#define GS_OVL_ADDR(id, usa, spain, italy, france, germany, reloaded)
-#define GS_TEXT_ID(usa, spain, italy, france, germany, reloaded) {usa, {spain, italy, france, germany, reloaded}},
+#define GS_ROM_ADDR(usa, spain, italy, france, germany, reloaded, portuguese)
+#define GS_OVL_ADDR(id, usa, spain, italy, france, germany, reloaded, portuguese)
+#define GS_TEXT_ID(usa, spain, italy, france, germany, reloaded, portuguese) {usa, {spain, italy, france, germany, reloaded, portuguese}},
 #include "rom_addresses.inc"
 #undef GS_ROM_ADDR
 #undef GS_OVL_ADDR
@@ -80,6 +80,18 @@ std::uint32_t counterpart(const Row* row, const char* what, std::uint32_t usa) {
 const char* game_rom_sha1() { return gsr_game_rom_sha1; }
 RomVersion rom_version() { return static_cast<RomVersion>(language_row()); }
 bool reloaded() { return std::strcmp(kRevisions[revision()].code, "rl") == 0; }
+bool portuguese() { return std::strcmp(kRevisions[revision()].code, "pt") == 0; }
+bool usa_europe_rom() { return revision() == 0; }
+
+// Measured 19 November 2026: the patched Func_15570's literals (ROM
+// 0x08015594 / 0x08015598) name the offset table 0x08800000 and the text
+// base 0x0880A7F0 (FACTS.md "Portuguese (Kyle the Runner)").
+bool plain_text(std::uint32_t* offsets, std::uint32_t* base) {
+    if (!portuguese()) return false;
+    *offsets = 0x00800000u;
+    *base = 0x0080A7F0u;
+    return true;
+}
 const char* rom_version_name() { return kRevisions[revision()].name; }
 
 std::uint32_t rom(std::uint32_t usa) {
@@ -100,9 +112,9 @@ std::uint32_t text(std::uint32_t usa_text_id) {
 std::uint32_t ram(std::uint32_t usa) {
     if (rom_version() != RomVersion::Germany) return usa;
     switch (usa) {
-#define GS_ROM_ADDR(usa, spain, italy, france, germany, reloaded)
-#define GS_OVL_ADDR(id, usa, spain, italy, france, germany, reloaded)
-#define GS_TEXT_ID(usa, spain, italy, france, germany, reloaded)
+#define GS_ROM_ADDR(usa, spain, italy, france, germany, reloaded, portuguese)
+#define GS_OVL_ADDR(id, usa, spain, italy, france, germany, reloaded, portuguese)
+#define GS_TEXT_ID(usa, spain, italy, france, germany, reloaded, portuguese)
 #define GS_RAM_ADDR(usa, germany) case usa: return germany;
 #include "rom_addresses.inc"
 #undef GS_ROM_ADDR
