@@ -56,7 +56,7 @@ inline constexpr Spot spots[] = {
     {SpotKind::Field, 0xF5F, true, 9, 10, false, false, "Imil"},
     {SpotKind::Field, 0xF60, false, 182, 10, false, false, "Imil"},
     {SpotKind::Field, 0xF61, false, 229, 10, false, false, "Imil"},
-    {SpotKind::Field, 0xF26, false, 185, 10, false, false, "Imil"},
+    {SpotKind::Field, 0xF26, false, 185, 10, false, true, "Imil"},
     {SpotKind::Field, 0xF62, false, 227, 10, false, false, "Imil"},
     {SpotKind::Field, 0xF63, false, 196, 10, false, false, "Imil"},
     {SpotKind::Field, 0xF65, false, 76, 11, true, false, "Mercury Lighthouse"},

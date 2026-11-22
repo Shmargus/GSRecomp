@@ -73,6 +73,11 @@ REVIEWED_CONDITIONAL_BRANCH_OVERRIDES = (
     (0x08094C5E, "Func_94bbc lower-Y BLT: admit the top margin"),
     (0x08094F26, "Func_94e7c screen-X BHI: admit the expanded margins"),
     (0x08094F2E, "Func_94e7c lower-Y BLT: admit the top margin"),
+    # Func_9b86c draws one field particle (the Djinni-join sparkles) only
+    # while its 16.16 centre is inside x -32..271, y -32..223
+    # (runner_main.cpp, golden_sun_particle_sprite_branch). X and lower-Y.
+    (0x0809B8C2, "Func_9b86c screen-X BHI: admit the expanded margins"),
+    (0x0809B8C8, "Func_9b86c lower-Y BLE: admit the top margin"),
     # The battle reward tally's drop roll (Func_c24f0, FACTS.md 2026-09-25):
     # the cheat menu's Item Drops multiplier decides it on a scaled threshold.
     (0x080C26BE, "Func_c24f0 drop roll BLE: cheat menu drop multiplier"),

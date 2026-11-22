@@ -23,6 +23,7 @@
 #include "game_exit.h"
 #include <memory>
 #include "frame_capture.h"
+#include "snapshot_pool.h"
 #include "frame_history.h"
 #include "texture_readback_queue.h"
 #include "gpu_present.h"
@@ -42,6 +43,7 @@
 #include "intro_music.h"
 #include "world_map_source.h"
 #include "rain_margins.h"
+#include "backdrop_margins.h"
 #include "tile_ring_redraw.h"
 #include "cheat_menu.h"
 #include "trackers_tbs.h"
@@ -7441,6 +7443,19 @@ bool game_window_open_this_frame() {
     return open;
 }
 
+// A game window's own sprite: priority 0, window open, video mode 0 -- the
+// renderer's menu_sprite rule (field_scene_renderer.cpp), which holds these
+// inside the console's 240x160. So the console's own reading is the only one
+// that can show; the providers answer nothing and the hardware rule places
+// it. A provider once put the shop's unselected Artifacts icon (OAM y 136)
+// at -120, where that clip hid it (logs/gpu_rewind_0107, frames 33-119).
+bool golden_sun_menu_sprite(std::uint16_t attr2) {
+    if (((attr2 >> 10) & 3u) != 0u || !game_window_open_this_frame())
+        return false;
+    gba::GbaBus* bus = gbarecomp::active_bus();
+    return bus && (bus->read16(0x04000000u) & 7u) == 0u;
+}
+
 // Fallback used by both wide OBJ attribute providers when
 // golden_sun_obj_provider_provenance has no usable record for this object
 // (the record path already declined -- this never runs ahead of it) and the
@@ -7905,6 +7920,7 @@ int golden_sun_wide_obj_attr_x_provider(int oam_index,
     if (!golden_sun_expanded_obj_view_active() || !out_x || oam_index < 0 ||
         static_cast<std::size_t>(oam_index) >=
             g_golden_sun_obj_visible_provenance.size()) return 0;
+    if (golden_sun_menu_sprite(attr2)) return 0;
     if (const auto* placed = golden_sun_obj_placement(attr0, attr1, attr2)) {
         *out_x = placed->x;
         return 1;
@@ -7983,6 +7999,7 @@ int golden_sun_wide_obj_attr_y_provider(int oam_index,
                                        attr0 & 0x00FFu, 0u, false, oam_index);
         return 0;
     }
+    if (golden_sun_menu_sprite(attr2)) return 0;
     if (const auto* placed = golden_sun_obj_placement(attr0, attr1, attr2)) {
         *out_y = gsr::widescreen::golden_sun_obj_y_shown_reading(
             placed->y, attr0, attr1, g_golden_sun_wide_extra_top,
@@ -9123,14 +9140,19 @@ void build_room_vram(const std::vector<std::uint8_t>& vram,
 // dispatch, not necessarily where the host's GL context is current. The draw
 // happens at present time instead, beside the win.present() call it stands
 // in for (see runtime.cpp's present_first).
-gsr::GpuFieldCapture g_gpu_field_capture;
+// This frame's capture, shared with the present queue, the F12 history and
+// the world map's held view (snapshot_pool.h); null when the frame could not
+// be described.
+gbarecomp::SnapshotPool<gsr::GpuFieldCapture> g_capture_pool;
+std::shared_ptr<const gsr::GpuFieldCapture> g_gpu_field_capture;
+bool gpu_field_capture_valid() { return g_gpu_field_capture && g_gpu_field_capture->valid; }
 struct GpuPresentation {
-    gsr::GpuFieldCapture capture;
+    std::shared_ptr<const gsr::GpuFieldCapture> capture;
     gbarecomp::HistoryFrame frame;
     bool world_source_ok = false;
 };
 gbarecomp::TextureReadbackQueue<GpuPresentation> g_gpu_readback;
-gsr::GpuFieldCapture g_world_settled_capture;
+std::shared_ptr<const gsr::GpuFieldCapture> g_world_settled_capture;
 
 bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
                             const gsr::GpuFieldCapture& capture,
@@ -9268,7 +9290,9 @@ bool world_map_needs_cpu(const gsr::GpuFieldCapture& capture) {
 // A frame shown straight from the card has no copied picture to hold: keep
 // the settled capture, and the first menu frame redraws the held margins
 // from it (world_map_margin_hold's other-size branch, as after a resize).
-void world_map_remember_settled(const gsr::GpuFieldCapture& capture, bool world_source_ok) {
+void world_map_remember_settled(const std::shared_ptr<const gsr::GpuFieldCapture>& shared,
+                                bool world_source_ok) {
+    const gsr::GpuFieldCapture& capture = *shared;
     if (!world_map_blocks(capture.io)) {
         g_world_margin_rgb.clear();
         g_world_settled_capture = {};
@@ -9277,15 +9301,60 @@ void world_map_remember_settled(const gsr::GpuFieldCapture& capture, bool world_
     if (!world_map_settled(capture, world_source_ok)) return;
     g_world_margin_rgb.clear();
     g_world_margin_w = g_world_margin_h = 0;
-    g_world_settled_capture = capture;
+    g_world_settled_capture = shared;
     g_world_palette_effect.save(capture.pal);
+}
+
+// The R-button map over the world map (gpu_rewind_0105/0106, FACTS
+// 2026-11-19): mode 0 with BG1 in 256 colours, BG2 and BG3 off, no window,
+// map number (0x02000408, WorldMapSource's) 2. Its picture is one fixed
+// 240x160 screen (BG1 tiles 0x1A8.., scroll 0,0): no more map exists past
+// its edges, so the wide view zooms it rather than holding the world map
+// around it (whose colours the R map's palette replaced). The world-map
+// menu (DISPCNT 0x1F40) has BG2 and BG3 on.
+bool r_button_map_screen(const gsr::GpuFieldCapture& capture) {
+    const std::vector<std::uint8_t>& io = capture.io;
+    const std::vector<std::uint8_t>& ewram = capture.ewram;
+    if (io.size() < 0x58u || ewram.size() < 0x40000u) return false;
+    if ((ewram[0x408] | (unsigned(ewram[0x409]) << 8)) != 2u) return false;
+    const unsigned dispcnt = io[0] | (unsigned(io[1]) << 8);
+    const unsigned bg1cnt = io[0x0A] | (unsigned(io[0x0B]) << 8);
+    return (dispcnt & 7u) == 0u && (dispcnt & 0x0200u) && !(dispcnt & 0x0C00u) &&
+           !(dispcnt & 0xE000u) && (bg1cnt & 0x80u);
+}
+
+// Enlarges the centred 240x160 picture to cover all of `rgb` (nearest
+// pixel), by the larger of the two axis ratios; the other axis is cropped
+// evenly.
+void zoom_native_to_fill(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height) {
+    const std::uint32_t x0 = (width - 240u) / 2u, y0 = (height - 160u) / 2u;
+    static std::vector<std::uint8_t> native(240u * 160u * 3u);
+    for (std::uint32_t y = 0; y < 160u; ++y)
+        std::memcpy(native.data() + std::size_t{y} * 720u,
+                    rgb + (std::size_t{y0 + y} * width + x0) * 3u, 720u);
+    const bool by_width = std::uint64_t{width} * 160u >= std::uint64_t{height} * 240u;
+    const std::uint64_t num = by_width ? width : height;
+    const std::uint64_t den = by_width ? 240u : 160u;
+    const std::uint64_t ox = (240u * num / den - width) / 2u;
+    const std::uint64_t oy = (160u * num / den - height) / 2u;
+    for (std::uint32_t y = 0; y < height; ++y) {
+        const std::uint64_t sy = std::min<std::uint64_t>((y + oy) * den / num, 159u);
+        const std::uint8_t* src = native.data() + sy * 720u;
+        std::uint8_t* dst = rgb + std::size_t{y} * width * 3u;
+        for (std::uint32_t x = 0; x < width; ++x, dst += 3) {
+            const std::uint64_t sx = std::min<std::uint64_t>((x + ox) * den / num, 239u);
+            std::memcpy(dst, src + sx * 3u, 3);
+        }
+    }
 }
 
 void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
                            std::uint32_t height,
                            gsr::FieldSceneRenderer& renderer,
                            gbarecomp::GpuSurface& surface,
-                           const gsr::GpuFieldCapture& capture, bool world_source_ok) {
+                           const std::shared_ptr<const gsr::GpuFieldCapture>& shared,
+                           bool world_source_ok) {
+    const gsr::GpuFieldCapture& capture = *shared;
     const std::vector<std::uint8_t>& io = capture.io;
     const unsigned mode = io.empty() ? 0xFFu : (io[0] & 7u);
     const bool world = world_map_blocks(io);
@@ -9322,7 +9391,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
             g_world_margin_rgb.assign(rgb, rgb + std::size_t{width} * height * 3u);
             g_world_margin_w = width;
             g_world_margin_h = height;
-            g_world_settled_capture = capture;
+            g_world_settled_capture = shared;
             g_world_palette_effect.save(capture.pal);
         }
         return;
@@ -9330,6 +9399,10 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     if (mode != 0u) return;
     // Mode 0 on the world map's blocks: the menu's view of the world map.
     if (native_size) return;
+    if (r_button_map_screen(capture)) {
+        zoom_native_to_fill(rgb, width, height);
+        return;
+    }
     const std::uint32_t x0 = (width - 240u) / 2u;
     const std::uint32_t y0 = (height - 160u) / 2u;
     // A flat picture -- the battle flash fading from white to black, the
@@ -9362,8 +9435,8 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     // The held margins were saved at another output size: redraw the settled
     // capture at this size and hold that instead.
     if ((g_world_margin_w != width || g_world_margin_h != height) &&
-        g_world_settled_capture.valid &&
-        draw_gpu_field_capture(renderer, g_world_settled_capture, width, height, true)) {
+        g_world_settled_capture && g_world_settled_capture->valid &&
+        draw_gpu_field_capture(renderer, *g_world_settled_capture, width, height, true)) {
         std::vector<std::uint8_t> resized(std::size_t{width} * height * 3u);
         if (!surface.read_texture_rgb(renderer.output_texture(),
                                       static_cast<int>(width), static_cast<int>(height),
@@ -9397,7 +9470,8 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     static std::vector<std::uint8_t> live_margins;
     static gsr::GpuFieldCapture mix;
     const std::vector<std::uint8_t>* margin_src = &g_world_margin_rgb;
-    if (gsr::live_world_margin_capture(g_world_settled_capture, capture, mix)) {
+    if (g_world_settled_capture &&
+        gsr::live_world_margin_capture(*g_world_settled_capture, capture, mix)) {
         live_margins.resize(std::size_t{width} * height * 3u);
         if (draw_gpu_field_capture(renderer, mix, width, height, true) &&
             surface.read_texture_rgb(renderer.output_texture(),
@@ -9471,10 +9545,11 @@ void gpu_field_capture_hook() {
     if (const auto* bus = gbarecomp::active_bus())
         gsr::trackers::sample(bus->ewram_ptr(), bus->rom_ptr(), bus->rom_size(), [](unsigned flag) {
             return gsr::treasure::tbs::state.tracker_reward(static_cast<std::uint16_t>(flag));
+        }, [](unsigned pack, unsigned item) {
+            return gsr::treasure::tbs::state.tracker_gift(static_cast<std::uint16_t>(pack),
+                                                         static_cast<std::uint16_t>(item));
         });
     if (!gpu_field_enabled()) return;
-    // Snapshot the latest completed effect copy, including fading history.
-    g_gpu_field_capture.effects = gsr::effect_capture_take();
     gba::GbaBus* bus = gbarecomp::active_bus();
     gba::GbaPpu* ppu = gbarecomp::active_ppu();
     if (!bus || !ppu) return;
@@ -9548,31 +9623,36 @@ void gpu_field_capture_hook() {
     if (!scene.valid || !scene.supported) {
         // Invalidate, so gpu_field_present_override() declines this frame
         // instead of drawing the previous capture.
-        g_gpu_field_capture.valid = false;
+        g_gpu_field_capture.reset();
         return;
     }
     apply_obj_y_continuity_if_enabled(&scene, bus->oam_ptr());
-    g_gpu_field_capture.scene = scene;
-    g_gpu_field_capture.vram.assign(bus->vram_ptr(), bus->vram_ptr() +
+    // A recycled capture: every field is set again below.
+    const std::shared_ptr<gsr::GpuFieldCapture> capture = g_capture_pool.take();
+    // The latest completed effect copy, including fading history.
+    capture->effects = gsr::effect_capture_take();
+    capture->scene = scene;
+    capture->vram.assign(bus->vram_ptr(), bus->vram_ptr() +
         gba::GbaBus::kNativeVram + (bus->obj_extra() ? gba::GbaBus::kObjExtraVram : 0));
-    build_room_vram(g_gpu_field_capture.vram, scene.palette,
-                    &g_gpu_field_capture.room_vram,
-                    &g_gpu_field_capture.room_palette);
-    g_gpu_field_capture.ewram.assign(bus->ewram_ptr(),
-                                     bus->ewram_ptr() + 256 * 1024);
-    g_gpu_field_capture.iwram.assign(bus->iwram_ptr(),
-                                     bus->iwram_ptr() + 32 * 1024);
-    g_gpu_field_capture.rom = bus->rom_ptr();
-    g_gpu_field_capture.rom_bytes = bus->rom_size();
+    build_room_vram(capture->vram, scene.palette,
+                    &capture->room_vram,
+                    &capture->room_palette);
+    capture->ewram.assign(bus->ewram_ptr(),
+                          bus->ewram_ptr() + 256 * 1024);
+    capture->iwram.assign(bus->iwram_ptr(),
+                          bus->iwram_ptr() + 32 * 1024);
+    capture->rom = bus->rom_ptr();
+    capture->rom_bytes = bus->rom_size();
     std::uint32_t effect_canvas = 0;
-    std::memcpy(&effect_canvas, g_gpu_field_capture.iwram.data() + gs::ram(0x03001EF0u) - 0x03000000u, 4);
-    if (g_gpu_field_capture.effects.canvas != effect_canvas)
-        g_gpu_field_capture.effects = {};
-    g_gpu_field_capture.io = frame_io;
-    g_gpu_field_capture.oam.assign(bus->oam_ptr(), bus->oam_ptr() + 1024);
-    g_gpu_field_capture.pal.assign(bus->pal_ptr(), bus->pal_ptr() + 1024);
-    g_gpu_field_capture.window_open = game_window_open();
-    g_gpu_field_capture.valid = true;
+    std::memcpy(&effect_canvas, capture->iwram.data() + gs::ram(0x03001EF0u) - 0x03000000u, 4);
+    if (capture->effects.canvas != effect_canvas)
+        capture->effects = {};
+    capture->io = frame_io;
+    capture->oam.assign(bus->oam_ptr(), bus->oam_ptr() + 1024);
+    capture->pal.assign(bus->pal_ptr(), bus->pal_ptr() + 1024);
+    capture->window_open = game_window_open();
+    capture->valid = true;
+    g_gpu_field_capture = capture;
 }
 
 // ---- F12 history (engine frame_history.h, always on) --------------------
@@ -9721,18 +9801,22 @@ bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
     // The title flare's halos alternate frame by frame (sprite_flicker.h).
     renderer.set_flicker_smoothing(gbarecomp::temporal_blend_weight_for_index(
         gbarecomp::flicker_reduction_index()));
-    renderer.set_reveal_full(g_field_psynergy_fast.load() != 0);
+    renderer.set_reveal_full(gsr::field_psy::on(gsr::field_psy::kReveal));
     // Characters parked off the room are hidden; effects stay.
     renderer.set_character_objects(golden_sun_character_objects(
         capture.scene, capture.ewram.data(), capture.ewram.size(),
         capture.iwram.data(), capture.iwram.size(), gs::ram(0x03001E70u),
         gs::ram(0x03001EBCu)));
-    // The storm's rain continues into every margin (rain_margins.h); any other
-    // scene draws with no margin data, as before.
+    // The storm's rain continues into every margin (rain_margins.h), and a
+    // slow backdrop whose art repeats continues left of its art
+    // (backdrop_margins.h); any other scene draws with no margin data.
     gsr::SceneMargins margins;
     const bool rain = golden_sun_rain_margins(capture.scene, margins,
                                               capture.vram);
-    renderer.set_scene_margins(rain ? &margins : nullptr);
+    const bool backdrop = golden_sun_backdrop_margins(
+        capture.scene, margins, capture.ewram.data(), capture.ewram.size(),
+        static_cast<int>(width), static_cast<int>(height));
+    renderer.set_scene_margins(rain || backdrop ? &margins : nullptr);
     const bool drawn = renderer.draw(capture.scene, side_picture);
     renderer.set_scene_margins(nullptr);
     return drawn;
@@ -9748,7 +9832,7 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
                                 bool direct_ok) {
     gbarecomp::gpu_present_withdraw();
     if (!gpu_field_enabled()) { g_gpu_readback.invalidate(); return false; }
-    if (!g_gpu_field_capture.valid) {
+    if (!gpu_field_capture_valid()) {
         g_gpu_readback.invalidate();
         if (gpu_field_only_enabled())
             return gpu_field_paint_refused(rgb, width, height,
@@ -9813,7 +9897,8 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
                                            "the output size was refused");
         return false;
     }
-    if (!draw_gpu_field_capture(renderer, g_gpu_field_capture, width, height)) {
+    const std::shared_ptr<const gsr::GpuFieldCapture> capture = g_gpu_field_capture;
+    if (!draw_gpu_field_capture(renderer, *capture, width, height)) {
         g_gpu_readback.invalidate();
         // Say once why the card declined. Without this the log cannot tell a
         // path that never ran from one that ran and handed every frame back.
@@ -9841,21 +9926,21 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
     // (gpu_present.h). Also on the world map's sailing view; its menus and
     // transitions paint on the copied picture (world_map_needs_cpu).
     if (direct_ok && !synchronous && gbarecomp::gpu_present_accepting() &&
-        !world_map_needs_cpu(g_gpu_field_capture)) {
+        !world_map_needs_cpu(*capture)) {
         g_gpu_readback.invalidate();
         gbarecomp::gpu_present_offer({static_cast<unsigned>(renderer.output_texture()),
                                       static_cast<int>(width), static_cast<int>(height)});
-        world_map_remember_settled(g_gpu_field_capture, source_ok);
+        world_map_remember_settled(capture, source_ok);
         frame.battle_2x = battle;
         frame.gpu_drawn = true;
-        frame.scene = gsr::gpu_field_dump_bytes(g_gpu_field_capture);
-        frame.scene_frame = g_gpu_field_capture.scene.frame;
+        frame.scene = capture;
+        frame.scene_frame = capture->scene.frame;
         return true;
     }
     auto delivered = g_gpu_readback.present(surface, renderer.output_texture(),
         static_cast<int>(width), static_cast<int>(height), rgb,
         runtime_current_frame(),
-        GpuPresentation{g_gpu_field_capture, std::move(frame), source_ok}, synchronous);
+        GpuPresentation{capture, std::move(frame), source_ok}, synchronous);
     if (!delivered) {
         g_gpu_readback.invalidate();
         frame = gbarecomp::FrameHistory::capture();
@@ -9867,8 +9952,8 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
                           delivered->capture, delivered->world_source_ok);
     frame = std::move(delivered->frame);
     frame.gpu_drawn = true;
-    frame.scene = gsr::gpu_field_dump_bytes(delivered->capture);
-    frame.scene_frame = delivered->capture.scene.frame;
+    frame.scene = delivered->capture;
+    frame.scene_frame = delivered->capture->scene.frame;
 
     return true;
 }
@@ -9990,9 +10075,9 @@ bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
     bool drawn = gpu_field_present_override(rgb, width, height, frame,
                                             held || gsr::qol::menu.showing, !cpu_paint);
     const bool direct = gbarecomp::gpu_present_current() != nullptr;
-    if (frame.scene.empty() && g_gpu_field_capture.valid) {
-        frame.scene = gsr::gpu_field_dump_bytes(g_gpu_field_capture);
-        frame.scene_frame = g_gpu_field_capture.scene.frame;
+    if (!frame.scene && gpu_field_capture_valid()) {
+        frame.scene = g_gpu_field_capture;
+        frame.scene_frame = g_gpu_field_capture->scene.frame;
     }
     if (held) {
         const auto& last = g_history.back(0);
@@ -10480,6 +10565,12 @@ int golden_sun_thumb_alu_immediate(std::uint32_t pc, std::uint32_t original,
         // Random Weapons: a weapon's description names its new unleash.
         if (gsr::random_weapons::tbs::text_character(g_decoder_text_id, &wanted))
             return put();
+        // Scrolling names: a long Psynergy name in a list, cut to width.
+        if (gsr::name_scroll::text_character(g_decoder_text_id, &wanted))
+            return put();
+        // Enemy skills: an enemy-only skill's description says what it does.
+        if (gsr::random_psynergy::tbs::description_character(g_decoder_text_id, &wanted))
+            return put();
     }
     if (pc == kDecodedCharPc && hard_mode_text_character(original, out_value))
         return 1;
@@ -10569,7 +10660,7 @@ int golden_sun_thumb_literal(std::uint32_t pc, std::uint32_t original,
         original == gsr::battle_speed::kRevealEndCommand) {
         // Better Field Psy: Reveal lasts to twice the distance.
         using namespace gsr::battle_speed;
-        if (g_field_psynergy_fast.load() == 0) return 0;
+        if (!gsr::field_psy::on(gsr::field_psy::kReveal)) return 0;
         const std::uint32_t state = bus_read_u32(kRevealStatePointer);
         if (bus_read_u16(state + kRevealCountdownOffset) == 0) return 0;
         // The countdown is running, so the distance test sent us here and
@@ -10738,6 +10829,42 @@ int golden_sun_worldmap_sprite_branch(std::uint32_t pc, std::uint32_t original,
     return 1;
 }
 
+// Func_9b86c (0x0809B86C, verified ROM) draws one field particle through
+// Func_9008 only while its 16.16 screen centre passes
+// `x + 0x1FFFFF <= 0x012FFFFE` unsigned (BHI at 0x0809B8C2, r2: x in
+// -32..271) and `y > -32 << 16` (BLE at 0x0809B8C8, r0), then y < 224.
+// The Djinni-join sparkles rise from the Djinni through it; in the expanded
+// view they appeared only once their box's left edge was back at x 263
+// (gpu_rewind_0109/0110, every sparkle's first OAM x is 262 or 263). X and
+// the lower Y bound admit the margins as Func_94820's do; the stock upper
+// bound already reaches row 223. Returns -1 for any other PC.
+int golden_sun_particle_sprite_branch(std::uint32_t pc, std::uint32_t original,
+                                      std::uint32_t* out_decision) {
+    const bool x_test = pc == GS_ROM(0x0809B8C2u);
+    if (!x_test && pc != GS_ROM(0x0809B8C8u)) return -1;
+    if (original != 1u || !golden_sun_expanded_obj_view_active()) return 0;
+    const std::int64_t slack = gsr::widescreen::kExpandedObjSlackX;
+    bool admit = false;
+    if (x_test) {
+        const std::int64_t x =
+            static_cast<std::int64_t>(static_cast<std::int32_t>(
+                g_cpu.R[2] - 0x001FFFFFu));
+        const std::int64_t right = (272 + static_cast<std::int64_t>(
+            g_golden_sun_wide_extra_right) + slack) * 65536;
+        const std::int64_t left = -(32 + static_cast<std::int64_t>(
+            g_golden_sun_wide_extra_left) + slack) * 65536;
+        admit = x > left && x < right;
+    } else {
+        const std::int64_t y =
+            static_cast<std::int64_t>(static_cast<std::int32_t>(g_cpu.R[0]));
+        admit = y > -(32 + static_cast<std::int64_t>(
+            g_golden_sun_wide_extra_top)) * 65536;
+    }
+    if (!admit) return 0;
+    *out_decision = 0u;
+    return 1;
+}
+
 // Sol Sanctum's cloud rows (overlay rom_78c76c, loaded at 0x02008000): the
 // room code puts three rows of 32x8 cloud sprites at y = 80 - camera (the
 // third at y + 8) and queues them only while `cmp r3,#0xAF; bhi` passes with
@@ -10771,6 +10898,11 @@ int golden_sun_conditional_branch(std::uint32_t pc, std::uint32_t original,
     if (gsr::intro_music::music.branch(pc, g_cpu.R[5], out_decision)) return 1;
     using namespace gsr::text_speed_cheat;
     if (const int r = golden_sun_worldmap_sprite_branch(pc, original,
+                                                        out_decision);
+        r >= 0) {
+        return r;
+    }
+    if (const int r = golden_sun_particle_sprite_branch(pc, original,
                                                         out_decision);
         r >= 0) {
         return r;
@@ -10998,7 +11130,7 @@ int main(int argc, char** argv) {
     gsr::trackers::install(gsr::djinn_tracker::tbs::kGame, gsr::treasure_tracker::tbs::kGame,
                            gsr::trackers::tbs::kText);
     gsr::retreat_travel::tbs::install(
-        [] { return g_field_psynergy_fast.load() != 0; }, load_menu_font);
+        [] { return gsr::field_psy::on(gsr::field_psy::kRetreat); }, load_menu_font);
     gsr::radial_psynergy::tbs::install(load_menu_font);
     gsr::save_files::tbs::install_autosave();
     gsr::intro_music::choices.install();
@@ -11010,6 +11142,7 @@ int main(int argc, char** argv) {
         gsr::autosave::reset();
         gsr::custom_battle::tbs::reset();
         gsr::random_weapons::tbs::reset();
+        gsr::name_scroll::reset();
         g_hard_prompt_open = false;
         g_question_hold = QuestionHold::Off;
         gsr::intro_music::choices.on_load();
@@ -11020,7 +11153,7 @@ int main(int argc, char** argv) {
         g_world_margin_rgb.clear();
         g_world_margin_w = g_world_margin_h = 0;
         g_world_palette_effect.reset_indices();
-        g_gpu_field_capture.valid = false;
+        g_gpu_field_capture.reset();
         g_settings_open.store(false);
         g_settings_screen_text = false;
         g_hard_prompt_open = false;
@@ -11099,6 +11232,8 @@ int main(int argc, char** argv) {
     g_runtime_call_return_hook = verified_ram_dispatch_return_hook;
     g_runtime_guest_step_boundary_hook = verified_ram_dispatch_outer_boundary;
     g_runtime_mem_write_override = golden_sun_write_override;
+    // Each of its parts acts only at a GS_ROM store pc.
+    runtime_set_mem_write_override_filter(&gs::rom_pc_filter());
     init_ram_code_page_masks();
     g_verified_ram_cache.clear();
     reset_verified_identity_cache();

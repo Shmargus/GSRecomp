@@ -7,10 +7,14 @@
 
 #include "effect_capture.h"
 #include "field_scene.h"
+#include "frame_history.h"
 
 namespace gsr {
 
-struct GpuFieldCapture {
+// One frame's capture. Shared, never changed once taken (snapshot_pool.h):
+// the F12 history keeps it and writes its GSRGPUF1 bytes only on a save.
+struct GpuFieldCapture : gbarecomp::SceneSnapshot {
+    std::string bytes() const override;
     bool valid = false;
     gsr::CapturedEffectFrame effects;
     gsr::FieldScene scene;

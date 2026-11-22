@@ -43,6 +43,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -348,12 +349,22 @@ bool offer_save_language_import(SDL_Window* window, const fs::path& root, int ga
     }
 }
 
+// Wakes the main loop, which sleeps while a game plays (SDL_WaitEvent).
+void wake_main_loop() {
+    SDL_Event event{};
+    event.type = SDL_USEREVENT;
+    SDL_PushEvent(&event);
+}
+
 class Child {
 #ifdef _WIN32
     HANDLE process_ = nullptr;
 #else
     pid_t pid_ = -1;
 #endif
+    // A watcher wakes the main loop when the session ends, so the hidden
+    // launcher can sleep until then instead of checking on a timer.
+    bool watched_ = false;
     // The game session started last, and how its process ended (-1: unknown).
     int started_game_ = -1;
     int exit_code_ = -1;
@@ -393,6 +404,7 @@ public:
         return false;
     }
     // Once per finished session: the game it was started for and its exit code.
+    bool watched() const { return watched_; }
     bool take_exit(int& game, int& code) {
         if (!finished_) return false;
         finished_ = false; game = started_game_; code = exit_code_;
@@ -403,6 +415,7 @@ public:
                bool restarting = false) {
         if (running()) return false;
         finished_ = false;
+        watched_ = false;
 #ifdef __ANDROID__
         const auto executable = fs::path("/proc/self/exe");  // unused: the app starts its parts
 #else
@@ -450,6 +463,16 @@ public:
         }
         CloseHandle(info.hThread); process_ = info.hProcess;
         started_game_ = choice;
+        HANDLE watch = nullptr;
+        if (DuplicateHandle(GetCurrentProcess(), process_, GetCurrentProcess(), &watch,
+                            SYNCHRONIZE, FALSE, 0)) {
+            std::thread([watch] {
+                WaitForSingleObject(watch, INFINITE);
+                CloseHandle(watch);
+                wake_main_loop();
+            }).detach();
+            watched_ = true;
+        }
 #elif defined(__ANDROID__)
         // The session is the app's SessionActivity, in its own process.
         std::vector<std::string> arguments{"--session-game", choice ? "LostAge" : "BrokenSeal",
@@ -458,6 +481,7 @@ public:
         if (!gsr_android::start_child("session", arguments, {}, {}, {}, &error, game.string())) return false;
         pid_ = 1;
         started_game_ = choice;
+        watched_ = true;  // nativeChildExited (android_host.cpp) wakes the loop
 #else
         int status_pipe[2];
         if (pipe(status_pipe) != 0) { error = std::strerror(errno); return false; }
@@ -498,6 +522,14 @@ public:
             pid_ = -1; error = "Could not start the game session: " + std::string(std::strerror(failure)); return false;
         }
         started_game_ = choice;
+        // WNOWAIT: waits for the exit without collecting it; running() does.
+        std::thread([pid = pid_] {
+            siginfo_t info{};
+            while (waitid(P_PID, static_cast<id_t>(pid), &info, WEXITED | WNOWAIT) < 0 &&
+                   errno == EINTR) {}
+            wake_main_loop();
+        }).detach();
+        watched_ = true;
 #endif
         test_state_base_ = test_progress.state_base;
         error.clear();
@@ -1204,7 +1236,12 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             insertion_choice = -1;
             if (child.start(root, choice, error, &settings[choice])) { hidden = true; SDL_HideWindow(window); }
         }
-        if (hidden) { SDL_Delay(30); continue; }
+        if (hidden) {
+            // A game plays: sleep until it ends or an event arrives.
+            if (child.watched()) SDL_WaitEvent(nullptr);
+            else SDL_Delay(30);
+            continue;
+        }
         const float transition_progress = preview_insertion >= 0 ? preview_insertion :
             insertion_choice >= 0 ? std::clamp(float((elapsed - insertion_started) / transition_duration), 0.0f, 1.0f) : -1;
         const float opacity = startup_opacity(transition_progress, fade_only);

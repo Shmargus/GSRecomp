@@ -44,6 +44,15 @@
 namespace {
 
 void on_function_entry(std::uint32_t pc) {
+    // Every observer below acts only at a TLA_ROM address, except these
+    // three (a one-time load, RAM spark routines, a Seamless time limit).
+    // Any other pc (ROM or RAM code) no TLA_ROM address can be skips the rest.
+    if (!tla_rom::pc_filter().may_match(pc)) {
+        tla_publish_menu_art();
+        tla_gpu_field_on_entry(pc);
+        tla_gs_save_import_on_entry(pc);
+        return;
+    }
     // Autosave notes the field poll before the radial may answer it.
     gsr::autosave::on_entry(pc);
     // The radial first: it notes every dispatcher entry, Retreat's included.
@@ -123,6 +132,8 @@ int main(int argc, char** argv) {
 
     gbarecomp::RunOptions options;
     tla_install_text_speed(options);
+    // Every store hook in the chain acts only at a TLA_ROM store pc.
+    runtime_set_mem_write_override_filter(&tla_rom::pc_filter());
     tla_install_walk_speed(options);
     // Runner options that are not engine settings live next to the program.
     {

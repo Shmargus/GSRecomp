@@ -86,6 +86,17 @@ std::uint32_t address(std::uint32_t english) {
     return counterpart(rr::find(addresses, english), "ROM address", english);
 }
 
+const gbarecomp::RomPcFilter& pc_filter() {
+    static const gbarecomp::RomPcFilter filter = [] {
+        gbarecomp::RomPcFilter f;
+        const unsigned index = revision();
+        for (const Row& row : addresses)
+            f.add(index == 0 ? row.base : row.localized[index - 1]);
+        return f;
+    }();
+    return filter;
+}
+
 std::uint32_t text(std::uint32_t english) {
     if (revision() == 0) return english;
     return counterpart(rr::find(texts, english), "text ID", english);

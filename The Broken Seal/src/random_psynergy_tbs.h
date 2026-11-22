@@ -22,6 +22,7 @@
 // all 72 distinct F12 memory captures. All zero is Off, as every existing
 // save is. The bytes: shared_game/random_psynergy_format.h.
 #pragma once
+#include "../../shared_game/name_scroll.h"
 #include <iterator>
 
 #include "../../shared_game/random_psynergy.h"
@@ -37,10 +38,40 @@ namespace gsr::random_psynergy::tbs {
 constexpr int kClasses = 85;
 
 // Fair Play's early heals, Cure 90 and Ply 93, are in this pool at level 1.
-// Frost and Whirlwind open puzzles (learned before they are needed, by
-// anyone who is there in time). Frost may go to any hero, Whirlwind to one
-// who joins no later than Ivan.
-constexpr Key kKeys[] = {{24, 0xFu}, {78, 0x7u}};
+// Frost, Whirlwind and Ply open puzzles (learned before they are needed, by
+// anyone who is there in time). Frost and Ply may go to any hero, Whirlwind
+// to one who joins no later than Ivan. Ply heals the statue at Mercury
+// Lighthouse's door; Mia joins just before it (player report, seed RS66 7GRS:
+// no one learned Ply). Appended last so Frost and Whirlwind keep their holders.
+constexpr Key kKeys[] = {{24, 0xFu}, {78, 0x7u}, {93, 0xFu}};
+
+// Enemy skills (FACTS.md "Enemy skills", 21 November 2026): enemy records
+// 0x08080EC8 + (id - 8) * 0x54, 0xFA of them (the getter 0x08077198 takes
+// id - 8 > 0xF9 as row 0), abilities at +0x38; ability rows 0x0807EE58, 16
+// bytes, getter 0x08078B9C clamps ids >= 0x208. The PP readers by their
+// return address (the call + 4): the hero's menus, command checks and field
+// dispatcher; the battle's spend (actor byte at [r5]) and cast check (actor
+// halfword at [[sl] + 0]).
+inline std::span<const PpSite> pp_sites() {
+    static const PpSite sites[] = {
+        {GS_ROM(0x0801C672u), PpSite::kHero}, {GS_ROM(0x0801C682u), PpSite::kHero},
+        {GS_ROM(0x08022EA8u), PpSite::kHero}, {GS_ROM(0x0808E7ACu), PpSite::kHero},
+        {GS_ROM(0x080A6C2Au), PpSite::kHero}, {GS_ROM(0x080A7060u), PpSite::kHero},
+        {GS_ROM(0x080A8FCEu), PpSite::kHero}, {GS_ROM(0x080AD142u), PpSite::kHero},
+        {GS_ROM(0x080A5ED8u), PpSite::kByteAtR5}, {GS_ROM(0x080BE7DEu), PpSite::kHalfAtR10Action},
+        // 22 November (scan of all getter calls, +9 reads within 0x200
+        // bytes): the field menu's cost-against-PP check, and the enemies'
+        // choice (predicate 0x080BD3C8, builder 0x080BD59A/0x080BD5C8).
+        {GS_ROM(0x0802773Au), PpSite::kHero},
+        {GS_ROM(0x080BD3D6u), PpSite::kEnemy}, {GS_ROM(0x080BD59Eu), PpSite::kEnemy},
+        {GS_ROM(0x080BD5CCu), PpSite::kEnemy},
+        // 22 November, from The Lost Age's log (the scan stopped at literal
+        // pools): the shared Psynergy list 0x08025xxx, getter return
+        // 0x08025B2A, cost reads 0x08025BB0/0x08025BF0.
+        {GS_ROM(0x08025B2Au), PpSite::kHero},
+    };
+    return sites;
+}
 
 inline const Game& game() {
     // Heroes Isaac, Garet, Ivan, Mia (ids 0..3) and the level each joins at
@@ -51,6 +82,12 @@ inline const Game& game() {
         4, {1, 1, 4, 10},
         kKeys, static_cast<int>(std::size(kKeys)),
         0x3u,  // Isaac and Garet, there from the start
+        {GS_ROM(0x08080EC8u), 0xFA, 0x54u, 0x38u},
+        {GS_ROM(0x0807EE58u), 16u, 0x208u},
+        GS_ROM(0x08078B9Cu), pp_sites(),
+        {},  // every enemy-only skill here is shared (random_psynergy::kIconLike)
+        0x53Au,  // descriptions (English): Quake 3 is text 0x53D
+        {},  // every enemy-only skill's line is shared (random_psynergy::kLines)
     };
     return g;
 }
@@ -61,6 +98,38 @@ inline bool on_entry(std::uint32_t pc, std::uint32_t id) {
     return random_psynergy::on_entry(game(), pc, id);
 }
 inline void apply_new_game() { random_psynergy::apply_new_game(game()); }
+inline void pp_on_getter(std::uint32_t pc, std::uint32_t r0, std::uint32_t r5, std::uint32_t r10,
+                         std::uint32_t lr) {
+    random_psynergy::pp_on_getter(game(), pc, r0, r5, r10, lr);
+}
+// The decoder's next character of an enemy skill's description (English
+// USA/Europe only: the description base is that ROM's).
+inline bool description_character(std::uint32_t text_id, std::uint32_t* character) {
+    const bool english = gs::rom_version() == gs::RomVersion::Usa && !gs::reloaded() && !gs::portuguese();
+    return random_psynergy::description_character(game(), english, text_id, character);
+}
+// Scrolling names (shared_game/name_scroll.h; FACTS "Scrolling names", 22
+// November 2026): the printer 0x0801E7C0 (veneer 0x08015080), window block
+// [0x03001E8C] (tilemap shadow +0, mode byte +0xEA7, colour +0xEAE: the
+// glyph routine 0x0801DE5C), font advances 0x080370D4. The lists that print
+// an ability name (text 0x333 + id) and then read its cost, by return
+// address: the field Psynergy list 0x0801C5F4, 0x08022E7E, the battle's
+// 0x080A6C74, 0x080A8FE8 (its Psynergy list) and 0x080AD138.
+inline const name_scroll::Game& scroll_game() {
+    static const std::uint32_t sites[] = {GS_ROM(0x0801C5F8u), GS_ROM(0x08022E82u), GS_ROM(0x080A6C78u),
+                                          GS_ROM(0x080A8FECu), GS_ROM(0x080AD13Cu), GS_ROM(0x08025BEEu)};
+    static const name_scroll::Game g{
+        GS_ROM(0x0801E7C0u), sites, static_cast<int>(std::size(sites)),
+        gs::ram(0x03001E8Cu), 0x0u, 0xEA7u, 0xEAEu,
+        gs::rom(0x080736B8u) - 0x08000000u, gs::rom(0x0803842Cu) - 0x08000000u, GS_ROM(0x080370D4u),
+        gs::text(0x333u),
+        [](std::uint16_t id) { return random_psynergy::scrolls(game(), id); },
+        [] { return random_psynergy::reference_ids(game()); },
+    };
+    return g;
+}
+inline void scroll_on_entry(std::uint32_t pc, const std::uint32_t* r) { name_scroll::on_entry(scroll_game(), pc, r); }
+inline void scroll_frame() { name_scroll::frame(scroll_game()); }
 using random_psynergy::fresh_seed;
 
 }  // namespace gsr::random_psynergy::tbs

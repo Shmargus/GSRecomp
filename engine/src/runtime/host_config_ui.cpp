@@ -12,6 +12,8 @@
 #include <map>
 #include <mutex>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <type_traits>
 
 namespace gbarecomp {
@@ -32,32 +34,30 @@ bool g_menu_art_pending = false;
 bool g_open_cheats_requested = false;
 }  // namespace
 namespace {
-const UiTranslation* g_translations = nullptr;
-int g_translation_count = 0;
+// English text to translation, built once from the game's table; the first
+// entry wins when a key repeats.
+std::unordered_map<std::string_view, const char*> g_translations;
 }  // namespace
 void config_ui_set_translations(const UiTranslation* table, int count) {
-    g_translations = table;
-    g_translation_count = table ? count : 0;
+    g_translations.clear();
+    for (int i = 0; table && i < count; ++i)
+        g_translations.try_emplace(table[i].english, table[i].text);
 }
 const char* ui_text(const char* english) {
-    if (!english || !g_translation_count) return english;
+    if (!english || g_translations.empty()) return english;
     const char* id = std::strstr(english, "##");
     if (id == english) return english;
     const std::size_t length = id ? std::size_t(id - english) : std::strlen(english);
-    for (int i = 0; i < g_translation_count; ++i) {
-        const UiTranslation& t = g_translations[i];
-        if (std::strlen(t.english) != length || std::strncmp(t.english, english, length) != 0)
-            continue;
-        if (!id) return t.text;
-        // Translated label, same id. Kept for the table's lifetime.
-        static std::mutex mutex;
-        static std::map<std::string, std::string> labels;
-        std::lock_guard<std::mutex> lock(mutex);
-        auto [at, added] = labels.try_emplace(english);
-        if (added) at->second = std::string(t.text) + id;
-        return at->second.c_str();
-    }
-    return english;
+    const auto found = g_translations.find(std::string_view(english, length));
+    if (found == g_translations.end()) return english;
+    if (!id) return found->second;
+    // Translated label, same id. Kept for the table's lifetime.
+    static std::mutex mutex;
+    static std::map<std::string, std::string> labels;
+    std::lock_guard<std::mutex> lock(mutex);
+    auto [at, added] = labels.try_emplace(english);
+    if (added) at->second = std::string(found->second) + id;
+    return at->second.c_str();
 }
 void config_ui_set_game_page(void (*draw)()) { g_game_page_draw = draw; }
 void config_ui_set_music_page(void (*draw)()) { g_music_page_draw = draw; }
@@ -1634,10 +1634,15 @@ void draw_cheats_page(ConfigUiState* st) {
     reward_combo("Coins", kOptionCoinMultiplier, steps, 9);
     reward_combo("Drop chance", kOptionDropMultiplier, drop_steps, 6);
     caption("Changes rewards after battles. 1x keeps the game's normal rates.");
+    section("Field cheats");
+    bool debug_rooms = cheat_option_get(kOptionDebugRooms, 0) != 0;
+    if (setting_checkbox("Debug rooms in Retreat", blocked ? &off : &debug_rooms))
+        game_option_set(kOptionDebugRooms, debug_rooms ? 1 : 0);
+    caption("The game's leftover test rooms join the travel list Retreat opens "
+            "on the world map.");
     for (int i = 0; i < g_game_switch_count; ++i) {
         const GameOptionSwitch& s = g_game_switches[i];
         if (std::strcmp(s.key, walk_through_walls::kOptionKey) != 0) continue;
-        section("Field cheats");
         bool on = cheat_option_get(s.key, 0) != 0;
         if (setting_checkbox(s.label, &on)) game_option_set(s.key, on ? 1 : 0);
         caption(s.caption);

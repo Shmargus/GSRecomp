@@ -39,6 +39,7 @@
 #include "../../shared_game/run_sheet.h"
 #include "../../shared_game/treasure_plan.h"
 #include "../../shared_game/treasure_randomizer.h"
+#include "random_djinn_tbs.h"
 #include "random_psynergy_tbs.h"
 #include "random_weapons_tbs.h"
 #include "rom_version.h"
@@ -136,8 +137,11 @@ inline void sheet_lines(const random_psynergy::Config& c, std::vector<run_sheet:
 namespace gsr::run_sheet::tbs {
 inline const Game& game() {
     static constexpr const char* kNames[] = {"Isaac", "Garet", "Ivan", "Mia"};
+    // Class names: text 0x741 + class (Func_20198's literal; FACTS); Djinni
+    // names 0x45F + element*20 + index (FACTS "Djinn Tracker").
     static const Game g{&random_psynergy::tbs::game(), &random_weapons::tbs::game(), kNames,
-                        &treasure::tbs::sheet_lines};
+                        &treasure::tbs::sheet_lines, gs::text(0x741u), &random_djinn::tbs::game(),
+                        gs::text(0x45Fu)};
     return g;
 }
 inline void install() { run_sheet::install(game()); }

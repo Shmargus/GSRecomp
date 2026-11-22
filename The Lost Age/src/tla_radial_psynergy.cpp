@@ -59,6 +59,9 @@ void tla_install_radial_psynergy(gbarecomp::RunOptions& options) {
         TLA_TEXT(0x5A7u),
         TLA_ROM(0x080A9F54u) - 0x08000000u, TLA_ROM(0x08060C30u) - 0x08000000u,
         tla_publish_menu_art, &auto_cast, TLA_ROM(0x0803D4D0u),
+        // 0x08026DFA..E08: byte field + 0x18A == 3 takes the world-map
+        // branch; otherwise the word goes to field + 0x166 (0x08026E4C).
+        0x18Au, 1u, 0x166u,
     };
     radial::install(profile);
     next_keys = options.keyinput_filter;

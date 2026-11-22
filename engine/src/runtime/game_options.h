@@ -17,6 +17,8 @@ inline constexpr const char* kOptionFieldPsynergy = "FieldPsynergy";
 inline constexpr const char* kOptionExpMultiplier = "ExpMultiplier";
 inline constexpr const char* kOptionCoinMultiplier = "CoinMultiplier";
 inline constexpr const char* kOptionDropMultiplier = "DropMultiplier";
+// F1 > Cheats: the games' leftover test rooms join overworld Retreat's list.
+inline constexpr const char* kOptionDebugRooms = "DebugRoomsInRetreat";
 // Music mod (local recordings in place of the game's songs): launcher cog,
 // its first-run question and F1 > Audio. Absent until the player decides.
 inline constexpr const char* kOptionMusicMod = "MusicMod";

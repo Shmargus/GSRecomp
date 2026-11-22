@@ -33,6 +33,7 @@
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
 #include "tla.h"
+#include "../../shared_game/field_psynergy_options.h"
 
 namespace {
 
@@ -76,7 +77,6 @@ constexpr uint16_t kKeySelect = 0x0004u;
 constexpr unsigned kMinOverclock = 10u;
 
 std::atomic<bool> g_on{false};
-std::atomic<bool> g_field_fast{false};
 bool g_was_casting = false;
 bool g_select_held = false;
 bool g_was_in_battle = false;
@@ -91,7 +91,6 @@ unsigned g_saved_overclock_q8 = 0;
 gba::GbaBus* bus() { return gbarecomp::active_bus(); }
 
 constexpr const char* kOptionsKey = gbarecomp::kOptionBattleSpeed;
-constexpr const char* kFieldOptionsKey = gbarecomp::kOptionFieldPsynergy;
 
 void save_options() { gbarecomp::game_option_set(kOptionsKey, g_on.load() ? 1 : 0); }
 
@@ -231,7 +230,7 @@ void decide_pass() {
     }
     g_select_held = select;
     const bool battle_2x = in_battle && g_on.load();
-    const bool field_2x = !in_battle && g_field_fast.load() &&
+    const bool field_2x = !in_battle && gsr::field_psy::on(gsr::field_psy::kFaster) &&
                           b->read32(kFieldCastSlot) != 0u && dispatcher_on_stack(b);
     if (field_2x != g_was_casting) {
         g_was_casting = field_2x;
@@ -269,7 +268,7 @@ constexpr uint32_t kRevealRangeSquared = 0xE10u;
 
 int battle_speed_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
     if (pc == kRevealRangeBranchPc) {
-        if (!g_field_fast.load() || g_cpu.R[1] != kRevealRangeSquared) return 0;
+        if (!gsr::field_psy::on(gsr::field_psy::kReveal) || g_cpu.R[1] != kRevealRangeSquared) return 0;
         *out_decision = static_cast<int32_t>(g_cpu.R[2]) >=
                         static_cast<int32_t>(4u * kRevealRangeSquared) ? 1u : 0u;
         return *out_decision != original;
@@ -307,7 +306,7 @@ bool indicator_visible() {
 // RunOptions; this chains in front of whatever immediate hook is there.
 void tla_install_battle_speed(gbarecomp::RunOptions& options) {
     g_on.store(gbarecomp::game_option_get(kOptionsKey, 0) != 0);
-    g_field_fast.store(gbarecomp::game_option_get(kFieldOptionsKey, 0) != 0);
+    gsr::field_psy::load();
     g_next_alu_immediate = options.thumb_alu_immediate_override;
     options.thumb_alu_immediate_override = battle_speed_alu_immediate;
     options.conditional_branch_override = battle_speed_branch;
@@ -327,10 +326,6 @@ bool tla_battle_spell_setup_frame() {
     return gbarecomp::spell_setup_torn_frame(*ppu);
 }
 
-// Better Field Psy (settings page two).
-bool tla_field_psy_fast() { return g_field_fast.load(); }
-
-void tla_set_field_psy_fast(bool on) {
-    g_field_fast.store(on);
-    gbarecomp::game_option_set(kFieldOptionsKey, on ? 1 : 0);
-}
+// Faster Psynergy's parts (Pause > Quality of Life > Faster Psynergy).
+bool tla_field_psy_reveal() { return gsr::field_psy::on(gsr::field_psy::kReveal); }
+bool tla_field_psy_retreat() { return gsr::field_psy::on(gsr::field_psy::kRetreat); }

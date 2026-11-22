@@ -89,14 +89,20 @@ HistoryFrame& FrameHistory::record(const std::uint8_t* rgb, std::uint32_t width,
     last_live_guest_ = guest;
     const double now = now_ms();
     HistoryFrame& fr = ring_[next_];
+    // The slot's picture buffer is reused, not freed and reallocated.
+    std::vector<std::uint8_t> pixels = std::move(fr.rgb);
     fr = std::move(frame);
     fr.host_ms = last_present_ms_ >= 0.0 ? now - last_present_ms_ : 0.0;
     fr.width = width;
     fr.height = height;
     // No picture: a phone frame shown straight from the graphics card
     // (gpu_present.h); its scene still replays on the PC.
-    if (rgb) fr.rgb.assign(rgb, rgb + static_cast<std::size_t>(width) * height * 3u);
-    else fr.rgb.clear();
+    if (rgb) {
+        pixels.assign(rgb, rgb + static_cast<std::size_t>(width) * height * 3u);
+        fr.rgb = std::move(pixels);
+    } else {
+        fr.rgb.clear();
+    }
     next_ = (next_ + 1) % kFrames;
     if (count_ < kFrames) ++count_;
     last_present_ms_ = now;
@@ -181,7 +187,7 @@ std::string FrameHistory::write(const std::string& note,
                             "gpu_drawn,held_frame,has_scene,width,height,scene_file,image_written\n");
     for (std::size_t i = 0; i < count_; ++i) {
         const HistoryFrame& fr = oldest_first(i);
-        scene_frames += !fr.scene.empty();
+        scene_frames += fr.scene != nullptr;
         held_frames += fr.held_frame;
         gpu_frames += fr.gpu_drawn;
         // The first interval starts outside the saved history.
@@ -208,8 +214,9 @@ std::string FrameHistory::write(const std::string& note,
             ++write_failures;
         }
         bool scene_written = false;
-        if (!fr.scene.empty()) {
-            scene_written = write_file(dir + "/" + scene_name, fr.scene.data(), fr.scene.size());
+        if (fr.scene) {
+            const std::string bytes = fr.scene->bytes();
+            scene_written = write_file(dir + "/" + scene_name, bytes.data(), bytes.size());
             if (!scene_written)
                 std::fprintf(stderr, "[F12] could not write %s/%s\n", dir.c_str(), scene_name);
             if (!scene_written) ++write_failures;
@@ -238,9 +245,10 @@ std::string FrameHistory::write(const std::string& note,
     }
     // The newest snapshot under its old single-frame name, the SAME bytes as
     // the newest history entry.
-    if (count_ && !back(0).scene.empty() &&
-        !write_file(dir + "/gpu_frame.bin", back(0).scene.data(), back(0).scene.size()))
-        ++write_failures;
+    if (count_ && back(0).scene) {
+        const std::string bytes = back(0).scene->bytes();
+        if (!write_file(dir + "/gpu_frame.bin", bytes.data(), bytes.size())) ++write_failures;
+    }
     if (std::FILE* f = std::fopen((dir + "/rows.csv").c_str(), "wb")) {
         std::fprintf(f, "order,row");
         for (std::size_t o = 0; o < kRowBytes; o += 2) std::fprintf(f, ",io%02zX", o);

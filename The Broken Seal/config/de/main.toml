@@ -100,6 +100,14 @@ addr = 0x080985ca
 note = "Func_94e7c lower-Y BLT: admit the top margin"
 
 [[conditional_branch_override]]
+addr = 0x0809ef6a
+note = "Func_9b86c screen-X BHI: admit the expanded margins"
+
+[[conditional_branch_override]]
+addr = 0x0809ef70
+note = "Func_9b86c lower-Y BLE: admit the top margin"
+
+[[conditional_branch_override]]
 addr = 0x080c4cd6
 note = "Func_c24f0 drop roll BLE: cheat menu drop multiplier"
 

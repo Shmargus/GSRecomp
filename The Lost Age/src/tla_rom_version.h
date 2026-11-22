@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include "rom_revision.h"
+#include "rom_pc_filter.h"
 
 // The game library identifies its own ROM before features are installed.
 // All counterparts are measured for TLA; no Broken Seal addresses apply.
@@ -23,6 +24,8 @@ const char* sha1();
 const char* name();
 bool spanish();
 std::uint32_t address(std::uint32_t english);
+// Every ROM address of the loaded revision that address() can return.
+const gbarecomp::RomPcFilter& pc_filter();
 std::uint32_t overlay(const char* image, std::uint32_t english);
 std::uint32_t text(std::uint32_t english);
 }

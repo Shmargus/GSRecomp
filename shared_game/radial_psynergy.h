@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 #include "auto_field_psynergy_labels.h"
+#include "flag_bank.h"
 #include "gba_bus.h"
 #include "gba_ppu.h"
 #include "game_hotkeys.h"
@@ -85,6 +86,11 @@ struct Game {
     // set: a patched ROM may change it (Reloaded TLA returns 0xFFFF for its
     // 269-icon table, FACTS 15 November 2026).
     std::uint32_t icon_count_routine = 0;
+    // The world map: the cast routine's own branch for it (state 3 at field
+    // + world_state, a byte or a halfword) answers L/R itself and drops the
+    // word, so the word goes in the field's cast request (field + request),
+    // as the game's Psynergy menu does there. 0: no such branch.
+    unsigned world_state = 0, world_state_size = 0, request = 0;
 };
 
 // Measured in both games (FACTS): 0x14C-byte character records, current HP
@@ -97,6 +103,10 @@ constexpr unsigned kTargetAlly = 2, kIconOffset = 4, kCostOffset = 9;
 constexpr std::uint32_t kIdMask = 0x3FFFu;
 // A shortcut / dispatcher word: id | caster << 10.
 constexpr std::uint32_t kWordId = 0x3FFu;
+// Both games' cast routines refuse while this flag is set, before any other
+// test (The Broken Seal 0x0800EA6A, The Lost Age 0x08026DDE).
+constexpr unsigned kCastRefusedFlag = 0x107u;
+constexpr unsigned kWorldMapState = 3u;
 constexpr unsigned kCasters = 8;
 
 // Hotkeys (F1 > Hotkeys), unbound by default: an unbound menu is no feature.
@@ -420,6 +430,14 @@ inline std::uint16_t keyinput(std::uint16_t value) {
     return value;
 }
 
+// Where the cast routine would take its world-map branch.
+inline bool on_world_map(gba::GbaBus& b, std::uint32_t field) {
+    if (!game->world_state || read_flag(b.ewram_ptr(), kCastRefusedFlag)) return false;
+    const std::uint32_t at = field + game->world_state;
+    const unsigned state = game->world_state_size == 1 ? b.read8(at) : b.read16(at);
+    return state == kWorldMapState;
+}
+
 // Function entry. True when the poll was answered here. Game routines run
 // with the lock released.
 inline bool on_entry(std::uint32_t pc) {
@@ -494,7 +512,11 @@ inline bool on_entry(std::uint32_t pc) {
     }
     bool answered = false;
     std::uint32_t result = 0;
-    if (w && gbarecomp::guest_call(game->cast | 1u, w, 0, 0, 0, &result)) {
+    if (w && on_world_map(*b, field)) {
+        b->write16(field + game->request, static_cast<std::uint16_t>(w));
+        gbarecomp::guest_return_now(pc, w);
+        answered = true;
+    } else if (w && gbarecomp::guest_call(game->cast | 1u, w, 0, 0, 0, &result)) {
         gbarecomp::guest_return_now(pc, result);
         answered = true;
     }

@@ -102,10 +102,9 @@ inline constexpr auto& kScreenWords = gbarecomp::kViewModeLabels;
 // Enhanced Timing (60 Hz) and CPU Overclock (50x) together, through the
 // engine's F1 settings; On only while both are on.
 constexpr const char* kOnOffWords[2] = {"Off", "On"};
-// Better Field Psy: On runs a field Psynergy cast at battle 2x speed, opens
-// Reveal's circle to the whole view (FieldSceneRenderer::set_reveal_full),
-// and adds overworld Retreat travel.
-constexpr const char* kFieldPsynergyWords[2] = {"Off", "On"};
+// Faster Psynergy's parts (faster casts, Reveal's circle to the whole view
+// through FieldSceneRenderer::set_reveal_full, overworld Retreat travel) are
+// separate switches: shared_game/field_psynergy_options.h.
 
 // Random encounters (FACTS.md, 2026-09-23). The field's encounter step
 // 0x0808AEE0.. loads the base 0x02000240 at 0x0808AF84, adds the step's
@@ -162,6 +161,5 @@ const std::uint32_t kSoundPc = gs::rom(0x080F9010u);
 // Kept next to the executable; the engine's config.ini is its own.
 constexpr const char* kOptionsFile = "game_options.ini";
 constexpr const char* kEncounterKey = gbarecomp::kOptionEncounterRate;
-constexpr const char* kFieldPsynergyKey = gbarecomp::kOptionFieldPsynergy;
 
 }  // namespace gsr::settings_page

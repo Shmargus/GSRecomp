@@ -99,6 +99,17 @@ std::uint32_t rom(std::uint32_t usa) {
     return counterpart(rr::find_sorted(kRomAddrs, usa), "ROM address", usa);
 }
 
+const gbarecomp::RomPcFilter& rom_pc_filter() {
+    static const gbarecomp::RomPcFilter filter = [] {
+        gbarecomp::RomPcFilter f;
+        const unsigned index = revision();
+        for (const Row& row : kRomAddrs)
+            f.add(index == 0 ? row.base : row.localized[index - 1]);
+        return f;
+    }();
+    return filter;
+}
+
 std::uint32_t ovl(const char* overlay_id, std::uint32_t usa) {
     if (revision() == 0) return usa;
     return counterpart(rr::find(kOvlAddrs, overlay_id, usa), overlay_id, usa);

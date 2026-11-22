@@ -137,3 +137,13 @@ evidence = "Reloaded keeps the USA text numbering (text routines and the code li
 usa = 0x00002937
 reloaded = 0x00002937
 evidence = "Reloaded keeps the USA text numbering (text routines and the code literals naming this ID are unchanged); decodes the same line in both ROMs."
+
+[[text]]
+usa = 0x00000741
+reloaded = 0x00000741
+evidence = "Reloaded keeps the USA text numbering: the class-name code at 0x080201E2 is byte-identical and its literal is 0x741 (21 November 2026)."
+
+[[text]]
+usa = 0x0000045F
+reloaded = 0x0000045F
+evidence = "Reloaded keeps the USA text numbering: all seven literal words 0x45F (Djinni names, e.g. 0x08027C5C) are in place (21 November 2026)."

@@ -31,7 +31,6 @@ import hashlib
 import os
 from tla_rom_revisions import identify
 
-ROM_SHA1 = "b500663220cb9bf56b9f8e8c0c544f1d6fa3a824"
 COPY_RUNTIME = 0x03000100
 COPY_SOURCE = 0x080006B8
 

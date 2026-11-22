@@ -15,6 +15,7 @@
 
 #include "challenge_mode.h"
 #include "gs_text_encode.h"
+#include "random_djinn.h"
 #include "random_psynergy.h"
 #include "random_weapons.h"
 #include "run_code.h"
@@ -38,6 +39,9 @@ struct Game {
     std::span<const char* const> hero_names;  // when a record has no name yet
     // A game's Random Treasure lines (none: the game has no Random Treasure).
     void (*treasure)(const random_psynergy::Config&, std::vector<Section>&, const ItemName&) = nullptr;
+    std::uint32_t class_name_text = 0;  // class names: text line base + class index
+    const random_djinn::Game* djinn = nullptr;  // Random Djinn (none: not in this game)
+    std::uint32_t djinn_name_text = 0;  // Djinni names: base + element * 20 + index
 };
 
 // The run a file's bytes describe: one seed (both blocks hold the same one)
@@ -48,6 +52,9 @@ inline run_code::Run run_of(const random_psynergy::Config& p, const random_weapo
     r.seed = p.seed ? p.seed : e.seed;
     if (p.psynergy) r.choices |= rc::kPsynergy;
     if (p.psynergy && p.fair_psynergy) r.choices |= rc::kFairPsynergy;
+    if (p.psynergy && p.enemy_skills) r.choices |= rc::kEnemySkills;
+    if (p.psynergy && p.by_class) r.choices |= rc::kByClass;
+    if (p.djinn) r.choices |= rc::kDjinn;
     if (p.treasure && p.fair_items) r.choices |= rc::kFairItems;
     if (p.treasure && p.fair_shops) r.choices |= rc::kFairShops;
     if (p.coins && p.fair_coins) r.choices |= rc::kFairCoins;
@@ -132,16 +139,16 @@ inline Sheet write(gba::GbaBus& b, const Game& g, const random_psynergy::Config&
 
     if (p.psynergy) {
         const random_psynergy::Plan plan =
-            random_psynergy::make_plan(*g.psynergy, p.seed, challenge, p.fair_psynergy);
-        for (int hero = 0; hero < g.psynergy->heroes; ++hero) {
-            if (challenge.size > 0 && !gsr::challenge::picked(challenge, static_cast<std::uint8_t>(hero)))
-                continue;
+            random_psynergy::make_plan(*g.psynergy, p.seed, challenge, p.fair_psynergy, p.enemy_skills,
+                                       p.by_class);
+        // A section "Psynergy: <whose>", a row per level.
+        const auto add_section = [&](const std::string& whose,
+                                     const std::vector<random_psynergy::Grant>& grants) {
             Section s;
-            s.title = std::string(gbarecomp::ui_text("Psynergy")) + ": " +
-                      hero_name(b, g, static_cast<unsigned>(hero));
+            s.title = std::string(gbarecomp::ui_text("Psynergy")) + ": " + whose;
             std::string row;
             int level = -1;
-            for (const auto& grant : plan.grants[static_cast<std::size_t>(hero)]) {
+            for (const auto& grant : grants) {
                 if (grant.level != level) {
                     if (!row.empty()) s.lines.push_back(row);
                     level = grant.level;
@@ -153,7 +160,31 @@ inline Sheet write(gba::GbaBus& b, const Game& g, const random_psynergy::Config&
             }
             if (!row.empty()) s.lines.push_back(row);
             sheet.sections.push_back(std::move(s));
+        };
+        for (int hero = 0; hero < g.psynergy->heroes; ++hero) {
+            if (challenge.size > 0 && !gsr::challenge::picked(challenge, static_cast<std::uint8_t>(hero)))
+                continue;
+            const auto& grants = plan.grants[static_cast<std::size_t>(hero)];
+            if (plan.by_class && grants.empty()) continue;
+            add_section(hero_name(b, g, static_cast<unsigned>(hero)), grants);
         }
+        // By class: each class's list, a section per class with one.
+        for (std::size_t c = 0; plan.by_class && c < plan.classes.size(); ++c) {
+            if (!plan.classes[c].empty())
+                add_section(line(g.class_name_text + static_cast<std::uint32_t>(c)), plan.classes[c]);
+        }
+    }
+    if (p.djinn && g.djinn) {
+        // Where each Djinni is found: the spot's own Djinni, then what it gives.
+        const random_djinn::Game& dg = *g.djinn;
+        const std::vector<int> target = random_djinn::plan(dg, p.seed);
+        const auto name = [&](random_djinn::Djinni d) {
+            return line(g.djinn_name_text + d.element * 20u + d.index);
+        };
+        Section s{gbarecomp::ui_text("Djinn"), {}};
+        for (int i = 0; i < dg.count; ++i)
+            s.lines.push_back(name(dg.djinn[i]) + " -> " + name(dg.djinn[target[static_cast<std::size_t>(i)]]));
+        sheet.sections.push_back(std::move(s));
     }
     if (e.seed) {
         const random_weapons::Plan plan = random_weapons::plan_of(e);

@@ -25,6 +25,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -44,12 +45,21 @@ namespace gbarecomp {
 // The caller decides that a battle is running and repeats its last picture.
 bool spell_setup_torn_frame(const gba::GbaPpu& ppu);
 
+// A frame's renderer snapshot (the game's own format, replayed by its bench
+// tool). It holds the game's capture of that frame, which nothing changes
+// once taken, and turns it into the file's bytes only when a capture is
+// saved, not every frame.
+struct SceneSnapshot {
+    virtual ~SceneSnapshot() = default;
+    virtual std::string bytes() const = 0;
+};
+
 struct HistoryFrame {
     unsigned long long guest_frame = 0;
     double host_ms = 0.0;
     std::uint32_t width = 0, height = 0;
     std::vector<std::uint8_t> rgb;
-    std::string scene;                 // renderer snapshot; empty = none
+    std::shared_ptr<const SceneSnapshot> scene;  // null = none
     std::uint64_t scene_frame = 0;
     bool gpu_drawn = false;
     bool battle_2x = false;

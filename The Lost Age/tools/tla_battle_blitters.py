@@ -34,7 +34,6 @@ from unicorn.arm_const import (UC_ARM_REG_R0, UC_ARM_REG_R1, UC_ARM_REG_R2,
                                UC_ARM_REG_R3, UC_ARM_REG_SP, UC_ARM_REG_LR,
                                UC_ARM_REG_PC)
 
-ROM_SHA1 = "b500663220cb9bf56b9f8e8c0c544f1d6fa3a824"
 BUILDER = 0x08196404
 ALLOC = 0x08014CC0
 ALLOC_SIZE = 0x1B4

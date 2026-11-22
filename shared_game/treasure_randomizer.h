@@ -155,6 +155,14 @@ struct Randomizer {
         return it->second.coins ? treasure_tracker::kCoins | it->second.value : it->second.value;
     }
 
+    // The Treasure Tracker's reward for the gift (scene code pack or file,
+    // original item): the planned item ID; 0 when nothing is planned.
+    unsigned tracker_gift(std::uint16_t scene, std::uint16_t item) const {
+        if (!active()) return 0;
+        const auto it = gifts.find({scene, item});
+        return it == gifts.end() ? 0 : it->second;
+    }
+
     // The spoiler sheet's lines: where every treasure went, and the shops.
     void sheet_lines(const random_psynergy::Config& c, std::vector<run_sheet::Section>& out,
                      const run_sheet::ItemName& item) const {

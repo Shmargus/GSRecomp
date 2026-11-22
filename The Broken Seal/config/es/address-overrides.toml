@@ -208,3 +208,13 @@ evidence = "Pause constructor paired label/help literal plus selected Sleep row 
 usa = 0x08084B1C
 spain = 0x08089B1C
 evidence = "Random Psynergy class table (85 classes x 0x54 bytes): the USA table's 7140 bytes occur exactly once in this ROM, at this address (measured against the verified ROMs, 11 November 2026); FACTS.md 2026-11-04 Random Psynergy."
+
+[[text]]
+usa = 0x741
+spain = 0x838
+evidence = "Class name base (Random Psynergy by class spoiler sheet): USA ldr r3 at 0x080201E2 loads 0x741 and adds the class byte [r7+0x1D] before the text call; the same instruction sequence (ldrb r0,[r7,#0x1D]; adds r1,r5,#0; adds r0,r0,r3) in this ROM loads 0x838 (21 November 2026). The Psynergy name base moves by the same 0xF7 (0x333 -> 0x42A)."
+
+[[text]]
+usa = 0x45F
+spain = 0x556
+evidence = "Djinni name base (Random Djinn spoiler sheet): USA names text 0x45F + element*20 + index (name drawing 0x08027C2C..3C, literal 0x08027C5C); all seven USA literal words 0x45F are 0x556 in this ROM at the matching places (21 November 2026). The Psynergy name base moves by the same 0xF7."

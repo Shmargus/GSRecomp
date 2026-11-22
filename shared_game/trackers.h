@@ -26,9 +26,9 @@ inline void install(const djinn_tracker::Game& djinn, const treasure_tracker::Ga
 
 // Emulation thread, once per frame.
 inline void sample(const std::uint8_t* ewram, const std::uint8_t* rom, std::size_t rom_size,
-                   unsigned (*planned_reward)(unsigned)) {
+                   unsigned (*planned_reward)(unsigned), unsigned (*planned_gift)(unsigned, unsigned)) {
 #if defined(__ANDROID__)
-    (void)ewram; (void)rom; (void)rom_size; (void)planned_reward;
+    (void)ewram; (void)rom; (void)rom_size; (void)planned_reward; (void)planned_gift;
     return;
 #endif
     if (rom && tracker_text::config && !tracker_text::ready.load(std::memory_order_relaxed)) {
@@ -54,7 +54,7 @@ inline void sample(const std::uint8_t* ewram, const std::uint8_t* rom, std::size
         tracker_text::ready.store(true, std::memory_order_release);
     }
     djinn_tracker::sample(ewram, rom, rom_size);
-    treasure_tracker::sample(ewram, rom, rom_size, planned_reward);
+    treasure_tracker::sample(ewram, rom, rom_size, planned_reward, planned_gift);
 }
 
 } // namespace gsr::trackers

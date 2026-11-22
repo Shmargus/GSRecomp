@@ -4,9 +4,11 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 #include "flag_bank.h"
+#include "game_options.h"
 #include "gba_bus.h"
 #include "menu_text.h"
 #include "runtime.h"
@@ -24,7 +26,26 @@ struct Destination {
     unsigned flag, route;
     std::uint16_t room, entrance;
     unsigned mooring = 0;
+    bool debug = false;  // F1 > Cheats "Debug rooms in Retreat"
 };
+// A leftover test room, named as the game's own location table names it.
+// Every one has a single entrance, 0 (each game's FACTS.md, "Debug rooms in
+// Retreat"), so travel asks for that.
+struct DebugRoom { const char* name; std::uint16_t room; };
+// Where a debug-room warp left the world map, so Retreat inside the room
+// puts the party back on that exact spot. Both games keep a scene snapshot
+// (what the field Save stores) and a saved spot (x, y, z, facing; 32-bit
+// each); with flag 0x109 set, the next room load restores the snapshot and
+// skips the door's spawn, then clears the flag (each game's FACTS.md,
+// "Debug rooms in Retreat").
+struct Spot {
+    std::uint32_t snapshot;      // guest routine that fills the snapshot
+    std::uint32_t begin, end;    // the snapshot's EWRAM bytes
+    std::uint32_t fields;        // the saved spot
+    std::uint32_t ship;          // halfword "party on the ship", 0 if none
+    std::uint32_t (*actor)(gba::GbaBus*);  // the character the player moves
+};
+constexpr unsigned kRestoreSceneFlag = 0x109u;
 struct Game {
     std::uint32_t dispatcher, caller_return, frame, sound;
     std::uint32_t map_number, room, state_slot, party;
@@ -38,6 +59,10 @@ struct Game {
     unsigned native_cost = 0;
     const Cast* cast = nullptr;
     bool (*valid_route)(unsigned) = nullptr;
+    std::span<const DebugRoom> debug_rooms{};
+    // Native Retreat's return map/entrance, copied to `room` on its exit.
+    std::uint32_t return_point = 0;
+    const Spot* spot = nullptr;
 };
 inline const Game* game = nullptr;
 inline std::vector<Destination> destinations;
@@ -46,6 +71,15 @@ inline std::uint16_t held = 0;
 inline std::uint32_t hold_sp = 0;
 inline int cursor = 0, chosen = -1;
 inline std::vector<unsigned> sounds;
+// Kept across state loads: the last departure is still a real world spot.
+struct Departure {
+    bool valid = false;
+    std::uint16_t entrance = 0, ship = 0;
+    std::array<std::uint32_t, 4> spot{};
+    std::vector<std::uint8_t> scene;
+};
+inline Departure departure;
+inline bool debug_retreat = false;  // Retreat confirmed inside a debug room
 
 // This uses the already measured Custom Battle list geometry: six 12-pixel
 // rows inside a 28x15-tile native window. Long names are fitted by glyph width.
@@ -96,7 +130,12 @@ inline bool read_hold(gba::GbaBus* b, Hold& record) {
 }
 inline bool visited(const Destination& d) {
     auto* b = gbarecomp::active_bus();
-    return b && gsr::read_flag(b->ewram_ptr(), d.flag);
+    return d.debug || (b && gsr::read_flag(b->ewram_ptr(), d.flag));
+}
+inline bool in_debug_room(gba::GbaBus* b) {
+    const auto room = b->read16(game->room);
+    return std::any_of(game->debug_rooms.begin(), game->debug_rooms.end(),
+        [=](const auto& r) { return r.room == room; });
 }
 inline bool world(gba::GbaBus* b) {
     return game->enabled() && b->read16(game->map_number) == 2u &&
@@ -108,7 +147,7 @@ inline std::uint32_t pp_address(unsigned caster) {
     return game->party + caster * 0x14Cu + 0x3Au;
 }
 inline void reset() {
-    showing = waiting = swallowing = busy = false;
+    showing = waiting = swallowing = busy = debug_retreat = false;
     held = 0; hold_sp = 0; cursor = 0; chosen = -1;
     destinations.clear(); sounds.clear();
 }
@@ -123,6 +162,31 @@ inline bool call(std::uint32_t pc, std::uint32_t r0, std::uint32_t r1,
     return ok;
 }
 
+inline void remember_departure(gba::GbaBus* b) {
+    departure.valid = false;
+    const auto* s = game->spot;
+    if (!s || !call(s->snapshot, 0u, 0u)) return;
+    const auto actor = s->actor(b);
+    if (!field_address(actor)) return;
+    departure.spot = {b->read32(actor + 8u), b->read32(actor + 12u),
+                      b->read32(actor + 16u), b->read16(actor + 6u)};
+    departure.entrance = b->read16(game->room + 2u);
+    departure.ship = s->ship ? b->read16(s->ship) : 0u;
+    departure.scene.resize(s->end - s->begin);
+    for (std::size_t i = 0; i < departure.scene.size(); ++i)
+        departure.scene[i] = b->read8(s->begin + static_cast<std::uint32_t>(i));
+    departure.valid = true;
+}
+inline void restore_departure(gba::GbaBus* b) {
+    const auto* s = game->spot;
+    for (std::size_t i = 0; i < departure.scene.size(); ++i)
+        b->write8(s->begin + static_cast<std::uint32_t>(i), departure.scene[i]);
+    for (unsigned i = 0; i < departure.spot.size(); ++i)
+        b->write32(s->fields + i * 4u, departure.spot[i]);
+    if (s->ship) b->write16(s->ship, departure.ship);
+    constexpr auto at = 0x02000000u + gsr::kFlagBank + (kRestoreSceneFlag >> 3);
+    b->write8(at, static_cast<std::uint8_t>(b->read8(at) | (1u << (kRestoreSceneFlag & 7u))));
+}
 // Run the original Retreat dispatcher, including its actual effect and cleanup.
 // Only its already answered dungeon prompt/restriction and early dungeon exit
 // are replaced. Every hook requires our complete owned guest frame.
@@ -134,6 +198,20 @@ inline bool cast_entry(std::uint32_t pc) {
         pc != c.confirm && pc != c.ability) return false;
     auto* b = gbarecomp::active_bus();
     if (!b) return false;
+    // Retreat inside a debug room. Those rooms keep the world map's flag
+    // 0x144 (Retreat refused here), so answer it clear for the dispatcher's
+    // own check. Entering a room makes it its own Retreat point, so point
+    // native Retreat at the departure's world entrance; once confirmed, the
+    // frame hook in on_entry restores the exact spot. Without a departure
+    // (game started inside the room) the game's own refusal stands.
+    if (pc == c.flag && g_cpu.R[0] == 0x144u && departure.valid && in_debug_room(b) &&
+        g_cpu.R[14] > game->dispatcher && g_cpu.R[14] < game->dispatcher + 0x200u) {
+        b->write16(game->return_point, 2u);
+        b->write16(game->return_point + 2u, departure.entrance);
+        debug_retreat = true;
+        gbarecomp::guest_return_now(pc, 0u);
+        return true;
+    }
     Hold h{};
     if (pc == game->dispatcher && read_hold(b, h) && h[5] != 2u && phase(h) == 0u) {
         set_phase(b, g_cpu.R[13], h, 1u);
@@ -163,6 +241,13 @@ inline bool on_entry(std::uint32_t pc) {
     if (!game || busy || (pc != game->frame && pc != game->dispatcher)) return false;
     auto* b = gbarecomp::active_bus();
     if (!b) return false;
+    // Native Retreat has copied the world return into the current room:
+    // the confirmation was answered, and the field reload comes next.
+    if (debug_retreat && pc == game->frame && departure.valid &&
+        b->read16(game->room) == 2u && b->read16(game->room + 2u) == departure.entrance) {
+        debug_retreat = false;
+        restore_departure(b);
+    }
     Hold record{};
     if (pc == game->frame && read_hold(b, record)) {
         for (const auto sound : sounds) call(game->sound, sound, 0);
@@ -177,18 +262,27 @@ inline bool on_entry(std::uint32_t pc) {
         if (record[5] == 2u && live && chosen >= 0 && chosen < static_cast<int>(destinations.size())) {
             const auto& d = destinations[chosen];
             const auto pp = pp_address(caster(record));
+            // Before arrive(): The Lost Age's puts the party on foot.
+            if (d.debug && visited(d)) remember_departure(b);
             if (visited(d) && b->read16(pp) >= game->cost && game->arrive(d)) {
-                b->write16(pp, static_cast<std::uint16_t>(b->read16(pp) -
-                    (game->cost - game->native_cost)));
-                if (game->native_arrival) {
-                    // Persist the selected native row on the guest stack, so a
-                    // state loaded during travel finishes without host state
-                    // or a second PP charge. The native function owns the exit.
-                    b->write32(g_cpu.R[13] + 5u * 4u, 0x80000000u | (d.route << 2));
-                    showing = waiting = false; chosen = -1; hold_sp = 0;
-                    g_cpu.R[14] = game->native_arrival | 1u;
-                    gbarecomp::guest_return_now(pc, 1u);
-                    return true;
+                if (d.debug) {
+                    // A cheat: no PP and no Retreat effect. The room request
+                    // native Retreat writes, followed by its exit below.
+                    b->write16(game->room, d.room);
+                    b->write16(game->room + 2u, d.entrance);
+                } else {
+                    b->write16(pp, static_cast<std::uint16_t>(b->read16(pp) -
+                        (game->cost - game->native_cost)));
+                    if (game->native_arrival) {
+                        // Persist the selected native row on the guest stack, so a
+                        // state loaded during travel finishes without host state
+                        // or a second PP charge. The native function owns the exit.
+                        b->write32(g_cpu.R[13] + 5u * 4u, 0x80000000u | (d.route << 2));
+                        showing = waiting = false; chosen = -1; hold_sp = 0;
+                        g_cpu.R[14] = game->native_arrival | 1u;
+                        gbarecomp::guest_return_now(pc, 1u);
+                        return true;
+                    }
                 }
                 // The very same exit request made by native dungeon Retreat.
                 b->write16(record[4] + game->exit_offset, 999u);
@@ -213,6 +307,9 @@ inline bool on_entry(std::uint32_t pc) {
     busy = false;
     destinations.erase(std::remove_if(destinations.begin(), destinations.end(),
         [](const auto& d) { return !visited(d); }), destinations.end());
+    if (gbarecomp::cheat_option_get(gbarecomp::kOptionDebugRooms, 0))
+        for (const auto& r : game->debug_rooms)
+            destinations.push_back({r.name, 0u, 0u, r.room, 0u, 0u, true});
     record = {kHoldTag, ~kHoldTag, sp, game->caller_return,
               b->read32(game->state_slot), 2u,
               caster | (b->read32(game->room) & 0xFFFF0000u), game->dispatcher};

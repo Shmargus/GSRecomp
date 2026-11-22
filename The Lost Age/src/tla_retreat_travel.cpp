@@ -14,6 +14,21 @@ constexpr Town towns[] = {
     {"Apojii Islands", 36}, {"Izumo", 38}, {"Champa", 40}, {"Lemuria", 45},
     {"Contigo", 54}, {"Shaman Village", 58}, {"Loho", 59}, {"Prox", 62},
 };
+// Leftover test rooms, in every supported ROM (identical room-table rows).
+// Names are the game's own location names. FACTS "Debug rooms in Retreat".
+constexpr travel::DebugRoom debug_rooms[] = {
+    {"Test 0", 313}, {"Test 1", 314}, {"Test 2", 315}, {"Test 3", 316},
+    {"Test 4", 317}, {"Test 5", 318}, {"Test 6", 319}, {"Test 7", 320},
+    {"Icon Test", 321}, {"Psynergy Test", 322}, {"Psynergy Test 2", 323},
+    {"Shop Test", 324},
+};
+// The character the player moves, as 0x080CB8E8 picks it: the ship actor
+// (field + 0x34) while 0x020004B6 is set, else field actor [0x02000454].
+std::uint32_t controlled(gba::GbaBus* b) {
+    const auto field = b->read32(0x0300006Cu);
+    return b->read16(0x020004B6u) ? b->read32(field + 0x34u)
+        : b->read32(field + 0x14u + b->read32(0x02000454u) * 4u);
+}
 bool rom_range(gba::GbaBus* b, std::uint32_t p, unsigned n) {
     return p >= 0x08000000u && std::uint64_t(p - 0x08000000u) + n <= b->rom_size();
 }
@@ -66,6 +81,12 @@ std::vector<travel::Destination> list() {
 }
 bool arrive(const travel::Destination& d) {
     auto* b = gbarecomp::active_bus();
+    if (d.debug) {
+        // Arrive on foot, as the town arrival below does for any non-world
+        // room; the ship stays where it is.
+        b->write16(0x020004B6u, 0u);
+        return true;
+    }
     unsigned dock = 0;
     if (!rom_range(b, d.route, 20) || b->read16(d.route + 16u) != d.room ||
         b->read16(d.route + 18u) != d.entrance ||
@@ -167,10 +188,13 @@ void tla_install_retreat_travel(gbarecomp::RunOptions& options) {
         TLA_ROM(0x08038040u), TLA_ROM(0x08038140u), TLA_ROM(0x080D295Cu),
         TLA_ROM(0x080AD078u), TLA_ROM(0x080CE8C3u), TLA_ROM(0x080E0DD4u),
         0x30u, 0x40u};
+    static const travel::Spot spot = {TLA_ROM(0x080CAD9Cu), 0x02001004u, 0x02002084u,
+        0x0200043Cu, 0x020004B6u, controlled};
     static const travel::Game profile = {TLA_ROM(0x080CE61Cu), TLA_ROM(0x080CC343u),
         TLA_ROM(0x08013560u), TLA_ROM(0x081C0010u), 0x02000428u,
         0x02000420u, 0x0300006Cu, 0x02000520u, 0x158u, 6u,
-        tla_field_psy_fast, list, arrive, tla_publish_menu_art, TLA_ROM(0x080CE61Cu), 6u, &cast};
+        tla_field_psy_retreat, list, arrive, tla_publish_menu_art, TLA_ROM(0x080CE61Cu), 6u, &cast, nullptr,
+        debug_rooms, 0x020004A0u, &spot};
     travel::install(profile);
     next_keys = options.keyinput_filter;
     options.keyinput_filter = keys;

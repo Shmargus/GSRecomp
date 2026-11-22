@@ -193,7 +193,6 @@ void prompt_open(bool names) {
 }
 
 bool g_challenge_levels_pending = false;
-bool g_random_psynergy_pending = false;
 bool g_random_weapons_pending = false;
 
 // The answers take effect. Always written, so a new game never keeps an
@@ -219,11 +218,11 @@ void prompt_finish() {
     // Weapons and Armor change the finds; their stats shuffle only with Stats.
     const bool weapons = r.random[ng::kWeapons], armour = r.random[ng::kArmor];
     const bool stat_weapons = weapons && r.stats, stat_armour = armour && r.stats;
-    const bool run = psynergy || items || coins || scaled || weapons || armour;
+    const bool djinn = r.random[ng::kDjinn];
+    const bool run = psynergy || items || coins || scaled || weapons || armour || djinn;
     rp::store({run ? r.seed : 0u, psynergy, r.fair_on(ng::kFairPsynergy), items, items && r.bargains, coins,
                scaled, weapons, armour, r.fair_on(ng::kFairItems), r.fair_on(ng::kFairCoins),
-               r.fair_on(ng::kFairShops)});
-    g_random_psynergy_pending = psynergy;
+               r.fair_on(ng::kFairShops), psynergy && r.enemy_skills, psynergy && r.by_class, djinn});
     const bool stats = stat_weapons || stat_armour;
     rw::store({stats ? r.seed : 0u, stats && r.scaling, stat_armour, stat_weapons});
     g_random_weapons_pending = stats;
@@ -409,6 +408,13 @@ void skip_opening_apply() {
     gbarecomp::guest_call(GS_ROM(0x08077428u) | 1u, leader, 0, 0, 0, &result);
     const std::uint32_t at = kFlags + (kFlintFlag >> 3);
     bus_write_u8(at, static_cast<std::uint8_t>(bus_read_u8(at) | (1u << (kFlintFlag & 7u))));
+
+    // Catch Beads (item 0xCF), the Great Healer's gift on leaving Vale
+    // (rom_784360 0x02009EA2..A6 -> gift helper 0x08091A58): its story flags
+    // come from the measured file above, the item does not, so add it to
+    // the leader through the give-item helper 0x08078588(id, item).
+    constexpr std::uint32_t kCatchBeads = 0xCFu;
+    gbarecomp::guest_call(GS_ROM(0x08078588u) | 1u, leader, kCatchBeads, 0, 0, &result);
 }
 
 // Entry to the frame routine while held: wait one frame (r0 = 1), then come
@@ -417,9 +423,9 @@ void question_hold_frame_entry() {
     if (g_question_hold != QuestionHold::Waiting) return;
     if (!g_hard_prompt_open && g_question_pc == gsr::hard_mode::kNewGameEntryPc) {
         challenge_apply_levels();
-        // After the challenge's level-1 picks: the plan's lists from the start.
-        if (g_random_psynergy_pending) gsr::random_psynergy::tbs::apply_new_game();
-        g_random_psynergy_pending = false;
+        // After the challenge's level-1 picks: the plan's lists from the start
+        // (and a challenge leader's puzzle Psynergy; a no-op otherwise).
+        gsr::random_psynergy::tbs::apply_new_game();
         // The new weapons, and the stats of the heroes holding one.
         if (g_random_weapons_pending) gsr::random_weapons::tbs::apply_new_game();
         g_random_weapons_pending = false;
@@ -653,7 +659,7 @@ void paint_new_game_flow(std::uint8_t* rgb, std::uint32_t width, std::uint32_t h
             const auto& r = view.rows[static_cast<std::size_t>(row)];
             const int y = inner_y + first + row * kPitch + (view.gap_before >= 0 && row >= view.gap_before ? kGapY : 0);
             if (row == view.cursor) draw_text(">", inner_x + kLabelX, y);
-            int x = inner_x + kLabelX + 10;
+            int x = inner_x + kLabelX + 10 + r.indent;
             if (r.box >= 0) {
                 checkbox(x, y, r.box == 1, r.locked);
                 x += 12;

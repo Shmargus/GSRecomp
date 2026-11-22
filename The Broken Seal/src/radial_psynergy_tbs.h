@@ -54,6 +54,10 @@ inline void install(void (*font)()) {
         gs::text(0x333u),
         GS_ROM(0x080736B8u) - mods::kRomBase, GS_ROM(0x0803842Cu) - mods::kRomBase,
         font, auto_cast(),
+        // 0x0800EA82..EA8E: halfword field + 0x19E == 3 is the world map;
+        // the Psynergy menu writes its word to field + 0x17E there
+        // (0x080A5C44; measured 19 November 2026, FACTS).
+        0u, 0x19Eu, 2u, 0x17Eu,
     };
     radial_psynergy::install(profile);
 }

@@ -23,6 +23,7 @@
 #include "runtime_bus_bridge.h"
 #include "tla.h"
 #include "../../shared_game/quality_of_life.h"
+#include "../../shared_game/field_psynergy_options.h"
 #include "../../shared_game/battle_retarget.h"
 
 namespace {
@@ -60,7 +61,6 @@ std::string row_value(int row) {
     case kEncounterRow: return kEncounterWords[tla_encounter_rate() & 3];
     case kScreenRow: return kScreenWords[std::clamp(runtime_get_view_mode(), 0, gbarecomp::kViewModeCount - 1)];
     case kNoSlowdownRow: return kOnOffWords[runtime_get_no_slowdown() != 0 ? 1 : 0];
-    case kFieldPsyRow: return kOnOffWords[tla_field_psy_fast() ? 1 : 0];
     }
     return "";
 }
@@ -82,9 +82,6 @@ void change_row(int row, bool right) {
         break;
     case kNoSlowdownRow:
         runtime_request_no_slowdown(runtime_get_no_slowdown() != 0 ? 0 : 1);
-        break;
-    case kFieldPsyRow:
-        tla_set_field_psy_fast(!tla_field_psy_fast());
         break;
     }
 }
@@ -132,7 +129,8 @@ namespace {
 std::vector<gsr::qol_menu::Row> quality_of_life_rows() {
     std::vector<gsr::qol_menu::Row> rows;
     for (int i = 0; i < kRowCount; ++i) {
-        rows.push_back({kRowLabels[i], kRowHelp[i], [i] { return row_value(i); },
+        if (i == kFieldPsyRow) rows.push_back(gsr::field_psy::qol_row(kRowLabels[i], kRowHelp[i]));
+        else rows.push_back({kRowLabels[i], kRowHelp[i], [i] { return row_value(i); },
             [i](int direction) { change_row(i, direction > 0); }});
         if (i == kScreenRow) rows.push_back(gsr::qol::aspect_row());
     }

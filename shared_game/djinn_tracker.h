@@ -79,6 +79,13 @@ inline std::atomic<bool> pictures_ready{false};
 inline bool pictures_tried = false;
 // Bit i of owned[e] = the element's Djinni i in the loaded save.
 inline std::array<std::atomic<std::uint32_t>, kElements> owned{};
+// Random Djinn (random_djinn.h), written by the emulation thread. Slots are
+// then spots: gives[element * 20 + index] is 1 + the Djinni (element * 20 +
+// index) the spot of Djinni (element, index) gives, 0 where the spot is not
+// shuffled; bit index of spot_taken[element] is that spot's flag (0x30 +
+// element * 20 + index), set once it has been taken.
+inline std::array<std::atomic<std::int16_t>, kElements * 20> gives{};
+inline std::array<std::atomic<std::uint32_t>, kElements> spot_taken{};
 
 // Frame 0 of field sprite `sprite`, as The Broken Seal's loader 0800AE80
 // builds it for codec 3: 0800A97C unpacks it, then 08009BB8's colour stream.
@@ -212,12 +219,25 @@ inline void draw() {
     const ImVec2 size(g.columns * kDefaultCell + style.WindowPadding.x * 2,
                       (kElements + 2) * line_h + kElements * (element_rows * kDefaultCell + style.ItemSpacing.y) +
                           style.WindowPadding.y * 2);
+    // Each slot: found or not, and the Djinni it shows (its own, or in a
+    // Random Djinn run the one its spot gives).
     std::array<std::uint32_t, kElements> have;
     std::array<int, kElements> found{};
+    std::vector<int> shows(std::size_t(kElements * g.per_element));
     int total = 0;
     for (int e = 0; e < kElements; ++e) {
         have[e] = owned[e].load(std::memory_order_relaxed);
-        for (int i = 0; i < g.per_element; ++i) found[e] += (have[e] >> i) & 1u;
+        const std::uint32_t spots = spot_taken[e].load(std::memory_order_relaxed);
+        for (int i = 0; i < g.per_element; ++i) {
+            int& slot = shows[std::size_t(e * g.per_element + i)];
+            slot = e * g.per_element + i;
+            if (const int given = gives[std::size_t(e * 20 + i)].load(std::memory_order_relaxed) - 1;
+                given >= 0 && given % 20 < g.per_element) {
+                slot = given / 20 * g.per_element + given % 20;
+                have[e] = (have[e] & ~(1u << i)) | (((spots >> i) & 1u) << i);
+            }
+            found[e] += (have[e] >> i) & 1u;
+        }
         total += found[e];
     }
     const auto title = tracker_text::format(gbarecomp::ui_text("Djinn  %d/%d"), total, kElements * g.per_element);
@@ -257,7 +277,7 @@ inline void draw() {
                 if (!bright && !show_all) {
                     draw_question_mark(list, lo, cell);
                 } else if (ready) {
-                    const Picture& pic = pictures[e];
+                    const Picture& pic = pictures[shows[std::size_t(e * g.per_element + i)] / g.per_element];
                     const float scale = cell / float(std::max(pic.width, pic.height));
                     draw_picture(list, pic, ImVec2(lo.x + (cell - pic.width * scale) * 0.5f,
                                                    lo.y + (cell - pic.height * scale) * 0.5f), scale, bright);
@@ -274,12 +294,13 @@ inline void draw() {
             const bool have_it = (have[hovered / g.per_element] >> (hovered % g.per_element)) & 1u;
             ImGui::BeginTooltip();
             if (show_all || have_it)
-                ImGui::TextColored(kGold, "%s%s", tracker_text::name(g.djinn[hovered].name).c_str(),
+                ImGui::TextColored(kGold, "%s%s", tracker_text::name(g.djinn[shows[std::size_t(hovered)]].name).c_str(),
                     have_it ? "" : gbarecomp::ui_text(" (not found yet)"));
             else
                 ImGui::TextColored(kGold, "%s", gbarecomp::ui_text("Unfound Djinni"));
             ImGui::PushTextWrapPos(ImGui::GetCursorPosX() +
                 std::max(1.0f, ImGui::GetMainViewport()->WorkSize.x - style.WindowPadding.x * 2));
+            // The slot is the spot, so its location is the spot's own.
             ImGui::TextUnformatted(tracker_text::route(g.djinn[hovered].location).c_str());
             ImGui::PopTextWrapPos();
             ImGui::EndTooltip();

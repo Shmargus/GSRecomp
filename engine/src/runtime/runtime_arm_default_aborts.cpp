@@ -100,6 +100,24 @@ struct RamCodeGuardKeyHash {
 // tree (std::map was ~6.7% of TLA Turbo guest time, session 20261021_184612).
 std::unordered_map<RamCodeGuardKey, RamCodeGuardEntry, RamCodeGuardKeyHash>
     g_ram_code_guards;
+// Recently used guards, in front of the table (most guarded routines run
+// many times a frame). Elements of an unordered_map keep their address
+// while others are added, so only clearing the table empties this too.
+struct RamCodeGuardSlot {
+    uint32_t start = 0, end = 0, crc = 0;
+    RamCodeGuardEntry* entry = nullptr;
+};
+std::array<RamCodeGuardSlot, 256> g_ram_code_guard_slots{};
+RamCodeGuardEntry& ram_code_guard_entry(uint32_t start, uint32_t end,
+                                        uint32_t crc) {
+    RamCodeGuardSlot& slot = g_ram_code_guard_slots[
+        ((start >> 1) ^ (start >> 9) ^ crc) & 0xFFu];
+    if (slot.entry && slot.start == start && slot.end == end && slot.crc == crc)
+        return *slot.entry;
+    RamCodeGuardEntry& entry = g_ram_code_guards[{start, end, crc}];
+    slot = {start, end, crc, &entry};
+    return entry;
+}
 std::uint64_t g_ram_smc_fallbacks = 0;
 
 // Program identity, set once at startup, stamped into the persisted miss/
@@ -220,6 +238,7 @@ void self_heal_reset() {
     g_interp_insns = 0;
     g_bridge_native_handoffs = 0;
     g_ram_code_guards.clear();
+    g_ram_code_guard_slots = {};
     g_ram_smc_fallbacks = 0;
 }
 
@@ -557,8 +576,7 @@ extern "C" int runtime_ram_code_guard(uint32_t start, uint32_t end,
         }
     }
 
-    RamCodeGuardEntry& guard =
-        g_ram_code_guards[{start, end, expected_crc32}];
+    RamCodeGuardEntry& guard = ram_code_guard_entry(start, end, expected_crc32);
     // Word epochs: only stores into the guarded bytes count, not data
     // sharing their page (ram_code_words.h).
     const unsigned int* word_epochs = region == 0x03u

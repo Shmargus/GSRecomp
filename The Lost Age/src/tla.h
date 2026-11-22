@@ -4,6 +4,7 @@
 #pragma once
 
 #include "tla_rom_version.h"
+#include "frame_history.h"
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -100,8 +101,9 @@ constexpr std::uint32_t kTlaMapIdAddr = 0x02000428u;
 void tla_install_battle_speed(gbarecomp::RunOptions& options);
 bool tla_battle_speed_active();
 bool tla_battle_spell_setup_frame();
-bool tla_field_psy_fast();
-void tla_set_field_psy_fast(bool on);
+// Faster Psynergy's parts (shared_game/field_psynergy_options.h).
+bool tla_field_psy_reveal();
+bool tla_field_psy_retreat();
 
 // src/tla_encounters.cpp: Encounters (settings page two).
 void tla_install_encounters(gbarecomp::RunOptions& options);
@@ -131,6 +133,7 @@ bool tla_scaled_difficulty();
 // The Treasure Tracker's planned reward for a field treasure flag (Random
 // Treasure): item ID or coins, 0 when none (shared_game/treasure_randomizer.h).
 unsigned tla_tracker_reward(unsigned flag);
+unsigned tla_tracker_gift(unsigned pack, unsigned item);
 // Sets it (the settings screen's Difficulty row, tla_hard_mode.cpp).
 void tla_set_scaled_difficulty(bool on);
 // Left/Right on the settings screen's Difficulty row (tla_hard_mode.cpp).
@@ -250,8 +253,10 @@ bool tla_gpu_field_present(std::uint8_t* rgb, std::uint32_t width, std::uint32_t
                            bool direct_ok);
 void tla_rewind_reset();
 void tla_gpu_field_dump(const std::string& path);
-std::string tla_gpu_field_snapshot(std::uint32_t width, std::uint32_t height,
-                                   std::uint64_t* scene_frame = nullptr);
+// This frame's capture for the F12 history (null: none); its TLAGPUF2
+// bytes are made only when a capture is saved.
+std::shared_ptr<const gbarecomp::SceneSnapshot> tla_gpu_field_snapshot(
+    std::uint32_t width, std::uint32_t height, std::uint64_t* scene_frame = nullptr);
 
 // src/tla_rewind.cpp: F12 saves the last 2 seconds of frames.
 void tla_install_rewind();

@@ -10,6 +10,7 @@
 #include "symbol_lookup.h"
 #include "env_flag.h"
 #include "game_ram_layout.h"
+#include "rom_pc_filter.h"
 
 #include <algorithm>
 #include <atomic>
@@ -1190,8 +1191,14 @@ extern "C" int runtime_ram_code_range_dirty(uint32_t start, uint32_t end) {
     else return 0;
     const uint32_t first = (start & mask) >> 2;
     const uint32_t last = ((end - 1u) & mask) >> 2;
-    for (uint32_t word = first; word <= last; ++word) {
-        if (bits[word >> 6] & (1ull << (word & 63u))) return 1;
+    if (first > last) return 0;
+    // 64 words per test; the first and last test are masked to the range.
+    const uint32_t lo = first >> 6, hi = last >> 6;
+    for (uint32_t i = lo; i <= hi; ++i) {
+        uint64_t m = ~0ull;
+        if (i == lo) m &= ~0ull << (first & 63u);
+        if (i == hi) m &= ~0ull >> (63u - (last & 63u));
+        if (bits[i] & m) return 1;
     }
     return 0;
 }
@@ -1446,6 +1453,15 @@ const char* trace_kind_name(uint32_t kind) {
 
 }  // namespace
 
+namespace {
+const gbarecomp::RomPcFilter* g_mem_write_override_filter = nullptr;
+}  // namespace
+
+extern "C" void runtime_set_mem_write_override_filter(
+    const gbarecomp::RomPcFilter* filter) {
+    g_mem_write_override_filter = filter;
+}
+
 extern "C" void runtime_trace_event(uint32_t kind, uint32_t pc,
                                      uint32_t addr, uint32_t value,
                                      uint32_t aux) {
@@ -1462,7 +1478,9 @@ extern "C" void runtime_trace_event(uint32_t kind, uint32_t pc,
     // unreachable for every other game-owned policy. Each policy gates
     // itself; the hook remains null by default.
     if (kind == RUNTIME_TRACE_MEM_WRITE &&
-        g_runtime_mem_write_override) {
+        g_runtime_mem_write_override &&
+        (!g_mem_write_override_filter ||
+         g_mem_write_override_filter->may_match(pc))) {
         uint32_t transformed = value;
         if (g_runtime_mem_write_override(
                 pc, addr, value, aux, &transformed) != 0 &&

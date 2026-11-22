@@ -163,8 +163,12 @@ void log_line(const std::string& s) {
 // ---------------------------------------------------------------- files
 
 std::vector<std::uint8_t> read_bytes(const fs::path& p) {
-    std::ifstream f(p, std::ios::binary);
-    return std::vector<std::uint8_t>((std::istreambuf_iterator<char>(f)), {});
+    std::ifstream f(p, std::ios::binary | std::ios::ate);
+    const auto size = f.tellg();
+    if (size <= 0 || !f.seekg(0)) return {};
+    std::vector<std::uint8_t> out(static_cast<std::size_t>(size));
+    if (!f.read(reinterpret_cast<char*>(out.data()), size)) return {};
+    return out;
 }
 
 std::string read_text(const fs::path& p) {
@@ -1052,7 +1056,8 @@ std::string build_inputs_sha1(const Setup& s, const std::string& rom_sha1,
     add_tree("header", s.engine / "include");
     add_tree("generated", gen_dir(s));
     // Link inputs include the export table and the engine's library name.
-    text += "exports " + sha1_hex(make_def(sources).data(), make_def(sources).size()) + "\n";
+    const std::string def = make_def(sources);
+    text += "exports " + sha1_hex(def.data(), def.size()) + "\n";
     text += std::string("engine ") + kEngineFile + "\n";
     return ok ? sha1_hex(text.data(), text.size()) : std::string();
 }

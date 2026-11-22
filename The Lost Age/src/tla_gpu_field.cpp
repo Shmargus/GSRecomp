@@ -47,6 +47,7 @@
 #include "gpu_surface.h"
 #include "texture_readback_queue.h"
 #include "frame_history.h"
+#include "snapshot_pool.h"
 #include "runtime.h"
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
@@ -98,9 +99,13 @@ struct Capture {
     const std::uint8_t* rom = nullptr;
     std::size_t rom_bytes = 0;
 };
-Capture g_capture;
+// This frame's capture, shared with the present queue, the F12 history and
+// the world map's held view (snapshot_pool.h); nothing changes one once taken.
+gbarecomp::SnapshotPool<Capture> g_capture_pool;
+std::shared_ptr<const Capture> g_capture;
+bool capture_valid() { return g_capture && g_capture->valid; }
 struct GpuPresentation {
-    Capture capture;
+    std::shared_ptr<const Capture> capture;
     gbarecomp::HistoryFrame frame;
 };
 gbarecomp::TextureReadbackQueue<GpuPresentation> g_readback;
@@ -388,7 +393,8 @@ void capture() {
 
     // Diagnostic capture alone must not enable placement overrides in the
     // console/Direct3D path; retain the existing renderer-owned hook behavior.
-    if (g_enabled) tla_widescreen_frame(game_window_open(bus, io));
+    const bool window_open = game_window_open(bus, io);
+    if (g_enabled) tla_widescreen_frame(window_open);
     gsr::FieldScene scene{};
     gsr::field_scene_capture(&scene, ppu->frame_count(), io.data(), bus->oam_ptr(),
                              bus->pal_ptr(), ppu->latched_native_line_io(),
@@ -398,7 +404,6 @@ void capture() {
                              int(ppu->view_extra_top()), int(ppu->view_extra_bottom()));
     ++g_captured;
     if (!scene.valid || !scene.supported) {
-        g_capture.valid = false;
         ++g_undescribed;
         if ((g_only || g_check) && scene.unsupported_reason) {
             static const char* said = nullptr;
@@ -411,49 +416,52 @@ void capture() {
         }
     }
     // Retain raw state even for unsupported frames: F12 must show the fault,
-    // rather than borrow the last frame the renderer accepted.
-    g_capture.scene = scene;
-    g_capture.ripple_phase = bus->read8(0x0300122Cu);
+    // rather than borrow the last frame the renderer accepted. A recycled
+    // capture: every field is set again below.
+    const std::shared_ptr<Capture> capture = g_capture_pool.take();
+    capture->scene = scene;
+    capture->ripple_phase = bus->read8(0x0300122Cu);
     static int iris_k = -1;
-    g_capture.iris = iris_window(bus, &iris_k);
-    g_capture.camera_hold_y = tla_camera_hold_y();
-    tla_camera_kept_bounds(g_capture.kept, g_capture.kept_lo, g_capture.kept_edge);
-    g_capture.rom = bus->rom_ptr();
-    g_capture.rom_bytes = bus->rom_size();
+    capture->iris = iris_window(bus, &iris_k);
+    capture->camera_hold_y = tla_camera_hold_y();
+    tla_camera_kept_bounds(capture->kept, capture->kept_lo, capture->kept_edge);
+    capture->rom = bus->rom_ptr();
+    capture->rom_bytes = bus->rom_size();
     // The console's 96 KB, and the second sprite page while it is in use
     // (src/tla_sprite_memory.cpp).
-    g_capture.vram.assign(bus->vram_ptr(), bus->vram_ptr() +
+    capture->vram.assign(bus->vram_ptr(), bus->vram_ptr() +
         gba::GbaBus::kNativeVram + (bus->obj_extra() ? gba::GbaBus::kObjExtraVram : 0));
-    g_capture.window_open = game_window_open(bus, io);
+    capture->window_open = window_open;
     const bool field =
         scene.video_mode == 0 && bus->read32(kTlaBattleSlot) == 0u;
-    build_room_vram(g_capture.vram, field, bus->read16(kTlaMapIdAddr),
-                    g_capture.window_open, scene.palette,
-                    &g_capture.room_vram, &g_capture.room_palette);
-    g_capture.ewram.assign(bus->ewram_ptr(), bus->ewram_ptr() + 256 * 1024);
-    g_capture.iwram.assign(bus->iwram_ptr(), bus->iwram_ptr() + 32 * 1024);
-    tla_restore_room_palette(g_capture.window_open,
-        g_capture.ewram.data(), g_capture.ewram.size(),
-        g_capture.iwram.data(), g_capture.iwram.size(), &g_capture.room_palette);
-    g_capture.io = io;
-    g_capture.oam.assign(bus->oam_ptr(), bus->oam_ptr() + 1024);
-    g_capture.pal.assign(bus->pal_ptr(), bus->pal_ptr() + 1024);
+    build_room_vram(capture->vram, field, bus->read16(kTlaMapIdAddr),
+                    capture->window_open, scene.palette,
+                    &capture->room_vram, &capture->room_palette);
+    capture->ewram.assign(bus->ewram_ptr(), bus->ewram_ptr() + 256 * 1024);
+    capture->iwram.assign(bus->iwram_ptr(), bus->iwram_ptr() + 32 * 1024);
+    tla_restore_room_palette(capture->window_open,
+        capture->ewram.data(), capture->ewram.size(),
+        capture->iwram.data(), capture->iwram.size(), &capture->room_palette);
+    capture->io = io;
+    capture->oam.assign(bus->oam_ptr(), bus->oam_ptr() + 1024);
+    capture->pal.assign(bus->pal_ptr(), bus->pal_ptr() + 1024);
     constexpr std::size_t kRows = gsr::FieldScene::kRows;
     const auto* row_bytes = ppu->latched_native_line_io();
-    g_capture.row_io.assign(row_bytes, row_bytes + kRows * gsr::FieldScene::kLineIoBytes);
+    capture->row_io.assign(row_bytes, row_bytes + kRows * gsr::FieldScene::kLineIoBytes);
     const bool* io_valid = ppu->latched_native_line_io_valid();
-    g_capture.row_io_valid.assign(io_valid, io_valid + kRows);
+    capture->row_io_valid.assign(io_valid, io_valid + kRows);
     const auto* affine = reinterpret_cast<const std::uint8_t*>(
         ppu->latched_native_affine_line_refs());
-    g_capture.row_affine.assign(affine, affine + kRows * 4u * sizeof(std::int32_t));
+    capture->row_affine.assign(affine, affine + kRows * 4u * sizeof(std::int32_t));
     const bool* affine_valid = ppu->latched_native_affine_line_ref_valid();
-    g_capture.row_affine_valid.assign(affine_valid, affine_valid + kRows);
+    capture->row_affine_valid.assign(affine_valid, affine_valid + kRows);
     // Sparks for the canvas this frame shows, while the game still copies
     // it to the screen; an ended spell's are dropped.
-    g_capture.effects = gsr::effect_capture_take();
+    capture->effects = gsr::effect_capture_take();
     if (ppu->frame_count() > gsr::effect_capture_last_copy_frame() + 8u)
-        g_capture.effects = {};
-    g_capture.valid = scene.valid && scene.supported;
+        capture->effects = {};
+    capture->valid = scene.valid && scene.supported;
+    g_capture = capture;
 }
 
 // Flat magenta: no Golden Sun palette makes it, so it is never mistaken for
@@ -517,12 +525,14 @@ void check_against_console(const std::uint8_t* console, const std::uint8_t* gpu,
     }
 }
 
-bool draw_capture(const Capture& capture, std::uint8_t* rgb,
+bool draw_capture(const std::shared_ptr<const Capture>& owned, std::uint8_t* rgb,
                   std::uint32_t width, std::uint32_t height,
                   const char** refusal = nullptr,
                   gbarecomp::HistoryFrame* frame = nullptr,
-                  bool synchronous = true, Capture* delivered_capture = nullptr,
+                  bool synchronous = true,
+                  std::shared_ptr<const Capture>* delivered_capture = nullptr,
                   bool side_picture = false, bool direct = false) {
+    const Capture& capture = *owned;
     gsr::FieldScene scene = capture.scene;
     gsr::SceneMargins margins;  // margin data lives outside the scene
     margins.iris = capture.iris;
@@ -582,7 +592,7 @@ bool draw_capture(const Capture& capture, std::uint8_t* rgb,
         in.room_palette_entries = capture.room_palette.size();
     }
     in.menu_open = capture.window_open;
-    in.reveal_full = tla_field_psy_fast();
+    in.reveal_full = tla_field_psy_reveal();
     in.flicker_weight = gbarecomp::temporal_blend_weight_for_index(
         gbarecomp::flicker_reduction_index());
     in.side_picture = side_picture;
@@ -614,9 +624,10 @@ bool draw_capture(const Capture& capture, std::uint8_t* rgb,
     if (frame) {
         const bool battle = frame->battle_2x;
         frame->gpu_drawn = true;
+        // The present queue holds this frame's shared capture, not a copy.
         auto delivered = g_readback.present(surface, renderer.output_texture(),
             int(width), int(height), rgb, runtime_current_frame(),
-            GpuPresentation{capture, std::move(*frame)}, synchronous);
+            GpuPresentation{owned, std::move(*frame)}, synchronous);
         if (!delivered) {
             *frame = gbarecomp::FrameHistory::capture();
             frame->battle_2x = battle;
@@ -645,7 +656,7 @@ bool draw_capture(const Capture& capture, std::uint8_t* rgb,
 // are still the right picture: keep them and paint them around the live
 // picture on menu frames.
 std::vector<std::uint8_t> g_world_margin;
-Capture g_world_settled;
+std::shared_ptr<const Capture> g_world_settled;
 gsr::HeldPaletteEffect g_world_palette_effect;
 std::uint32_t g_world_margin_w = 0, g_world_margin_h = 0;
 
@@ -792,31 +803,30 @@ bool world_map_needs_cpu(const Capture& capture) {
 // A frame shown straight from the card has no copied picture to hold: keep
 // the settled capture, and the first menu frame redraws the held margins
 // from it (world_map_margin_hold's other-size branch, as after a resize).
-void world_map_remember_settled(const Capture& capture) {
+void world_map_remember_settled(const std::shared_ptr<const Capture>& shared) {
+    const Capture& capture = *shared;
     if (!on_world_map(capture)) {
         g_world_margin.clear();
         g_world_settled = {};
         return;
     }
     if (world_map_fading(capture.io)) return;
-    try {
-        g_world_settled = capture;
-    } catch (const std::bad_alloc&) {
-        g_world_settled = {};
-    }
+    g_world_settled = shared;
     g_world_margin.clear();
     g_world_margin_w = g_world_margin_h = 0;
     g_world_palette_effect.save(capture.pal);
 }
 
 void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
-                           std::uint32_t height, const Capture& capture) {
-    const std::vector<std::uint8_t>& io = capture.io;
-    if (!on_world_map(capture)) {
+                           std::uint32_t height,
+                           const std::shared_ptr<const Capture>& shared) {
+    if (!shared || !on_world_map(*shared)) {
         g_world_margin.clear();  // anywhere else: the saved view is stale
         g_world_settled = {};
         return;
     }
+    const Capture& capture = *shared;
+    const std::vector<std::uint8_t>& io = capture.io;
     const unsigned mode = io[0] & 7u;
     const std::uint32_t x0 = (width - 240u) / 2u, y0 = (height - 160u) / 2u;
     if (mode == 2u) {
@@ -824,9 +834,8 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
         if (paint_shutter_rows(rgb, width, height, capture.scene)) return;
         if (!world_map_fading(io)) {
             try {
-                Capture settled = capture;
                 std::vector<std::uint8_t> margin(rgb, rgb + std::size_t{width} * height * 3u);
-                g_world_settled = std::move(settled);
+                g_world_settled = shared;
                 g_world_margin = std::move(margin);
                 g_world_margin_w = width;
                 g_world_margin_h = height;
@@ -858,7 +867,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     }
     std::uint8_t colour[3] = {0, 0, 0};
     if (flat) std::memcpy(colour, first, 3);
-    if (!flat && g_world_settled.valid &&
+    if (!flat && g_world_settled && g_world_settled->valid &&
         (g_world_margin_w != width || g_world_margin_h != height)) {
         try {
             std::vector<std::uint8_t> resized(std::size_t(width) * height * 3u);
@@ -879,9 +888,10 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     // drawn every frame with this frame's sprites; the held photo is the
     // fallback.
     static std::vector<std::uint8_t> live_margins;
-    static Capture mix;
+    static const auto mix = std::make_shared<Capture>();
     const std::vector<std::uint8_t>* margin_src = &g_world_margin;
-    if (held && gsr::live_world_margin_capture(g_world_settled, capture, mix)) {
+    if (held && g_world_settled &&
+        gsr::live_world_margin_capture(*g_world_settled, capture, *mix)) {
         live_margins.resize(std::size_t(width) * height * 3u);
         if (draw_capture(mix, live_margins.data(), width, height, nullptr, nullptr, true,
                          nullptr, true))
@@ -953,7 +963,7 @@ bool tla_gpu_field_present(std::uint8_t* rgb, std::uint32_t width,
                      "%llu presented, %llu drawn, %llu differ\n",
                      g_captured, g_undescribed, g_presented, g_tally.drawn,
                      g_tally.differing);
-    if (!g_capture.valid) {
+    if (!capture_valid()) {
         g_readback.invalidate();
         return g_only ? paint_refused(rgb, width, height,
                                       "nothing was captured this frame")
@@ -965,20 +975,20 @@ bool tla_gpu_field_present(std::uint8_t* rgb, std::uint32_t width,
         gsr::effect_capture_set_enabled(expanded);
     const char* reason = nullptr;
     bool drawn = false, direct = false;
-    Capture delivered;
+    std::shared_ptr<const Capture> delivered;
     try {
         if (g_check && !g_only) {
             std::vector<std::uint8_t> gpu(std::size_t(width) * height * 3u);
             drawn = draw_capture(g_capture, gpu.data(), width, height, &reason,
                                  &frame, true, &delivered);
             if (drawn) {
-                check_against_console(rgb, gpu.data(), width, height, g_capture.scene.frame);
+                check_against_console(rgb, gpu.data(), width, height, g_capture->scene.frame);
                 std::memcpy(rgb, gpu.data(), gpu.size());
             }
         } else {
             // `direct_ok`: the caller paints nothing on the CPU picture.
             direct = direct_ok && !synchronous && !g_check &&
-                     gbarecomp::gpu_present_accepting() && !world_map_needs_cpu(g_capture);
+                     gbarecomp::gpu_present_accepting() && !world_map_needs_cpu(*g_capture);
             drawn = draw_capture(g_capture, rgb, width, height, &reason,
                                  &frame, synchronous || g_check, &delivered, false, direct);
         }
@@ -992,7 +1002,7 @@ bool tla_gpu_field_present(std::uint8_t* rgb, std::uint32_t width,
         if (reason && reason != said) {
             said = reason;
             std::fprintf(stderr, "[gpu-field] declined frame %llu: %s\n",
-                         static_cast<unsigned long long>(g_capture.scene.frame), reason);
+                         static_cast<unsigned long long>(g_capture->scene.frame), reason);
         }
         return g_only ? paint_refused(rgb, width, height, reason) : false;
     }
@@ -1008,59 +1018,76 @@ bool tla_gpu_field_present(std::uint8_t* rgb, std::uint32_t width,
 
 // Each F12 history frame owns its rendering inputs, including room/menu
 // copies, signed sprite placement and the published spell/triangle history.
-std::string tla_gpu_field_snapshot(std::uint32_t width, std::uint32_t height,
-                                   std::uint64_t* scene_frame) {
-    if (g_capture.io.empty()) return {};
-    if (scene_frame) *scene_frame = g_capture.scene.frame;
-    std::string objects, stamps = tla_frame::pack_stamps(g_capture.effects.stamps), state,
+namespace {
+std::string snapshot_bytes(const Capture& c, std::uint32_t width, std::uint32_t height) {
+    std::string objects, stamps = tla_frame::pack_stamps(c.effects.stamps), state,
         camera;
-    tla_frame::u32(camera, static_cast<std::uint32_t>(g_capture.camera_hold_y));
+    tla_frame::u32(camera, static_cast<std::uint32_t>(c.camera_hold_y));
     // tla_camera_kept_bounds, x then y: kept, lo, edge (whole pixels).
     std::string kept;
     for (int n = 0; n < 2; ++n) {
-        tla_frame::u32(kept, g_capture.kept[n] ? 1u : 0u);
-        tla_frame::u32(kept, static_cast<std::uint32_t>(g_capture.kept_lo[n]));
-        tla_frame::u32(kept, static_cast<std::uint32_t>(g_capture.kept_edge[n]));
+        tla_frame::u32(kept, c.kept[n] ? 1u : 0u);
+        tla_frame::u32(kept, static_cast<std::uint32_t>(c.kept_lo[n]));
+        tla_frame::u32(kept, static_cast<std::uint32_t>(c.kept_edge[n]));
     }
-    for (const auto& object : g_capture.scene.objects) {
+    for (const auto& object : c.scene.objects) {
         tla_frame::u32(objects, std::uint32_t(object.x));
         tla_frame::u32(objects, std::uint32_t(object.y));
         // Bit 0 parked; bits 16+ the tile number the sprite was drawn from.
         tla_frame::u32(objects, (object.parked ? 1u : 0u) | (object.tile << 16));
     }
-    tla_frame::u32(state, (g_capture.window_open ? 1u : 0u) | (g_capture.valid ? 2u : 0u));
-    tla_frame::u32(state, g_capture.ripple_phase);
+    tla_frame::u32(state, (c.window_open ? 1u : 0u) | (c.valid ? 2u : 0u));
+    tla_frame::u32(state, c.ripple_phase);
     std::string iris;
-    if (g_capture.iris.found)
-        for (float v : {g_capture.iris.cx, g_capture.iris.cy, g_capture.iris.a2,
-                        g_capture.iris.b2})
+    if (c.iris.found)
+        for (float v : {c.iris.cx, c.iris.cy, c.iris.a2,
+                        c.iris.b2})
             iris.append(reinterpret_cast<const char*>(&v), sizeof v);
     const auto part = [](const char* name, const auto& data) {
         return tla_frame::Section{name, reinterpret_cast<const std::uint8_t*>(data.data()),
             data.size() * sizeof(*data.data())};
     };
-    return tla_frame::encode(g_capture.scene.frame, width, height, {
-        part("IO", g_capture.io), part("OAM", g_capture.oam), part("PAL", g_capture.pal),
-        tla_frame::Section{"VRAM", g_capture.vram.data(), gba::GbaBus::kNativeVram},
-        tla_frame::Section{"OBJX", g_capture.vram.data() + gba::GbaBus::kNativeVram,
-                           g_capture.vram.size() - gba::GbaBus::kNativeVram},
-        part("ROWIO", g_capture.row_io),
-        part("ROWVALID", g_capture.row_io_valid), part("AFFREF", g_capture.row_affine),
-        part("AFFVALID", g_capture.row_affine_valid), part("EWRAM", g_capture.ewram),
-        part("IWRAM", g_capture.iwram), part("ROOMVRAM", g_capture.room_vram),
-        part("ROOMPAL", g_capture.room_palette), part("OBJECTS", objects),
-        part("FXSTAMP", stamps), part("FXART", g_capture.effects.artwork), part("STATE", state),
+    return tla_frame::encode(c.scene.frame, width, height, {
+        part("IO", c.io), part("OAM", c.oam), part("PAL", c.pal),
+        tla_frame::Section{"VRAM", c.vram.data(), gba::GbaBus::kNativeVram},
+        tla_frame::Section{"OBJX", c.vram.data() + gba::GbaBus::kNativeVram,
+                           c.vram.size() - gba::GbaBus::kNativeVram},
+        part("ROWIO", c.row_io),
+        part("ROWVALID", c.row_io_valid), part("AFFREF", c.row_affine),
+        part("AFFVALID", c.row_affine_valid), part("EWRAM", c.ewram),
+        part("IWRAM", c.iwram), part("ROOMVRAM", c.room_vram),
+        part("ROOMPAL", c.room_palette), part("OBJECTS", objects),
+        part("FXSTAMP", stamps), part("FXART", c.effects.artwork), part("STATE", state),
         part("CAMHOLD", camera), part("KEPT", kept), part("IRIS", iris)});
+}
+
+struct Snapshot final : gbarecomp::SceneSnapshot {
+    std::shared_ptr<const Capture> capture;
+    std::uint32_t width = 0, height = 0;
+    std::string bytes() const override { return snapshot_bytes(*capture, width, height); }
+};
+}  // namespace
+
+std::shared_ptr<const gbarecomp::SceneSnapshot> tla_gpu_field_snapshot(
+    std::uint32_t width, std::uint32_t height, std::uint64_t* scene_frame) {
+    if (!g_capture || g_capture->io.empty()) return nullptr;
+    if (scene_frame) *scene_frame = g_capture->scene.frame;
+    auto snapshot = std::make_shared<Snapshot>();
+    snapshot->capture = g_capture;
+    snapshot->width = width;
+    snapshot->height = height;
+    return snapshot;
 }
 
 // Compatibility name for the single-frame report (format TLAGPUF2).
 void tla_gpu_field_dump(const std::string& path) {
     const auto* ppu = gbarecomp::active_ppu();
     if (!ppu) return;
-    const std::string bytes = tla_gpu_field_snapshot(
+    const auto snapshot = tla_gpu_field_snapshot(
         240u + ppu->view_extra_left() + ppu->view_extra_right(),
         160u + ppu->view_extra_top() + ppu->view_extra_bottom());
-    if (bytes.empty()) return;
+    if (!snapshot) return;
+    const std::string bytes = snapshot->bytes();
     std::FILE* f = std::fopen(path.c_str(), "wb");
     if (!f) return;
     std::fwrite(bytes.data(), 1, bytes.size(), f);

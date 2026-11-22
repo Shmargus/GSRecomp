@@ -132,11 +132,6 @@ namespace {
 // with the other options.
 std::atomic<bool> g_battle_speed_on{false};
 }  // namespace
-namespace gsr_runner {
-// Better Field Psy: Off / On (src/battle_speed.h), saved with the other
-// options.
-std::atomic<int> g_field_psynergy_fast{0};
-}  // namespace gsr_runner
 namespace {
 std::string g_options_path = gsr::settings_page::kOptionsFile;
 
@@ -155,8 +150,7 @@ void load_game_options(const char* argv0) {
         g_encounter_rate.store(encounters);
     g_battle_speed_on.store(
         gbarecomp::game_option_get(gsr::battle_speed::kOptionsKey, 0) != 0);
-    g_field_psynergy_fast.store(
-        gbarecomp::game_option_get(kFieldPsynergyKey, 0) != 0 ? 1 : 0);
+    gsr::field_psy::load();
 }
 }  // namespace gsr_runner
 namespace {
@@ -166,8 +160,6 @@ void save_game_options() {
                                g_encounter_rate.load());
     gbarecomp::game_option_set(gsr::battle_speed::kOptionsKey,
                                g_battle_speed_on.load() ? 1 : 0);
-    gbarecomp::game_option_set(gsr::settings_page::kFieldPsynergyKey,
-                               g_field_psynergy_fast.load() ? 1 : 0);
 }
 
 }  // namespace
@@ -338,7 +330,7 @@ int battle_speed_wait_mask(std::uint32_t* out_value) {
     g_battle_toggle_held = toggle;
     const bool battle_2x = in_battle && g_battle_speed_on.load();
     // A field Psynergy cast at Fast: the same 2x, outside battle only.
-    const bool field_2x = !in_battle && g_field_psynergy_fast.load() != 0 &&
+    const bool field_2x = !in_battle && gsr::field_psy::on(gsr::field_psy::kFaster) &&
                           field_psynergy_casting();
     if (field_2x != g_field_psy_running) {
         g_field_psy_running = field_2x;
@@ -502,9 +494,7 @@ std::vector<gsr::qol_menu::Row> quality_of_life_rows() {
     rows.push_back({kRowLabels[kNoSlowdownRow], kRowHelp[kNoSlowdownRow],
         [] { return runtime_get_no_slowdown() ? "On" : "Off"; },
         [](int) { runtime_request_no_slowdown(!runtime_get_no_slowdown()); }});
-    rows.push_back({kRowLabels[kFieldPsynergyRow], kRowHelp[kFieldPsynergyRow],
-        [] { return g_field_psynergy_fast.load() ? "On" : "Off"; },
-        [](int) { g_field_psynergy_fast.store(!g_field_psynergy_fast.load()); save_game_options(); }});
+    rows.push_back(gsr::field_psy::qol_row(kRowLabels[kFieldPsynergyRow], kRowHelp[kFieldPsynergyRow]));
     rows.push_back(gsr::battle_retarget::qol_row());
     gsr::qol::append_switches(rows);
     return rows;

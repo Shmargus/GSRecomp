@@ -30,7 +30,6 @@ import hashlib
 import os
 import struct
 
-ROM_SHA1 = "b500663220cb9bf56b9f8e8c0c544f1d6fa3a824"
 MAGIC = b"GBAPIC5\0"
 ORIGIN = 0x02000000          # translation origin of every family
 SOURCE = 0x08C00000          # where harvest.gba holds the packed families

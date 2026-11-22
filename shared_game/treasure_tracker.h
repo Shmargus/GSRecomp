@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace gsr::treasure_tracker {
@@ -51,10 +52,13 @@ struct Game {
     std::uint32_t current_room;           // EWRAM offset: room, then entrance (u16)
     std::uint32_t reward_table = 0;       // ROM offset of The Lost Age's treasure table
     std::span<const EntranceName> entrance_names{};
+    std::span<const Gift> gifts{};
 };
 
 constexpr std::size_t kMaxTreasures = 512;
 inline const Game* game = nullptr;
+// The game's treasures, then its gifts, grouped by place (install()).
+inline std::vector<Treasure> all;
 // Bit i of taken[i / 32] = treasures[i] taken in the loaded save.
 inline std::array<std::atomic<std::uint32_t>, kMaxTreasures / 32> taken{};
 inline std::array<std::atomic<unsigned>, kMaxTreasures> rewards{};
@@ -83,14 +87,16 @@ inline std::uint32_t location(const Game& g, const std::uint8_t* rom, std::size_
 }
 
 // Emulation thread, once per frame.
+// planned_reward(flag): a field treasure's Random Treasure contents;
+// planned_gift(pack, item): a gift's; 0 when nothing is planned.
 inline void sample(const std::uint8_t* ewram, const std::uint8_t* rom, std::size_t rom_size,
-                   unsigned (*planned_reward)(unsigned)) {
+                   unsigned (*planned_reward)(unsigned), unsigned (*planned_gift)(unsigned, unsigned)) {
     if (!game || !ewram) return;
     const Game& g = *game;
     for (std::size_t w = 0; w < taken.size(); ++w) {
         std::uint32_t bits = 0;
-        for (std::size_t i = w * 32; i < std::min(g.treasures.size(), w * 32 + 32); ++i)
-            if (read_flag(ewram, g.treasures[i].flag)) bits |= 1u << (i - w * 32);
+        for (std::size_t i = w * 32; i < std::min(all.size(), w * 32 + 32); ++i)
+            if (read_flag(ewram, all[i].flag)) bits |= 1u << (i - w * 32);
         taken[w].store(bits, std::memory_order_relaxed);
     }
     if (!rom) return;
@@ -104,9 +110,11 @@ inline void sample(const std::uint8_t* ewram, const std::uint8_t* rom, std::size
         if (p.offset == name) place = int(p.place);
     current_place.store(place, std::memory_order_relaxed);
 
-    for (std::size_t i = 0; i < g.treasures.size(); ++i) {
-        const auto& t = g.treasures[i];
-        unsigned reward = t.sub == kTablet ? 0 : planned_reward(t.flag);
+    for (std::size_t i = 0; i < all.size(); ++i) {
+        const auto& t = all[i];
+        unsigned reward = t.sub == kTablet ? 0
+                        : t.sub == kGift  ? (planned_gift ? planned_gift(t.pack, t.reward) : 0)
+                                          : planned_reward(t.flag);
         const auto word = std::size_t(g.reward_table) + t.reward_word;
         if (!reward && t.reward_word && word + 1 < rom_size) {
             const unsigned value = rom[word] | (rom[word + 1] << 8);
@@ -122,6 +130,7 @@ inline std::vector<bool> open;
 inline int shown_place = -2;  // the place `open` last followed
 
 inline const char* container(const Game& g, unsigned sub) {
+    if (sub == kGift) return gbarecomp::ui_text("Gift");
     for (const auto& c : g.containers)
         if (c.sub == sub) return gbarecomp::ui_text(c.name);
     return gbarecomp::ui_text("Treasure");
@@ -131,7 +140,7 @@ inline void draw() {
     if (window.previous) window.previous();
     if (!game || gbarecomp::game_option_get(kOptionKey, 0) == 0) return;
     const Game& g = *game;
-    const std::size_t count_all = g.treasures.size(), places = g.places.size();
+    const std::size_t count_all = all.size(), places = g.places.size();
     const bool chests_only = gbarecomp::game_option_get(kChestsOnlyKey, 0) != 0;
     const bool contents = gbarecomp::game_option_get(kContentsKey, 0) != 0;
     const auto is_taken = [](std::size_t i) {
@@ -140,7 +149,7 @@ inline void draw() {
     std::vector<int> count(places, 0), done(places, 0);
     int total = 0, total_done = 0;
     for (std::size_t i = 0; i < count_all; ++i) {
-        const auto& t = g.treasures[i];
+        const auto& t = all[i];
         if (chests_only && t.sub != kChest) continue;
         ++count[t.place];
         ++total;
@@ -168,7 +177,7 @@ inline void draw() {
         std::size_t i = 0;
         for (std::size_t p = 0; p < places; ++p) {
             const std::size_t first = i;
-            while (i < count_all && g.treasures[i].place == p) ++i;
+            while (i < count_all && all[i].place == p) ++i;
             if (!count[p]) continue;
             if (arrived && int(p) == here) ImGui::SetScrollHereY(0.0f);
             const auto header = tracker_text::format("%s  %d/%d", tracker_text::name(g.places[p]).c_str(), done[p], count[p]);
@@ -176,7 +185,7 @@ inline void draw() {
             if (!open[p]) continue;
             ImGui::Indent();
             for (std::size_t k = first; k < i; ++k) {
-                const auto& t = g.treasures[k];
+                const auto& t = all[k];
                 if (chests_only && t.sub != kChest) continue;
                 const bool got = is_taken(k);
                 if (contents) {
@@ -197,7 +206,19 @@ inline void draw() {
 
 // Once at startup, after anything else that installs extra ImGui drawing.
 inline void install(const Game& g) {
-    if (g.treasures.size() > kMaxTreasures) return;
+    if (g.treasures.size() + g.gifts.size() > kMaxTreasures) return;
+    all.assign(g.treasures.begin(), g.treasures.end());
+    for (const Gift& gift : g.gifts) {
+        unsigned place = ~0u;
+        for (std::size_t p = 0; p < g.places.size(); ++p)
+            if (std::string_view(g.places[p]) == gift.place) place = unsigned(p);
+        if (place == ~0u) {
+            std::fprintf(stderr, "[trackers] gift place not listed: %s\n", gift.place);
+            continue;
+        }
+        all.push_back({place, gift.flag, kGift, gift.item, 0u, gift.pack});
+    }
+    std::stable_sort(all.begin(), all.end(), [](const Treasure& a, const Treasure& b) { return a.place < b.place; });
     game = &g;
 #ifdef GBARECOMP_HAVE_IMGUI
     tracker_window::chain(window, draw);

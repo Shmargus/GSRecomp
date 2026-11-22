@@ -26,6 +26,7 @@
 
 #include <cstdint>
 #include "rom_revision.h"
+#include "rom_pc_filter.h"
 
 namespace gs {
 
@@ -50,6 +51,8 @@ bool usa_europe_rom();
 bool plain_text(std::uint32_t* offsets, std::uint32_t* base);
 
 std::uint32_t rom(std::uint32_t usa);
+// Every ROM address of the loaded revision that rom() can return.
+const gbarecomp::RomPcFilter& rom_pc_filter();
 std::uint32_t ovl(const char* overlay_id, std::uint32_t usa);
 std::uint32_t text(std::uint32_t usa_text_id);
 // Feature-owned global slots; German moves these, other revisions keep them.

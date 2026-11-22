@@ -28,6 +28,7 @@
 #include "relocatable_writer_policy.h"
 #include "../../shared_game/settings_help.h"
 #include "../../shared_game/custom_battle_panel.h"
+#include "../../shared_game/field_psynergy_options.h"
 
 
 struct DispatchEntry {
@@ -383,7 +384,6 @@ extern bool g_settings_screen_text;
 extern std::atomic<bool> g_settings_open;
 extern std::atomic<int> g_encounter_rate;
 extern bool g_encounter_skip_next;
-extern std::atomic<int> g_field_psynergy_fast;
 extern std::vector<std::uint32_t> g_menu_sounds;
 
 // ---- Variables defined in runner_cheats.cpp ----

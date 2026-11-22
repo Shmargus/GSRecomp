@@ -50,6 +50,7 @@
 #include "custom_battle_tbs.h"
 #include "retreat_travel_tbs.h"
 #include "radial_psynergy_tbs.h"
+#include "random_djinn_tbs.h"
 #include "random_psynergy_tbs.h"
 #include "random_weapons_tbs.h"
 #include "treasure_randomizer_tbs.h"
@@ -1976,18 +1977,50 @@ void challenge_on_entry(std::uint32_t pc) {
 
 }  // namespace
 namespace gsr_runner {
+namespace {
+// Spell sparks, taken from the game's own stamp call rather than decoded
+// out of its memory (engine/src/field/effect_capture.h). One comparison
+// while off.
+void golden_sun_effect_capture_entry(std::uint32_t entry_pc) {
+    if (gsr::effect_capture_enabled() && gsr::effect_capture_observes(entry_pc)) {
+        if (auto* bus = gbarecomp::active_bus()) {
+            gsr::effect_capture_on_entry(entry_pc, &g_cpu.R[0],
+                bus->ewram_ptr(), bus->iwram_ptr(), bus->rom_ptr(),
+                bus->rom_size(), runtime_current_frame());
+        }
+    }
+}
+}  // namespace
 void golden_sun_function_entry_observer(std::uint32_t entry_pc) {
+    // Every observer below acts only at a GS_ROM address, except the RAM
+    // writer captures, two once-a-frame recorders (off unless their switch
+    // is set) and the spark capture. Any other pc (ROM or RAM code) no
+    // GS_ROM address can be runs only those.
+    if (!gs::rom_pc_filter().may_match(entry_pc)) {
+        golden_sun_obj_f0_entry_capture(entry_pc);
+        golden_sun_obj_staging_handoff(entry_pc);
+        gsr::map_recorder_on_entry(entry_pc);
+        gsr::room_buffer_on_entry(entry_pc);
+        golden_sun_effect_capture_entry(entry_pc);
+        return;
+    }
     if (gsr::qol::on_entry(entry_pc)) return;
     // Autosave notes the field poll before the radial may answer it.
     gsr::autosave::on_entry(entry_pc);
     // The radial first: it notes every dispatcher entry, Retreat's included.
     if (gsr::radial_psynergy::on_entry(entry_pc)) return;
     if (gsr::retreat_travel::tbs::on_entry(entry_pc)) return;
+    // Random Djinn: a Djinni joining from the field is swapped.
+    gsr::random_djinn::tbs::on_entry(entry_pc, g_cpu.R);
+    // Scrolling names: a long name in a Psynergy list prints cut to width.
+    gsr::random_psynergy::tbs::scroll_on_entry(entry_pc, g_cpu.R);
     // Random Psynergy: the Psynergy list rebuild 0x08078BF0(id) is ours.
     if (gsr::random_psynergy::tbs::on_entry(entry_pc, g_cpu.R[0])) {
         gbarecomp::guest_return_now(entry_pc, 0u);
         return;
     }
+    // Enemy skills: the hero's PP readers see the hero cost.
+    gsr::random_psynergy::tbs::pp_on_getter(entry_pc, g_cpu.R[0], g_cpu.R[5], g_cpu.R[10], g_cpu.R[14]);
     challenge_on_entry(entry_pc);
     {
         // Random Treasure: field pickups, big coin amounts, gifts.
@@ -2024,6 +2057,8 @@ void golden_sun_function_entry_observer(std::uint32_t entry_pc) {
     gsr::battle_retarget::on_entry(entry_pc);
     if (entry_pc == GS_ROM(0x080030F8u)) {  // Func_30f8, the frame routine
         if (!g_menu_sounds.empty()) play_menu_sounds();
+        gsr::random_djinn::tbs::frame();
+        gsr::random_psynergy::tbs::scroll_frame();
         question_hold_frame_entry();
     }
     if (entry_pc == GS_ROM(0x08010000u)) g_tile_ring_redraw.on_follow_entry();  // Func_10000
@@ -2038,16 +2073,7 @@ void golden_sun_function_entry_observer(std::uint32_t entry_pc) {
     gsr::room_buffer_on_function_args(entry_pc, g_cpu.R[0], g_cpu.R[1],
                                       g_cpu.R[2]);
     gsr::room_buffer_on_entry(entry_pc);
-    // Spell sparks, taken from the game's own stamp call rather than decoded
-    // out of its memory (engine/src/field/effect_capture.h). One comparison
-    // while off.
-    if (gsr::effect_capture_enabled() && gsr::effect_capture_observes(entry_pc)) {
-        if (auto* bus = gbarecomp::active_bus()) {
-            gsr::effect_capture_on_entry(entry_pc, &g_cpu.R[0],
-                bus->ewram_ptr(), bus->iwram_ptr(), bus->rom_ptr(),
-                bus->rom_size(), runtime_current_frame());
-        }
-    }
+    golden_sun_effect_capture_entry(entry_pc);
 }
 }  // namespace gsr_runner
 namespace {

@@ -123,9 +123,24 @@ constexpr dt::Djinni kDjinn[72] = {
 
 const dt::Game kDjinnGame = {kDjinn, 18, 9, 0x520u, 8, TLA_ROM(0x08300000u) - 0x08000000u, TLA_ROM(0x08017B10u) - 0x08000000u, {243, 244, 245, 246}};
 
+// Gifts Random Treasure moves (tla_treasure_randomizer_data.h, not the story
+// items) and the flag each one's scene sets as it gives the item (FACTS.md
+// "Treasure Tracker: gifts", 22 November 2026; room code, gameplay
+// unconfirmed). Not listed (TODO-EVIDENCE): Golden Boots (file 0x64B),
+// Golden Ring (0x682) and Golden Shirt (0x695), whose flags 0xA77, 0xA74 and
+// 0xA73 are cleared when the item is handed over, so clear also means not
+// offered yet; Hover Jade (0x697), whose scene has no flag of its own.
+const tt::Gift kGifts[] = {
+    {"Kandorean Temple", 0x84A, 0x653, 198},    // set as the giving scene ends
+    {"Dehkan Plateau", 0x878, 0x655, 199},      // set after the gift
+    {"Madra", 0x918, 0x658, 210},               // set after the gift
+    {"Yampi Desert", 0x88C, 0x661, 209},        // set after the gift
+    {"Gondowan Settlement", 0xF5D, 0x690, 193}, // set before the gift
+};
+
 const tt::Game kTreasureGame = {tt::tla_data::places, tt::tla_data::place_names, tt::tla_data::containers,
                                     tt::tla_data::treasures, TLA_ROM(0x080F17A8u) - 0x08000000u, TLA_ROM(0x080EF4A4u) - 0x08000000u, 0x420u,
-                                    TLA_ROM(0x080F2204u) - 0x08000000u};
+                                    TLA_ROM(0x080F2204u) - 0x08000000u, {}, kGifts};
 
 const gsr::tracker_text::Config kTrackerText = {gsr::tracker_text::tla_data::names,
     TLA_ROM(0x080A9F54u) - 0x08000000u, TLA_ROM(0x08060C30u) - 0x08000000u,
@@ -135,7 +150,8 @@ const gsr::tracker_text::Config kTrackerText = {gsr::tracker_text::tla_data::nam
 
 void tla_trackers_sample() {
     if (const auto* bus = gbarecomp::active_bus())
-        gsr::trackers::sample(bus->ewram_ptr(), bus->rom_ptr(), bus->rom_size(), &tla_tracker_reward);
+        gsr::trackers::sample(bus->ewram_ptr(), bus->rom_ptr(), bus->rom_size(), &tla_tracker_reward,
+                              &tla_tracker_gift);
 }
 
 void tla_install_trackers() { gsr::trackers::install(kDjinnGame, kTreasureGame, kTrackerText); }

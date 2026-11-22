@@ -44,7 +44,12 @@ bool live_world_margin_capture(const Capture& settled, const Capture& live, Capt
         mix.oam = live.oam;
         if (mix.pal.size() >= 1024u)
             std::copy(live.pal.begin() + 0x200, live.pal.begin() + 0x400, mix.pal.begin() + 0x200);
-        std::copy(live.vram.begin() + 0x10000, live.vram.begin() + 0x18000, mix.vram.begin() + 0x10000);
+        // Sprite art: the console's, plus the extra sprite page past it when
+        // the capture carries one (GbaBus::kObjExtraVram). Retreat's particles
+        // on TLA's world map draw from that page (tile 0x4A0.., F12
+        // tla_rewind_0222); the settled frame's stale copy garbled them.
+        mix.vram.resize(live.vram.size());
+        std::copy(live.vram.begin() + 0x10000, live.vram.end(), mix.vram.begin() + 0x10000);
         return true;
     } catch (const std::bad_alloc&) {
         return false;

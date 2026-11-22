@@ -83,24 +83,26 @@ void FrameInterpolation::capture(std::uint16_t dispcnt,
                                  const bool* line_io_valid,
                                  const std::int32_t* affine_line_refs,
                                  const bool* affine_line_ref_valid) {
-    auto next = std::make_unique<Snapshot>();
+    // The older snapshot's buffers are reused for the new one.
+    std::unique_ptr<Snapshot> next = std::move(previous_);
+    if (!next) next = std::make_unique<Snapshot>();
     next->dispcnt = dispcnt;
-    if (io && io_size) next->io.assign(io, io + io_size);
-    if (vram && vram_size) next->vram.assign(vram, vram + vram_size);
-    if (oam && oam_size) next->oam.assign(oam, oam + oam_size);
-    if (pal && pal_size) next->pal.assign(pal, pal + pal_size);
-    if (line_io && line_io_valid) {
-        next->line_io.assign(line_io,
-            line_io + kScreenHeight * kLineIoBytes);
-        next->line_io_valid.assign(line_io_valid,
-            line_io_valid + kScreenHeight);
-    }
-    if (affine_line_refs && affine_line_ref_valid) {
-        next->affine_line_refs.assign(affine_line_refs,
-            affine_line_refs + kScreenHeight * 4u);
-        next->affine_line_ref_valid.assign(affine_line_ref_valid,
-            affine_line_ref_valid + kScreenHeight);
-    }
+    next->endpoint_verified = false;
+    const auto copy = [](auto& out, const auto* in, std::size_t n) {
+        if (in && n) out.assign(in, in + n);
+        else out.clear();
+    };
+    copy(next->io, io, io_size);
+    copy(next->vram, vram, vram_size);
+    copy(next->oam, oam, oam_size);
+    copy(next->pal, pal, pal_size);
+    const bool lines = line_io && line_io_valid;
+    copy(next->line_io, line_io, lines ? kScreenHeight * kLineIoBytes : 0);
+    copy(next->line_io_valid, line_io_valid, lines ? kScreenHeight : 0);
+    const bool refs = affine_line_refs && affine_line_ref_valid;
+    copy(next->affine_line_refs, affine_line_refs, refs ? kScreenHeight * 4u : 0);
+    copy(next->affine_line_ref_valid, affine_line_ref_valid,
+         refs ? kScreenHeight : 0);
     previous_ = std::move(current_);
     current_ = std::move(next);
 }

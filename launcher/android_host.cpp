@@ -361,6 +361,10 @@ Java_io_github_shmargus_gsrecomp_GsrActivity_nativeChildExited(JNIEnv*, jclass, 
     gsr_android::g_child_exited = true;
     gsr_android::g_child_code = code;
     gsr_android::g_changed.notify_all();
+    // The launcher's main loop sleeps while a game plays.
+    SDL_Event event{};
+    event.type = SDL_USEREVENT;
+    SDL_PushEvent(&event);
 }
 
 extern "C" JNIEXPORT void JNICALL

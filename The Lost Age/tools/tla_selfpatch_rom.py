@@ -16,8 +16,6 @@ import os
 import re
 from tla_rom_revisions import identify
 
-ROM_SHA1 = "b500663220cb9bf56b9f8e8c0c544f1d6fa3a824"
-
 
 def main():
     ap = argparse.ArgumentParser()

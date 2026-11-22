@@ -1,15 +1,17 @@
-// The run code, both games: one eight-character code carries a randomizer run's
-// seed and its choices (Weapons, Armor, Items, Coins, Psynergy, Stats,
-// Scaling, Bargains, Fair Play), so a friend who types it at New Game plays
+// The run code, both games: one nine-character code carries a randomizer run's
+// seed and its choices (Weapons, Armor, Items, Coins, Psynergy by hero or by
+// class, Enemy skills, Djinn, Stats, Scaling, Bargains, Fair Play), so a friend who types it at New Game plays
 // the same run. Difficulty and Challenge Mode are separate choices, not in
 // it. Weapons and Armor are the ticks; Stats says the pieces' stats shuffle
 // too. Fair Play is four choices, one per randomized thing: Psynergy,
 // Items, Coins, Shops. Their bits come out of the seed's share of the code
 // (the layout below).
 //
-// 40 bits: seed (25, never 0), choices (12), check (3), mixed by a reversible
-// 40-bit scramble so neighbouring seeds give unrelated codes; eight symbols
+// 45 bits: seed (25, never 0), choices (16), check (4), mixed by a reversible
+// 45-bit scramble so neighbouring seeds give unrelated codes; nine symbols
 // of five bits from an alphabet without look-alikes (no I, O, 0, 1).
+// Codes made before 21 November 2026 have eight symbols: 40 bits, choices
+// (12) and check (3). They still decode (no Enemy skills).
 //
 // The letter grid (Entry) is the shared logic of the code's typing screen;
 // each game paints it with its own window and font.
@@ -24,8 +26,11 @@ enum Choice : std::uint8_t {
     kArmor = 64u, kCoins = 128u,
 };
 constexpr std::uint16_t kStats = 256u, kFairItems = 512u, kFairCoins = 1024u, kFairShops = 2048u;
+constexpr std::uint16_t kEnemySkills = 4096u;  // with Psynergy: enemy skills join the draw
+constexpr std::uint16_t kByClass = 8192u;      // with Psynergy: every class has its own list
+constexpr std::uint16_t kDjinn = 16384u;       // Random Djinn
 constexpr std::uint16_t kFairBits = kFairPsynergy | kFairItems | kFairCoins | kFairShops;
-constexpr std::uint16_t kChoiceBits = 0xFFFu;
+constexpr std::uint16_t kChoiceBits = 0xFFFFu, kOldChoiceBits = 0xFFFu;
 constexpr std::uint32_t kSeedBits = 0x01FFFFFFu;
 
 struct Run {
@@ -34,45 +39,57 @@ struct Run {
 };
 
 constexpr char kAlphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-constexpr int kSymbols = 32, kLength = 8;
-constexpr std::uint64_t kMask = (std::uint64_t{1} << 40) - 1u;
-// Odd multiplier and its inverse modulo 2^40.
-constexpr std::uint64_t kMul = 0x9E3779B97Full & kMask;
+constexpr int kSymbols = 32, kLength = 9, kOldLength = 8;
 
-constexpr std::uint64_t inverse_mul() {
-    std::uint64_t x = kMul;  // Newton: x = x * (2 - a x), doubling bits each step
-    for (int i = 0; i < 6; ++i) x = (x * (2u - kMul * x)) & kMask;
-    return x;
-}
-constexpr std::uint64_t kMulInv = inverse_mul();
-static_assert(((kMul * kMulInv) & kMask) == 1u, "scramble must be reversible");
+// One code layout: its width in bits, choice and check bits, and the
+// scramble's odd multiplier (with its inverse modulo 2^bits) and shift
+// (more than half the width, so one xor undoes itself).
+struct Layout {
+    int bits, choice_bits, check_bits, shift;
+    std::uint64_t mul;
+    constexpr std::uint64_t mask() const { return (std::uint64_t{1} << bits) - 1u; }
+    constexpr std::uint64_t mul_inv() const {
+        std::uint64_t x = mul;  // Newton: x = x * (2 - a x), doubling bits each step
+        for (int i = 0; i < 6; ++i) x = (x * (2u - mul * x)) & mask();
+        return x;
+    }
+};
+constexpr Layout kLayout{45, 16, 4, 23, 0x9E3779B97F4Bull & ((std::uint64_t{1} << 45) - 1u)};
+constexpr Layout kOldLayout{40, 12, 3, 21, 0x9E3779B97Full & ((std::uint64_t{1} << 40) - 1u)};
+static_assert(((kLayout.mul * kLayout.mul_inv()) & kLayout.mask()) == 1u, "scramble must be reversible");
+static_assert(((kOldLayout.mul * kOldLayout.mul_inv()) & kOldLayout.mask()) == 1u, "scramble must be reversible");
+static_assert(25 + kLayout.choice_bits + kLayout.check_bits == kLayout.bits && kLayout.bits == 5 * kLength);
+static_assert(25 + kOldLayout.choice_bits + kOldLayout.check_bits == kOldLayout.bits &&
+              kOldLayout.bits == 5 * kOldLength);
 
-constexpr std::uint8_t check_of(std::uint32_t seed, std::uint16_t choices) {
+constexpr std::uint8_t check_of(std::uint32_t seed, std::uint16_t choices, int check_bits) {
     std::uint32_t h = seed ^ (std::uint32_t{choices} * 0x45D9F3Bu);
     h ^= h >> 16;
     h *= 0x7FEB352Du;
     h ^= h >> 15;
-    return static_cast<std::uint8_t>(h & 7u);
+    return static_cast<std::uint8_t>(h & ((1u << check_bits) - 1u));
 }
 
-constexpr std::uint64_t scramble(std::uint64_t v) {
-    v = (v * kMul) & kMask;
-    v ^= v >> 21;
-    v = (v * kMul) & kMask;
-    return v ^ (v >> 21);
+constexpr std::uint64_t scramble(std::uint64_t v, const Layout& l) {
+    v = (v * l.mul) & l.mask();
+    v ^= v >> l.shift;
+    v = (v * l.mul) & l.mask();
+    return v ^ (v >> l.shift);
 }
-constexpr std::uint64_t unscramble(std::uint64_t v) {
-    v ^= v >> 21;  // undoes v ^= v >> 21 for 40 bits (21 * 2 > 40)
-    v = (v * kMulInv) & kMask;
-    v ^= v >> 21;
-    return (v * kMulInv) & kMask;
+constexpr std::uint64_t unscramble(std::uint64_t v, const Layout& l) {
+    v ^= v >> l.shift;
+    v = (v * l.mul_inv()) & l.mask();
+    v ^= v >> l.shift;
+    return (v * l.mul_inv()) & l.mask();
 }
 
 inline std::string encode(const Run& r) {
+    const Layout& l = kLayout;
     const std::uint16_t choices = r.choices & kChoiceBits;
     const std::uint32_t seed = r.seed & kSeedBits;
-    std::uint64_t v = std::uint64_t{seed} << 15 | std::uint64_t{choices} << 3 | check_of(seed, choices);
-    v = scramble(v);
+    std::uint64_t v = std::uint64_t{seed} << (l.choice_bits + l.check_bits) |
+                      std::uint64_t{choices} << l.check_bits | check_of(seed, choices, l.check_bits);
+    v = scramble(v, l);
     std::string out;
     for (int i = kLength - 1; i >= 0; --i) out += kAlphabet[(v >> (i * 5)) & 31u];
     return out;
@@ -85,26 +102,28 @@ inline int symbol_of(char c) {
     return -1;
 }
 
-// False for a wrong length, a symbol outside the alphabet, a failed check or
-// seed 0.
+// Nine symbols, or an older code's eight. False for another length, a
+// symbol outside the alphabet, a failed check or seed 0.
 inline bool decode(const std::string& code, Run* out) {
-    if (code.size() != static_cast<std::size_t>(kLength)) return false;
+    const bool old = code.size() == static_cast<std::size_t>(kOldLength);
+    if (!old && code.size() != static_cast<std::size_t>(kLength)) return false;
+    const Layout& l = old ? kOldLayout : kLayout;
     std::uint64_t v = 0;
     for (const char c : code) {
         const int s = symbol_of(c);
         if (s < 0) return false;
         v = v << 5 | static_cast<std::uint64_t>(s);
     }
-    v = unscramble(v);
-    const auto seed = static_cast<std::uint32_t>(v >> 15);
-    const auto choices = static_cast<std::uint16_t>((v >> 3) & kChoiceBits);
-    if (seed == 0 || check_of(seed, choices) != (v & 7u)) return false;
+    v = unscramble(v, l);
+    const auto seed = static_cast<std::uint32_t>(v >> (l.choice_bits + l.check_bits));
+    const auto choices = static_cast<std::uint16_t>((v >> l.check_bits) & ((1u << l.choice_bits) - 1u));
+    if (seed == 0 || check_of(seed, choices, l.check_bits) != (v & ((1u << l.check_bits) - 1u))) return false;
     if (out) *out = {seed, choices};
     return true;
 }
 
 // A code as people type or paste it: spaces, dashes and line breaks are
-// ignored, so "ABCD EFGH" copied from the screen reads as ABCDEFGH.
+// ignored, so "ABC DEF GHJ" copied from the screen reads as ABCDEFGHJ.
 inline bool decode_typed(const std::string& text, Run* out) {
     std::string code;
     for (const char c : text)
@@ -112,9 +131,11 @@ inline bool decode_typed(const std::string& text, Run* out) {
     return decode(code, out);
 }
 
-// "ABCD EFGH": the code in two halves, as the screens show it.
+// "ABC DEF GHJ": the code in threes, as the screens show it.
 inline std::string spaced(const std::string& code) {
-    return code.size() == static_cast<std::size_t>(kLength) ? code.substr(0, 4) + " " + code.substr(4) : code;
+    return code.size() == static_cast<std::size_t>(kLength)
+               ? code.substr(0, 3) + " " + code.substr(3, 3) + " " + code.substr(6)
+               : code;
 }
 
 // --- the letter grid ------------------------------------------------------------
@@ -176,7 +197,7 @@ struct Entry {
         }
         return Result::Typed;
     }
-    // The typed symbols with the rest as underscores, in two halves.
+    // The typed symbols with the rest as underscores, in threes.
     std::string shown() const {
         std::string s = typed;
         while (s.size() < static_cast<std::size_t>(kLength)) s += '_';

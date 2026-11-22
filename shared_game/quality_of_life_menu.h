@@ -17,10 +17,21 @@ struct Row {
     const char* help = "";
     std::function<std::string()> value;
     std::function<void(int)> change;
+    // A row with a page opens it on A or Right; B comes back.
+    std::function<std::vector<Row>()> page;
+    const char* page_title = nullptr;
 };
 
 struct Widget {
     std::vector<Row> rows;
+    const char* title = "Quality of Life";
+    // The pages B returns to: their rows, title, cursor and scroll.
+    struct Parent {
+        std::vector<Row> rows;
+        const char* title;
+        int cursor, first;
+    };
+    std::vector<Parent> parents;
     bool showing = false;
     bool swallowing = false;
     int cursor = 0;
@@ -49,6 +60,8 @@ constexpr unsigned kMove = 0x6F, kBack = 0x71;
 
 inline void Widget::open(std::vector<Row> new_rows) {
     rows = std::move(new_rows);
+    title = "Quality of Life";
+    parents.clear();
     showing = true;
     swallowing = false;
     cursor = 0;
@@ -60,6 +73,8 @@ inline void Widget::open(std::vector<Row> new_rows) {
 
 inline void Widget::reset() {
     rows.clear();
+    title = "Quality of Life";
+    parents.clear();
     showing = swallowing = false;
     cursor = first = 0;
     held = 0;
@@ -79,10 +94,30 @@ inline std::uint16_t Widget::keyinput(std::uint16_t value) {
     if (showing) {
         const unsigned down = pressed & ~held;
         held = pressed;
-        if (down & (kB | kStart)) {
+        if ((down & kB) && !parents.empty()) {
+            Parent back = std::move(parents.back());
+            parents.pop_back();
+            rows = std::move(back.rows);
+            title = back.title;
+            cursor = back.cursor;
+            first = back.first;
+            help_started = -1;
+            sounds.push_back(kBack);
+        } else if (down & (kB | kStart)) {
             showing = false;
             swallowing = true;
             sounds.push_back(kBack);
+        } else if (!rows.empty() && (down & (kA | kRight)) && rows[cursor].page) {
+            // Copy before the rows move: the page's function lives in them.
+            const auto page = rows[cursor].page;
+            const char* page_title = rows[cursor].page_title;
+            std::vector<Row> page_rows = page();
+            parents.push_back({std::move(rows), title, cursor, first});
+            rows = std::move(page_rows);
+            title = page_title ? page_title : title;
+            cursor = first = 0;
+            help_started = -1;
+            sounds.push_back(kMove);
         } else if (!rows.empty()) {
             const int count = static_cast<int>(rows.size());
             bool moved = false;
@@ -128,7 +163,7 @@ inline void paint(const Widget& widget, Draw& draw, Width& width, int x, int y) 
         while (!s.empty() && width(s + "...") > available) s.pop_back();
         return s + "...";
     };
-    const auto title = gsr::menu_text("Quality of Life");
+    const auto title = gsr::menu_text(widget.title);
     draw(title, x + (inner_width - width(title)) / 2, y);
     if (!widget.rows.empty()) {
         const auto counter = std::to_string(widget.cursor + 1) + "/" +

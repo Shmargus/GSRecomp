@@ -3065,6 +3065,32 @@ bool write_keybinds_ini(const std::string& dir, const SDL_Scancode* bind_sc,
     return true;
 }
 
+// config.ini as lines (no line endings); empty when the file is absent.
+std::vector<std::string> read_ini_lines(const std::string& path) {
+    std::vector<std::string> lines;
+    std::FILE* in = std::fopen(path.c_str(), "rb");
+    if (!in) return lines;
+    std::string cur;
+    int c;
+    while ((c = std::fgetc(in)) != EOF) {
+        if (c == '\n') { lines.push_back(cur); cur.clear(); }
+        else if (c != '\r') cur.push_back(static_cast<char>(c));
+    }
+    if (!cur.empty()) lines.push_back(cur);
+    std::fclose(in);
+    return lines;
+}
+
+bool write_ini_lines(const std::string& path,
+                     const std::vector<std::string>& lines) {
+    std::FILE* out = std::fopen(path.c_str(), "wb");
+    if (!out) return false;
+    bool ok = true;
+    for (const std::string& line : lines)
+        if (std::fprintf(out, "%s\n", line.c_str()) < 0) ok = false;
+    return std::fclose(out) == 0 && ok;
+}
+
 // Replace the keys of one named INI section in place, appending any of
 // `names`/`values` not already present at the end of that section (creating
 // the section if it was absent). Used by the [KeyMap], [KeyMap.Pad], [Video],
@@ -3149,17 +3175,7 @@ bool write_hotkeys_ini(const std::string& dir, const HotkeyBind* hotkeys) {
     };
 
     // Read the existing file (if any) into lines.
-    std::vector<std::string> lines;
-    if (std::FILE* in = std::fopen(path.c_str(), "rb")) {
-        std::string cur;
-        int c;
-        while ((c = std::fgetc(in)) != EOF) {
-            if (c == '\n') { lines.push_back(cur); cur.clear(); }
-            else if (c != '\r') cur.push_back(static_cast<char>(c));
-        }
-        if (!cur.empty()) lines.push_back(cur);
-        std::fclose(in);
-    }
+    std::vector<std::string> lines = read_ini_lines(path);
 
     std::vector<std::string> key_values(hotkey_count());
     std::vector<std::string> pad_values(hotkey_count());
@@ -3172,11 +3188,7 @@ bool write_hotkeys_ini(const std::string& dir, const HotkeyBind* hotkeys) {
     rewrite_ini_section(lines, "KeyMap.Pad", all_hotkey_names().data(), pad_values.data(),
                         hotkey_count());
 
-    std::FILE* f = std::fopen(path.c_str(), "wb");
-    if (!f) return false;
-    for (const std::string& l : lines) std::fprintf(f, "%s\n", l.c_str());
-    std::fclose(f);
-    return true;
+    return write_ini_lines(path, lines);
 }
 
 void read_menu_layout_ini(const std::string& path, ConfigUiState& state) {
@@ -3195,29 +3207,14 @@ void read_menu_layout_ini(const std::string& path, ConfigUiState& state) {
 
 bool write_menu_layout_ini(const std::string& dir, const ConfigUiState& state) {
     const std::string path = dir + "/config.ini";
-    std::vector<std::string> lines;
-    if (std::FILE* in = std::fopen(path.c_str(), "rb")) {
-        std::string cur;
-        int c;
-        while ((c = std::fgetc(in)) != EOF) {
-            if (c == '\n') { lines.push_back(cur); cur.clear(); }
-            else if (c != '\r') cur.push_back(static_cast<char>(c));
-        }
-        if (!cur.empty()) lines.push_back(cur);
-        std::fclose(in);
-    }
+    std::vector<std::string> lines = read_ini_lines(path);
     static const char* const names[] = {"Width", "Height", "X", "Y"};
     const std::string values[] = {
         std::to_string(state.menu_width), std::to_string(state.menu_height),
         std::to_string(state.menu_x), std::to_string(state.menu_y)
     };
     rewrite_ini_section(lines, "SettingsWindow", names, values, int(std::size(names)));
-    std::FILE* out = std::fopen(path.c_str(), "wb");
-    if (!out) return false;
-    bool ok = true;
-    for (const std::string& line : lines)
-        if (std::fprintf(out, "%s\n", line.c_str()) < 0) ok = false;
-    return std::fclose(out) == 0 && ok;
+    return write_ini_lines(path, lines);
 }
 
 void save_menu_layout(Backend* b) {
@@ -3230,17 +3227,7 @@ void save_menu_layout(Backend* b) {
 // Update only [Video], preserving launcher settings and unknown sections.
 bool write_video_ini(const Backend* b) {
     const std::string path = b->config_dir + "/config.ini";
-    std::vector<std::string> lines;
-    if (std::FILE* in = std::fopen(path.c_str(), "rb")) {
-        std::string cur;
-        int c;
-        while ((c = std::fgetc(in)) != EOF) {
-            if (c == '\n') { lines.push_back(cur); cur.clear(); }
-            else if (c != '\r') cur.push_back(static_cast<char>(c));
-        }
-        if (!cur.empty()) lines.push_back(cur);
-        std::fclose(in);
-    }
+    std::vector<std::string> lines = read_ini_lines(path);
     std::vector<const char*> names = {
         "WindowScale", "Fullscreen", "VSync", "LinearFilter",
         "IntegerScale", "ScreenFilter", "ShowFPS", "TouchButtons", "ControllerAsked"
@@ -3287,17 +3274,7 @@ void ask_about_touch_buttons(Backend* b) {
 bool write_speed_ini(const std::string& dir, float multiplier,
                      bool mute_during_turbo, bool uncapped) {
     const std::string path = dir + "/config.ini";
-    std::vector<std::string> lines;
-    if (std::FILE* in = std::fopen(path.c_str(), "rb")) {
-        std::string cur;
-        int c;
-        while ((c = std::fgetc(in)) != EOF) {
-            if (c == '\n') { lines.push_back(cur); cur.clear(); }
-            else if (c != '\r') cur.push_back(static_cast<char>(c));
-        }
-        if (!cur.empty()) lines.push_back(cur);
-        std::fclose(in);
-    }
+    std::vector<std::string> lines = read_ini_lines(path);
 
     const char* const names[] = {
         "TurboMultiplier", "MuteDuringTurbo", "Uncapped"
@@ -3348,12 +3325,7 @@ bool write_speed_ini(const std::string& dir, float multiplier,
                      add.begin(), add.end());
     }
 
-    std::FILE* out = std::fopen(path.c_str(), "wb");
-    if (!out) return false;
-    for (const std::string& line : lines)
-        std::fprintf(out, "%s\n", line.c_str());
-    std::fclose(out);
-    return true;
+    return write_ini_lines(path, lines);
 }
 
 // Update only [Enhancements], preserving launcher settings and unknown
@@ -3363,17 +3335,7 @@ bool write_enhancements_ini(const std::string& dir, bool enhanced_timing,
                             int temporal_blend_index,
                             int view_mode) {
     const std::string path = dir + "/config.ini";
-    std::vector<std::string> lines;
-    if (std::FILE* in = std::fopen(path.c_str(), "rb")) {
-        std::string cur;
-        int c;
-        while ((c = std::fgetc(in)) != EOF) {
-            if (c == '\n') { lines.push_back(cur); cur.clear(); }
-            else if (c != '\r') cur.push_back(static_cast<char>(c));
-        }
-        if (!cur.empty()) lines.push_back(cur);
-        std::fclose(in);
-    }
+    std::vector<std::string> lines = read_ini_lines(path);
 
     bool in_section = false;
     bool seen_section = false;
@@ -3443,12 +3405,7 @@ bool write_enhancements_ini(const std::string& dir, bool enhanced_timing,
                      add.begin(), add.end());
     }
 
-    std::FILE* out = std::fopen(path.c_str(), "wb");
-    if (!out) return false;
-    for (const std::string& line : lines)
-        std::fprintf(out, "%s\n", line.c_str());
-    std::fclose(out);
-    return true;
+    return write_ini_lines(path, lines);
 }
 
 // Update only [Enhancements] ColorProfile=, ColorSaturation=, ColorHue=,
@@ -3474,17 +3431,7 @@ bool write_picture_ini(const std::string& dir, int screen_kind,
         keys[5] + "=" + std::to_string(custom.darken),
         keys[6] + "=" + kViewAspectKeys[std::clamp(aspect, 0, kViewAspectCount - 1)],
         keys[7] + "=" + (vision_name ? vision_name : "normal")};
-    std::vector<std::string> lines;
-    if (std::FILE* in = std::fopen(path.c_str(), "rb")) {
-        std::string cur;
-        int c;
-        while ((c = std::fgetc(in)) != EOF) {
-            if (c == '\n') { lines.push_back(cur); cur.clear(); }
-            else if (c != '\r') cur.push_back(static_cast<char>(c));
-        }
-        if (!cur.empty()) lines.push_back(cur);
-        std::fclose(in);
-    }
+    std::vector<std::string> lines = read_ini_lines(path);
     bool in_section = false;
     bool seen_section = false;
     bool written[8] = {false, false, false, false, false, false, false, false};
@@ -3524,29 +3471,14 @@ bool write_picture_ini(const std::string& dir, int screen_kind,
                      rows[k]);
         ++section_end;
     }
-    std::FILE* out = std::fopen(path.c_str(), "wb");
-    if (!out) return false;
-    for (const std::string& line : lines)
-        std::fprintf(out, "%s\n", line.c_str());
-    std::fclose(out);
-    return true;
+    return write_ini_lines(path, lines);
 }
 
 // Update only [Cheats], preserving launcher settings and unknown sections.
 bool write_cheats_ini(const std::string& dir, bool infinite_hp,
                       bool infinite_pp, int player_speed_multiplier) {
     const std::string path = dir + "/config.ini";
-    std::vector<std::string> lines;
-    if (std::FILE* in = std::fopen(path.c_str(), "rb")) {
-        std::string cur;
-        int c;
-        while ((c = std::fgetc(in)) != EOF) {
-            if (c == '\n') { lines.push_back(cur); cur.clear(); }
-            else if (c != '\r') cur.push_back(static_cast<char>(c));
-        }
-        if (!cur.empty()) lines.push_back(cur);
-        std::fclose(in);
-    }
+    std::vector<std::string> lines = read_ini_lines(path);
 
     bool in_section = false;
     bool seen_section = false;
@@ -3610,28 +3542,13 @@ bool write_cheats_ini(const std::string& dir, bool infinite_hp,
                      add.begin(), add.end());
     }
 
-    std::FILE* out = std::fopen(path.c_str(), "wb");
-    if (!out) return false;
-    for (const std::string& line : lines)
-        std::fprintf(out, "%s\n", line.c_str());
-    std::fclose(out);
-    return true;
+    return write_ini_lines(path, lines);
 }
 
 // Update only [Audio], preserving launcher settings and unknown sections.
 bool write_audio_ini(const std::string& dir, int volume, bool mute) {
     const std::string path = dir + "/config.ini";
-    std::vector<std::string> lines;
-    if (std::FILE* in = std::fopen(path.c_str(), "rb")) {
-        std::string cur;
-        int c;
-        while ((c = std::fgetc(in)) != EOF) {
-            if (c == '\n') { lines.push_back(cur); cur.clear(); }
-            else if (c != '\r') cur.push_back(static_cast<char>(c));
-        }
-        if (!cur.empty()) lines.push_back(cur);
-        std::fclose(in);
-    }
+    std::vector<std::string> lines = read_ini_lines(path);
 
     static const char* const kNames[] = {"Volume", "Mute"};
     const std::string values[] = {std::to_string(volume),
@@ -3661,17 +3578,7 @@ void persist_audio(Backend* b) {
 bool write_logging_ini(const std::string& dir, bool additional_debug_logging,
                        bool crash_log) {
     const std::string path = dir + "/config.ini";
-    std::vector<std::string> lines;
-    if (std::FILE* in = std::fopen(path.c_str(), "rb")) {
-        std::string cur;
-        int c;
-        while ((c = std::fgetc(in)) != EOF) {
-            if (c == '\n') { lines.push_back(cur); cur.clear(); }
-            else if (c != '\r') cur.push_back(static_cast<char>(c));
-        }
-        if (!cur.empty()) lines.push_back(cur);
-        std::fclose(in);
-    }
+    std::vector<std::string> lines = read_ini_lines(path);
 
     static const char* const kNames[] = {"AdditionalDebugLogging",
                                          "CrashLog"};
@@ -3679,28 +3586,13 @@ bool write_logging_ini(const std::string& dir, bool additional_debug_logging,
                                   crash_log ? "true" : "false"};
     rewrite_ini_section(lines, "Logging", kNames, values, 2);
 
-    std::FILE* out = std::fopen(path.c_str(), "wb");
-    if (!out) return false;
-    for (const std::string& line : lines)
-        std::fprintf(out, "%s\n", line.c_str());
-    std::fclose(out);
-    return true;
+    return write_ini_lines(path, lines);
 }
 
 // Update only [Debug], preserving launcher settings and unknown sections.
 bool write_debug_overlay_ini(const std::string& dir, bool debug_overlay) {
     const std::string path = dir + "/config.ini";
-    std::vector<std::string> lines;
-    if (std::FILE* in = std::fopen(path.c_str(), "rb")) {
-        std::string cur;
-        int c;
-        while ((c = std::fgetc(in)) != EOF) {
-            if (c == '\n') { lines.push_back(cur); cur.clear(); }
-            else if (c != '\r') cur.push_back(static_cast<char>(c));
-        }
-        if (!cur.empty()) lines.push_back(cur);
-        std::fclose(in);
-    }
+    std::vector<std::string> lines = read_ini_lines(path);
 
     bool in_section = false;
     bool seen_section = false;
@@ -3740,12 +3632,7 @@ bool write_debug_overlay_ini(const std::string& dir, bool debug_overlay) {
                      add.begin(), add.end());
     }
 
-    std::FILE* out = std::fopen(path.c_str(), "wb");
-    if (!out) return false;
-    for (const std::string& line : lines)
-        std::fprintf(out, "%s\n", line.c_str());
-    std::fclose(out);
-    return true;
+    return write_ini_lines(path, lines);
 }
 
 }  // namespace

@@ -10,6 +10,8 @@ namespace gsr {
 // then 24-byte directory entries (8-byte name, u64 offset, u64 length),
 // then the section bytes.
 
+std::string GpuFieldCapture::bytes() const { return gpu_field_dump_bytes(*this); }
+
 std::string gpu_field_dump_bytes(const GpuFieldCapture& capture) {
     const gsr::FieldScene& scene = capture.scene;
     constexpr std::size_t kLineIoBytes = gsr::FieldScene::kLineIoBytes;
