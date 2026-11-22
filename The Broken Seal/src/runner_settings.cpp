@@ -72,6 +72,7 @@
 #include "../../shared_game/settings_help.h"
 #include "battle_speed.h"
 #include "../../shared_game/enemy_hp_bar.h"
+#include "../../shared_game/battle_retarget.h"
 #include "../../shared_game/field_character.h"
 #include "../../shared_game/challenge_mode.h"
 #include "../../shared_game/spanish_menu.h"
@@ -504,6 +505,7 @@ std::vector<gsr::qol_menu::Row> quality_of_life_rows() {
     rows.push_back({kRowLabels[kFieldPsynergyRow], kRowHelp[kFieldPsynergyRow],
         [] { return g_field_psynergy_fast.load() ? "On" : "Off"; },
         [](int) { g_field_psynergy_fast.store(!g_field_psynergy_fast.load()); save_game_options(); }});
+    rows.push_back(gsr::battle_retarget::qol_row());
     gsr::qol::append_switches(rows);
     return rows;
 }

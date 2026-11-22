@@ -30,6 +30,7 @@
 #include "view_config.h"
 #include "tla.h"
 #include "../../shared_game/quality_of_life.h"
+#include "../../shared_game/battle_retarget.h"
 #include "host_config_ui.h"
 #include "../../shared_game/autosave.h"
 #include "../../shared_game/field_character.h"
@@ -62,6 +63,7 @@ void on_function_entry(std::uint32_t pc) {
     tla_local_music_on_entry(pc);
     tla_custom_battle_on_entry(pc);
     tla_enemy_hp_bar_on_entry(pc);
+    gsr::battle_retarget::on_entry(pc);
     tla_sprite_memory_on_entry(pc);
 }
 
@@ -141,6 +143,10 @@ int main(int argc, char** argv) {
     tla_install_gs_save_import(options, headless);
     tla_install_custom_battle(options);
     tla_install_enemy_hp_bar();
+    // Command [sb-0xC], battle state [sb-0x10] (shared_game/battle_retarget.h).
+    static const gsr::battle_retarget::Game retarget = {
+        TLA_ROM(0x08123648u), -0x0C, -0x10, 0x02000520u, 0x030000D8u};
+    gsr::battle_retarget::install(retarget);
     tla_install_trackers();
     tla_install_text(options);
     tla_install_rewind();

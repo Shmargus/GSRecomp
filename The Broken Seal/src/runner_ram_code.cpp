@@ -73,6 +73,7 @@
 #include "../../shared_game/settings_help.h"
 #include "battle_speed.h"
 #include "../../shared_game/enemy_hp_bar.h"
+#include "../../shared_game/battle_retarget.h"
 #include "../../shared_game/field_character.h"
 #include "../../shared_game/challenge_mode.h"
 #include "../../shared_game/spanish_menu.h"
@@ -2020,6 +2021,7 @@ void golden_sun_function_entry_observer(std::uint32_t entry_pc) {
     }
     seamless_on_entry(entry_pc);
     gsr::enemy_hp_bar::on_entry(entry_pc, enemy_hp_bar_name_width);
+    gsr::battle_retarget::on_entry(entry_pc);
     if (entry_pc == GS_ROM(0x080030F8u)) {  // Func_30f8, the frame routine
         if (!g_menu_sounds.empty()) play_menu_sounds();
         question_hold_frame_entry();

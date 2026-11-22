@@ -23,6 +23,7 @@
 #include "runtime_bus_bridge.h"
 #include "tla.h"
 #include "../../shared_game/quality_of_life.h"
+#include "../../shared_game/battle_retarget.h"
 
 namespace {
 
@@ -135,6 +136,7 @@ std::vector<gsr::qol_menu::Row> quality_of_life_rows() {
             [i](int direction) { change_row(i, direction > 0); }});
         if (i == kScreenRow) rows.push_back(gsr::qol::aspect_row());
     }
+    rows.push_back(gsr::battle_retarget::qol_row());
     gsr::qol::append_switches(rows);
     return rows;
 }

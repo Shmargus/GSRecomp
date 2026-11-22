@@ -74,6 +74,7 @@
 #include "../../shared_game/settings_help.h"
 #include "battle_speed.h"
 #include "../../shared_game/enemy_hp_bar.h"
+#include "../../shared_game/battle_retarget.h"
 #include "../../shared_game/field_character.h"
 #include "../../shared_game/challenge_mode.h"
 #include "../../shared_game/spanish_menu.h"
@@ -10946,6 +10947,10 @@ int main(int argc, char** argv) {
                                     (gs::rom_version() == gs::RomVersion::Spain ||
                                      gs::rom_version() == gs::RomVersion::Italy) ? 0x14u : 0x1Cu,
                                 .enemy_base_slot = gs::ram(0x03001F28u)});
+    // Command [sb-0x10], battle state [sb-0xC] (shared_game/battle_retarget.h).
+    static const gsr::battle_retarget::Game retarget = {
+        GS_ROM(0x080BE18Cu), -0x10, -0x0C, 0x02000500u, gs::ram(0x03001F28u)};
+    gsr::battle_retarget::install(retarget);
     options.rom_patch = [](std::vector<std::uint8_t>* rom) {
         set_revision_identities(*rom);
         if (std::uint32_t offsets = 0, base = 0; gs::plain_text(&offsets, &base))
