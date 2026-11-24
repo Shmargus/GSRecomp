@@ -69,6 +69,8 @@ fetch("https://api.github.com/repos/Shmargus/GSRecomp/releases?per_page=1")
       const linux = zips.find(asset => /linux/i.test(asset.name));
       const windows = zips.find(asset => /windows/i.test(asset.name)) ||
         zips.find(asset => !/linux/i.test(asset.name));
+      const apk = assets.find(asset => /\.apk$/i.test(asset.name));
+      if (apk) document.getElementById("download-android").href = apk.browser_download_url;
       if (windows && linux) {
         document.getElementById("download-windows").href = windows.browser_download_url;
         document.getElementById("download-linux").href = linux.browser_download_url;
