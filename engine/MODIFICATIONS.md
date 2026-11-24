@@ -211,6 +211,14 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
   native and vertical-margin rows). A host that draws frames itself pays for the
   raster once, and a frame its renderer refuses shows as refused instead of
   being hidden by a fallback picture.
+- **Turbo-skipped frames still record their rows.** `render_scanline()` takes
+  `draw` (default true); the run loop passes false for a frame Turbo will not
+  show, which records the row registers, walks the affine references and runs
+  the margin policy but draws nothing. Upstream skipped the whole call, so the
+  VBlank capture of a skipped frame paired its memory with the last drawn
+  frame's rows. `latched_native_rows_frame()` names the frame the latched rows
+  began on; `frame_trace_vblank()` (`runtime/frame_history.h`) logs it per
+  guest frame for F12's `frames.csv`.
 - **Blending rules.** In both scanline paths only the frontmost sprite takes part
   in blending. An OBJ is a first target when semi-transparent or when BLDCNT
   selects the OBJ layer; only a semi-transparent OBJ forces alpha (GBATEK, "LCD

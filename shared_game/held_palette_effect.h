@@ -16,25 +16,17 @@ public:
         valid_ = palette.size() >= 512u;
         if (valid_)
             for (unsigned i = 0; i < saved_.size(); ++i)
-                saved_[i] = palette[i * 2u] | (unsigned(palette[i * 2u + 1u]) << 8);
+                saved_[i] = colour_at(palette, i);
         reset_indices();
     }
     void reset_indices() { indices_.clear(); }
 
-    bool apply(std::uint8_t* rgb, unsigned width, unsigned height,
-               const std::vector<std::uint8_t>& held,
-               const std::vector<std::uint8_t>& palette) {
-        if (!valid_ || palette.size() < 512u || width < 240u || height < 160u ||
-            held.size() != std::size_t(width) * height * 3u) return false;
-        int delta[256][3];
+    bool changes_background(const std::vector<std::uint8_t>& palette) const {
+        if (!valid_ || palette.size() < 512u) return false;
         std::array<bool, 16> used{}, changed{};
         for (unsigned i = 0; i < saved_.size(); ++i) {
-            const auto live = std::uint16_t(palette[i * 2u] | (unsigned(palette[i * 2u + 1u]) << 8));
-            int a[3], b[3];
-            rgb_of(saved_[i], a); rgb_of(live, b);
-            for (unsigned k = 0; k < 3; ++k) delta[i][k] = b[k] - a[k];
             if (saved_[i]) used[i / 16u] = true;
-            if (saved_[i] != live) changed[i / 16u] = true;
+            if (saved_[i] != colour_at(palette, i)) changed[i / 16u] = true;
         }
         bool whole_palette = false;
         // Both measured cast effects change every used bank 0..13. Menus
@@ -44,7 +36,23 @@ public:
             if (!changed[bank]) return false;
             whole_palette = true;
         }
-        if (!whole_palette) return false;
+        return whole_palette;
+    }
+
+    // The held RGB photo has no palette, so approximate the background
+    // change per pixel. Live margins use the palette before drawing sprites.
+    bool apply(std::uint8_t* rgb, unsigned width, unsigned height,
+               const std::vector<std::uint8_t>& held,
+               const std::vector<std::uint8_t>& palette) {
+        if (width < 240u || height < 160u ||
+            held.size() != std::size_t(width) * height * 3u ||
+            !changes_background(palette)) return false;
+        int delta[256][3];
+        for (unsigned i = 0; i < saved_.size(); ++i) {
+            int a[3], b[3];
+            rgb_of(saved_[i], a); rgb_of(colour_at(palette, i), b);
+            for (unsigned k = 0; k < 3; ++k) delta[i][k] = b[k] - a[k];
+        }
         if (indices_.empty()) index_colours(held);
         const auto x0 = (width - 240u) / 2u, y0 = (height - 160u) / 2u;
         for (unsigned y = 0; y < height; ++y) {
@@ -61,6 +69,9 @@ public:
         return true;
     }
 private:
+    static std::uint16_t colour_at(const std::vector<std::uint8_t>& palette, unsigned i) {
+        return palette[i * 2u] | (unsigned(palette[i * 2u + 1u]) << 8);
+    }
     static std::uint32_t key(const std::uint8_t* p) {
         return (std::uint32_t(p[0]) << 16) | (std::uint32_t(p[1]) << 8) | p[2];
     }

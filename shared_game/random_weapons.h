@@ -73,7 +73,9 @@ struct State {
     bool captured = false;
     std::vector<Weapon> pristine;
     Config applied;  // what the ROM image holds now
-    unsigned generation = 0;  // counts the item-table writes (Random Treasure's prices follow)
+    Plan plan;
+    std::vector<std::uint16_t> donor_prices;  // indexed by the item receiving the stat line
+    unsigned revision = 0;
     std::map<std::uint16_t, std::string> text;  // description per weapon id
     // The description being handed out a character at a time.
     std::uint32_t text_id = 0;
@@ -89,53 +91,80 @@ inline std::span<const std::uint8_t> rom_of(gba::GbaBus& b) {
 // for the whole run; the bus only hands out a const view of it).
 inline std::uint8_t* rom_image(gba::GbaBus& b) { return const_cast<std::uint8_t*>(b.rom_ptr()); }
 
-// Writes the file's choice into the ROM image; true when anything changed.
-inline bool apply(const Game& g, const Config& c) {
-    gba::GbaBus* b = gbarecomp::active_bus();
-    if (!b || !b->rom_ptr()) return false;
+inline bool capture(const Game& g, gba::GbaBus& b) {
+    if (state.captured) return true;
     const std::uint32_t table = g.item_table - 0x08000000u;
-    if (table + (g.last_item + 1u) * kRecordSize > b->rom_size()) return false;
+    if (table + (g.last_item + 1u) * kRecordSize > b.rom_size()) return false;
+    state.pristine = weapons_of(rom_of(b).subspan(table), g.first_item, g.last_item, g.excluded);
+    state.captured = true;
+    return true;
+}
+
+// Writes the file's choice into the ROM image; true when anything changed.
+inline bool apply(const Game& g, const Config& c, const LocationStrengths& locations,
+                  bool treasure_changed) {
+    gba::GbaBus* b = gbarecomp::active_bus();
+    if (!b || !b->rom_ptr() || !capture(g, *b)) return false;
+    const std::uint32_t table = g.item_table - 0x08000000u;
     State& s = state;
-    if (!s.captured) {
-        s.pristine = weapons_of(rom_of(*b).subspan(table), g.first_item, g.last_item, g.excluded);
-        s.captured = true;
-    }
+    const bool uses_locations = c.seed && c.scaling && c.weapons;
     if (c.seed == s.applied.seed && c.scaling == s.applied.scaling && c.armour == s.applied.armour &&
-        c.weapons == s.applied.weapons)
+        c.weapons == s.applied.weapons && !(uses_locations && treasure_changed))
         return false;
-    const Plan plan = make_plan(s.pristine, c.seed, c.scaling, c.weapons, c.armour);
+    static const LocationStrengths no_locations;
+    s.plan = make_plan(s.pristine, c.seed, c.scaling, c.weapons, c.armour,
+                       uses_locations ? locations : no_locations);
     std::uint8_t* rom = rom_image(*b);
-    for (const Weapon& w : plan.weapons)
-        std::copy(w.planned.begin(), w.planned.end(), rom + table + w.id * kRecordSize);
+    // The first two bytes hold the price, which Random Treasure owns.
+    for (const Weapon& w : s.plan.weapons)
+        std::copy(w.planned.begin() + kType, w.planned.end(), rom + table + w.id * kRecordSize + kType);
     s.applied = c;
-    ++s.generation;
+    ++s.revision;
+    s.donor_prices.clear();
+    if (c.seed && !c.scaling && (c.weapons || c.armour)) {
+        s.donor_prices.resize(g.last_item + 1u);
+        for (const Weapon& w : s.plan.weapons) {
+            if (w.donor == 0) continue;
+            const auto donor = std::lower_bound(s.pristine.begin(), s.pristine.end(), w.donor,
+                [](const Weapon& item, std::uint16_t id) { return item.id < id; });
+            if (donor != s.pristine.end() && donor->id == w.donor)
+                s.donor_prices[w.id] = static_cast<std::uint16_t>(donor->original[0] |
+                                                               donor->original[1] << 8);
+        }
+    }
     s.text.clear();
     s.text_pos = -1;
     if (c.seed != 0) {
         const std::uint32_t widths = g.glyph_widths - 0x08000000u;
         const Texts t{g.text_table, g.tree_table, g.description_text, g.ability_name_text,
                       rom_of(*b).subspan(widths, 224)};
-        s.text = descriptions(rom_of(*b), t, plan);
+        s.text = descriptions(rom_of(*b), t, s.plan);
     }
     return true;
 }
 
-// Once a game frame: follow the loaded file's choice.
-inline void frame(const Game& g) { apply(g, current(g)); }
+struct FairStrengths {
+    std::span<const std::uint16_t> prices;
+    unsigned revision = 0;
+    bool equipment_changed = false;
+};
 
-// The plan the loaded file follows (the spoiler sheet), from the pristine
-// records; empty before the first frame. Emulation thread.
-inline Plan plan_of(const Config& c) {
-    return make_plan(state.pristine, c.seed, c.scaling, c.weapons, c.armour);
+// An unscaled stat shuffle needs no treasure plan, so it can be installed
+// before treasure uses its donor prices to place equipment.
+inline FairStrengths prepare_fair_strengths(const Game& g, const Config& c, bool fair_pooled) {
+    if (!fair_pooled || !c.seed || c.scaling || (!c.weapons && !c.armour)) return {};
+    const bool changed = apply(g, c, {}, false);
+    if (state.donor_prices.empty()) return {};
+    return {state.donor_prices, state.revision, changed};
 }
 
-// After the new-game questions (from a function entry, where calling the
-// game is safe): the new equipment now, and the stats of every hero wearing
-// any, as the game would after equipping it. The heroes are at full HP and
-// PP at the start, and stay so if a bonus raises the maximum.
-inline void apply_new_game(const Game& g, std::uint32_t hp, std::uint32_t max_hp,
-                           std::uint32_t pp, std::uint32_t max_pp) {
-    apply(g, current(g));
+// The installed plan for the spoiler sheet (emulation thread).
+inline const Plan& applied_plan() { return state.plan; }
+
+// After installing the final new-game plan, rebuild the stats of each hero
+// wearing equipment. Preserve full HP and PP if a bonus changes the maximum.
+inline void rebuild_equipped_stats(const Game& g, std::uint32_t hp, std::uint32_t max_hp,
+                                   std::uint32_t pp, std::uint32_t max_pp) {
     gba::GbaBus* b = gbarecomp::active_bus();
     if (!b) return;
     const std::uint32_t table = g.item_table;

@@ -3484,16 +3484,6 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
     ortho(transform, static_cast<float>(output_w_),
           static_cast<float>(output_h_));
 
-    // BLDCNT: which layers are 1st/2nd targets (one bit each for BG0-3, OBJ,
-    // backdrop), and which effect -- 1 alpha blend, 2/3 brightness. EVA/EVB/EVY
-    // saturate at 16, which is a full effect.
-    const unsigned first_targets = scene.effects.blend_control & 0x3Fu;
-    const unsigned second_targets = (scene.effects.blend_control >> 8) & 0x3Fu;
-    const unsigned effect = (scene.effects.blend_control >> 6) & 0x3u;
-    const int eva = std::min<int>(scene.effects.blend_alpha & 0x1Fu, 16);
-    const int evb = std::min<int>((scene.effects.blend_alpha >> 8) & 0x1Fu, 16);
-    const int bldy = std::min<int>(scene.effects.blend_brightness & 0x1Fu, 16);
-
     // The backdrop's RECORD: palette entry 0, RAW (the resolve pass fades it
     // exactly like any other layer that ends up on top, so it must not be
     // faded twice). Its key is the maximum a real layer or object can never

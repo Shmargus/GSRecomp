@@ -67,13 +67,10 @@ inline std::uint32_t shop_table() { return GS_ROM(0x080B41ACu); }
 inline random_psynergy::Config current() { return random_psynergy::tbs::current(); }
 inline bool active() { return state.active(); }
 
-// Once a game frame, after Random Equipment's frame.
-inline void frame() {
+inline bool frame() {
     gba::GbaBus* b = gbarecomp::active_bus();
-    if (!b || !b->rom_ptr()) return;
-    state.capture(*b, item_table(), shop_table());
-    state.apply(random_weapons::rom_image(*b), random_weapons::state.generation, item_table(), shop_table(),
-                current());
+    if (!b || !b->rom_ptr()) return false;
+    return apply_frame(state, *b, random_weapons::tbs::game(), current(), item_table(), shop_table());
 }
 
 // Entry to the field pickup routine: apply the room's planned records.

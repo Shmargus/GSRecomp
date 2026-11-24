@@ -77,9 +77,10 @@ struct DispatchEntry {
 extern "C" const DispatchEntry kDispatchTable[];
 extern "C" const unsigned kDispatchTableLen;
 
-// BIOS dispatch table. Lives in src/runtime/generated_bios/
-// bios_dispatch_table.cpp: placeholder until `gba_recompile --bios`
-// is run. runtime_dispatch consults this FIRST for PC < 0x4000.
+// BIOS dispatch table: src/runtime/generated_bios/bios_dispatch_table.cpp
+// when a recompiled BIOS is linked, else the empty
+// src/runtime/no_bios_dispatch_table.cpp (CMakeLists.txt chooses).
+// runtime_dispatch consults this FIRST for PC < 0x4000.
 extern "C" const DispatchEntry kBiosDispatchTable[];
 extern "C" const unsigned kBiosDispatchTableLen;
 

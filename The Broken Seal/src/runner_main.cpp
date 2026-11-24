@@ -55,6 +55,7 @@
 #include "radial_psynergy_tbs.h"
 #include "random_psynergy_tbs.h"
 #include "random_weapons_tbs.h"
+#include "save_editor_tbs.h"
 #include "treasure_randomizer_tbs.h"
 #include "../../shared_game/held_palette_effect.h"
 #include "host_config_ui.h"
@@ -106,14 +107,6 @@
 #include "runner_shared.h"
 #include "../../shared_game/quality_of_life.h"
 #include "../../shared_game/world_margin_live.h"
-
-extern "C" unsigned g_ws_active;
-extern "C" unsigned long long runtime_current_frame();
-extern "C" void runtime_iwram_code_write_dump(const char* why);
-extern "C" void runtime_iwram_code_write_dump_range(const char* why,
-                                                    std::uint32_t lo,
-                                                    std::uint32_t hi);
-extern "C" void runtime_unpacker_slot_dump(const char* why);
 
 
 namespace {
@@ -9470,8 +9463,13 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     static std::vector<std::uint8_t> live_margins;
     static gsr::GpuFieldCapture mix;
     const std::vector<std::uint8_t>* margin_src = &g_world_margin_rgb;
+    // F12 frames.csv: this picture's margins come from remembered scenery.
+    gbarecomp::frame_trace_note_held_scene(
+        capture.scene.frame,
+        g_world_settled_capture ? g_world_settled_capture->scene.frame : 0u);
     if (g_world_settled_capture &&
-        gsr::live_world_margin_capture(*g_world_settled_capture, capture, mix)) {
+        gsr::live_world_margin_capture(*g_world_settled_capture, capture, mix,
+                                       g_world_palette_effect.changes_background(capture.pal))) {
         live_margins.resize(std::size_t{width} * height * 3u);
         if (draw_gpu_field_capture(renderer, mix, width, height, true) &&
             surface.read_texture_rgb(renderer.output_texture(),
@@ -9494,7 +9492,8 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
         std::memcpy(dst + std::size_t{right} * 3u, src + std::size_t{right} * 3u,
                     std::size_t{width - right} * 3u);
     }
-    g_world_palette_effect.apply(rgb, width, height, *margin_src, capture.pal);
+    if (margin_src == &g_world_margin_rgb)
+        g_world_palette_effect.apply(rgb, width, height, *margin_src, capture.pal);
 }
 
 
@@ -9570,43 +9569,25 @@ void gpu_field_capture_hook() {
         }
     }
 
-    // The registers this frame was drawn with. The end-of-frame read can
-    // already hold the next frame's: the battle flash on the world map
-    // alternates a mode 2 frame with a white band drawn in mode 0 and a
-    // plain mode 2 frame, and on the plain ones DISPCNT already said mode 0
-    // at VBlank, so the whole frame was drawn as mode 0, solid white
-    // (gpu_rewind_0087, frames 1683-1697). When every row agrees on a
-    // display mode the end-of-frame read does not, the rows are the truth:
-    // take the first row's registers.
+    // The registers this frame was drawn with (field_scene_rows_drawn_mode:
+    // the world map's battle flash).
     std::vector<std::uint8_t> frame_io(bus->io().raw(),
                                        bus->io().raw() + gba::GbaIo::kIoSize);
     {
-        const std::uint8_t* rows = ppu->latched_native_line_io();
-        const bool* rows_valid = ppu->latched_native_line_io_valid();
-        int first = -1;
-        bool agree = true;
-        for (int y = 0; rows && rows_valid && y < gsr::FieldScene::kRows; ++y) {
-            if (!rows_valid[y]) continue;
-            const std::uint8_t* row = rows + std::size_t(y) * gsr::FieldScene::kLineIoBytes;
-            if (first < 0) first = y;
-            else if ((row[0] & 7u) != (rows[std::size_t(first) * gsr::FieldScene::kLineIoBytes] & 7u))
-                agree = false;
-        }
-        if (first >= 0 && agree) {
-            const std::uint8_t* row = rows + std::size_t(first) * gsr::FieldScene::kLineIoBytes;
-            if ((row[0] & 7u) != (frame_io[0] & 7u)) {
-                static bool reported = false;
-                if (!reported) {
-                    reported = true;
-                    std::fprintf(stderr,
-                        "[gsr] frame drawn in display mode %u while the "
-                        "end-of-frame registers say %u: using the rows' "
-                        "registers (frame %llu)\n", row[0] & 7u,
-                        frame_io[0] & 7u,
-                        static_cast<unsigned long long>(ppu->frame_count()));
-                }
-                std::memcpy(frame_io.data(), row, gsr::FieldScene::kLineIoBytes);
+        if (const std::uint8_t* row = gsr::field_scene_rows_drawn_mode(
+                frame_io.data(), ppu->latched_native_line_io(),
+                ppu->latched_native_line_io_valid())) {
+            static bool reported = false;
+            if (!reported) {
+                reported = true;
+                std::fprintf(stderr,
+                    "[gsr] frame drawn in display mode %u while the "
+                    "end-of-frame registers say %u: using the rows' "
+                    "registers (frame %llu)\n", row[0] & 7u,
+                    frame_io[0] & 7u,
+                    static_cast<unsigned long long>(ppu->frame_count()));
             }
+            std::memcpy(frame_io.data(), row, gsr::FieldScene::kLineIoBytes);
         }
     }
 
@@ -10651,7 +10632,6 @@ int golden_sun_thumb_literal(std::uint32_t pc, std::uint32_t original,
         seamless_frame_end();
         challenge_spare_for_lesson();
         gsr::challenge::frame();
-        gsr::random_weapons::tbs::frame();
         gsr::treasure::tbs::frame();
         gsr::run_sheet::frame();
         return battle_speed_wait_mask(out_value);
@@ -11108,6 +11088,8 @@ int main(int argc, char** argv) {
             gsr::run_sheet::draw();
         });
         gsr::run_sheet::tbs::install();
+        gsr::save_editor::tbs::install();
+        gbarecomp::config_ui_set_cheats_page(gsr::save_editor::draw);
         // Challenge Mode (challenge_mode.h). Its four bytes: save header
         // 0x02000028..2B, saved with the file (block 0 payload +0x28) but never
         // written by the header builder 0x0801F818 and zero in all 122 saved

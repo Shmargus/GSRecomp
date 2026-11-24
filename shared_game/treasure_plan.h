@@ -24,6 +24,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <map>
 #include <span>
 #include <vector>
 
@@ -122,6 +123,10 @@ struct Plan {
 // TODO-EVIDENCE: the exponent is a first guess, not measured.
 constexpr double kStrengthFalloff = 2.0;
 
+inline double price_distance_weight(std::size_t distance, std::size_t count) {
+    return std::pow(1.0 - static_cast<double>(distance) / static_cast<double>(count), kStrengthFalloff);
+}
+
 // The index drawn from `weight` (summing to `total` > 0); the last one with
 // weight, should rounding run past the end.
 inline std::size_t pick_weighted(const std::vector<double>& weight, double total, Rng& rng) {
@@ -135,32 +140,95 @@ inline std::size_t pick_weighted(const std::vector<double>& weight, double total
     return picked;
 }
 
+inline double rank_weight(std::size_t rank, std::size_t anchor, std::size_t count) {
+    const std::size_t distance = rank < anchor ? anchor - rank : rank - anchor;
+    return price_distance_weight(distance, count);
+}
+
+inline std::size_t pick_rank(std::size_t count, std::size_t anchor, std::vector<double>& weights, Rng& rng) {
+    weights.clear();
+    double total = 0;
+    for (std::size_t rank = 0; rank < count; ++rank) {
+        weights.push_back(rank_weight(rank, anchor, count));
+        total += weights.back();
+    }
+    return pick_weighted(weights, total, rng);
+}
+
 // Fair Items' gear pacing (loose). `gear` comes
 // back in the order it will be dealt through the story: for each place in
 // turn, a piece is drawn from those left, likeliest the one whose place in
 // the price order matches and rarer the further off. So gear is mostly
 // around the level of where you are, with an occasional surprise either way.
-inline void pace_gear(std::vector<Content>& gear, std::span<const Item> items, Rng& rng) {
-    const auto price = [&](const Content& c) { return c.value < items.size() ? items[c.value].price : 0; };
+inline void pace_gear(std::vector<Content>& gear, std::span<const Item> items, Rng& rng,
+                     std::span<const std::uint16_t> effective = {}) {
+    const auto price = [&](const Content& c) {
+        if (c.value < effective.size() && effective[c.value] != 0) return effective[c.value];
+        return c.value < items.size() ? items[c.value].price : std::uint16_t{0};
+    };
     std::vector<std::uint16_t> prices;
     for (const Content& c : gear) prices.push_back(price(c));
     std::sort(prices.begin(), prices.end());
     std::vector<Content> left;
     left.swap(gear);
-    const auto count = static_cast<double>(left.size());
+    const auto count = left.size();
     std::vector<double> weight;
     for (std::ptrdiff_t turn = 0; !left.empty(); ++turn) {
         weight.assign(left.size(), 0.0);
         double total = 0;
         for (std::size_t k = 0; k < left.size(); ++k) {
             const auto place = std::lower_bound(prices.begin(), prices.end(), price(left[k])) - prices.begin();
-            weight[k] = std::pow(1.0 - static_cast<double>(std::abs(place - turn)) / count, kStrengthFalloff);
+            weight[k] = price_distance_weight(static_cast<std::size_t>(std::abs(place - turn)), count);
             total += weight[k];
         }
         const std::size_t k = pick_weighted(weight, total, rng);
         gear.push_back(left[k]);
         left.erase(left.begin() + static_cast<std::ptrdiff_t>(k));
     }
+}
+
+inline std::vector<Content> spread_contents(std::span<const Content> pool, std::span<const Item> items,
+                                             Rng& rng, bool pooled,
+                                             std::span<const std::uint16_t> effective = {}) {
+    std::array<std::vector<Content>, kCategories> kinds;
+    for (const Content& c : pool) kinds[category(items, c)].push_back(c);
+    pace_gear(kinds[kGear], items, rng, effective);
+    std::vector<Content> dealt;
+    dealt.reserve(pool.size());
+    if (pooled) {
+        pace_gear(kinds[kHeal], items, rng);
+        pace_gear(kinds[kOther], items, rng);
+        // Give each category one position per equal slice of the story.
+        // Its items keep their relative order, while the seed determines
+        // how neighbouring categories interleave in the same stretch.
+        struct Event {
+            double position;
+            Content content;
+        };
+        std::vector<Event> events;
+        events.reserve(pool.size());
+        for (const auto& kind : kinds)
+            for (std::size_t j = 0; j < kind.size(); ++j)
+                events.push_back({(static_cast<double>(j) + rng.unit()) / static_cast<double>(kind.size()), kind[j]});
+        std::stable_sort(events.begin(), events.end(), [](const Event& a, const Event& b) {
+            return a.position < b.position;
+        });
+        for (const Event& event : events) dealt.push_back(event.content);
+        return dealt;
+    }
+    std::array<std::size_t, kCategories> given{};
+    for (std::size_t k = 0; k < pool.size(); ++k) {
+        int best = -1;
+        double behind = -1e18;
+        for (int c = 0; c < kCategories; ++c) {
+            if (given[c] == kinds[c].size()) continue;
+            const double d = static_cast<double>(kinds[c].size()) * static_cast<double>(k + 1) /
+                                 static_cast<double>(pool.size()) - static_cast<double>(given[c]);
+            if (d > behind) { behind = d; best = c; }
+        }
+        dealt.push_back(kinds[best][given[best]++]);
+    }
+    return dealt;
 }
 
 // New amounts for the spots that now hold coins. Without Fair Coins: any
@@ -240,29 +308,7 @@ inline Plan make_plan(std::span<const Spot> spots, std::span<const Item> items, 
     std::sort(free.begin(), free.end(), [&](std::size_t a, std::size_t b) {
         return spots[a].section != spots[b].section ? spots[a].section < spots[b].section : a < b;
     });
-    std::vector<Content> dealt;
-    if (fair_play) {
-        // Even spread: at each spot (in story order) the kind furthest behind
-        // its share comes next.
-        std::array<std::vector<Content>, kCategories> by;
-        for (const Content& c : pool) by[category(items, c)].push_back(c);
-        pace_gear(by[kGear], items, deal);
-        std::array<std::size_t, kCategories> total{}, given{};
-        for (int c = 0; c < kCategories; ++c) total[c] = by[c].size();
-        for (std::size_t k = 0; k < pool.size(); ++k) {
-            int best = -1;
-            double behind = -1e18;
-            for (int c = 0; c < kCategories; ++c) {
-                if (given[c] == total[c]) continue;
-                const double d = static_cast<double>(total[c]) * static_cast<double>(k + 1) /
-                                     static_cast<double>(pool.size()) - static_cast<double>(given[c]);
-                if (d > behind) { behind = d; best = c; }
-            }
-            dealt.push_back(by[best][given[best]++]);
-        }
-    } else {
-        dealt = pool;
-    }
+    const auto dealt = fair_play ? spread_contents(pool, items, deal, false) : std::move(pool);
     for (std::size_t k = 0; k < free.size() && k < dealt.size(); ++k) plan.contents[free[k]] = dealt[k];
     // Gifts give items only: a gift dealt coins swaps with the nearest field
     // spot (in story order) dealt an item.
@@ -366,6 +412,29 @@ struct ShopPools {
     std::span<const std::uint16_t> items, weapons, armour;
 };
 
+struct ShopItemOrder {
+    std::span<const Item> table;
+
+    int group(std::uint16_t id) const {
+        const std::uint8_t type = id < table.size() ? table[id].type : 0;
+        return type == random_weapons::kWeapon ? 0 : random_weapons::armour_type(type) ? 1 : 2;
+    }
+
+    int price(std::uint16_t id) const { return id < table.size() ? table[id].price : 0; }
+
+    bool by_price(std::uint16_t a, std::uint16_t b) const {
+        const int pa = price(a), pb = price(b);
+        return pa != pb ? pa < pb : a < b;
+    }
+
+    void sort_stock(std::vector<std::uint16_t>& stock) const {
+        std::sort(stock.begin(), stock.end(), [&](std::uint16_t a, std::uint16_t b) {
+            const int ga = group(a), gb = group(b);
+            return ga != gb ? ga < gb : by_price(a, b);
+        });
+    }
+};
+
 // New stock for one shop (a chance of something new, not a
 // guarantee, and strong gear should be rare).
 //  - Each item the shop sold is replaced only some of the time
@@ -388,41 +457,341 @@ constexpr double kShopReplaceChance = 1.0 / 3.0;
 
 inline std::vector<std::uint16_t> shop_stock(std::span<const std::uint16_t> original, const ShopPools& pools,
                                              std::span<const Item> table, Rng& rng, bool fair_play = false) {
-    const auto group = [&](std::uint16_t id) {
-        const std::uint8_t type = id < table.size() ? table[id].type : 0;
-        return type == random_weapons::kWeapon ? 0 : random_weapons::armour_type(type) ? 1 : 2;
-    };
-    const auto price = [&](std::uint16_t id) { return id < table.size() ? table[id].price : 0; };
+    const ShopItemOrder order{table};
     const std::span<const std::uint16_t> by_group[3] = {pools.weapons, pools.armour, pools.items};
     std::vector<std::uint16_t> out(original.begin(), original.end());
     const auto stocked = [&](std::uint16_t id) { return std::find(out.begin(), out.end(), id) != out.end(); };
     std::vector<double> weight;
     for (std::uint16_t& slot : out) {
         if (rng.unit() >= kShopReplaceChance) continue;
-        const std::span<const std::uint16_t> pool = by_group[group(slot)];
+        const std::span<const std::uint16_t> pool = by_group[order.group(slot)];
         std::vector<std::uint16_t> prices;
-        for (const std::uint16_t id : pool) prices.push_back(price(id));
+        for (const std::uint16_t id : pool) prices.push_back(order.price(id));
         std::sort(prices.begin(), prices.end());
         weight.assign(pool.size(), 0.0);
         double total = 0;
         const auto place_of = [&](std::uint16_t id) {
-            return std::lower_bound(prices.begin(), prices.end(), price(id)) - prices.begin();
+            return std::lower_bound(prices.begin(), prices.end(), order.price(id)) - prices.begin();
         };
         const auto own = fair_play ? place_of(slot) : 0;  // Fair Play: the replaced item's place
         for (std::size_t k = 0; k < pool.size(); ++k) {
             if (stocked(pool[k])) continue;
             const auto place = std::abs(place_of(pool[k]) - own);
-            weight[k] = std::pow(1.0 - static_cast<double>(place) / static_cast<double>(prices.size()),
-                                 kStrengthFalloff);
+            weight[k] = price_distance_weight(static_cast<std::size_t>(place), prices.size());
             total += weight[k];
         }
         if (total <= 0) continue;
         slot = pool[pick_weighted(weight, total, rng)];
     }
-    std::sort(out.begin(), out.end(), [&](std::uint16_t a, std::uint16_t b) {
-        const auto pa = a < table.size() ? table[a].price : 0, pb = b < table.size() ? table[b].price : 0;
-        return group(a) != group(b) ? group(a) < group(b) : pa != pb ? pa < pb : a < b;
+    order.sort_stock(out);
+    return out;
+}
+
+struct LootOptions {
+    bool items, coins, weapons, armour;
+    bool fair_items, fair_coins, fair_shops;
+};
+
+struct ArtifactShop {
+    std::size_t free_slots = 0;
+    bool weapons = false, armour = false;
+};
+constexpr std::uint8_t kNativeArtifactFlag = 1u << 2;
+
+struct PooledLoot {
+    Plan plan;
+    std::vector<std::vector<std::uint16_t>> shops;
+    std::map<std::uint16_t, std::uint16_t> weapon_strength;
+    std::vector<std::vector<std::uint16_t>> artifact_additions;
+};
+
+inline void pooled_coin_amounts(Plan& plan, std::span<const Spot> spots,
+                                std::span<const std::size_t> story_order) {
+    std::vector<std::uint32_t> scale;
+    for (const Spot& spot : spots)
+        if (!spot.fixed && spot.coins) scale.push_back(std::max<std::uint32_t>(1, spot.value));
+    if (scale.empty()) return;
+    std::sort(scale.begin(), scale.end());
+    std::vector<std::size_t> coins;
+    for (const auto i : story_order)
+        if (plan.contents[i].coins) coins.push_back(i);
+    Rng rng(plan.seed, 3);
+    std::vector<double> weights;
+    weights.reserve(scale.size());
+    for (std::size_t j = 0; j < coins.size(); ++j) {
+        const std::size_t anchor = j * scale.size() / coins.size();
+        plan.contents[coins[j]].value = scale[pick_rank(scale.size(), anchor, weights, rng)];
+    }
+}
+
+// The original price table is the common yardstick for equipment placement
+// and for a weapon's rolled strength. Randomized stats and Bargains are
+// applied later and cannot change either roll.
+inline PooledLoot pooled_loot(std::span<const Spot> spots, std::span<const Item> table,
+                             const ShopPools& pools, const std::vector<std::vector<std::uint16_t>>& stock,
+                             std::uint32_t seed, const LootOptions& options,
+                             std::span<const std::uint16_t> artifacts = {},
+                             std::span<const std::uint16_t> effective_equipment = {},
+                             std::span<const std::uint16_t> region_sections = {},
+                             std::span<const ArtifactShop> artifact_shops = {}) {
+    PooledLoot out{{seed, options.fair_items, {}},
+                   std::vector<std::vector<std::uint16_t>>(stock.size()), {},
+                   std::vector<std::vector<std::uint16_t>>(stock.size())};
+    auto& contents = out.plan.contents;
+    contents.reserve(spots.size());
+    Rng finds(seed, 5), shop_rng(seed, 4), strength(seed, 6), deal(seed, 2);
+    const ShopItemOrder order{table};
+    const auto gear_price = [&](std::uint16_t id) {
+        return id < effective_equipment.size() && effective_equipment[id] != 0
+            ? effective_equipment[id] : order.price(id);
+    };
+    const std::array<bool, 3> enabled{options.weapons, options.armour, options.items};
+    std::array<std::vector<std::uint16_t>, 3> ranked;
+    const std::span<const std::uint16_t> stock_pools[] = {pools.weapons, pools.armour, pools.items};
+    for (int g = 0; g < 3; ++g) {
+        for (const std::uint16_t id : stock_pools[g])
+            if (id != 0 && id < table.size() && !psynergy_item(table, {false, id}))
+                ranked[g].push_back(id);
+        std::sort(ranked[g].begin(), ranked[g].end(), [&](std::uint16_t a, std::uint16_t b) {
+            return order.by_price(a, b);
+        });
+        ranked[g].erase(std::unique(ranked[g].begin(), ranked[g].end()), ranked[g].end());
+    }
+    const auto rank_for_price = [&](const std::vector<std::uint16_t>& deck, int value) {
+        return static_cast<std::size_t>(std::lower_bound(deck.begin(), deck.end(), value,
+            [&](std::uint16_t candidate, int target) { return order.price(candidate) < target; }) - deck.begin());
+    };
+    const auto tier = [&](std::size_t anchor) {
+        const auto& deck = ranked[0];
+        std::vector<double> weights;
+        return deck[pick_rank(deck.size(), anchor, weights, strength)];
+    };
+    const auto shop_anchor = [&](const std::vector<std::uint16_t>& deck, std::uint16_t id) {
+        return std::min(rank_for_price(deck, order.price(id)), deck.size() - 1);
+    };
+    const auto shop_pacing = [&](const std::vector<std::uint16_t>& deck, int value, std::size_t anchor) {
+        const auto rank = std::min(rank_for_price(deck, value), deck.size() - 1);
+        const double weight = rank_weight(rank, anchor, deck.size());
+        return options.fair_shops ? weight * weight : weight;
+    };
+    std::vector<bool> used(table.size(), false);
+    std::vector<bool> sold_in_vanilla_shop(table.size(), false);
+    const auto is_unique = [&](std::uint16_t id) {
+        const int g = order.group(id);
+        return id != 0 && id < table.size() && g < 2 && enabled[g];
+    };
+    for (const auto id : artifacts) {
+        if (!is_unique(id)) continue;
+        used[id] = true;
+        if (order.group(id) == 0) out.weapon_strength.emplace(id, id);
+    }
+    std::vector<std::size_t> free;
+    std::vector<std::uint16_t> sections;
+    for (std::size_t i = 0; i < spots.size(); ++i) {
+        const Spot& spot = spots[i];
+        const Content original{spot.coins, spot.value};
+        contents.push_back(original);
+        if (spot.section != kNoSection) sections.push_back(spot.section);
+        const auto id = static_cast<std::uint16_t>(spot.value);
+        if (!spot.fixed && !psynergy_item(table, original) && (spot.coins ? options.coins : enabled[order.group(id)]))
+            free.push_back(i);
+        else if (!spot.coins && is_unique(id))
+            used[id] = true;
+    }
+    std::sort(sections.begin(), sections.end());
+    sections.erase(std::unique(sections.begin(), sections.end()), sections.end());
+    // Region representatives share the original section scale. An absent or
+    // unknown representative leaves the spot on its own section.
+    const auto has_region = [&](std::size_t i) {
+        return i < region_sections.size() && region_sections[i] != kNoSection &&
+            std::binary_search(sections.begin(), sections.end(), region_sections[i]);
+    };
+    const auto section_for = [&](std::size_t i) {
+        return has_region(i) ? region_sections[i] : spots[i].section;
+    };
+
+    // Keep unchanged stock first. With shop randomization, only the first
+    // kept copy of an enabled equipment ID can claim it.
+    for (std::size_t shop = 1; shop < stock.size(); ++shop) {
+        if (options.items) out.shops[shop].resize(stock[shop].size());
+        for (std::size_t slot = 0; slot < stock[shop].size(); ++slot) {
+            const auto id = stock[shop][slot];
+            const bool unique = is_unique(id);
+            const int g = order.group(id);
+            if (unique) sold_in_vanilla_shop[id] = true;
+            if (!options.items) {
+                if (unique) used[id] = true;
+                continue;
+            }
+            if (!psynergy_item(table, {false, id}) && enabled[g]) {
+                if (unique && used[id]) continue;
+                double replace_chance = kShopReplaceChance;
+                if (options.fair_shops && g < 2 && id < effective_equipment.size() &&
+                    effective_equipment[id] != 0 && !ranked[g].empty()) {
+                    const auto& deck = ranked[g];
+                    const double affinity = shop_pacing(deck, gear_price(id), shop_anchor(deck, id));
+                    replace_chance += (1.0 - kShopReplaceChance) * (1.0 - affinity);
+                }
+                if (shop_rng.unit() < replace_chance) continue;
+            }
+            out.shops[shop][slot] = id;
+            if (unique) used[id] = true;
+            if (unique && order.group(id) == 0 && !ranked[0].empty())
+                out.weapon_strength.emplace(id, tier(shop_anchor(ranked[0], id)));
+        }
+    }
+
+    // Draw equipment without replacement from the remaining IDs. Ordinary
+    // contents still come from the original eligible slots.
+    std::array<std::vector<std::uint16_t>, 2> available;
+    for (int g = 0; g < 2; ++g) {
+        for (const auto id : ranked[g])
+            if (!used[id]) available[g].push_back(id);
+        shuffle(available[g], finds);
+    }
+    std::vector<std::uint16_t> repeatable;
+    for (const auto id : ranked[2])
+        if (table[id].type == 0 && table[id].use == 1)
+            repeatable.push_back(id);
+    std::vector<Content> pool;
+    pool.reserve(free.size());
+    for (const std::size_t i : free) {
+        Content content = contents[i];
+        if (!content.coins) {
+            const int g = order.group(static_cast<std::uint16_t>(content.value));
+            if (g < 2) {
+                if (!available[g].empty()) {
+                    const auto id = available[g].back();
+                    available[g].pop_back();
+                    used[id] = true;
+                    content.value = id;
+                } else if (options.coins && spots[i].kind == SpotKind::Field) {
+                    content = {true, 1};
+                } else if (!repeatable.empty()) {
+                    content.value = repeatable[finds.below(repeatable.size())];
+                } else {
+                    content.value = 0;
+                }
+            }
+        }
+        pool.push_back(content);
+    }
+    shuffle(pool, deal);
+    const bool fair_order = options.fair_items || (options.coins && options.fair_coins);
+    const auto traversal_section = [&](std::size_t i) {
+        return fair_order ? section_for(i) : spots[i].section;
+    };
+    std::stable_sort(free.begin(), free.end(), [&](std::size_t a, std::size_t b) {
+        return traversal_section(a) < traversal_section(b);
     });
+    if (fair_order && !region_sections.empty()) {
+        // Leave unmapped spots in their stable positions within each tier.
+        // The separate stream keeps the ordinary contents and strength rolls intact.
+        Rng ties(seed, 7);
+        std::vector<std::size_t> positions, members;
+        for (std::size_t first = 0; first < free.size();) {
+            const auto tier_section = traversal_section(free[first]);
+            positions.clear();
+            members.clear();
+            std::size_t next = first;
+            for (; next < free.size() && traversal_section(free[next]) == tier_section; ++next) {
+                if (!has_region(free[next])) continue;
+                positions.push_back(next);
+                members.push_back(free[next]);
+            }
+            shuffle(members, ties);
+            for (std::size_t i = 0; i < members.size(); ++i) free[positions[i]] = members[i];
+            first = next;
+        }
+    }
+    if (options.fair_items) pool = spread_contents(pool, table, deal, true, effective_equipment);
+
+    // Coin-bearing gifts swap with the nearest eligible field item. If
+    // there are more coin rolls than field slots, keep the gift an item.
+    for (std::size_t i = 0; i < free.size(); ++i) {
+        if (spots[free[i]].kind != SpotKind::Gift || !pool[i].coins) continue;
+        std::size_t nearest = free.size(), distance = free.size();
+        for (std::size_t j = 0; j < free.size(); ++j) {
+            if (spots[free[j]].kind != SpotKind::Field || pool[j].coins) continue;
+            const std::size_t apart = i < j ? j - i : i - j;
+            if (apart <= distance) {
+                nearest = j;
+                distance = apart;
+            }
+        }
+        if (nearest != free.size()) std::swap(pool[i], pool[nearest]);
+        else pool[i] = {false, repeatable.empty() ? 0u : repeatable[finds.below(repeatable.size())]};
+    }
+    for (std::size_t i = 0; i < free.size(); ++i) {
+        const Spot& spot = spots[free[i]];
+        const Content content = pool[i];
+        contents[free[i]] = content;
+        const auto id = static_cast<std::uint16_t>(content.value);
+        if (content.coins || !options.weapons || order.group(id) != 0 || ranked[0].empty()) continue;
+        const auto section = std::lower_bound(sections.begin(), sections.end(), section_for(free[i]));
+        const std::size_t anchor = section == sections.end()
+            ? shop_anchor(ranked[0], static_cast<std::uint16_t>(spot.coins ? 0 : spot.value))
+            : static_cast<std::size_t>(section - sections.begin()) * (ranked[0].size() - 1) /
+                std::max<std::size_t>(1, sections.size() - 1);
+        out.weapon_strength.emplace(id, tier(anchor));
+    }
+    if (options.coins) {
+        if (options.fair_coins) pooled_coin_amounts(out.plan, spots, free);
+        else new_coin_amounts(out.plan, spots, false);
+    }
+
+    for (std::size_t shop = 1; shop < stock.size() && options.items; ++shop) {
+        auto& row = out.shops[shop];
+        auto& additions = out.artifact_additions[shop];
+        const ArtifactShop artifacts_here = shop < artifact_shops.size() ? artifact_shops[shop] : ArtifactShop{};
+        const auto requires_artifact_shelf = [&](std::uint16_t id, int g) {
+            return !artifact_shops.empty() && g < 2 && !sold_in_vanilla_shop[id];
+        };
+        for (std::size_t slot = 0; slot < row.size(); ++slot) {
+            if (row[slot]) continue;
+            const auto old = stock[shop][slot];
+            std::vector<std::uint16_t> candidates;
+            std::vector<double> weights;
+            double total = 0;
+            for (int g = 0; g < 3; ++g) {
+                if (!enabled[g] || ranked[g].empty()) continue;
+                const auto& deck = ranked[g];
+                // Shops always compare equipment with the stock they replace.
+                // Fair Shops makes the same comparison for ordinary items.
+                const std::size_t anchor = options.fair_shops || g < 2 ? shop_anchor(deck, old) : 0;
+                for (const auto id : deck) {
+                    if ((is_unique(id) && used[id]) || std::find(row.begin(), row.end(), id) != row.end()) continue;
+                    const bool artifact = requires_artifact_shelf(id, g);
+                    // Unusual gear can only use a compatible native artifact list.
+                    if (artifact && (!(table[id].flags & kNativeArtifactFlag) ||
+                                     additions.size() >= artifacts_here.free_slots ||
+                                     !(g == 0 ? artifacts_here.weapons : artifacts_here.armour))) continue;
+                    candidates.push_back(id);
+                    // Downweight the rare pool so it collectively competes with
+                    // roughly one usual offer. V6 does this only for weapons.
+                    const auto rarity = artifact || (g == 0 && !sold_in_vanilla_shop[id]) ? deck.size() : 1;
+                    // Both prices use the same vanilla rank scale, even
+                    // when Fair Shops evaluates the candidate's donor.
+                    const int candidate_price = options.fair_shops && g < 2 ? gear_price(id) : order.price(id);
+                    const double pacing = shop_pacing(deck, candidate_price, anchor);
+                    weights.push_back(pacing / deck.size() / rarity);
+                    total += weights.back();
+                }
+            }
+            if (total <= 0) {
+                if (!repeatable.empty()) row[slot] = repeatable[shop_rng.below(repeatable.size())];
+                continue;
+            }
+            const auto id = candidates[pick_weighted(weights, total, shop_rng)];
+            if (requires_artifact_shelf(id, order.group(id))) additions.push_back(id);
+            else row[slot] = id;
+            if (is_unique(id)) used[id] = true;
+            if (options.weapons && order.group(id) == 0)
+                out.weapon_strength.emplace(id, tier(shop_anchor(ranked[0], old)));
+        }
+        row.erase(std::remove(row.begin(), row.end(), 0), row.end());
+        order.sort_stock(row);
+    }
     return out;
 }
 

@@ -24,6 +24,8 @@
 // is By class (Random Psynergy gives every class its own list), bit 2
 // Random Djinn (random_djinn.h). All zero is
 // Off, as every existing save is.
+// Version 6 selects the pooled treasure planner with the same flags as 5.
+// Version 7 adds regional artifact shops to the pooled planner.
 // A randomized Broken Seal run goes on to The Lost Age with these bytes.
 #pragma once
 #include <array>
@@ -31,7 +33,8 @@
 
 namespace gsr::random_psynergy {
 
-constexpr std::uint8_t kTag = 'R', kVersion = 5, kFairVersion = 4, kKeyItemsVersion = 3, kOldVersion = 2;
+constexpr std::uint8_t kTag = 'R', kVersion = 7, kPooledVersion = 6, kSkillsVersion = 5, kFairVersion = 4,
+                       kKeyItemsVersion = 3, kOldVersion = 2;
 constexpr std::uint8_t kFairPlayFlag = 1, kPsynergyFlag = 2, kTreasureFlag = 4, kBargainsFlag = 8,
                        kCoinsFlag = 16, kScaledFlag = 32, kWeaponFindsFlag = 64, kArmourFindsFlag = 128;
 constexpr std::uint8_t kFlags = kFairPlayFlag | kPsynergyFlag | kTreasureFlag | kBargainsFlag | kCoinsFlag |
@@ -57,6 +60,8 @@ struct Config {
     bool enemy_skills = false;  // with Psynergy: enemy skills join the draw
     bool by_class = false;      // with Psynergy: every class has its own list
     bool djinn = false;         // Random Djinn
+    bool pooled_loot = false;   // new treasure planner (legacy for older saves)
+    bool regional_artifacts = false;  // pooled planner with regional artifact shops
     bool operator==(const Config&) const = default;
 };
 
@@ -73,12 +78,13 @@ inline std::array<std::uint8_t, 8> encode(const Config& c) {
                                                 (c.fair_items ? kFairItemsFlag : 0) |
                                                 (c.fair_coins ? kFairCoinsFlag : 0) |
                                                 (c.fair_shops ? kFairShopsFlag : 0));
+    const std::uint8_t version = c.pooled_loot ? (c.regional_artifacts ? kVersion : kPooledVersion) : kSkillsVersion;
     std::array<std::uint8_t, 8> b = {
         static_cast<std::uint8_t>(c.seed), static_cast<std::uint8_t>(c.seed >> 8),
         static_cast<std::uint8_t>(c.seed >> 16),
         static_cast<std::uint8_t>((c.seed >> 24 & kSeedTopBits) | (c.by_class ? kByClassFlag : 0) |
                                   (c.djinn ? kDjinnFlag : 0)),
-        kTag, static_cast<std::uint8_t>(kVersion | more << 4), flags, 0};
+        kTag, static_cast<std::uint8_t>(version | more << 4), flags, 0};
     std::uint8_t check = 0x5Au;
     for (int i = 0; i < 7; ++i) check ^= b[i];
     b[7] = check;
@@ -89,32 +95,36 @@ inline Config decode(const std::uint8_t b[8]) {
     std::uint8_t check = 0x5Au;
     for (int i = 0; i < 7; ++i) check ^= b[i];
     const std::uint8_t version = b[5] & 0xFu, more = b[5] >> 4;
-    const std::uint8_t allowed = version == kVersion ? kEnemySkillsFlag | kFairItemsFlag | kFairCoinsFlag | kFairShopsFlag
+    const bool pooled = version == kVersion || version == kPooledVersion;
+    const bool has_extra_seed_flags = pooled || version == kSkillsVersion;
+    const std::uint8_t allowed = has_extra_seed_flags ? kEnemySkillsFlag | kFairItemsFlag | kFairCoinsFlag | kFairShopsFlag
                                : version == kFairVersion ? kFairItemsFlag | kFairCoinsFlag | kFairShopsFlag
                                : version == kKeyItemsVersion ? kRetiredKeyItemsFlag
                                : version == kOldVersion ? 0 : 0xFF;
     if (b[4] != kTag || allowed == 0xFF || (b[6] & ~kFlags) != 0 || (more & ~allowed) != 0 || b[7] != check)
         return {};
-    if (version == kVersion && (b[3] & ~(kSeedTopBits | kByClassFlag | kDjinnFlag)) != 0) return {};
+    if (has_extra_seed_flags && (b[3] & ~(kSeedTopBits | kByClassFlag | kDjinnFlag)) != 0) return {};
     Config c;
-    const std::uint8_t top = version == kVersion ? b[3] & kSeedTopBits : b[3];
+    const std::uint8_t top = has_extra_seed_flags ? b[3] & kSeedTopBits : b[3];
     c.seed = b[0] | b[1] << 8 | b[2] << 16 | static_cast<std::uint32_t>(top) << 24;
-    c.by_class = version == kVersion && (b[3] & kByClassFlag) != 0;
-    c.djinn = version == kVersion && (b[3] & kDjinnFlag) != 0;
+    c.by_class = has_extra_seed_flags && (b[3] & kByClassFlag) != 0;
+    c.djinn = has_extra_seed_flags && (b[3] & kDjinnFlag) != 0;
     c.fair_psynergy = (b[6] & kFairPlayFlag) != 0;
     // Before version 4 the one Fair Play switch covered everything.
-    const bool each = version == kVersion || version == kFairVersion;
+    const bool each = has_extra_seed_flags || version == kFairVersion;
     c.fair_items = each ? (more & kFairItemsFlag) != 0 : c.fair_psynergy;
     c.fair_coins = each ? (more & kFairCoinsFlag) != 0 : c.fair_psynergy;
     c.fair_shops = each ? (more & kFairShopsFlag) != 0 : c.fair_psynergy;
     c.psynergy = (b[6] & kPsynergyFlag) != 0;
-    c.enemy_skills = version == kVersion && (more & kEnemySkillsFlag) != 0;
+    c.enemy_skills = has_extra_seed_flags && (more & kEnemySkillsFlag) != 0;
     c.treasure = (b[6] & kTreasureFlag) != 0;
     c.bargains = (b[6] & kBargainsFlag) != 0;
     c.coins = (b[6] & kCoinsFlag) != 0;
     c.scaled = (b[6] & kScaledFlag) != 0;
     c.weapon_finds = (b[6] & kWeaponFindsFlag) != 0;
     c.armour_finds = (b[6] & kArmourFindsFlag) != 0;
+    c.pooled_loot = pooled;
+    c.regional_artifacts = version == kVersion;
     return c;
 }
 

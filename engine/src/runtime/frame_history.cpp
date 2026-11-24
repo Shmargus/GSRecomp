@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <mutex>
 #include <utility>
 
 #ifdef GBARECOMP_HAVE_SDL2
@@ -119,7 +120,55 @@ const HistoryFrame& FrameHistory::oldest_first(std::size_t i) const {
 
 namespace {
 std::atomic<bool> g_capture_requested{false};
+
+// Sized for the 120 saved pictures at the widest Turbo stride the engine
+// allows: TurboPresentDecimator presents at least every 16.7 ms of wall
+// time, so a gap is at most one wall interval of guest frames. 4096 covers
+// ~34 guest frames per picture; write() says when it fell short.
+struct TraceEntry {
+    unsigned long long guest = 0, rows = 0, held_source = 0;
+    bool drawn = false, turbo = false, held = false;
+};
+constexpr std::size_t kTraceFrames = 4096;
+std::mutex g_trace_mutex;
+std::vector<TraceEntry> g_trace;
+std::size_t g_trace_next = 0, g_trace_count = 0;
+std::atomic<bool> g_trace_turbo{false};
 }  // namespace
+
+void frame_trace_set_turbo(bool on) { g_trace_turbo.store(on, std::memory_order_relaxed); }
+
+void frame_trace_vblank(unsigned long long guest_frame,
+                        unsigned long long rows_frame, bool drawn) {
+    std::lock_guard<std::mutex> lock(g_trace_mutex);
+    if (g_trace.empty()) g_trace.resize(kTraceFrames);
+    // A state load moves the guest clock back: start again.
+    if (g_trace_count &&
+        guest_frame <= g_trace[(g_trace_next + kTraceFrames - 1) % kTraceFrames].guest)
+        g_trace_count = g_trace_next = 0;
+    TraceEntry& e = g_trace[g_trace_next];
+    e = {};
+    e.guest = guest_frame;
+    e.rows = rows_frame;
+    e.drawn = drawn;
+    e.turbo = g_trace_turbo.load(std::memory_order_relaxed);
+    g_trace_next = (g_trace_next + 1) % kTraceFrames;
+    if (g_trace_count < kTraceFrames) ++g_trace_count;
+}
+
+void frame_trace_note_held_scene(unsigned long long shown,
+                                 unsigned long long source) {
+    std::lock_guard<std::mutex> lock(g_trace_mutex);
+    for (std::size_t i = 0; i < g_trace_count; ++i) {
+        TraceEntry& e = g_trace[(g_trace_next + kTraceFrames - 1 - i) % kTraceFrames];
+        if (e.guest == shown) {
+            e.held = true;
+            e.held_source = source;
+            return;
+        }
+        if (e.guest < shown) return;
+    }
+}
 
 void frame_history_request_capture() { g_capture_requested = true; }
 
@@ -267,6 +316,27 @@ std::string FrameHistory::write(const std::string& note,
         }
         if (!close_file(f)) ++write_failures;
     } else ++write_failures;
+    // frames.csv: every guest frame from the oldest saved picture on.
+    bool trace_covers = true;
+    if (std::FILE* f = std::fopen((dir + "/frames.csv").c_str(), "wb")) {
+        std::fprintf(f, "guest_frame,drawn,turbo,rows_frame,rows_stale,"
+                        "held_scene,held_scene_frame\n");
+        const unsigned long long from = count_ ? oldest_first(0).guest_frame : 0ull;
+        std::lock_guard<std::mutex> lock(g_trace_mutex);
+        if (g_trace_count) {
+            const std::size_t first = (g_trace_next + kTraceFrames - g_trace_count) % kTraceFrames;
+            trace_covers = g_trace[first].guest <= from;
+        }
+        for (std::size_t i = 0; i < g_trace_count; ++i) {
+            const TraceEntry& e = g_trace[(g_trace_next + kTraceFrames - g_trace_count + i) % kTraceFrames];
+            if (e.guest < from) continue;
+            std::fprintf(f, "%llu,%d,%d,%llu,%d,%d,%llu\n", e.guest,
+                         e.drawn ? 1 : 0, e.turbo ? 1 : 0, e.rows,
+                         e.rows != e.guest ? 1 : 0, e.held ? 1 : 0,
+                         e.held ? e.held_source : 0ull);
+        }
+        if (!close_file(f)) ++write_failures;
+    } else ++write_failures;
     if (!note.empty() && !write_file(dir + "/" + note_file, note.data(), note.size()))
         ++write_failures;
     std::sort(intervals.begin(), intervals.end());
@@ -287,6 +357,7 @@ std::string FrameHistory::write(const std::string& note,
                         "largest_interval_ms=%.3f\nlargest_interval_order=%zu\n"
                         "timing=host_presentation_intervals_not_cpu_cost\n"
                         "context_written=%d\ntrail_available=%d\ntrail_written=%d\n"
+                        "frame_trace_covers_history=%d\n"
                         "write_failures=%u\ncomplete=%d\n",
                      prefix_, trigger_frame, have_memory ? 1 : 0, count_,
                      count_ ? oldest_first(0).guest_frame : 0ull,
@@ -294,7 +365,7 @@ std::string FrameHistory::write(const std::string& note,
                      scene_frames, gpu_frames, held_frames, interval_sum, median,
                      largest_gap, largest_gap_order, context.context_written ? 1 : 0,
                      context.trail_available ? 1 : 0, context.trail_written ? 1 : 0,
-                     write_failures, write_failures ? 0 : 1);
+                     trace_covers ? 1 : 0, write_failures, write_failures ? 0 : 1);
         if (!close_file(f)) ++write_failures;
     } else ++write_failures;
     if (write_failures) {

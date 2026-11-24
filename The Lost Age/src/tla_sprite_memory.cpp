@@ -239,6 +239,24 @@ int tla_sprite_memory_branch(std::uint32_t pc, std::uint32_t original,
     // round the page every frame).
     if (b->read16(entry) == bytes && b->read16(entry + 2u) == g_cpu.R[5])
         return 0;
+    // A sprite object whose second sprite (record + 0x1C, attr2 at +0x24)
+    // already shows the console tile this owner reserved stays in console
+    // memory: that copy keeps only 10 bits and would read other art once the
+    // first moved. 0x08022D40 reserves 0 bytes (return 0x08022D97) and sets
+    // +0x24 to the shared shadow tile (0x08022E64); Growth's sparkles then
+    // copy their own tile over it (0x080DDCC2) before the builder asks.
+    // People keep the shadow tile. Measured on Jimmy's F4 state (map 107):
+    // +0x24 = 0x0910 against reservation 0x2200 for every sparkle; drawn from
+    // the page they showed orange stripes (F12 Releases tla_rewind_0001).
+    // The builder's record is its r7, pushed at sp + 12 (see kAllocResult).
+    {
+        const std::uint32_t record = b->read32(g_cpu.R[13] + 12u);
+        const std::uint32_t reserved = b->read16(entry + 2u);
+        if (((record >> 24) == 0x02u || (record >> 24) == 0x03u) &&
+            reserved < kPageStart &&
+            (b->read16(record + 0x24u) & 0x3FFu) == reserved / 32u)
+            return 0;
+    }
     std::uint32_t used = 0;
     const std::int32_t at = page_first_fit(*b, owner, bytes, &used);
     if (at < 0) {

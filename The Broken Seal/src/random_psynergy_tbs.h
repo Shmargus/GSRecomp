@@ -86,7 +86,7 @@ inline const Game& game() {
         {GS_ROM(0x0807EE58u), 16u, 0x208u},
         GS_ROM(0x08078B9Cu), pp_sites(),
         {},  // every enemy-only skill here is shared (random_psynergy::kIconLike)
-        0x53Au,  // descriptions (English): Quake 3 is text 0x53D
+        gs::text(0x53Au),  // descriptions: Quake 3 is base + 3 (Spain, Italy, France, Germany 0x631)
         {},  // every enemy-only skill's line is shared (random_psynergy::kLines)
     };
     return g;
@@ -102,11 +102,10 @@ inline void pp_on_getter(std::uint32_t pc, std::uint32_t r0, std::uint32_t r5, s
                          std::uint32_t lr) {
     random_psynergy::pp_on_getter(game(), pc, r0, r5, r10, lr);
 }
-// The decoder's next character of an enemy skill's description (English
-// USA/Europe only: the description base is that ROM's).
+// The decoder's next character of an enemy skill's description, in the
+// loaded language (not Golden Sun Reloaded, whose abilities are its own).
 inline bool description_character(std::uint32_t text_id, std::uint32_t* character) {
-    const bool english = gs::rom_version() == gs::RomVersion::Usa && !gs::reloaded() && !gs::portuguese();
-    return random_psynergy::description_character(game(), english, text_id, character);
+    return random_psynergy::description_character(game(), !gs::reloaded(), text_id, character);
 }
 // Scrolling names (shared_game/name_scroll.h; FACTS "Scrolling names", 22
 // November 2026): the printer 0x0801E7C0 (veneer 0x08015080), window block

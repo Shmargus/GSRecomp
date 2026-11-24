@@ -48,6 +48,7 @@
 #include <vector>
 
 #include "challenge_mode.h"
+#include "menu_text.h"
 #include "random_psynergy_format.h"
 #include "run_code.h"
 #include "trace_once.h"
@@ -770,7 +771,9 @@ inline void pp_on_getter(const Game& g, std::uint32_t pc, std::uint32_t r0, std:
 
 // --- descriptions -------------------------------------------------------------
 // An enemy-only skill's description reads "?" in the ROM. In a run with
-// Enemy skills, the English revisions get one written from its row: kind
+// Enemy skills it gets one: its own written line (kLines, a game's lines),
+// in the loaded language through the F1 translation table (menu_text: the
+// game font's Latin-1), else one written in English from its row: kind
 // (+1), added effect (+3), element (+2) and reach (+8). The effect words
 // follow the game's own lines for abilities with the same effect byte (each
 // game's FACTS.md "Enemy skills", 22 November 2026); an effect byte no such
@@ -924,9 +927,10 @@ constexpr Line kLines[] = {
 };
 
 // The description line for `text_id` when it is an enemy-only skill's in a
-// run with Enemy skills (`english`: the ROM's text is the English game's).
-inline bool description(const Game& g, bool english, std::uint32_t text_id, std::string& out) {
-    if (!english || !g.description_text || text_id < g.description_text) return false;
+// run with Enemy skills (`allowed`: the revision's descriptions start at
+// g.description_text and its skills are the measured ones).
+inline bool description(const Game& g, bool allowed, std::uint32_t text_id, std::string& out) {
+    if (!allowed || !g.description_text || text_id < g.description_text) return false;
     const std::uint32_t id = text_id - g.description_text;
     if (id >= g.abilities.count) return false;
     const Config c = current(g);
@@ -938,10 +942,11 @@ inline bool description(const Game& g, bool english, std::uint32_t text_id, std:
     const std::size_t row = g.abilities.address - 0x08000000u + std::size_t{g.abilities.size} * id;
     if (row + g.abilities.size > b->rom_size()) return false;
     for (const Line& l : g.lines)
-        if (l.id == id) return out = l.text, true;
+        if (l.id == id) return out = menu_text(l.text), true;
     for (const Line& l : kLines)
-        if (l.id == id) return out = l.text, true;
+        if (l.id == id) return out = menu_text(l.text), true;
     out = describe(b->rom_ptr() + row);
+    if (!out.empty()) out = menu_text(out.c_str());
     return !out.empty();
 }
 
@@ -962,11 +967,11 @@ inline std::vector<std::uint16_t> reference_ids(const Game& g) {
 // line is built once, at its first character.
 struct DescriptionState { std::uint32_t id = 0; int pos = -1; std::string line; };
 inline DescriptionState description_state;
-inline bool description_character(const Game& g, bool english, std::uint32_t text_id, std::uint32_t* character) {
+inline bool description_character(const Game& g, bool allowed, std::uint32_t text_id, std::uint32_t* character) {
     DescriptionState& s = description_state;
     if (s.pos < 0 || text_id != s.id) {
         s.pos = -1;
-        if (!description(g, english, text_id, s.line)) return false;
+        if (!description(g, allowed, text_id, s.line)) return false;
         s.pos = 0, s.id = text_id;
     }
     const auto pos = static_cast<std::size_t>(s.pos);

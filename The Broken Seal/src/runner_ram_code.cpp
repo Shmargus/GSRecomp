@@ -53,6 +53,7 @@
 #include "random_djinn_tbs.h"
 #include "random_psynergy_tbs.h"
 #include "random_weapons_tbs.h"
+#include "save_editor_tbs.h"
 #include "treasure_randomizer_tbs.h"
 #include "../../shared_game/held_palette_effect.h"
 #include "host_config_ui.h"
@@ -99,14 +100,6 @@
 #include "rom_version.h"
 #include "runner_shared.h"
 #include "../../shared_game/quality_of_life.h"
-
-extern "C" unsigned g_ws_active;
-extern "C" unsigned long long runtime_current_frame();
-extern "C" void runtime_iwram_code_write_dump(const char* why);
-extern "C" void runtime_iwram_code_write_dump_range(const char* why,
-                                                    std::uint32_t lo,
-                                                    std::uint32_t hi);
-extern "C" void runtime_unpacker_slot_dump(const char* why);
 
 namespace {
 using namespace gsr_runner;
@@ -2060,6 +2053,7 @@ void golden_sun_function_entry_observer(std::uint32_t entry_pc) {
         gsr::random_djinn::tbs::frame();
         gsr::random_psynergy::tbs::scroll_frame();
         question_hold_frame_entry();
+        gsr::save_editor::frame();  // F1 > Cheats > Save editor
     }
     if (entry_pc == GS_ROM(0x08010000u)) g_tile_ring_redraw.on_follow_entry();  // Func_10000
     golden_sun_note_projected_obj_placement(entry_pc);

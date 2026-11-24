@@ -52,6 +52,7 @@ extern "C" unsigned long long g_cost_irq_handler_calls;
 #include "host_window.h"
 #include "frame_timing.h"
 #include "frame_interpolation.h"
+#include "frame_history.h"
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
 #include "host_prof_phase.h"
@@ -3479,6 +3480,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     if (args.window && !present_in_place) {
         gbarecomp::runtime_set_frame_render_gate_hook(
             [&](unsigned long long frame) -> bool {
+                gbarecomp::frame_trace_set_turbo(fast_forward_active);
                 turbo_frame_should_present = framedump_dir ||
                     turbo_present_decimator.should_present(
                         fast_forward_active, turbo_uncapped_active,
@@ -3499,6 +3501,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         // hook below reuses the cached result instead of calling it again.
         gbarecomp::runtime_set_frame_render_gate_hook(
             [&](unsigned long long frame) -> bool {
+                gbarecomp::frame_trace_set_turbo(fast_forward_active);
                 turbo_frame_should_present =
                     turbo_present_decimator.should_present(
                         fast_forward_active, turbo_uncapped_active,

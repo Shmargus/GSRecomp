@@ -30,6 +30,15 @@
 #include "../../shared_game/custom_battle_panel.h"
 #include "../../shared_game/field_psynergy_options.h"
 
+// Runtime names the runner files use (runtime_current_frame comes from
+// runtime_bus_bridge.h).
+extern "C" unsigned g_ws_active;
+extern "C" void runtime_iwram_code_write_dump(const char* why);
+extern "C" void runtime_iwram_code_write_dump_range(const char* why,
+                                                    std::uint32_t lo,
+                                                    std::uint32_t hi);
+extern "C" void runtime_unpacker_slot_dump(const char* why);
+
 
 struct DispatchEntry {
     std::uint32_t addr;

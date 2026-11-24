@@ -250,12 +250,22 @@ public:
     const bool* latched_native_affine_line_ref_valid() const {
         return latched_native_affine_line_ref_valid_.data();
     }
+    // `draw` false (a Turbo frame that will not be shown): record the row's
+    // registers, walk the affine references and run the margin policy as
+    // usual, but put no pixels down. The VBlank capture then describes the
+    // frame it is taken on, not the last frame that was drawn.
     void render_scanline(uint32_t y,
                          uint16_t dispcnt,
                          const uint8_t* io,
                          const uint8_t* vram,
                          const uint8_t* oam,
-                         const uint8_t* pal);
+                         const uint8_t* pal,
+                         bool draw = true);
+    // The guest frame whose row 0 the latched rows began on. Equal to
+    // frame_count() at VBlank when the rows are this frame's own.
+    uint64_t latched_native_rows_frame() const {
+        return latched_native_rows_frame_;
+    }
 
     // GoldenSunRecomp edit (see MODIFICATIONS.md): stop this compositor
     // DRAWING, while it still records each scanline's registers and walks
@@ -320,6 +330,8 @@ private:
     using LineIo = std::array<uint8_t, kLineIoBytes>;
     std::array<LineIo, kScreenHeight> line_io_{};
     std::array<bool, kScreenHeight> line_io_valid_{};
+    uint64_t line_io_frame_ = 0;
+    uint64_t latched_native_rows_frame_ = 0;
     // GoldenSunRecomp edit, see set_native_raster_enabled().
     bool native_raster_enabled_ = true;
     std::array<LineIo, kScreenHeight> latched_native_line_io_{};

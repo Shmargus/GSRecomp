@@ -8,12 +8,14 @@
 #include <vector>
 
 #include "challenge_format.h"
+#include "random_psynergy_format.h"
+#include "random_weapons_format.h"
 #include "run_code.h"
 
 namespace gsr::new_game {
 
 enum class Stage {
-    Names, Difficulty, Randomize, Stats, Scaling, Prices, PsynergyStyle, FairPlay, Code, CodeEntry, Challenge, Picks,
+    Names, Difficulty, Randomize, Stats, Scaling, Prices, FairPlay, Code, CodeEntry, Challenge, Picks,
     Extras, Autosave, Done
 };
 enum Difficulty { kNormal, kHard, kScaled, kHardScaled };
@@ -23,18 +25,17 @@ enum Random { kWeapons, kArmor, kItems, kCoins, kPsynergy, kDjinn, kRandomCount 
 enum Fair { kFairItems, kFairCoins, kFairShops, kFairPsynergy, kFairCount };
 constexpr const char* kFairLabels[kFairCount] = {"Items", "Coins", "Shops", "Psynergy"};
 constexpr const char* kFairHelp[kFairCount] = {
-    "Healing items and gear are spread through the journey, and gear gets stronger as you go.",
+    "Stronger gear tends to appear later, but you can get lucky early. Shuffled healing items are spread out.",
     "Coin spots grow with the journey, as the game's own do; no jackpots.",
-    "New stock is around each shop's usual level.",
+    "Shops mostly stock goods suited to that point in the journey, with occasional surprises.",
     "A starting hero learns Cure or Ply at level 1.",
 };
 
 // What differs between the games.
 struct Options {
-    // Random Treasure (The Broken Seal): the Items and Coins rows, and
-    // Weapons and Armor change what chests and gifts give, with the stat
-    // shuffle a follow-up. Without it (The Lost Age) Weapons and Armor are
-    // the stat shuffle.
+    // Random Treasure: Items and Coins get rows, and Weapons and Armor
+    // change finds, with the stat shuffle as a follow-up. Without Random
+    // Treasure, Weapons and Armor only shuffle stats.
     bool items_and_coins = true;
     bool extras = false;           // the Last choices page
     // Its rows: Seamless Mode (The Broken Seal only), then the game's skip.
@@ -60,28 +61,50 @@ struct Result {
     bool stats = false;  // the ticked pieces' stats shuffle too
     bool scaling = false, bargains = false;
     bool enemy_skills = false;  // with Psynergy: enemy skills join the draw
-    bool by_class = false;      // with Psynergy: every class has its own list
+    bool by_class = true;      // with Psynergy: every class has its own list
     bool fair[kFairCount] = {true, true, true, true};  // Fair Play's ticks, all on to start
     // A switch shows, and its tick counts, only while its thing is
-    // randomized (shops go with Items).
-    bool fair_shown(Fair f) const {
-        return f == kFairPsynergy ? random[kPsynergy] : f == kFairCoins ? random[kCoins] : random[kItems];
+    // randomized (shops go with Items; pooled equipment finds go with Fair Items).
+    bool fair_shown(Fair f, bool items_and_coins = true) const {
+        switch (f) {
+        case kFairItems:
+            return items_and_coins && (random[kItems] || (pooled_loot && (random[kWeapons] || random[kArmor])));
+        case kFairShops: return items_and_coins && random[kItems];
+        case kFairCoins: return items_and_coins && random[kCoins];
+        case kFairPsynergy: return random[kPsynergy];
+        default: return false;
+        }
     }
-    bool fair_on(Fair f) const { return fair_shown(f) && fair[f]; }
+    bool fair_on(Fair f, bool items_and_coins = true) const { return fair_shown(f, items_and_coins) && fair[f]; }
     std::uint32_t seed = 0;
     gsr::challenge::Config challenge;
     bool seamless = false, skip_opening = false;
     bool autosave = false;
     bool name_others = false;  // the Names answer
+    bool pooled_loot = true;   // new runs; an older code selects the legacy planner
+    bool regional_artifacts = true;
 
     bool any_random() const {
         for (const bool r : random)
             if (r) return true;
         return false;
     }
-    run_code::Run run() const {
+    random_psynergy::Config psynergy_config(bool scaled) const {
+        const bool psynergy = random[kPsynergy], items = random[kItems];
+        return {any_random() || scaled ? seed : 0u, psynergy, fair_on(kFairPsynergy),
+                items, items && bargains, random[kCoins], scaled, random[kWeapons],
+                random[kArmor], fair_on(kFairItems), fair_on(kFairCoins), fair_on(kFairShops),
+                psynergy && enemy_skills, psynergy && by_class, random[kDjinn],
+                pooled_loot, regional_artifacts};
+    }
+    random_weapons::Config equipment_config() const {
+        const bool weapons = random[kWeapons] && stats, armour = random[kArmor] && stats;
+        const bool shuffle = weapons || armour;
+        return {shuffle ? seed : 0u, shuffle && scaling, armour, weapons};
+    }
+    run_code::Run run(bool items_and_coins = true) const {
         namespace rc = run_code;
-        rc::Run r{seed, 0};
+        rc::Run r{seed, 0, pooled_loot, false, regional_artifacts};
         if (random[kWeapons]) r.choices |= rc::kWeapons;
         if (random[kArmor]) r.choices |= rc::kArmor;
         if (random[kItems]) r.choices |= rc::kItems;
@@ -95,14 +118,16 @@ struct Result {
         if (random[kPsynergy] && enemy_skills) r.choices |= rc::kEnemySkills;
         if (random[kPsynergy] && by_class) r.choices |= rc::kByClass;
         if (fair_on(kFairPsynergy)) r.choices |= rc::kFairPsynergy;
-        if (fair_on(kFairItems)) r.choices |= rc::kFairItems;
-        if (fair_on(kFairCoins)) r.choices |= rc::kFairCoins;
-        if (fair_on(kFairShops)) r.choices |= rc::kFairShops;
+        if (fair_on(kFairItems, items_and_coins)) r.choices |= rc::kFairItems;
+        if (fair_on(kFairCoins, items_and_coins)) r.choices |= rc::kFairCoins;
+        if (fair_on(kFairShops, items_and_coins)) r.choices |= rc::kFairShops;
         return r;
     }
     void take(const run_code::Run& r) {
         namespace rc = run_code;
         seed = r.seed;
+        pooled_loot = r.pooled_loot;
+        regional_artifacts = r.regional_artifacts;
         random[kWeapons] = r.choices & rc::kWeapons;
         random[kArmor] = r.choices & rc::kArmor;
         random[kItems] = r.choices & rc::kItems;
@@ -250,17 +275,12 @@ public:
         case Stage::Scaling:
             v.title = t("Equipment Scaling");
             row("Off", "Any weapon or armour piece can end up far stronger or weaker than usual.");
-            row("On", "Each piece keeps its usual strength; its new extras scale to match.");
+            row("On", "Weapon Attack and unleashes match where you find them. Armor keeps its usual Defense.");
             break;
         case Stage::Prices:
             v.title = t("Shop prices");
             row("Normal", "Shops charge the game's own prices.");
             row("Bargains", "Every item costs 5 to 1000 coins, cheaper the earlier it usually appears.");
-            break;
-        case Stage::PsynergyStyle:
-            v.title = t("Random Psynergy");
-            row("By hero", "Each hero has one list for the whole game; Djinn and classes don't change it.");
-            row("By class", "Every class gets its own list, stronger for its higher ranks; Djinn decide what you know.");
             break;
         case Stage::FairPlay:
             v.title = t("Fair Play");
@@ -270,7 +290,7 @@ public:
             break;
         case Stage::Code:
             v.title = t("Seed");
-            v.subtitle = run_code::spaced(run_code::encode(result_.run()));
+            v.subtitle = run_code::spaced(run_code::encode(result_.run(options_.items_and_coins)));
             row("Play this seed", "Share it: anyone who types it at New Game gets the same run.");
             row("Type a seed", "Type a friend's seed to play their run.");
             row("New seed", "Roll a different run with the same choices.");
@@ -337,7 +357,6 @@ private:
         case Stage::Stats: cursor_ = result_.stats; break;
         case Stage::Scaling: cursor_ = result_.scaling; break;
         case Stage::Prices: cursor_ = result_.bargains; break;
-        case Stage::PsynergyStyle: cursor_ = result_.by_class; break;
         case Stage::Difficulty: cursor_ = result_.difficulty; break;
         case Stage::Autosave: cursor_ = result_.autosave; break;
         default: break;
@@ -367,9 +386,9 @@ private:
     std::vector<Tick> randomize_rows() const {
         std::vector<Tick> rows;
         if (options_.items_and_coins) {
-            rows.push_back({"Weapons", "Weapon finds become random weapons from the whole game, hidden anywhere.", kWeapons});
-            rows.push_back({"Armor", "Armour finds become random pieces from the whole game, hidden anywhere.", kArmor});
-            rows.push_back({"Items", "Chests, gifts and shops change; story items stay.", kItems});
+            rows.push_back({"Weapons", "Each shuffled weapon has one location. Weapons can trade places with other enabled finds.", kWeapons});
+            rows.push_back({"Armor", "Each shuffled piece of armor has one location. Armor can trade places with other enabled finds.", kArmor});
+            rows.push_back({"Items", "Chests, gifts and shop stock change. Story items stay in place.", kItems});
             rows.push_back({"Coins", "Every coin spot gets a new amount, from 1 coin to the coin cap.", kCoins});
         } else {
             rows.push_back({"Weapons", "Every weapon gets another weapon's stats and a random unleash.", kWeapons});
@@ -387,7 +406,8 @@ private:
     std::vector<Fair> fair_rows() const {
         std::vector<Fair> rows;
         for (int f = 0; f < kFairCount; ++f)
-            if (result_.fair_shown(static_cast<Fair>(f))) rows.push_back(static_cast<Fair>(f));
+            if (result_.fair_shown(static_cast<Fair>(f), options_.items_and_coins))
+                rows.push_back(static_cast<Fair>(f));
         return rows;
     }
     // The question after `from`, skipping the ones that do not matter.
@@ -405,9 +425,6 @@ private:
             if (result_.random[kItems]) return Stage::Prices;
             [[fallthrough]];
         case Stage::Prices:
-            if (result_.random[kPsynergy]) return Stage::PsynergyStyle;
-            [[fallthrough]];
-        case Stage::PsynergyStyle:
             if (!fair_rows().empty()) return Stage::FairPlay;
             [[fallthrough]];
         case Stage::FairPlay:
@@ -451,7 +468,6 @@ private:
         case Stage::Stats: result_.stats = c == 1; return advance();
         case Stage::Scaling: result_.scaling = c == 1; return advance();
         case Stage::Prices: result_.bargains = c == 1; return advance();
-        case Stage::PsynergyStyle: result_.by_class = c == 1; return advance();
         case Stage::FairPlay: {
             const std::vector<Fair> rows = fair_rows();
             if (c >= static_cast<int>(rows.size())) return advance();

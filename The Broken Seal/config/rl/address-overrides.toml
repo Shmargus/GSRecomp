@@ -147,3 +147,8 @@ evidence = "Reloaded keeps the USA text numbering: the class-name code at 0x0802
 usa = 0x0000045F
 reloaded = 0x0000045F
 evidence = "Reloaded keeps the USA text numbering: all seven literal words 0x45F (Djinni names, e.g. 0x08027C5C) are in place (21 November 2026)."
+
+[[text]]
+usa = 0x0000053A
+reloaded = 0x0000053A
+evidence = "Reloaded keeps the USA text numbering: 0x53A + 3 / + 0x8C decode Quake's and Move's descriptions as in USA (22 November 2026)."

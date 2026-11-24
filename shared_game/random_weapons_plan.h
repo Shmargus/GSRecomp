@@ -6,9 +6,9 @@
 //  - armour is folded in: every piece takes the stat line of a
 //    random other piece of the same kind (body, arm, head, feet, undershirt);
 //  - who can equip it, its name, look, price, curse and use stay its own;
-//  - Scaling on: the other piece's stat line is scaled so its Attack (a
-//    weapon) or Defense (armour) is the piece's own; its other numbers scale
-//    by the same ratio.
+//  - Scaling on: the other piece's stat line is scaled to its own Attack
+//    or Defense. Unique pooled weapon finds scale to the location's rolled
+//    Attack and get a comparable vanilla unleash.
 //
 // Item records, 0x2C bytes, measured in both games (each game's FACTS.md
 // "Random Weapons"; the weapon records are byte-identical in all five ROMs
@@ -57,6 +57,8 @@ struct Unleash {
     std::uint16_t id = 0;
     std::uint8_t chance = 0;
 };
+
+using LocationStrengths = std::map<std::uint16_t, std::uint16_t>;  // weapon -> vanilla strength donor
 
 // One weapon's or armour piece's pristine record and what the plan makes of it.
 struct Weapon {
@@ -161,10 +163,27 @@ inline void copy_bonuses(Record& r, const Record& from, bool scaling, int own, i
     }
 }
 
+// A location's weapon gives its own unleash if it has one. Otherwise match
+// against the vanilla Attack of the weapons that carry an unleash.
+inline Unleash unleash_near(const Record& anchor, const std::vector<Weapon>& all) {
+    if (const auto id = unleash_of(anchor); id && anchor[kChance]) return {id, anchor[kChance]};
+    const Record* closest = nullptr;
+    const int target = attack_of(anchor);
+    for (const Weapon& w : all) {
+        if (w.type != kWeapon || !unleash_of(w.original) || !w.original[kChance]) continue;
+        const int attack = attack_of(w.original);
+        if (!closest || std::pair{std::abs(attack - target), attack} <
+                        std::pair{std::abs(attack_of(*closest) - target), attack_of(*closest)})
+            closest = &w.original;
+    }
+    if (!closest) return {};
+    return {unleash_of(*closest), (*closest)[kChance]};
+}
+
 // `weapons`, `armour`: which of the two are dealt (separate choices since 7
 // November 2026).
 inline Plan make_plan(std::vector<Weapon> all, std::uint32_t seed, bool scaling, bool weapons,
-                      bool armour) {
+                      bool armour, const LocationStrengths& locations = {}) {
     Plan plan;
     plan.seed = seed;
     plan.scaling = scaling;
@@ -213,11 +232,22 @@ inline Plan make_plan(std::vector<Weapon> all, std::uint32_t seed, bool scaling,
             const Weapon& d = all[weapon_at[donor[k]]];
             w.donor = d.id;
             Record r = w.original;
-            const int own = attack_of(w.original), other = attack_of(d.original);
-            set_attack(r, scaling ? own : other);
+            auto anchor = all.end();
+            if (scaling) {
+                const auto location = locations.find(w.id);
+                if (location != locations.end())
+                    anchor = std::find_if(all.begin(), all.end(), [&](const Weapon& item) {
+                        return item.id == location->second && item.type == kWeapon;
+                    });
+            }
+            const int target = attack_of(anchor == all.end() ? w.original : anchor->original);
+            const int other = attack_of(d.original);
+            set_attack(r, scaling ? target : other);
             r[kElement] = d.original[kElement];
-            copy_bonuses(r, d.original, scaling, own, other);
+            copy_bonuses(r, d.original, scaling, target, other);
+            // Keep the deck's sequence for weapons outside the location map.
             w.unleash = draw();
+            if (anchor != all.end()) w.unleash = unleash_near(anchor->original, all);
             r[kChance] = w.unleash.chance;
             r[kUnleash] = static_cast<std::uint8_t>(w.unleash.id);
             r[kUnleash + 1] = static_cast<std::uint8_t>(w.unleash.id >> 8);

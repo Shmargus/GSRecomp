@@ -50,12 +50,15 @@ inline run_code::Run run_of(const random_psynergy::Config& p, const random_weapo
     namespace rc = run_code;
     rc::Run r;
     r.seed = p.seed ? p.seed : e.seed;
+    r.pooled_loot = p.pooled_loot;
+    r.regional_artifacts = p.regional_artifacts;
     if (p.psynergy) r.choices |= rc::kPsynergy;
     if (p.psynergy && p.fair_psynergy) r.choices |= rc::kFairPsynergy;
     if (p.psynergy && p.enemy_skills) r.choices |= rc::kEnemySkills;
     if (p.psynergy && p.by_class) r.choices |= rc::kByClass;
     if (p.djinn) r.choices |= rc::kDjinn;
-    if (p.treasure && p.fair_items) r.choices |= rc::kFairItems;
+    if (p.fair_items && (p.treasure || (p.pooled_loot && (p.weapon_finds || p.armour_finds))))
+        r.choices |= rc::kFairItems;
     if (p.treasure && p.fair_shops) r.choices |= rc::kFairShops;
     if (p.coins && p.fair_coins) r.choices |= rc::kFairCoins;
     if (p.treasure) r.choices |= rc::kItems;
@@ -187,7 +190,7 @@ inline Sheet write(gba::GbaBus& b, const Game& g, const random_psynergy::Config&
         sheet.sections.push_back(std::move(s));
     }
     if (e.seed) {
-        const random_weapons::Plan plan = random_weapons::plan_of(e);
+        const auto& plan = random_weapons::applied_plan();
         Section weapons{gbarecomp::ui_text("Weapons"), {}}, armour{gbarecomp::ui_text("Armor"), {}};
         for (const auto& w : plan.weapons) {
             if (w.donor == 0) continue;
@@ -209,7 +212,8 @@ inline Sheet write(gba::GbaBus& b, const Game& g, const random_psynergy::Config&
         if (!weapons.lines.empty()) sheet.sections.push_back(std::move(weapons));
         if (!armour.lines.empty()) sheet.sections.push_back(std::move(armour));
     }
-    if ((p.treasure || p.coins) && g.treasure) g.treasure(p, sheet.sections, item);
+    if ((p.treasure || p.coins || p.weapon_finds || p.armour_finds) && g.treasure)
+        g.treasure(p, sheet.sections, item);
     return sheet;
 }
 

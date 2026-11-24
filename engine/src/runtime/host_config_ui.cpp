@@ -26,6 +26,7 @@ const GameOptionSwitch* g_game_switches = nullptr;
 int g_game_switch_count = 0;
 void (*g_game_page_draw)() = nullptr;
 void (*g_music_page_draw)() = nullptr;
+void (*g_cheats_page_draw)() = nullptr;
 std::mutex g_menu_art_mutex;
 std::array<uint8_t, 256 * 32> g_menu_tiles{};
 std::array<uint8_t, 224> g_menu_widths{};
@@ -61,6 +62,7 @@ const char* ui_text(const char* english) {
 }
 void config_ui_set_game_page(void (*draw)()) { g_game_page_draw = draw; }
 void config_ui_set_music_page(void (*draw)()) { g_music_page_draw = draw; }
+void config_ui_set_cheats_page(void (*draw)()) { g_cheats_page_draw = draw; }
 void config_ui_set_game_switches(const GameOptionSwitch* switches, int count) {
     g_game_switches = switches;
     g_game_switch_count = switches ? count : 0;
@@ -1647,6 +1649,7 @@ void draw_cheats_page(ConfigUiState* st) {
         if (setting_checkbox(s.label, &on)) game_option_set(s.key, on ? 1 : 0);
         caption(s.caption);
     }
+    if (g_cheats_page_draw) g_cheats_page_draw();
     if (blocked) ImGui::EndDisabled();
 }
 

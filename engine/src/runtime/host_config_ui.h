@@ -352,6 +352,9 @@ struct GameOptionSwitch {
 void config_ui_set_game_switches(const GameOptionSwitch* switches, int count);
 // Optional game-owned controls below the switches on F1's Game page.
 void config_ui_set_game_page(void (*draw)());
+// Optional game-owned controls at the end of F1's Cheats page, drawn
+// unavailable with the rest while cheats are blocked.
+void config_ui_set_cheats_page(void (*draw)());
 // Optional game-owned content on F1's Music page.
 void config_ui_set_music_page(void (*draw)());
 // The F1 menu's words in another language: a game installs {English, text}

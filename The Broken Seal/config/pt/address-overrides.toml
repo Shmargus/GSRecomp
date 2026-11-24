@@ -170,3 +170,8 @@ evidence = "The patch keeps the USA text numbering: the class-name code at 0x080
 usa = 0x0000045F
 portuguese = 0x0000045F
 evidence = "The patch keeps the USA text numbering: all seven literal words 0x45F (Djinni names, e.g. 0x08027C5C) are in place (21 November 2026)."
+
+[[text]]
+usa = 0x0000053A
+portuguese = 0x0000053A
+evidence = "The patch keeps the USA text numbering: its Func_15570 indexes the plain offset table by the same line number; the Huffman copy still decodes 0x53A + 3 / + 0x8C as USA's Quake and Move lines (22 November 2026)."

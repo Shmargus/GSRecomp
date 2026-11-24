@@ -922,8 +922,8 @@ void render_scanline_internal(uint8_t* rgb,
             // priority BG, but a BG of priority p sits in front of any OBJ of
             // priority p+1 (this is what lets the player walk BEHIND roof/tree
             // tops). The stride MUST exceed 128 so OBJ idx (0..127) can't bleed
-            // into the next priority's BG band.
-            int key = priority * 256 + idx;
+            // into the next priority's BG band. emit_obj submits
+            // lifted * 256 + idx, where lifted is the priority after obj_lift.
             bool obj_target2 = (second_targets & (1u << 4)) != 0;
             auto emit_obj = [&](int tex_x, int tex_y, int screen_x) {
                 if (screen_x < 0 || screen_x >= static_cast<int>(kScreenWidth)) return;
@@ -1999,7 +1999,6 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
             int tiles_h = sh / 8;
             int priority = static_cast<int>((attr2 >> 10) & 0x3u);
             // Composite key: see render_scanline_internal (same ordering).
-            int key = priority * 256 + idx;
             bool obj_target2 = (second_targets & (1u << 4)) != 0;
             // A provider-authenticated placement is the only coordinate that
             // may extend an OBJ into the expanded margins. If either axis is
@@ -2447,7 +2446,8 @@ void GbaPpu::render_scanline(uint32_t y,
                              const uint8_t* io,
                              const uint8_t* vram,
                              const uint8_t* oam,
-                             const uint8_t* pal) {
+                             const uint8_t* pal,
+                             bool draw) {
     // This, not render(), is the entry the headless/run loop uses: it is
     // called once per scanline. Count scanlines; the caller divides by
     // kScreenHeight to get a per-frame figure. Timed only with
@@ -2472,6 +2472,7 @@ void GbaPpu::render_scanline(uint32_t y,
         if (y == 0) {
             affine_line_ref_valid_.fill(false);
             line_io_valid_.fill(false);
+            line_io_frame_ = frame_count_;
         }
         affine_line_ref_[y] = affine_ref_;
         affine_line_ref_valid_[y] = true;
@@ -2512,7 +2513,7 @@ void GbaPpu::render_scanline(uint32_t y,
     // skipped (MODIFICATIONS.md). The margin policy call in the expanded
     // branch is kept either way: it is how the game adapter learns what this
     // frame is, not part of putting pixels down.
-    if (!native_raster_enabled_) {
+    if (!native_raster_enabled_ || !draw) {
         if (view_expanded() && y < kScreenHeight && g_ws_margin_policy)
             (void)g_ws_margin_policy(dispcnt, io);
     } else if (!view_expanded()) {
@@ -2599,6 +2600,7 @@ void GbaPpu::latch_native_scene_state(uint16_t dispcnt,
     std::memcpy(latched_native_pal_.data(), pal, latched_native_pal_.size());
     latched_native_line_io_ = line_io_;
     latched_native_line_io_valid_ = line_io_valid_;
+    latched_native_rows_frame_ = line_io_frame_;
     latched_native_affine_line_ref_ = affine_line_ref_;
     latched_native_affine_line_ref_valid_ = affine_line_ref_valid_;
     has_latched_native_state_ = true;

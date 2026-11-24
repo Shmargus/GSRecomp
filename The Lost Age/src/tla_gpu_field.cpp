@@ -369,27 +369,14 @@ void capture() {
         }
     }
 
-    // When every row agrees on a display mode the end-of-frame registers do
-    // not, the rows are the truth (Golden Sun 1, a battle flash).
+    // The registers this frame was drawn with (field_scene_rows_drawn_mode;
+    // Golden Sun 1, a battle flash).
     std::vector<std::uint8_t> io(bus->io().raw(),
                                  bus->io().raw() + gba::GbaIo::kIoSize);
-    const std::uint8_t* rows = ppu->latched_native_line_io();
-    const bool* rows_valid = ppu->latched_native_line_io_valid();
-    int first = -1;
-    bool agree = true;
-    for (int y = 0; rows && rows_valid && y < gsr::FieldScene::kRows; ++y) {
-        if (!rows_valid[y]) continue;
-        const std::uint8_t* row = rows + std::size_t(y) * gsr::FieldScene::kLineIoBytes;
-        if (first < 0) first = y;
-        else if ((row[0] & 7u) !=
-                 (rows[std::size_t(first) * gsr::FieldScene::kLineIoBytes] & 7u))
-            agree = false;
-    }
-    if (first >= 0 && agree) {
-        const std::uint8_t* row = rows + std::size_t(first) * gsr::FieldScene::kLineIoBytes;
-        if ((row[0] & 7u) != (io[0] & 7u))
-            std::memcpy(io.data(), row, gsr::FieldScene::kLineIoBytes);
-    }
+    if (const std::uint8_t* row = gsr::field_scene_rows_drawn_mode(
+            io.data(), ppu->latched_native_line_io(),
+            ppu->latched_native_line_io_valid()))
+        std::memcpy(io.data(), row, gsr::FieldScene::kLineIoBytes);
 
     // Diagnostic capture alone must not enable placement overrides in the
     // console/Direct3D path; retain the existing renderer-owned hook behavior.
@@ -884,14 +871,21 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     }
     const bool held = !flat && g_world_margin_w == width &&
                       g_world_margin_h == height && !g_world_margin.empty();
+    const bool glow = held && tla_beam_glow_frame(io.data(),
+        unsigned(capture.ewram[0x428]) | (unsigned(capture.ewram[0x429]) << 8));
     // LIVE margins (shared_game/world_margin_live.h): the settled world map
     // drawn every frame with this frame's sprites; the held photo is the
     // fallback.
     static std::vector<std::uint8_t> live_margins;
     static const auto mix = std::make_shared<Capture>();
     const std::vector<std::uint8_t>* margin_src = &g_world_margin;
+    // F12 frames.csv: this picture's margins come from remembered scenery.
+    if (held)
+        gbarecomp::frame_trace_note_held_scene(
+            capture.scene.frame, g_world_settled ? g_world_settled->scene.frame : 0u);
     if (held && g_world_settled &&
-        gsr::live_world_margin_capture(*g_world_settled, capture, *mix)) {
+        gsr::live_world_margin_capture(*g_world_settled, capture, *mix,
+            !glow && g_world_palette_effect.changes_background(capture.pal))) {
         live_margins.resize(std::size_t(width) * height * 3u);
         if (draw_capture(mix, live_margins.data(), width, height, nullptr, nullptr, true,
                          nullptr, true))
@@ -916,8 +910,6 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     // way the console adds the snapshot (second target, weight EVB/16; EVB
     // 16 in every beam frame of 0181..0184).
     const unsigned evb = std::min(io[0x53] & 0x1Fu, 16u);
-    const bool glow = held && tla_beam_glow_frame(io.data(),
-        unsigned(capture.ewram[0x428]) | (unsigned(capture.ewram[0x429]) << 8));
     for (std::uint32_t y = 0; y < height; ++y) {
         const bool native_row = y >= y0 && y < y0 + 160u;
         std::uint8_t* dst = rgb + std::size_t{y} * width * 3u;
@@ -941,7 +933,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     }
     if (held && !glow && (shake_x || shake_y))
         cover_shake_strips(rgb, width, height, capture, *margin_src, shake_x, shake_y);
-    if (held && !glow)
+    if (held && !glow && margin_src == &g_world_margin)
         g_world_palette_effect.apply(rgb, width, height, *margin_src, capture.pal);
     paint_shutter_rows(rgb, width, height, capture.scene);
 }

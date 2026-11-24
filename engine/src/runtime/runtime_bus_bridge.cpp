@@ -14,6 +14,7 @@
 #include "../gba/gba_bus.h"
 #include "../gba/gba_irq.h"
 #include "../gba/gba_ppu.h"
+#include "frame_history.h"
 #include "host_prof_phase.h"
 #include "game_options.h"
 #include "runtime.h"  // guest_call, guest_return_now
@@ -1432,7 +1433,12 @@ static void tick_devices(gba::GbaBus* bus, gba::GbaPpu* ppu, uint32_t cycles) {
         uint16_t ds = bus->io().dispstat();
         if (events.hblank_started &&
             ppu->vcount() < gba::GbaPpu::kLinesVisible) {
-            if (!g_skip_frame_render) {
+            // A Turbo frame that will not be shown still records its rows
+            // (registers, affine references, margin policy); only the pixel
+            // work is skipped. Otherwise its VBlank capture pairs this frame's
+            // memory with the last drawn frame's rows, and caches that learn
+            // from captures (room graphics behind menus) learn a mix.
+            {
                 std::chrono::steady_clock::time_point _prof_t0;
                 if (phase_prof_enabled()) _prof_t0 = std::chrono::steady_clock::now();
                 {
@@ -1443,7 +1449,8 @@ static void tick_devices(gba::GbaBus* bus, gba::GbaPpu* ppu, uint32_t cycles) {
                                          bus->io().raw(),
                                          bus->vram_ptr(),
                                          bus->oam_ptr(),
-                                         bus->pal_ptr());
+                                         bus->pal_ptr(),
+                                         !g_skip_frame_render);
                 }
                 if (phase_prof_enabled()) {
                     g_prof_scanline_ns += static_cast<unsigned long long>(
@@ -1496,6 +1503,11 @@ static void tick_devices(gba::GbaBus* bus, gba::GbaPpu* ppu, uint32_t cycles) {
                     ppu->mark_framebuffer_latched();
                 }
             }
+            // F12's per-guest-frame trace: shown or skipped, and which
+            // frame the latched rows came from.
+            gbarecomp::frame_trace_vblank(ppu->frame_count(),
+                                          ppu->latched_native_rows_frame(),
+                                          !g_skip_frame_render);
             if (gbarecomp::g_frame_snapshot_hook)
                 gbarecomp::g_frame_snapshot_hook();
             // Second, independent observer of the same boundary -- see

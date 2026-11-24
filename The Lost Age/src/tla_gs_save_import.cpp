@@ -12,6 +12,7 @@
 #include "host_config_ui.h"
 #include "tla_save_update.h"
 #include "../../shared_game/field_character.h"
+#include "../../shared_game/menu_text.h"
 #include "../../shared_game/save_files.h"
 
 #ifdef GBARECOMP_HAVE_IMGUI
@@ -695,7 +696,9 @@ bool tla_gs_save_import_paint(std::uint8_t* rgb, std::uint32_t width, std::uint3
     if (menu.stage == ImportStage::Idle) return false;
     // Cover the original method chooser on the native 30x20 tile canvas.
     tla_menu_paint_window(rgb, width, height, 0, 0, 30, 20);
-    auto text = [&](const std::string& label, int y) {
+    // In the loaded language (the F1 table, as the game font's Latin-1).
+    auto text = [&](const std::string& english, int y) {
+        const std::string label = gsr::menu_text(english.c_str());
         tla_menu_paint_text(rgb, width, height, label,
                             (240 - int(tla_menu_text_width(label))) / 2, y);
     };
@@ -704,7 +707,7 @@ bool tla_gs_save_import_paint(std::uint8_t* rgb, std::uint32_t width, std::uint3
         for (unsigned i = 0; i < menu.source.slots.size(); ++i) {
             const auto& s = menu.source.slots[i];
             const std::string prefix = std::string(i == menu.source.row ? "> " : "  ") +
-                "Slot " + std::to_string(s.slot) + ": ";
+                gsr::menu_text("Slot ") + std::to_string(s.slot) + ": ";
             const std::string suffix = "  Lv." + std::to_string(s.level);
             std::string name = s.name;
             while (!name.empty() && tla_menu_text_width(prefix + name + suffix) > 208)
@@ -714,7 +717,21 @@ bool tla_gs_save_import_paint(std::uint8_t* rgb, std::uint32_t width, std::uint3
         }
         text("A: Select   B: Cancel", 136);
     } else if (menu.stage == ImportStage::Error) {
-        text(menu.error, 64);
+        // Wider than the window's 224-pixel inside (translations run long):
+        // two lines, broken at the last space that fits.
+        const std::string error = gsr::menu_text(menu.error.c_str());
+        std::size_t cut = std::string::npos;
+        if (tla_menu_text_width(error) > 224u)
+            for (std::size_t at = error.find(' '); at != std::string::npos; at = error.find(' ', at + 1))
+                if (tla_menu_text_width(error.substr(0, at)) <= 224u) cut = at;
+        const auto line = [&](const std::string& s, int y) {
+            tla_menu_paint_text(rgb, width, height, s, (240 - int(tla_menu_text_width(s))) / 2, y);
+        };
+        if (cut == std::string::npos) line(error, 64);
+        else {
+            line(error.substr(0, cut), 64);
+            line(error.substr(cut + 1), 80);
+        }
         text("A / B: Back", 136);
     } else {
         text("Choose a Golden Sun save file", 64);

@@ -58,10 +58,31 @@ inline bool arrive(const Destination& d) {
         return false;
     return true;
 }
+// The overworld adds a terrain layer to the leader's sprite. Retreat's
+// dungeon animation drives it too, turning the woodland mask solid black
+// (F12 0112). Native town loading replaces the actor after this effect.
+inline void remove_departure_terrain(gba::GbaBus* b) {
+    const auto actor = leader(b);
+    if (!field_address(actor) || (b->read8(actor + 0x54u) & 0xFu) != 1u) return;
+    const auto sprite = b->read32(actor + 0x50u);
+    if (!field_address(sprite)) return;
+    // The native layer remover searches these four slots and frees the layer.
+    for (unsigned slot = 0; slot < 4; ++slot) {
+        const auto part = b->read32(sprite + 0x28u + slot * 4u);
+        if (!field_address(part) || b->read16(part) != 0x17u) continue;
+        if (call(GS_ROM(0x0800B93Cu), sprite, part))
+            b->write8(sprite + 0x25u, 1u);  // rebuild the sprite's tiles
+        return;
+    }
+}
 inline bool on_entry(std::uint32_t pc) {
-    if (cast_entry(pc)) return true;
     auto* b = gbarecomp::active_bus();
     Hold h{};
+    if (b && game && !busy && pc == game->cast->effect &&
+        read_hold_at(b, h, g_cpu.R[13] + game->cast->effect_stack) &&
+        h[5] != 2u && phase(h) == 1u)
+        remove_departure_terrain(b);
+    if (cast_entry(pc)) return true;
     if (b && game && pc == game->frame && read_hold(b, h) &&
         h[5] != 2u && phase(h) == 3u) {
         std::uint16_t room = 0, entrance = 0;

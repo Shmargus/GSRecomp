@@ -191,3 +191,8 @@ evidence = "Class name base (Random Psynergy by class spoiler sheet): USA ldr r3
 usa = 0x45F
 france = 0x556
 evidence = "Djinni name base (Random Djinn spoiler sheet): USA names text 0x45F + element*20 + index (name drawing 0x08027C2C..3C, literal 0x08027C5C); all seven USA literal words 0x45F are 0x556 in this ROM at the matching places (21 November 2026). The Psynergy name base moves by the same 0xF7."
+
+[[text]]
+usa = 0x53A
+france = 0x631
+evidence = "Psynergy description base (Enemy skills' written lines): USA 0x53A + id; decoded with this ROM's own text tables, 0x631 + 3 / + 0x8C / + 0x95 are Quake's, Move's and Retreat's descriptions ('Attaque avec un seisme.', 'Deplace un objet sur le sol.', 'Teleporte a l''entree du donjon.'), as USA 0x53A + the same; the literal-pool scan pairs 0x53A with 0x631 (FACTS 'Localized ROMs') (22 November 2026)."

@@ -52,6 +52,7 @@
 #include "radial_psynergy_tbs.h"
 #include "random_psynergy_tbs.h"
 #include "random_weapons_tbs.h"
+#include "treasure_randomizer_tbs.h"
 #include "../../shared_game/run_code.h"
 #include "../../shared_game/code_box.h"
 #include "../../shared_game/new_game_flow.h"
@@ -99,14 +100,6 @@
 #include "rom_version.h"
 #include "runner_shared.h"
 #include "../../shared_game/quality_of_life.h"
-
-extern "C" unsigned g_ws_active;
-extern "C" unsigned long long runtime_current_frame();
-extern "C" void runtime_iwram_code_write_dump(const char* why);
-extern "C" void runtime_iwram_code_write_dump_range(const char* why,
-                                                    std::uint32_t lo,
-                                                    std::uint32_t hi);
-extern "C" void runtime_unpacker_slot_dump(const char* why);
 
 namespace {
 using namespace gsr_runner;
@@ -213,19 +206,10 @@ void prompt_finish() {
     gbarecomp::game_option_set(gsr::autosave::kOptionKey, r.autosave ? 1 : 0);
     g_skip_opening_pending = r.skip_opening;
     gsr::challenge::store(r.challenge);
-    // One seed for the whole run (run_code.h).
-    const bool psynergy = r.random[ng::kPsynergy], items = r.random[ng::kItems], coins = r.random[ng::kCoins];
-    // Weapons and Armor change the finds; their stats shuffle only with Stats.
-    const bool weapons = r.random[ng::kWeapons], armour = r.random[ng::kArmor];
-    const bool stat_weapons = weapons && r.stats, stat_armour = armour && r.stats;
-    const bool djinn = r.random[ng::kDjinn];
-    const bool run = psynergy || items || coins || scaled || weapons || armour || djinn;
-    rp::store({run ? r.seed : 0u, psynergy, r.fair_on(ng::kFairPsynergy), items, items && r.bargains, coins,
-               scaled, weapons, armour, r.fair_on(ng::kFairItems), r.fair_on(ng::kFairCoins),
-               r.fair_on(ng::kFairShops), psynergy && r.enemy_skills, psynergy && r.by_class, djinn});
-    const bool stats = stat_weapons || stat_armour;
-    rw::store({stats ? r.seed : 0u, stats && r.scaling, stat_armour, stat_weapons});
-    g_random_weapons_pending = stats;
+    rp::store(r.psynergy_config(scaled));
+    const auto equipment = r.equipment_config();
+    rw::store(equipment);
+    g_random_weapons_pending = equipment.armour || equipment.weapons;
     g_challenge_levels_pending = r.challenge.size > 0;
 }
 
@@ -426,8 +410,9 @@ void question_hold_frame_entry() {
         // After the challenge's level-1 picks: the plan's lists from the start
         // (and a challenge leader's puzzle Psynergy; a no-op otherwise).
         gsr::random_psynergy::tbs::apply_new_game();
-        // The new weapons, and the stats of the heroes holding one.
-        if (g_random_weapons_pending) gsr::random_weapons::tbs::apply_new_game();
+        // Install the location-scaled equipment before rebuilding hero stats.
+        if (gsr::treasure::tbs::frame() || g_random_weapons_pending)
+            gsr::random_weapons::tbs::rebuild_equipped_stats();
         g_random_weapons_pending = false;
     }
     g_cpu.R[0] = 1u;

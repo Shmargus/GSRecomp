@@ -215,9 +215,14 @@ function Configure-Plan($Plan, [string]$RunDir) {
     $cacheBackup = Join-Path $RunDir "$($Plan.Name)-CMakeCache-before.txt"
     Copy-Item -LiteralPath $Plan.CachePath -Destination $cacheBackup
     $preload = Join-Path $RunDir "$($Plan.Name)-settings.cmake"
+    $current = if (-not $Plan.Fresh) { Read-Cache $cacheBackup }
     $lines = @('# Preserved and relocated developer cache entries.')
     foreach ($key in @($Plan.Settings.Keys | Sort-Object)) {
         $entry = $Plan.Settings[$key]
+        # Forcing an unchanged entry rewrites its help text and can invalidate
+        # The Broken Seal's build record while configuring for The Lost Age.
+        if ($current -and $current[$key].Type -ceq $entry.Type -and
+            $current[$key].Value -ceq $entry.Value) { continue }
         $literal = Cmake-Literal $entry.Value
         $lines += "set($key $literal CACHE $($entry.Type) `"Developer build setting`" FORCE)"
     }

@@ -12,6 +12,8 @@
 // of five bits from an alphabet without look-alikes (no I, O, 0, 1).
 // Codes made before 21 November 2026 have eight symbols: 40 bits, choices
 // (12) and check (3). They still decode (no Enemy skills).
+// Choice bit 15 marks the pooled treasure planner. Older codes leave it clear.
+// Pooled codes for the regional artifact planner flip the highest check bit.
 //
 // The letter grid (Entry) is the shared logic of the code's typing screen;
 // each game paints it with its own window and font.
@@ -29,13 +31,17 @@ constexpr std::uint16_t kStats = 256u, kFairItems = 512u, kFairCoins = 1024u, kF
 constexpr std::uint16_t kEnemySkills = 4096u;  // with Psynergy: enemy skills join the draw
 constexpr std::uint16_t kByClass = 8192u;      // with Psynergy: every class has its own list
 constexpr std::uint16_t kDjinn = 16384u;       // Random Djinn
+constexpr std::uint16_t kPooledLoot = 32768u;  // pooled treasure planner
 constexpr std::uint16_t kFairBits = kFairPsynergy | kFairItems | kFairCoins | kFairShops;
-constexpr std::uint16_t kChoiceBits = 0xFFFFu, kOldChoiceBits = 0xFFFu;
+constexpr std::uint16_t kChoiceBits = 0x7FFFu, kOldChoiceBits = 0xFFFu;
 constexpr std::uint32_t kSeedBits = 0x01FFFFFFu;
 
 struct Run {
     std::uint32_t seed = 0;
     std::uint16_t choices = 0;
+    bool pooled_loot = false;
+    bool short_code = false;  // preserve the layout of decoded eight-symbol codes
+    bool regional_artifacts = false;
 };
 
 constexpr char kAlphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -56,6 +62,7 @@ struct Layout {
 };
 constexpr Layout kLayout{45, 16, 4, 23, 0x9E3779B97F4Bull & ((std::uint64_t{1} << 45) - 1u)};
 constexpr Layout kOldLayout{40, 12, 3, 21, 0x9E3779B97Full & ((std::uint64_t{1} << 40) - 1u)};
+constexpr std::uint8_t kRegionalCheckBit = 1u << (kLayout.check_bits - 1);
 static_assert(((kLayout.mul * kLayout.mul_inv()) & kLayout.mask()) == 1u, "scramble must be reversible");
 static_assert(((kOldLayout.mul * kOldLayout.mul_inv()) & kOldLayout.mask()) == 1u, "scramble must be reversible");
 static_assert(25 + kLayout.choice_bits + kLayout.check_bits == kLayout.bits && kLayout.bits == 5 * kLength);
@@ -84,14 +91,17 @@ constexpr std::uint64_t unscramble(std::uint64_t v, const Layout& l) {
 }
 
 inline std::string encode(const Run& r) {
-    const Layout& l = kLayout;
-    const std::uint16_t choices = r.choices & kChoiceBits;
+    const bool old = r.short_code && !r.pooled_loot && (r.choices & ~kOldChoiceBits) == 0;
+    const Layout& l = old ? kOldLayout : kLayout;
+    const std::uint16_t choices = (r.choices & kChoiceBits) | (r.pooled_loot ? kPooledLoot : 0u);
     const std::uint32_t seed = r.seed & kSeedBits;
+    const std::uint8_t check = check_of(seed, choices, l.check_bits) ^
+                               (r.pooled_loot && r.regional_artifacts ? kRegionalCheckBit : 0u);
     std::uint64_t v = std::uint64_t{seed} << (l.choice_bits + l.check_bits) |
-                      std::uint64_t{choices} << l.check_bits | check_of(seed, choices, l.check_bits);
+                      std::uint64_t{choices} << l.check_bits | check;
     v = scramble(v, l);
     std::string out;
-    for (int i = kLength - 1; i >= 0; --i) out += kAlphabet[(v >> (i * 5)) & 31u];
+    for (int i = l.bits / 5 - 1; i >= 0; --i) out += kAlphabet[(v >> (i * 5)) & 31u];
     return out;
 }
 
@@ -117,8 +127,12 @@ inline bool decode(const std::string& code, Run* out) {
     v = unscramble(v, l);
     const auto seed = static_cast<std::uint32_t>(v >> (l.choice_bits + l.check_bits));
     const auto choices = static_cast<std::uint16_t>((v >> l.check_bits) & ((1u << l.choice_bits) - 1u));
-    if (seed == 0 || check_of(seed, choices, l.check_bits) != (v & ((1u << l.check_bits) - 1u))) return false;
-    if (out) *out = {seed, choices};
+    const bool pooled = (choices & kPooledLoot) != 0;
+    const auto check = v & ((1u << l.check_bits) - 1u);
+    const auto expected = check_of(seed, choices, l.check_bits);
+    const bool regional = pooled && check == (expected ^ kRegionalCheckBit);
+    if (seed == 0 || (check != expected && !regional)) return false;
+    if (out) *out = {seed, static_cast<std::uint16_t>(choices & kChoiceBits), pooled, old, regional};
     return true;
 }
 

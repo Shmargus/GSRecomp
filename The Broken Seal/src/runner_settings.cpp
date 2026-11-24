@@ -98,14 +98,6 @@
 #include "runner_shared.h"
 #include "../../shared_game/quality_of_life.h"
 
-extern "C" unsigned g_ws_active;
-extern "C" unsigned long long runtime_current_frame();
-extern "C" void runtime_iwram_code_write_dump(const char* why);
-extern "C" void runtime_iwram_code_write_dump_range(const char* why,
-                                                    std::uint32_t lo,
-                                                    std::uint32_t hi);
-extern "C" void runtime_unpacker_slot_dump(const char* why);
-
 namespace {
 using namespace gsr_runner;
 

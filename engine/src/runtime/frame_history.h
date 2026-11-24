@@ -68,6 +68,22 @@ struct HistoryFrame {
     std::vector<std::int32_t> refs;    // 160 x 4 affine references
 };
 
+// Per GUEST frame, shown or not (frames.csv in the F12 folder): whether
+// Turbo skipped drawing it, which frame its latched row registers came from,
+// and which frame any remembered scenery painted on it was taken from. The
+// picture history above holds presented frames only, so a Turbo gap is
+// otherwise invisible. Written from the frame the oldest saved picture shows.
+//   frame_trace_vblank   the engine, at each VBlank after the latch
+//   frame_trace_set_turbo  the run loop, as it decides each frame
+//   frame_trace_note_held_scene  a game, when it paints remembered scenery
+//                        (`shown`: the frame painted on; `source`: the
+//                        frame the remembered scenery was captured on)
+void frame_trace_vblank(unsigned long long guest_frame,
+                        unsigned long long rows_frame, bool drawn);
+void frame_trace_set_turbo(bool on);
+void frame_trace_note_held_scene(unsigned long long shown,
+                                 unsigned long long source);
+
 // Asks for one capture, as an F12 press would, at the next update_report
 // (the phone menu's Save capture: a phone has no F12).
 void frame_history_request_capture();

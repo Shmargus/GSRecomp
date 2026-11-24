@@ -313,6 +313,21 @@ bool rows_are_uniform(const FieldScene* s) {
 
 }  // namespace
 
+const std::uint8_t* field_scene_rows_drawn_mode(const std::uint8_t* io,
+                                                const std::uint8_t* row_io_table,
+                                                const bool* row_io_valid) {
+    if (!io || !row_io_table || !row_io_valid) return nullptr;
+    const std::uint8_t* first = nullptr;
+    for (int y = 0; y < FieldScene::kRows; ++y) {
+        if (!row_io_valid[y]) continue;
+        const std::uint8_t* row = row_io_table + std::size_t(y) * FieldScene::kLineIoBytes;
+        if (!first) first = row;
+        else if ((row[0] & 7u) != (first[0] & 7u)) return nullptr;
+    }
+    if (!first || (first[0] & 7u) == (io[0] & 7u)) return nullptr;
+    return first;
+}
+
 bool field_scene_frame_supported(unsigned dispcnt, const char** why) {
     const int mode = static_cast<int>(dispcnt & 7u);
     // Modes 0-2 are tile-based: 0 is four regular layers, 1 makes BG2

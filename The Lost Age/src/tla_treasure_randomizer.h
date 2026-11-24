@@ -36,7 +36,7 @@
 #include "../../shared_game/treasure_plan.h"
 #include "../../shared_game/treasure_randomizer.h"
 #include "tla_rom_version.h"
-#include "tla_treasure_randomizer_data.h"
+#include "tla_treasure_regions.h"
 
 namespace gsr::treasure::tla {
 
@@ -46,7 +46,7 @@ constexpr std::uint32_t kRoom = 0x02000420u;
 
 inline Randomizer state{{tla_data::spots,
                          {tla_data::shop_items, tla_data::shop_weapons, tla_data::shop_armour},
-                         kItemCount, kShops}};
+                         kItemCount, kShops, tla_data::region_sections}};
 inline std::vector<std::uint8_t> pristine_table;  // the treasure table
 
 inline std::uint32_t item_table() { return TLA_ROM(0x080B2364u); }
@@ -82,17 +82,14 @@ inline void write_table(std::uint8_t* rom) {
     }
 }
 
-// Once a game frame, after Random Equipment's frame.
-inline void frame(const random_psynergy::Config& c) {
+inline bool frame(const random_psynergy::Config& c, const random_weapons::Game& equipment) {
     gba::GbaBus* b = gbarecomp::active_bus();
-    if (!b || !b->rom_ptr()) return;
+    if (!b || !b->rom_ptr()) return false;
     if (!state.captured) {
         pristine_table.resize(kTableSize);
         for (std::uint32_t i = 0; i < kTableSize; ++i) pristine_table[i] = b->read8(treasure_table() + i);
     }
-    state.capture(*b, item_table(), shop_table());
-    std::uint8_t* rom = random_weapons::rom_image(*b);
-    if (state.apply(rom, random_weapons::state.generation, item_table(), shop_table(), c)) write_table(rom);
+    return apply_frame(state, *b, equipment, c, item_table(), shop_table(), write_table);
 }
 
 // Entry hook: true when r0 was changed. pc, lr (without the Thumb bit), r9

@@ -83,6 +83,7 @@
 #include "../../shared_game/run_code.h"
 #include "../../shared_game/code_box.h"
 #include "../../shared_game/run_sheet.h"
+#include "../../shared_game/save_editor.h"
 #include "../../shared_game/name_scroll.h"
 #include "../../shared_game/new_game_flow.h"
 #include "tla_treasure_randomizer.h"
@@ -273,7 +274,7 @@ const rp::Game& rp_game() {
         {TLA_ROM(0x080B7C14u), 12u, 0x2DFu},
         TLA_ROM(0x080AF43Cu), rp_pp_sites(),
         kRpIcons,
-        0x885u,  // descriptions (English): Quake 3 is text 0x888
+        TLA_TEXT(0x885u),  // descriptions: Quake 3 is base + 3 (Spain, Italy, France, Germany 0xA52)
         kRpLines,
     };
     return g;
@@ -356,6 +357,27 @@ const rw::Game& rw_game() {
         TLA_ROM(0x080A9F54u) - 0x08000000u, TLA_ROM(0x08060C30u) - 0x08000000u,
         TLA_TEXT(0x92u), TLA_TEXT(0x5A7u), TLA_TEXT(0x25Fu), TLA_ROM(0x0805F484u),
         kRecords, kRecordSize, TLA_ROM(0x080AD3F8u), 8,
+    };
+    return g;
+}
+
+// --- F1 > Cheats > Save editor (shared_game/save_editor.h) -----------------------
+// Verified English ROM (FACTS.md "Save editor routines", 22 November 2026):
+// coins 0x02000250, clamped to 999,999 by the adder 0x080AFEB0; joined bits
+// in the story flags; level +0xF, experience +0x124. Raise 0x080AFBB4(id,
+// level): level-up 0x080AF91C per level (none at 99, experience raised to
+// 0x080AF8D0's threshold), then the stats 0x080AD3F8. Give item 0x080AED6C,
+// remove 0x080AF148(id, slot) (one fewer, else clear and pack, then the
+// stats). Djinn: owned +0xF8 + element*4, count +0x118 + element, flag 0x30
+// + element*20 + index, names 0x6D3 + element*20 + index, 18 per element;
+// give 0x080B0B78 and list 0x080B0E04 (as the grant 0x080B0AB8), unset
+// 0x080B0D04 and off the list 0x080B0D58 (as the move takes from the giver).
+const gsr::save_editor::Game& editor_game() {
+    static const gsr::save_editor::Game g{
+        &rw_game(), 0x02000250u, 999999u, kStoryFlags, kLevel, 0x124u, 99u,
+        TLA_ROM(0x080AFBB4u), TLA_ROM(0x080AED6Cu), TLA_ROM(0x080AF148u),
+        0xF8u, 0x118u, 0x30u, TLA_TEXT(0x6D3u), 18u,
+        TLA_ROM(0x080B0B78u), TLA_ROM(0x080B0E04u), TLA_ROM(0x080B0D04u), TLA_ROM(0x080B0D58u),
     };
     return g;
 }
@@ -473,18 +495,8 @@ void apply_choices(const gsr::new_game::Result& r) {
     gbarecomp::game_option_set(gsr::autosave::kOptionKey, r.autosave ? 1 : 0);
     // Always written, so a new game never keeps an earlier game's choice.
     ch::store(r.challenge);
-    // One seed for the whole run (run_code.h), as in The Broken Seal: Weapons
-    // and Armor change the finds; their stats shuffle only with Stats.
-    const bool psynergy = r.random[ng::kPsynergy], items = r.random[ng::kItems], coins = r.random[ng::kCoins];
-    const bool finds_weapons = r.random[ng::kWeapons], finds_armour = r.random[ng::kArmor];
-    const bool weapons = finds_weapons && r.stats, armour = finds_armour && r.stats;
-    const bool djinn = r.random[ng::kDjinn];
-    const bool run = psynergy || items || coins || scaled || finds_weapons || finds_armour || djinn;
-    rp::store(rp_game(), {run ? r.seed : 0u, psynergy, r.fair_on(ng::kFairPsynergy), items, items && r.bargains,
-                          coins, scaled, finds_weapons, finds_armour, r.fair_on(ng::kFairItems),
-                          r.fair_on(ng::kFairCoins), r.fair_on(ng::kFairShops), psynergy && r.enemy_skills,
-                          psynergy && r.by_class, djinn});
-    rw::store(rw_game(), {weapons || armour ? r.seed : 0u, (weapons || armour) && r.scaling, armour, weapons});
+    rp::store(rp_game(), r.psynergy_config(scaled));
+    rw::store(rw_game(), r.equipment_config());
     if (g_imported_run_set) {
         // A randomized Broken Seal run goes on as it was, with this game's
         // Scaled choice added.
@@ -746,8 +758,9 @@ void hold_frame_entry() {
     // After the picks' levels: the plan's lists from the start (and a
     // challenge leader's puzzle Psynergy; a no-op otherwise).
     rp::apply_new_game(rp_game());
-    // The new equipment, and the stats of the heroes wearing any.
-    if (g_weapons_pending) rw::apply_new_game(rw_game(), kHp, kMaxHp, kPp, kMaxPp);
+    // Install the location-scaled equipment before rebuilding hero stats.
+    if (gsr::treasure::tla::frame(rp::current(rp_game()), rw_game()) || g_weapons_pending)
+        rw::rebuild_equipped_stats(rw_game(), kHp, kMaxHp, kPp, kMaxPp);
     g_weapons_pending = false;
     // Last: "Skip the opening", if chosen (Sheba joins, flags, room).
     skip_opening(g_args);
@@ -882,6 +895,8 @@ void tla_install_new_game(gbarecomp::RunOptions& options) {
     };
     ch::install(challenge);
     gsr::run_sheet::install(sheet_game());
+    gsr::save_editor::install(editor_game());
+    gbarecomp::config_ui_set_cheats_page(gsr::save_editor::draw);
 }
 
 bool tla_new_game_on_entry(std::uint32_t pc) {
@@ -906,9 +921,9 @@ bool tla_new_game_on_entry(std::uint32_t pc) {
         gsr::random_djinn::frame(rd_game());
         gsr::name_scroll::frame(scroll_game());
         ch::frame();
-        rw::frame(rw_game());
-        gsr::treasure::tla::frame(rp::current(rp_game()));
+        gsr::treasure::tla::frame(rp::current(rp_game()), rw_game());
         gsr::run_sheet::frame();
+        gsr::save_editor::frame();  // F1 > Cheats > Save editor
     } else if (pc == TLA_ROM(0x080D2AA4u) && (g_cpu.R[14] == TLA_OVL("title", 0x020086A5u) ||
                                               (g_hold == Hold::Resuming && g_hold_pc == pc))) {
         hold_entry(pc);
@@ -1065,11 +1080,10 @@ bool tla_new_game_import_question(std::uint32_t pc) {
 void tla_new_game_draw_page() { gsr::run_sheet::draw(); }
 
 bool tla_random_weapons_text(std::uint32_t text_id, std::string& out) {
-    // Enemy skills' descriptions too (English only: the base is English's).
-    const bool english = tla_rom::version() == tla_rom::Version::English && !tla_rom::reloaded() &&
-                         !tla_rom::portuguese();
+    // Enemy skills' descriptions too, in the loaded language (not Golden Sun
+    // Reloaded, whose abilities are its own).
     return gsr::name_scroll::line_text(text_id, out) || rw::line_text(rw_game(), text_id, out) ||
-           rp::description(rp_game(), english, text_id, out);
+           rp::description(rp_game(), !tla_rom::reloaded(), text_id, out);
 }
 
 // A Challenge Mode file's four bytes (red on the file screens).

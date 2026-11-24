@@ -278,6 +278,17 @@ bool field_scene_capture(FieldScene* out,
                          int view_extra_top = -1,
                          int view_extra_bottom = -1);
 
+// The registers a frame was really drawn with. The end-of-frame register
+// file `io` can already hold the next frame's: Golden Sun's battle flash on
+// the world map alternates a mode 2 frame with a white band drawn in mode 0
+// and a plain mode 2 frame, and on the plain ones DISPCNT already says mode 0
+// at VBlank (gpu_rewind_0087, frames 1683-1697). When every latched row
+// agrees on a display mode `io` does not, returns the first latched row
+// (kLineIoBytes long) for the caller to copy over `io`; otherwise nullptr.
+const std::uint8_t* field_scene_rows_drawn_mode(const std::uint8_t* io,
+                                                const std::uint8_t* row_io_table,
+                                                const bool* row_io_valid);
+
 // True when the scene model can draw this frame. Kept separate so the runner
 // can ask before paying for a capture.
 bool field_scene_frame_supported(unsigned dispcnt, const char** why);

@@ -7,6 +7,7 @@
 
 #include "gba_bus.h"
 #include "gba_vram_trace.h"
+#include "le_bytes.h"
 #include "env_flag.h"
 #include "game_ram_layout.h"
 #include "runtime_arm.h"
@@ -140,26 +141,6 @@ void GbaBus::deserialize(gbarecomp::debug::SnapshotReader& r) {
 }
 
 namespace {
-
-// Helper: read a little-endian halfword/word from a byte buffer at
-// the given offset. Caller has already bounds-checked.
-uint16_t load_u16(const uint8_t* p) {
-    return static_cast<uint16_t>(p[0] | (p[1] << 8));
-}
-uint32_t load_u32(const uint8_t* p) {
-    return static_cast<uint32_t>(p[0] | (p[1] << 8) |
-                                 (p[2] << 16) | (p[3] << 24));
-}
-void store_u16(uint8_t* p, uint16_t v) {
-    p[0] = static_cast<uint8_t>(v & 0xFF);
-    p[1] = static_cast<uint8_t>((v >> 8) & 0xFF);
-}
-void store_u32(uint8_t* p, uint32_t v) {
-    p[0] = static_cast<uint8_t>(v & 0xFF);
-    p[1] = static_cast<uint8_t>((v >> 8) & 0xFF);
-    p[2] = static_cast<uint8_t>((v >> 16) & 0xFF);
-    p[3] = static_cast<uint8_t>((v >> 24) & 0xFF);
-}
 
 bool is_eeprom_addr(uint32_t addr, const GbaSave& save) {
     return save.eeprom_enabled() && ((addr >> 24) == 0x0Du);
