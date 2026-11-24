@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Explore the features in Golden Sun Recompiled and The Lost Age, including Better Field Psynergy, wider views, trackers, custom battles and music mods.">
+<meta name="description" content="Explore the features in Golden Sun Recompiled and The Lost Age, including the Randomizer, Challenge Mode, Better Psynergy, wider views, trackers, custom battles and music mods.">
 <title>Features | Golden Sun Recompiled</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -34,8 +34,10 @@
   <main id="main" class="guide">
     <nav aria-label="On this page">
       <ul class="links">
+        <li><a href="#quality-of-life">Quality of Life</a></li>
         <li><a href="#exploration">Exploration</a></li>
-        <li><a class="main" href="#better-field-psynergy">Better Field Psynergy</a></li>
+        <li><a class="main" href="#better-psynergy">Better Psynergy</a></li>
+        <li><a href="#new-game">Randomizer &amp; Challenge</a></li>
         <li><a href="#battles">Battles &amp; cheats</a></li>
         <li><a href="#video">Picture</a></li>
         <li><a href="#audio">Sound &amp; music</a></li>
@@ -45,28 +47,51 @@
       </ul>
     </nav>
 
+    <section id="quality-of-life" aria-labelledby="qol-h">
+      <h2 id="qol-h">Quality of Life screen</h2>
+      <div class="panel">
+        <p><b>Pause → Quality of Life</b> (where the unused Sleep entry was). Change most of the options below without leaving the game, each with a short help line. Up and Down pick a setting, Left and Right change it, B goes back.</p>
+      </div>
+    </section>
+
     <section id="exploration" aria-labelledby="exploration-h">
       <h2 id="exploration-h">Exploration</h2>
       <div class="panel">
         <ul class="flist">
-          <li class="venus"><b>Walking speed</b><span>Choose Normal, 1.5×, 2× or 3×. The Broken Seal keeps the original pace during the Colosso trials.</span><small>In-game Settings → page 2</small></li>
-          <li class="mars"><b>Encounters</b><span>Set random encounters to Normal, Half, Off or Double.</span><small>In-game Settings → page 2</small></li>
-          <li class="mercury"><b>Message speed</b><span>Set how fast dialogue appears, or choose Instant.</span><small>In-game Settings → page 1</small></li>
-          <li class="jupiter"><b>No slowdown</b><span>Reduce the original game's slowdown during play.</span><small>In-game Settings → page 2</small></li>
-          <li class="jupiter"><b>Djinn Tracker</b><span>See your Djinn by element. Hover over a missing one for a hint.</span><small>Launcher settings or <kbd>F1</kbd> → Game</small></li>
-          <li class="venus"><b>Treasure Tracker</b><span>Tracks collected treasure and opens to your current area.</span><small>Launcher settings or <kbd>F1</kbd> → Game</small></li>
+          <li class="venus"><b>Walking speed</b><span>Choose Normal, 1.5×, 2× or 3×, also while sailing. The Broken Seal keeps the original pace during the Colosso trials.</span><small>Pause → Quality of Life</small></li>
+          <li class="mars"><b>Encounters</b><span>Set random encounters to Normal, Half, Off or Double.</span><small>Pause → Quality of Life</small></li>
+          <li class="mercury"><b>Message speed</b><span>Set how fast dialogue appears, or choose Instant.</span><small>In-game Settings</small></li>
+          <li class="jupiter"><b>No slowdown</b><span>Reduce the original game's slowdown during play.</span><small>Pause → Quality of Life</small></li>
+          <li class="mars"><b>Auto Field Psynergy</b><span>Stand in front of something that needs Psynergy and press A: the game casts the right one, using the usual PP. Talking and checking things still come first.</span><small>Pause → Quality of Life or <kbd>F1</kbd> → Game</small></li>
+          <li class="mercury"><b>Psynergy ring</b><span>Bind a button to <b>Psynergy Menu</b> for a ring of your party's field Psynergy. Left and Right turn it, A casts, and L, R, L2 and R2 hold shortcuts. Works on the world map too.</span><small><kbd>F1</kbd> → Hotkeys</small></li>
+          <li class="venus"><b>Walk as anyone</b><span>Outside battle you walk as your party leader, or pick a character. Others use their walking pose for moves like pushing or climbing.</span><small><kbd>F1</kbd> → Game → Walking character</small></li>
+          <li class="jupiter"><b>Djinn Tracker</b><span>See your Djinn by element. Hover over a missing one for a hint.</span><small>Pause → Quality of Life, launcher settings or <kbd>F1</kbd> → Game</small></li>
+          <li class="venus"><b>Treasure Tracker</b><span>Tracks collected treasure, shows what each one holds (randomized contents too) and opens to your current area.</span><small>Pause → Quality of Life, launcher settings or <kbd>F1</kbd> → Game</small></li>
         </ul>
       </div>
     </section>
 
-    <section id="better-field-psynergy" aria-labelledby="psynergy-h">
-      <h2 id="psynergy-h">Better Field Psynergy</h2>
+    <section id="better-psynergy" aria-labelledby="psynergy-h">
+      <h2 id="psynergy-h">Better Psynergy</h2>
       <div class="panel">
-        <p><b>In-game Settings → page 2 → Faster Psynergy.</b> Off by default.</p>
+        <p><b>Pause → Quality of Life → Better Psynergy.</b> Off by default. Turn each part on or off on its own.</p>
         <ul class="flist">
-          <li class="jupiter"><b>Reveal</b><span>Reveal covers the whole screen in any view size. You can walk twice as far from where you cast it. The timer stays the same.</span></li>
-          <li class="venus"><b>Retreat</b><span>Pick a visited town from the world map. Travel costs 6 PP. Cancel for free. In The Lost Age, your ship comes along where applicable. In dungeons, Retreat takes you to the entrance.</span></li>
-          <li class="mercury"><b>Move and other field casts</b><span>Field casts run at 2× speed, including Move in both games and Cyclone, Tremor and Grind in The Lost Age. The game returns to normal speed after the cast.</span></li>
+          <li class="mercury"><b>Faster casts</b><span>Field casts run at 2× speed, including Move in both games and Cyclone, Tremor and Grind in The Lost Age. The game returns to normal speed after the cast.</span></li>
+          <li class="jupiter"><b>Wider Reveal</b><span>Reveal covers the whole screen in any view size. You can walk twice as far from where you cast it. The timer stays the same.</span></li>
+          <li class="venus"><b>Retreat travel</b><span>Cast Retreat on the world map to pick a town you've visited, also while sailing in The Lost Age. Cancel for free. In dungeons, Retreat takes you to the entrance.</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="new-game" aria-labelledby="new-game-h">
+      <h2 id="new-game-h">Randomizer &amp; Challenge Mode</h2>
+      <div class="panel">
+        <p>Set up at <b>New Game</b>, after you name your hero. Both are still experimental.</p>
+        <ul class="flist">
+          <li class="mars"><b>Randomizer</b><span>Tick what to shuffle: Weapons, Armor, Items, Coins, Psynergy, Enemy Skills and Djinn. Treasure comes from one pool, so a coin jar can hold a weapon, and rare shop gear is sold once. <b>Fair Play</b> keeps runs balanced. Random Psynergy is given per class, so your Djinn still decide what a hero can cast.</span><small>New Game → Randomize</small></li>
+          <li class="jupiter"><b>Seeds and run sheet</b><span>Every randomized run has a Seed. Type a friend's Seed to play the same run. The run sheet shows where everything ended up.</span><small><kbd>F1</kbd> → Game</small></li>
+          <li class="venus"><b>Challenge Mode</b><span>Solo, Duo or Triple: only your chosen Adepts fight. In The Lost Age you can pick from all eight heroes. No cheats, transfers or Seamless mode.</span><small>New Game → Challenge run</small></li>
+          <li class="mercury"><b>Skip the opening</b><span>Start The Broken Seal on the world map after Sol Sanctum, or The Lost Age outside Idejima.</span><small>New Game</small></li>
         </ul>
       </div>
     </section>
@@ -75,11 +100,12 @@
       <h2 id="battles-h">Battles &amp; cheats</h2>
       <div class="panel">
         <ul class="flist">
-          <li class="mars"><b>Hard Mode</b><span>Enemies have 1.5× HP and 1.25× Attack and Defence. Your choice is remembered per save.</span><small>New game or in-game Settings → page 1</small></li>
+          <li class="mars"><b>Difficulty</b><span>Normal, Hard, Scaled or Hard Scaled. Hard gives enemies 1.5× HP and 1.25× Attack and Defence; Scaled brings weaker enemies up to your party's level.</span><small>New Game or in-game Settings</small></li>
           <li class="mercury"><b>2× battle speed</b><span>Toggle faster battles with the game's <kbd>Select</kbd> button while fighting.</span></li>
-          <li class="venus"><b>Custom Battle Mode</b><span>At the Battle Arena receptionist, pick unlocked monsters or bosses, set how many to fight, and choose whether to match your party's strength.</span><small>Battle Arena · on by default, with a switch in launcher settings</small></li>
-          <li class="mars"><b>Enemy HP bars</b><span>See an enemy's remaining HP as a red bar and a number when choosing a target.</span><small><kbd>F1</kbd> → Game · off by default</small></li>
-          <li class="jupiter"><b>Cheats</b><span>Infinite HP and PP, plus multipliers for XP, coins and item drops.</span><small><kbd>F1</kbd> → Cheats or <kbd>F11</kbd></small></li>
+          <li class="jupiter"><b>Retarget</b><span>If a move's target has already fallen, it hits another enemy instead of being wasted. <b>Party</b> does this for your heroes, <b>Everyone</b> for enemies too.</span><small>Pause → Quality of Life</small></li>
+          <li class="venus"><b>Custom Battle Mode</b><span>At the Battle Arena receptionist, pick unlocked monsters or bosses, set how many to fight, match your party's strength, and choose the battle scenery.</span><small>Battle Arena · on by default, with a switch in launcher settings</small></li>
+          <li class="mars"><b>Enemy HP bars</b><span>See an enemy's remaining HP as a red bar and a number when choosing a target.</span><small>Pause → Quality of Life or <kbd>F1</kbd> → Game · off by default</small></li>
+          <li class="jupiter"><b>Cheats</b><span>Infinite HP and PP, multipliers for XP, coins and item drops, a Save editor for coins, levels, items and Djinn, and Retreat to the games' hidden test rooms.</span><small><kbd>F1</kbd> → Cheats or <kbd>F11</kbd> · not in Challenge Mode</small></li>
         </ul>
       </div>
     </section>
@@ -88,11 +114,10 @@
       <h2 id="video-h">Picture</h2>
       <div class="panel">
         <ul class="flist">
-          <li class="jupiter"><b>Original, Wide and Extra Wide</b><span>See more of rooms, the world map and battles in Wide or Extra Wide. Original uses the GBA view.</span><small>In-game Settings → page 2 → View size · <a href="#view-comparison">Compare the views</a></small></li>
-          <li class="mercury"><b>Window and display</b><span>Set window size, fullscreen, aspect ratio, sharp pixels and V-Sync. Aspect options include original 3:2, 4:3, 16:10, 16:9, Window and Pixel-perfect fit.</span><small><kbd>F1</kbd> → Video</small></li>
-          <li class="venus"><b>Colour profiles</b><span>Choose from presets such as Raw, Handheld, Natural and Warm, or set your own saturation, hue, brightness, warmth and darkening. Colour vision options are available too.</span><small><kbd>F1</kbd> → Video → Colours</small></li>
-          <li class="mars"><b>Screen filters and flicker reduction</b><span>Try LCD3x, CRT Lottes, xBR or ScaleFX with OpenGL, or soften rapid GBA-style flashing with Flicker reduction.</span><small><kbd>F1</kbd> → Video → Effects</small></li>
-          <li class="venus"><b>David's OG GBA Colours</b><span>A preset based on David's original GBA colour settings.</span><small><kbd>F1</kbd> → Video → Colours</small></li>
+          <li class="jupiter"><b>Original, Wide and Extra Wide</b><span>See more of rooms, the world map and battles in Wide or Extra Wide. Original uses the GBA view.</span><small>Pause → Quality of Life → View size · <a href="#view-comparison">Compare the views</a></small></li>
+          <li class="mercury"><b>Window and display</b><span>Set window size, fullscreen, aspect ratio, sharp pixels and V-Sync. Aspect options include original 3:2, 4:3, 16:10, 16:9, Window and Pixel-perfect fit.</span><small><kbd>F1</kbd> → Video · aspect ratio also in Pause → Quality of Life</small></li>
+          <li class="venus"><b>Colour profiles</b><span>Choose from presets such as Raw, Handheld, Natural, Warm and David's OG GBA Colours, or set your own saturation, hue, brightness, warmth and darkening. Colour vision options are available too.</span><small><kbd>F1</kbd> → Video → Colours</small></li>
+          <li class="mars"><b>Screen filters and flicker reduction</b><span>Try Bilinear, Sharp bilinear, LCD3x, CRT Lottes, xBR or ScaleFX, and tune them with sliders while you watch. Flicker reduction softens rapid GBA-style flashing.</span><small><kbd>F1</kbd> → Video → Screen filter</small></li>
         </ul>
       </div>
       <div class="panel view-comparison" id="view-comparison" aria-labelledby="view-comparison-h">
@@ -130,11 +155,11 @@
       <h2 id="controls-h">Controls &amp; speed</h2>
       <div class="panel">
         <ul class="flist">
-          <li class="venus"><b>Keyboard and controller</b><span>Rebind game buttons and hotkeys. Use the Controller and Alternate columns to bind movement to the D-pad and stick. Bindings are shared by both games.</span><small><kbd>F1</kbd> → Controls and Hotkeys</small></li>
+          <li class="venus"><b>Keyboard and controller</b><span>Rebind game buttons and hotkeys. Use the Controller and Alternate columns to bind movement to the D-pad and stick. Bindings are shared by both games, and you're asked before a key is used twice.</span><small><kbd>F1</kbd> → Controls and Hotkeys</small></li>
           <li class="mercury"><b>Fast forward</b><span>Hold <kbd>Tab</kbd> to fast-forward. Set a speed cap, leave it uncapped, or bind a toggle.</span><small><kbd>F1</kbd> → Speed and Hotkeys</small></li>
           <li class="mars"><b>Auto fire, pause and reset</b><span>Use auto fire for A or B, pause with <kbd>Shift</kbd>+<kbd>P</kbd>, or bind Soft Reset to return to the title screen. The FPS counter is available with <kbd>F</kbd>.</span><small><kbd>F1</kbd> → Hotkeys</small></li>
           <li class="jupiter"><b>Settings overlay</b><span>Open settings with <kbd>F1</kbd>. Use the mouse, keyboard or controller, and drag the menu to move or resize it.</span></li>
-          <li class="mars"><b>Confirm before quitting</b><span>Show a confirmation before quitting. Each game remembers its own setting.</span><small><kbd>F1</kbd> → Game</small></li>
+          <li class="mars"><b>Confirm before quitting</b><span>The game pauses and warns you about unsaved progress before quitting. Each game remembers its own setting.</span><small><kbd>F1</kbd> → Game</small></li>
         </ul>
       </div>
     </section>
@@ -143,9 +168,10 @@
       <h2 id="saves-h">Saves &amp; transfer</h2>
       <div class="panel">
         <ul class="flist">
+          <li class="venus"><b>Eight save files and an Autosave</b><span>Continue, Save, Copy and Erase scroll through eight files. With Autosave on, entering a new room saves to a separate Autosave; your own saves stay yours.</span><small>New Game, Pause → Quality of Life or <kbd>F1</kbd> → Game</small></li>
           <li class="mercury"><b>Savestates</b><span>Nine slots that save the game exactly where you are.</span><small>Save with <kbd>Shift</kbd>+<kbd>F2</kbd>–<kbd>F10</kbd> · load with <kbd>F2</kbd>–<kbd>F10</kbd></small></li>
-          <li class="venus"><b>Seamless mode</b><span>Finish The Broken Seal, choose a Clear Data slot and continue into The Lost Age with your team.</span><small>Launcher settings</small></li>
-          <li class="jupiter"><b>Import Clear Data</b><span>Start The Lost Age with your Broken Seal team, Djinn, items and story progress. You can also update an existing Lost Age slot before the reunion. The update keeps a backup.</span><small>New Lost Age game or <kbd>F1</kbd> → Game → Update from The Broken Seal</small></li>
+          <li class="venus"><b>Seamless mode</b><span>Finish The Broken Seal, choose a Clear Data slot and continue into The Lost Age with your team.</span><small>Launcher settings or Pause → Quality of Life (The Broken Seal)</small></li>
+          <li class="jupiter"><b>Import Clear Data</b><span>Start The Lost Age with your Broken Seal team, Djinn, items and story progress. You can also update an existing Lost Age file before the reunion. The update keeps a backup.</span><small>New Lost Age game or <kbd>F1</kbd> → Game → Update from The Broken Seal</small></li>
           <li class="mars"><b>Language saves</b><span>Each language has its own saves. After preparing a new language, the launcher can copy an English in-game save into it. Savestates stay with their original language.</span></li>
         </ul>
       </div>
@@ -155,11 +181,11 @@
       <h2 id="launcher-h">Launcher &amp; reporting</h2>
       <div class="panel">
         <ul class="flist">
-          <li class="venus"><b>One launcher for both native PC games</b><span>Runs on Windows and Linux, including Steam Deck. Pick a game and supply your own matching ROM. The launcher prepares it on your PC and remembers the file.</span><small><a href="getting-started.html">Getting started</a></small></li>
-          <li class="mercury"><b>Five languages</b><span>Choose English, Spanish, Italian, French or German for each game.</span><small>Flags below the cartridges in the launcher</small></li>
+          <li class="venus"><b>One launcher for both native PC games</b><span>Runs on Windows and Linux, including Steam Deck. Pick a game and supply your own matching ROM. The launcher prepares it on your PC, remembers the file, and can start the game as soon as it's ready.</span><small><a href="getting-started.html">Getting started</a></small></li>
+          <li class="mercury"><b>Languages and versions</b><span>English, Spanish, Italian, French and German, plus Kyle the Runner's Brazilian Portuguese translation and Golden Sun Reloaded from a patched ROM. Each has its own saves.</span><small>Flags below the cartridges in the launcher</small></li>
           <li class="jupiter"><b>Update checks</b><span>The launcher tells you when a new version is available.</span><small><a href="https://github.com/Shmargus/GSRecomp/releases">Downloads and release notes</a></small></li>
           <li class="mars"><b>Bug reports</b><span>Press <kbd>F12</kbd> to capture the last two seconds. Close the game to review and send the report. You can also turn on crash logging.</span><small><kbd>F12</kbd> · <kbd>F1</kbd> → Help for crash logging</small></li>
-          <li class="mercury"><b>Skip the ROM check</b><span>Try a modified game file by turning off the file check. The official game files are the supported versions.</span><small>Launcher settings</small></li>
+          <li class="mercury"><b>Skip the ROM check</b><span>Try another modified game file by turning off the file check. Only the versions listed above are supported.</span><small>Launcher settings</small></li>
           <li class="venus"><b>Use fewer system resources</b><span>Limit CPU and memory use while the launcher prepares a game. Preparation may take longer.</span><small>Launcher → Build or Rebuild</small></li>
         </ul>
       </div>
