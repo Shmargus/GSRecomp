@@ -16,13 +16,12 @@
 // capture it matches only the ship deck. Unlike the haze it is not a
 // whole-screen repeat, so the shared repeating-layer rule does not cover it.
 //
-// The open sea elsewhere uses the same water (Atteka inlet, map 234, F12
-// 0137), where the room has islands and coast in the margins and the repeat
+// The open sea elsewhere uses the same water (Atteka inlet, map 234), where the room has islands and coast in the margins and the repeat
 // painted water over them. So the room's own BG3 across the whole expanded
 // view must hold nothing but water in the pattern's colours, see-through
-// tiles and one filler entry where its water ends (deck 0070: only 0x200,
+// tiles and one filler entry where its water ends (the deck: only 0x200,
 // 160 cells; local water details 0x33DC/0x33DD keep palette 3). Map 234
-// (0137) has dozens of other entries.
+// has dozens of other entries.
 // `ewram` (the 256 KB work RAM: id grid 0x02010000, atlas 0x02020000, as the
 // field profile) may be null: then the room is not consulted.
 inline bool tla_ship_water_margins(const gsr::FieldScene& scene,
@@ -86,8 +85,8 @@ inline bool tla_ship_water_margins(const gsr::FieldScene& scene,
     for (bool present : seen)
         if (!present) return false;
     // The deck's eight pattern cells are eight different tiles. A plain strip
-    // also fits a 4-by-2 repeat: the black top of cave map 178 (one tile,
-    // F12 0126) and the open water of shrine map 169 (four tiles, 0121/0122),
+    // also fits a 4-by-2 repeat: the black top of cave map 178 (one tile)
+    // and the open water of shrine map 169 (four tiles),
     // where repeating it painted over the rest of the room.
     for (std::size_t i = 0; i < pattern.size(); ++i)
         for (std::size_t j = i + 1; j < pattern.size(); ++j)

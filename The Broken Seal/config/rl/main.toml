@@ -14188,7 +14188,7 @@ note = "translated from USA main.toml (ELF mapping-symbol data or non-executable
 
 [[data_range]]
 start = 0x080bc5a8
-end = 0x080bc5d0
+end = 0x080bc5d4
 note = "translated from USA main.toml (ELF mapping-symbol data or non-executable ROM complement), or decoded literal/switch table in a changed function or new routine"
 
 [[data_range]]
@@ -14197,12 +14197,7 @@ end = 0x080bc7bc
 note = "translated from USA main.toml (ELF mapping-symbol data or non-executable ROM complement), or decoded literal/switch table in a changed function or new routine"
 
 [[data_range]]
-start = 0x080bc9a0
-end = 0x080bc9a4
-note = "translated from USA main.toml (ELF mapping-symbol data or non-executable ROM complement), or decoded literal/switch table in a changed function or new routine"
-
-[[data_range]]
-start = 0x080bc9a8
+start = 0x080bc994
 end = 0x080bc9dc
 note = "translated from USA main.toml (ELF mapping-symbol data or non-executable ROM complement), or decoded literal/switch table in a changed function or new routine"
 
@@ -47351,7 +47346,7 @@ note = "GS-011 derived THUMB continuation inside the linker-emitted interworking
 addr = 0x080c7a00
 mode = "thumb"
 name = "New_c7a00"
-note = "routine new in this ROM (bytes differ from USA, outside every mapped function): direct BL target from decoded code at 0x08077428"
+note = "routine new in this ROM (bytes differ from USA, outside every mapped function): call or pointer-jump target from decoded code at 0x08077428"
 
 [[resume_range]]
 start = 0x03000118
@@ -50684,13 +50679,13 @@ mode = "thumb"
 note = "resumes inside changed Func_bbb0c: control-flow decoded code span of the target function"
 
 [[resume_range]]
-start = 0x080bc62a
-end = 0x080bc64e
+start = 0x080bc526
+end = 0x080bc58e
 mode = "thumb"
 note = "resumes inside changed Func_bbb0c: control-flow decoded code span of the target function"
 
 [[resume_range]]
-start = 0x080bc666
+start = 0x080bc5d4
 end = 0x080bc6b0
 mode = "thumb"
 note = "resumes inside changed Func_bbb0c: control-flow decoded code span of the target function"

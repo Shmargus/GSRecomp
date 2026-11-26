@@ -1,50 +1,56 @@
-// Golden Sun: The Lost Age -- the expanded view's game side: the camera
-// keeps the wider view inside the room, and characters and objects are drawn
-// in the margins (FACTS.md, 2026-10-05). Golden Sun 1's design, re-found on
-// this ROM. Everything here is inert in the native 240x160 view.
+// Golden Sun: The Lost Age -- the game side of the expanded view. It keeps the
+// wider camera inside the room and draws characters and objects in the
+// margins. It follows the design of the Broken Seal port, re-found on this ROM.
+// Everything here is inert in the native 240x160 view.
 //
-// Camera. The field camera is stored at S+0xE4/+0xE8 (S = [0x03000020]) by
-// the per-frame follow (0x0802AE9C/0x0802AE9E) and the room-entry clamp
-// (0x0802B006/0x0802B010). Both keep the console's 240x160 inside
-// [S+0xEC, S+0xF4 - 240] x [S+0xF0, S+0xF8 - 160]. Here each stored value is
-// pulled in from the room's edges by up to the margin, so the margins show
-// room rather than the black past its edge; a room narrower than the view
-// gets half the spare width per side, which centres it. The title screen
-// runs the field camera too, as in Golden Sun 1, and is left alone: its room
-// loads as map number 1, but the number then follows the highlighted save
-// (F12 0022: 2 with Felix's World Map save highlighted, and the inset moved
-// the logo 60 left and 40 up). So the number is taken when the room loads,
-// at the room clamp's store, and kept until the next room.
+// Camera
+//   The field camera is stored at S+0xE4/+0xE8 (S = [0x03000020]) by two
+//   routines:
+//     - the per-frame follow (stores at 0x0802AE9C/0x0802AE9E), and
+//     - the room-entry clamp (stores at 0x0802B006/0x0802B010).
+//   Both keep the console's 240x160 inside [S+0xEC, S+0xF4 - 240] x
+//   [S+0xF0, S+0xF8 - 160]. Here each stored value is pulled in from the
+//   room's edges by up to the margin, so the margins show room instead of the
+//   black past its edge. A room narrower than the view gets half the spare
+//   width per side, which centres it.
+//   The title screen also runs the field camera, as in the Broken Seal, and is
+//   left alone. Its room loads as map number 1, but the number then follows
+//   the highlighted save (it read 2 with a World Map save highlighted, and the
+//   inset moved the logo 60 left and 40 up). So the number is taken when the
+//   room loads, at the room clamp's store, and kept until the next room.
 //
-// Characters. 0x08023940..0x08023958 skips a character whose screen position
-// is outside x -32..272, y -32..224 (four literals, 16.16); the builders
-// 0x080220F0 and 0x08022318 then hide a body past x 239 or y 159 and a
-// shadow past y 159 (`cmp #0xEF/#0x9F; bgt`). Both are widened to the view
-// plus kSlack around it, so characters are already drawn when they scroll
-// in.
+// Characters
+//   0x08023940..0x08023958 skips a character whose screen position is outside
+//   x -32..272, y -32..224 (four literals, 16.16). Then the builders 0x080220F0
+//   and 0x08022318 hide a body past x 239 or y 159 and a shadow past y 159
+//   (`cmp #0xEF/#0x9F; bgt`). All of these are widened to the view plus kSlack
+//   around it, so characters are already drawn when they scroll in.
 //
-// Rotated objects (the world map's towns, caves and lighthouses). The affine
-// builder 0x0802254C projects the object to [sp+0x1C] (x) / [sp+0x20] (y) and
-// skips it unless x + 0x20 <= 0x130 (`bls` 0x08022592) and y + 0x20 <= 0xF0
-// (`bls` 0x0802259C): x -32..272, y -32..208. Both are widened like the
-// characters' (measured from F6 state 5 walking left on the world map: the
-// object went at x 255; FACTS.md, 2026-10-08). Its record gets attr0/attr1
-// at +4 like the characters' builders, and the placement is recorded at
-// 0x080226B4: x = [sl] - sb + r0, y = [sl+4] - fp + [sp].
+// Rotated objects (the world map's towns, caves and lighthouses)
+//   The affine builder 0x0802254C projects the object to [sp+0x1C] (x) and
+//   [sp+0x20] (y). It skips the object unless x + 0x20 <= 0x130 (`bls`
+//   0x08022592) and y + 0x20 <= 0xF0 (`bls` 0x0802259C), that is x -32..272,
+//   y -32..208. Both tests are widened like the characters' (measured walking
+//   left on the world map: the object went at x 255).
+//   Its record gets attr0/attr1 at +4, like the characters' builders. The
+//   placement is recorded at 0x080226B4: x = [sl] - sb + r0,
+//   y = [sl+4] - fp + [sp].
 //
-// Before that the projection 0x08015778 hides anything beyond the far depth
-// [0x030011E8] (1020; near [0x030011E4] 255), which on the console is about
-// its top row, so objects in the top margin went early (F12 0064/0065, top
-// right). On the world map (maps 2 and 3, tla_world_map.h) in the expanded view
-// the far test (`bgt` 0x080157A2) never hides; the widened y test above
-// decides what fits the view instead.
+//   Before that, the projection 0x08015778 hides anything beyond the far depth
+//   [0x030011E8] (1020; the near depth [0x030011E4] is 255). On the console
+//   that is about the top row, so objects in the top margin would go early
+//   (seen at the top right). On the world map (maps 2 and 3, tla_world_map.h)
+//   in the expanded view, the far test (`bgt` 0x080157A2) never hides; the
+//   widened y test above decides what fits the view instead.
 //
-// Real positions. The console's object Y is 8 bits and X 9: 180 and -76 are
-// the same Y, and once objects are placed outside its screen any raw value
-// can mean either. Each builder pass records the object's real X and Y by
-// its record; the scene capture asks for them (gba::g_ws_obj_attr_x_provider
-// and _y_provider) and gets them back from the record that holds that raw
-// position, or placed it there in the last few frames.
+// Real positions
+//   The console's object Y is 8 bits and X is 9 bits, so 180 and -76 are the
+//   same Y. Once objects are placed outside its screen, any raw value can mean
+//   either. Each builder pass therefore records the object's real X and Y by
+//   its record. The scene capture asks for them
+//   (gba::g_ws_obj_attr_x_provider and _y_provider). It gets them back from
+//   the record that holds that raw position, or placed it there in the last
+//   few frames.
 
 #include "tla_rom_version.h"
 #include <algorithm>
@@ -76,43 +82,49 @@ const uint32_t kPreCullRangeX = TLA_ROM(0x08023944u);   // 0x012FFFFE
 const uint32_t kPreCullMinY = TLA_ROM(0x0802394Cu);     // 0xFFE00000: -32 << 16
 const uint32_t kPreCullMaxY = TLA_ROM(0x08023954u);     // 0x00DFFFFF: 224 << 16, - 1
 
-// The Lash rope's segments (0x080D9B80, 8x8 OBJs, tile 0x18C; F4 state 3
-// walking right): the same four literals, loaded at these four `ldr`s,
-// x in r0 and y in r2 (16.16); the segment is placed when the last test,
-// `bgt` 0x080D9C80, is not taken, its record at r5 + 0x14 (attrs at +4).
+// The Lash rope's segments (routine 0x080D9B80; 8x8 OBJs, tile 0x18C;
+// measured walking right). It uses the same four cull literals, loaded at the
+// four `ldr`s below, with x in r0 and y in r2 (16.16). A segment is placed
+// when the last test, `bgt` 0x080D9C80, is not taken. Its record is at
+// r5 + 0x14, with the attrs at +4.
 const uint32_t kRopeOffsetX = TLA_ROM(0x080D9C68u), kRopeRangeX = TLA_ROM(0x080D9C70u);
 const uint32_t kRopeMinY = TLA_ROM(0x080D9C76u), kRopeMaxY = TLA_ROM(0x080D9C7Cu);
 const uint32_t kRopePlaced = TLA_ROM(0x080D9C80u);
-// The Lash rope's coil (10 rotated 8x8 OBJs, tile 0x1B6; F2 state 1 of
-// 2026-10-09, a write watch on a piece's attrs caught 0x080D8B2C): the same
-// literals and tests in its own loop, x in r0, y in r2, record r5 + 0x14.
+// The Lash rope's coil (10 rotated 8x8 OBJs, tile 0x1B6; a write watch on a
+// piece's attrs caught 0x080D8B2C). It has the same literals and tests in its
+// own loop, with x in r0, y in r2 and the record at r5 + 0x14.
 // Nothing recorded its placement, so in the bottom margin its raw Y read as
-// above the screen and the coil vanished (F12 0107/0108, 0112/0113).
+// above the screen and the coil vanished.
 const uint32_t kCoilOffsetX = TLA_ROM(0x080D8AE0u), kCoilRangeX = TLA_ROM(0x080D8AEAu);
 const uint32_t kCoilMinY = TLA_ROM(0x080D8AF0u), kCoilMaxY = TLA_ROM(0x080D8AF6u);
 const uint32_t kCoilPlaced = TLA_ROM(0x080D8AFAu);
 
 // Climbing vines use the same four cull literals in their own segment loop.
-// F12 0081 f119: 0x080DAAB0 rejects the head at y=-40 before its -8 anchor
-// adjustment, leaving the five lower pieces. Its record is also r5+0x14.
+// The routine 0x080DAAB0 rejects the head at y=-40 before its -8 anchor
+// adjustment, which leaves the five lower pieces. Its record is also at
+// r5+0x14.
 const uint32_t kVineOffsetX = TLA_ROM(0x080DABA4u), kVineRangeX = TLA_ROM(0x080DABACu);
 const uint32_t kVineMinY = TLA_ROM(0x080DABB4u), kVineMaxY = TLA_ROM(0x080DABBAu);
 const uint32_t kVinePlaced = TLA_ROM(0x080DABBEu);
 
-// Field effect sprites (0x080EB01C, 27 callers 0x080D1E0E..0x080EBB3A; the
-// summon tablet's letters, F12 0155): record r7, attrs at +4, screen x/y
-// 16.16 at +0xC/+0x10, box w/h at +0x20/+0x22. r5/r6 = box left/top; the
-// sprite is dropped when r5 + w < 0 (`blt`), r5 > 239 (`bgt`), r6 + h <= 0
-// (`ble`), r6 > 159 (`bgt`), the console's screen exactly (measured: left
-// 239 drawn, 240 dropped; top -7 drawn, -8 dropped). The letters' loop ran to
-// x 270 and was cut at the screen's right edge.
+// Field effect sprites (routine 0x080EB01C, with 27 callers in
+// 0x080D1E0E..0x080EBB3A; for example the summon tablet's letters).
+//   - The record is r7: attrs at +4, screen x/y (16.16) at +0xC/+0x10, box
+//     width/height at +0x20/+0x22.
+//   - r5/r6 hold the box's left/top.
+//   - The sprite is dropped when r5 + w < 0 (`blt`), r5 > 239 (`bgt`),
+//     r6 + h <= 0 (`ble`) or r6 > 159 (`bgt`). That is the console's screen
+//     exactly (measured: left 239 drawn, 240 dropped; top -7 drawn, -8
+//     dropped).
+// The letters' loop ran to x 270 and was cut at the screen's right edge.
 const uint32_t kEffectLeft = TLA_ROM(0x080EB22Au), kEffectRight = TLA_ROM(0x080EB22Eu);
 const uint32_t kEffectTop = TLA_ROM(0x080EB236u), kEffectBottom = TLA_ROM(0x080EB23Au);
 
-// ROM 0x0801401C computes one four-halfword OBJ transform. At 0x0801403E
-// it rejects allocation 32 and returns slot 31, even if that slot belongs
-// to a different rotation (0085: the bottom vine tips). Reuse byte-identical
-// completed transforms so margin pieces do not exhaust the hardware slots.
+// The ROM routine at 0x0801401C computes one four-halfword OBJ transform.
+// At 0x0801403E it rejects allocation 32 and returns slot 31, even if that
+// slot belongs to a different rotation (the bottom vine tips). So we reuse
+// byte-identical completed transforms, which keeps margin pieces from using up
+// the hardware slots.
 const uint32_t kMatrixCapacity = TLA_ROM(0x0801403Eu);
 const uint32_t kVineMatrixReturn = TLA_ROM(0x080DAC3Cu);
 constexpr uint32_t kMatrixCount = 0x030011FCu, kMatrixData = 0x020054D0u;
@@ -128,24 +140,27 @@ const uint32_t kBodyX2 = TLA_ROM(0x080224ECu), kBodyY2 = TLA_ROM(0x080224F0u), k
 // Affine builder tests (r3 = x + 0x20, y + 0x20) and its record store.
 const uint32_t kAffineX = TLA_ROM(0x08022592u), kAffineY = TLA_ROM(0x0802259Cu);
 const uint32_t kAffinePlaced = TLA_ROM(0x080226B4u);
-// Its ground shadow (record r7+0x1C, bit 0 of [r7+0x1A]) is projected again
-// at 0x080226FC and stored by 0x0802272C; `bne` 0x08022760 follows.
+// Its ground shadow (record r7+0x1C, present when bit 0 of [r7+0x1A] is set)
+// is projected again at 0x080226FC and stored by 0x0802272C. The `bne` at
+// 0x08022760 follows.
 const uint32_t kAffineShadowPlaced = TLA_ROM(0x08022760u);
 const uint32_t kNearClip = TLA_ROM(0x0801579Cu);
 const uint32_t kFarClip = TLA_ROM(0x080157A2u);
 
-// Draw order. Every object record goes into one of 256 depth lists
-// (heads 0x02003010, occupancy bits 0x03001190), which the OAM flush walks
-// from 255 down, so a deeper key is drawn in front. 0x080140D8 (characters,
-// key = ground y + 0x3E from the builders) clamps the key to 0..239 (`bls`
-// 0x080140DE after `cmp r1,#0xEF`); 0x08014128 clamps to 0..255 (`ble`
-// 0x0801412E). Below the console's screen every key is 239, and the objects
-// there stack in the order they were filed: Air's Rock's pillars in the
-// bottom margin, the upper pillar over the lower (F12 tla_rewind_0026, all
-// six statues and pillars in list 239; 0027, same room 151 rows lower: keys
-// 31 and 47, drawn right). In the expanded view both spread the view's own
-// key range, -top .. 239 + bottom, over the 256 lists, keeping their order
-// (keys closer than about 1.6 can share a list).
+// Draw order. Every object record goes into one of 256 depth lists (heads at
+// 0x02003010, occupancy bits at 0x03001190). The OAM flush walks the lists
+// from 255 down, so a deeper key is drawn in front. Two routines clamp the key:
+//   - 0x080140D8 (characters; the builders give key = ground y + 0x3E) clamps
+//     it to 0..239 (`bls` 0x080140DE after `cmp r1,#0xEF`).
+//   - 0x08014128 clamps it to 0..255 (`ble` 0x0801412E).
+// Below the console's screen every key is 239, so the objects there stack in
+// the order they were filed. Example: Air's Rock's pillars in the bottom
+// margin drew the upper pillar over the lower (measured: all six statues and
+// pillars in list 239; the same room 151 rows lower had keys 31 and 47 and
+// drew right).
+// In the expanded view both routines instead spread the view's own key range,
+// -top .. 239 + bottom, over the 256 lists, keeping their order (keys closer
+// than about 1.6 can share a list).
 const uint32_t kDepthClampCharacters = TLA_ROM(0x080140DEu);
 const uint32_t kDepthClampAll = TLA_ROM(0x0801412Eu);
 
@@ -175,11 +190,11 @@ bool field_running(gba::GbaBus* b) {
 }
 
 // A battle draws its objects with the same character builders (veneers
-// 0x08020010 / 0x08020018). Eclipse's dragon (F12 tla_rewind_0140) is 32
-// such objects, one per 32x32 cell of a 256x160 picture: a cell past x 239
-// is skipped at 0x080222B2 / 0x080224EC and its record keeps the last x it
-// was drawn at (239), so the wing ended at the console's right edge. In a
-// battle only the sideways tests are widened: its rows are a band, and an
+// 0x08020010 / 0x08020018). Eclipse's dragon is 32 such objects, one per 32x32
+// cell of a 256x160 picture. A cell past x 239 is skipped at 0x080222B2 /
+// 0x080224EC, and its record keeps the last x it was drawn at (239), so the
+// wing ended at the console's right edge.
+// In a battle only the sideways tests are widened. Its rows are a band, and an
 // 8-bit Y past row 159 would read as the top.
 bool battle_running(gba::GbaBus* b) {
     return b->read32(kTlaBattleSlot) != 0u;
@@ -219,39 +234,41 @@ bool g_camera_y_seen = false;
 // The map number when the current room was loaded (room clamp store).
 uint16_t g_room_map = 0;
 
-// Hold. When a scene widens the room's bounds around the old ones in the
-// middle of a room, the expanded view keeps its current offset from the
-// camera position the game asks for, instead of applying the margin rule to
-// the new bounds. Example: F12 tla_rewind_0044, the Tremor scene. The bounds
-// in X went from 32..608 to 0..1024 at f101. The rule's limit of 248 lifted,
-// so the camera jumped 120 pixels to the game's 368 in a single frame, past
-// what the game redraws of its maps, and then shook around 368..373. In
-// these cases the offset is held. Bounds that move or shrink in the same map
-// (0014 f89, 0024 f13, 0030 f34: other parts of the room), and any new map,
-// use the rule again, so the view holds steady, shake included.
+// Hold. A scene can widen the room's bounds around the old ones in the middle
+// of a room. Then the expanded view keeps its current offset from the camera
+// position the game asks for, instead of applying the margin rule to the new
+// bounds.
+// Example: the Tremor scene. The X bounds went from 32..608 to 0..1024. The
+// rule's limit of 248 lifted, so the camera jumped 120 pixels to the game's
+// 368 in a single frame, past what the game redraws of its maps, and then
+// shook around 368..373. In such cases the offset is held.
+// Bounds that move or shrink in the same map (other parts of the room), and
+// any new map, use the rule again, so the view holds steady, shake included.
 //
 // The hold releases gradually as the game's camera travels. Each pixel that
 // the request moves past the farthest point it has reached since the hold
 // began removes one pixel from the offset. Walking therefore eases the view
 // back to the game's camera, while a shake (inside the range already
-// travelled) does not. Example: the Jupiter Lighthouse (map 257, F12 0141)
-// begins a hold in ordinary play. Its bounds 16..800 never change back, so
-// without the easing Felix would stay 120 px off centre. With it, the view
-// catches up while he walks, with no jump.
+// travelled) does not.
+// Example: the Jupiter Lighthouse (map 257) begins a hold in ordinary play.
+// Its bounds 16..800 never change back, so without the easing Felix would stay
+// 120 px off centre. With it, the view catches up while he walks, with no
+// jump.
 //
-// Kept bounds. When the bounds shrink to a range inside the old ones, and the
-// game's own camera does not jump, the expanded view keeps using the old
-// bounds (`kept`). Example: stepping off Lemuria's dock stairs (map 201, F12
-// 0136 f24) narrows y from 352..928 to 750..928. Applying the rule there
-// would move the camera 71 rows in one frame and black out the scenery above
-// 750, so the camera stays still instead. Captures 0024 and 0030 (another
-// part of the room) do not narrow inside the old bounds. 0014 does, but as a
-// new room behind a fade (see below). The kept bounds end in any of three
-// cases:
-// - the game's own camera jumps past its new clamp by more than it moves in
-//   a frame (16 px, r5 at 0x0802AE7E);
-// - the bounds grow past the kept ones;
-// - the bounds return to the kept ones.
+// Kept bounds. Sometimes the bounds shrink to a range inside the old ones
+// while the game's own camera does not jump. Then the expanded view keeps
+// using the old bounds (`kept`).
+// Example: stepping off Lemuria's dock stairs (map 201) narrows y from
+// 352..928 to 750..928. Applying the rule there would move the camera 71 rows
+// in one frame and black out the scenery above 750, so the camera stays still
+// instead.
+// Bounds changes in other parts of that room do not narrow inside the old
+// bounds. One does, but as a new room behind a fade (see below).
+// The kept bounds end in any of three cases:
+//   - the game's own camera jumps past its new clamp by more than it moves in
+//     a frame (16 px, r5 at 0x0802AE7E);
+//   - the bounds grow past the kept ones;
+//   - the bounds return to the kept ones.
 struct CameraHold {
     bool valid = false, holding = false;
     uint16_t map = 0;
@@ -265,7 +282,7 @@ struct CameraHold {
     bool have_requested = false;
     int32_t requested = 0;               // the game's last request
 
-    // New bounds that end the hold: they no longer surround the held ones,
+    // New bounds that end the hold: they do not surround the held ones,
     // or they equal the held ones.
     bool hold_ends(int32_t new_lo, int32_t new_edge) const {
         return new_lo > held_lo || new_edge < held_edge ||
@@ -327,11 +344,11 @@ int32_t held_camera(gba::GbaBus* b, bool x, int32_t requested, int32_t ruled,
         if (h.kept && (h.kept_ends(lo, edge) || jumped))
             h.kept = false;
         // The held bounds again: the room is back as it was before the hold,
-        // so the rule for it applies, not the wider bounds kept (F12
-        // tla_rewind_0165, map 287: casting Grind set 32..416 to 0..1024 and
+        // so the rule for it applies, not the wider bounds kept (map 287:
+        // casting Grind set 32..416 to 0..1024 and
         // back, and the kept 0..1024 left the camera on Felix, off the room).
         // The same applies once the hold has let go: a hold with no offset
-        // ends on its first store. Example: 0178, map 292, Tremor on nothing
+        // ends on its first store. Example: map 292, Tremor on nothing
         // sets y 48..496, then 0..1024, then 48..496 again. Keeping 0..1024
         // there would leave the view outside the room.
         bool restored = false;
@@ -341,9 +358,9 @@ int32_t held_camera(gba::GbaBus* b, bool x, int32_t requested, int32_t ruled,
             h.holding = false;
         }
         const bool changed = lo != h.lo || edge != h.edge;
-        // Only in plain view: 0014 f89 sets a new room's bounds inside the
+        // Only in plain view: one measured case sets a new room's bounds inside the
         // old 0..512 with the field layers off (DISPCNT 0x0140, faded out);
-        // 0136 f24 has them on (0x1F40).
+        // another has them on (0x1F40).
         const bool field_shown = (b->read16(0x04000000u) & 0x0C00u) == 0x0C00u;
         if (!h.kept && !h.holding && !returned && !restored && !jumped && changed &&
             field_shown &&
@@ -391,7 +408,7 @@ int32_t held_camera(gba::GbaBus* b, bool x, int32_t requested, int32_t ruled,
     }
     // Preserve the cutscene offset within the expanded view's existing room
     // limits. Native-only limits let a hold with zero offset bypass the
-    // margin rule entirely (0082: right edge 1075 beyond room edge 1024).
+    // margin rule entirely (measured: right edge 1075 beyond room edge 1024).
     return camera_value(b, x, requested + h.offset, v);
 }
 
@@ -478,13 +495,13 @@ void note_placed(uint32_t record, int x, int y, int placed_attr0 = -1,
 bool g_window_open = false;
 
 // The menus build their own sprites (priority 0) with the field's character
-// builder, which sees them 256 rows up: the Psynergy menu's icons at raw Y
-// 50..98 were recorded at -206..-158 and vanished (F12 tla_rewind_0023,
-// 2026-10-15; the console shows them at the raw rows). With a window open
-// those sprites take the console's own reading, given here: the scene's
-// fallback keeps a sprite near last frame's place, and the icons park at raw
-// Y 168 (-88) before sliding in at 50..98, so it chose -206..-158 again
-// (F12 tla_rewind_0029 frames 44..47).
+// builder, which sees them 256 rows up. For example, the Psynergy menu's icons
+// at raw Y 50..98 were recorded at -206..-158 and vanished (the console shows
+// them at the raw rows).
+// With a window open, those sprites take the console's own reading, given
+// here. The scene's fallback would keep a sprite near last frame's place. The
+// icons park at raw Y 168 (-88) before sliding in at 50..98, so the fallback
+// chose -206..-158 again (seen over several frames).
 bool menu_sprite(uint16_t attr2) {
     return g_window_open && ((attr2 >> 10) & 3u) == 0u;
 }
@@ -518,14 +535,14 @@ void matrix_return(uint32_t pc, uint32_t depth) {
     }
 }
 
-// F12 0001/0002: the world-map descriptor loader at 0x0200B6A8
-// unloads the cave when its focus-relative X crosses -240 world units,
-// although its projected sprite is still in the left margin. Its two
-// camera modes use X +/-160 or +/-240 and Z -300..200 or -450..300.
-// Grow each existing world-space span in proportion to the added screen
+// The world-map descriptor loader at 0x0200B6A8 unloads the cave when its
+// focus-relative X crosses -240 world units, although its projected sprite is
+// still in the left margin. Its two camera modes use X +/-160 or +/-240 and
+// Z -300..200 or -450..300.
+// We grow each existing world-space span in proportion to the added screen
 // pixels. The projected builder still decides which sprites are visible.
-// Harvested copies configure these four branches at their packed origins;
-// the code generator restores the image base before calling the hook.
+// Harvested copies configure these four branches at their packed origins; the
+// code generator restores the image base before calling the hook.
 int world_range_branch(uint32_t pc, uint32_t original, uint32_t* out) {
     if (pc < 0x02000000u || pc >= 0x02040000u) return -1;
     const uint32_t live_pc = g_runtime_image_base + (pc - 0x02000000u);
@@ -574,12 +591,12 @@ int affine_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
     const View v = view();
     gba::GbaBus* b = bus();
     if (!b || !field_running(b)) return 0;
-    // Back at the console's size, as builder_branch: a second-page grant
+    // Back at the console's size, as in builder_branch: a second-page grant
     // stays until the game grants again, so placements are still recorded
-    // for the tile lookup; the culls below stay the console's own. F12
-    // tla_rewind_0216: View size changed in the Quality of Life menu on the
-    // world map, the hero (owner 0, page 0x8000) then drew console tile 0,
-    // the Pause menu's help letters.
+    // for the tile lookup. The culls below stay the console's own.
+    // Example: after the view size was changed in the Quality of Life menu on
+    // the world map, the hero (owner 0, page 0x8000) drew console tile 0, the
+    // Pause menu's help letters.
     const bool wide = expanded(v);
     if (!wide && !b->obj_extra()) return 0;
     if (pc == kAffinePlaced) {
@@ -591,19 +608,19 @@ int affine_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
                       static_cast<int32_t>(g_cpu.R[11]) +
                       static_cast<int32_t>(b->read32(g_cpu.R[13]));
         // This builder uses the same tile-owner records as character bodies.
-        // World-map landmarks in F12 0092 occupy the second sprite page.
+        // World-map landmarks occupy the second sprite page.
         note_placed(g_cpu.R[7], x, y, -1, true);
         return 0;
     }
     if (pc == kAffineShadowPlaced) {
-        // The shadow's ground point at [sl] (x) / [sl+4] (y), size r4 (8, or
-        // 16 for the double-size kind): attr1 x = [sl] - r4, attr0 y =
-        // [sl+4] - r4/2 + 2 (0x0802270A..0x0802272C), record r0 = r7+0x1C.
-        // Unrecorded, it fell back to the console's 8-bit Y: in the Venus
-        // quake (F12 tla_rewind_0213, 2026-11-08) the party is placed ~110
-        // rows below the console's screen (bodies recorded at y 268, raw
-        // 12), so the bodies left the view and their shadows stayed on the
-        // river at the wrapped rows 30/53.
+        // The shadow's ground point is at [sl] (x) / [sl+4] (y), with size r4
+        // (8, or 16 for the double-size kind). Its attr1 x = [sl] - r4 and
+        // attr0 y = [sl+4] - r4/2 + 2 (0x0802270A..0x0802272C). Its record r0
+        // is r7+0x1C.
+        // Unrecorded, it fell back to the console's 8-bit Y. In the Venus
+        // quake the party is placed ~110 rows below the console's screen
+        // (bodies recorded at y 268, raw 12), so the bodies left the view and
+        // their shadows stayed on the river at the wrapped rows 30/53.
         const uint32_t sl = g_cpu.R[10];
         const int size = static_cast<int32_t>(g_cpu.R[4]);
         const int x = static_cast<int32_t>(b->read32(sl)) - size;
@@ -634,7 +651,7 @@ int depth_branch(uint32_t original, uint32_t* out_decision) {
     return *out_decision != original;
 }
 
-// Apojii's Rainbow Water emitter (0096) masks X/Y before queueing its
+// Apojii's Rainbow Water emitter masks X/Y before queueing its
 // sprite. At the existing depth hook its descriptor is still record-0x14
 // and r8/r9 retain the emitter's quantized camera. Keep the full placement,
 // including real negative rows, rather than guessing from its wrapped byte.
@@ -673,8 +690,8 @@ bool jump_pad_image(gba::GbaBus* b) {
         b->read32(0x0200BC98u) == TLA_ROM(0x080001E9u);
 }
 
-// F12 0108/0109 and 0112/0113 carry the same pad and sparkle emitters
-// in different rooms. Identify the drawing code, not the room number.
+// Different rooms carry the same pad and sparkle emitters
+// and sparkle emitters. Identify the drawing code, not the room number.
 bool sparkle_image(gba::GbaBus* b) {
     return jump_pad_image(b) &&
         b->read32(0x0200B56Au) == 0x46901B57u &&
@@ -691,7 +708,7 @@ SparkleMarginRandom g_sparkle_margin_random;
 // its artwork. An extra margin sprite must not advance the game's RNG.
 constexpr uint32_t kSparkleRandomState = 0x030011BCu;
 
-// F12 0103/0104: the pad emitter still rejects X outside -15..255,
+// The pad emitter still rejects X outside -15..255,
 // and each section's Y outside -47..191. Extend those measured intervals
 // by the actual view margins, preserving the original unsigned tests.
 int jump_pad_range_branch(uint32_t pc, uint32_t original, uint32_t* out) {
@@ -755,7 +772,7 @@ void note_sparkle_placement() {
     note_placed(record, x, base_y + static_cast<int>(jitter));
 }
 
-// F12 0099/0100: map 164's jumping pads queue the cap and stem separately,
+// Map 164's jumping pads queue the cap and stem separately,
 // after masking their coordinates. r7/r8 still retain the full projection.
 void note_jump_pad_placement() {
     const uint32_t caller = g_cpu.R[14];
@@ -779,22 +796,25 @@ void note_jump_pad_placement() {
     if ((b->read16(record + 4u) & 0xFFu) != (static_cast<unsigned>(y) & 0xFFu) ||
         (b->read16(record + 6u) & 0x1FFu) != (static_cast<unsigned>(x) & 0x1FFu))
         return;
-    // Use the normal position provider: F12 0102 also has caps wrapped
+    // Use the normal position provider: caps are also wrapped
     // above the view after they move back inside the original screen.
     note_placed(record, x, y);
 }
 
-// F12 tla_rewind_0144/0145 (map 255, Jupiter Lighthouse): the room's own
-// Thumb routine (0x0200925C there) draws a top piece over each pillar in its
-// list (0x0200ABDC, count 0x0200ABDA), 16x16, or 32x64 while its mode word
-// (0x0200ACDC) is nonzero. It skips a piece whose x + 7 (+ 0x17) is above
-// 334 (350) unsigned, or whose row is <= -16 (-64) or > 239 (175): the
-// console's screen. A pillar at the top edge (0144: base row 0, top row -16)
-// kept its base and lost its top. Extend those tests by the view's margins
-// and record the placement, since a wrapped row cannot tell -16 from 240.
-// Map 264 (F12 0148) loads the same code at 0x02009A78: only its two BLs
-// and its pool's data addresses differ. So the code is found from the
-// branch, by its own words relative to its start, not by room or address.
+// Map 255 (Jupiter Lighthouse). The room's own Thumb routine (at 0x0200925C
+// there) draws a top piece over each pillar in its list (0x0200ABDC, count at
+// 0x0200ABDA). The piece is 16x16, or 32x64 while its mode word (0x0200ACDC)
+// is nonzero. The routine skips a piece in these cases (the console's
+// screen; the values in parentheses are for the 32x64 piece):
+//   - x + 7 (+ 0x17) is above 334 (350) unsigned;
+//   - its row is <= -16 (-64);
+//   - its row is > 239 (175).
+// A pillar at the top edge (base row 0, top row -16) kept its base and lost
+// its top. We extend those tests by the view's margins and record the
+// placement, since a wrapped row cannot tell -16 from 240.
+// Map 264 loads the same code at 0x02009A78. Only its two BLs and its pool's
+// data addresses differ. So the code is found from the branch, by its own
+// words relative to its start, not by room or address.
 struct PillarTopSite {
     uint32_t offset;    // from the routine's start
     uint16_t opcode;
@@ -856,15 +876,16 @@ int pillar_top_branch(uint32_t pc, uint32_t original, uint32_t* out) {
     return *out != original;
 }
 
-// F12 tla_rewind_0173 (map 292, Mars Lighthouse): the room's own Thumb
-// routine (0x0200A42C there) times up to four emitters, such as the dragon
-// head sliding along the top bar, and fires one's action every 8 frames, but
-// only while it is near the console's screen: x + 7 not above 334 unsigned,
-// row above -48 and not above 239. Extra Wide holds the camera 80 rows lower
-// in that room, so the head sat beyond -48 and never spat fire. Extend those
-// tests by the view's margins. The same code also loads at 0x0200A0EC; its
-// test section (+0xB0..+0xE6) is byte-identical there (self-heal cache), so
-// it is found from the branch by those words, not by room or address.
+// Map 292 (Mars Lighthouse). The room's own Thumb routine (at 0x0200A42C
+// there) times up to four emitters, such as the dragon head sliding along the
+// top bar. It fires an emitter's action every 8 frames, but only while the
+// emitter is near the console's screen: x + 7 not above 334 unsigned, and row
+// above -48 and not above 239.
+// Extra Wide holds the camera 80 rows lower in that room, so the head sat
+// beyond -48 and never spat fire. We extend those tests by the view's margins.
+// The same code also loads at 0x0200A0EC. Its test section (+0xB0..+0xE6) is
+// byte-identical there (the code is compiled at run time), so it is found from
+// the branch by those words, not by room or address.
 struct EmitterSite {
     uint32_t offset;    // from the routine's start
     uint16_t opcode;
@@ -977,7 +998,7 @@ int builder_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
             // The vine builder writes 0x2000 | Y, then sets affine only
             // when r7 (rotation) is nonzero (ROM 0x080DABC0..0x080DAC34).
             // Snapshot that outgoing kind, not the previous rotation's:
-            // 0087 f30 loses the lagging non-affine section at Y261 once
+            // a measured case loses the lagging non-affine section at Y261 once
             // its live record becomes affine again, falling back to Y5.
             const int attr0 = pc == kVinePlaced
                 ? 0x2000 | (y & 0xFF) | (g_cpu.R[7] ? 0x100 : 0)
@@ -1009,8 +1030,8 @@ int builder_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
     gba::GbaBus* b = bus();
     // Back at the console's size, people granted from the second sprite page
     // keep it until the game grants them again, so their placements are still
-    // recorded for the tile lookup; the console's own tests decide (F12
-    // tla_rewind_0117: two people striped after switching to Original).
+    // recorded for the tile lookup; the console's own tests decide (two people
+    // were striped after switching to Original).
     const bool wide = expanded(v);
     if (body_x && wide && b && battle_running(b)) {
         *out_decision = static_cast<int32_t>(g_cpu.R[6]) > 239 + v.right + kSlack;
@@ -1023,7 +1044,7 @@ int builder_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
     // sprite's shadow (its record follows the body's, r7 + 0x1C) keeps the
     // console's own test: setting a Djinn put three Djinn shadows at row 210,
     // which the console drops and the widened test drew in the bottom margin
-    // (F12 tla_rewind_0035 frames 53..119, bodies priority 0 at -86/-83).
+    // (the bodies are priority 0 at -86/-83).
     const bool menu_shadow = shadow_y && menu_sprite(b->read16(g_cpu.R[7] + 8u));
     const bool cull = !wide ? original != 0
                     : body_x ? x > 239 + v.right + kSlack
@@ -1064,7 +1085,7 @@ int builder_branch(uint32_t pc, uint32_t original, uint32_t* out_decision) {
 // ambiguous once characters are placed outside the console's screen: the
 // widened pre-cull admits NPCs whose sprite sits as far as ~112 rows above
 // the view, and raw Y 144 then reads as row 144, in the bottom margin
-// (F12 0033, 2026-10-05: an NPC above the view drawn at the bottom left).
+// (an NPC above the view was drawn at the bottom left).
 const Placement* placement_for(uint16_t attr0, uint16_t attr1, uint16_t attr2) {
     gba::GbaBus* b = bus();
     if (!b || !field_running(b)) return nullptr;
@@ -1101,10 +1122,10 @@ extern "C" int tla_obj_x_provider(int /*oam_index*/, uint16_t attr0,
 // A field person's full tile number, from the record that placed it: its
 // owner's current grant when the tile is in it, else the tile it had when
 // placed if OAM still shows that one. The grant comes first: sand puffs are
-// noted while their grant is being renewed and read as console tiles (F12
-// tla_rewind_0051 frame 115, owners 0x0A and 0x13). The noted tile covers a
+// noted while their grant is being renewed and read as console tiles (seen
+// with owners 0x0A and 0x13). The noted tile covers a
 // grant released since: opening a menu frees every person's tiles a frame
-// before OAM drops them (tla_rewind_0047 frame 105).
+// before OAM drops them.
 extern "C" int tla_obj_tile_provider(int /*oam_index*/, uint16_t attr0,
                                      uint16_t attr1, uint16_t attr2) {
     // Battles place nothing; their page sprites carry a marker.
@@ -1124,7 +1145,7 @@ extern "C" int tla_obj_tile_provider(int /*oam_index*/, uint16_t attr0,
 // Rows the camera rule holds the camera below (+) or above (-) where the game
 // put it, while the camera is still where the rule wrote it; 0 once another
 // routine has moved it (Air's Rock's tornado cutscene pans with its own
-// stores and goes to the room's top, F12 0016/0018/0019, 2026-10-14).
+// stores and goes to the room's top).
 int tla_camera_hold_y() {
     gba::GbaBus* b = bus();
     if (!b || !g_camera_y_seen) return 0;
@@ -1152,7 +1173,7 @@ bool tla_camera_kept_bounds(bool kept[2], int lo[2], int edge[2]) {
 }
 
 // The camera follow 0x0802AD84 keeps the three field layers at [S + 0x108 +
-// 0x38 * n] (x, y; 16.16; S = [0x03000020]; F12 0113..0115: n = 0, 1, 2
+// 0x38 * n] (x, y; 16.16; S = [0x03000020]; measured: n = 0, 1, 2
 // match BG3, BG2, BG1's scroll) and redraws only the strip it scrolls onto:
 // column writer 0x0802AC90 (bl 0x0802AF16) on an 8-pixel x tile, row writer
 // 0x0802ABBC (bl 0x0802AF38/44, 16 cells, the ring's width) on a 16-pixel y

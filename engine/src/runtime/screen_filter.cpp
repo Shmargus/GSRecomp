@@ -12,22 +12,26 @@
 //              and the same with each pixel's middle held flat (the usual
 //              "sharp bilinear": crisp pixels, smoothed only at their edges).
 //
-// The four ports are from libretro's slang-less GLSL to `#version 130`. The
-// libretro #pragma machinery is gone; the algorithms are unchanged. The few
-// player-adjustable values come in as the Params[] uniform, filled from
-// kScreenFilterParams (screen_filter.h), whose defaults are upstream's. All but
-// ScaleFX are one fragment pass; ScaleFX runs its passes through float/8-bit
-// FBO textures (see kSfxPasses).
+// The four ports are from libretro's slang-less GLSL, converted to
+// `#version 130`. The libretro #pragma machinery is gone, but the algorithms
+// are unchanged.
+//
+// The few player-adjustable values come in as the Params[] uniform. It is
+// filled from kScreenFilterParams (screen_filter.h), whose defaults are
+// upstream's.
+//
+// All filters except ScaleFX are one fragment pass. ScaleFX runs its passes
+// through float/8-bit FBO textures (see kSfxPasses).
 //
 // The shaders work in "source pixel" units. The graphics-card renderer's
-// texture can be the 1x picture enlarged by an integer native scale, so every
+// texture can be the 1x picture enlarged by an integer native scale. So every
 // sample goes through src_texel(), which reads the centre of a 1x pixel with
-// nearest filtering -- for an integer-enlarged texture that is exactly the 1x
+// nearest filtering. For an integer-enlarged texture, that is exactly the 1x
 // picture.
 //
 // GL entry points are fetched through SDL_GL_GetProcAddress, the same way
-// gpu_surface.cpp does it. That loader sits in gpu_surface.cpp's anonymous
-// namespace and carries a much larger set than this file needs, so this file
+// gpu_surface.cpp does it. Its loader sits in gpu_surface.cpp's anonymous
+// namespace and carries a much larger set than this file needs. So this file
 // loads its own small set rather than widening that header.
 #include "screen_filter.h"
 
@@ -443,13 +447,16 @@ void main()
 // (libretro glsl-shaders, crt/shaders/crt-lottes.glsl). Upstream's header says
 // "Please take and use, change, or whatever."
 //
-// Port notes: parameters keep their upstream default values as #defines,
-// except the five the sliders set (Params[0..4]: scanline hardness, curvature
-// %, mask depth %, brightness %, glow %). The GL_ES and SIMPLE_LINEAR_GAMMA
-// branches and the pragma lines are dropped. Every sample goes through
-// src_texel(); reads outside the picture return black, as upstream's
-// clamp-to-border wrap does. TextureSize == InputSize here, so the upstream
-// size ratios in main() are 1.
+// Port notes:
+//   - Parameters keep their upstream default values as #defines, except the
+//     five the sliders set (Params[0..4]: scanline hardness, curvature %,
+//     mask depth %, brightness %, glow %).
+//   - The GL_ES and SIMPLE_LINEAR_GAMMA branches and the pragma lines are
+//     dropped.
+//   - Every sample goes through src_texel(). Reads outside the picture return
+//     black, as upstream's clamp-to-border wrap does.
+//   - TextureSize == InputSize here, so the upstream size ratios in main()
+//     are 1.
 const char* kLottesFragment = R"GLSL(
 #define hardScan (-Params[0])
 #define hardPix -3.0
@@ -752,13 +759,15 @@ void main()
 //    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 //    THE SOFTWARE.
 //
-// Port notes: the five passes follow scalefx.glslp (see kSfxPasses below). The
-// vertex stages' t1..t4 coordinates are unused by the desktop fragment path
-// (textureOffset), so they are dropped; v_uv replaces TEX0 and the SFX_*
-// parameters keep their upstream defaults (SFX_SAA 1.0, SFX_SCN 1.0) except
-// SFX_CLR (upstream 0.5), which the slider sets as Params[0] in %.
-// Uniforms follow libretro: TextureSize/InputSize describe the pass's Source,
-// OutputSize its own render target.
+// Port notes:
+//   - The five passes follow scalefx.glslp (see kSfxPasses below).
+//   - The vertex stages' t1..t4 coordinates are unused by the desktop
+//     fragment path (textureOffset), so they are dropped. v_uv replaces TEX0.
+//   - The SFX_* parameters keep their upstream defaults (SFX_SAA 1.0,
+//     SFX_SCN 1.0), except SFX_CLR (upstream 0.5), which the slider sets as
+//     Params[0] in %.
+//   - Uniforms follow libretro: TextureSize/InputSize describe the pass's
+//     Source, OutputSize its own render target.
 const char* kSfxCommon =
     "#version 130\n"
     "uniform vec2 OutputSize;\n"
@@ -1099,12 +1108,15 @@ struct Program {
 };
 
 // ScaleFX, exactly as libretro's scalefx.glslp: five passes, all nearest, scale
-// type "source". Passes 0-3 are 1x of their Source; pass 4 is 3x and is drawn
-// straight into the destination viewport. float_framebuffer is set on passes 0
-// and 1 only. Textures: 0 = the original (the 1x copy), k + 1 = pass k's output.
-// `source` indexes that list; `aux` is the extra texture (-1 none) that the pass
-// reads under `aux_name` (pass 2: PassPrev2 = pass 0's output, pass 4: PassPrev5
-// = the original).
+// type "source".
+//   - Passes 0-3 are 1x of their Source.
+//   - Pass 4 is 3x and is drawn straight into the destination viewport.
+//   - float_framebuffer is set on passes 0 and 1 only.
+// Textures: 0 = the original (the 1x copy), k + 1 = pass k's output.
+// `source` indexes that list. `aux` is the extra texture (-1 for none) that
+// the pass reads under `aux_name`:
+//   - pass 2: PassPrev2 = pass 0's output,
+//   - pass 4: PassPrev5 = the original.
 struct SfxPass {
     const char* name;
     const char* fragment;

@@ -5,7 +5,7 @@
 // the cost, so it is printed cut to that width and then, every few frames,
 // printed again from a later letter, back and forth, as a marquee.
 //
-// Each game's FACTS.md "Scrolling names" (22 November 2026), both games the
+// Measured, both games the
 // same: the printer decodes the line, draws it into a fresh buffer filled
 // with the window's background and copies whole 8-pixel tiles from the
 // start cell to the line's end, reusing the text tile already in each cell

@@ -72,13 +72,15 @@ struct RunOptions {
     bool (*pause_request_poll)(bool* out_paused) = nullptr;
 
     // A game-owned menu drawn by the game over the paused picture (Golden
-    // Sun's cheat menu). game_menu_toggle runs when the Cheat Menu hotkey
-    // is pressed; the game then asks for the pause itself through
-    // pause_request_poll. keyinput_filter sees each pump's keys before the
-    // guest and returns what the guest gets, so a menu can take the keys
-    // and keep them from the game. paused_overlay paints over a copy of the
-    // frozen frame on every pump while the host is paused. All nullptr by
-    // default, which leaves the run loop exactly as it was.
+    // Sun's cheat menu). The three hooks are:
+    //   - game_menu_toggle runs when the Cheat Menu hotkey is pressed. The
+    //     game then asks for the pause itself through pause_request_poll.
+    //   - keyinput_filter sees each pump's keys before the guest and returns
+    //     what the guest gets, so a menu can take the keys and keep them from
+    //     the game.
+    //   - paused_overlay paints over a copy of the frozen frame on every pump
+    //     while the host is paused.
+    // All are nullptr by default, which leaves the run loop exactly as it was.
     void (*game_menu_toggle)() = nullptr;
     std::uint16_t (*keyinput_filter)(std::uint16_t keyinput) = nullptr;
     void (*paused_overlay)(std::uint8_t* rgb, std::uint32_t width,
@@ -97,9 +99,10 @@ struct RunOptions {
     // A separate extended-view policy for games whose logical width follows
     // the live host-window aspect ratio. This ceiling is deliberately not
     // max_view_width: opting into resize-driven view does not also authorize
-    // fixed --view-width modes. The launcher/CLI must explicitly opt in with
-    // --resize-view; an accompanying --view-width may seed the initial
-    // windowed aspect, while adaptive fullscreen follows the host display.
+    // fixed --view-width modes.
+    // The launcher/CLI must explicitly opt in with --resize-view. An
+    // accompanying --view-width may seed the initial windowed aspect, while
+    // adaptive fullscreen follows the host display.
     std::uint16_t max_resize_view_width = 240;
     std::uint16_t max_resize_view_height = 160;
     bool resize_driven_view = false;
@@ -114,10 +117,10 @@ struct RunOptions {
 
     // Optional game-owned ROM patch. Called once after the ROM is loaded and
     // its SHA-1 verified, before the bus sees it. It may change bytes and may
-    // GROW the vector (data appended past the original end is served at
-    // 0x08000000 + offset; keep the total within 16 MB). For data the game
-    // reads at run time only (tables, text), never code or literal pools,
-    // because the translated code has those built in.
+    // GROW the vector: data appended past the original end is served at
+    // 0x08000000 + offset, and the total must stay within 16 MB.
+    // Patch only data the game reads at run time (tables, text). Never patch
+    // code or literal pools, because the translated code has those built in.
     void (*rom_patch)(std::vector<std::uint8_t>* rom) = nullptr;
 
     // ---- launcher-facing options, all optional ----

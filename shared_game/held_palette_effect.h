@@ -1,7 +1,7 @@
 // Menus and spell casts can recolour the frozen world map. Apply that
 // palette change to the margins while ignoring the menu's palette banks.
-// The native view comes from the game. See The Broken Seal captures
-// 0102/0062/0063 and The Lost Age Retreat capture 0199.
+// The native view comes from the game (measured in captures of both games,
+// including The Lost Age's Retreat).
 #pragma once
 #include <algorithm>
 #include <array>

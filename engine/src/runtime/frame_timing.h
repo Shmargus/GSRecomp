@@ -22,9 +22,9 @@ inline constexpr float kMaxTurboMultiplier = 32.0f;
 
 // Guest speed is measured from guest frames advanced per wall second. A GBA
 // frame always carries the same normal cycle budget, so this is also the
-// emulation-cycle rate relative to faithful real time. It intentionally does
-// not use the requested Turbo multiplier: a bottleneck must show as less than
-// the requested speed.
+// emulation-cycle rate relative to faithful real time.
+// It intentionally does not use the requested Turbo multiplier. That way a
+// bottleneck shows as less than the requested speed.
 inline double emulation_speed_percent(std::uint64_t guest_frames,
                                       std::uint64_t wall_ns,
                                       double normal_hz = kGbaFrameHz) {

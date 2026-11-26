@@ -10,8 +10,13 @@ namespace {
 namespace rr = gbarecomp::rom_revision;
 constexpr const char* kTag = "tla-rom";
 constexpr rr::Revision kRevisions[] = {
-#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language) \
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language, romhack) \
     {code, name, sha1, language},
+#include "tla_rom_revisions.inc"
+#undef GSR_ROM_REVISION
+};
+constexpr bool kRomhacks[] = {
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language, romhack) romhack,
 #include "tla_rom_revisions.inc"
 #undef GSR_ROM_REVISION
 };
@@ -20,27 +25,27 @@ constexpr unsigned kColumns = std::size(kRevisions) - 1;
 using Row = rr::RowN<kColumns>;
 using OverlayRow = rr::OverlayRowN<kColumns>;
 constexpr Row addresses[] = {
-#define TLA_ROM_ADDR(en, es, it, fr, de, rl, pt) {en, {es, it, fr, de, rl, pt}},
-#define TLA_OVERLAY_ADDR(image, en, es, it, fr, de, rl, pt)
-#define TLA_TEXT_ID(en, es, it, fr, de, rl, pt)
+#define TLA_ROM_ADDR(en, es, it, fr, de, rl, pt, mh) {en, {es, it, fr, de, rl, pt, mh}},
+#define TLA_OVERLAY_ADDR(image, en, es, it, fr, de, rl, pt, mh)
+#define TLA_TEXT_ID(en, es, it, fr, de, rl, pt, mh)
 #include "tla_rom_addresses.inc"
 #undef TLA_ROM_ADDR
 #undef TLA_OVERLAY_ADDR
 #undef TLA_TEXT_ID
 };
 constexpr OverlayRow overlays[] = {
-#define TLA_ROM_ADDR(en, es, it, fr, de, rl, pt)
-#define TLA_OVERLAY_ADDR(image, en, es, it, fr, de, rl, pt) {#image, en, {es, it, fr, de, rl, pt}},
-#define TLA_TEXT_ID(en, es, it, fr, de, rl, pt)
+#define TLA_ROM_ADDR(en, es, it, fr, de, rl, pt, mh)
+#define TLA_OVERLAY_ADDR(image, en, es, it, fr, de, rl, pt, mh) {#image, en, {es, it, fr, de, rl, pt, mh}},
+#define TLA_TEXT_ID(en, es, it, fr, de, rl, pt, mh)
 #include "tla_rom_addresses.inc"
 #undef TLA_ROM_ADDR
 #undef TLA_OVERLAY_ADDR
 #undef TLA_TEXT_ID
 };
 constexpr Row texts[] = {
-#define TLA_ROM_ADDR(en, es, it, fr, de, rl, pt)
-#define TLA_OVERLAY_ADDR(image, en, es, it, fr, de, rl, pt)
-#define TLA_TEXT_ID(en, es, it, fr, de, rl, pt) {en, {es, it, fr, de, rl, pt}},
+#define TLA_ROM_ADDR(en, es, it, fr, de, rl, pt, mh)
+#define TLA_OVERLAY_ADDR(image, en, es, it, fr, de, rl, pt, mh)
+#define TLA_TEXT_ID(en, es, it, fr, de, rl, pt, mh) {en, {es, it, fr, de, rl, pt, mh}},
 #include "tla_rom_addresses.inc"
 #undef TLA_ROM_ADDR
 #undef TLA_OVERLAY_ADDR
@@ -51,7 +56,7 @@ unsigned revision() {
     return index;
 }
 
-// The language row the loaded revision plays as (Reloaded: English).
+// The language row the loaded revision plays as (romhacks: English).
 unsigned language_row() {
     static const unsigned row = rr::language_row(kRevisions, revision(), kTag);
     return row;
@@ -66,12 +71,12 @@ std::uint32_t counterpart(const Row* row, const char* kind, std::uint32_t englis
 
 const char* sha1() { return gsr_game_rom_sha1; }
 Version version() { return static_cast<Version>(language_row()); }
-bool reloaded() { return std::strcmp(kRevisions[revision()].code, "rl") == 0; }
+bool romhack() { return kRomhacks[revision()]; }
 bool portuguese() { return std::strcmp(kRevisions[revision()].code, "pt") == 0; }
 
-// Measured 19 November 2026: the patched copied routine 0x0803857C's
-// literals (ROM 0x080385A4 / 0x080385A8) name the offset table 0x08F80000
-// and the text base 0x08F8C300 (FACTS.md "Portuguese (Kyle the Runner)").
+// Where the Portuguese patch keeps its text. Measured: the literals of the patched,
+// copied routine 0x0803857C (ROM 0x080385A4 / 0x080385A8) name the offset table
+// 0x08F80000 and the text base 0x08F8C300 (FACTS.md "Portuguese (Kyle the Runner)").
 bool plain_text(std::uint32_t* offsets, std::uint32_t* base) {
     if (!portuguese()) return false;
     *offsets = 0x00F80000u;

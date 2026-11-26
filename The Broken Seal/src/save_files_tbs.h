@@ -1,7 +1,7 @@
 // The Broken Seal's half of nine save files (shared_game/save_files_picker.h
 // runs the file screens; this is the game's description and save layer).
 //
-// Measured, verified ROMs (FACTS.md "Nine save files", 3 November 2026):
+// Measured, verified ROMs (FACTS.md "Nine save files"):
 //   The cartridge holds three files, each two flash blocks: slot s and s + 3
 //   (0x1000-byte sectors, "CAMELOT" header, 0xFF0-byte payload). Every file
 //   screen reaches them through these routines, all taking a block number:
@@ -146,7 +146,7 @@ inline void block(std::uint32_t pc) {
 }
 
 // The Autosave (shared_game/autosave.h): the field Save's own steps (save
-// routine 0x080207C4, FACTS "Seamless mode: our own save"): header
+// routine 0x080207C4, FACTS.md "Seamless mode: our own save"): header
 // 0x0801F818, map objects 0x0808A5B0, then blocks from 0x02000000 and
 // 0x02001000. Neither step reads the flash workspace, so the record is
 // filled here directly, numbered as its row's blocks as 0x08005920 numbers

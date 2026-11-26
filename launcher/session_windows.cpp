@@ -24,6 +24,7 @@
 #include "collection_build.h"
 #include "launcher_build_progress.h"
 #include "collection_storage.h"
+#include "emulator_save.h"
 #include "collection_settings.h"
 #include "english_save_test.h"
 #include "launcher_online.h"
@@ -91,7 +92,7 @@ std::wstring g_build_rom;
 
 // Diagnostic variables are deliberately opt-in. run_game copies the test
 // options chosen in the collection launcher (collection_settings.h) into
-// these; without collection test settings only self-healing is on.
+// these; without collection test settings only run-time code compiling is on.
 const auto k_launcher_test_defaults = gsr::launcher_test_defaults();
 bool g_test_variables = k_launcher_test_defaults.master;
 bool g_test_selfheal_ram = k_launcher_test_defaults.self_heal_ram;
@@ -120,12 +121,13 @@ int g_session_exit_code = 0;
 // TLARecomp.exe (handover.h).
 bool g_handover_next = false;
 
-// What a release launch plays with: Enhanced Options (expanded view
-// rendering and spell effects) and the graphics-card field renderer ALONE.
-// The console compositor fallback is off: on the Steam Deck it drew a
-// full 360x240 picture per frame that was almost never shown and made
-// widescreen slow (2026-10-04: one refused frame in ~590,000 across the
-// developer sessions). Everything experimental or diagnostic stays off.
+// What a release launch plays with:
+//   - Enhanced Options (expanded view rendering and spell effects), and
+//   - the graphics-card field renderer, on its own.
+// The console compositor fallback is off. On the Steam Deck it drew a full
+// 360x240 picture every frame that was almost never shown, and it made
+// widescreen slow. It refused only one frame in ~590,000 across the measured
+// sessions. Everything experimental or diagnostic stays off.
 LauncherAudioSettings release_launch_settings(const fs::path& root) {
     LauncherAudioSettings settings{};
     settings.gpu_field = true;
@@ -329,17 +331,21 @@ fs::path active_save_path(const fs::path& root) {
 }
 
 // ── Session log capture ────────────────────────────────────────────────
-// The game program is a console-subsystem exe.
-// Started from this launcher (which has no console) without redirected
-// handles, Windows gives it a fresh console window that is destroyed the
-// instant the child exits, so a crash, a freeze killed from Task Manager, or
-// even a clean quit loses the scrollback. This captures the child's
-// stdout/stderr into a timestamped file under logs/ instead: each line is
-// flushed to disk (FILE_FLAG_WRITE_THROUGH + FlushFileBuffers) as it is read
-// from the pipe, so a kill mid-freeze keeps everything written so far.
+// Saves the game's console output to a log file.
+//
+// The game program is a console-subsystem exe. This launcher has no console,
+// so if the game is started without redirected handles, Windows gives it a
+// fresh console window. That window is destroyed the instant the child exits.
+// A crash, a freeze killed from Task Manager, or even a clean quit would then
+// lose the scrollback.
+//
+// Instead, the child's stdout and stderr are captured into a timestamped file
+// under logs/. Each line is flushed to disk (FILE_FLAG_WRITE_THROUGH +
+// FlushFileBuffers) as it is read from the pipe, so a kill during a freeze
+// keeps everything written so far.
 //
 // stdout and stderr go into ONE chronological file, each line tagged
-// "[OUT] "/"[ERR] ", which is easier to hand over than two files.
+// "[OUT] " or "[ERR] ". That is easier to hand over than two files.
 std::wstring make_session_log_path(const fs::path& logs_dir) {
     SYSTEMTIME st{};
     GetLocalTime(&st);
@@ -460,9 +466,10 @@ void pump_pipe_to_log(HANDLE pipe_read, const char* tag,
     CloseHandle(pipe_read);
 }
 
-// CreateProcess takes a complete environment block when one is supplied. Use
-// that instead of SetEnvironmentVariableW so launcher settings do not leak
-// into the launcher process (or into a later child if the UI is reused).
+// Builds the child's environment block. CreateProcess accepts a complete
+// block, so we pass one instead of calling SetEnvironmentVariableW. That way
+// launcher settings do not leak into the launcher process, or into a later
+// child if the UI is reused.
 class ChildEnvironment {
 public:
     ChildEnvironment() {
@@ -556,12 +563,14 @@ private:
 };
 
 // ---- Bug reports (player launcher) -------------------------------------------
-// Players press F12 in the game: the runner writes the last 2 seconds of
-// frames (logs/gpu_rewind_NNNN, GSR_FRAME_REWIND, always on in a release)
-// and shows "BUG REPORT SAVED". When the game closes, the launcher packs
-// every capture from that session, or the crash files if it crashed, with
-// the session log, the settings files and a short system note into one zip
-// in logs/bug_reports, and points the player at it.
+// How a player's bug report is made.
+//   1. The player presses F12 in the game. The runner writes the last 2
+//      seconds of frames (logs/gpu_rewind_NNNN, GSR_FRAME_REWIND, always on
+//      in a release) and shows "BUG REPORT SAVED".
+//   2. When the game closes, the launcher packs the session's captures (or
+//      the crash files, if it crashed), the session log, the settings files
+//      and a short system note into one zip in logs/bug_reports.
+//   3. The launcher points the player at that zip.
 std::string registry_text(const wchar_t* value) {
     wchar_t buffer[256] = {};
     DWORD size = sizeof(buffer);
@@ -775,7 +784,8 @@ std::vector<fs::path> make_bug_report(const fs::path& root, const fs::path& game
         fs::is_regular_file(root / L"unpacker_recovered.txt", ec);
     const auto staged = stage_bug_report(
         {root, game_dir, crash_dir, fs::path(log_path),
-         rom.empty() ? fs::path() : active_save_path(root), crashed},
+         rom.empty() ? fs::path() : active_save_path(root), crashed,
+         g_collection_root.empty() ? fs::path() : g_collection_root / L"Controls"},
         report_info_text(
             "Windows: " + registry_text(L"ProductName") + " " +
                 registry_text(L"DisplayVersion") + " (build " +
@@ -1185,11 +1195,12 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed, bool u
     SetForegroundWindow(window);
     SetFocus(state.edit);
     // The launcher window was closed when the game started, so its WM_QUIT
-    // is pending. Windows hands it out whenever the queue runs empty, which
-    // would end this loop and leave the window on screen with nobody
-    // handling its buttons (the 0.2 "Send does nothing" bug). So the loop
-    // runs until this window is gone, and a WM_QUIT seen meanwhile is posted
-    // again afterwards for the launcher's own loop.
+    // is still pending. Windows hands it out whenever the queue runs empty.
+    // That would end this loop and leave the window on screen with nobody
+    // handling its buttons (the 0.2 "Send does nothing" bug). So:
+    //   - the loop runs until this window is gone, and
+    //   - a WM_QUIT seen meanwhile is posted again afterwards, for the
+    //     launcher's own loop.
     bool launcher_quit = false;
     int launcher_exit_code = 0;
     MSG message{};
@@ -1223,7 +1234,7 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
         const auto enabled = [](const char* environment) {
             return gsr_collection::test_enabled(g_collection_tests, environment, session_game_index);
         };
-        // Self-healing keeps its selected state even when the master switch is off.
+        // Run-time code compiling keeps its selected state even when the master switch is off.
         g_test_selfheal_ram = g_collection_tests.tests[gsr_collection::test_index("GBARECOMP_SELFHEAL_RAM")];
         g_test_obj_record = enabled("GSR_OBJ_RECORD");
         g_test_map_record = enabled("GSR_MAP_RECORD");
@@ -1246,13 +1257,20 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
         return 1;
     };
     // Golden Sun's flash save is 64 KiB; the engine refuses a larger .sav
-    // (runtime.cpp "save file too large"), so say why instead of exiting.
-    constexpr std::uintmax_t kGameSaveBytes = 0x10000;
+    // (runtime.cpp "save file too large"). An emulator's larger save of this
+    // game becomes its 64 KiB image (emulator_save.h); otherwise say why
+    // instead of exiting.
+    constexpr std::uintmax_t kGameSaveBytes = gsr_collection::emulator_save::kFlashBytes;
     {
         const fs::path save = active_save_path(root);
         std::error_code save_ec;
         const std::uintmax_t save_size = fs::file_size(save, save_ec);
-        if (!save_ec && save_size > kGameSaveBytes) {
+        std::string repair_error;
+        if (!save_ec && save_size > kGameSaveBytes && save == files.save &&
+            gsr_collection::emulator_save::repair_oversized(files, save, session_game_index, repair_error))
+            launcher_log(L"Start game: emulator save " + save.wstring() + L" converted to 65536 bytes; "
+                         L"the original is in Saves\\Imported.");
+        else if (!save_ec && save_size > kGameSaveBytes) {
             launcher_log(L"Start game: save file " + save.wstring() + L" is " +
                          std::to_wstring(save_size) +
                          L" bytes, larger than 65536: not started.");
@@ -1326,16 +1344,16 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
     common.state_base = wide_to_utf8((g_test_progress.state_base.empty()
         ? files.state_base : g_test_progress.state_base).wstring());
     common.heal_cache = wide_to_utf8((root / L"recomp_cache").wstring());
-    // Release: point the game's self-heal at the bundled g++ (absent on dev).
+    // Release: point the game's run-time code compiler at the bundled g++ (absent on dev).
     const fs::path toolchain = bundled_toolchain(root);
     if (std::filesystem::exists(toolchain / L"bin" / L"g++.exe"))
         common.heal_toolchain = wide_to_utf8(toolchain.wstring());
     if (session_game_index == 1)  // The Lost Age imports Golden Sun saves.
         common.save_import = g_audio_settings.gs_save_import;
     // Drawing the field with the graphics card is a persistent player
-    // setting. It falls back to the console compositor
-    // for any frame it cannot reproduce. The GPU field check forces the card
-    // on and the fallback on.
+    // setting. For any frame the card cannot reproduce, the game falls back
+    // to the console compositor. The GPU field check forces the card on and
+    // the fallback on.
     common.gpu_field = collection_gpu_check || g_audio_settings.gpu_field;
     // "Draw ONLY with the graphics card" turns the console compositor off:
     // a frame the card refuses is painted a flat colour instead of quietly
@@ -1345,10 +1363,10 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
     common.developer = !kReleaseLauncher;
     gsr::add_common_environment(plan, common);
 
-    // Replay and recording are mutually exclusive in the runner; reject an
-    // explicit conflict before spawning rather than allowing a partial,
-    // misleading session. Only an explicit GBARECOMP_INPUT_RECORD inherited
-    // from the environment records input.
+    // Replay and recording are mutually exclusive in the runner. Reject an
+    // explicit conflict before spawning, rather than allow a partial,
+    // misleading session. Input is recorded only when GBARECOMP_INPUT_RECORD
+    // is set explicitly and inherited from the environment.
     const std::wstring explicit_input_record =
         inherited_environment_value(L"GBARECOMP_INPUT_RECORD");
     const std::wstring input_replay =
@@ -1386,10 +1404,10 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
     }
 
     // The test options are diagnostics, never part of the faithful default.
-    // An option that is off is removed from the child so a shell-launched
-    // value cannot silently turn this into a crutch run; self-healing is the
-    // one option that is on by default. The BIOS logs and the test variables
-    // whose launcher box was retired are always removed.
+    // An option that is off is removed from the child, so a value set from a
+    // shell cannot silently turn this into a crutch run. Run-time code
+    // compiling is the one option that is on by default. The BIOS logs and
+    // the test variables whose launcher box was retired are always removed.
     struct TestOptionValue {
         const char* name;
         bool enabled;
@@ -1751,6 +1769,10 @@ float g_notes_line_height = 18.0f;
 float g_notes_text_height = 0.0f;
 int g_notes_measured_width = -1;
 
+// The player launcher's bottom band: the build note, the step line, the bar
+// and the buttons.
+constexpr int kReleaseBand = 196;
+
 // Positions the Cancel button and the panel or release-notes box behind the
 // artwork.
 void layout_buttons(HWND window) {
@@ -1769,9 +1791,9 @@ void layout_buttons(HWND window) {
                    button_width, button_height, TRUE);
     if (kReleaseLauncher) {
         // The release notes sit over the logo: the window's side margin
-        // wide, from y 28 down to the bottom band (160 px).
+        // wide, from y 28 down to the bottom band (kReleaseBand).
         g_notes_rect = {40, 28, 40 + std::max<int>(0, client.right - 80),
-                        28 + std::max<int>(0, client.bottom - 160 - 8 - 28)};
+                        28 + std::max<int>(0, client.bottom - kReleaseBand - 8 - 28)};
         g_notes_measured_width = -1;
         g_panel_rect = {};
         InvalidateRect(window, nullptr, FALSE);
@@ -1791,10 +1813,12 @@ void layout_buttons(HWND window) {
     InvalidateRect(window, nullptr, FALSE);
 }
 
-// The backdrop: a dark indigo gradient, a soft purple glow and the logo
-// (assets/launcher_logo.png, built in), fitted into the space above the
-// dark panel, or above the buttons in the player launcher. One bitmap,
-// redrawn only when the window or the panel changes.
+// Paints the window backdrop. It has three layers:
+//   - a dark indigo gradient,
+//   - a soft purple glow, and
+//   - the logo (assets/launcher_logo.png, built in), fitted into the space
+//     above the dark panel, or above the buttons in the player launcher.
+// It is one bitmap, redrawn only when the window or the panel changes.
 struct Backdrop {
     int width = 0, height = 0, logo_bottom = 0;
     std::unique_ptr<Gdiplus::Bitmap> bitmap;
@@ -1862,6 +1886,8 @@ void rounded_rect_path(Gdiplus::GraphicsPath& path, float x, float y, float w,
 }
 
 constexpr UINT_PTR kProgressTimer = 1;
+// Where a build warning's note is drawn; clicking it opens the build log.
+RECT g_build_log_rect{};
 
 // The first-start build's progress: a glowing purple bar with a light
 // sweeping along the filled part. Before the builder reports a total it is
@@ -1997,7 +2023,7 @@ void paint_splash(HWND window, HDC dc, int origin_x = 0, int origin_y = 0) {
 
     if (width > 0 && height > 0) {
         const bool has_panel = g_panel_rect.bottom > g_panel_rect.top;
-        const int logo_bottom = has_panel ? g_panel_rect.top - 12 : height - 172;
+        const int logo_bottom = has_panel ? g_panel_rect.top - 12 : height - kReleaseBand - 12;
         if (Gdiplus::Bitmap* backdrop =
                 launcher_backdrop(width, height, logo_bottom)) {
             graphics.SetInterpolationMode(
@@ -2024,13 +2050,15 @@ void paint_splash(HWND window, HDC dc, int origin_x = 0, int origin_y = 0) {
 
     // The player launcher's band is taller: it holds the build note, the
     // step line and the bar above the buttons.
-    const int band = kReleaseLauncher ? 160 : 132;
+    const int band = kReleaseLauncher ? kReleaseBand : 132;
     Gdiplus::SolidBrush bottom_overlay(Gdiplus::Color(145, 0, 0, 0));
     graphics.FillRectangle(&bottom_overlay, 0, std::max(0, height - band),
                            width, band);
 
+    g_build_log_rect = {};
     if (kReleaseLauncher) {
         std::wstring text, note;
+        bool warning = false;
         const auto build = g_build.snapshot();
         const bool running = build.running;
         const int done = build.done, total = build.total;
@@ -2046,9 +2074,14 @@ void paint_splash(HWND window, HDC dc, int origin_x = 0, int origin_y = 0) {
             if (total > 0)
                 text += L"  (" + std::to_wstring(done) + L" of " +
                         std::to_wstring(total) + L")";
-            note = L"Step 1 translates the game from your ROM, step 2 "
-                   L"compiles it. This can take several minutes, and the "
-                   L"game starts by itself when it's done.";
+            // Time so far against the last build; after a long pause,
+            // whether the PC is still working on it (collection_build.h).
+            const auto feedback = gsr_collection::build_feedback(build);
+            warning = feedback.level > 0;
+            note = utf8_to_wide(feedback.summary) + L".\n" +
+                   (!feedback.detail.empty() ? utf8_to_wide(feedback.detail) :
+                   L"Step 1 translates the game from your ROM, step 2 "
+                   L"compiles it. The game starts by itself when it's done.");
         } else if (!g_build_ready) {
             text = L"First start: pick your Golden Sun ROM. The game is "
                    L"prepared from it once, which takes a few minutes.";
@@ -2059,20 +2092,30 @@ void paint_splash(HWND window, HDC dc, int origin_x = 0, int origin_y = 0) {
         Gdiplus::StringFormat format;
         format.SetAlignment(Gdiplus::StringAlignmentCenter);
         if (!note.empty()) {
-            Gdiplus::Font small(L"Segoe UI", 9.0f, Gdiplus::FontStyleRegular,
+            Gdiplus::Font small(L"Segoe UI", 10.5f, Gdiplus::FontStyleRegular,
                                 Gdiplus::UnitPoint);
-            Gdiplus::SolidBrush muted(Gdiplus::Color(255, 190, 176, 222));
-            const Gdiplus::RectF box(40.0f, static_cast<Gdiplus::REAL>(height - 154),
-                                     static_cast<Gdiplus::REAL>(width - 80), 34.0f);
-            graphics.DrawString(note.c_str(), -1, &small, box, &format, &muted);
+            Gdiplus::SolidBrush muted(warning ? Gdiplus::Color(255, 241, 194, 78)
+                                              : Gdiplus::Color(255, 190, 176, 222));
+            const Gdiplus::RectF box(32.0f, static_cast<Gdiplus::REAL>(height - 192),
+                                     static_cast<Gdiplus::REAL>(width - 64), 58.0f);
+            Gdiplus::StringFormat wrapped;
+            wrapped.SetAlignment(Gdiplus::StringAlignmentCenter);
+            wrapped.SetTrimming(Gdiplus::StringTrimmingEllipsisWord);
+            graphics.DrawString(note.c_str(), -1, &small, box, &wrapped, &muted);
+            // A warning's note opens the build log (WM_LBUTTONUP).
+            if (warning) g_build_log_rect = {32, height - 192, width - 32, height - 134};
         }
         if (!text.empty()) {
-            Gdiplus::Font font(L"Segoe UI", 10.5f, Gdiplus::FontStyleRegular,
+            Gdiplus::Font font(L"Segoe UI", 12.0f, Gdiplus::FontStyleBold,
                                Gdiplus::UnitPoint);
             Gdiplus::SolidBrush ink(Gdiplus::Color(255, 240, 232, 210));
-            const Gdiplus::RectF box(24.0f, static_cast<Gdiplus::REAL>(height - 120),
-                                     static_cast<Gdiplus::REAL>(width - 48), 22.0f);
-            graphics.DrawString(text.c_str(), -1, &font, box, &format, &ink);
+            const Gdiplus::RectF box(24.0f, static_cast<Gdiplus::REAL>(height - 130),
+                                     static_cast<Gdiplus::REAL>(width - 48), 26.0f);
+            Gdiplus::StringFormat one_line;
+            one_line.SetAlignment(Gdiplus::StringAlignmentCenter);
+            one_line.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
+            one_line.SetTrimming(Gdiplus::StringTrimmingEllipsisCharacter);
+            graphics.DrawString(text.c_str(), -1, &font, box, &one_line, &ink);
         }
         if (running) paint_progress_bar(graphics, width, height, done, total);
     }
@@ -2335,6 +2378,24 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
         EndPaint(window, &paint);
         return 0;
     }
+    case WM_LBUTTONUP: {
+        const POINT at{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
+        if (PtInRect(&g_build_log_rect, at)) {
+            const auto log = g_build.snapshot().log;
+            if (!log.empty())
+                ShellExecuteW(nullptr, L"open", log.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            return 0;
+        }
+        break;
+    }
+    case WM_SETCURSOR:
+        if (LOWORD(l_param) == HTCLIENT) {
+            POINT at{};
+            GetCursorPos(&at);
+            ScreenToClient(window, &at);
+            if (PtInRect(&g_build_log_rect, at)) { SetCursor(LoadCursorW(nullptr, IDC_HAND)); return TRUE; }
+        }
+        break;
     case WM_TIMER:
         if (w_param == kProgressTimer) {
             if (g_collection_activation_pending && g_update_check_done) {
@@ -2347,7 +2408,7 @@ LRESULT CALLBACK launcher_window_proc(HWND window, UINT message,
             } else if (build.running) {
                 RECT client{};
                 GetClientRect(window, &client);
-                RECT status{0, client.bottom - 164, client.right, client.bottom};
+                RECT status{0, client.bottom - kReleaseBand - 4, client.right, client.bottom};
                 InvalidateRect(window, &status, FALSE);
             }
             return 0;

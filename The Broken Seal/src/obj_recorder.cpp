@@ -494,7 +494,7 @@ void write_summary() {
 
     // Golden Sun scales sprites constantly, so this is not a corner case:
     // affine sprites were half the committed population in
-    // objrec_20260906_110334, and refusing to place them was what left them
+    // a measured session, and refusing to place them was what left them
     // on the wrapping byte.
     std::fprintf(f, "\naffine (rotation/scaling) sprites\n");
     std::fprintf(f, "  committed %llu, full-precision %llu (%.2f%%)\n",

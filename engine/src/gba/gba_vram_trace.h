@@ -130,15 +130,17 @@ void set_oam_shadow_write_range_predicate(
     OamShadowWriteRangePredicate predicate);
 
 // The hooks are no-ops unless a runner arms the default or
-// GBARECOMP_VRAM_MAP_TRACE is set. Each stream is independently bounded; only
-// writer PC/address/size (CPU) or source/dest/size (DMA), plus BG1-3 CNT/scroll
-// metadata, is printed. Mode 0 field hits print as [vram-map-cpu]/
-// [vram-map-dma]; Mode 2 affine BG2/BG3 hits print as [vram-affine-cpu]/
-// [vram-affine-dma] with their own bounded counters so one field cannot
-// exhaust the other's record budget. The independent text trace writes
-// metadata CSV rows for the selected BG0 character/screen-map ranges in
-// modes 0/1, including while BG0 is hidden, when enabled through
-// set_text_trace_directory().
+// GBARECOMP_VRAM_MAP_TRACE is set. Each stream is bounded independently.
+// Only these are printed: writer PC/address/size (CPU) or source/dest/size
+// (DMA), plus BG1-3 CNT/scroll metadata.
+//   - Mode 0 field hits print as [vram-map-cpu] / [vram-map-dma].
+//   - Mode 2 affine BG2/BG3 hits print as [vram-affine-cpu] /
+//     [vram-affine-dma]. They have their own bounded counters, so one field
+//     cannot exhaust the other's record budget.
+//   - The independent text trace, when enabled through
+//     set_text_trace_directory(), writes metadata CSV rows for the selected
+//     BG0 character/screen-map ranges in modes 0/1, including while BG0 is
+//     hidden.
 void trace_cpu_write(const std::uint8_t* io, std::uint32_t pc,
                      std::uint32_t address, std::uint32_t size);
 void trace_dma(const std::uint8_t* io, int channel, std::uint32_t pc,

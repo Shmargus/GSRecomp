@@ -1,22 +1,23 @@
 // Internal Linux game session, embedded in the collection launcher.
 //
-// The Windows session (session_windows.cpp) is Win32 and GDI+; this is its
-// Linux counterpart for the player release, drawn with SDL2 and Dear ImGui
-// (the toolkit the in-game F1 menu already uses), so it needs nothing the
-// game does not. It does what the Windows player launcher does:
+// The Windows session (session_windows.cpp) is Win32 and GDI+. This is its
+// Linux counterpart for the player release. It is drawn with SDL2 and Dear
+// ImGui (the toolkit the in-game F1 menu already uses), so it needs nothing
+// the game does not. It does what the Windows player launcher does:
 //
 //   * Pick ROM: choose the game's ROM (USA, Europe), checked by SHA-1.
 //   * First start (or after an update): run builder/gsr_builder, which
 //     translates the ROM and compiles the game library (lib*.so) beside the
-//     game, with its progress on screen.
-//   * Start the game program with the player release's settings, its output
-//     captured into logs/session_<time>.log.
+//     game. Its progress is shown on screen.
+//   * Start the game program with the player release's settings. Its output
+//     is captured into logs/session_<time>.log.
 //   * Afterwards, if F12 was pressed or the game crashed, pack a bug report
 //     into logs/bug_reports and offer the report form. Nothing is sent.
 //
-// Layout beside this program: the game program, its library (built
-// on first start), builder/ (gsr_builder, gba_recompile, data/, engine/,
-// toolchain/).
+// Layout beside this program:
+//   - the game program,
+//   - its library (built on first start), and
+//   - builder/ (gsr_builder, gba_recompile, data/, engine/, toolchain/).
 #include <SDL.h>
 
 #include "imgui.h"
@@ -56,6 +57,7 @@
 #include "collection_preferences.h"
 #include "launcher_online.h"
 #include "collection_storage.h"
+#include "emulator_save.h"
 #include "collection_settings.h"
 #include "english_save_test.h"
 #include "session_environment.h"
@@ -297,7 +299,7 @@ GameResult run_game(const std::string& rom) {
     common.state_base = !g_test_progress.state_base.empty() ? g_test_progress.state_base.string() :
         g_collection_play ? g_managed.state_base.string() : std::string();
     common.heal_cache = (g_root / "recomp_cache").string();
-    // Release: point the game's self-heal at the bundled g++ (absent on dev).
+    // Release: point the game's run-time code compiler at the bundled g++ (absent on dev).
     if (fs::exists(g_root / "builder" / "toolchain" / "bin" / "g++"))
         common.heal_toolchain = (g_root / "builder" / "toolchain").string();
     if (session_game_index == 1)  // The Lost Age imports Golden Sun saves.
@@ -538,11 +540,14 @@ std::vector<fs::path> make_bug_report(const GameResult& game) {
         save = !g_test_progress.save.empty() ? g_test_progress.save : g_collection_play ? g_managed.save :
             fs::path(game.rom).replace_extension(".sav");
     const auto staged = stage_bug_report(
-        {g_root, g_root, g_root, game.log_path, save, game.crashed},
+        {g_root, g_root, g_root, game.log_path, save, game.crashed,
+         g_collection_root.empty() ? fs::path() : g_collection_root / "Controls"},
 #ifdef __ANDROID__
         report_info_text("System: Android, " + os_release_name(), game.new_rewinds.size(),
 #else
-        report_info_text("System: Linux, " + os_release_name(), game.new_rewinds.size(),
+        report_info_text(std::string("System: Linux") +
+                             (gsr_online::kArmLinuxBuild ? " ARM64, " : ", ") + os_release_name(),
+                         game.new_rewinds.size(),
 #endif
                          game.crashed, game.unpacker, game.exit_code));
     const auto& staging = staged.folder;
@@ -563,10 +568,10 @@ std::vector<fs::path> make_bug_report(const GameResult& game) {
         fs::remove(archive, ec);
         // The capture is copied into the staged folder for its archive, as
         // frame differences (launcher_common.h stage_capture), and removed
-        // after: one -C only. Android's toybox tar applies just the last -C,
-        // so "-C staging . -C logs capture" packed the whole logs folder,
-        // met its own archive there and failed (Pixel 9 Pro, 18 November
-        // 2026: every report with an F12 capture stayed unpacked).
+        // after. Only one -C is used, because Android's toybox tar applies
+        // just the last -C. With "-C staging . -C logs capture" it packed the
+        // whole logs folder, met its own archive there and failed. Every
+        // report with an F12 capture then stayed unpacked.
         fs::path capture;
         if (!game.new_rewinds.empty()) {
             capture = staging / game.new_rewinds[i];
@@ -785,12 +790,14 @@ struct Ui {
     std::string send_error;
     std::string pending_rom;   // picked; run or build when the frame ends
     std::string remembered_rom;  // non-empty: the button says Play and uses it
-    // Start automatically: with the box ticked, a built game and a good
+    // Start automatically. With the box ticked, a built game and a good
     // remembered ROM, the game starts as soon as the update check has
-    // answered (at most kAutoStartMaxWaitMs). When an update is offered,
-    // "Not now" starts the game and opening the download page does not. A
-    // needed build never starts by itself. A message or the box unticked
-    // stop it. The player is asked once, after the first build. Kept in
+    // answered (waiting at most kAutoStartMaxWaitMs).
+    //   - When an update is offered, "Not now" starts the game, and opening
+    //     the download page does not.
+    //   - A needed build never starts by itself.
+    //   - A message, or the box unticked, stops it.
+    // The player is asked once, after the first build. The choice is kept in
     // local/launcher-autostart.txt.
     bool auto_start = false;
     Uint32 auto_start_began = 0;  // SDL ticks; 0 = not waiting
@@ -844,9 +851,9 @@ void style_ui() {
 }
 
 // Pick ROM: check it, then build the game code first if needed, else play.
-// Once a ROM was accepted the button says Play and uses it without asking,
-// except with "Skip the ROM check" on: then every Play asks for the ROM to
-// play (in collection play the collection launcher just asked).
+// Once a ROM was accepted, the button says Play and uses it without asking.
+// The exception is "Skip the ROM check": then every Play asks for the ROM to
+// play (in collection play, the collection launcher just asked).
 bool ask_rom_every_play() { return gbarecomp::any_rom_allowed() && !g_collection_play; }
 void pick_rom() {
     if (!g_ui.remembered_rom.empty() && !ask_rom_every_play()) {
@@ -1260,13 +1267,19 @@ int gsr_session_main(int game, int argc, char** argv) {
             ImGui::PopStyleColor();
         }
         std::string text, note;
+        bool build_warning = false;
         if (build_running) {
             const bool step_two = stage.find("Compiling") != std::string::npos ||
                                   stage.find("Linking") != std::string::npos;
             text = std::string(step_two ? "Step 2 of 2: " : "Step 1 of 2: ") + stage;
             if (total > 0) text += "  (" + std::to_string(done) + " of " + std::to_string(total) + ")";
-            note = "Step 1 translates the game from your ROM, step 2 compiles it. "
-                   "This can take several minutes, and the game starts by itself when it's done.";
+            // Time so far against the last build; after a long pause,
+            // whether the PC is still working on it (collection_build.h).
+            const auto feedback = gsr_collection::build_feedback(build);
+            build_warning = feedback.level > 0;
+            note = feedback.summary + ".\n" + (!feedback.detail.empty() ? feedback.detail :
+                   "Step 1 translates the game from your ROM, step 2 compiles it. "
+                   "The game starts by itself when it's done.");
         } else if (!ready) {
             text = "First start: pick your Golden Sun ROM. The game is prepared from it "
                    "once, which takes a few minutes.";
@@ -1281,9 +1294,15 @@ int gsr_session_main(int game, int argc, char** argv) {
             draw_build_progress(done, total, size.x - 80.0f * u, ImGui::GetTime());
         }
         if (!note.empty()) {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.75f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, build_warning ? ImVec4(0.95f, 0.76f, 0.31f, 1.0f)
+                                                               : ImVec4(0.85f, 0.83f, 0.9f, 1.0f));
             ImGui::TextUnformatted(note.c_str());
             ImGui::PopStyleColor();
+            // A warning's note opens the build log.
+            if (build_warning && ImGui::IsItemHovered()) {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                if (ImGui::IsItemClicked()) open_with_desktop(build.log.string());
+            }
         }
         ImGui::PopTextWrapPos();
 
@@ -1534,13 +1553,20 @@ int gsr_session_main(int game, int argc, char** argv) {
             if (pending.rfind("@play:", 0) == 0) {
                 g_ui.pending_rom.clear();
                 // Golden Sun's flash save is 64 KiB; the engine refuses a larger
-                // .sav (runtime.cpp "save file too large"), so say why.
-                constexpr std::uintmax_t kGameSaveBytes = 0x10000;
+                // .sav (runtime.cpp "save file too large"). An emulator's larger
+                // save of this game becomes its 64 KiB image (emulator_save.h);
+                // otherwise say why.
+                constexpr std::uintmax_t kGameSaveBytes = gsr_collection::emulator_save::kFlashBytes;
                 const fs::path save = !g_test_progress.save.empty() ? g_test_progress.save : g_collection_play ? g_managed.save :
                     fs::path(pending.substr(6)).replace_extension(".sav");
                 std::error_code save_ec;
                 const std::uintmax_t save_size = fs::file_size(save, save_ec);
-                if (!save_ec && save_size > kGameSaveBytes) {
+                std::string repair_error;
+                if (!save_ec && save_size > kGameSaveBytes && g_test_progress.save.empty() && g_collection_play &&
+                    gsr_collection::emulator_save::repair_oversized(g_managed, save, session_game_index, repair_error))
+                    launcher_log("Start game: emulator save " + save.string() + " converted to 65536 bytes; "
+                                 "the original is in Saves/Imported.");
+                else if (!save_ec && save_size > kGameSaveBytes) {
                     launcher_log("Start game: save file " + save.string() + " is " +
                                  std::to_string(save_size) +
                                  " bytes, larger than 65536: not started.");
@@ -1559,7 +1585,7 @@ int gsr_session_main(int game, int argc, char** argv) {
                     game.exit_code == gbarecomp::soft_reset::kExitCode) {
                     // Restart this session's game directly. Returning through
                     // the collection selector ended the Linux play session.
-                    // After a handover this is TLA, without another import.
+                    // After a handover this is The Lost Age, without another import.
                     unsetenv(gbarecomp::seamless::kSlotEnv);
                     g_ui.pending_rom = pending;
                     launcher_log("Soft Reset: restarting the current game at its title screen.");

@@ -235,15 +235,17 @@ void cmd_audio_samples(gba::GbaBus& bus, std::string_view req,
     out += "}";
 }
 
-// Always-on, non-destructive capture-ring query. Unlike audio_samples (which
-// drains the playback FIFO), this reads a [start,count] window of the capture
+// Always-on, non-destructive capture-ring query. Unlike audio_samples, which
+// drains the playback FIFO, this reads a [start,count] window of the capture
 // ring backward from the live head without consuming anything. The probe
-// queries history; it does not arm/drain (ring-buffer discipline). Params:
+// queries history. It does not arm or drain (ring-buffer discipline).
+// Params:
 //   "count"  : samples to return (default 8192, cap 65536)
 //   "start"  : absolute sample index (samples_generated numbering). If absent,
 //              returns the most recent `count` samples (start = head - count).
-// Emits the mixed mono stream + raw per-channel arrays as little-endian int16
-// hex so the drift comparator can isolate PSG channels for the bit-check.
+// It emits the mixed mono stream plus raw per-channel arrays as little-endian
+// int16 hex, so the drift comparator can isolate PSG channels for the
+// bit-check.
 void cmd_audio_cap(gba::GbaBus& bus, std::string_view req, std::string& out) {
     const auto& audio = bus.audio();
     uint64_t count = 8192;
@@ -438,11 +440,14 @@ void cmd_runtime_trace(const TcpDebugServer::Context& ctx,
 // ── Cycle-anchor sampler (cycle timing) ──────────────────────────────────────
 // {"cmd":"cyc_anchor","pc":P,"hits":H} -> {ok,pc,armed,fp_count,count,cyc:[...]}.
 // Filters the always-on insn-fingerprint ring by guest PC and returns the
-// cumulative g_runtime_cycles stamp of each execution. Consecutive-hit Δ is the
-// offset-cancelled cycle ruler peered against the NBA oracle's cyc_anchor.
-// armed=0 means GBARECOMP_INSN_TRACE is off (ring empty); the recomp build with
-// the ring armed is where this returns live data; the bios_smoke interpreter
-// mirrors into its own local ring and leaves this (recomp) ring empty.
+// cumulative g_runtime_cycles stamp of each execution. The difference between
+// consecutive hits is the offset-cancelled cycle ruler, peered against the
+// NBA oracle's cyc_anchor.
+//
+// armed=0 means GBARECOMP_INSN_TRACE is off, so the ring is empty. This
+// returns live data only in the recomp build with the ring armed. The
+// bios_smoke interpreter mirrors into its own local ring and leaves this
+// (recomp) ring empty.
 void cmd_cyc_anchor(std::string_view req, std::string& out) {
     uint64_t pc = 0;
     if (!extract_uint(req, "\"pc\"", pc)) { emit_error(out, "missing pc"); return; }
@@ -477,9 +482,11 @@ void cmd_cyc_anchor(std::string_view req, std::string& out) {
 // {"cmd":"irq_cap","count":C} -> {ok,total,count,entries:[{cycle,src,ret,cpsr,
 // from_halt}...]}. Dumps the most recent N IRQ vectorings (TAKE-time) from the
 // always-on IRQ-vector ring. `src` is the active IE&IF source mask at the
-// vector; `from_halt` distinguishes the wake-from-HALT path. NOTE: raise-time
-// (the IF-set instant) is not separately recorded; take-time only (a known
-// gap in interrupt-timing accuracy). Populated by runtime_irq in the recompiled runtime.
+// vector; `from_halt` distinguishes the wake-from-HALT path.
+//
+// NOTE: only take-time is recorded. Raise-time (the IF-set instant) is not,
+// which is a known gap in interrupt-timing accuracy. The ring is populated by
+// runtime_irq in the recompiled runtime.
 void cmd_irq_cap(std::string_view req, std::string& out) {
     uint64_t count = 256, parsed = 0;
     if (extract_uint(req, "\"count\"", parsed) ||
@@ -725,11 +732,12 @@ void dispatch(const TcpDebugServer::Context& ctx, std::string_view req,
         out = buf;
         return;
     }
-    // Free-run control. `continue`/`resume` and `pause` are NON-BLOCKING: they set the game
-    // thread's run-state and return immediately, so the server (this thread)
-    // stays free to answer observation commands while the game free-runs, even
-    // while it is wedged in a busy-spin freeze (observe-the-hung-core). Place
-    // these BEFORE the generic readers so the short tokens match first.
+    // Free-run control. `continue`/`resume` and `pause` are NON-BLOCKING.
+    // They set the game thread's run-state and return immediately. So the
+    // server (this thread) stays free to answer observation commands while the
+    // game free-runs, even while it is wedged in a busy-spin freeze
+    // (observe-the-hung-core). Place these BEFORE the generic readers so the
+    // short tokens match first.
     if (contains("\"continue\"") || contains("\"resume\"")) {
         if (ctx.resume) ctx.resume();
         out = "{\"ok\":true,\"run\":\"running\"}";
@@ -989,11 +997,13 @@ void dispatch(const TcpDebugServer::Context& ctx, std::string_view req,
         return;
     }
     if (contains("\"misses\"")) {
-        // Live self-heal coverage: the always-on miss/heal bookkeeping queried
-        // for the window of interest (no arm-then-run). Reports every PC the
-        // interpreter bridged this session, which have healed to native, and
-        // the native-call counts, so a TCP-driven repro can confirm a PC flips
-        // bridge -> native (interp count freezes, native_calls climbs).
+        // Live run-time compile coverage: the always-on miss/heal bookkeeping,
+        // queried for the window of interest (no arm-then-run). It reports:
+        //   - every PC the interpreter bridged this session,
+        //   - which of them have healed to native, and
+        //   - the native-call counts.
+        // A TCP-driven repro can use this to confirm a PC flips from bridge to
+        // native (the interp count freezes and native_calls climbs).
         if (!ctx.misses_query) {
             emit_error(out, "misses_query callback not wired");
             return;

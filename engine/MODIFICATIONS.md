@@ -14,19 +14,14 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
 
 ## What this copy changes
 
-- **F1 binding conflicts ask first (4 November 2026).** Binding a key or
+- **F1 binding conflicts ask first.** Binding a key or
   controller button that another Controls or Hotkeys row already uses opens
   an "Already in use" prompt listing those rows: Remove it there, Keep both
-  or Cancel. Previously Controls rows moved silently and hotkeys shared
-  silently. Keyboard compares key and modifiers (Controls keys by their key
-  code); controller compares button ids. host_config_ui.cpp only; both games
-  rebuild their runtime, no runtime_arm.h change.
-- **David's OG GBA Colours preset (2 November 2026).** Shared F1 colour
-  choice, persisted as `david_og_gba`, reproduces Jimmy's settings photo:
-  58% saturation, -19 hue, 75% brightness, 20% warmth, 10% darkening. Uses
-  the existing Custom colour-mix/hue calculation with fixed values;
-  existing Custom sliders and enum values are preserved. Both games
-  rebuild their runtime; no runtime_arm.h change or regeneration.
+  or Cancel. Keyboard compares key and modifiers (Controls keys by their key
+  code); controller compares button ids. host_config_ui.cpp only.
+- **David's OG GBA Colours preset.** Shared F1 colour choice, persisted as
+  `david_og_gba`: the Custom colour-mix/hue calculation at 58% saturation,
+  -19 hue, 75% brightness, 20% warmth, 10% darkening.
 
 ### Recompiler and generated code
 
@@ -34,15 +29,13 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
   reach known native code through a tail branch in an unknown veneer, including
   Thumb LDR/BX imports. The bridge now hands off that pending call when its
   live LR matches the tracked return, using the existing static/verified-overlay
-  lookup and return handling. Previously only BL/BLX triggered the handoff;
+  lookup and return handling. Before, only BL/BLX triggered the handoff, so
   the known callee could be interpreted without its native entry observers or
   instruction overrides. TLA's snowy-tree apple exposed this: its first icon
   upload skipped sprite-memory protection. ARM/Thumb regressions reproduce
   missing observers before and one invocation after, with unchanged register
   results and no leaked frames; captured setup/owned-ROM checks confirm the
-  upload stays on its page. Runtime implementation/test only; both games
-  rebuild their runtime, no generated-code or runtime_arm.h change. Gameplay
-  confirmation pending (1 November 2026; local/apple-0197).
+  upload stays on its page.
 - **Guaranteed tail jumps.** Every guest transfer that never returns (B,
   computed jumps, non-return BX/POP/LDR PC, fall-through, and the mid-function
   alias entry stubs in `gba_recompile`) is emitted as
@@ -187,7 +180,7 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
   validates its original world-map geometry against all captured rows before
   supplying them, avoiding amplified hardware rounding at the flying-ship
   corners. Other layers keep their existing trend; native pixels and the
-  stored `FieldScene` layout are unchanged (F12 0158, 1 November 2026).
+  stored `FieldScene` layout are unchanged (F12 0158).
 - **Field renderer refuses per-row blank and mode changes.** `draw()` declines
   a frame whose rows set forced blank or change video mode part-way down,
   as it already did for a frame-level blank; the shaders draw neither.
@@ -307,7 +300,7 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
 
 ### Audio and music mods
 
-- **Area soundtrack integration (2 November 2026).** The host exposes an
+- **Area soundtrack integration.** The host exposes an
   optional game-owned F1 Music page (hidden unless registered), and a shared
   `AreaMusic` enable key. Integer options support batch edits and prefix resets under
   one lock and one atomic file replacement (including whole-music shuffles). Recording metadata accepts a display title; m4a replacement
@@ -354,7 +347,7 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
 
 ### Host window, input, hotkeys and menus
 
-- **Text editing takes input priority (2 November 2026).** A shared active-
+- **Text editing takes input priority.** A shared active-
   editor predicate combines ImGui's requested text capture with its immediate
   active InputText state. Menu/Cheats overrides, held Turbo, global paging/
   close and game-owned text editors use it; both games' raw F12 polls consult
@@ -418,8 +411,8 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
   keeping the regular input hit area. Sliders use slim native-framed tracks,
   a silver thumb and a separate numeric readout, retaining standard input and
   Ctrl-click numeric editing. The active thumb color is captured before
-  suppressing built-in text, so dragging keeps the handle visible; the yellow
-  header/slider symbols were removed at Jimmy's request. Boolean settings use
+  suppressing built-in text, so dragging keeps the handle visible; header and
+  slider symbols are not drawn. Boolean settings use
   real checkboxes, with clickable labels and keyboard/controller navigation.
   Focused Left/Right, Space/Enter and A remain supported. Native surfaces sit behind
   ImGui input and text via nested draw-list splitters. Controls share the

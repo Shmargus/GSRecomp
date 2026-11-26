@@ -1,35 +1,40 @@
 // Golden Sun: The Lost Age -- a second sprite page for the people on the
-// field in the expanded view (FACTS.md, 2026-10-16, "OBJ tile allocator").
+// field in the expanded view (FACTS.md "OBJ tile allocator").
 //
-// The game hands out its 32 KB of sprite memory through 0x080142D4 (owner
-// r0, bytes r1): a first fit, 0x08014174, over a 0x200-byte block map at
-// 0x02003410 (64 bytes a block, 0xFF free, else the owner), the grant kept in
-// the owner table 0x020036E0 (96 x {u16 bytes, u16 byte offset}). In the
-// widened view the people in the margins take that memory too: Madra filled
-// it to 506 of 512 blocks, and the menu icons and dialogue portrait asked
-// next got nothing (F12 tla_rewind_0037..0039, 0046).
+// How the game allocates sprite memory. It hands out its 32 KB of sprite
+// memory through 0x080142D4 (owner r0, bytes r1):
+//   - a first fit, 0x08014174,
+//   - over a 0x200-byte block map at 0x02003410 (64 bytes a block, 0xFF free,
+//     else the owner),
+//   - with the grant kept in the owner table 0x020036E0 (96 x {u16 bytes,
+//     u16 byte offset}).
+// In the widened view the people in the margins take that memory too. Madra
+// filled it to 506 of 512 blocks, and the menu icons and dialogue portrait
+// asked next got nothing.
 //
-// Here the character builder's own request (0x08021FA2, returning to
-// 0x08021FA5) is granted from the engine's second page instead
-// (gba_bus.h set_obj_extra, byte offsets 0x8000..0xFFFF, tiles 0x400..0x7FF),
-// so menus, portraits, spells and shadows keep the console's 32 KB. The
-// grant lives only in the owner table, as any other: freeing, room changes
-// and save states need nothing more. The builder copies the artwork to
-// 0x06010000 + offset (0x08021FA4) and keeps the tile's low 10 bits in the
-// sprite (`ands` 0x3FF, 0x08021FC4); the renderer gets bit 10 back from the
-// sprite's record (tla_sprite_memory_tile).
+// What we do instead. The character builder's own request (0x08021FA2,
+// returning to 0x08021FA5) is granted from the engine's second page
+// (gba_bus.h set_obj_extra, byte offsets 0x8000..0xFFFF, tiles 0x400..0x7FF).
+// Menus, portraits, spells and shadows therefore keep the console's 32 KB.
+// The grant lives only in the owner table, as any other, so freeing, room
+// changes and save states need nothing more.
+// The builder copies the artwork to 0x06010000 + offset (0x08021FA4) and keeps
+// the tile's low 10 bits in the sprite (`ands` 0x3FF, 0x08021FC4). The
+// renderer gets bit 10 back from the sprite's record
+// (tla_sprite_memory_tile).
 //
 // Inert in the console's 240x160 view, with the CPU renderer (Direct3D
 // compatibility mode), and with the launcher's "Console sprite memory".
 //
-// Custom Battle Mode's crowded fights (The Broken Seal's F12 0063: big
-// monsters plus the party fill the 32 KB): a fighter request the console
-// cannot grant (0x080142D4 returns 0) is granted from the page instead, in
-// any view, as The Broken Seal does (its battle_sprite_memory.h). Battles
-// note no placements, so the builder's 8bpp record (attr0 copy at +4, tile
-// at +8) carries the page in attr2 bit 15 (sprites::kPageMarker, unused
-// palette bits for 8bpp), marked at the builder's scratch free 0x08013164
-// from 0x08021FDC (record still in r7); the game copies it into OAM.
+// Custom Battle Mode's crowded fights (in the Broken Seal, big monsters plus
+// the party fill the 32 KB). A fighter request that the console cannot grant
+// (0x080142D4 returns 0) is granted from the page instead, in any view, as The
+// Broken Seal does (its battle_sprite_memory.h).
+// Battles note no placements, so the builder's 8bpp record (attr0 copy at +4,
+// tile at +8) carries the page in attr2 bit 15 (sprites::kPageMarker, unused
+// palette bits for 8bpp). It is marked at the builder's scratch free
+// 0x08013164, called from 0x08021FDC (record still in r7). The game copies it
+// into OAM.
 
 #include "tla_rom_version.h"
 #include <cstdint>
@@ -135,14 +140,15 @@ bool page_grant(gba::GbaBus& b, unsigned owner, std::uint32_t* from,
     return true;
 }
 
-// Keep a shrinking field picture at its existing page address. The console
-// allocator otherwise frees any differently-sized grant before its first fit
-// (080142FA..08014312). Icon uploads can discard the returned tile, relying on
-// that first fit reusing the address. With our page they instead land back in
-// console memory: F12 0194 replaces 256 bytes at 8600 with the 128-byte apple
-// at 2280, leaving its sprite pointing at tile 030. Resizing the live grant
-// before the size comparison takes the game's existing equal-size reuse path;
-// the smaller grant also releases its unused page blocks automatically.
+// Keep a shrinking field picture at its existing page address.
+// The console allocator otherwise frees any differently-sized grant before its
+// first fit (080142FA..08014312). Icon uploads can discard the returned tile,
+// relying on that first fit reusing the address. With our page they instead
+// land back in console memory. A measured case replaces 256 bytes at 8600 with
+// the 128-byte apple at 2280, leaving its sprite pointing at tile 030.
+// Resizing the live grant before the size comparison takes the game's existing
+// equal-size reuse path. The smaller grant also releases its unused page
+// blocks automatically.
 void preserve_page_shrink(gba::GbaBus& b) {
     const unsigned owner = g_cpu.R[0];
     const std::uint32_t bytes = g_cpu.R[1];
@@ -213,7 +219,7 @@ int tla_sprite_memory_branch(std::uint32_t pc, std::uint32_t original,
     if (entry < kOwnerTable || owner >= kOwners) return 0;
     const AllocationTrace allocation_trace{*b, owner, bytes, caller};
     // Battles build their fighters with the same builder, but only field
-    // sprites tell the renderers their page (F12 tla_rewind_0049: the party
+    // sprites tell the renderers their page (measured: the party
     // and King Scorpion granted 0x8000..0xBFFF, drawn from the console's).
     const bool field = b->read16(kMapNumber) > 1u && b->read32(kTlaBattleSlot) == 0u;
     if (caller == kBuilderReturn && original && crowded_fight(*b)) {
@@ -235,19 +241,21 @@ int tla_sprite_memory_branch(std::uint32_t pc, std::uint32_t original,
     }
     // An equal-size grant the game reuses stays where it is: moving it every
     // pass left OAM pointing at the last frame's spot, which the next owner
-    // had taken (F12 tla_rewind_0050, Felix in sand: the sand sprites hopped
+    // had taken (seen with Felix in sand: the sand sprites hopped
     // round the page every frame).
     if (b->read16(entry) == bytes && b->read16(entry + 2u) == g_cpu.R[5])
         return 0;
     // A sprite object whose second sprite (record + 0x1C, attr2 at +0x24)
     // already shows the console tile this owner reserved stays in console
-    // memory: that copy keeps only 10 bits and would read other art once the
-    // first moved. 0x08022D40 reserves 0 bytes (return 0x08022D97) and sets
-    // +0x24 to the shared shadow tile (0x08022E64); Growth's sparkles then
+    // memory. That copy keeps only 10 bits and would read other art once the
+    // first moved.
+    // The routine 0x08022D40 reserves 0 bytes (return 0x08022D97) and sets
+    // +0x24 to the shared shadow tile (0x08022E64). Growth's sparkles then
     // copy their own tile over it (0x080DDCC2) before the builder asks.
-    // People keep the shadow tile. Measured on Jimmy's F4 state (map 107):
-    // +0x24 = 0x0910 against reservation 0x2200 for every sparkle; drawn from
-    // the page they showed orange stripes (F12 Releases tla_rewind_0001).
+    // People keep the shadow tile.
+    // Measured on a saved state (map 107): +0x24 = 0x0910 against reservation
+    // 0x2200 for every sparkle. Drawn from the page, they showed orange
+    // stripes.
     // The builder's record is its r7, pushed at sp + 12 (see kAllocResult).
     {
         const std::uint32_t record = b->read32(g_cpu.R[13] + 12u);
@@ -293,7 +301,7 @@ bool tla_sprite_memory_frame(bool expanded) {
     // Once on, the page stays mapped so earlier grants keep their artwork.
     // The renderers keep asking while the page is mapped, grants or not:
     // OAM shows the people for a frame after a menu opens or closes and
-    // releases every grant (F12 tla_rewind_0052 frames 8 and 110).
+    // releases every grant (measured).
     if (g_on) b->set_obj_extra(true);
     return b->obj_extra();
 }

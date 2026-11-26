@@ -104,6 +104,16 @@ void write_report(const char* what, const void* address, const void* ucontext) {
                       reinterpret_cast<void*>(uc->uc_mcontext.gregs[REG_RBP]));
         put(fd, line);
     }
+#elif defined(__aarch64__) && !defined(__ANDROID__)
+    if (ucontext) {
+        const auto* uc = static_cast<const ucontext_t*>(ucontext);
+        std::snprintf(line, sizeof(line), "Instruction: %p  sp %p  fp %p  lr %p\n",
+                      reinterpret_cast<void*>(uc->uc_mcontext.pc),
+                      reinterpret_cast<void*>(uc->uc_mcontext.sp),
+                      reinterpret_cast<void*>(uc->uc_mcontext.regs[29]),
+                      reinterpret_cast<void*>(uc->uc_mcontext.regs[30]));
+        put(fd, line);
+    }
 #else
     (void)ucontext;
 #endif
@@ -415,13 +425,14 @@ const char* exception_name(DWORD code) {
         case EXCEPTION_INVALID_DISPOSITION:
             return "EXCEPTION_INVALID_DISPOSITION";
         case 0x20474343u:
-            // GCC's magic SEH exception code ("GCC" encoded), used by
-            // libstdc++ on MinGW to propagate a C++ exception through
-            // Windows' own unwinder. Reaching our filter with this code
-            // means a C++ exception unwound with no matching catch anywhere
-            // on the stack -- the same situation std::set_terminate's
-            // handler is meant for, arriving here first because MinGW's
-            // unwind-to-terminate path itself goes through SEH.
+            // GCC's magic SEH exception code ("GCC" encoded). libstdc++ on
+            // MinGW uses it to propagate a C++ exception through Windows' own
+            // unwinder.
+            // Reaching our filter with this code means a C++ exception
+            // unwound with no matching catch anywhere on the stack. That is
+            // the situation std::set_terminate's handler is meant for. It
+            // arrives here first because MinGW's unwind-to-terminate path
+            // itself goes through SEH.
             return "GCC C++ EH (uncaught C++ exception, no matching catch)";
         default:
             return "unknown exception code";
@@ -505,13 +516,14 @@ void write_minidump(EXCEPTION_POINTERS* ep) {
                                           h, dump_type, info_ptr, nullptr, nullptr);
     if (!ok && info_ptr) {
         // The local dbghelp.dll (observed: Windows' own, version 10.0.26100.x)
-        // can fail ERROR_NOACCESS internally on the ExceptionParam path even
-        // for a textbook-correct EXCEPTION_POINTERS/CONTEXT (reproduced in a
-        // minimal repro outside this codebase), so it is a host dbghelp defect,
-        // not a bug in the pointers we pass. Retry without exception info so a
-        // run on an affected machine still gets a usable dump (missing only
-        // the embedded exception record, which crash_report.txt already has)
-        // instead of a truncated, empty .dmp.
+        // can fail internally with ERROR_NOACCESS on the ExceptionParam path,
+        // even for a textbook-correct EXCEPTION_POINTERS/CONTEXT. This was
+        // reproduced in a minimal repro outside this codebase, so it is a host
+        // dbghelp defect, not a bug in the pointers we pass.
+        // Retry without exception info. A run on an affected machine then
+        // still gets a usable dump, instead of a truncated, empty .dmp. The
+        // dump only lacks the embedded exception record, which
+        // crash_report.txt already has.
         SetFilePointer(h, 0, nullptr, FILE_BEGIN);
         SetEndOfFile(h);
         ok = g_dbghelp.MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(),
@@ -650,10 +662,10 @@ void purecall_handler() {
     std::abort();
 }
 #else
-// This toolchain builds with g++ (MinGW), which follows the Itanium C++ ABI:
-// a pure virtual call goes through __cxa_pure_virtual, not MSVC's _purecall.
-// libstdc++ defines __cxa_pure_virtual as a weak symbol precisely so it can
-// be overridden; this is the correct hook for g++, unlike the MSVC-only
+// This toolchain builds with g++ (MinGW), which follows the Itanium C++ ABI.
+// A pure virtual call goes through __cxa_pure_virtual, not MSVC's _purecall.
+// libstdc++ defines __cxa_pure_virtual as a weak symbol precisely so it can be
+// overridden. That is the correct hook for g++, unlike the MSVC-only
 // _set_purecall_handler.
 extern "C" void __cxa_pure_virtual() {
     write_crash_report("pure virtual function call (__cxa_pure_virtual)", nullptr);

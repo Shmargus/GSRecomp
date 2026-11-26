@@ -23,7 +23,7 @@ constexpr std::uint32_t kFieldAccumulator = 0x02030EECu;
 // the player at a ladder's top by a height check made
 // each frame; at 1.5 px/frame the player passed that point in one frame, and
 // on the Tolbi-bound ship's mast an event sent the player back to the deck
-// instead of the climb off (gpu_rewind_0083), so the Anchor Charm at the top
+// instead of the climb off, so the Anchor Charm at the top
 // could not be reached. Pushes (set-object-speed 0x08092064, speed 0x3333)
 // were scaled the same way and are left alone with them.
 // Retain the original names for diagnostic counters.

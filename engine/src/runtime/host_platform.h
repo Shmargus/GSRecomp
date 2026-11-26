@@ -17,18 +17,20 @@ std::vector<unsigned char> read_file(const std::string& path,
                                      std::string* error = nullptr);
 
 // ── FramePacer ─────────────────────────────────────────────────────
-// Wall-clock frame limiter. Emulation speed must be governed by the
-// GBA's real frame rate (59.7275 Hz), NOT by the host monitor's refresh
-// rate. Relying on SDL's PRESENTVSYNC made the game run at monitor
-// speed (e.g. 2.75x on a 164 Hz panel).
+// Wall-clock frame limiter. Emulation speed must be governed by the GBA's real
+// frame rate (59.7275 Hz), NOT by the host monitor's refresh rate. Relying on
+// SDL's PRESENTVSYNC made the game run at monitor speed (e.g. 2.75x on a
+// 164 Hz panel).
 //
-// Maintains a monotonic deadline advanced by exactly one GBA frame
-// period each call. wait_for_next_frame() blocks until that deadline using a
-// hybrid sleep-then-spin (Windows' default ~15.6 ms timer granularity is too
-// coarse for a 16.74 ms target, so the pacer raises timer resolution to
-// 1 ms for its lifetime and spins the final 1.2 ms). If the host falls
-// more than a frame behind, the deadline resyncs to now rather than
-// trying to catch up (no death spiral). Uncapping enables fast-forward.
+// It keeps a monotonic deadline, advanced by exactly one GBA frame period on
+// each call.
+//   - wait_for_next_frame() blocks until that deadline with a hybrid
+//     sleep-then-spin. Windows' default ~15.6 ms timer granularity is too
+//     coarse for a 16.74 ms target, so the pacer raises timer resolution to
+//     1 ms for its lifetime and spins the final 1.2 ms.
+//   - If the host falls more than a frame behind, the deadline resyncs to now
+//     rather than trying to catch up (no death spiral).
+//   - Uncapping enables fast-forward.
 class FramePacer {
 public:
     // GBA: 16'777'216 Hz / 280'896 cycles-per-frame = 59.7275 Hz.
@@ -54,11 +56,12 @@ public:
     bool uncapped() const { return uncapped_; }
 
     // Run the deadline at `mult` times the target rate: 1.0 = real time,
-    // 4.0 = Turbo at 4x, values <= 0 ignored. This is a PACING change only:
-    // emulation still advances one GBA frame per call, so the guest's own
-    // sense of time (cycle counts, timers, audio rate) is untouched; it just
-    // gets wall-clock permission to run sooner. Unlike set_uncapped() the
-    // host still gets to idle, so audio can keep up at modest multiples.
+    // 4.0 = Turbo at 4x, values <= 0 ignored.
+    // This is a PACING change only. Emulation still advances one GBA frame per
+    // call, so the guest's own sense of time (cycle counts, timers, audio
+    // rate) is untouched. It just gets wall-clock permission to run sooner.
+    // Unlike set_uncapped(), the host still gets to idle, so audio can keep up
+    // at modest multiples.
     void set_speed(double mult);
     double speed() const { return speed_; }
 

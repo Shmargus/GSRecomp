@@ -19,6 +19,9 @@ param(
     [switch]$NoWindows,
     # Skip the Linux release (step 8, built in WSL Ubuntu).
     [switch]$NoLinux,
+    # Also make the 64-bit ARM Linux release (step 8, in an ARM Ubuntu that
+    # QEMU emulates inside WSL; scripts/make_release_linux_arm64.sh). Slow.
+    [switch]$LinuxArm64,
     # Also make the Android app (step 9, scripts/android/build_apk.py). It
     # needs the Android tools listed in BUILDING.md "Android launcher".
     [switch]$Android,
@@ -28,7 +31,8 @@ param(
     [switch]$AshleyEdition,
     # Limits for the engine build (step 1), passed on to build_game.ps1.
     [ValidateRange(1, 100)][int]$CpuPercent = 90,
-    [ValidateRange(1, 100)][int]$RamPercent = 90
+    [ValidateRange(1, 100)][int]$RamPercent = 90,
+    [switch]$ReleaseProgress
 )
 $ErrorActionPreference = 'Stop'
 $buildMutex = $null
@@ -38,12 +42,16 @@ $stepTimes = New-Object System.Collections.Generic.List[string]
 $stepName = $null
 $stepClock = [Diagnostics.Stopwatch]::StartNew()
 $totalClock = [Diagnostics.Stopwatch]::StartNew()
+function Write-ReleaseStage([string]$name) {
+    if ($ReleaseProgress) { Write-Host "@release-stage $name" }
+}
 function Start-Step([string]$name) {
     if ($script:stepName) {
         $script:stepTimes.Add(('{0,7:N1} min  {1}' -f $script:stepClock.Elapsed.TotalMinutes, $script:stepName))
     }
     $script:stepName = $name
     $script:stepClock.Restart()
+    if ($name) { Write-ReleaseStage $name }
 }
 function Show-Steps {
     Start-Step $null
@@ -162,7 +170,7 @@ try {
     . (Join-Path $PSScriptRoot 'build_guard.ps1')
     $busy = Get-GsrBuildProcesses
     if ($busy) { throw 'Another build is running. Wait for it to finish, then run this again.' }
-    if ($NoWindows -and $NoLinux -and -not $Android) { throw 'Nothing to make: both -NoWindows and -NoLinux were given.' }
+    if ($NoWindows -and $NoLinux -and -not $LinuxArm64 -and -not $Android) { throw 'Nothing to make: both -NoWindows and -NoLinux were given.' }
     if ($AshleyEdition -and $LauncherOnly) { throw 'Ashley Edition needs a full release; turn off Launcher only.' }
     $releaseVersion = if ($Version.Trim()) { $Version.Trim() } else { 'dev' }
     if ($Repository -notmatch '^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$') {
@@ -173,6 +181,7 @@ try {
         foreach ($path in @((Join-Path $repo 'CMakeLists.txt'), (Join-Path $tlaRepo 'CMakeLists.txt'),
                             (Join-Path $PSScriptRoot 'build_game.ps1'),
                             (Join-Path $PSScriptRoot 'make_release_linux.sh'),
+                            (Join-Path $PSScriptRoot 'make_release_linux_arm64.sh'),
                             (Join-Path $collectionRoot 'assets/launcher_logo.png'),
                             (Join-Path $collectionRoot 'assets/cartridge_broken_seal.png'),
                             (Join-Path $collectionRoot 'assets/cartridge_lost_age.png'))) {
@@ -189,13 +198,33 @@ try {
     $buildMutex = New-Object Threading.Mutex($false, 'Local\GoldenSunCollectionBuild')
     try { $ownsMutex = $buildMutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $ownsMutex = $true }
     if (-not $ownsMutex) { throw 'Another collection build or release is running.' }
+    # The ROM scan needs numpy; MSYS2's python, put first on PATH below, lacks it.
+    $python = (Get-Command python.exe -ErrorAction Stop).Source
+    $androidBuilder = Join-Path $PSScriptRoot 'android/build_apk.py'
+    if ($Android -and -not $LauncherOnly) {
+        $androidCheck = & $python $androidBuilder --check-tools
+        if ($LASTEXITCODE -ne 0) {
+            $androidCheck | ForEach-Object { Write-Host $_ }
+            throw 'Android prerequisites are missing. See BUILDING.md, Android launcher (sideload).'
+        }
+    }
+    if ($ReleaseProgress) {
+        # Count the stages actually selected, including the markers emitted by
+        # the Linux and Android scripts and our verification of their output.
+        $stageCount = 0
+        $testStages = [int](-not $NoTest)
+        if (-not $NoWindows) { $stageCount += $(if ($LauncherOnly) { 2 } else { 6 + $testStages }) }
+        $linuxStages = if ($LauncherOnly) { 3 } else { 6 + $testStages }
+        if (-not $NoLinux) { $stageCount += $linuxStages }
+        if ($LinuxArm64) { $stageCount += $linuxStages }
+        if ($Android -and -not $LauncherOnly) { $stageCount += 4 }
+        Write-Host "@release-plan $stageCount"
+    }
     if ($releaseVersion -eq 'dev') {
         Write-Host 'No version given: the launcher is built as "dev" and never checks for updates.' -ForegroundColor Yellow
     } else {
         Write-Host "Version: $releaseVersion (use this as the tag of the GitHub release)."
     }
-    # The ROM scan needs numpy; MSYS2's python, put first on PATH below, lacks it.
-    $python = (Get-Command python.exe -ErrorAction Stop).Source
     if (-not $NoWindows) {
         foreach ($f in @("$mingw/c++.exe", "$mingw/objdump.exe")) {
             if (-not (Test-Path -LiteralPath $f)) { throw "Missing $f (MSYS2 MinGW-w64 toolchain)." }
@@ -209,10 +238,10 @@ try {
         $engineDll = Join-Path $optDir 'GoldenSunEngine.dll'
         $engineApi = Join-Path $optDir 'libGoldenSunRecomp_api.a'
         foreach ($f in @($engineExe, $engineDll, $engineApi)) {
-            if (-not (Test-Path -LiteralPath $f)) { throw "Missing $f. Run build_dev.bat -Game BrokenSeal first." }
+            if (-not (Test-Path -LiteralPath $f)) { throw "Missing $f. Build The Broken Seal in Build Studio first." }
         }
         if (-not (Select-String -LiteralPath (Join-Path $optDir 'CMakeCache.txt') -SimpleMatch -Quiet 'GSR_SPLIT_GAME_CODE:BOOL=ON')) {
-            throw 'build\gs011_opt is not a split build. Run build_dev.bat -Game BrokenSeal first.'
+            throw 'build\gs011_opt is not a split build. Build The Broken Seal in Build Studio first.'
         }
         $engineBuildRel = 'build/gs011_opt'
         $engineCache = Get-Content -LiteralPath (Join-Path $optDir 'CMakeCache.txt')
@@ -248,7 +277,7 @@ try {
         # game code, points the tree at it, sets MAKE so the LTO link runs in
         # parallel, applies the CPU and memory caps and shows its progress. (A
         # bare `cmake --build ... | Out-Null` hid a full engine rebuild with a
-        # serial LTO link and looked hung.) Normally quick after build_dev.bat.
+        # serial LTO link and looked hung.) Normally quick after a developer build.
         Start-Step 'Windows: The Broken Seal engine'
         Write-Host 'Checking the engine build is current (build_game.ps1).'
         $powershell = Join-Path $PSHOME 'powershell.exe'
@@ -257,7 +286,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'The engine build failed. See the build output above.' }
         }
 
-        Start-Step 'Windows: launcher, builders, The Lost Age engine'
+        if ($LauncherOnly) { Start-Step 'Windows: collection launcher' }
+        else { Start-Step 'Windows: launcher and release tools' }
         # ---- 2. Launcher, builder, translator: the release build tree --------
         # Configured like build\gs011_opt but without LTO (none of these three
         # needs it) and with the player launcher.
@@ -334,6 +364,7 @@ try {
             Write-Host 'Building the collection launcher.'
             & $cmake --build $buildDir --target GoldenSunCollection
             if ($LASTEXITCODE -ne 0) { throw "Building the launcher failed ($LASTEXITCODE)." }
+            Start-Step 'Windows: launcher update archive'
             $launcherStage = Join-Path $releaseRoot 'launcher-update'
             Remove-ReleaseTree $launcherStage
             Copy-CollectionFiles $launcherStage
@@ -347,6 +378,7 @@ try {
         Write-Host 'Building the player launcher, the builder and the translator.'
         & $cmake --build $buildDir --target GoldenSunCollection gsr_builder gba_recompile
         if ($LASTEXITCODE -ne 0) { throw "Building the release tools failed ($LASTEXITCODE)." }
+        Start-Step 'Windows: The Lost Age engine and tools'
         Write-Host 'Building The Lost Age engine through its speed-build script.'
         $powershell = Join-Path $PSHOME 'powershell.exe'
         if (-not (Test-Path -LiteralPath $powershell)) { $powershell = Join-Path $PSHOME 'pwsh.exe' }
@@ -466,7 +498,7 @@ try {
         # g++ and cc1plus already run in UTF-8; give the programs that do not
         # (collect2, lto-wrapper, as, ld) the collection's UTF-8 manifest, or
         # they cannot open paths outside the player's Windows code page (a
-        # Cyrillic install folder failed to link; measured 2026-10-27).
+        # Cyrillic install folder failed to link).
         Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
@@ -518,7 +550,7 @@ public static class GsrManifest {
         $headers = New-Object 'System.Collections.Generic.HashSet[string]'
         # Union both corpora's distinct standard includes before trimming GCC.
         $headerProbe = Join-Path $releaseRoot 'collection-header-probe.cpp'
-        # (Select-String over both corpora took 22 s here, 16 November 2026.)
+        # (Select-String over both corpora took 22 s.)
         $includeLines = & $python (Join-Path $PSScriptRoot 'release_include_lines.py') `
             (Join-Path $repo 'local/gs011') (Join-Path $tlaRepo 'local/tla_block')
         if ($LASTEXITCODE -ne 0) { throw 'Could not list the standard headers the game code includes.' }
@@ -663,7 +695,7 @@ $($packages -join "`r`n")
         $editionSuffix = if ($AshleyEdition) { '-Ashley' } else { '' }
         $zip = Join-Path $releaseRoot ('GoldenSunRecompiled{0}-{1}.zip' -f $editionSuffix, (Get-Date -Format 'yyyy-MM-dd'))
         if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
-        # Keep the folder as the zip's top entry. On 16 November 2026 ZipFile
+        # Keep the folder as the zip's top entry. ZipFile
         # took 7 s versus 24 s for Compress-Archive, with the same size.
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         [IO.Compression.ZipFile]::CreateFromDirectory($outDir, $zip, [IO.Compression.CompressionLevel]::Optimal, $true)
@@ -678,21 +710,28 @@ $($packages -join "`r`n")
     # builder and a trimmed Linux GCC, into root Releases\linux (a folder
     # and a zip made on Linux, which keeps the programs' executable bit). It
     # uses the block-timing game code step 1 just brought up to date.
-    if (-not $NoLinux) {
-        Start-Step 'Linux release'
+    # -LinuxArm64 runs the same script again in an emulated ARM Ubuntu
+    # (make_release_linux_arm64.sh) into Releases\linux-arm64.
+    $linuxParts = @()
+    if (-not $NoLinux) { $linuxParts += ,@('Linux x64', 'make_release_linux.sh', 'linux') }
+    if ($LinuxArm64) { $linuxParts += ,@('Linux ARM64', 'make_release_linux_arm64.sh', 'linux-arm64') }
+    foreach ($part in $linuxParts) {
+        $linuxName, $linuxScriptName, $linuxFolder = $part
+        Start-Step "${linuxName}: preparing WSL environment"
         $distro = 'Ubuntu-24.04'
         $wsl = Join-Path $env:SystemRoot 'System32\wsl.exe'
         $have = (Test-Path -LiteralPath $wsl) -and
             ((& $wsl --list --quiet 2>$null) -replace "`0", '' | Where-Object { $_.Trim() -eq $distro })
-        if (-not $have -and $NoWindows) {
-            throw "The Linux release needs WSL $distro, which is not installed."
+        if (-not $have -and ($NoWindows -or $ReleaseProgress)) {
+            throw "The $linuxName release needs WSL $distro, which is not installed."
         } elseif (-not $have) {
-            Write-Host "Linux release skipped: WSL $distro is not installed." -ForegroundColor Yellow
+            Write-Host "$linuxName release skipped: WSL $distro is not installed." -ForegroundColor Yellow
         } else {
             Write-Host ''
-            Write-Host "Linux release (WSL $distro)."
-            $linuxArgs = @('scripts/make_release_linux.sh', '--version', $releaseVersion,
+            Write-Host "$linuxName release (WSL $distro)."
+            $linuxArgs = @("scripts/$linuxScriptName", '--version', $releaseVersion,
                            '--repository', $Repository)
+            if ($ReleaseProgress) { $linuxArgs += '--release-progress' }
             if ($AshleyEdition) { $linuxArgs += '--ashley-edition' }
             if ($LauncherOnly) {
                 $linuxArgs += '--launcher-only'
@@ -709,23 +748,26 @@ $($packages -join "`r`n")
                 $env:WSLENV = (@($env:WSLENV, 'GSR_ROM', 'TLA_ROM') | Where-Object { $_ }) -join ':'
             }
             # bash rejects Windows line endings; a Windows-side save can add them.
-            $linuxScript = Join-Path $PSScriptRoot 'make_release_linux.sh'
-            $linuxText = [IO.File]::ReadAllText($linuxScript)
-            if ($linuxText.Contains("`r")) {
-                [IO.File]::WriteAllText($linuxScript, $linuxText.Replace("`r`n", "`n"))
+            foreach ($name in @('make_release_linux.sh', $linuxScriptName) | Select-Object -Unique) {
+                $linuxScript = Join-Path $PSScriptRoot $name
+                $linuxText = [IO.File]::ReadAllText($linuxScript)
+                if ($linuxText.Contains("`r")) {
+                    [IO.File]::WriteAllText($linuxScript, $linuxText.Replace("`r`n", "`n"))
+                }
             }
             & $wsl -d $distro -u root --cd $collectionRoot --exec bash @linuxArgs
             if ($LASTEXITCODE -ne 0) {
-                Write-Host "The Linux release failed (the Windows release above is complete)." -ForegroundColor Red
+                Write-Host "The $linuxName release failed (the releases above are complete)." -ForegroundColor Red
                 Show-Steps
                 exit 1
             }
             if (-not $LauncherOnly) {
-                $linuxZip = Get-ChildItem -LiteralPath (Join-Path $releaseRoot 'linux') -File -Filter 'GoldenSunRecompiled-linux*.zip' |
+                Write-ReleaseStage "${linuxName}: verifying release files"
+                $linuxZip = Get-ChildItem -LiteralPath (Join-Path $releaseRoot $linuxFolder) -File -Filter "GoldenSunRecompiled-$linuxFolder-*.zip" |
                     Sort-Object LastWriteTime | Select-Object -Last 1
-                Assert-NoRomBytes (Join-Path $releaseRoot 'linux/Golden Sun Recompiled') $(if ($linuxZip) { $linuxZip.FullName } else { '' })
+                Assert-NoRomBytes (Join-Path $releaseRoot "$linuxFolder/Golden Sun Recompiled") $(if ($linuxZip) { $linuxZip.FullName } else { '' })
             }
-            Write-Host "Linux release ready: $(Join-Path $releaseRoot 'linux')" -ForegroundColor Green
+            Write-Host "$linuxName release ready: $(Join-Path $releaseRoot $linuxFolder)" -ForegroundColor Green
         }
     }
 
@@ -736,16 +778,19 @@ $($packages -join "`r`n")
     if ($Android -and $LauncherOnly) {
         Write-Host 'Android app skipped: it has no launcher-only package.' -ForegroundColor Yellow
     } elseif ($Android) {
-        Start-Step 'Android app'
+        Start-Step 'Android: preparing tools and compiler'
         Write-Host ''
         Write-Host 'Android app.'
-        & $python (Join-Path $PSScriptRoot 'android/build_apk.py') --release --version $releaseVersion
+        $androidArgs = @('--release', "--version=$releaseVersion")
+        if ($ReleaseProgress) { $androidArgs += '--release-progress' }
+        & $python $androidBuilder @androidArgs
         if ($LASTEXITCODE -ne 0) {
             Write-Host 'The Android app failed (the releases above are complete).' -ForegroundColor Red
             Show-Steps
             exit 1
         }
         $builtApk = Join-Path $releaseRoot 'android/GoldenSunRecompiled.apk'
+        Write-ReleaseStage 'Android: verifying and copying the APK'
         # Scan the APK and the collection archive inside it (assets/payload.zip).
         Assert-NoRomBytes $builtApk $builtApk
         $apk = Join-Path $releaseRoot ('GoldenSunRecompiled-android-{0}.apk' -f (Get-Date -Format 'yyyy-MM-dd'))

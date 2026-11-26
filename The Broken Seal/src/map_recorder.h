@@ -2,7 +2,7 @@
 //
 // A general SCENE recorder covering every scene class GBA hardware actually
 // presents: Mode 0 field (towns/dungeons/indoor rooms -- hardware cannot tell
-// these apart, see FACTS.md "Scene classes"), Mode 2 overworld, Mode 1 battle.
+// these apart), Mode 2 overworld, Mode 1 battle.
 //
 // Dump all of EWRAM, IWRAM, VRAM, PAL, OAM and IO so tools/decode_snap.py
 // can examine structures offline before we know their addresses.
@@ -51,7 +51,7 @@ void map_recorder_on_ewram_write(std::uint32_t address, std::uint32_t size);
 // Argument capture for the six field tilemap writers.
 //
 // Those functions take the source and destination grid regions as arguments
-// (see FACTS.md, "the region is an ARGUMENT, not a layout"), so where each BG
+// (the region is an argument, not a fixed layout), so where each BG
 // layer's ids live cannot be derived from a static rule -- it has to be
 // observed. The function tracer already records entry arguments, but only the
 // most recent set per capture window, which yielded 13 samples across a whole

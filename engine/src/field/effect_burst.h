@@ -1,12 +1,16 @@
 // effect_burst.h -- a deterministic dirt explosion, a white motion trail and a
-// screen shake, drawn by our own renderer on top of the finished picture (used
-// by optional scene effects). CPU simulation only;
-// FieldSceneRenderer draws it.
+// screen shake. Our own renderer draws them on top of the finished picture,
+// for optional scene effects. This file is the CPU simulation only;
+// FieldSceneRenderer does the drawing.
 //
-// Everything is drawn with NORMAL alpha blending (never additive, so the earth
-// colours stay earth-toned over any background). The explosion has a big
-// impact flash, a dirt geyser thrown straight up, radial dirt chunks, dust
-// clouds and grit sparks.
+// Everything is drawn with NORMAL alpha blending, never additive, so the earth
+// colours stay earth-toned over any background. The explosion has:
+//
+//   - a big impact flash,
+//   - a dirt geyser thrown straight up,
+//   - radial dirt chunks,
+//   - dust clouds, and
+//   - grit sparks.
 //
 // Coordinates are output (view) pixels. The simulation advances once per
 // presented frame. No rand(): fixed-seed LCGs, so a burst is reproducible.

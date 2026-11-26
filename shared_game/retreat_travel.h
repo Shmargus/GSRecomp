@@ -29,15 +29,14 @@ struct Destination {
     bool debug = false;  // F1 > Cheats "Debug rooms in Retreat"
 };
 // A leftover test room, named as the game's own location table names it.
-// Every one has a single entrance, 0 (each game's FACTS.md, "Debug rooms in
+// Every one has a single entrance, 0 (FACTS.md "Debug rooms in
 // Retreat"), so travel asks for that.
 struct DebugRoom { const char* name; std::uint16_t room; };
 // Where a debug-room warp left the world map, so Retreat inside the room
 // puts the party back on that exact spot. Both games keep a scene snapshot
 // (what the field Save stores) and a saved spot (x, y, z, facing; 32-bit
 // each); with flag 0x109 set, the next room load restores the snapshot and
-// skips the door's spawn, then clears the flag (each game's FACTS.md,
-// "Debug rooms in Retreat").
+// skips the door's spawn, then clears the flag.
 struct Spot {
     std::uint32_t snapshot;      // guest routine that fills the snapshot
     std::uint32_t begin, end;    // the snapshot's EWRAM bytes
@@ -54,7 +53,7 @@ struct Game {
     std::vector<Destination> (*destinations)();
     bool (*arrive)(const Destination&);
     void (*prepare_font)() = nullptr;
-    // Optional complete native travel coroutine. TBS keeps its working resolver.
+    // Optional complete native travel coroutine. The Broken Seal keeps its working resolver.
     std::uint32_t native_arrival = 0;
     unsigned native_cost = 0;
     const Cast* cast = nullptr;
@@ -198,17 +197,22 @@ inline bool cast_entry(std::uint32_t pc) {
         pc != c.confirm && pc != c.ability) return false;
     auto* b = gbarecomp::active_bus();
     if (!b) return false;
-    // Retreat inside a debug room. Those rooms keep the world map's flag
-    // 0x144 (Retreat refused here), so answer it clear for the dispatcher's
-    // own check. Entering a room makes it its own Retreat point, so point
-    // native Retreat at the departure's world entrance; once confirmed, the
-    // frame hook in on_entry restores the exact spot. Without a departure
-    // (game started inside the room) the game's own refusal stands.
-    if (pc == c.flag && g_cpu.R[0] == 0x144u && departure.valid && in_debug_room(b) &&
-        g_cpu.R[14] > game->dispatcher && g_cpu.R[14] < game->dispatcher + 0x200u) {
+    // Retreat inside a debug room. Entering a room makes it its own Retreat
+    // point, so point native Retreat at the departure's world entrance as
+    // the dispatcher starts (Dawn of Djinn replaces the flag check below
+    // with its own room list, so the flag read is not a reliable moment);
+    // once confirmed, the frame hook in on_entry restores the exact spot.
+    // Those rooms keep the world map's flag 0x144 (Retreat refused here),
+    // so answer it clear for the dispatcher's own check. Without a
+    // departure (game started inside the room) the game's own rules stand.
+    const bool debug_cast = departure.valid && in_debug_room(b);
+    if (pc == game->dispatcher && debug_cast && (g_cpu.R[0] & 0x3FFu) == 0x95u) {
         b->write16(game->return_point, 2u);
         b->write16(game->return_point + 2u, departure.entrance);
         debug_retreat = true;
+    }
+    if (pc == c.flag && g_cpu.R[0] == 0x144u && debug_cast &&
+        g_cpu.R[14] > game->dispatcher && g_cpu.R[14] < game->dispatcher + 0x200u) {
         gbarecomp::guest_return_now(pc, 0u);
         return true;
     }
@@ -243,10 +247,13 @@ inline bool on_entry(std::uint32_t pc) {
     if (!b) return false;
     // Native Retreat has copied the world return into the current room:
     // the confirmation was answered, and the field reload comes next.
-    if (debug_retreat && pc == game->frame && departure.valid &&
-        b->read16(game->room) == 2u && b->read16(game->room + 2u) == departure.entrance) {
+    // A cancelled cast stays armed in the room; leaving any other way
+    // disarms it.
+    if (debug_retreat && pc == game->frame && !in_debug_room(b)) {
         debug_retreat = false;
-        restore_departure(b);
+        if (departure.valid && b->read16(game->room) == 2u &&
+            b->read16(game->room + 2u) == departure.entrance)
+            restore_departure(b);
     }
     Hold record{};
     if (pc == game->frame && read_hold(b, record)) {

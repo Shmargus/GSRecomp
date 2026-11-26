@@ -4,20 +4,23 @@
 // engine/src/field/ is ONE copy of the field scene model and the GPU field
 // renderer, compiled by both Golden Sun: The Broken Seal and The Lost Age.
 // Everything that differs between the two games is passed in here, so the
-// shared files hold no game address and no game name:
+// shared files hold no game address and no game name. The profile holds:
 //
-//   * addresses and sizes (where the game keeps its camera, room rectangle,
-//     layer records, map number; how big its whole-world-map tile grid is);
+//   * addresses and sizes: where the game keeps its camera, room rectangle,
+//     layer records and map number, and how big its whole-world-map tile
+//     grid is;
 //   * one flag per rule that exists in only one game today. A rule whose flag
 //     is off is skipped, so each game keeps exactly the behaviour it has.
 //
 // Each game defines field_game_profile() once, in its own src/ (see
 // "The Broken Seal/src/field_game_profile.cpp" and "The Lost Age/src/"). It is
 // resolved at link time, so every target that links the shared renderer must
-// also link that file. Rules that are inert unless the game supplies their
-// input (bursts and shake, effect hide/span, Better Field Psy, margin scroll
-// rows, margin_vram_height) carry no flag: nothing calls them in the other
-// game.
+// also link that file.
+//
+// Some rules are inert unless the game supplies their input: bursts and
+// shake, effect hide/span, Better Field Psy, margin scroll rows and
+// margin_vram_height. They carry no flag, because nothing calls them in the
+// other game.
 #pragma once
 
 #include <cstdint>
@@ -89,27 +92,31 @@ struct FieldGameProfile {
     // room_layer_agreement wraps an auto-scrolling layer inside its region
     // (Madra's rays).
     bool agreement_autoscroll_wrap = false;
-    // TLA's layer scroll plus its grid region can cross the 2048-pixel grid.
-    // The room lookup wraps there (Gondowan Cliffs, F12 0057).
+    // The Lost Age's layer scroll plus its grid region can cross the 2048-pixel grid.
+    // The room lookup wraps there (Gondowan Cliffs).
     bool room_grid_wrap = false;
-    // Hide a character's sprite lying wholly outside both the console's
-    // 240x160 and the room rectangle the margins draw (where they are black).
-    // The game stages cutscene actors off the map there -- the Wise One at
-    // world (-8,-22) against a room starting at x 80 (gpu_rewind_0092, map
-    // 9) -- and the widened view showed them floating in the void. The game
-    // names its characters' sprites each frame
-    // (FieldSceneRenderer::set_character_objects); effects stay.
+    // Hide a character's sprite that lies wholly outside both the console's
+    // 240x160 and the room rectangle the margins draw (where the margins are
+    // black).
+    //
+    // The game stages cutscene actors off the map there. For example, the
+    // Wise One sits at world (-8,-22) against a room starting at x 80
+    // (map 9). The widened view would show such actors floating in the void.
+    //
+    // The game names its characters' sprites each frame
+    // (FieldSceneRenderer::set_character_objects). Effect sprites stay.
     bool hide_objects_off_room = false;
 };
 
 // Defined by the game (link-time hook).
 const FieldGameProfile& field_game_profile();
 
-// The one parked-dummy test, for every renderer in both games. Match the
-// complete blank attribute pair, not just its coordinates: real affine AND
-// non-affine pillars can cross (192,192). Across 16,124 saved frames
-// (2026-10-18), every dummy has attr0=0x00C0, attr1=0x00C0; the real pillars
-// retain their size/shape/transform bits (TLA 0032 f62 and 0078 f5).
+// The one parked-dummy test, for every renderer in both games.
+//
+// It matches the complete blank attribute pair, not just its coordinates,
+// because real affine AND non-affine pillars can cross (192,192). Across
+// 16,124 saved frames measured, every dummy has attr0=0x00C0, attr1=0x00C0.
+// The real pillars retain their size/shape/transform bits.
 inline bool field_obj_is_parked(std::uint16_t attr0, std::uint16_t attr1) {
     const FieldGameProfile& p = field_game_profile();
     return attr0 == p.obj_park_raw_y && attr1 == p.obj_park_raw_x;

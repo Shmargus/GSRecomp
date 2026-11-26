@@ -34,10 +34,10 @@ namespace {
 bool g_enabled = false;
 
 // ---- session directory ---------------------------------------------------
-// Separate from function_tracer's logs/trace_<session>/ -- this is a
-// different diagnostic with a different output shape (memory images, not
-// per-window call tables). Same stamping approach as
-// function_tracer.cpp's ensure_session_dir().
+// The recorder writes to its own directory, separate from function_tracer's
+// logs/trace_<session>/. It is a different diagnostic with a different output
+// shape (memory images, not per-window call tables). The directory is named
+// the same way as in function_tracer.cpp's ensure_session_dir().
 std::string g_session_dir;
 bool g_session_ready = false;
 
@@ -86,12 +86,17 @@ std::string sanitize_tag(const std::string& raw) {
 
 // ---- fixed-page CRC32 delta log (frames.csv) -----------------------------
 //
-// Page geometry is fixed, not derived from anything guest-specific: EWRAM
-// 64 pages x 4KB (256KB total), IWRAM 8 pages x 4KB (32KB), VRAM 48 pages x
-// 2KB (96KB), PAL 1 page (1KB), OAM 1 page (1KB) -- 122 pages, matching
-// gba::GbaBus's actual buffer sizes (gba_bus.h: ewram_ 256*1024, iwram_
-// 32*1024, pal_ 1024, vram_ 96*1024, oam_ 1024). Page index space is
-// 0-63 EWRAM, 64-71 IWRAM, 72-119 VRAM, 120 PAL, 121 OAM.
+// The page geometry is fixed. It is not derived from anything specific to
+// the guest. There are 122 pages:
+//   - EWRAM: 64 pages x 4KB (256KB total)
+//   - IWRAM: 8 pages x 4KB (32KB)
+//   - VRAM: 48 pages x 2KB (96KB)
+//   - PAL: 1 page (1KB)
+//   - OAM: 1 page (1KB)
+// These match gba::GbaBus's actual buffer sizes (gba_bus.h: ewram_ 256*1024,
+// iwram_ 32*1024, pal_ 1024, vram_ 96*1024, oam_ 1024).
+//
+// Page index space: 0-63 EWRAM, 64-71 IWRAM, 72-119 VRAM, 120 PAL, 121 OAM.
 constexpr std::size_t kEwramPages = 64;
 constexpr std::size_t kIwramPages = 8;
 constexpr std::size_t kVramPages = 48;
@@ -109,17 +114,18 @@ constexpr std::size_t kPalPageBase = kVramPageBase + kVramPages;           // 12
 constexpr std::size_t kOamPageBase = kPalPageBase + kPalPages;             // 121
 constexpr std::size_t kTotalPages = kOamPageBase + kOamPages;              // 122
 
-// Last-seen CRC32 per page. Zero-initialized, so the very first frame's
-// comparison reports every nonzero page as "changed" -- a deliberate free
-// baseline rather than a special case.
+// Last-seen CRC32 per page. It starts zeroed, so the very first frame reports
+// every nonzero page as "changed". That is deliberate: it gives a free
+// baseline without a special case.
 std::uint32_t g_page_crc[kTotalPages] = {};
 
-// frames.csv buffered writer, same buffer/flush shape as function_tracer's
-// signals.csv (log_raw_signals / flush_signal_log): append to an in-memory
-// buffer, flush every kFramesFlushRows rows so an open frame->change row
-// doesn't reopen the file every guest frame. 300 mirrors the flush cadence
-// function_tracer.cpp already established for its own per-frame CSV
-// (kSignalFlushRows) -- reused here rather than picked fresh.
+// Buffered writer for frames.csv. It works like function_tracer's signals.csv
+// writer (log_raw_signals / flush_signal_log): rows are appended to an
+// in-memory buffer, and the buffer is flushed every kFramesFlushRows rows.
+// That way the file is not reopened every guest frame.
+//
+// The value 300 is the flush cadence function_tracer.cpp already uses for its
+// own per-frame CSV (kSignalFlushRows), reused here.
 std::string g_frames_buf;
 std::size_t g_frames_buf_rows = 0;
 bool g_frames_header_written = false;
@@ -142,10 +148,10 @@ void flush_frames_log() {
     g_frames_buf_rows = 0;
 }
 
-// Signed reads for the affine BG parameters/reference points, copied
-// verbatim from gba_ppu.cpp's read_s16 / read_s28_ref (those are file-
-// static there, so unreachable from this translation unit) -- same GBA
-// hardware bit layout (GBATEK "LCD I/O BG Rotation/Scaling"), not a guess.
+// Signed reads for the affine BG parameters and reference points. They are
+// copied verbatim from gba_ppu.cpp's read_s16 / read_s28_ref, which are
+// file-static there and so cannot be called from this file. They use the GBA
+// hardware bit layout (GBATEK "LCD I/O BG Rotation/Scaling").
 std::int32_t read_s16_field(const std::uint8_t* io, std::uint32_t off) {
     std::int16_t v = static_cast<std::int16_t>(io[off] | (io[off + 1] << 8));
     return static_cast<std::int32_t>(v);
@@ -163,16 +169,20 @@ std::uint16_t read_u16_field(const std::uint8_t* io, std::uint32_t off) {
     return static_cast<std::uint16_t>(io[off] | (io[off + 1] << 8));
 }
 
-// IO register offsets below are the standard GBA memory-mapped I/O layout
-// (GBATEK), cross-checked against this project's own PPU implementation
-// wherever it already touches the register (gba_ppu.cpp: DISPCNT/BGxCNT/
-// HOFS/VOFS/affine params at gba_ppu.cpp:857-867, WININ/WINOUT/BLDCNT/
-// BLDALPHA/BLDY at gba_ppu.cpp:644-685 and :999-1000). MOSAIC (0x4C) is
-// not read anywhere in this project's PPU, but its offset is the only
-// value consistent with the already-verified spacing of its neighbours
-// (WINOUT at 0x4A, BLDCNT at 0x50, both confirmed): it fills the gap
-// exactly. Dumped raw in every full snapshot's IO section regardless of
-// whether this decoded list is complete.
+// The IO register offsets below are the standard GBA memory-mapped I/O layout
+// (GBATEK). Where this project's own PPU already touches a register, the
+// offset was cross-checked against gba_ppu.cpp:
+//   - DISPCNT, BGxCNT, HOFS, VOFS and the affine parameters:
+//     gba_ppu.cpp:857-867.
+//   - WININ, WINOUT, BLDCNT, BLDALPHA and BLDY: gba_ppu.cpp:644-685 and
+//     :999-1000.
+//
+// MOSAIC (0x4C) is not read anywhere in this project's PPU. Its offset is the
+// only value that fits the already-verified spacing of its neighbours
+// (WINOUT at 0x4A, BLDCNT at 0x50, both confirmed): it fills the gap exactly.
+//
+// Every full snapshot also dumps the whole IO section raw, whether or not
+// this decoded list is complete.
 void append_io_fields(std::string& line, const std::uint8_t* io) {
     char buf[512];
     const std::uint16_t dispcnt = read_u16_field(io, 0x00);
@@ -228,22 +238,25 @@ void append_io_fields(std::string& line, const std::uint8_t* io) {
     }
 }
 
-// The metatile id grid (FACTS.md: 0x02010000, 128x128 u32 cells, 64 KB)
-// occupies EWRAM byte range 0x10000..0x1FFFF, i.e. page indices 16..31 in
-// this file's fixed EWRAM page numbering (page 0 = EWRAM+0x0000). Tracked
-// separately from the overall changed-page count so a room load (all 16 of
-// these pages rewritten) can be told apart from an in-room event edit
-// (FACTS.md: 12 of 16,384 cells, at most a couple of these pages) or
-// ordinary scrolling.
+// The metatile id grid is 128x128 u32 cells (64 KB) at 0x02010000. It
+// occupies EWRAM byte range 0x10000..0x1FFFF, which is page indices 16..31 in
+// this file's fixed EWRAM page numbering (page 0 = EWRAM+0x0000).
+//
+// Its changed pages are counted separately from the overall changed-page
+// count. That tells a room load (all 16 of these pages rewritten) apart from
+// an in-room event edit (measured: 12 of 16,384 cells, at most a couple of
+// these pages) or ordinary scrolling.
 constexpr std::size_t kGridPageFirst = 16;
 constexpr std::size_t kGridPageLast = 31;  // inclusive
 
-// Diffs the 122 fixed pages against g_page_crc, updating it in place, and
-// appends any changed pages as "idx:crc" ('|'-joined, matching
-// function_tracer.cpp's convention of never using ',' inside a CSV field)
-// to `out`. Returns the number of pages that changed. `grid_changed_pages`
-// receives how many of those changes fell in the metatile grid's own page
-// range, for the room-load detector below.
+// Diffs the 122 fixed pages against g_page_crc and updates g_page_crc in
+// place.
+//   - Each changed page is appended to `out` as "idx:crc". Entries are
+//     '|'-joined, because function_tracer.cpp never uses ',' inside a CSV
+//     field.
+//   - The return value is the number of pages that changed.
+//   - `grid_changed_pages` receives how many of those changes fell in the
+//     metatile grid's own page range. The room-load detector below uses it.
 std::size_t diff_pages(const gba::GbaBus& bus, std::string& out,
                        std::size_t& grid_changed_pages) {
     std::size_t changed = 0;
@@ -278,18 +291,19 @@ std::size_t diff_pages(const gba::GbaBus& bus, std::string& out,
 
 // ---- room-load EWRAM write bitmap (roomload_<frame>.bin) ------------------
 //
-// Goal: recover the room-bounds struct field offsets by intersecting which
-// EWRAM 32-byte lines are written during a room-load burst across several
-// loads (tools/decode_snap.py --roomload-intersect). Snapshot diffing alone
-// cannot do this: thousands of EWRAM addresses vary per room, so the
-// discriminator has to be "written during THIS burst", not "differs between
-// two snapshots".
+// Goal: recover the room-bounds struct field offsets. To do that, find which
+// EWRAM 32-byte lines are written in every one of several room-load bursts
+// (tools/decode_snap.py --roomload-intersect).
 //
-// EWRAM is 256 KB; a 32-byte line is one bit, so one frame's bitmap is
-// 256*1024/32/8 = 1024 bytes. That is cheap enough to keep a ring of the
-// last few frames every session (see map_recorder_on_ewram_write), rather
-// than writing one per frame to disk -- an 8-minute session at 1 KB/frame
-// would otherwise be ~28 MB and almost all of it unrelated to a room load.
+// Diffing snapshots cannot do this, because thousands of EWRAM addresses
+// differ from room to room. The test has to be "written during THIS burst",
+// not "differs between two snapshots".
+//
+// EWRAM is 256 KB and a 32-byte line is one bit, so one frame's bitmap is
+// 256*1024/32/8 = 1024 bytes. That is cheap enough to keep a ring of the last
+// few frames in every session (see map_recorder_on_ewram_write). Writing one
+// bitmap per frame to disk would not be: an 8-minute session at 1 KB/frame
+// would be ~28 MB, almost all of it unrelated to a room load.
 constexpr std::size_t kEwramLineBytes = 32;
 constexpr std::size_t kEwramTotalBytes = kEwramPages * kEwramPageBytes;  // 256 KiB
 constexpr std::size_t kEwramLineCount = kEwramTotalBytes / kEwramLineBytes;  // 8192
@@ -304,16 +318,17 @@ constexpr std::uint32_t kEwramMirrorMask = 0x0003FFFFu;  // 256 KiB, matches
 constexpr std::size_t kRoomLoadRingFrames = 8;
 constexpr std::size_t kRoomLoadPostFrames = 8;
 
-// Room-load detection threshold for "how many of the 16 grid pages changed
-// this frame". Measured 2026-09-04 across the five existing GSR_MAP_RECORD
-// sessions (logs/maprec_*/frames.csv, kGridPageFirst..kGridPageLast column):
-// every frame outside a room transition changed at most 11 of the 16 grid
-// pages (scrolling and in-room event edits both stay well under that), while
-// every observed room-load frame changed at least 14, with the full 16
-// usually split 14-15/16 or 15/16 across two consecutive frames because the
-// grid rewrite crosses a frame boundary. 12 is the smallest integer above
-// the measured ordinary-play ceiling (11), so it flags every observed load
-// while staying clear of anything measured during ordinary play.
+// Room-load detection threshold: how many of the 16 grid pages must change in
+// one frame. It was measured across five GSR_MAP_RECORD sessions (frames.csv,
+// kGridPageFirst..kGridPageLast column):
+//   - Every frame outside a room transition changed at most 11 of the 16 grid
+//     pages. Scrolling and in-room event edits both stay well under that.
+//   - Every observed room-load frame changed at least 14. The full 16 were
+//     usually split 14-15/16 or 15/16 across two consecutive frames, because
+//     the grid rewrite crosses a frame boundary.
+// 12 is the smallest integer above the measured ordinary-play ceiling (11).
+// It flags every observed load and stays clear of anything measured during
+// ordinary play.
 constexpr std::size_t kRoomLoadGridPageThreshold = 12;
 
 struct EwramFrameBitmap {
@@ -371,10 +386,10 @@ void write_room_load_capture() {
     g_room_load_capture.clear();
 }
 
-// Called once per finalized frame (see log_frame_delta) with the bitmap that
-// accumulated since the previous call and this check's grid-page-change
-// count. Feeds the ring buffer and, when a load is detected or already in
-// progress, the active capture.
+// Called once per finalized frame (see log_frame_delta). The arguments are
+// the bitmap that accumulated since the previous call and this frame's
+// grid-page-change count. It feeds the ring buffer and, when a load is
+// detected or already in progress, the active capture.
 void finalize_ewram_frame_bitmap(std::uint64_t frame,
                                  std::size_t grid_changed_pages) {
     EwramFrameBitmap finished;
@@ -383,9 +398,9 @@ void finalize_ewram_frame_bitmap(std::uint64_t frame,
     g_ewram_current_bitmap.fill(0);
 
     if (!g_room_load_capture.empty() || g_room_load_post_remaining > 0) {
-        // Already capturing a prior event: keep it uninterrupted rather
-        // than restarting on an adjacent load-boundary frame (a load's grid
-        // rewrite can itself straddle two consecutive frames -- see the
+        // Already capturing a prior event. Keep it uninterrupted rather than
+        // restarting on an adjacent load-boundary frame. A load's grid
+        // rewrite can itself straddle two consecutive frames (see the
         // threshold comment above).
         g_room_load_capture.push_back(finished);
         if (g_room_load_post_remaining > 0 && --g_room_load_post_remaining == 0) {
@@ -410,10 +425,10 @@ void finalize_ewram_frame_bitmap(std::uint64_t frame,
     if (g_ewram_ring_count < kRoomLoadRingFrames) ++g_ewram_ring_count;
 }
 
-// Appends one frames.csv row iff at least one of the 122 pages changed
-// this frame. `frame` is the RAW, unmodified value from
-// runtime_current_frame() -- see the header comment on
-// map_recorder_on_entry and the note on savestate loads below.
+// Appends one frames.csv row if, and only if, at least one of the 122 pages
+// changed this frame. `frame` is the raw, unmodified value from
+// runtime_current_frame(). See the header comment on map_recorder_on_entry
+// and the note on savestate loads below.
 void log_frame_delta(std::uint64_t frame, const gba::GbaBus& bus) {
     std::string changed_cell;
     std::size_t grid_changed_pages = 0;
@@ -433,14 +448,15 @@ void log_frame_delta(std::uint64_t frame, const gba::GbaBus& bus) {
     }
 
     // NOTE: frame is written exactly as runtime_current_frame() returns it.
-    // A savestate load can jump this value non-monotonically, backward or
-    // forward by however much guest time the save recorded (see FACTS.md /
-    // runtime_bus_bridge.h's set_savestate_load_hook comment) -- this
-    // recorder does not smooth, offset or rebase that, so any offline
-    // consumer of frames.csv (or a snapshot header's frame field) must
-    // treat frame numbers as non-monotonic rather than assuming they only
-    // increase. This is what lets a snapshot be tied to the same raw frame
-    // number function_tracer.cpp's window start/end frames use.
+    // A savestate load can make this value jump backward or forward, by
+    // however much guest time the save recorded (see runtime_bus_bridge.h's
+    // set_savestate_load_hook comment). This recorder does not smooth, offset
+    // or rebase that. So any offline consumer of frames.csv (or of a
+    // snapshot header's frame field) must treat frame numbers as
+    // non-monotonic, not assume they only increase.
+    //
+    // Keeping the raw value is what lets a snapshot be tied to the same
+    // frame number that function_tracer.cpp's window start/end frames use.
     char prefix[32];
     const int n = std::snprintf(prefix, sizeof(prefix), "%llu,",
                                 static_cast<unsigned long long>(frame));
@@ -455,11 +471,13 @@ void log_frame_delta(std::uint64_t frame, const gba::GbaBus& bus) {
 
 // ---- full snapshots (snap_<seq>_<tag>.bin + .png) ------------------------
 //
-// Format "GSRSNAP1": magic, version, section count, RAW frame number, a
-// free-text scene tag, then a self-describing section table (name +
-// absolute file offset + length for each of IO/EWRAM/IWRAM/VRAM/PAL/OAM) so
-// tools/decode_snap.py never has to assume a layout. All integers little-
-// endian (native on this host).
+// Format "GSRSNAP1". A snapshot holds, in order:
+//   1. a magic number, a version and a section count,
+//   2. the raw frame number and a free-text scene tag, and
+//   3. a self-describing section table: a name, an absolute file offset and
+//      a length for each of IO/EWRAM/IWRAM/VRAM/PAL/OAM.
+// The table means tools/decode_snap.py never has to assume a layout. All
+// integers are little-endian (native on this host).
 constexpr char kSnapMagic[8] = {'G', 'S', 'R', 'S', 'N', 'A', 'P', '1'};
 constexpr std::uint32_t kSnapVersion = 1;
 constexpr std::size_t kTagBytes = 64;
@@ -492,8 +510,7 @@ bool write_snapshot_bin(const std::string& path, std::uint64_t frame,
     // rewrite BGxCNT, Tret switches BG3 scroll in bands, and the room iris
     // changes WIN0H on each row. End-of-frame dumps miss these changes. The
     // 2,429-capture comparison reported 2,336 matches both before and after a
-    // battle renderer fix. Live F12 captures showed the difference (FACTS.md,
-    // 2026-09-16).
+    // battle renderer change, yet live F12 captures showed the difference.
     //
     // Same layout the F12 dump uses, so one reader serves both: 160 rows of
     // GbaPpu::kLineIoBytes, then 160 rows of four int32 affine references.
@@ -531,8 +548,8 @@ bool write_snapshot_bin(const std::string& path, std::uint64_t frame,
         // has just finished. A snapshot taken part-way through the NEXT frame
         // therefore pairs this frame's memory with the previous frame's rows,
         // and a reader driven from both sees a scene that never existed.
-        // Measured 2026-09-16 on the first session recorded with these
-        // sections: snap_00007's memory says DISPCNT 0x7741 while every
+        // Measured on the first session recorded with these
+        // sections: one snapshot's memory says DISPCNT 0x7741 while every
         // latched row says 0x0001, and three such frames were reported as
         // renderer faults that were nothing of the kind.
         //
@@ -615,7 +632,7 @@ std::uint16_t g_prev_dispcnt_enable = 0;
 bool g_took_first_snapshot = false;
 
 // Periodic snapshot interval while a scene is active. 300 frames is an
-// arbitrary interval, not a measured threshold.
+// arbitrary choice, not a measured threshold.
 constexpr std::uint64_t kPeriodicSnapshotFrames = 300;
 
 void take_snapshot(const std::string& reason_tag, const gba::GbaBus& bus) {
@@ -633,10 +650,12 @@ void take_snapshot(const std::string& reason_tag, const gba::GbaBus& bus) {
 
 // Takes a snapshot when the BG mode or layer-enable bits change, or when the
 // periodic interval has passed. The manual "Snapshot now" button calls
-// take_snapshot directly, not this function. DISPCNT bit layout is the standard GBA one (GBATEK): bits 0-2 are
-// the BG mode, bits 8-15 are the BG0-3/OBJ/WIN0/WIN1/OBJWIN enable bits --
-// both already exercised elsewhere in this codebase (dispcnt & 0x0100 <<
-// layer in gba_ppu.cpp's render_affine_bg/render_regular_bg call sites).
+// take_snapshot directly, not this function.
+//
+// DISPCNT uses the standard GBA bit layout (GBATEK). Bits 0-2 are the BG
+// mode. Bits 8-15 are the BG0-3/OBJ/WIN0/WIN1/OBJWIN enable bits. Both are
+// already used elsewhere in this codebase (dispcnt & 0x0100 << layer, at
+// gba_ppu.cpp's render_affine_bg/render_regular_bg call sites).
 void check_snapshot_triggers(std::uint64_t frame, const gba::GbaBus& bus) {
     const std::uint16_t dispcnt = read_u16_field(bus.io().raw(), 0x00);
     const std::uint16_t mode = dispcnt & 0x0007u;
@@ -714,16 +733,18 @@ bool recorder_wants_keyboard() { return false; }
 
 // ---- sharing host_config_ui.h's single extra-draw slot with the tracer --
 //
-// gbarecomp::g_config_ui_extra_draw / g_config_ui_extra_wants_keyboard are
-// each a single function pointer (host_config_ui.h), not a list -- only
-// one consumer can be wired directly. function_tracer_init() may already
-// have installed its own callback there before map_recorder_init() runs
-// (see runner_main.cpp's call order); to let both diagnostics' toggles
-// work independently, this captures whatever was already installed and
-// chains through it before drawing the recorder's own window. If the
-// tracer is disabled, function_tracer_init() never touches the pointer
-// (see its own `if (!g_enabled) return;`), so the captured value is
-// nullptr and this simply skips the chained call.
+// gbarecomp::g_config_ui_extra_draw and g_config_ui_extra_wants_keyboard are
+// each a single function pointer (host_config_ui.h), not a list. Only one
+// consumer can be wired directly.
+//
+// function_tracer_init() may already have installed its own callback there
+// before map_recorder_init() runs (see runner_main.cpp's call order). So that
+// both diagnostics' toggles work independently, this code saves whatever was
+// already installed and calls it before drawing the recorder's own window.
+//
+// If the tracer is disabled, function_tracer_init() never touches the
+// pointer (see its own `if (!g_enabled) return;`). The saved value is then
+// nullptr, and the chained call is simply skipped.
 void (*g_prev_extra_draw)() = nullptr;
 bool (*g_prev_extra_wants_keyboard)() = nullptr;
 
@@ -738,18 +759,18 @@ bool combined_extra_wants_keyboard() {
 
 // The recorder's own EWRAM write feed.
 //
-// Installing this from main(), alongside map_recorder_init(), does not work:
-// run_game() clears both observer slots on entry
-// (engine/src/runtime/runtime.cpp) so that a game's enhancement
-// hooks cannot leak into a later faithful run in the same process. That
-// clear happens after main() has installed anything, and before a single
-// guest instruction executes. So install from the per-frame path below, which
-// runs inside run_game().
+// Installing this from main(), alongside map_recorder_init(), does not work.
+// run_game() clears both observer slots on entry (engine/src/runtime/
+// runtime.cpp), so that a game's enhancement hooks cannot leak into a later
+// faithful run in the same process. That clear happens after main() has
+// installed anything, and before a single guest instruction executes.
+// So the feed is installed from the per-frame path below, which runs inside
+// run_game().
 //
-// Only ever fill a slot nobody else owns. install_golden_sun_widescreen
+// It only ever fills a slot nobody else owns. install_golden_sun_widescreen
 // installs golden_sun_wide_ewram_write_observer in the same slots, and that
-// one already chains to map_recorder_on_ewram_write, so replacing it would
-// silently drop the widescreen bookkeeping while gaining nothing.
+// observer already chains to map_recorder_on_ewram_write. Replacing it would
+// silently drop the widescreen bookkeeping and gain nothing.
 void ewram_write_observer(std::uint32_t address, std::uint32_t size) {
     // Same DMA guard as the widescreen observer, so both feeds see the same
     // event stream: DMA has descriptor-level provenance elsewhere and must
@@ -807,11 +828,12 @@ void map_recorder_on_entry(std::uint32_t entry_pc) {
 //
 // The six entry points below are every function in the first 256 KB of ROM
 // whose literal pool carries the field map signature {destination screenblock
-// base, 0x02010000, 0x02020000, 0x02020004}. Found by scanning the ROM for
-// that signature, then attributing each pool to the function it terminates;
-// cross-checked against the store PCs the VRAM trace recorded in a
-// measured run. Not a guess, and not a list to extend without
-// re-running that scan.
+// base, 0x02010000, 0x02020000, 0x02020004}.
+//
+// They were found by scanning the ROM for that signature and attributing each
+// pool to the function it terminates. They were cross-checked against the
+// store PCs that the VRAM trace recorded in a measured run. Do not extend
+// the list without re-running that scan.
 const std::uint32_t kFieldTilemapWriters[6] = {
     gs::rom(0x0800FEC8u), gs::rom(0x0800FF54u), gs::rom(0x08010230u),
     gs::rom(0x08010424u), gs::rom(0x08010560u), gs::rom(0x08010788u),
@@ -823,10 +845,10 @@ struct WriterArgs {
     std::uint64_t count;
 };
 
-// Bounded so a long session cannot grow this without limit. 4096 distinct
-// combinations is far more than the handful of regions a room can use; if it
-// ever fills, the overflow count says so rather than the table silently
-// dropping observations.
+// The table is bounded so that a long session cannot grow it without limit.
+// 4096 distinct combinations is far more than the handful of regions a room
+// can use. If it ever fills, the overflow count says so, instead of the
+// table silently dropping observations.
 constexpr std::size_t kMaxWriterArgs = 4096;
 std::array<WriterArgs, kMaxWriterArgs> g_writer_args{};
 std::size_t g_writer_args_used = 0;
@@ -877,8 +899,8 @@ void map_recorder_on_function_args(std::uint32_t entry_pc, std::uint32_t r0,
     }
     if (!is_writer) return;
 
-    // Tag each observation with the room it happened in: the regions are
-    // chosen per call, and per room is the grouping that makes them
+    // Tag each observation with the room it happened in. The regions are
+    // chosen per call, and grouping them per room is what makes them
     // interpretable.
     std::uint16_t room_w = 0, room_h = 0;
     if (const gba::GbaBus* bus = gbarecomp::active_bus()) {

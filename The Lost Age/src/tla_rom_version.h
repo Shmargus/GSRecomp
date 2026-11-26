@@ -9,11 +9,14 @@
 // src/tla_rom_addresses.inc; the lookups are the engine's (rom_revision.h).
 namespace tla_rom {
 // The language the loaded ROM plays as, in the row order of
-// src/tla_rom_revisions.inc. A patched revision (Reloaded) reports the
-// language it is a patch of; reloaded() and portuguese() tell them apart.
+// src/tla_rom_revisions.inc. A patched revision (a romhack, Portuguese)
+// reports the language it is a patch of; romhack() and portuguese() tell
+// them apart.
 enum class Version : std::uint8_t { English, Spanish, Italian, French, German };
 Version version();
-bool reloaded();
+// A gameplay romhack (Reloaded, Maheo Hack): its abilities and classes are
+// its own, not the measured English ones.
+bool romhack();
 // Kyle the Runner's Brazilian Portuguese Beta 1 (a patch of English;
 // version() is English, addresses as English). Our menus show in Portuguese.
 bool portuguese();

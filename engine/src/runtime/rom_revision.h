@@ -8,7 +8,7 @@
 //
 // A table row holds the first revision's value and its counterpart in every
 // later revision, in revision order. Lookups abort loudly when a value has
-// no measured counterpart: a guessed address is worse than a stop.
+// no measured counterpart, because a guessed address is worse than a stop.
 
 #include <algorithm>
 #include <cstdint>

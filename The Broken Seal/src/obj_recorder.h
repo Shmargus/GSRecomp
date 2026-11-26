@@ -6,7 +6,7 @@
 // Background. The PPU currently asks OAM where each sprite is. OAM stores X
 // in 9 bits and Y in 8. A 360x240 view spans rows -104..199 -- 304 rows --
 // and a byte names 256, so rows below -56 share a byte with rows in the
-// bottom margin (measured 2026-09-06: slot 23 sits at logical y=-101 and
+// bottom margin (measured: slot 23 sits at logical y=-101 and
 // writes byte 155, which also means row 155). No arithmetic on the byte can
 // separate them, at any view size. The escape is to stop reading the byte:
 // the guest computes each sprite's position at full precision before

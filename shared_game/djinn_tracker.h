@@ -9,7 +9,7 @@
 // installs its game's table through trackers.h (trackers_tbs.h, The Lost
 // Age's src/tla_trackers.cpp) and samples once per frame.
 //
-// Measured, both ROMs verified (each game's FACTS.md, "Djinn Tracker"):
+// Measured, both ROMs verified:
 //   Ownership: party record + 0xF8, four u32 (Venus, Mercury, Mars,
 //   Jupiter), bit i = the element's Djinni i; the Djinn screen's counts at
 //   +0x118 agree. A Djinni is owned when any record holds it.

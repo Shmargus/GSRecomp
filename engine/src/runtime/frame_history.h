@@ -34,14 +34,18 @@ namespace gba { class GbaPpu; }
 namespace gbarecomp {
 
 // True for a frame both games should not show: drawn in mode 1 with BG2's
-// origin reset to (0, 0) while a per-row BG2CNT table still runs. A battle
-// spell's setup stores 0 to BG2X/BG2Y and its windows while the arena's line
-// table is live; the next frame sets up the spell's own layer. On the console
-// that code runs late in the frame; with the CPU overclocked (battle 2x) it
-// runs before row 0 and the whole frame shows the arena from (0, 0): a torn
-// background with a sky band and a black bottom. Measured: TLA F12 0088/0089
-// (FACTS.md 2026-10-08); TBS gpu_rewind_0021 frame 89 (Inferno) and 0017
-// frame 53 (Fireball), the only two of 3,001 saved TBS frames that match.
+// origin reset to (0, 0) while a per-row BG2CNT table still runs.
+//
+// How it happens: a battle spell's setup stores 0 to BG2X/BG2Y and its windows
+// while the arena's line table is live. The next frame sets up the spell's own
+// layer. On the console that code runs late in the frame. With the CPU
+// overclocked (battle 2x) it runs before row 0, and the whole frame shows the
+// arena from (0, 0): a torn background with a sky band and a black bottom.
+//
+// Measured in saved captures of both games. In The Broken Seal, an Inferno
+// frame and a Fireball frame were the only two of 3,001 saved frames that
+// match.
+//
 // The caller decides that a battle is running and repeats its last picture.
 bool spell_setup_torn_frame(const gba::GbaPpu& ppu);
 

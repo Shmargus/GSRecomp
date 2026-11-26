@@ -7,7 +7,7 @@
 //
 // Djinn Tracker.
 // Measured, verified ROM b500663220cb9bf56b9f8e8c0c544f1d6fa3a824 (FACTS.md,
-// "Djinn Tracker", 2026-10-30):
+// "Djinn Tracker"):
 //   Names: text 0x6D3 + element * 20 + index (tables 0x080A9F54/0x08060C30),
 //   18 per element: The Broken Seal's seven, then this game's eleven.
 //   Owned: the bits at +0xF8 of each party record (0x02000520 + character *
@@ -19,18 +19,18 @@
 //   byte-identical to The Broken Seal's 90..93, and frame 0 decodes pixel for
 //   pixel the same with the palette at 0x08017B10 (its 0xE0 colours equal
 //   The Broken Seal's 0x0800779C).
-// Locations (checked against a public Djinn list, 2026-10-30;
+// Locations (checked against a public Djinn list;
 // unconfirmed in game). Four of The Broken Seal's Djinn can also be found
 // here when a game starts without a transfer.
 //
 // Treasure Tracker.
 // Measured, verified ROM b500663220cb9bf56b9f8e8c0c544f1d6fa3a824 (FACTS.md,
-// "Treasure Tracker", 2026-10-30): the table is the ROM's treasure table
+// "Treasure Tracker"): the table is the ROM's treasure table
 // 0x080F2204 (tla_treasure_tracker_data.h); location lookup 0x080CA280 over
 // the records at 0x080EF4A4, room keys 0x080F17A8 + room * 8 + 2; current
 // room/entrance 0x02000420/0x02000422. Rewards: item names text 0x25F + id
 // (461 items), a tablet's summon ability name 0x5A7 + id (FACTS.md "Random
-// Weapons", 5 November 2026); the item word is re-read from the running
+// Weapons"); the item word is re-read from the running
 // table, which Random Treasure rewrites.
 
 #include "../../shared_game/trackers.h"
@@ -125,7 +125,7 @@ const dt::Game kDjinnGame = {kDjinn, 18, 9, 0x520u, 8, TLA_ROM(0x08300000u) - 0x
 
 // Gifts Random Treasure moves (tla_treasure_randomizer_data.h, not the story
 // items) and the flag each one's scene sets as it gives the item (FACTS.md
-// "Treasure Tracker: gifts", 22 November 2026; room code, gameplay
+// "Treasure Tracker: gifts"; room code, gameplay
 // unconfirmed). Not listed (TODO-EVIDENCE): Golden Boots (file 0x64B),
 // Golden Ring (0x682) and Golden Shirt (0x695), whose flags 0xA77, 0xA74 and
 // 0xA73 are cleared when the item is handed over, so clear also means not

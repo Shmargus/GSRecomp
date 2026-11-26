@@ -2,17 +2,19 @@
 //
 //   tla_frame_check <F12 folder or frame.bin> [out prefix] [ROM] [--check-views]
 //
-// Reads the folder's gpu_frame.bin (src/tla_gpu_field.cpp: the registers,
-// objects, palettes, video memory and per-row tables the graphics card was
-// handed). TLAGPUF2 rewind frames carry their own memory, room copies,
-// placements and effect history; legacy TLAGPUF1 uses the folder's memory.bin.
-// Writes
+// Reads the folder's gpu_frame.bin (src/tla_gpu_field.cpp). It holds everything the
+// graphics card was handed: the registers, objects, palettes, video memory and
+// per-row tables.
+//   - TLAGPUF2 rewind frames carry their own memory, room copies, placements and
+//     effect history.
+//   - Legacy TLAGPUF1 frames use the folder's memory.bin.
+// Writes three pictures:
 //   <prefix>_console.ppm  the console compositor (GbaPpu::render_captured_scene)
 //   <prefix>_gpu.ppm      the graphics card at 240x160
 //   <prefix>_wide.ppm     the graphics card at 360x240 with the room source
-// and prints how many native pixels differ (compared as 5-bit colours) and
-// what the room source made of the room. Needs a GL context, from a hidden
-// window; nothing of the game runs.
+// It then prints how many native pixels differ (compared as 5-bit colours) and what
+// the room source made of the room. It needs a GL context, from a hidden window;
+// nothing of the game runs.
 
 #define SDL_MAIN_HANDLED
 #include <SDL.h>

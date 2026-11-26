@@ -27,7 +27,7 @@ Age (USA/Europe) ROM, SHA-1 `b500663220cb9bf56b9f8e8c0c544f1d6fa3a824`.
    `cmake --build build/tla --target gba_recompile`.
 2. `scripts/tla_recompile.ps1`: translates the ROM into `local/tla/`
    (rerun after any `config/tla/main.toml` change).
-3. Collection-root `build_dev.bat -Game LostAge` (or the launcher's cog)
+3. Build Studio's **Developer Launcher** page (or the launcher's cog)
    builds `build/tla/TLARecomp.exe`, `build/tla/TLAEngine.dll`,
    `build/tla/TLAGame.dll` and the root
    launcher.

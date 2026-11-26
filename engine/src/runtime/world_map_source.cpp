@@ -1,6 +1,6 @@
 // world_map_source.cpp -- see world_map_source.h. Addresses and the piece
-// format are in FACTS.md, 2026-09-25 ("The L-button zoom-out's broken left
-// edge is the game's world-map ring running out").
+// format: (FACTS.md "The L-button zoom-out's broken left edge is the game's
+// world-map ring running out").
 #include "world_map_source.h"
 
 #include <cstdio>

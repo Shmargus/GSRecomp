@@ -1,6 +1,6 @@
 // game_module.cpp -- the way in when a game's engine is a plug-in
 // (GoldenSunEngine.dll, TLAEngine.dll) run by a player program
-// (player_main.cpp; one window for both games, STATUS.md).
+// (player_main.cpp; one window for both games).
 //
 // window_in: a window the game opens into instead of making its own (null:
 // make one). window_out: when not null, the game leaves its window open when

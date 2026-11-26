@@ -1,11 +1,14 @@
 // overlay_emit.h: emit the full C source for ONE runtime-recompiled
 // overlay function (Stage-2 self-healing).
 //
-// Rooted at a guest PC against a contiguous code image (cart ROM or a BIOS
-// copy), it runs the function finder for that single entry, lowers the body
-// with the SHARED emitter (gbarecomp::emit_function_body_str), and wraps it
-// with the overlay prelude (#include "overlay_runtime_arm.h") + the exported
-// overlay_abi()/overlay_init()/func_XXXXXXXX symbols the loader expects.
+// It takes a guest PC and a contiguous code image (cart ROM or a BIOS copy)
+// and:
+//   1. runs the function finder for that single entry,
+//   2. lowers the body with the SHARED emitter
+//      (gbarecomp::emit_function_body_str), and
+//   3. wraps it with the overlay prelude (#include "overlay_runtime_arm.h")
+//      and the exported overlay_abi()/overlay_init()/func_XXXXXXXX symbols the
+//      loader expects.
 
 #pragma once
 

@@ -22,7 +22,6 @@ SDL 2.32.10 and LLVM 21.1.8 sources under %LOCALAPPDATA%\\Android.
 from __future__ import annotations
 
 import argparse
-import concurrent.futures
 import os
 import re
 import shutil
@@ -35,9 +34,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 
-ANDROID_DIR = Path(os.environ.get("LOCALAPPDATA", "")) / "Android"
-SDK = Path(os.environ.get("ANDROID_HOME") or ANDROID_DIR / "Sdk")
+TOOLCHAIN_LOCATION = ROOT / "local" / "android" / "toolchain.txt"
+configured_location = (
+    TOOLCHAIN_LOCATION.read_text(encoding="utf-8-sig").strip() if TOOLCHAIN_LOCATION.is_file() else ""
+)
+ANDROID_DIR = Path(configured_location) if configured_location else Path(os.environ.get("LOCALAPPDATA", "")) / "Android"
+SDK = ANDROID_DIR / "Sdk" if configured_location else Path(os.environ.get("ANDROID_HOME") or ANDROID_DIR / "Sdk")
 NDK = SDK / "ndk" / "29.0.14206865"
+ANDROID_TOOLCHAIN = NDK / "build" / "cmake" / "android.toolchain.cmake"
 NDK_LLVM = NDK / "toolchains" / "llvm" / "prebuilt" / "windows-x86_64"
 BUILD_TOOLS = SDK / "build-tools" / "36.1.0"
 ANDROID_JAR = SDK / "platforms" / "android-36" / "android.jar"
@@ -75,6 +79,13 @@ def fail(message: str) -> None:
     sys.exit(1)
 
 
+def missing_tools() -> list[Path]:
+    return [
+        path for path in (NDK, BUILD_TOOLS, ANDROID_JAR, JDK, SDL2_SOURCE, LLVM_SOURCE / "llvm")
+        if not path.exists()
+    ]
+
+
 def run(cmd: list, **kwargs) -> subprocess.CompletedProcess:
     print("  >", " ".join(str(c) for c in cmd[:3]), "...", flush=True)
     result = subprocess.run([str(c) for c in cmd], **kwargs)
@@ -107,11 +118,21 @@ def no_other_build() -> None:
 
 
 def android_cmake(source: Path, build: Path, extra: list) -> None:
-    if (build / "build.ninja").exists():
-        return
+    cache = build / "CMakeCache.txt"
+    fresh = []
+    if cache.is_file():
+        entries = dict(re.findall(
+            r"^(CMAKE_TOOLCHAIN_FILE|GSR_ANDROID_SDL2_DIR):[^=]+=(.*)$",
+            cache.read_text(encoding="utf-8"), re.M,
+        ))
+        if (Path(entries.get("CMAKE_TOOLCHAIN_FILE", "")) != ANDROID_TOOLCHAIN
+                or Path(entries.get("GSR_ANDROID_SDL2_DIR", "")) != SDL2_SOURCE):
+            fresh = ["--fresh"]
+        elif (build / "build.ninja").exists():
+            return
     print(f"Configuring {build} ...")
-    run(["cmake", "-S", source, "-B", build, "-G", "Ninja", f"-DCMAKE_MAKE_PROGRAM={ninja()}",
-         f"-DCMAKE_TOOLCHAIN_FILE={NDK / 'build' / 'cmake' / 'android.toolchain.cmake'}",
+    run(["cmake", *fresh, "-S", source, "-B", build, "-G", "Ninja", f"-DCMAKE_MAKE_PROGRAM={ninja()}",
+         f"-DCMAKE_TOOLCHAIN_FILE={ANDROID_TOOLCHAIN}",
          f"-DANDROID_ABI={ABI}", f"-DANDROID_PLATFORM=android-{MIN_SDK}",
          "-DANDROID_STL=c++_shared", "-DCMAKE_BUILD_TYPE=Release",
          f"-DGSR_ANDROID_SDL2_DIR={SDL2_SOURCE}", *extra])
@@ -145,7 +166,7 @@ def build_phone_llvm() -> Path:
         print("Configuring Clang and lld for the phone ...")
         run(["cmake", "-S", LLVM_SOURCE / "llvm", "-B", android, "-G", "Ninja",
              f"-DCMAKE_MAKE_PROGRAM={ninja()}",
-             f"-DCMAKE_TOOLCHAIN_FILE={NDK / 'build' / 'cmake' / 'android.toolchain.cmake'}",
+             f"-DCMAKE_TOOLCHAIN_FILE={ANDROID_TOOLCHAIN}",
              f"-DANDROID_ABI={ABI}", f"-DANDROID_PLATFORM=android-{MIN_SDK}",
              "-DANDROID_STL=c++_static", "-DLLVM_ENABLE_PROJECTS=clang;lld",
              "-DLLVM_HOST_TRIPLE=aarch64-linux-android",
@@ -222,55 +243,16 @@ def build_native(check_games: bool, version: str | None) -> None:
 
 
 def audit_tail_jumps(objects_dir: Path) -> None:
-    """The game code needs guest jumps to be host jumps, or long play runs
-    the stack out. GCC 15 guarantees that; Clang does it as an optimisation
-    (engine runtime_arm_types.h). Every compiled game file is checked: a call
-    followed only by restoring the stack and returning is a missed jump."""
-    objects = sorted(objects_dir.rglob("*.o"))
-    if not objects:
-        fail(f"no compiled game-code objects in {objects_dir}")
-    objdump = NDK_LLVM / "bin" / "llvm-objdump.exe"
-    call = re.compile(r"^\s+[0-9a-f]+:\s+bl\s")
-    reloc = re.compile(r"R_AARCH64_CALL26\s+(\S+)")
-    insn = re.compile(r"^\s+[0-9a-f]+:\s+(\S+)\s*(.*)$")
-
-    def missed(obj: Path) -> list[str]:
-        text = subprocess.run([str(objdump), "-dr", "--no-show-raw-insn", str(obj)],
-                              capture_output=True, text=True).stdout.splitlines()
-        found = []
-        for i, line in enumerate(text):
-            if not call.match(line) or i + 1 >= len(text):
-                continue
-            m = reloc.search(text[i + 1])
-            if not m:
-                continue
-            j = i + 2
-            while j < len(text):
-                im = insn.match(text[j])
-                if not im:
-                    j += 1
-                    continue
-                op, args = im.group(1), im.group(2)
-                if op == "ret":
-                    found.append(m.group(1))
-                    break
-                if op in ("ldp", "ldr", "add") and "sp" in args:
-                    j += 1
-                    continue
-                break
-        return found
-
-    print(f"Checking {len(objects)} game-code files for guest jumps ...")
-    bad = {}
-    with concurrent.futures.ThreadPoolExecutor(os.cpu_count() or 4) as pool:
-        for obj, calls in zip(objects, pool.map(missed, objects)):
-            if calls:
-                bad[obj.name] = calls
-    if bad:
-        for name, calls in list(bad.items())[:10]:
-            print(f"    {name}: {len(calls)} (e.g. {calls[0]})")
+    """Every guest jump must be a host jump (scripts/tail_jump_audit.py)."""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import tail_jump_audit
+    objdump = str(NDK_LLVM / "bin" / "llvm-objdump.exe")
+    try:
+        bad = tail_jump_audit.audit([objects_dir], objdump, "arm64")
+    except (RuntimeError, subprocess.CalledProcessError) as error:
+        fail(str(error))
+    if not tail_jump_audit.report(bad):
         fail("some guest jumps compiled as calls; the game could run out of stack")
-    print("    all guest jumps are host jumps")
 
 
 # ---- the files the app unpacks on the phone --------------------------------
@@ -489,24 +471,36 @@ def main() -> None:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--check-games", action="store_true")
     parser.add_argument("--package-only", action="store_true")
+    parser.add_argument("--check-tools", action="store_true", help="check Android prerequisites without building")
+    parser.add_argument("--release-progress", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--version", help="release version the launcher reports (default: the last release's)")
     parser.add_argument("--release", action="store_true",
                         help="an APK to share: not open to adb's debugging (make_release.ps1 -Android)")
     args = parser.parse_args()
+    missing = missing_tools()
+    if args.check_tools:
+        for path in missing:
+            print(f"Missing Android tool: {path}")
+        if missing:
+            sys.exit(1)
+        return
+    if missing:
+        fail(f"missing Android tool: {missing[0]}")
     global DEBUGGABLE, APP_VERSION
     if args.release:
         DEBUGGABLE = False
     if args.version and args.version != "dev":
         APP_VERSION = args.version
-    for need in (NDK, BUILD_TOOLS, ANDROID_JAR, JDK, SDL2_SOURCE, LLVM_SOURCE / "llvm"):
-        if not need.exists():
-            fail(f"missing Android tool: {need}")
     if not args.package_only:
         no_other_build()
         llvm = build_phone_llvm()
+        if args.release_progress:
+            print("@release-stage Android: building the launcher and both games", flush=True)
         build_native(args.check_games, args.version)
     else:
         llvm = LLVM_BUILD / "android" / "bin" / "llvm"
+    if args.release_progress:
+        print("@release-stage Android: packing and signing the APK", flush=True)
     apk = package(llvm)
     print(f"\nDone: {apk} ({apk.stat().st_size / (1 << 20):.0f} MB)")
     print("Copy it to the phone and open it to install.")

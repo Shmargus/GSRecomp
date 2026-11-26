@@ -1,18 +1,21 @@
 // overlay_abi.h: the ONLY contract between the host exe and a
 // runtime-compiled overlay DLL (Stage-2 self-healing recompiler).
 //
-// A dispatch miss → emit that one function's C → gcc → DLL → LoadLibrary.
-// The DLL has ZERO unresolved host symbols: at load it is handed a
-// GbaOverlayCallbacks* via the exported overlay_init(), holding a pointer
-// to the host's g_cpu and one function pointer per runtime/bus/arm ABI
-// symbol the generated code may call. This avoids exporting g_cpu (a DATA
-// symbol) from the exe, whose MinGW data auto-import is unreliable and would
-// be catastrophic if silently wrong.
+// The path from a miss to native code is: a dispatch miss, then emit that one
+// function's C, then gcc, then a DLL, then LoadLibrary.
 //
-// VERSIONING: GBA_OVERLAY_ABI_VERSION gates every load. Bump it on ANY
-// change to this struct OR to ArmCpuState's layout (runtime_arm_types.h):
-// a cached DLL built against a different ABI is rejected (FreeLibrary +
-// delete + recompile). The struct is APPEND-ONLY: never reorder or remove.
+// The DLL has ZERO unresolved host symbols. At load it is handed a
+// GbaOverlayCallbacks* through the exported overlay_init(). That struct holds:
+//   - a pointer to the host's g_cpu, and
+//   - one function pointer per runtime/bus/arm ABI symbol the generated code
+//     may call.
+// This avoids exporting g_cpu (a DATA symbol) from the exe. MinGW's data
+// auto-import is unreliable, and a silent failure there would be catastrophic.
+//
+// VERSIONING: GBA_OVERLAY_ABI_VERSION gates every load. Bump it on ANY change
+// to this struct OR to ArmCpuState's layout (runtime_arm_types.h). A cached DLL
+// built against a different ABI is rejected (FreeLibrary, delete, recompile).
+// The struct is APPEND-ONLY: never reorder or remove members.
 
 #pragma once
 

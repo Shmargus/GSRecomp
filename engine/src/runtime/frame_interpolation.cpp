@@ -170,9 +170,9 @@ bool FrameInterpolation::build_midpoint(Midpoint& out,
     }
 
     // Raster effects are captured at the point each scanline was rendered.
-    // Interpolate motion registers line-by-line; all other state is held at
-    // the newer endpoint. Missing line state is unsafe because final IO cannot
-    // reconstruct HBlank DMA/IRQ changes.
+    // Motion registers are interpolated line by line. All other state is held
+    // at the newer endpoint. Missing line state is unsafe, because the final
+    // IO values cannot reconstruct changes made by HBlank DMA or IRQs.
     const std::size_t line_bytes = kScreenHeight * kLineIoBytes;
     if (previous_->line_io.size() != line_bytes ||
         current_->line_io.size() != line_bytes ||
@@ -229,9 +229,10 @@ bool FrameInterpolation::build_midpoint(Midpoint& out,
         }
     }
 
-    // OAM slot is the hardware's stable sprite identity. Move only sprites
-    // whose non-position attributes are unchanged; transitions stay at the
-    // newer endpoint, avoiding tile/palette/shape ghosting.
+    // An OAM slot is the hardware's stable sprite identity. Only sprites
+    // whose non-position attributes are unchanged are moved. A sprite whose
+    // attributes changed stays at the newer endpoint, which avoids
+    // tile, palette and shape ghosting.
     out.oam = current_->oam;
     if (previous_->oam.size() == current_->oam.size() &&
         out.oam.size() >= 0x400) {
@@ -246,9 +247,11 @@ bool FrameInterpolation::build_midpoint(Midpoint& out,
             const int dx = wrapped_delta(a1, b1, 9);
             if ((a0 & 0xFF00u) != (b0 & 0xFF00u) ||
                 (a1 & 0xFE00u) != (b1 & 0xFE00u) || a2 != b2 ||
-                // Affine sprites can change through matrix parameters stored
-                // in other OAM slots. OBJ-window/prohibited modes are also
-                // unsafe to move independently of their masking effect.
+                // Two kinds of sprite are not moved on their own:
+                //   - Affine sprites, which can change through matrix
+                //     parameters stored in other OAM slots.
+                //   - OBJ-window or prohibited modes, which are unsafe to
+                //     move independently of their masking effect.
                 (b0 & 0x0100u) != 0 || (b0 & 0x0C00u) >= 0x0800u ||
                 std::abs(dx) > 16 || std::abs(dy) > 16)
                 continue;

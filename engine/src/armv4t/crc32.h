@@ -3,7 +3,7 @@
 // only and in armv4t (the lowest engine library) so every layer can include
 // it without linking anything. Pairs with sha1.h for asset validation: the
 // BIOS / ROM pickers quote both CRC32 and SHA-1 when an asset doesn't match;
-// the recompiler, self-heal and runtime guards use it to fingerprint code.
+// the recompiler, the run-time compiler and runtime guards use it to fingerprint code.
 
 #pragma once
 

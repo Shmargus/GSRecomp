@@ -6,7 +6,7 @@
 
 namespace gsr::intro_music {
 using gbarecomp::m4a_music::Recording;
-// Approved GS1 ROM sequences matched to the supplied recordings.
+// Approved Golden Sun: The Broken Seal ROM sequences matched to the supplied recordings.
 // Album track numbers are independent of the game song IDs.
 // USA song headers; gs::rom() gives the loaded revision's (same song
 // number, tools/build_rom_address_table.py).

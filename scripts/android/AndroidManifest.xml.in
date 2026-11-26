@@ -13,6 +13,11 @@
     <!-- Update check and Send report, as on PC. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- A game build keeps running at full speed in the background
+         (BuildService.java). -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- ROMs, Saves and Music live in a visible "Golden Sun Recompiled"
          folder on the phone's storage, for the player's file manager and a
          PC over USB (android_host.cpp link_shared_folders). Android 11+:
@@ -64,6 +69,24 @@
             android:exported="false"
             android:screenOrientation="sensorLandscape"
             android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation" />
+
+        <!-- Builds: one service per process that can start one, since it
+             must live in the process whose children are the compilers. -->
+        <service
+            android:name="io.github.shmargus.gsrecomp.BuildService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                      android:value="Compiling the game on the device" />
+        </service>
+        <service
+            android:name="io.github.shmargus.gsrecomp.SessionBuildService"
+            android:process=":session"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                      android:value="Compiling the game on the device" />
+        </service>
 
         <!-- The game (the PC's game program). -->
         <!-- Test builds (DEBUGGABLE in build_apk.py) let adb start the game

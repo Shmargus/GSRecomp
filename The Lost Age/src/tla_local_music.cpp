@@ -4,12 +4,12 @@
 //
 // The Lost Age's m4a driver is a modified copy of Golden Sun 1's, so the
 // shared policy (engine/src/runtime/local_music_m4a.h) applies with this
-// ROM's own addresses (FACTS.md, 2026-10-24 "Local music"):
+// ROM's own addresses (FACTS.md "Local music"):
 // - song table 0x081C4530, player table 0x081C44D0; music is player 1,
 //   info 0x02006A90, ten 0x50-byte tracks at 0x02006CE0 (literal pool at
 //   0x081C1FE4/0x081C1FE8; song table entries for BGM name player 1);
 // - MPlayOpen stores 0x081C09D1 as the main routine (literal 0x081C26F0), so
-//   0x081C09D0 runs once a frame with R0 = info (GS1's routine is also in
+//   0x081C09D0 runs once a frame with R0 = info (the Broken Seal's routine is also in
 //   the ROM, at 0x081C192C, but nothing calls it);
 // - MPlayStart 0x081C26F4 stores the accepted header with `str r7,[r5]` at
 //   0x081C2740;

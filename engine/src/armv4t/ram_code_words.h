@@ -2,10 +2,10 @@
 // Exact RAM-code write generations.
 //
 // The per-page epochs in runtime_arm.h advance on any write to a 4 KB page
-// that holds RAM code, so data sharing a page with copied code (TLA battle
+// that holds RAM code, so data sharing a page with copied code (The Lost Age's battle
 // data, the IWRAM stack beside 0x03007D88) made every identity check redo its
-// full byte compare or CRC: ~15-20% of TLA Turbo battle time, session
-// 20261030_115820. A checker that knows its exact byte range registers it
+// full byte compare or CRC: ~15-20% of The Lost Age's Turbo battle time
+// (measured). A checker that knows its exact byte range registers it
 // here; the page's word epoch then advances only when a store touches a
 // registered 4-byte word. Kept out of runtime_arm.h so generated code does
 // not rebuild.

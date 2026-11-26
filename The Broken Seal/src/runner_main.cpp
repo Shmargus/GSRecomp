@@ -80,6 +80,7 @@
 #include "../../shared_game/battle_retarget.h"
 #include "../../shared_game/field_character.h"
 #include "../../shared_game/challenge_mode.h"
+#include "../../shared_game/party_window_fade.h"
 #include "../../shared_game/spanish_menu.h"
 #include "../../shared_game/menu_text.h"
 #include "../../shared_game/italian_menu.h"
@@ -225,7 +226,7 @@ namespace gsr_runner {
 // Whole-image SHA-1 checks relocatable_resident_at ran (all callers) and the
 // bytes they covered; the Func_1dc8 writer path's share separately. Printed
 // with relocatable_cache_stats: the host profiler put SHA-1 at 11% of the
-// heaviest Ragnarok frames (FACTS.md) without naming the caller.
+// heaviest Ragnarok frames without naming the caller.
 unsigned long long g_relocatable_resident_hashes = 0;
 unsigned long long g_relocatable_resident_hash_bytes = 0;
 unsigned long long g_func1dc8_writer_hashes = 0;
@@ -1927,7 +1928,7 @@ void remember_golden_sun_obj_f0_rejected_context(
 // How stale a per-frame record may be and still describe the sprite being
 // committed.
 //
-// Measured in logs/objrec_20260909_203451 (the boulder cutscene): of 4,339
+// Measured in a recording of the boulder cutscene: of 4,339
 // committed sprites, 3,479 failed with reason "context-frame" -- the context
 // table's stamp did not equal the commit's frame -- and not one failed with
 // "context-no-match". In all 647 frames that contained both a success and a
@@ -1939,10 +1940,10 @@ void remember_golden_sun_obj_f0_rejected_context(
 // table is cleared exactly once per frame, one frame is the whole window --
 // this is the measured bound, not a chosen tolerance.
 //
-// Age is not what authenticates a record, and never was. The caller still
+// Age is not what authenticates a record. The caller still
 // requires an exact ATTR0/1/2 match and requires the staged coordinates to
-// truncate to the committed OAM bytes, so a stale position that no longer
-// describes this sprite is still rejected.
+// truncate to the committed OAM bytes, so a stale position that does not
+// describe this sprite is still rejected.
 constexpr std::uint64_t kGoldenSunObjRecordMaxFrameAge = 1u;
 
 bool golden_sun_obj_record_frame_current(std::uint64_t writer_frame,
@@ -1998,7 +1999,7 @@ const GoldenSunObjF0Context* find_golden_sun_obj_f0_rejected_context(
 
 // Why a committed sprite found no matching context.
 //
-// Measured 2026-09-09 in logs/objrec_20260909_211716: after the one-frame
+// Measured in a recording: after the one-frame
 // window, 3,988 of 6,319 commits fail with "context-no-match" and only 219
 // with "context-frame", so a context table for the right frame exists and
 // simply has no entry for these sprites. They cluster on one call site
@@ -4701,8 +4702,8 @@ void record_golden_sun_shadow_dma_slots(
 // address, 3 anything else. An "upload" is any DMA with destination
 // kGoldenSunOamStart and bytes == kGoldenSunOamBytes, regardless of whether
 // golden_sun_obj_provenance_dma_handoff() publishes it -- this only counts,
-// it never changes what gets published. Measurement for FACTS.md 2026-09-06
-// / 2026-09-11: which table is live during the Move Psynergy collapse.
+// it never changes what gets published. Measures which table is live during
+// the Move Psynergy collapse.
 // Accumulated monotonically, never reset here; the tracer reads the
 // per-frame delta. Same plain-array, C-linkage pattern as
 // g_ws_obj_reject_totals below.
@@ -5771,9 +5772,9 @@ void golden_sun_update_battle_backdrop(std::uint16_t dispcnt,
                 // arena never has both: the layer is a first target of an
                 // alpha blend, and it sits at priority 1. Measured across
                 // every battle snapshot on disk --
-                //   Ray, logs/maprec_20260913_190642 snap_00095: the graphic
+                //   Ray: the graphic
                 //     is BG2, BG2CNT 0x6785 (priority 1), BLDCNT 0x3f44.
-                //   Auto-attack hit, logs/maprec_20260913_193104 snap_00034:
+                //   Auto-attack hit:
                 //     the graphic is BG1, BG1CNT 0x1f81 (priority 1), BLDCNT
                 //     0x3f42.
                 // The arena states are BG1 0x1f83/0x0c04 (priority 3 and 0)
@@ -6233,7 +6234,7 @@ GoldenSunObjStagingProvenance* allocate_golden_sun_obj_staging(
 // full-precision position B324/B328 just handed us, somewhere in its own
 // bytes? This never changes what is drawn; it only tallies, per captured
 // sample, whether the record's bytes equal the captured value under a
-// handful of plausible encodings, so FACTS.md can say where (if anywhere)
+// handful of plausible encodings, so the results show where (if anywhere)
 // the true position lives in memory instead of only in flight.
 //
 // Window: the measured actor-record stride is 0x38 bytes
@@ -7026,7 +7027,7 @@ void golden_sun_obj_track_confirm(int x, int y, std::uint16_t attr0,
                                   std::uint64_t frame);
 
 // Select the provenance for the OAM image currently being rendered. Slot
-// recycling is live and frequent (FACTS.md 2026-09-06/09-11): the game
+// recycling is live and frequent: the game
 // reshuffles which character occupies which hardware OAM slot, so a record
 // keyed by slot index cannot survive it -- the slot at oam_index this frame
 // may hold a different sprite than the one that produced the record. Records
@@ -7227,7 +7228,7 @@ constexpr int kGoldenSunObjFallbackSlackX = 64;
 // Why the wrap cannot be resolved by asking "which reading is in view".
 //
 // Choosing the wrap that looks visible fails when the character is really
-// offscreen. The 2026-09-11 test drew an NPC below the screen during Move
+// offscreen. A test of that drew an NPC below the screen during Move
 // and detached shadows at the top edge. Testing the full sprite instead
 // of its origin makes more wrong positions look visible.
 //
@@ -7244,7 +7245,7 @@ constexpr int kGoldenSunObjFallbackSlackX = 64;
 // standing there is not drawn there. That is deliberate. Drawing NPCs where
 // they are not is worse, and it is what every attempt to be cleverer here has
 // produced. The real fix is to stop reading the hardware's 8-bit shorthand at
-// all -- see the sprite-table work in ROADMAP.md.
+// all.
 constexpr int kGoldenSunObjFallbackAliasFirstRawY = 160;
 constexpr int kGoldenSunObjFallbackAliasLastRawY = 207;
 // On the world map the actor table decides from raw 128 up. A town ahead of
@@ -7254,18 +7255,16 @@ constexpr int kGoldenSunObjFallbackAliasLastRawY = 207;
 // behind the player is below y 73. So raw 128..255 is "above" (raw - 256,
 // -128..-1) or "below" (raw), and the side says which; raw < 128 is 0..127
 // either way. Starting at 160 drew towns 377..449 units ahead (raw 139..158,
-// really y -117..-98) in the bottom half of the screen (gpu_rewind_0025,
-// 2026-10-14).
+// really y -117..-98) in the bottom half of the screen.
 constexpr int kGoldenSunWorldSideFirstRawY = 128;
 
 // ---- World-map actor side ---------------------------------------------------
 //
-// FACTS.md, 2026-09-29 ("World-map objects below the screen"). The world-map
-// overlay's bounds are widened (golden_sun_worldmap_range_box), so the game now
-// emits towns and caves below the view with raw OAM Y 209..248, which overlaps
+// The world-map overlay's bounds are widened (golden_sun_worldmap_range_box),
+// so the game emits towns and caves below the view with raw OAM Y 209..248, which overlaps
 // the "above the view" encoding (raw 184..255). The raw byte cannot tell them
-// apart (logs/gpu_frame_0086: town raw 206 is 162 units BELOW the player and
-// was drawn at y=-50; cave raw 215 was drawn at y=-41; frame 0087, walked south:
+// apart (measured: town raw 206 is 162 units BELOW the player and
+// was drawn at y=-50; cave raw 215 was drawn at y=-41; after walking south:
 // town raw 116, cave raw 127, correct). The game's own actor table knows which
 // side each one is on:
 //   actor pointers  [[0x03001EBC] + 0x14 + 4 * index] (0x0808BA1C, which
@@ -7315,8 +7314,7 @@ struct GoldenSunWorldActorSide {
 // The X side is needed because the widened town box switches on towns just
 // past the left edge, and those come with raw X 256+. Both readings of such an
 // X fell inside the fallback's slack, so a town 237 units left (raw 328,
-// really -184) was drawn in the right margin (gpu_rewind_0028/0029,
-// 2026-10-14).
+// really -184) was drawn in the right margin.
 struct GoldenSunWorldSide {
     int y = 0;
     int x = 0;
@@ -7383,15 +7381,14 @@ GoldenSunWorldSide golden_sun_world_map_actor_side(std::uint16_t attr0,
     // Match on the bits that do not move (shape, affine/mode flags, size), then
     // take the nearest record by position. The sprite record is updated a
     // frame ahead of the OAM copy being drawn, so while the player walks the
-    // Y/X bits differ by a pixel or so (gpu_frame_0088: cave OAM attr0 0x21D5,
+    // Y/X bits differ by a pixel or so (a cave: OAM attr0 0x21D5,
     // its record 0x21D4) and an exact attr0/attr1 match missed on those
     // frames, which made the objects flicker between the top margin and
-    // hidden (session 20260929_205119). attr1 is compared on its size bits
+    // hidden. attr1 is compared on its size bits
     // only: bits 9-13 are the rotation slot, which the game reassigns from
     // frame to frame (Vale's record 0x8001 against its OAM 0x8204, slot 0
     // against 1), so the town missed for a frame and was drawn at the top
-    // edge (gpu_rewind_0065 frame 2428), or matched another town on the
-    // wrong side and vanished (gpu_rewind_0071 frame 9115).
+    // edge, or matched another town on the wrong side and vanished.
     int side = 0, side_x = 0;
     int best = INT_MAX;
     bool tie_disagrees = false, tie_disagrees_x = false;
@@ -7440,8 +7437,8 @@ bool game_window_open_this_frame() {
 // renderer's menu_sprite rule (field_scene_renderer.cpp), which holds these
 // inside the console's 240x160. So the console's own reading is the only one
 // that can show; the providers answer nothing and the hardware rule places
-// it. A provider once put the shop's unselected Artifacts icon (OAM y 136)
-// at -120, where that clip hid it (logs/gpu_rewind_0107, frames 33-119).
+// it. A provider could put the shop's unselected Artifacts icon (OAM y 136)
+// at -120, where that clip hid it.
 bool golden_sun_menu_sprite(std::uint16_t attr2) {
     if (((attr2 >> 10) & 3u) != 0u || !game_window_open_this_frame())
         return false;
@@ -7499,7 +7496,7 @@ bool golden_sun_wide_obj_fallback_position(std::uint16_t attr0,
     // refuses. Not while a game window is open: a menu's own sprites are
     // not actors, and the selected party member bouncing to y = -4 (raw
     // 252) matched actor 16's 32x32 record and was sent below the screen
-    // (logs/gpu_rewind_0061, frames 29-33, 2026-10-01).
+    // (measured over several frames).
     const int world_side = raw_y >= kGoldenSunWorldSideFirstRawY ? world.y : 0;
     if (world_side != 0) {
         *out_x = resolved_x;
@@ -7522,8 +7519,7 @@ bool golden_sun_wide_obj_fallback_position(std::uint16_t attr0,
 
 // ---- Persistent per-character position table ------------------------------
 //
-// FACTS.md 2026-09-11 ("The sprite-to-character gap ... positions are built
-// per draw rather than stored"): a character's position exists only at the
+// Positions are built per draw rather than stored: a character's position exists only at the
 // instant the game computes it -- the draw routine is handed a temporary
 // block of coordinates, and five separate memory searches found no
 // persistent per-character table anywhere in guest RAM. During an effect
@@ -7539,7 +7535,7 @@ bool golden_sun_wide_obj_fallback_position(std::uint16_t attr0,
 // expiry window: long enough to cross the ambiguous stripe during an effect,
 // short enough that a tracker following the wrong sprite cannot persist.
 // TODO-EVIDENCE: reasoned from the measured Move cast length (>=120 frames,
-// FACTS.md 2026-09-11), not measured directly.
+// not measured directly.
 constexpr std::uint32_t kGoldenSunObjTrackOnlyRunLimit = 300;
 
 struct GoldenSunObjTrackEntry {
@@ -7562,7 +7558,7 @@ struct GoldenSunObjTrackEntry {
 
 // Fixed, allocated once, never grows: at most 64 characters are tracked at a
 // time, which comfortably covers Golden Sun's OAM budget (128 hardware
-// slots, of which FACTS.md 2026-09-11 measured ~85% permanently parked at a
+// slots, of which ~85% measured permanently parked at a
 // single off-screen sentinel, leaving 17-35 real sprites on screen even
 // during an effect).
 constexpr std::size_t kGoldenSunObjTrackSlots = 64;
@@ -7583,7 +7579,7 @@ std::array<GoldenSunObjTrackEntry, kGoldenSunObjTrackSlots>
 // both fall within radius of a real entry at once -- 8px is more than an
 // order of magnitude under that 128px ceiling, so this cannot itself
 // reintroduce the Y-axis ambiguity that sank the three earlier local rules
-// (FACTS.md 2026-09-11).
+// (measured).
 constexpr int kGoldenSunObjTrackRadius = 8;
 constexpr long kGoldenSunObjTrackRadiusSq =
     static_cast<long>(kGoldenSunObjTrackRadius) * kGoldenSunObjTrackRadius;
@@ -7591,10 +7587,10 @@ constexpr long kGoldenSunObjTrackRadiusSq =
 // Frames an entry stays usable after its last confirmation, and thus how long
 // a table slot survives an effect with no new confirmation before it is freed
 // for reuse.
-// TODO-EVIDENCE: chosen by reasoning from one measured data point. FACTS.md
-// 2026-09-11 measured one Move cast still running at frame 120 of a
-// before/during comparison (shadow_writes.csv, 180 frames before vs. 120
-// during, the capture's own window rather than the cast's true length); the
+// TODO-EVIDENCE: chosen by reasoning from one measured data point: one Move
+// cast was still running at frame 120 of a before/during comparison
+// (180 frames before vs. 120 during, the capture's own window rather than the
+// cast's true length); the
 // true distribution of Move/Lift/Carry cast lengths is not measured. 300
 // frames (~5s at ~59.7Hz, the window map_recorder.cpp's flush_signal_log
 // uses via kSignalFlushRows) is above the one measured floor yet short
@@ -7614,7 +7610,7 @@ constexpr std::uint64_t kGoldenSunObjTrackExpiryFrames = 300;
 // slot is claimed. Expired entries (unconfirmed for longer than
 // kGoldenSunObjTrackExpiryFrames) are freed while scanning; the scan runs on
 // every authenticated object, and ordinary field play authenticates most of
-// them (FACTS.md 2026-09-11), so an expired entry does not linger.
+// them, so an expired entry does not linger.
 void golden_sun_obj_track_confirm(int x, int y, std::uint16_t attr0,
                                   std::uint16_t attr1, std::uint16_t attr2,
                                   std::uint64_t frame) {
@@ -7709,9 +7705,9 @@ bool golden_sun_obj_track_lookup(int oam_index, std::uint16_t attr0,
     // itself is the answer.
     //
     // Use the remembered position to reject a bad wrap, then return this
-    // frame's coordinate. Returning the remembered coordinate made walking
-    // NPCs snap back a frame or two whenever the record path declined
-    // (observed 2026-09-11).
+    // frame's coordinate. Returning the remembered coordinate would make
+    // walking NPCs snap back a frame or two whenever the record path
+    // declined.
     //
     // Candidates are 512px (X) and 256px (Y) apart while the match radius is a
     // few pixels, so at most one candidate combination can fall near any one
@@ -7737,7 +7733,7 @@ bool golden_sun_obj_track_lookup(int oam_index, std::uint16_t attr0,
                 // the view, and if anyone happens to be standing there the
                 // match is unique and confidently wrong -- that is the
                 // detached shadow drawn over a woman at the top edge, seen
-                // in screenshots while Move was being cast, 2026-09-11.
+                // in screenshots while Move was being cast.
                 // Shape and size come from the OAM bits that do
                 // NOT change as a character animates (unlike the tile index
                 // in ATTR2, which changes every animation frame and would
@@ -7762,7 +7758,7 @@ bool golden_sun_obj_track_lookup(int oam_index, std::uint16_t attr0,
     // the record path last spoke, a walking character drifts out of the
     // match radius, and is dropped a few pixels later (seen as a child
     // running circles in Vault staying visible until it moved a little way
-    // into the bottom stripe, then clipping; 2026-09-11). The run counter
+    // into the bottom stripe, then clipping). The run counter
     // above bounds how long a character may be carried on this evidence alone.
     if (matched) {
         matched->screen_x = match_x;
@@ -7789,8 +7785,8 @@ bool golden_sun_obj_track_lookup(int oam_index, std::uint16_t attr0,
 // 0x0800B328 are both not taken, the record is r7, x is r4 and y is r6.
 // Shadow: once `cmp r6,#159; bgt` at 0x0800B27E is not taken, the record is
 // r7 + 0xC, y is r6 and x is r5 - [sp+0x10], the value the game stores next
-// (0x0800B2A6..0x0800B2B6). Read from the ROM, FACTS.md 2026-10-15.
-// Report 10 (characters above the top edge at 480x320): the fallback
+// (0x0800B2A6..0x0800B2B6). Read from the ROM.
+// For characters above the top edge at 480x320: the fallback
 // refuses raw Y 160..247, which a recorded placement answers.
 const std::uint32_t kGoldenSunFieldStateSlot = gs::ram(0x03001EBCu);
 constexpr std::uint32_t kGoldenSunMapNumber = 0x02000408u;
@@ -7807,7 +7803,7 @@ void golden_sun_sync_obj_placements(gba::GbaBus& bus) {
 // the OAM words. Its full position is still in the projection scratch and
 // preserved registers: B54A..B56C subtract the half-box and add the scaled
 // offsets. Capture that position in the same table as the field builder.
-// F12 0051: the cave's true Y reaches 256; its byte alone becomes row 0.
+// Measured: the cave's true Y reaches 256; its byte alone becomes row 0.
 // Func_94820's rain queues the same way (`bl Func_3dec` at 0x08094942).
 const std::uint32_t kGoldenSunRainQueueReturn = gs::rom(0x08094946u);
 }  // namespace
@@ -7826,7 +7822,7 @@ void golden_sun_note_projected_obj_placement(std::uint32_t entry_pc) {
         // Func_b388 projects the ground position separately from the body.
         // B5FC/B612/B614 write scratch.x - half_width and
         // scratch.y - (half_width >> 1) + 2; B64A/B652 queue record+0x0C.
-        // F12 0057: without this route Flint's shadow at row 177 fell back
+        // Without this route Flint's shadow at row 177 would fall back
         // to the eight-bit reading -79, detached in the top margin.
         const std::uint32_t half_width = bus->read32(g_cpu.R[13] + 4u);
         const int x = static_cast<std::int32_t>(
@@ -7843,8 +7839,9 @@ void golden_sun_note_projected_obj_placement(std::uint32_t entry_pc) {
         // z - height at +0x0C/+0x14/+0x10, camera x/y at [sp+8]/[sp+4],
         // each difference truncated toward zero (`bge; add 0xFFFF; asr
         // 16`), plus the life frame's offsets at r4 - 6 / r4 - 4 (r4 ends at
-        // table entry + 6, 0x08094900). Checked against F12 0052: every
-        // drop this predicts at row <= 159 is in the next frame's OAM there.
+        // table entry + 6, 0x08094900). Checked against a capture of the
+        // Vale storm: every drop this predicts at row <= 159 is in the next
+        // frame's OAM there.
         const auto px = [](std::uint32_t v) {
             const std::int32_t s = static_cast<std::int32_t>(v);
             return (s < 0 ? s + 0xFFFF : s) >> 16;
@@ -7888,9 +7885,9 @@ void golden_sun_note_obj_placement(std::uint32_t pc) {
 }
 
 // The recorded placement of this OAM entry, or null. With a game window open
-// a menu's own sprites (priority 0) keep the older rules: The Lost Age's
-// menus build them with the field's character builder, which sees them 256
-// rows up (TLA F12 tla_rewind_0023).
+// a menu's own sprites (priority 0) keep the plain hardware rules: The Lost
+// Age's menus build them with the field's character builder, which sees them
+// 256 rows up.
 const gbarecomp::ObjPlacements::Placement* golden_sun_obj_placement(
     std::uint16_t attr0, std::uint16_t attr1, std::uint16_t attr2) {
     gba::GbaBus* bus = gbarecomp::active_bus();
@@ -7932,8 +7929,8 @@ int golden_sun_wide_obj_attr_x_provider(int oam_index,
                                         &track_y)) {
             // Gated like the other obj_* counters: the providers run once
             // per object per scanline, so an ungated increment counts ~160x
-            // per object per frame (measured 2,732 "per frame" in session
-            // 20260911_191138, against 128 sprites).
+            // per object per frame (measured 2,732 "per frame" against 128
+            // sprites).
             if (gba::g_ws_obj_census_line) ++g_ws_obj_from_track_total;
             *out_x = track_x;
             return 1;
@@ -7999,7 +7996,7 @@ int golden_sun_wide_obj_attr_y_provider(int oam_index,
             g_golden_sun_wide_extra_bottom,
             // Flint's negative world-event placement keeps its native
             // exception. A projected object below the view must not wrap
-            // back to the top when its full Y passes 255 (F12 0051).
+            // back to the top when its full Y passes 255.
             placed->y < 0 && bus_read_u16(kGoldenSunMapNumber) == 2u);
         record_obj(GoldenSunObjYOutcome::AcceptedProvenance);
         return 1;
@@ -8116,7 +8113,7 @@ int golden_sun_wide_obj_attr_y_provider(int oam_index,
         signed_provenance_matches)) {
     case gsr::widescreen::GoldenSunObjYResolution::SignedProvenance:
         // Never hide what the handheld shows: Flint was recorded at -176
-        // with OAM 80 (gpu_rewind_0012 of bug_report_20261005_094058).
+        // with OAM 80.
         *out_y = gsr::widescreen::golden_sun_obj_y_shown_reading(
             provenance.logical_y, attr0, attr1,
             g_golden_sun_wide_extra_top, g_golden_sun_wide_extra_bottom,
@@ -8446,7 +8443,7 @@ int golden_sun_wide_conditional_branch(std::uint32_t instruction_pc,
         }
         // The view's own bottom margin, not Wide's 40 rows: at Extra Wide a
         // Lalivero chest 40 rows below the screen vanished at row 200
-        // (gpu_rewind_0014 frame 15, back at 0015 frame 81; 2026-10-14).
+        // (measured).
         const std::int32_t margin_end = static_cast<std::int32_t>(
             gsr::widescreen::kNativeHeight + g_golden_sun_wide_extra_bottom);
         if (!overridden && golden_sun_expanded_obj_view_active() &&
@@ -8458,7 +8455,7 @@ int golden_sun_wide_conditional_branch(std::uint32_t instruction_pc,
         }
         // A sprite entering the bottom margin (never on screen last frame,
         // so never authorized above) -- the oars as the ship's deck scrolls
-        // (gpu_rewind_0092: parked at 199 until their real row was <= 159).
+        // (measured: parked at 199 until their real row was <= 159).
         // Only when its box cannot wrap to the console's top row.
         std::uint16_t attr0 = 0, attr1 = 0, attr2 = 0;
         if (!overridden && golden_sun_expanded_obj_view_active() &&
@@ -8480,8 +8477,7 @@ int golden_sun_wide_conditional_branch(std::uint32_t instruction_pc,
     // World-map sprite decisions near the right edge, one line each (VRAM
     // map write trace on, map number 2, bounded). Towns vanish there at an
     // OAM x of 235..244 although every widened x route admits them, so this
-    // names the site and value that actually drops them (FACTS.md
-    // 2026-09-24). C6FA's operand is 16.16 fixed point.
+    // names the site and value that actually drops them. C6FA's operand is 16.16 fixed point.
     if (golden_sun_wide_diagnostics_enabled() &&
         bus_read_u16(0x02000408u) == 2u &&
         (instruction_pc == GS_ROM(0x0800B324u) || instruction_pc == GS_ROM(0x0800B3D2u) ||
@@ -8793,7 +8789,7 @@ void golden_sun_fast_iwram_write_observer(std::uint32_t address,
     // stores can be reconstructed from the live word.
     // The record census is read only by the diagnostics report. Without
     // diagnostics it cost a 4096-entry linear search per store in its window
-    // (simpleperf on a phone, 14 November 2026: ~9% of the game thread in
+    // (simpleperf on a phone: ~9% of the game thread in
     // battle).
     if (golden_sun_wide_diagnostics_enabled()) {
         note_golden_sun_obj_record_write(g_cpu.R[15], address, size);
@@ -9002,15 +8998,15 @@ bool gpu_field_only_enabled() {
 
 // Game windows (menus, dialogue, settings) borrow BG0's character block for
 // their font and frame pieces. The room's layers can share that block
-// (BG3CNT 0x0503 and BG0CNT 0x0400 both use block 0 in gpu_rewind_0025), and
+// (BG3CNT 0x0503 and BG0CNT 0x0400 both use block 0 on the world map), and
 // on hardware a menu covers the screen, so the borrowed tiles never show
 // under the room; in the expanded margins they showed as scraps of menu text.
 // While no window is open this keeps a copy of the background graphics;
-// while one is open the margins read the copy instead. FACTS.md 2026-09-24.
+// while one is open the margins read the copy instead.
 //
 // The copy is the whole 64 KB background area, whatever the layers'
 // character bases are: menus also write beyond BG0's first 16 KB block.
-// Djinn and Status screens (logs/gpu_frame_0077/0078): the ground layer's
+// Djinn and Status screens (measured): the ground layer's
 // margin tiles 517..1015 sit in block 1, where the menu's second text bank
 // lives (window block +0xEA2 set), and the tree/cliff layers read block 2.
 //
@@ -9019,7 +9015,7 @@ bool gpu_field_only_enabled() {
 // between screens, so one empty frame would copy the menu's own graphics in
 // as the "room".
 //
-// The colours too (2026-09-26, logs/gpu_frame_0079/0080): menus load their
+// The colours too: menus load their
 // own palettes over some of the field's background banks -- bank 0 held
 // pure red/green/blue/white on the Status screen -- so room tiles in the
 // margins came out pink and blue with their shapes intact. The 256
@@ -9078,19 +9074,17 @@ void build_room_vram(const std::vector<std::uint8_t>& vram,
     std::copy(g_room_char_copy.begin(), g_room_char_copy.end(), out->begin());
     // A screen-wide palette effect (the Vale storm's lightning flash, a fade,
     // a tint) changes most used banks of 0-13 in one frame (lightning: 211
-    // entries in banks 0-13, not 14 or 15; gpu_rewind_0004 of
-    // bug_report_20261005_094058; over all saved rewinds, frames changing 4+
-    // banks changed 10 of 12 to all of them, a fade leaving a bank or two
+    // entries in banks 0-13, not 14 or 15; over all saved captures, frames
+    // changing 4+ banks changed 10 of 12 to all of them, a fade leaving a bank or two
     // unchanged by rounding). A menu changes only its own few banks in a
     // frame (Status 0, 1, 14; Djinn 0, 1, 4-7, 14; Item none). So the
     // decision is per frame and per bank: a frame that changes more than half
     // of the room's banks is an effect and the copy follows it; banks changed
     // in any other frame are the menu's and keep the copy's colours until the
-    // copy is retaken. Comparing against the copy instead (the earlier rule)
-    // failed when both happened: a lightning flash under the field menu, then
+    // copy is retaken. Comparing against the copy instead would fail when
+    // both happened: a lightning flash under the field menu, then
     // the Status screen -- every bank differed from the copy, so the menu's
-    // banks 0 and 1 were taken as part of the flash (gpu_rewind_0087, FACTS
-    // 2026-11-04). Banks 14 and 15 are the windows' own and always come from
+    // banks 0 and 1 would be taken as part of the flash. Banks 14 and 15 are the windows' own and always come from
     // the copy.
     if (g_room_palette_previous.size() == kBgPaletteEntries) {
         std::uint16_t changed = 0;
@@ -9156,9 +9150,9 @@ bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
 //
 // Opening the menu on the world map switches the screen from the world map's
 // mode 2 to mode 0 text layers with the same map blocks (BG3 map block 8,
-// BG2 map block 10; logs/gpu_frame_0081.bin, 2026-09-26: DISPCNT 0x1F40,
+// BG2 map block 10; measured: DISPCNT 0x1F40,
 // BG2CNT 0xAA0E, BG3CNT 0xA80A). The widened margins are only sourced from
-// the world map in mode 2, so they went black for as long as the menu was
+// the world map in mode 2, so they would go black for as long as the menu was
 // open. The camera cannot move while a menu is open, so the margins of the
 // last world-map frame before it are still the right picture: keep them,
 // and paint them back around the live native picture on menu frames.
@@ -9167,14 +9161,14 @@ std::uint32_t g_world_margin_w = 0;
 std::uint32_t g_world_margin_h = 0;
 // True when this frame's margins were drawn from the decoded, checked world
 // map (set where upload_world_map is called). A mode 2 frame without it has
-// scrambled margins, and holding one kept that garbage on screen for the
-// whole menu (logs/gpu_frame_0101.bin, 2026-09-30).
+// scrambled margins, and holding one would keep that garbage on screen for the
+// whole menu.
 bool g_world_map_source_ok = false;
 // The background palette (BGR555) when the margins were saved, and for each
 // distinct saved margin colour the palette index it was drawn from, so the
 // held margins can follow a palette effect started after the save: the
 // world map's Psynergy tint turns the whole palette red (average 18,4,4
-// against 10,18,20; logs/gpu_frame_0102.bin, 2026-09-30) while the held
+// against 10,18,20) while the held
 // margins stayed green.
 gsr::HeldPaletteEffect g_world_palette_effect;
 
@@ -9298,8 +9292,7 @@ void world_map_remember_settled(const std::shared_ptr<const gsr::GpuFieldCapture
     g_world_palette_effect.save(capture.pal);
 }
 
-// The R-button map over the world map (gpu_rewind_0105/0106, FACTS
-// 2026-11-19): mode 0 with BG1 in 256 colours, BG2 and BG3 off, no window,
+// The R-button map over the world map: mode 0 with BG1 in 256 colours, BG2 and BG3 off, no window,
 // map number (0x02000408, WorldMapSource's) 2. Its picture is one fixed
 // 240x160 screen (BG1 tiles 0x1A8.., scroll 0,0): no more map exists past
 // its edges, so the wide view zooms it rather than holding the world map
@@ -9360,8 +9353,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     if (mode == 2u) {
         // The battle flash: rows switched to mode 0 for a band of the
         // game's solid fill layer (BG1, tile 0x7F, palette 15), every other
-        // frame, growing from the middle (gpu_rewind_0087, frames
-        // 1684-1696). The graphics card draws a frame in one mode, so those
+        // frame, growing from the middle. The graphics card draws a frame in one mode, so those
         // rows came out as world map; paint them, across the margins too,
         // in the one colour the console draws there.
         const gsr::FieldScene& sc = capture.scene;
@@ -9399,8 +9391,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     const std::uint32_t x0 = (width - 240u) / 2u;
     const std::uint32_t y0 = (height - 160u) / 2u;
     // A flat picture -- the battle flash fading from white to black, the
-    // game's fill layer over the whole screen (gpu_rewind_0087, frames
-    // 1698-1714) -- is no menu over the map: the margins take its colour.
+    // game's fill layer over the whole screen -- is no menu over the map: the margins take its colour.
     {
         std::uint8_t flat[3];
         std::memcpy(flat, rgb + (std::size_t{y0} * width + x0) * 3u, 3);
@@ -9440,7 +9431,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
         g_world_palette_effect.reset_indices();
     }
     // No settled world-map frame to hold, as when a Djinn event switches to
-    // mode 0 straight away (logs/gpu_frame_0083.bin, Flint, 2026-09-26): the
+    // mode 0 straight away (Flint's Djinn event): the
     // margins would show the world map's rotation-layer data read as text
     // layers, which is scrambled tiles. Black instead.
     if (g_world_margin_w != width || g_world_margin_h != height ||
@@ -9500,12 +9491,12 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
 // Sprite edge continuity: see src/obj_y_continuity.h. Always on.
 // Field frames in the expanded view only. Sprite recorder logs the first
 // 400 changes; normal play must not fill the launcher's pipe with these
-// per-sprite diagnostics (Djinn menu report 190853).
+// per-sprite diagnostics.
 void apply_obj_y_continuity_if_enabled(gsr::FieldScene* scene,
                                        const std::uint8_t* oam) {
     static gsr::ObjYContinuity state;
     static unsigned reported = 0;
-    // The world map too (2026-11-08, gpu_rewind_0096): its actor table
+    // The world map too: its actor table
     // places towns, but a Psynergy's sparkles rising off the top (raw Y
     // 216..233, really -40..-23) have no actor and vanished at the old top
     // edge. Towns the table placed are not guesses and stay as they are.
@@ -9632,6 +9623,7 @@ void gpu_field_capture_hook() {
     capture->oam.assign(bus->oam_ptr(), bus->oam_ptr() + 1024);
     capture->pal.assign(bus->pal_ptr(), bus->pal_ptr() + 1024);
     capture->window_open = game_window_open();
+    capture->fade = gsr::party_window_fade::find(*bus);
     capture->valid = true;
     g_gpu_field_capture = capture;
 }
@@ -9695,7 +9687,7 @@ bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
     renderer.upload_room(capture.ewram.data(),
                          capture.ewram.size());
     // The world map beyond the game's own 512-pixel ring, for the margins
-    // (FACTS.md, 2026-09-25). Checked against the pieces the game loaded
+    // Checked against the pieces the game loaded
     // every frame; off whenever that check fails or this is not the world map.
     {
         static gsr::WorldMapSource world_map;
@@ -9708,7 +9700,7 @@ bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
             renderer.upload_world_map(world_map.tiles().data(),
                                       world_map.generation());
             // A rebuild the screen does not agree with, when an earlier map
-            // exists: keep the earlier one (FACTS.md 2026-10-07). Checked on
+            // exists: keep the earlier one. Checked on
             // the first frame that can be compared (a mode 2 world frame).
             if (world_map.generation() != checked_generation) {
                 const int agree =
@@ -9729,7 +9721,7 @@ bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
     // The effect layer in a battle: a non-wrapping affine BG2, or another
     // layer showing the canvas as a tile block. Its canvas base and size come
     // from the scene's own registers, never a remembered address, because the
-    // game moves both between spells (FACTS.md, 2026-09-18).
+    // game moves both between spells.
     {
         const gsr::FieldScene& sc = capture.scene;
 
@@ -9737,8 +9729,8 @@ bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
         if (sc.video_mode == 1) {
             const gsr::SceneLayer& bg2 = sc.layers[2];
             // The stretched canvas (non-wrapping BG2), else a layer whose map
-            // shows the canvas as a tile block: a wrapping BG2 (Ray,
-            // gpu_rewind_0046) or BG1 (hit sparks, gpu_rewind_0047).
+            // shows the canvas as a tile block: a wrapping BG2 (Ray)
+            // or BG1 (hit sparks).
             if (bg2.enabled && bg2.affine && !bg2.wraps)
                 effect_layer = 2;
             else
@@ -9779,6 +9771,7 @@ bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
         }
     }
     renderer.set_menu_open(capture.window_open);
+    gsr::party_window_fade::apply(renderer, capture.fade);
     // The title flare's halos alternate frame by frame (sprite_flicker.h).
     renderer.set_flicker_smoothing(gbarecomp::temporal_blend_weight_for_index(
         gbarecomp::flicker_reduction_index()));
@@ -10194,7 +10187,7 @@ bool hard_mode_text_character(std::uint32_t original,
 // The world-map overlay (rom_77a7c8, OvlFunc_598 at 0x02008598) switches each
 // town and cave on or off by a box around the camera's focus: x within
 // -160..+160 and z within -300..+200 world units, the flag at object + 0x54.
-// Towns vanished at the old right edge because of it (FACTS.md, 2026-09-25).
+// Towns vanish at the stock right edge because of it.
 // In the expanded view the x bounds and both z bounds grow; the sprite
 // routines after it still trim to the screen (Func_c62c's top test stops at
 // y -(32 + top margin)). Operands are the stock values: the ldrs at
@@ -10202,7 +10195,7 @@ bool hard_mode_text_character(std::uint32_t original,
 // 0x020085D6 (160) and 0x020085E6 (200), each shifted left 16 by the next
 // instruction. The upper z bound: towns' top edge sits at y -73 at z -300
 // and at -122 by z -460 (fit y = -476 + 455954 / (830 - z), 0.9 px rms over
-// the towns in all saved rewinds, 2026-10-14); Extra Wide's 80-row margin needs
+// the towns measured in captures); Extra Wide's 80-row margin needs
 // -112 for a 32-px town, Wide's 40 needs -72, which the stock -300 just met.
 // Returns -1 for any other site.
 int golden_sun_worldmap_range_box(std::uint32_t pc, std::uint32_t original,
@@ -10232,7 +10225,7 @@ int golden_sun_worldmap_range_box(std::uint32_t pc, std::uint32_t original,
     return 1;
 }
 
-// Field camera clamp, Func_10230 (ROM, FACTS.md 2026-10-01). S =
+// Field camera clamp, Func_10230 (ROM). S =
 // [0x03001E70]; the camera's top-left is the focus + (-120, -96), clamped to
 // [S+0xEC, S+0xF4 - 240] in x and [S+0xF0, S+0xF8 - 160] in y (16.16; the
 // 240 and 160 are the literals at 0x08010404 and 0x08010408). Those bounds
@@ -10253,8 +10246,8 @@ const std::uint32_t kCameraMaxYLiteralPc = gs::rom(0x08010288u); // -160 << 16
 // y: lo in lr, hi = [S+0xF8] - [S+8] - 160 in r3, y in r6. Its minimum is a
 // register add, so the hook takes over the final step instead: the ble is
 // forced through to `adds r7,r1,#imm` / `adds r6,r3,#imm` with imm chosen
-// to land on clamp(value, lo + inset, hi). rewinds 0098/0099: camera at the
-// stock limit, the Func_10230 hooks alone never ran while walking.
+// to land on clamp(value, lo + inset, hi). Measured with the camera at the
+// stock limit: the Func_10230 hooks alone never ran while walking.
 const std::uint32_t kFollowMaxXLiteralPc = gs::rom(0x0801004Au);  // -240 << 16
 const std::uint32_t kFollowMaxYLiteralPc = gs::rom(0x08010062u);  // -160 << 16
 const std::uint32_t kFollowClampXBranchPc = gs::rom(0x0801007Cu); // ble, r7 vs r1
@@ -10267,12 +10260,12 @@ struct CameraInset {
 };
 
 // The title screen runs on the field camera too (map number 1, bounds
-// 0..512 in both axes): an inset there moved the logo 60 px left and 40 up
-// and pulled hidden rows of its map into view (gpu_rewind_0100; every map 1
-// capture, maprec "Title" included, is the title or its file menu).
+// 0..512 in both axes): an inset there would move the logo 60 px left and 40
+// up and pull hidden rows of its map into view (map 1 is only ever the title
+// or its file menu).
 // The live number is not enough: on the Continue screen it follows the
-// highlighted save (1 -> 111, "Tolbi-bound Ship", gpu_rewind_0143 frame 96)
-// while the title is still showing, as in The Lost Age (TLARecomp be0078e).
+// highlighted save (1 -> 111, "Tolbi-bound Ship") while the title is still
+// showing, as in The Lost Age.
 // So the number is taken when a room's camera is set up (Func_10230) and
 // kept until the next room; a live 0 or 1 (boot, title) resets it.
 constexpr std::uint32_t kCameraMapNumberAddr = 0x02000408u;
@@ -10315,12 +10308,12 @@ CameraInset golden_sun_camera_inset() {
     return inset;
 }
 
-// Spell spark loops (FACTS.md, 2026-10-02). Ten spell routines share one
+// Spell spark loops. Ten spell routines share one
 // shape: a particle record is moved, then bounds tests (x past the canvas,
 // y < 0) jump straight to the instruction after the stamp call
 // `bl 0x080072F4` (`bx r4`), so a spark that left the canvas keeps moving
 // but is not drawn. Spark Plasma (0x080D4576) and Supernova (0x080D4BC4)
-// were identified in play from the stack of rewinds 0103/0104; the other
+// were identified in play from the call stack; the other
 // eight were found by the same shape over the whole ROM (396 calls to
 // 0x080072F4, exactly these ten have a bounce `b` to the join followed by
 // x and y-bound tests to it). The argument setup between a test and the
@@ -10453,7 +10446,7 @@ int golden_sun_camera_clamp_value(std::uint32_t pc, std::uint32_t original,
     return 1;
 }
 
-// Iris rows (FACTS.md 2026-10-07, "Iris close leaves a full-width strip").
+// Iris rows (FACTS.md "Iris close leaves a full-width strip").
 // The window effects in Func_8f52c build each row's WIN0H from
 // sqrt(R^2 << 16 - (3 * d * d) << s), d = row - centre, R <= 160. The camera
 // inset can put the centre (the player) below the console screen; past
@@ -10578,7 +10571,7 @@ int golden_sun_thumb_alu_immediate(std::uint32_t pc, std::uint32_t original,
 // (the -128 << 16 is this literal, 0x080949A4, added to both) and lands it
 // at ground height Func_897c(0, x, z). In the Vale storm that height is 0
 // while the party stands on raised ground, so the drops land 256 rows below
-// the camera top (F12 0053: every drop's z - height - camera y in 128..383,
+// the camera top (measured: every drop's z - height - camera y in 128..383,
 // x 69..323, the object at (196, 256) in all 120 frames): the wider view's
 // top had no rain. In the expanded view the offset instead centres the
 // rain on the view: a streak covers its landing spot - 160 .. + 4 (life
@@ -10735,10 +10728,10 @@ int golden_sun_thumb_literal(std::uint32_t pc, std::uint32_t original,
 // against the old screen before queueing it with Func_3dec: `x + 16` (or
 // `x + 15`) unsigned against 255, then y against -32 and 159. World-map towns
 // vanish at the old right edge on a route none of the Func_b168/b388/c62c
-// hooks see (FACTS.md, 2026-09-24). In the expanded view the x test and the
+// hooks see. In the expanded view the x test and the
 // lower y test admit the margins; the upper y test is kept, because an 8-bit
 // OAM y below the screen cannot be told from one above it. Func_94820's (the
-// Vale storm's rain, F12 0050/0052) is the exception: its drops are placed
+// Vale storm's rain) is the exception: its drops are placed
 // by their full position (golden_sun_note_projected_obj_placement), so its
 // upper test admits the bottom margin for a box that cannot wrap onto the
 // console's top rows. Without it the storm had no rain below the screen:
@@ -10815,7 +10808,7 @@ int golden_sun_worldmap_sprite_branch(std::uint32_t pc, std::uint32_t original,
 // -32..271) and `y > -32 << 16` (BLE at 0x0809B8C8, r0), then y < 224.
 // The Djinni-join sparkles rise from the Djinni through it; in the expanded
 // view they appeared only once their box's left edge was back at x 263
-// (gpu_rewind_0109/0110, every sparkle's first OAM x is 262 or 263). X and
+// (measured: every sparkle's first OAM x is 262 or 263). X and
 // the lower Y bound admit the margins as Func_94820's do; the stock upper
 // bound already reaches row 223. Returns -1 for any other PC.
 int golden_sun_particle_sprite_branch(std::uint32_t pc, std::uint32_t original,
@@ -10850,7 +10843,7 @@ int golden_sun_particle_sprite_branch(std::uint32_t pc, std::uint32_t original,
 // third at y + 8) and queues them only while `cmp r3,#0xAF; bhi` passes with
 // r3 = y + 16, i.e. -16 <= y <= 159. In the expanded view the rows vanished
 // while still inside the top margin and popped back in at y -16
-// (logs/gpu_rewind_0141 frames 54-60). Admit the top band down to
+// (measured over several frames). Admit the top band down to
 // the rows' last visible line; the lower band is kept for the same 8-bit Y
 // reason as the world-map sprites above. The site is checked against the
 // instruction bytes, so another room's code at this address is untouched.
@@ -11013,7 +11006,7 @@ int main(int argc, char** argv) {
     gsr_install_crash_snapshot_writer();
     gsr::unpacker_catch_install();
     gsr::unpacker_guard_install(GS_ROM(0x08002808u));  // Func_2808 (FACTS.md)
-    // Func_2544, DMA'd to the same 0x03006000 (FACTS.md 2026-10-16)
+    // Func_2544, DMA'd to the same 0x03006000 (FACTS.md)
     gsr::unpacker_guard_install_format0(GS_ROM(0x08002544u));
     // The payload-free producer trace stays opt-in
     // (GBARECOMP_VRAM_MAP_TRACE=1).
@@ -11085,15 +11078,24 @@ int main(int argc, char** argv) {
         field::install(walking_character);
         gbarecomp::config_ui_set_game_page([] {
             field::draw();
+            gsr::party_window_fade::draw();
             gsr::run_sheet::draw();
         });
+        // Fallen heroes in the menu (party_window_fade.h). Window records:
+        // in-use indices 0..6 only in 112 captures; the party window is 0.
+        // Join pieces 0x018 top, 0x019 bottom.
+        static const gsr::party_window_fade::Game party_window{
+            gsr::settings_page::kWindowBlockSlot, 0u, 0x500u, 8, 0x018u, 0x019u,
+            0x02000040u, 0x02000438u, 0x02000500u, 0x14Cu, 0x38u,
+        };
+        gsr::party_window_fade::install(party_window);
         gsr::run_sheet::tbs::install();
         gsr::save_editor::tbs::install();
         gbarecomp::config_ui_set_cheats_page(gsr::save_editor::draw);
         // Challenge Mode (challenge_mode.h). Its four bytes: save header
         // 0x02000028..2B, saved with the file (block 0 payload +0x28) but never
         // written by the header builder 0x0801F818 and zero in all 122 saved
-        // first blocks measured (FACTS.md 4 November 2026).
+        // first blocks measured.
         // HP share +0x14 as the HP setter 0x080782A0 leaves it; party of 4.
         static const gsr::challenge::Game challenge{
             0x02000028u, 0x02000040u, 0x02000438u, 0x02000500u, 0x14Cu, 0x38u, 0x14u,
@@ -11144,7 +11146,7 @@ int main(int argc, char** argv) {
         // The camera inset keys off the map number taken at the last room
         // setup; a state loaded from the title screen skips that setup, so
         // the inset would stay off and the view show 60/40 px past the room's
-        // edge (gpu_frame_0129/0130). Take the loaded room's.
+        // edge. Take the loaded room's.
         g_camera_room_map = bus_read_u16(kCameraMapNumberAddr);
     });
     // Two fresh, single-purpose gbarecomp hooks (nothing else installs
@@ -11170,14 +11172,8 @@ int main(int argc, char** argv) {
     options.keyinput_filter = cheat_menu_keyinput_filter;
     options.paused_overlay = cheat_menu_paint;
     options.save_extension_bytes = gsr::save_files::tbs::kExtensionBytes;
-    gsr::qol::switches = kGameSwitches;
-    // The player's switches are Quality of Life rows; F1 keeps only the
-    // developer-only one after them.
-    gsr::qol::switch_count = kPlayerGameSwitchCount;
+    gsr::qol::set_switches(kGameSwitches, kGameSwitchCount);
     install_quality_of_life();
-    gbarecomp::config_ui_set_game_switches(
-        kGameSwitches + kPlayerGameSwitchCount,
-        gbarecomp::developer_session() ? kGameSwitchCount - kPlayerGameSwitchCount : 0);
     // Localized and Portuguese ROMs get their own F1 menu and settings page two.
     if (gs::rom_version() == gs::RomVersion::Spain)
         gbarecomp::config_ui_set_translations(

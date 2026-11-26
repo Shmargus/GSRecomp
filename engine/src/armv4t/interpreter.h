@@ -2,8 +2,8 @@
 //
 // Executes one decoded `Instr` against a `CPUState` and a `Bus`. It is the
 // semantic and timing reference for the recompiled code. Generated code
-// never calls it; the runtime may bridge a dispatch miss through it (see
-// PRINCIPLES.md "Self-healing").
+// never calls it; the runtime may bridge a dispatch miss through it (code first seen
+// at run time is compiled on the spot).
 //
 // Design points:
 // - Stateless API: each call takes everything it needs. No hidden

@@ -3,10 +3,15 @@
 #include "collection_preferences.h"
 #include "launcher_common.h"
 #include "build_resources.h"
+#include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <map>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -15,6 +20,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <tlhelp32.h>
 #else
 #include <cerrno>
 #include <csignal>
@@ -34,7 +40,124 @@ struct BuildSnapshot {
     bool running = false, finished = false, succeeded = false;
     int done = 0, total = 0;
     std::string stage, error;
+    // Feedback while it runs; build_feedback() below puts it into words.
+    // Times are seconds. "quiet" is since the build last printed anything,
+    // "idle" since it last used the processor (-1: cannot tell here).
+    double elapsed = 0, step_elapsed = 0, quiet = 0, idle = -1;
+    double longest_quiet = 0;      // longest pause so far in this build
+    // The previous successful build of this game on this PC (-1: none).
+    double last_total = -1, last_step = -1, last_step_quiet = -1;
+    int cpu_percent = -1;          // the build's share of the whole PC
+    std::uint64_t free_ram = 0, total_ram = 0;
+    std::string activity;          // its latest output line (developer builds)
+    std::string other_build;       // a build program running outside this build
+    fs::path log;
 };
+
+// How long each step of the last successful build took on this PC and its
+// longest pause, so a slow or silent step can be compared with a measured
+// run instead of a guessed limit.
+struct BuildStepTime { std::string step; double seconds = 0, quiet = 0; };
+struct BuildTimes { double total = -1; std::vector<BuildStepTime> steps; };
+inline std::string build_step_key(std::string stage) {
+    // "Compiling the game (144 files)" is the same step with another count.
+    if (const auto open = stage.find(" ("); open != std::string::npos) stage.erase(open);
+    for (char& c : stage) if (c == '\t' || c == '\r' || c == '\n') c = ' ';
+    return stage;
+}
+inline BuildTimes load_build_times(const fs::path& file) {
+    BuildTimes times;
+    std::ifstream in(file, std::ios::binary);
+    for (std::string line; std::getline(in, line);) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        std::istringstream fields(line);
+        std::string kind;
+        std::getline(fields, kind, '\t');
+        if (kind == "total") fields >> times.total;
+        else if (kind == "step") {
+            BuildStepTime step;
+            std::string seconds, quiet;
+            if (std::getline(fields, seconds, '\t') && std::getline(fields, quiet, '\t') &&
+                std::getline(fields, step.step)) {
+                try { step.seconds = std::stod(seconds); step.quiet = std::stod(quiet); }
+                catch (const std::exception&) { continue; }
+                times.steps.push_back(std::move(step));
+            }
+        }
+    }
+    return times;
+}
+inline void save_build_times(const fs::path& file, const BuildTimes& times) {
+    std::ostringstream out;
+    out << "total\t" << times.total << "\n";
+    for (const auto& step : times.steps)
+        out << "step\t" << step.seconds << "\t" << step.quiet << "\t" << step.step << "\n";
+    const auto text = out.str();
+    std::string ignored;
+    gba::replace_file(file, text.data(), text.size(), &ignored);
+}
+
+inline std::string build_clock(double seconds) {
+    const long long s = std::max(0LL, static_cast<long long>(seconds + 0.5));
+    char text[32];
+    if (s >= 3600) std::snprintf(text, sizeof(text), "%lld:%02lld:%02lld", s / 3600, s / 60 % 60, s % 60);
+    else std::snprintf(text, sizeof(text), "%lld:%02lld", s / 60, s % 60);
+    return text;
+}
+
+// One wording for every launcher, plain enough for a player.
+// `summary`: the time so far against the last build here. `detail`: what it
+// is doing now or, after a pause longer than any before, a verdict first
+// ("Still working", "Slower than last time", "Looks stuck") and then why.
+// `level`: 0 normal, 1 slower than last time, 2 looks stuck (no output and
+// no processor use for that long).
+struct BuildFeedback { std::string summary, detail; int level = 0; };
+inline BuildFeedback build_feedback(const BuildSnapshot& b) {
+    BuildFeedback out;
+    out.summary = "Building for " + build_clock(b.elapsed);
+    if (b.last_total > 0) out.summary += " (last time: " + build_clock(b.last_total) + " in total)";
+    if (b.last_step > 0)
+        out.summary += ". This step: " + build_clock(b.step_elapsed) + " (last time: " + build_clock(b.last_step) + ")";
+    // A pause counts as long once it beats every pause of this build so far
+    // and this step's longest pause in the last build. The one-minute floor
+    // is NOT measured: it keeps the first pauses of a build (before any
+    // longer pause has been seen) from being called stuck. Replace it with
+    // a measured value once real stalls have been recorded.
+    constexpr double unmeasured_floor = 60;
+    const double usual = std::max({b.longest_quiet, b.last_step_quiet, unmeasured_floor});
+    if (b.quiet <= usual) {
+        if (!b.activity.empty()) out.detail = "Now: " + b.activity;
+        return out;
+    }
+    const std::string quiet = build_clock(b.quiet);
+    const std::string other = b.other_build.empty() ? "" :
+        " Another build is running at the same time (" + b.other_build + "), which slows both down.";
+    char memory[64] = "";
+    if (b.total_ram)
+        std::snprintf(memory, sizeof(memory), " Free memory: %.1f of %.1f GB.",
+                      b.free_ram / 1073741824.0, b.total_ram / 1073741824.0);
+    if (b.idle >= 0 && b.idle > usual) {
+        out.level = 2;
+        out.detail = "Looks stuck: nothing has happened for " + quiet +
+                     " and the build is not using the processor." + other + memory +
+                     " Click here to see the build log, or cancel and build again.";
+        return out;
+    }
+    const std::string working = b.cpu_percent >= 0
+        ? "the processor is " + std::to_string(b.cpu_percent) + "% busy with it"
+        : std::string("it is still running");
+    if (b.last_step_quiet >= 1 && b.quiet > b.last_step_quiet) {
+        out.level = 1;
+        out.detail = "Slower than last time: no news for " + quiet + " (last time at most " +
+                     build_clock(b.last_step_quiet) + "), but " + working + ", so let it run." +
+                     other + memory + " Click here to see the build log.";
+        return out;
+    }
+    out.detail = "Still working: no news for " + quiet + ", but " + working +
+                 ". Some steps run quietly; let it run." + other;
+    if (!b.activity.empty()) out.detail += " Last: " + b.activity;
+    return out;
+}
 
 class CollectionBuild {
     std::mutex mutex_;
@@ -56,12 +179,193 @@ class CollectionBuild {
     }
 #else
     pid_t pid_ = 0;
+    std::map<int, std::uint64_t> cpu_by_process_;  // clock ticks per build process
 #endif
+    // Feedback (BuildSnapshot): when things last happened, this build's
+    // steps and the last successful build's, all under mutex_.
+    using Clock = std::chrono::steady_clock;
+    Clock::time_point started_, step_started_, last_output_, last_cpu_, last_sample_, last_other_check_;
+    double step_quiet_ = 0;
+    bool cpu_known_ = false, compiled_ = false;
+    std::uint64_t cpu_time_ = 0;
+    BuildTimes previous_, current_;
+    fs::path times_file_;
+    static double seconds(Clock::duration d) { return std::chrono::duration<double>(d).count(); }
+    double step_done_before_locked() const {
+        const auto key = build_step_key(state_.stage);
+        for (const auto& step : current_.steps) if (step.step == key) return step.seconds;
+        return 0;
+    }
+    // Developer builds switch between steps (each target links), so a step
+    // that comes back adds to its earlier time.
+    void close_step_locked(Clock::time_point now) {
+        if (state_.stage.empty()) return;
+        const auto key = build_step_key(state_.stage);
+        const double time = seconds(now - step_started_);
+        for (auto& step : current_.steps)
+            if (step.step == key) { step.seconds += time; step.quiet = std::max(step.quiet, step_quiet_); return; }
+        current_.steps.push_back({key, time, step_quiet_});
+    }
+    void stage_locked(std::string stage, Clock::time_point now) {
+        if (stage == state_.stage) return;
+        close_step_locked(now);
+        state_.stage = std::move(stage);
+        step_started_ = now; step_quiet_ = 0;
+        state_.last_step = state_.last_step_quiet = -1;
+        const auto key = build_step_key(state_.stage);
+        for (const auto& step : current_.steps) if (step.step == key) step_quiet_ = step.quiet;
+        for (const auto& step : previous_.steps)
+            if (step.step == key) { state_.last_step = step.seconds; state_.last_step_quiet = step.quiet; }
+    }
+    void output_locked(Clock::time_point now) {
+        const double gap = seconds(now - last_output_);
+        state_.longest_quiet = std::max(state_.longest_quiet, gap);
+        step_quiet_ = std::max(step_quiet_, gap);
+        last_output_ = now;
+    }
+    // The build's processor use and the PC's free memory, sampled at most
+    // once a second while a launcher window asks for the state.
+    void measure_locked(Clock::time_point now) {
+        const double wall = seconds(now - last_sample_);
+        last_sample_ = now;
+        const unsigned cpus = std::max(1u, std::thread::hardware_concurrency());
+#ifdef _WIN32
+        JOBOBJECT_BASIC_ACCOUNTING_INFORMATION info{};
+        if (job_ && QueryInformationJobObject(job_, JobObjectBasicAccountingInformation, &info, sizeof(info), nullptr)) {
+            const auto cpu = static_cast<std::uint64_t>(info.TotalUserTime.QuadPart + info.TotalKernelTime.QuadPart);
+            if (cpu_known_ && wall > 0)
+                state_.cpu_percent = static_cast<int>(std::min(100.0, (cpu - cpu_time_) / 1e7 / (wall * cpus) * 100 + 0.5));
+            if (!cpu_known_ || cpu > cpu_time_) last_cpu_ = now;
+            cpu_time_ = cpu; cpu_known_ = true;
+        }
+        MEMORYSTATUSEX memory{}; memory.dwLength = sizeof(memory);
+        if (GlobalMemoryStatusEx(&memory)) { state_.free_ram = memory.ullAvailPhys; state_.total_ram = memory.ullTotalPhys; }
+#else
+        if (pid_) {
+            // Every process in the build's process group (start() makes one).
+            std::uint64_t used = 0;
+            std::map<int, std::uint64_t> seen;
+            std::error_code ec;
+            for (const auto& entry : fs::directory_iterator("/proc", ec)) {
+                const auto name = entry.path().filename().string();
+                if (name.empty() || name.find_first_not_of("0123456789") != std::string::npos) continue;
+                std::ifstream in(entry.path() / "stat");
+                std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                const auto close = text.rfind(')');
+                if (close == std::string::npos) continue;
+                // After the name: state ppid pgrp ... utime (12th) stime (13th).
+                std::istringstream fields(text.substr(close + 1));
+                std::string field;
+                std::uint64_t value[13] = {};
+                bool ok = true;
+                for (int i = 0; i < 13 && ok; ++i) {
+                    ok = static_cast<bool>(fields >> field);
+                    if (ok && i) try { value[i] = std::stoull(field); } catch (const std::exception&) { ok = false; }
+                }
+                if (!ok || static_cast<pid_t>(value[2]) != pid_) continue;
+                const int process = std::stoi(name);
+                const std::uint64_t ticks = value[11] + value[12];
+                const auto before = cpu_by_process_.find(process);
+                used += before == cpu_by_process_.end() ? ticks : ticks - std::min(ticks, before->second);
+                seen[process] = ticks;
+            }
+            cpu_by_process_ = std::move(seen);
+            const long tick = sysconf(_SC_CLK_TCK);
+            if (cpu_known_ && wall > 0 && tick > 0)
+                state_.cpu_percent = static_cast<int>(std::min(100.0, double(used) / tick / (wall * cpus) * 100 + 0.5));
+            if (!cpu_known_ || used) last_cpu_ = now;
+            cpu_known_ = true;
+        }
+        std::ifstream meminfo("/proc/meminfo");
+        for (std::string key; meminfo >> key;) {
+            std::uint64_t kb = 0;
+            meminfo >> kb;
+            meminfo.ignore(64, '\n');
+            if (key == "MemTotal:") state_.total_ram = kb * 1024;
+            else if (key == "MemAvailable:") state_.free_ram = kb * 1024;
+        }
+#endif
+    }
+#ifdef _WIN32
+    // A compiler or build tool running outside this build's job: another
+    // build (a terminal, a second launcher) competing for the same PC.
+    void find_other_build_locked() {
+        state_.other_build.clear();
+        if (!job_) return;
+        HANDLE list = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (list == INVALID_HANDLE_VALUE) return;
+        static const wchar_t* const tools[] = {L"ninja.exe", L"cmake.exe", L"cc1plus.exe", L"cc1.exe",
+            L"lto1.exe", L"ld.exe", L"ld.lld.exe", L"lld-link.exe", L"clang.exe", L"clang++.exe",
+            L"gsr_builder.exe"};
+        PROCESSENTRY32W entry{}; entry.dwSize = sizeof(entry);
+        for (BOOL more = Process32FirstW(list, &entry); more && state_.other_build.empty();
+             more = Process32NextW(list, &entry)) {
+            for (const auto* tool : tools) {
+                if (_wcsicmp(entry.szExeFile, tool) != 0) continue;
+                HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID);
+                BOOL inside = TRUE;
+                if (process && IsProcessInJob(process, job_, &inside) && !inside)
+                    for (const wchar_t* c = tool; *c; ++c) state_.other_build += static_cast<char>(*c);
+                if (process) CloseHandle(process);
+                break;
+            }
+        }
+        CloseHandle(list);
+    }
+#endif
+    void sample_locked() {
+        if (!state_.running) return;
+        const auto now = Clock::now();
+        if (now - last_sample_ >= std::chrono::seconds(1)) measure_locked(now);
+        state_.elapsed = seconds(now - started_);
+        state_.step_elapsed = step_done_before_locked() + seconds(now - step_started_);
+        state_.quiet = seconds(now - last_output_);
+        state_.idle = cpu_known_ ? seconds(now - last_cpu_) : -1;
+#ifdef _WIN32
+        // Looked for only during a long pause, when it would be shown.
+        if (state_.quiet > state_.longest_quiet && now - last_other_check_ >= std::chrono::seconds(5)) {
+            last_other_check_ = now;
+            find_other_build_locked();
+        }
+#endif
+    }
+    // The latest developer build line in a few words: ninja's
+    // "[3/9] Building CXX object CMakeFiles/x.dir/src/a.cpp.obj" becomes
+    // "Compiling a.cpp".
+    void set_activity_locked(const std::string& value) {
+        const auto first = value.find_first_not_of(" \t");
+        if (first == std::string::npos) return;
+        std::string text = value.substr(first);
+        if (text.front() == '[') {
+            if (const auto end = text.find("] "); end != std::string::npos) text.erase(0, end + 2);
+            for (const char* verb : {"Building CXX object ", "Building C object ", "Linking CXX ", "Linking C "}) {
+                if (text.rfind(verb, 0) != 0) continue;
+                auto file = text.substr(text.find_last_of("/\\ ") + 1);
+                for (const std::string suffix : {".obj", ".o"})
+                    if (file.size() > suffix.size() && file.ends_with(suffix)) { file.resize(file.size() - suffix.size()); break; }
+                text = std::string(verb[0] == 'B' ? "Compiling " : "Linking ") + file;
+                break;
+            }
+        }
+        if (text.size() > 120) {
+            std::size_t cut = 117;
+            while (cut && (static_cast<unsigned char>(text[cut]) & 0xC0) == 0x80) --cut;
+            text = text.substr(0, cut) + "...";
+        }
+        state_.activity = std::move(text);
+    }
     void finish(bool success, std::string error) {
         std::lock_guard<std::mutex> lock(mutex_);
         state_.running = false; state_.finished = true;
         state_.succeeded = success && !cancelled_;
         state_.error = cancelled_ ? "Build cancelled." : std::move(error);
+        // Only builds that compiled something become the times to compare with.
+        if (state_.succeeded && compiled_ && !times_file_.empty()) {
+            const auto now = Clock::now();
+            close_step_locked(now);
+            current_.total = seconds(now - started_);
+            save_build_times(times_file_, current_);
+        }
     }
     void run(fs::path collection, fs::path executable, fs::path root,
              fs::path rom, int choice, bool player, bool reduced) {
@@ -72,8 +376,11 @@ class CollectionBuild {
         auto line = [&](std::string value) {
             if (!value.empty() && value.back() == '\r') value.pop_back();
             std::lock_guard<std::mutex> lock(mutex_);
+            const auto now = Clock::now();
+            output_locked(now);
             if (value.rfind("@stage ", 0) == 0) {
-                state_.stage = value.substr(7); state_.done = state_.total = 0;
+                stage_locked(value.substr(7), now); state_.done = state_.total = 0;
+                if (state_.stage.find("Compiling") != std::string::npos) compiled_ = true;
             } else if (value.rfind("@progress ", 0) == 0) {
                 int d = 0, t = 0;
                 if (std::sscanf(value.c_str() + 10, "%d %d", &d, &t) == 2 && d >= 0 && t >= 0) {
@@ -84,9 +391,10 @@ class CollectionBuild {
             else if (!player) {
                 int d = 0, t = 0;
                 if (std::sscanf(value.c_str(), "[%d/%d]", &d, &t) == 2 && d >= 0 && t > 0) {
-                    state_.done = d; state_.total = t;
-                    state_.stage = value.find("Linking") != std::string::npos ? "Linking game" : "Building game";
+                    state_.done = d; state_.total = t; compiled_ = true;
+                    stage_locked(value.find("Linking") != std::string::npos ? "Linking game" : "Building game", now);
                 }
+                set_activity_locked(value);
             }
         };
         bool discarding = false;
@@ -312,9 +620,10 @@ public:
     CollectionBuild(const CollectionBuild&) = delete;
     CollectionBuild& operator=(const CollectionBuild&) = delete;
     ~CollectionBuild() { stop(); }
-    BuildSnapshot snapshot() { std::lock_guard<std::mutex> lock(mutex_); return state_; }
+    BuildSnapshot snapshot() { std::lock_guard<std::mutex> lock(mutex_); sample_locked(); return state_; }
     BuildSnapshot poll() {
         std::lock_guard<std::mutex> lock(mutex_);
+        sample_locked();
         auto state = state_;
         state_.finished = false;
         return state;
@@ -357,10 +666,32 @@ public:
             if (!fs::is_regular_file(executable, ec)) { error = "The game builder is missing."; return false; }
             if (player && !fs::is_regular_file(rom, ec)) { error = "Choose a valid game ROM."; return false; }
             fs::create_directories(collection / "local");
-            { std::lock_guard<std::mutex> lock(mutex_); state_ = {}; state_.running = true; state_.stage = player ? "Starting build" : "Building game"; cancelled_ = false; }
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                state_ = {}; state_.running = true; cancelled_ = false;
+                state_.log = collection / "local" / "collection-build.log";
+                // Compared only with builds of the same game, kind and limits.
+                times_file_ = collection / "local" / (std::string("build-times-") +
+                    (choice ? "the-lost-age" : "the-broken-seal") + (player ? "-player" : "-developer") +
+                    (reduced ? "-limited" : "") + ".txt");
+                previous_ = load_build_times(times_file_); current_ = {};
+                state_.last_total = previous_.total;
+                started_ = step_started_ = last_output_ = last_cpu_ = last_sample_ = last_other_check_ = Clock::now();
+                step_quiet_ = 0; cpu_time_ = 0; cpu_known_ = compiled_ = false;
+#ifndef _WIN32
+                cpu_by_process_.clear();
+#endif
+                stage_locked(player ? "Starting build" : "Building game", started_);
+            }
             worker_ = std::thread([this, collection, executable, root, rom, choice, player, reduced] {
+#ifdef __ANDROID__
+                gsr_android::keep_awake(true);
+#endif
                 try { run(collection, executable, root, rom, choice, player, reduced); }
                 catch (const std::exception& e) { finish(false, e.what()); }
+#ifdef __ANDROID__
+                gsr_android::keep_awake(false);
+#endif
             });
             return true;
         } catch (const std::exception& e) { error = e.what(); finish(false, error); return false; }
@@ -369,8 +700,9 @@ public:
 
 // "Skip the ROM check" lets a player play a patched ROM, but the game code is
 // always built from a clean one (the translator refuses any other). With it
-// on, every build (player or developer) asks for the clean ROM, then (where
-// the ROM to play is not already chosen, `ask_play`) for the ROM to play.
+// on, every build (player or developer) asks for:
+//   1. the clean ROM, then
+//   2. the ROM to play, unless it is already chosen (`ask_play`).
 inline bool skip_rom_check_on(const fs::path& collection, int choice) {
     return gsr_session::load_launcher_audio_settings(
         gsr_session::game_root(collection, choice)).any_rom;

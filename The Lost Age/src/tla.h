@@ -93,10 +93,10 @@ constexpr std::uint32_t kTlaWindowBlockSlot = 0x0300003Cu;
 constexpr std::uint32_t kTlaWindowMapOffset = 0x8u;
 
 // The current map number: 0 between rooms, 1 on the title screen, else the
-// room (44 in Madra, F12 0106).
+// room (44 in Madra).
 constexpr std::uint32_t kTlaMapIdAddr = 0x02000428u;
 
-// src/tla_battle_speed.cpp: Select in battle toggles 2x; field Psynergy casts
+// src/tla_battle_speed.cpp: battle speed Off/2x/4x (Select steps it); field Psynergy casts
 // at 2x (Better Field Psy).
 void tla_install_battle_speed(gbarecomp::RunOptions& options);
 bool tla_battle_speed_active();

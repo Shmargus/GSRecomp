@@ -89,8 +89,7 @@ std::string gpu_field_dump_bytes(const GpuFieldCapture& capture) {
 
     // One allocation, one copy of each section: this runs every frame for the
     // rewind ring, and growing a separate data string then copying it again
-    // was 2-3% of the phone's game thread (GS1 FACTS, battle profile of
-    // 18 November 2026).
+    // was 2-3% of the phone's game thread in a battle profile.
     std::uint64_t data_bytes = 0;
     for (const Section& s : sections) data_bytes += s.length;
     std::string out;

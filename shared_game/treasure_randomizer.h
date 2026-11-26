@@ -3,11 +3,14 @@
 // keeps its own hooks: The Broken Seal's src/treasure_randomizer_tbs.h, The
 // Lost Age's src/tla_treasure_randomizer.h.
 //
-// Per loaded file: the plan's lookups for the hooks (field treasure by flag,
-// gift by (scene code pack or file, original item)), each shop's new stock,
-// and Bargains prices. Shops and prices are read by the game from the ROM,
-// so they are written into the running ROM image (as Random Equipment does)
-// and the pristine bytes return for other files.
+// Per loaded file it holds:
+//   - the plan's lookups for the hooks: field treasure by flag, and gifts by
+//     (scene code pack or file, original item);
+//   - each shop's new stock; and
+//   - the Bargains prices.
+// The game reads shops and prices from the ROM, so they are written into the
+// running ROM image (as Random Equipment does). The pristine bytes return for
+// other files.
 #pragma once
 #include <algorithm>
 #include <cstdint>

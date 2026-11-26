@@ -77,8 +77,8 @@ There are no submodules; `../engine/` is an ordinary directory.
 
 ## Building
 
-The collection-root `build_dev.bat -Game BrokenSeal` is the primary build
-command (the launcher's cog runs the same build). It compiles and links the
+Build Studio's **Developer Launcher** page (The Broken Seal) is the primary
+build command (the launcher's cog runs the same build). It compiles and links the
 game, but it needs two things to exist first: the recompiled code generated
 from your ROM, and a configured build directory. From a fresh clone, in this
 folder:
@@ -124,7 +124,7 @@ folder:
    cmake -S . -B build/gs011_opt -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DGSR_BUILD_LOCAL_RUNNER=ON -DGSR_GENERATED_DIR=local/gs011/main
    ```
 
-5. **Run the collection-root `build_dev.bat -Game BrokenSeal`.** It runs
+5. **Build The Broken Seal in Build Studio** (or `scripts/build_dev.ps1 -Game BrokenSeal`). It runs
    `scripts/build_game.ps1`, which:
    - re-configures `build/gs011_opt` with link-time optimisation;
    - builds the engine, `GoldenSunEngine.dll` (our code only, with LTO),

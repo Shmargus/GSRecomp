@@ -11,8 +11,8 @@
 // The Lost Age (engine seamless.h). The credits are skipped; the game's own
 // save screen handles slot selection and overwrite confirmation.
 //
-// Measured, verified ROM (FACTS.md, "Ending and Clear Data save", 2026-10-15,
-// and "Seamless mode: our own save", 2026-10-15):
+// Measured, verified ROM (FACTS.md "Ending and Clear Data save",
+// and "Seamless mode: our own save"):
 //
 //   0x0808AB48  loads the code of the room 0x02000400 names; the ship room
 //               requests room 0 entrance 9, the credits, next.
@@ -28,7 +28,7 @@
 //
 // Room 1 entrance 2 is the ending save screen. At the save-end call from
 // 0x080208AE (return 0x080208B2), r8 is zero only after successful writes;
-// failures/cancellation are negative. See FACTS.md, 2026-10-18.
+// failures/cancellation are negative.
 namespace gsr::seamless {
 
 const std::uint32_t kRoomCodeLoadPc = gs::rom(0x0808AB48u);

@@ -1,9 +1,14 @@
 // local_music_m4a.h: local recordings (host_local_music) standing in for
-// one m4a ("Sappy") music player's songs. The game supplies the player's
-// addresses, its song-header -> recording table and the two places where
-// the driver saturates a voice's left and right gain. While a recording
-// plays, those gains become 0: the song still runs (timing, fades, channel
-// ownership) but is silent. Songs without a loaded recording are untouched.
+// one m4a ("Sappy") music player's songs.
+//
+// The game supplies:
+//   - the player's addresses,
+//   - its song-header -> recording table, and
+//   - the two places where the driver saturates a voice's left and right gain.
+// While a recording plays, those gains become 0. The song still runs (timing,
+// fades, channel ownership) but is silent. Songs without a loaded recording
+// are untouched.
+//
 // The Music mod option (game_options.ini MusicMod) is read live, so F1 can
 // switch it mid-song. Header only; each game keeps one Replacement.
 #pragma once

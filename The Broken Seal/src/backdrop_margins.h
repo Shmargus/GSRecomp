@@ -11,8 +11,8 @@
 // 1.0) reaches its grid region's column 0 before the camera reaches the
 // room's left edge. With the camera at the edge, the wide view's left margin
 // is still inside the room but asks that layer for pixels left of column 0,
-// where the grid has nothing, so they drew black. Tret's forest (map 46, F12
-// gpu_rewind_0111 f119): BG3 at half speed, camera x 120 -> BG3 x 60; a
+// where the grid has nothing, so they drew black. Tret's forest (map 46, measured in a
+// capture): BG3 at half speed, camera x 120 -> BG3 x 60; a
 // 480-wide view needs BG3 x -60..-1, black on every row that holds the room
 // position (57..159 and below).
 //

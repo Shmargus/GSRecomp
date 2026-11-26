@@ -4,32 +4,36 @@
 // element, and each is still found exactly once. The run's seed decides it
 // (random_psynergy_format.h holds the tick).
 //
-// Both games hand a field Djinni over in one routine, join(r0, element,
-// index) (each game's FACTS.md "Random Djinn"): unless the Djinn lesson flag
-// 0x16E is set it calls the grant (element, index), plays the element's
-// scene and shows "<name> joined" from the same two arguments. So the swap
-// happens at join's entry and the scene and message name the new Djinni.
-// The grant tests and sets flag 0x30 + element*20 + index; the map uses
-// that flag to know the spot is empty, so for a swapped grant the flag
-// calls take the spot's own Djinni again: flags stay "this spot is taken"
+// How the swap works. Both games hand a field Djinni over in one routine,
+// join(r0, element, index). Unless the Djinn-lesson flag 0x16E is set, join:
+//   1. calls the grant routine with (element, index),
+//   2. plays that element's scene, and
+//   3. shows "<name> joined".
+// All three use the same two arguments, so swapping them at join's entry
+// makes the scene and the message name the new Djinni.
+//
+// The grant tests and sets flag 0x30 + element*20 + index. The map uses that
+// flag to know the spot is empty. So for a swapped grant, the flag calls take
+// the spot's own Djinni again. That way the flags stay "this spot is taken",
 // and ownership lives in the party records (+0xF8) as always.
 //
 // The lesson's Djinni (Flint in The Broken Seal) is left out. A target
 // already owned (a Djinni some other way gave) passes on to its own target,
 // so nobody gets a Djinni twice.
 //
-// The look follows (each game's FACTS.md "Random Djinn", 22 November 2026):
+// The look follows:
 // - On the map, a Djinni is the actor whose map object record's halfword +2
-//   holds its spot's flag (join's caller finds it that way, through the
-//   game's object lookup: object_flag() below). Once a frame, such an
+//   holds its spot's flag. (join's caller finds it that way, through the
+//   game's object lookup: object_flag() below.) Once a frame, if such an
 //   actor's sprite (actor +0x50, primary layer +0x28, sprite id at layer +0)
-//   showing the spot's element's Djinni sprite is switched to the given
-//   Djinni's element, as the game's own layer reload and animation start
-//   write the layer.
-// - A Djinni fought first: the room code calls fight(n), n = element*20 +
-//   index, which picks the formation from a table (one Djinni enemy per
-//   element and strength); its n becomes the given element at the spot's
-//   index, so the fight shows the given element at the spot's strength.
+//   shows the spot's element's Djinni sprite, it is switched to the given
+//   Djinni's element. This is done as the game's own layer reload and
+//   animation start write the layer.
+// - A Djinni fought first: the room code calls fight(n), with
+//   n = element*20 + index. That call picks the formation from a table (one
+//   Djinni enemy per element and strength). Its n becomes the given element
+//   at the spot's index, so the fight shows the given element at the spot's
+//   strength.
 #pragma once
 #include <algorithm>
 #include <array>

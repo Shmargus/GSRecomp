@@ -1,16 +1,18 @@
 // gba_rtc.h: cartridge GPIO port + S-3511A Real-Time Clock.
 //
-// Device emulation (NOT HLE): the guest's own recompiled driver bit-bangs
-// the 3 serial pins on the GPIO data port at 0x080000C4..0x080000C9; we
-// model the chip it talks to, exactly as we model the PPU or a timer. No
-// guest code is skipped. Clock cartridges (Pokémon Ruby/Sapphire/Emerald,
-// etc.) are detected by the Seiko SDK library signature; carts without the
-// chip are untouched (their 0xC4 region reads ordinary ROM).
+// This is device emulation, not HLE. The guest's own recompiled driver
+// bit-bangs the 3 serial pins on the GPIO data port at
+// 0x080000C4..0x080000C9. We model the chip it talks to, exactly as we model
+// the PPU or a timer. No guest code is skipped.
+// Clock cartridges (Pokémon Ruby/Sapphire/Emerald, etc.) are detected by the
+// Seiko SDK library signature. Carts without the chip are untouched (their
+// 0xC4 region reads ordinary ROM).
 //
-// Reads are answered from the HOST clock (no battery). A game that *sets*
-// the clock is honored for the session via a seconds offset, so the in-game
-// clock advances with real time. RECOMP_RTC_OFF disables; RECOMP_RTC_EPOCH
-// pins a deterministic time for reproducible differential runs.
+// Reads are answered from the host clock (there is no battery). If a game
+// sets the clock, that is honoured for the session through a seconds offset,
+// so the in-game clock advances with real time. RECOMP_RTC_OFF disables the
+// clock. RECOMP_RTC_EPOCH pins a deterministic time for reproducible
+// differential runs.
 //
 // ── Attribution ───────────────────────────────────────────────────
 // Ported from JRickey/gba-recomp (https://github.com/JRickey/gba-recomp),

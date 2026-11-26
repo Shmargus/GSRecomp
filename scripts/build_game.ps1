@@ -67,8 +67,8 @@ $games = @{
         Revisions = 'src/tla_rom_revisions.inc'; LanguageFile = 'lost-age-language.txt'
         Targets = @('TLARecomp', 'TLAGame', 'TLAPlayer')
         # Most memory one game-code file takes to compile: reloc/harv56 at
-        # -Og, 1.27 GiB peak commit (measured 2026-10-23, the largest file
-        # since the 17 October sharding; 6.4 GiB before it). Sets how many
+        # -Og, 1.27 GiB peak commit (measured; the largest file since the
+        # generated code was split into smaller files). Sets how many
         # compile at once (TLA_GAME_CODE_COMPILE_JOBS).
         GameCodeCompileGiB = 1.3
     }
@@ -262,7 +262,7 @@ public static class GoldenSunBuildLimits {
                 if (Test-Path -LiteralPath $corpusDir) { Remove-Item -LiteralPath $corpusDir -Recurse -Force }
                 Move-Item -LiteralPath (Join-Path $work 'gen') -Destination $corpusDir
             } else {
-                $generationArgs = @((Join-Path $repo 'tools/tla_recompile.py'), '--rom', $rom, '--recompile', $recompiler, '--out', $corpusDir, '--no-harvest')
+                $generationArgs = @((Join-Path $repo 'tools/tla_recompile.py'), '--rom', $rom, '--recompile', $recompiler, '--out', $corpusDir)
                 & $python @generationArgs
                 if ($LASTEXITCODE -ne 0) { throw "Making the $($revision.Name) game code failed ($LASTEXITCODE)." }
             }

@@ -20,78 +20,100 @@
 namespace gsr::custom_battle::tbs {
 namespace {
 
-// Measured, verified ROM; FACTS.md "Custom Battle Mode" 2026-10-29.
+// Measured, verified ROM; FACTS.md "Custom Battle Mode".
 //
-// The receptionist (room code overlay rom_7fb4a8 at 0x02008000; her handler
-// 0x02008B94 keeps text base 0x2930 in r6, literal 0x02008D48): text 0x2935
-// "...Would you like to battle a monster?" through 0x08092B94 (next text) and
-// 0x08092C40(8, 0) (show it), then Yes/No 0x08091C7C(0, 0) from 0x02008BEE,
-// 0 = Yes. Both answers then set their line at 0x02008C76 (0x2937 "step into
-// the circle", 0x2936 for No). Resume points 0x02008BE2 (after her first
-// set-text call) and 0x02008BEA (after her show call).
+// The receptionist. She lives in the room code overlay rom_7fb4a8 at
+// 0x02008000. Her handler 0x02008B94 keeps text base 0x2930 in r6 (literal
+// 0x02008D48).
+//   1. Text 0x2935 "...Would you like to battle a monster?" is set with
+//      0x08092B94 (next text) and shown with 0x08092C40(8, 0).
+//   2. The Yes/No menu 0x08091C7C(0, 0) is called from 0x02008BEE.
+//      The result 0 means Yes.
+//   3. Both answers then set their line at 0x02008C76: 0x2937 "step into the
+//      circle", or 0x2936 for No.
+// Resume points: 0x02008BE2 (after her first set-text call) and 0x02008BEA
+// (after her show call).
 //
 // Each decode of a line starts with 0x08019BAC(state, text ID) (0x080180BE
-// in the printing decoder); a pass can stop at the line's {1E} before its
+// in the printing decoder). A pass can stop at the line's {1E} before its
 // end, so our line restarts there rather than at its end.
 //
-// The Yes/No's menu loop 0x08028574 (via 0x08015390 -> 0x08028DF4): context
-// [0x03001F38], cursor +0x8C; it waits 0x080030F8(1) from 0x080285E8 and
-// reads new presses through r7 (0x03001C94) at once: A returns the cursor
-// (sound 0x70 through 0x080F9010 from 0x08028674), B or Start return -1;
-// repeated Left/Up or Right/Down (0x03001B04, a literal, not r7) move the
-// cursor and play 0x6F. 0x080000B8 is a ROM word that reads 0.
+// The Yes/No menu loop is 0x08028574 (reached via 0x08015390 -> 0x08028DF4).
+// Its context is [0x03001F38] and its cursor is at +0x8C. The loop waits with
+// 0x080030F8(1) from 0x080285E8 and reads new presses through r7 (0x03001C94)
+// at once:
+//   - A returns the cursor, and plays sound 0x70 through 0x080F9010 from
+//     0x08028674.
+//   - B or Start return -1.
+//   - Repeated Left/Up or Right/Down move the cursor and play 0x6F. These
+//     come from 0x03001B04, which is a literal, not r7.
+// 0x080000B8 is a ROM word that reads 0.
 //
-// The builder 0x080C1FFC: slots cleared from 0x080C22DA (0x08077008), stat
-// adjustment 0x080C1C54 from 0x080C2338; small enemy 0x080C23C0; enemy data
-// 0x08077198. Levels as 0x080C1AFC takes them: party count 0x08077148, IDs
-// at bytes 0x02000438.., battle context [0x03001E74], adjustment
-// 0x080770E0(0x3F8).
+// The battle builder is 0x080C1FFC:
+//   - Slots are cleared from 0x080C22DA (0x08077008).
+//   - Stat adjustment is 0x080C1C54, called from 0x080C2338.
+//   - The small enemy is 0x080C23C0, and enemy data is 0x08077198.
+//   - Levels are taken as 0x080C1AFC takes them: party count 0x08077148, IDs
+//     at bytes 0x02000438.., battle context [0x03001E74], adjustment
+//     0x080770E0(0x3F8).
 //
-// Formations 0x080C5C38: 0x17C rows of 16 bytes, IDs - 8 at +1..5, minimum
-// counts +6..10, maximum +11..15.
+// Formations are at 0x080C5C38: 0x17C rows of 16 bytes. Enemy IDs - 8 are at
+// +1..5, minimum counts at +6..10, and maximum counts at +11..15.
 //
-// A monster's battle picture (bench, Bat 0x0C in Battle Mode, its unpacked
-// data matched EWRAM 0x0201C000 byte for byte, 29 Oct): 0x080B6D60 takes
-// 0x080C2384(id): halfword sprite at 0x080C7420 + id * 8 (row 0 for id >
-// 0xAB); 0x080C23A0(id): colour variant (byte +3 >> 1) & 15. 0x08009270 ->
-// 0x0800B6B8(slot, buffer, sprite, variant): the sprite's 20-byte record
-// 0x08185024 + sprite * 20 (width +0, height +1); its asset from (asset,
-// sprite) halfword pairs at 0x08012FA0; the asset (table 0x08320000)
-// unpacked by 0x08005340 (0x08002544). With a variant, colours up to 0xDF go
-// through 256-byte table 0x080092B8 + (variant - 1) * 256. A frame decodes
-// row by row (0x08009BB8): 0 ends it, above 0xDF skips (byte - 0xDF) clear
-// pixels, anything else is a colour of the OBJ palette 0x0800779C.
-// 0x080B6D30 loads enemy slot r0's artwork (ID byte unit + 0x128); tag ->
-// data 0x0800B798. 080B6DF6..080B6E08 loads a second sprite for 0x1DC and
-// 0x1E3 (Kraken, Fusion Dragon).
+// A monster's battle picture. This was measured on the bench with Bat 0x0C in
+// Battle Mode: its unpacked data matched EWRAM 0x0201C000 byte for byte
+// (29 Oct).
+//   - 0x080B6D60 takes two lookups:
+//       - 0x080C2384(id) gives the halfword sprite at 0x080C7420 + id * 8
+//         (row 0 for id > 0xAB).
+//       - 0x080C23A0(id) gives the colour variant, (byte +3 >> 1) & 15.
+//   - 0x08009270 -> 0x0800B6B8(slot, buffer, sprite, variant) loads it:
+//       - The sprite's 20-byte record is at 0x08185024 + sprite * 20
+//         (width +0, height +1).
+//       - Its asset comes from (asset, sprite) halfword pairs at 0x08012FA0.
+//       - The asset (table 0x08320000) is unpacked by 0x08005340 (0x08002544).
+//       - With a variant, colours up to 0xDF go through the 256-byte table at
+//         0x080092B8 + (variant - 1) * 256.
+//   - A frame decodes row by row (0x08009BB8). A byte of 0 ends the row, a
+//     byte above 0xDF skips (byte - 0xDF) clear pixels, and anything else is
+//     a colour of the OBJ palette 0x0800779C.
+//   - 0x080B6D30 loads enemy slot r0's artwork (ID byte unit + 0x128); tag ->
+//     data 0x0800B798.
+//   - 080B6DF6..080B6E08 loads a second sprite for 0x1DC and 0x1E3 (Kraken,
+//     Fusion Dragon).
 constexpr unsigned kComposites[] = {0x1DCu, 0x1E3u};
 
-// Enemy name: text ID + 0x287 (enemy initialization 08079478, FACTS.md).
-// Rooms 0x0809D170: 8-byte rows (room, entrance, flag, first set) ended by
-// room -1. Sets 0x0809C610: 28 bytes, eight formations at +4, eight weights
-// at +20. A room fights only its first set: zone 1 is its F0 tiles, or every
-// tile when the row's flag has bit 15; zone 2 (F1 tiles) occurs in no
-// encounter room's map (0808BFAA, 0808ACE0; FACTS 2026-10-29).
+// Enemy name: text ID + 0x287 (enemy initialization 08079478).
+//
+// Rooms are at 0x0809D170: 8-byte rows (room, entrance, flag, first set),
+// ended by room -1.
+// Sets are at 0x0809C610: 28 bytes each, with eight formations at +4 and
+// eight weights at +20.
+//
+// A room fights only its first set. Zone 1 is its F0 tiles, or every tile
+// when the row's flag has bit 15. Zone 2 (F1 tiles) occurs in no encounter
+// room's map (0808BFAA, 0808ACE0).
 const std::uint32_t kRoomSets = gs::rom(0x0809D170u) - mods::kRomBase;
 const std::uint32_t kEncounterSets = gs::rom(0x0809C610u) - mods::kRomBase;
 constexpr std::uint16_t kAllTilesBit = 0x8000u;
 // World map: 0x0808ADF0 reads 8-byte rows (region, terrain, flag, set) at
-// 0x0809D7A8, -1 ended. Where each region lies is not measured; sets are
-// numbered in story order (room first sets rise from Sol Sanctum to Venus
-// Lighthouse; the one live check, region 6 near Suhalla, uses sets 80/81
-// between Lunpa's 79 and Suhalla's 82), so a region opens with the room set
-// that follows its own: never before, at worst one area late.
+// 0x0809D7A8, ended by -1. Where each region lies is not measured.
+//
+// Sets are numbered in story order. Room first sets rise from Sol Sanctum to
+// Venus Lighthouse. The one live check, region 6 near Suhalla, uses sets
+// 80/81, between Lunpa's 79 and Suhalla's 82. So a region opens with the room
+// set that follows its own: never before, and at worst one area late.
 const std::uint32_t kWorldMapSets = gs::rom(0x0809D7A8u) - mods::kRomBase;
-// Djinn fights: 0x08091F14 -> 0x0808B074(n), (set, index) at 0x0809D8B0 + 4n;
-// room code asks for n up to 66.
+// Djinn fights: 0x08091F14 -> 0x0808B074(n) reads (set, index) at
+// 0x0809D8B0 + 4n. Room code asks for n up to 66.
 const std::uint32_t kDjinnFights = gs::rom(0x0809D8B0u) - mods::kRomBase;
 constexpr unsigned kDjinnFightCount = 67u;
 constexpr unsigned kFormationCount = 0x17Cu;
 // The save's Clear Data flag (seamless_mode.h), saved and loaded with the
 // 0x02000000 block.
 constexpr std::uint32_t kClearFlag = 0x0200044Fu;
-// The Bosses page: the Golden Sun Wiki's "Bosses in Golden Sun" list,
-// matched by name and fight to these IDs: Mystery Woman/Man, Bandit
+// The Bosses page. It follows the Golden Sun Wiki's "Bosses in Golden Sun"
+// list, matched by name and fight to these IDs: Mystery Woman/Man, Bandit
 // (Vault), Tret, Saturos (Mercury Lighthouse), Killer Ape, Hydros Statue,
 // Manticore, Kraken, Toadonpa, Storm Lizard, Tempest Lizard, Saturos and
 // Menardi (Venus Lighthouse), Fusion Dragon, Deadbeard.
@@ -111,13 +133,18 @@ unsigned room_section(unsigned room) {
 struct SilentRow { unsigned room, first; };
 constexpr SilentRow kSilentRows[] = {{63, 39}, {91, 52}, {184, 95}};
 
-// Fights room code asks for: 0x08091EB0(set, index) (veneer 0x0808A250) in
-// each room overlay, constants from the call site; index -1 = computed there
-// (Colosso), so every index. Room = the earliest-section room of the overlay.
-// The Mercury Lighthouse Mimic chest (room 53, kind 0x13, flag EF0) asks
-// for set 0x63 index 0 through 0x0808DB98; it is the only Mimic chest found.
-// The world map's set 12/6 is Flint's battle lesson (rom_77a7c8 0x02009C8C,
-// text 0xC67), guide section 3; room 0 stands for that section.
+// Fights that room code asks for. Each room overlay calls
+// 0x08091EB0(set, index) (veneer 0x0808A250), with constants taken from the
+// call site. An index of -1 means it is computed there (Colosso), so every
+// index counts. Room is the earliest-section room of the overlay.
+//
+// Special cases:
+//   - The Mercury Lighthouse Mimic chest (room 53, kind 0x13, flag EF0) asks
+//     for set 0x63 index 0 through 0x0808DB98. It is the only Mimic chest
+//     found.
+//   - The world map's set 12/6 is Flint's battle lesson (rom_77a7c8
+//     0x02009C8C, text 0xC67), guide section 3. Room 0 stands for that
+//     section.
 struct ScriptedFight { unsigned set; int index; unsigned room; unsigned section = 0; };
 constexpr ScriptedFight kScriptedFights[] = {
     {12, 0, 6}, {12, 1, 6}, {12, 2, 3}, {12, 3, 3}, {12, 4, 5}, {12, 5, 21},
@@ -277,7 +304,6 @@ const Game kGame = {
     .animation_lookup = gs::rom(0x0800B798u),
     .unit_enemy_id = 0x128u,
     .unit_id_halfword = false,
-    .max_rom_bytes = mods::kMaxRomBytes,
     .text_table = gs::rom(0x080736B8u) - mods::kRomBase,
     .tree_table = gs::rom(0x0803842Cu) - mods::kRomBase,
     .glyph_widths = gs::rom(0x080370D4u),

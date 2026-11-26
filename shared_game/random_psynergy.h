@@ -1,38 +1,49 @@
-// Random Psynergy, one copy of the rules for both runners. A new game
-// can tick "Random Psynergy": a fresh random seed then decides the battle
-// Psynergy and the levels it is learned at, for the whole file, in one of two
-// ways. By hero: each hero has one list; Djinn and class changes never change
-// it. By class: every class gets its own list (class_lists() below), so the
-// class a hero's Djinn make decides what they know, as in the normal game.
+// Random Psynergy, one copy of the rules for both runners.
+//
+// A new game can tick "Random Psynergy". A fresh random seed then decides the
+// battle Psynergy and the levels it is learned at, for the whole file, in one
+// of two ways:
+//   - By hero: each hero has one list. Djinn and class changes never change
+//     it.
+//   - By class: every class gets its own list (class_lists() below). The
+//     class a hero's Djinn make decides what they know, as in the normal
+//     game.
 // Story Psynergy (Move, Mind Read, Retreat, ...) and item Psynergy are
 // untouched.
 //
-// Both games rebuild a character's 32 Psynergy words (record +0x58, every 4
-// bytes, id in the low half) in one routine (each game's measured address):
-// class 0 returns at once; otherwise the words flagged 0x8000 (class) and
-// 0x4000 (item) are dropped, the class list's entries the level reaches come
-// back as id | 0x8000 and each equipped (0x200) item's ability (item record
-// +0xC == 3, ability u16 +0x28) as id | 0x4000. The rebuild here keeps the
-// unflagged (story) words and the items, and takes the plan's grants in place
-// of the class list. Each game: its FACTS.md "Random Psynergy".
+// How the game builds a character's Psynergy list. Both games rebuild a
+// character's 32 Psynergy words (record +0x58, every 4 bytes, id in the low
+// half) in one routine (each game's measured address):
+//   - Class 0 returns at once.
+//   - Otherwise the words flagged 0x8000 (class) and 0x4000 (item) are
+//     dropped.
+//   - The class list's entries that the level reaches come back as
+//     id | 0x8000.
+//   - Each equipped (0x200) item's ability (item record +0xC == 3, ability
+//     u16 +0x28) comes back as id | 0x4000.
+// The rebuild here keeps the unflagged (story) words and the items. It takes
+// the plan's grants in place of the class list.
 //
 // Fair Play ("early healing"): one hero who is in the party from the start
-// (a pick, in a challenge) learns Cure or Ply at level 1, the level at which
-// the normal game's classes first teach them (both games' pools: 90 Cure and
-// 93 Ply at level 1). The rest of the plan is drawn as without it.
+// (a pick, in a challenge) learns Cure or Ply at level 1. That is the level
+// at which the normal game's classes first teach them (both games' pools:
+// 90 Cure and 93 Ply at level 1). The rest of the plan is drawn as without
+// it.
 //
 // Enemy skills (a choice with Random Psynergy): the skills enemies use that
 // no class teaches join the pool, at the level of the first enemy that uses
-// them (enemies at level 0 are unused rows). Summons, the enemies' own
-// actions (Flee, calling for help, ...) and blank rows stay out. A skill
-// whose ROM cost is 0 PP costs a hero what a class spell of the same kind,
-// reach and strength costs (hero_cost() below); enemies keep paying nothing.
-// Such a skill has no icon in the ROM either; it shows the icon of a class
-// spell picked for its name (kIconLike below). pp_on_getter() puts both in
-// place.
+// them (enemies at level 0 are unused rows).
+//   - Summons, the enemies' own actions (Flee, calling for help, ...) and
+//     blank rows stay out.
+//   - A skill whose ROM cost is 0 PP costs a hero what a class spell of the
+//     same kind, reach and strength costs (hero_cost() below). Enemies keep
+//     paying nothing.
+//   - Such a skill has no icon in the ROM either. It shows the icon of a
+//     class spell picked for its name (kIconLike below).
+// pp_on_getter() puts both in place.
 //
 // The seed lives in eight save-payload bytes the game never writes
-// (random_psynergy_format.h), so it saves, copies and erases with the file
+// (random_psynergy_format.h), so it saves, copies and erases with the file,
 // and save states carry it.
 #pragma once
 #include <algorithm>
@@ -70,7 +81,7 @@ struct Spell { std::uint16_t id; std::uint8_t level; };
 // bytes from `address`: type word +0 (1..14 a character class, The Lost
 // Age's 15..17 item classes), 16 entries at +0x10 of 4 bytes, the ability
 // (one byte in The Broken Seal, a halfword in The Lost Age) then the level
-// byte. Each game's FACTS.md "Random Psynergy".
+// byte.
 struct ClassTable {
     std::uint32_t address;
     int count;
@@ -95,12 +106,14 @@ struct AbilityTable {
     std::uint16_t count;
 };
 // A place that reads an ability's PP cost after the getter returns (lr at
-// the getter's entry): the hero's menus and command checks (kHero), the
-// enemies' choice (kEnemy), or the battle's spend and cast check, which serve
-// both and name the actor through a register. Any other caller leaves the
-// cost byte as it is: the battle's Psynergy list prints a name between its
-// getter call and its cost read, and other lookups there must not undo the
-// hero cost (Jimmy's build, 22 November 2026: 0 PP shown).
+// the getter's entry). There are three kinds:
+//   - the hero's menus and command checks (kHero),
+//   - the enemies' choice (kEnemy), and
+//   - the battle's spend and cast check, which serves both and names the
+//     actor through a register.
+// Any other caller leaves the cost byte as it is. The battle's Psynergy list
+// prints a name between its getter call and its cost read, and other lookups
+// there must not undo the hero cost (a test build showed 0 PP).
 struct PpSite {
     enum Actor : std::uint8_t { kHero, kByteAtR5, kHalfAtR10Action, kEnemy };
     std::uint32_t ret;
@@ -140,8 +153,7 @@ struct Game {
     std::span<const Line> lines;      // this game's own skills' lines (kLines holds the shared ones)
 };
 
-// Fair Play's early heals: Cure, Ply (the same ids in both games, FACTS
-// "Random Psynergy"), taught at the level of the normal game.
+// Fair Play's early heals: Cure, Ply (the same ids in both games), taught at the level of the normal game.
 constexpr std::uint16_t kEarlyHeals[] = {90, 93};
 
 constexpr std::uint32_t kLevel = 0xFu, kClass = 0x129u, kAbilities = 0x58u, kItems = 0xD8u;
@@ -374,17 +386,19 @@ constexpr IconLike kIconLike[] = {
 };
 
 // A hero's cost for an enemy skill the ROM gives 0 PP: what a class spell of
-// the same kind, reach and strength costs. The lines are fitted to both
-// games' class spells (FACTS "Enemy skills", 21 November 2026): damage
-// Psynergy and breaths 2 + 0.09 power on one target, 3 + 0.12 power on
-// three, 2.5 + 0.15 power on five, 3 + 0.19 power wider (Flare 15 -> 4,
-// Glacier 100 -> 15, Inferno 140 -> 23); attack-plus blows 0.19 power
-// (Ragnarok 35 -> 7, Odyssey 95 -> 18); attack-times blows 0.65 per power
-// point on one target, half again on three (Quick Strike 18 -> 12, Shuriken
-// 8 -> 8); a status effect on a damaging skill +2 (and at least 4); heals
-// power / 20 on one, / 10 on more (Cure 70 -> 3, Wish 80 -> 9); effects cost
-// what the class spell with the same effect costs (+2 when it reaches more),
-// +1 per 20 power above it. `row(id)`: an ability row in the ROM.
+// the same kind, reach and strength costs. The formulas are fitted to both
+// games' class spells:
+//   - Damage Psynergy and breaths: 2 + 0.09 power on one target, 3 + 0.12
+//     power on three, 2.5 + 0.15 power on five, 3 + 0.19 power wider
+//     (Flare 15 -> 4, Glacier 100 -> 15, Inferno 140 -> 23).
+//   - Attack-plus blows: 0.19 power (Ragnarok 35 -> 7, Odyssey 95 -> 18).
+//   - Attack-times blows: 0.65 per power point on one target, half again on
+//     three (Quick Strike 18 -> 12, Shuriken 8 -> 8).
+//   - A status effect on a damaging skill: +2 (and at least 4).
+//   - Heals: power / 20 on one, / 10 on more (Cure 70 -> 3, Wish 80 -> 9).
+//   - Effects: what the class spell with the same effect costs (+2 when it
+//     reaches more), +1 per 20 power above it.
+// `row(id)`: an ability row in the ROM.
 template <class Row>
 inline std::uint8_t hero_cost(const std::uint8_t* r, const std::vector<Spell>& classes, Row row) {
     const int kind = r[1], range = r[8], power = r[0xA] | r[0xB] << 8, status = r[3] != 0 ? 1 : 0;
@@ -454,7 +468,7 @@ inline const std::vector<EnemySkill>& enemy_skills(const Game& g) {
     std::map<std::uint16_t, int> earliest;
     for (int e = 0; e < et.count; ++e) {
         const std::uint8_t* record = rom + enemies + std::size_t{et.stride} * e;
-        if (record[0xF] == 0) continue;  // level 0: unused rows (FACTS "Enemy skills")
+        if (record[0xF] == 0) continue;  // level 0: unused rows
         for (int k = 0; k < 8; ++k) {
             const std::uint16_t id = le16(record + et.abilities + 2 * k);
             if (id <= 2 || id >= at.count || taught(id)) continue;  // none, Attack, Defend
@@ -494,11 +508,13 @@ inline std::vector<Spell> draw_pool(const Game& g, bool with_enemy_skills) {
 }
 
 // By class. A class line is a run of class records of one type (Squire,
-// Knight, Gallant, Lord, Slayer); each tier teaches what the tier below does
-// and more. Here each tier keeps the random list of the tier below and every
-// entry its own list adds (an ability the tier below lacks) becomes a spell
-// drawn at that entry's level, weighted by strength as the by-hero draw is
-// (the normal game's level for each spell). No spell twice in a line.
+// Knight, Gallant, Lord, Slayer). Each tier teaches what the tier below does,
+// and more. Here:
+//   - each tier keeps the random list of the tier below, and
+//   - every entry its own list adds (an ability the tier below lacks)
+//     becomes a spell drawn at that entry's level, weighted by strength as
+//     the by-hero draw is (the normal game's level for each spell).
+// No spell appears twice in a line.
 inline std::vector<std::vector<Grant>> class_lists(const Game& g, std::uint32_t seed,
                                                    bool with_enemy_skills) {
     std::vector<std::vector<Grant>> out(static_cast<std::size_t>(g.classes.count));
@@ -612,16 +628,16 @@ inline const Plan& plan_for(const Game& g, const Config& c, const gsr::challenge
 }
 
 // --- the rebuild ------------------------------------------------------------------
-// The game's rebuild for a hero in a Random Psynergy game, with the class's
-// battle list replaced by the plan's grants up to the hero's level (by
+// The game's rebuild for a hero in a Random Psynergy game. The class's
+// battle list is replaced by the plan's grants up to the hero's level (by
 // class: the class's random list and the hero's own puzzle Psynergy). Story
-// grants stay; item Psynergy keeps its room ahead of the plan. False: the
-// game's own rebuild runs.
+// grants stay. Item Psynergy keeps its room ahead of the plan. Returns false
+// when the game's own rebuild should run.
 //
 // Challenge Mode without Random Psynergy: the party may lack whoever teaches
 // a puzzle Psynergy (The Broken Seal: no Ivan, no Whirlwind; no Mia, no Frost
 // or Ply). So the leader (first pick, always in the party) knows every key
-// from level 1 besides its class's own list; the other picks keep the game's
+// from level 1, besides its class's own list. The other picks keep the game's
 // rebuild.
 inline std::vector<Grant> class_and_keys(const Game& g, unsigned cls) {
     std::vector<Grant> out;
@@ -695,13 +711,14 @@ inline bool rebuild(const Game& g, gba::GbaBus& b, unsigned id) {
 
 // --- hero-only PP --------------------------------------------------------------
 // The game reads a cost from the row the getter returns, for heroes and
-// enemies alike, and its enemies' choice treats a skill with a cost as
-// Psynergy (each game's FACTS.md "Enemy skills"). So only the hero's readers
-// see the hero cost: at each getter entry for an enemy skill, its row's cost
-// byte in the ROM image (written as Random Equipment writes its rows,
-// random_weapons.h) is the hero cost when the caller is a hero reader, else
-// the ROM's own. Each reader takes it at once, before the next getter call.
-// Emulation thread.
+// enemies alike. Its enemies' choice treats a skill with a cost as Psynergy.
+// So only the hero's readers may see the hero cost.
+//
+// At each getter entry for an enemy skill, the row's cost byte in the ROM
+// image (written as Random Equipment writes its rows, random_weapons.h) is
+// set to the hero cost when the caller is a hero reader, else to the ROM's
+// own. Each reader takes it at once, before the next getter call.
+// Runs on the emulation thread.
 struct PpState {
     std::vector<std::pair<std::uint32_t, std::uint8_t>> written;  // ROM offset holding our byte, its ROM byte
     void put(std::uint8_t* rom, std::uint32_t at, std::uint8_t value, std::uint8_t rom_value) {
@@ -721,7 +738,7 @@ inline const EnemySkill* find_skill(const Game& g, std::uint16_t id) {
 
 // At the getter's entry: r0 (id, with the list's flags, which the getter
 // masks off), r5, r10 and lr. The icon is the same for every caller (only the
-// menus read it: FACTS "Enemy skills"); the cost is the hero's for the hero's
+// menus read it); the cost is the hero's for the hero's
 // readers and the ROM's for the rest.
 inline void pp_on_getter(const Game& g, std::uint32_t pc, std::uint32_t r0, std::uint32_t r5,
                          std::uint32_t r10, std::uint32_t lr) {
@@ -771,14 +788,16 @@ inline void pp_on_getter(const Game& g, std::uint32_t pc, std::uint32_t r0, std:
 
 // --- descriptions -------------------------------------------------------------
 // An enemy-only skill's description reads "?" in the ROM. In a run with
-// Enemy skills it gets one: its own written line (kLines, a game's lines),
-// in the loaded language through the F1 translation table (menu_text: the
-// game font's Latin-1), else one written in English from its row: kind
-// (+1), added effect (+3), element (+2) and reach (+8). The effect words
-// follow the game's own lines for abilities with the same effect byte (each
-// game's FACTS.md "Enemy skills", 22 November 2026); an effect byte no such
-// line names is left unsaid. The menu's element orb shows the element, so a
-// skill with an effect names that instead.
+// Enemy skills it gets one. The line is, in order of preference:
+//   1. its own written line (kLines, a game's lines), in the loaded language
+//      through the F1 translation table (menu_text: the game font's
+//      Latin-1), else
+//   2. one written in English from its row: kind (+1), added effect (+3),
+//      element (+2) and reach (+8).
+// The effect words follow the game's own lines for abilities with the same
+// effect byte. An effect byte that no such line names is left unsaid. The
+// menu's element orb shows the element, so a skill with an effect names that
+// instead.
 inline std::string describe(const std::uint8_t* r) {
     const int kind = r[1], effect = r[3], element = r[2], target = r[0];
     const bool many = r[8] != 1;
@@ -836,12 +855,11 @@ inline std::string describe(const std::uint8_t* r) {
     }
 }
 
-// Each enemy-only skill's own line (Jimmy, 22 November 2026: "make their
-// descriptions a bit more flavorful"), written from its name and what its row
+// Each enemy-only skill's own flavour line, written from its name and what its row
 // does: kind, element, reach and the effect words describe() uses. The rows
 // both games share (ids 0xD4, 0x1A4..0x206) read for either name (The Broken
 // Seal's Blessings are The Lost Age's Breaths). Each fits 222 pixels, the
-// widest description either game prints (FACTS "Enemy skills").
+// widest description either game prints.
 constexpr Line kLines[] = {
     {0x0D4, "Strike a foe with a lethal venom."},
     {0x1A4, "Bathe foes in a scorching gout of flame."},
@@ -851,7 +869,7 @@ constexpr Line kLines[] = {
     {0x1A8, "Drench foes in a rushing torrent."},
     {0x1A9, "Crash a great wave down upon foes."},
     {0x1AA, "Blow a chilling mist that frosts foes."},
-    {0x1AB, "Freeze foes in a howling, icy gale."},
+    {0x1AB, "Lash foes with a howling, icy gale."},
     {0x1AC, "Bury foes in a raging blizzard."},
     {0x1AD, "Shroud foes in darkness to delude them."},
     {0x1AF, "Spew searing fumes that eat at armor."},
@@ -897,7 +915,7 @@ constexpr Line kLines[] = {
     {0x1DB, "Deal a foe a savage, mortal blow."},
     {0x1DC, "Bite wildly and sap a foe's Attack."},
     {0x1DD, "Peck a foe with a pair of sharp beaks."},
-    {0x1DE, "Bite a foe with rabid, poisonous fangs."},
+    {0x1DE, "Sink venomous fangs into a foe."},
     {0x1DF, "Bite with acid that eats at armor."},
     {0x1E0, "Hurl a lit stick of dynamite at foes."},
     {0x1E1, "Slam into a foe with a hard head."},
@@ -905,22 +923,22 @@ constexpr Line kLines[] = {
     {0x1E3, "Club a foe with a heavy fist."},
     {0x1E4, "Lash back at a foe with full force."},
     {0x1E5, "Charge a foe in a reckless dash."},
-    {0x1E6, "Call a gentle star to soothe allies."},
+    {0x1E6, "Call a gentle star to heal allies."},
     {0x1E7, "Wrap a foe in a web to weaken armor."},
     {0x1E8, "Rend a foe's heart to sap its Attack."},
-    {0x1E9, "Spatter foes with ooze that deludes."},
+    {0x1E9, "Splatter foes with blinding slime."},
     {0x1EA, "Convulse wildly to restore your HP."},
     {0x1EB, "Scatter stardust to put foes to sleep."},
     {0x1EC, "Spread rot that saps foes' Attack."},
     {0x1ED, "Send a spirit to haunt a foe."},
     {0x1EE, "Squirm and wriggle to restore HP."},
     {0x1EF, "Fly into a rage and boost your Attack."},
-    {0x1F0, "Foretell a foe's doom and curse it."},
+    {0x1F0, "Doom a foe with a deathly omen."},
     {0x1F1, "Gather your strength to restore HP."},
     {0x1FE, "Pound a foe with venom-laced blows."},
-    {0x1FF, "Spin and batter a foe with blows."},
+    {0x1FF, "Spin past a foe's defenses."},
     {0x200, "Flash blinding heat to delude a foe."},
-    {0x201, "Swing a reaping scythe to fell a foe."},
+    {0x201, "Reap with a scythe that may fell a foe."},
     {0x204, "Bite deep and drain a foe's HP."},
     {0x205, "Strike a foe with a crushing blow."},
     {0x206, "Thrash wildly at a foe."},

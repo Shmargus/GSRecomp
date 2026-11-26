@@ -6,7 +6,7 @@
 
 // Golden Sun USA/Europe metadata belongs to the project runner, not the
 // reusable ARMv4T runtime. These identities were measured from the generated
-// image and the hash-verified ROM (FACTS.md, 2026-09-10).
+// image and the hash-verified ROM.
 namespace gsr::text_speed_cheat {
 
 // The dialogue text processor 0x080168F4 keeps a per-call token allowance in
@@ -21,7 +21,7 @@ namespace gsr::text_speed_cheat {
 //               r8+0xEA5 byte is zero.
 //   0x08016A34, 0x08016D72  forced stops on the box/line-break paths.
 //
-// Session 20260910_225128 measured that the Fast allowance is never spent:
+// A measured session showed that the Fast allowance is never spent:
 // all 156 invocations ended at 0x08016EDC, the deepest countdown being
 // 10 -> 5. Fast therefore draws one WORD per call, not ten tokens, and
 // raising the table value alone changes nothing.
@@ -83,7 +83,7 @@ using instant_text::kArrowRight;
 using instant_text::kSpeedWords;
 
 // Menu text advances by the per-character width table 0x080370D4, indexed by
-// code - 0x20 (it matches every advance in the 2026-09-14 glyph trace).
+// code - 0x20 (it matches every advance in a glyph trace).
 // Menu text and menu icons share one window-relative x: the Auto-Sleep and
 // Speech icons sit at 0x64 and 0x7C with a 24-pixel pitch, spanning
 // 0x64..0x94, so the caption is centred on 0x7C.

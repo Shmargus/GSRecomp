@@ -180,20 +180,26 @@ constexpr float kStickDeadZone = 7849.0f;
 // diagonal presses two.
 constexpr float kStickSectorSin = 0.38268343f;
 
-// ── MC-WS-002 present-cadence ring ───────────────────────────────────────
-// A ring that is always on, in Release builds too. From window open it
-// records every SDL_RenderPresent: the wall time spent blocked inside the
-// call, the gap since the previous call, and the DWM composition refresh
-// counter (cRefresh) at exit. That counter shows what reaches the screen,
-// which framedumps of the delivered content cannot. The ring records
-// unconditionally (~24 B/present); GBARECOMP_PRESENT_CADENCE=1 adds a
-// periodic stderr summary and a full CSV dump at close
-// (GBARECOMP_PRESENT_CADENCE_DUMP=path overrides ./_present_cadence.csv).
+// ── Present-cadence ring ───────────────────────────────────────
+// A ring buffer that records how each frame was presented. It is always on,
+// in Release builds too, from the moment the window opens.
+//
+// For every SDL_RenderPresent it records:
+//   - the wall time spent blocked inside the call,
+//   - the gap since the previous call, and
+//   - the DWM composition refresh counter (cRefresh) at exit.
+// The refresh counter shows what actually reaches the screen, which
+// framedumps of the delivered content cannot.
+//
+// The ring records unconditionally (~24 B/present). GBARECOMP_PRESENT_CADENCE=1
+// adds a periodic stderr summary and a full CSV dump at close.
+// GBARECOMP_PRESENT_CADENCE_DUMP=path overrides ./_present_cadence.csv.
+//
 // Reading the numbers (rdelta = change in the refresh counter per present):
-//   block_us ≈ 0 on every present → vsync is NOT blocking (tear-prone);
-//   rdelta 1,1,1… at ~16.74 ms gaps on a high-Hz VRR panel → VRR engaged;
-//   rdelta 2/3 alternation on 164 Hz → 59.73→164 pulldown (cadence judder);
-//   rdelta 0 rows → two presents inside one refresh (frame replaced).
+//   - block_us ≈ 0 on every present: vsync is NOT blocking (tear-prone).
+//   - rdelta 1,1,1... at ~16.74 ms gaps on a high-Hz VRR panel: VRR engaged.
+//   - rdelta 2/3 alternation on 164 Hz: 59.73 -> 164 pulldown (cadence judder).
+//   - rdelta 0 rows: two presents inside one refresh (frame replaced).
 struct PresentSample {
     uint64_t qpc = 0;          // SDL performance counter at present entry
     uint64_t dwm_refresh = 0;  // DWM cRefresh after present (0 = unavailable)
@@ -436,17 +442,21 @@ struct Backend {
     int native_scene_h = 0;
 
     // VFX-FLICKER-02/03: temporal frame blend ("LCD ghosting").
-    // temporal_blend_index is the saved and applied setting (it relates to
-    // this the way overclock_factor relates to cfg.overclock_index below).
-    // temporal_blend_prev and temporal_blend_prev2 hold the raw (unblended)
-    // previous two presented frames, N-1 and N-2. The selective ("flicker
-    // only") filter needs both to check for a flicker with a period of
-    // exactly two frames. temporal_blend_out is scratch for the blended
-    // result. All three are base_w*base_h*3 and are resized together with
-    // graded_fb. temporal_blend_history_count says how many of prev and
-    // prev2 hold real previous frames (0, 1 or 2) instead of stale or zeroed
-    // data. present() uses it to decide whether it can blend or must pass
-    // the frame through untouched. See present() for where this runs.
+    // Fields:
+    //   - temporal_blend_index is the saved and applied setting (it relates to
+    //     this the way overclock_factor relates to cfg.overclock_index below).
+    //   - temporal_blend_prev and temporal_blend_prev2 hold the raw
+    //     (unblended) previous two presented frames, N-1 and N-2. The
+    //     selective ("flicker only") filter needs both to check for a flicker
+    //     with a period of exactly two frames.
+    //   - temporal_blend_out is scratch for the blended result.
+    //   - All three buffers are base_w*base_h*3 and are resized together with
+    //     graded_fb.
+    //   - temporal_blend_history_count says how many of prev and prev2 hold
+    //     real previous frames (0, 1 or 2) instead of stale or zeroed data.
+    //     present() uses it to decide whether it can blend or must pass the
+    //     frame through untouched.
+    // See present() for where this runs.
     int temporal_blend_index = gbarecomp::kTemporalBlendDefaultIndex;
     bool temporal_blend_needs_normalization = false;
     std::vector<uint8_t> temporal_blend_prev;
@@ -553,7 +563,7 @@ struct Backend {
     // the config UI can show it without toggling anything.
     float        fps_last = 0.0f;
     EmulationSpeedTracker emulation_speed;
-    // MC-WS-002: always-on per-present timing/scanout ring (see above).
+    // Always-on per-present timing/scanout ring (see above).
     PresentCadence cadence;
 };
 
@@ -1220,13 +1230,16 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
 #if defined(__ANDROID__)
     b->fullscreen = true;
 #endif
-    // The FramePacer governs emulation at 59.7275 Hz; vsync below only aligns
-    // scanout after the pacer and never becomes the game clock.
-    // Every path requests a synchronized present. The cadence probe measured
-    // the legacy D3D9 blit returning in <1 ms despite vsync=yes, so presents
-    // never synced to scanout (a tear band near the bottom). SDL2's D3D11
-    // backend is a DXGI flip-model swapchain whose vsync really blocks and
-    // which windowed VRR can engage through, so it is preferred on Windows;
+    // The FramePacer governs emulation at 59.7275 Hz. The vsync below only
+    // aligns scanout after the pacer; it never becomes the game clock.
+    //
+    // Every path requests a synchronized present. Why D3D11 is preferred on
+    // Windows:
+    //   - The cadence probe measured the legacy D3D9 blit returning in <1 ms
+    //     despite vsync=yes, so presents never synced to scanout (a tear band
+    //     near the bottom).
+    //   - SDL2's D3D11 backend is a DXGI flip-model swapchain. Its vsync
+    //     really blocks, and windowed VRR can engage through it.
     // SDL_RENDER_DRIVER in the environment still overrides.
     // GBARECOMP_NO_VSYNC=1 restores the unsynchronized present for A/B.
     const bool want_vsync = !env_flag("GBARECOMP_NO_VSYNC");
@@ -1314,6 +1327,17 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
                          static_cast<unsigned>(info.flags),
                          (info.flags & SDL_RENDERER_PRESENTVSYNC) ? "yes" : "no",
                          b->resize_driven_view ? " (adaptive)" : "");
+            // Name the graphics card, so a player's bug report shows it.
+            if (b->renderer_is_opengl && SDL_GL_GetCurrentContext()) {
+                const auto gl_text = [](GLenum name) {
+                    const GLubyte* s = glGetString(name);
+                    return s ? reinterpret_cast<const char*>(s) : "unknown";
+                };
+                std::fprintf(stderr,
+                             "host_window: graphics card: %s | %s | OpenGL %s\n",
+                             gl_text(GL_RENDERER), gl_text(GL_VENDOR),
+                             gl_text(GL_VERSION));
+            }
             std::fflush(stderr);
         }
         log_display_mode(b->window, "open");
@@ -1538,7 +1562,7 @@ namespace { void release_cover_art(); }  // the cover's cartridge, below
 void HostWindow::close() {
     if (!impl_) { open_ = false; return; }
     auto* b = static_cast<Backend*>(impl_);
-    b->cadence.dump();  // MC-WS-002: flush the cadence ring (verbose only)
+    b->cadence.dump();  // flush the cadence ring (verbose only)
     if (s_current_audio_backend == b) s_current_audio_backend = nullptr;
     b->local_music.shutdown();
     if (b->audio_dev) SDL_CloseAudioDevice(b->audio_dev);  // stops the callback first
@@ -1872,14 +1896,18 @@ void HostWindow::present(const uint8_t* rgb888) {
     if (!direct) gbarecomp::gpu_present_reset_history();
 
     // VFX-FLICKER-02: temporal frame blend ("LCD ghosting"), selectable in
-    // the F1 menu (default: Flicker only, Strong). Runs first, directly on the PPU
-    // frame and before colour grading and scaling, like the pixels blending
-    // on a real GBA screen.
-    // Skipped for the native-compositor path (supplied_native is a separately
-    // scaled buffer this feature does not reach) and disabled while 2x scene
-    // interpolation is on: interpolation sends a synthesized midpoint frame
-    // and the real frame through this function every guest frame, and it
-    // cannot tell them apart, so blending them would smear the picture.
+    // the F1 menu (default: Flicker only, Strong). It runs first, directly on
+    // the PPU frame and before colour grading and scaling, like the pixels
+    // blending on a real GBA screen.
+    //
+    // It is skipped in two cases:
+    //   - The native-compositor path. supplied_native is a separately scaled
+    //     buffer that this feature does not reach.
+    //   - While 2x scene interpolation is on. Interpolation sends a
+    //     synthesized midpoint frame and the real frame through this function
+    //     every guest frame, and it cannot tell them apart, so blending them
+    //     would smear the picture.
+    //
     // Turbo/frameskip need no handling: present() is only called for frames
     // the turbo present decimator chose to present, so temporal_blend_prev
     // only holds consecutively presented frames.
@@ -2129,7 +2157,7 @@ void HostWindow::present(const uint8_t* rgb888) {
         }
     }
     draw_screen_veil(b->renderer);
-    // MC-WS-002: time the present itself (vsync blocks here, or doesn't)
+    // Time the present itself (vsync blocks here, or doesn't)
     // and stamp the DWM refresh counter into the always-on cadence ring.
     const uint64_t cad_qpc0 = SDL_GetPerformanceCounter();
     // Config UI last, so it draws over the scaled guest frame at WINDOW
@@ -2417,15 +2445,17 @@ void HostWindow::load_input_config(const char* dir) {
     b->cfg.mute_during_turbo = b->turbo_mute_requested;
     b->cfg.uncapped = b->turbo_uncapped;
 
-    // CPU Overclock (TURBO-B2-UI): start from whatever the process already
-    // has live (the GBARECOMP_CPU_OVERCLOCK env var default, or 1x if unset)
-    // so a first run with no config.ini keeps the env var as the default; a
-    // saved CpuOverclock= value then overrides it. Off pins 1x, On pins the
-    // 50x ceiling. For older config.ini files, the legacy "auto" value and
-    // any number greater than 1 (2/4/8 from the old multi-step combo) map to
-    // On; "1", missing or malformed map to Off.
+    // CPU Overclock (TURBO-B2-UI). Off pins 1x, On pins the 50x ceiling.
+    // The starting value is whatever the process already has live (the
+    // GBARECOMP_CPU_OVERCLOCK env var default, or 1x if unset). A first run
+    // with no config.ini therefore keeps the env var as the default, and a
+    // saved CpuOverclock= value then overrides it.
+    // Older config.ini files map as follows:
+    //   - the legacy "auto" value, or any number greater than 1 (2/4/8 from
+    //     the old multi-step combo), means On;
+    //   - "1", a missing value or a malformed value means Off.
     b->overclock_factor = runtime_get_overclock_factor();
-    // [Picture] is the legacy TLA location; [Enhancements] below is scanned
+    // [Picture] is the legacy Lost Age location; [Enhancements] below is scanned
     // later and wins.
     ini_scan_section((base + "config.ini").c_str(), "Picture",
                      [b](const char* key, const char* val) {
@@ -3711,6 +3741,11 @@ HostWindow::Events HostWindow::pump() {
     // hotkey_names is display-only (see ConfigUiState); config.ini persists
     // under the kHotkeyNames keys.
     b->cfg.hotkey_names = all_hotkey_labels().data();
+    if (b->cfg.hotkey_window_only.size() != static_cast<std::size_t>(hotkey_count())) {
+        b->cfg.hotkey_window_only.assign(hotkey_count(), false);
+        for (const int h : {HK_FULLSCREEN, HK_WINDOW_BIGGER, HK_WINDOW_SMALLER})
+            b->cfg.hotkey_window_only[h] = true;
+    }
     if (!b->cfg.binds_changed) {
         for (int i = 0; i < 10; ++i) {
             b->cfg.key_bind[i] = static_cast<int>(b->bind_sc[i]);
@@ -3850,6 +3885,23 @@ HostWindow::Events HostWindow::pump() {
                         : 0u;
             }
         };
+        // Going to the background (Android Home, recents): stop the sound at
+        // once. SDL pauses the device itself only a pump later, and the game
+        // stalls meanwhile (its surface is going away), so the bridge's stall
+        // concealment looped the last few milliseconds: a stutter where the
+        // player expects silence. Back in front, start clean; the bridge
+        // primes again before it plays.
+        if ((e.type == SDL_APP_WILLENTERBACKGROUND ||
+             e.type == SDL_APP_DIDENTERFOREGROUND) &&
+            b->audio_dev != 0 && b->bridge_ready && b->audio_mtx) {
+            const bool background = e.type == SDL_APP_WILLENTERBACKGROUND;
+            if (background) SDL_PauseAudioDevice(b->audio_dev, 1);
+            SDL_LockMutex(b->audio_mtx);
+            rab_reset(&b->bridge);
+            SDL_UnlockMutex(b->audio_mtx);
+            if (!background) SDL_PauseAudioDevice(b->audio_dev, 0);
+        }
+
         // L2/R2 arrive as SDL_CONTROLLERAXISMOTION, never as a button event,
         // so turn a threshold crossing into a synthetic button press here,
         // before the dispatch below; downstream treats it like
@@ -4116,6 +4168,10 @@ HostWindow::Events HostWindow::pump() {
                 touch_controls_poll(touch_w, touch_h, config_ui_visible());
             keys &= static_cast<uint16_t>(~touch.held);
             if (touch.menu_pressed && !quit_owns_input) config_ui_toggle();
+            // The >> button is the Fast Forward (toggle) hotkey on screen.
+            if (touch.fast_forward_pressed && !quit_owns_input)
+                b->turbo_toggle_on = !b->turbo_toggle_on;
+            touch_controls_set_fast_forward(b->turbo_toggle_on);
         }
         // Auto Fire: two frames pressed, two released, so the game sees a
         // fresh press every fourth frame. Keyed to the guest frame so the

@@ -29,6 +29,20 @@ After a launcher-only update, a player build record without a library
 checksum needs one rebuild. The launcher records the checksum after the
 older version-2 builder successfully rebuilds and its output is verified.
 
+## Build Studio
+
+**Build Studio.bat** opens one window for every developer build script:
+the developer launcher and games (`build_dev.ps1`), code regeneration (GS1 `gs.ps1 -To recompile`,
+TLA `tla_recompile.ps1`), player releases (`make_release.ps1`), the launcher
+alone (`build_dev.ps1 -Game None`) and the Android app (`build_apk.py`). It
+only starts those scripts with the options picked; their own checks still
+apply. One build runs at a time, and the window refuses to start one while
+any build process is running. Each run's output is shown live and kept in
+`local/build-studio/`; choices are remembered in `local/build_studio.json`.
+The pages are **Developer Launcher** (both games or one, plus the launcher),
+**Regenerate code**, **Releases** and **Launcher & Android**. From a shell, the
+scripts in `scripts/` take the same options.
+
 ## Readiness
 
 Developer games show **Needs rebuilding** when their build record is missing,
@@ -40,8 +54,8 @@ match. The inputs are listed in `scripts/developer_build_inputs.txt`:
 - `The Lost Age/` changes affect The Lost Age.
 
 The cartridge indicators track game builds. The launcher cog builds the
-selected game. After changing `launcher/`, close the launcher and run
-`build_launcher.bat` to rebuild it.
+selected game. After changing `launcher/`, close the launcher and use
+Build Studio's **Rebuild launcher**.
 
 Checks run once in the background when the launcher opens (**Checking
 build...**) and after a build. Cartridge clicks and returning from a game
@@ -70,21 +84,23 @@ a player launcher finds old developer settings. F2 states require their original
 ROM language; sharing a filename does not convert the captured game session. Restart game keeps the current
 test copy; starting again from the selector makes a fresh one. The checkbox is
 off by default, remembered per game, and independent of Test variables.
-Rebuild the launcher with `build_launcher.bat` after changing launcher sources.
+Rebuild the launcher (Build Studio, **Rebuild launcher**) after changing launcher sources.
 
 Music mods (`Music/TBS`, `Music/TLA`, see [MUSIC_MODS.md](MUSIC_MODS.md))
 work the same in developer and player builds; `Music/` is never committed.
 The engine decodes FLAC with dr_flac: a copy in `engine/third_party/dr_libs`
 if present, otherwise CMake fetches the pinned commit.
 
-`build_dev.bat` builds The Broken Seal, then The Lost Age, then the root
-launcher; a failure stops it. Close the launcher and games first.
+Build Studio's **Developer Launcher** page runs `scripts/build_dev.ps1`: The
+Broken Seal, then The Lost Age, then the root launcher; a failure stops it.
+Close the launcher and games first. From a shell:
 
 ```text
-build_dev.bat                    both games and the launcher
-build_dev.bat -Game BrokenSeal   one game (also updates the launcher)
-build_dev.bat -Game LostAge
-build_dev.bat -CheckOnly         check dependencies; builds and writes nothing
+scripts/build_dev.ps1                    both games and the launcher
+scripts/build_dev.ps1 -Game BrokenSeal   one game (also updates the launcher)
+scripts/build_dev.ps1 -Game LostAge
+scripts/build_dev.ps1 -Game None         the launcher only
+scripts/build_dev.ps1 -CheckOnly         check dependencies; builds and writes nothing
 ```
 
 The Broken Seal builds for the language its launcher flag picks
@@ -103,14 +119,13 @@ The Lost Age has the same five language flags, saved independently in
 own saves/states. Game code lives under `The Lost Age/local/es/tla`,
 `local/it/tla`, `local/fr/tla` or `local/de/tla`. Windows developer builds and
 Windows/Linux player builders use the corresponding `config/es`, `config/it`,
-`config/fr` or `config/de`. After changing launcher sources, close it and run
-`build_launcher.bat` before selecting a new flag and building The Lost Age.
+`config/fr` or `config/de`. After changing launcher sources, close it and rebuild
+the launcher before selecting a new flag and building The Lost Age.
 
 The build-one/both question uses the flag of the game you selected. Save
 conversion questions use the flag of the game just built, including when the
 two games have different flags. Titles, messages and buttons follow that
-language. Rebuild the launcher with `build_launcher.bat` after changing this
-wording.
+language. Rebuild the launcher after changing this wording.
 
 After a successful build for a new language, the launcher offers to convert
 that game's English in-game save if it exists and there is no save for the new
@@ -165,15 +180,15 @@ Use `BrokenSeal` for the first game.
 
 ## Android launcher (sideload)
 
-Double-click **build_android.bat** (`scripts/android/build_apk.py`). It makes
+Use Build Studio's **Launcher & Android > Build app** (`scripts/android/build_apk.py`). It makes
 `Releases/android/GoldenSunRecompiled.apk`: the collection launcher, both
 engines, both player builders and the translator for 64-bit ARM phones, a
 Clang/lld that runs on the phone, and the builder data. Like the PC player
 release it holds no game code: the player picks each ROM on the phone and the
 launcher builds the game there. `--check-games` also compiles this PC's
 generated code for both games the way the phone will and checks every guest
-jump became a host jump (Clang has no guarantee like GCC 15's; measured 14
-November 2026: none missed in The Lost Age's 211 files). `--package-only`
+jump became a host jump (Clang has no guarantee like GCC 15's; measured: none
+missed in The Lost Age's 211 files). `--package-only`
 repacks without compiling.
 
 How it maps onto the PC launcher (`launcher/android_host.h`): the collection
@@ -195,31 +210,35 @@ clang, lld). The first run builds LLVM's table generators with MinGW GCC and
 then Clang+lld for the phone (`llvm-build/`, about an hour). The APK is
 signed with `local/android/gsrecomp-sideload.keystore`, made on first use;
 keep it, or a new APK will not install over the old one (and its saves).
+For tools installed elsewhere, put the absolute Android folder path (the
+parent of `Sdk`, `jdk-21` and `llvm`) in `local/android/toolchain.txt`.
 Needs Android 9 and OpenGL ES 3.1. The app icon is made from
 `assets/launcher_logo.png` at build time (Pillow).
 
 ## Player releases
 
-Double-click **make_release.bat** to open the release window and package both
-games (Windows, Linux through WSL Ubuntu, or both). Packages and logs go to
-root `Releases/`. `make_release.bat -CheckOnly` checks the release layout
+Open Build Studio's **Releases** page and select any combination of Windows x64,
+Linux x64, Linux ARM64 and Android. The page shows the active build stage,
+completed stages, elapsed time and live output. Packages and logs go to
+root `Releases/`. `scripts/make_release.ps1 -CheckOnly` checks the release layout
 without building. Player packages put the game folders under `games/` beside
 the launcher; **Launcher only** packages update the launcher, artwork and
 runtime files.
 
-Set **Version** to the release number, select Windows and Linux, and enable
-the packaged-builder tests. Use a full release for engine/compiler updates;
+Set **Release version** to the GitHub tag and enable the packaged-builder
+tests for desktop packages. Use a full release for engine/compiler updates;
 **Launcher only** does not update either game's engine or bundled builder.
 Keep builds sequential. Packaging creates local archives; it does not commit,
 push, tag or publish a GitHub release.
 
-**Android app** (tick it in the window, or `-Android`): after the chosen
-platforms, `scripts/android/build_apk.py --release` makes
+**Android** (select it in the window, or use `-Android`): Android runs after
+any selected desktop builds. Android prerequisites are checked before any
+selected platform starts. `scripts/android/build_apk.py --release` makes
 `Releases/GoldenSunRecompiled-android-<date>.apk`, with the release version as
 the app's version and not open to adb debugging. Needs the Android tools
 under "Android launcher (sideload)". The ROM scan reads inside the APK and
 inside the collection it unpacks on the phone. For phone testing with adb,
-keep using `build_android.bat` (a debuggable APK).
+keep using Build Studio's **Build app** (a debuggable APK).
 
 The release prints how long each part took when it ends (or stops).
 
@@ -240,6 +259,17 @@ and the SDL2/zlib development packages makes
 `Releases/linux/GoldenSunRecompiled-linux-<date>.zip`; `--launcher-only`
 makes a launcher-only update. Players need a glibc at least as new as the
 build machine's (2.38 on Ubuntu 24.04).
+
+**Linux ARM64** (select it in the window, or use `-LinuxArm64`):
+`scripts/make_release_linux_arm64.sh` runs the same Linux script inside an
+ARM Ubuntu 24.04 that QEMU emulates in WSL, so the launcher, engines,
+builders and bundled GCC 15 are 64-bit ARM. Output goes to
+`Releases/linux-arm64/GoldenSunRecompiled-linux-arm64-<date>.zip`. The first
+run installs `qemu-user-static` and `mmdebstrap` in WSL and creates the ARM
+system in `/root/gsr-arm64-root` (`--prepare` does only that). Emulation
+makes it far slower than the x86 Linux build. The launcher's update check
+picks the zip with "arm64" in its name on ARM Linux and skips it elsewhere.
+On a real ARM Linux machine, run `make_release_linux.sh` directly.
 
 TLA player-release mode excludes the private harvested play cache from both
 the runtime table and compilation. Developer builds retain it. This skips

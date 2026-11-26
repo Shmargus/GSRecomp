@@ -43,43 +43,49 @@
 extern "C" void runtime_ram_image_bus_begin(void);
 extern "C" void runtime_ram_image_bus_end(void);
 
-// Debug PC breakpoint. When set (via the TCP `set_break_pc` command), the
-// per-instruction runtime_should_yield() returns true the moment the guest PC
-// reaches this address, unwinding the current runtime_dispatch back to the
-// exec loop so the TCP server can inspect register/memory state. Needed
-// because a spin inside a single runtime_dispatch can't be entered at ordinary
-// step granularity. 0 disables (no overhead).
+// Debug PC breakpoint, set with the TCP `set_break_pc` command.
+// When set, the per-instruction runtime_should_yield() returns true the moment
+// the guest PC reaches this address. That unwinds the current runtime_dispatch
+// back to the exec loop so the TCP server can inspect register and memory
+// state. This is needed because a spin inside a single runtime_dispatch can't
+// be entered at ordinary step granularity. 0 disables it (no overhead).
 extern "C" uint32_t g_runtime_break_pc = 0;
 
-// Count of PPU VBlank-start events (scanline 159->160), incremented
-// unconditionally in runtime_tick regardless of DISPSTAT IRQ-enable.
-// The debug step-one-frame primitive (runtime.cpp step_frame) stops when
-// this advances, so the recomp's TCP `step` parks at VBlank-start: the
-// same PPU phase the interpreter (tools/bios_smoke step_one_frame) and
-// mGBA (runFrame) park at. Stopping at scanline-WRAP (ppu.frame_count())
-// would park ~68 scanlines / one frame of game logic later than the oracles
-// and show a spurious "recomp runs a frame ahead" when diffing memory at the
-// same step index.
+// Count of PPU VBlank-start events (scanline 159->160). runtime_tick
+// increments it unconditionally, whether or not the DISPSTAT IRQ is enabled.
+//
+// The debug step-one-frame primitive (runtime.cpp step_frame) stops when this
+// advances. That parks the recomp's TCP `step` at VBlank-start, the same PPU
+// phase where the interpreter (tools/bios_smoke step_one_frame) and mGBA
+// (runFrame) park. Stopping at scanline-WRAP (ppu.frame_count()) would park
+// ~68 scanlines (one frame of game logic) later than those oracles. Diffing
+// memory at the same step index would then show a spurious "recomp runs a
+// frame ahead".
 extern "C" unsigned long long g_runtime_vblank_starts = 0;
 
 // ── Phase profiler (GBARECOMP_PHASE_PROF=1) ─────────────────────────────────
-// De-confounds the guest-PC sampler's biggest attribution trap: PPU pixel
-// composition runs per-visible-scanline inside tick_devices, which runs inside
-// runtime_tick, called from EVERY recompiled guest instruction, including the
-// WaitForVBlank busy-spin. A guest-PC profiler therefore charges composition to
-// whatever PC was live (usually the spin). Timing render_scanline directly
-// measures composition's true wall-time share. ~160 timed calls/frame, so the
-// steady_clock overhead is negligible; fully gated off (no clock reads) unless
-// the env var is set. Dumped to stderr at exit.
+// This profiler removes the guest-PC sampler's biggest attribution trap.
+// PPU pixel composition runs once per visible scanline inside tick_devices,
+// which runs inside runtime_tick, which every recompiled guest instruction
+// calls, including the WaitForVBlank busy-spin. A guest-PC profiler therefore
+// charges composition to whatever PC was live (usually the spin).
+//
+// Timing render_scanline directly measures composition's true wall-time share.
+// There are ~160 timed calls per frame, so the steady_clock overhead is
+// negligible. It is fully gated off (no clock reads) unless the env var is
+// set. Results are dumped to stderr at exit.
 extern "C" unsigned long long g_prof_scanline_ns = 0;
 extern "C" unsigned long long g_prof_scanline_count = 0;
-// Lazily evaluated (function-local static) rather than a namespace-scope
-// initializer: that would run BEFORE main() and therefore before config.ini
-// has been read, so it could never see the config UI's "Additional debug
-// logging" toggle. Checked on first call (the first visible-scanline HBlank,
-// well after config load): GBARECOMP_PHASE_PROF, if explicitly set, wins;
-// otherwise the toggle decides (default OFF). The result is cached, so it
-// costs a single bool check per call site when off.
+// Whether the phase profiler is on. It is evaluated lazily (function-local
+// static). A namespace-scope initializer would run BEFORE main(), and so
+// before config.ini has been read, and could never see the config UI's
+// "Additional debug logging" toggle.
+//
+// The check runs on the first call (the first visible-scanline HBlank, well
+// after config load):
+//   - GBARECOMP_PHASE_PROF, if explicitly set, wins;
+//   - otherwise the toggle decides (default OFF).
+// The result is cached, so it costs a single bool check per call site when off.
 static bool phase_prof_enabled() {
     static const bool on = [] {
         bool enabled = gbarecomp::env_flag("GBARECOMP_PHASE_PROF",
@@ -117,11 +123,13 @@ extern "C" unsigned long long g_cost_halt_ns;
 extern "C" unsigned long long g_cost_halt_calls;
 extern "C" unsigned long long g_cost_halt_iters;
 // ── Halt-bucket breakdown ──────────────────────────────────────────────────
-// Sub-divides the halt/idle pump bucket into (a) per-iteration overhead
-// OUTSIDE tick_devices (pump_idle's own duplicated horizon min(),
-// runtime_tick's own bookkeeping, recompute_event_budget, drain_dma_steal,
-// the IRQ-eligibility check), versus (b) tick_devices itself, split into PPU
-// scanline render vs everything else (audio/timers/dma have counters above).
+// Splits the halt/idle pump bucket into two parts:
+//   (a) per-iteration overhead OUTSIDE tick_devices: pump_idle's own
+//       duplicated horizon min(), runtime_tick's own bookkeeping,
+//       recompute_event_budget, drain_dma_steal and the IRQ-eligibility
+//       check;
+//   (b) tick_devices itself, split into PPU scanline render versus everything
+//       else (audio, timers and DMA have counters above).
 // Same idiom as the probe above: single bool check per call site when off,
 // CostTimer when on. Diagnostic-only.
 extern "C" unsigned long long g_cost_pump_idle_ns = 0;
@@ -219,13 +227,13 @@ extern "C" uint32_t g_runtime_frame_present_in_irq = 0;
 // Defined in runtime_arm.cpp so the unpacker-slot journal can record it.
 extern "C" bool g_frame_present_in_progress;
 
-// Cumulative guest-cycle clock. Incremented by runtime_tick on EVERY tick:
+// Cumulative guest-cycle clock. runtime_tick increments it on EVERY tick,
 // both the per-instruction exec ticks emitted by generated code and the
 // halt-pump chunks, so it is the authoritative total guest-cycle count.
-// (runtime.cpp's `cycles_elapsed` only sums the halt path, so it is not
-// comparable to the interpreter's fixed-quantum clock.) runtime_trace_event
-// stamps this onto every ring entry so the recomp and the bios_smoke
-// interpreter oracle align by identical cycles.
+// runtime.cpp's `cycles_elapsed` only sums the halt path, so it is not
+// comparable to the interpreter's fixed-quantum clock.
+// runtime_trace_event stamps this value onto every ring entry, so the recomp
+// and the bios_smoke interpreter oracle align by identical cycles.
 extern "C" unsigned long long g_runtime_cycles = 0;
 
 // ── Stage 2 idle-loop elision: disturbance epoch + skip counters ─────────────
@@ -253,26 +261,30 @@ static unsigned long long g_idle_skipped_cycles = 0;
 static unsigned long long g_idle_skipped_iters  = 0;
 static unsigned long long g_idle_confirmed_sites = 0;
 
-// Shadow-tick mode for the differential gate (archived unused 2026-10-20,
-// Archive/2026-10-20-heal-gate). While
-// g_runtime_shadow_tick is set (during a throwaway validation or transactional
-// guest re-run), runtime_tick accumulates the cycle cost into
+// Shadow-tick mode for the differential gate (currently unused).
+//
+// While g_runtime_shadow_tick is set (during a throwaway validation or
+// transactional guest re-run), runtime_tick adds the cycle cost to
 // g_runtime_shadow_cycles and does NOTHING else: no device pump, no IRQ
-// delivery, no real-clock advance. MMIO catch-up/rescheduling obey the same
-// contract below; otherwise merely reaching a trapped MMIO access could mutate
-// devices before the transaction rejects it. Nothing sets it yet (the gate is
-// not wired into the runtime), so it stays 0 and normal play is untouched.
+// delivery, no real-clock advance. MMIO catch-up and rescheduling obey the
+// same contract below. Otherwise merely reaching a trapped MMIO access could
+// change devices before the transaction rejects it.
+//
+// Nothing sets it yet (the gate is not wired into the runtime), so it stays 0
+// and normal play is untouched.
 extern "C" unsigned          g_runtime_shadow_tick   = 0;
 extern "C" unsigned long long g_runtime_shadow_cycles = 0;
 
-// Memory timing table (runtime_mem_cycles below), exported so the
-// block-timing game code (scripts/block_timing.py) can read it inline instead
-// of calling runtime_mem_cycles: [region][width == 4][sequential].
-// g_runtime_mem_cost_key is the WAITCNT value the table was built for
-// (0xFFFFFFFF: not built); g_runtime_waitcnt_live points at the active bus's
-// live WAITCNT bytes (null without a bus). A reader uses the table only when
-// the live value equals the key, and otherwise calls runtime_mem_cycles,
-// which rebuilds it.
+// Memory timing table (runtime_mem_cycles below), indexed
+// [region][width == 4][sequential]. It is exported so the block-timing game
+// code (scripts/block_timing.py) can read it inline instead of calling
+// runtime_mem_cycles.
+//   - g_runtime_mem_cost_key is the WAITCNT value the table was built for
+//     (0xFFFFFFFF: not built).
+//   - g_runtime_waitcnt_live points at the active bus's live WAITCNT bytes
+//     (null without a bus).
+// A reader uses the table only when the live value equals the key. Otherwise
+// it calls runtime_mem_cycles, which rebuilds the table.
 extern "C" uint8_t g_runtime_mem_cost[16][2][2] = {};
 extern "C" uint32_t g_runtime_mem_cost_key = 0xFFFFFFFFu;
 extern "C" const uint8_t* g_runtime_waitcnt_live = nullptr;
@@ -373,31 +385,36 @@ static void sampler_loop() {
 }
 
 // ── HOST profiler (GBARECOMP_HOST_PROF=<path>) ──────────────────────────────
-// The sampler above records the GUEST pc, which answers "what game code is
-// hot". It cannot answer "what HOST code is hot" (dispatch lookups, the
-// per-instruction tick, bus helpers), which is the question that matters for
-// throughput. External profilers are not usable here: the MinGW build emits
-// DWARF, and Windows Performance Analyzer wants PDB, so a 29,000-function
-// binary shows up as raw addresses.
+// Samples where HOST code spends its time.
 //
-// So: sample the emulation thread's instruction pointer directly. Suspend it,
-// read RIP, resume. That is the standard sampling-profiler move. ~1 kHz, so the cost
-// is negligible and it perturbs timing far less than instrumenting anything.
-// Writes "rip count" lines plus the module base; symbolise offline against
-// `nm` output (the exe keeps ~83k symbols). Fully off unless the env var is
-// set: no thread, no clock reads, nothing.
+// The sampler above records the GUEST pc. That answers "what game code is
+// hot", but not "what HOST code is hot" (dispatch lookups, the per-instruction
+// tick, bus helpers), which is the question that matters for throughput.
+// External profilers are not usable here: the MinGW build emits DWARF, and
+// Windows Performance Analyzer wants PDB, so a 29,000-function binary shows up
+// as raw addresses.
+//
+// So this profiler samples the emulation thread's instruction pointer
+// directly: suspend the thread, read RIP, resume. That is the standard
+// sampling-profiler move.
+//   - It runs at ~1 kHz, so the cost is negligible and it perturbs timing far
+//     less than instrumenting anything.
+//   - It writes "rip count" lines plus the module base. Symbolise them
+//     offline against `nm` output (the exe keeps ~83k symbols).
+//   - It is fully off unless the env var is set: no thread, no clock reads,
+//     nothing.
 //
 // The tick is a HIGH-RESOLUTION waitable timer on an absolute 1 ms schedule
 // (see host_prof_loop). std::this_thread::sleep_for(1ms) runs at the Windows
 // timer resolution (~15.6 ms), which is how one 32 s capture got 808 samples.
 // The timer belongs to the sampler thread alone and exists only while the
-// profiler runs: nothing here changes the process-wide timer resolution, so
+// profiler runs. Nothing here changes the process-wide timer resolution, so
 // the frame limiter's sleeps behave exactly as they do with the profiler off.
 //
 // Besides the aggregated "0x<rip> <count>" lines, every sample is also kept
 // raw (rip, guest frame, host phase id, reserved caller field) and written
-// under "# samples" -- that is what lets a profile be restricted to slow
-// frames or split by phase. See host_prof_phase.h.
+// under "# samples". That is what lets a profile be restricted to slow frames
+// or split by phase. See host_prof_phase.h.
 
 // Phase / frame mirrors read by the sampler (host_prof_phase.h). Defined on
 // every platform: the scopes that write them compile everywhere.
@@ -462,7 +479,7 @@ static std::atomic<bool> g_host_prof_idle{false};
 
 // Do not unwind the target while it is suspended. RtlLookupFunctionEntry
 // can wait for Windows loader/function-table locks held by that same thread
-// (observed during SDL startup, 2026-10-17). Only register and atomic reads
+// (observed during SDL startup). Only register and atomic reads
 // belong between SuspendThread and ResumeThread. Caller fields stay zero;
 // the profile explicitly records their unavailability.
 
@@ -923,8 +940,8 @@ void runtime_set_guest_step_boundary_hook(std::function<void()> hook) {
 
 // Always-on hang watchdog capture. Called once when the watchdog trips;
 // snapshots the live CPU/object state to stderr and hang_dump.log next to
-// the runner. Pure observation; does not alter execution. See PRINCIPLES.md
-// "always-on ring first": the freeze documents itself, no attach timing.
+// the runner. Pure observation; does not alter execution. Always on, so a freeze
+// documents itself without a debugger attached in time.
 static void dump_hang_state(const char* reason) {
     if (!g_active_bus) return;
     // Full CPU register snapshot: the hang is a busy loop, so r0..r15 pin the
@@ -1030,14 +1047,21 @@ static inline bool is_io_addr(uint32_t addr) {
 }
 
 // Stage 2: is a load from `addr` safe to treat as side-effect-free and stable
-// inside an idle-candidate loop? Only writable RAM whose every mutation bumps
-// g_idle_disturb_epoch (EWRAM/IWRAM) and immutable memory (ROM, BIOS) qualify.
-// Everything else is rejected, i.e. MMIO (read side effects / FIFOs), the cartridge GPIO window
-// (RTC etc. clock state out on read), save/flash (0x0E/0x0F, command state
-// machine), palette/VRAM/OAM, open-bus/unmapped. A load from such
-// a region bumps the disturbance epoch so the loop can never reach a confirmed
-// fixed point and is never elided. Registers + epoch are sufficient to prove a
-// fixed point ONLY with this guard.
+// inside an idle-candidate loop?
+//
+// Only these qualify:
+//   - writable RAM whose every mutation bumps g_idle_disturb_epoch
+//     (EWRAM/IWRAM);
+//   - immutable memory (ROM, BIOS).
+// Everything else is rejected:
+//   - MMIO (read side effects, FIFOs);
+//   - the cartridge GPIO window (RTC etc. clock state out on read);
+//   - save/flash (0x0E/0x0F, command state machine);
+//   - palette, VRAM and OAM;
+//   - open-bus and unmapped addresses.
+// A load from such a region bumps the disturbance epoch, so the loop can never
+// reach a confirmed fixed point and is never elided. Registers plus the epoch
+// are sufficient to prove a fixed point ONLY with this guard.
 static inline bool is_idle_safe_read(uint32_t addr) {
     const uint32_t region = addr >> 24;
     if (region == 0x02u || region == 0x03u) return true;   // EWRAM / IWRAM
@@ -1054,7 +1078,7 @@ static inline bool is_idle_safe_read(uint32_t addr) {
     // the PPU crosses HBlank start or a line end -- both PPU events, which an
     // idle skip never passes. The high bytes change only by guest writes,
     // which bump the epoch. A sound-driver wait for line 159 then skips like
-    // a RAM poll (TLA FACTS, "Start-up hitches").
+    // a RAM poll.
     if ((addr & ~3u) == 0x04000004u) return true;
     return false;  // MMIO, palette, VRAM, OAM, save/flash, open-bus, unmapped
 }
@@ -1753,7 +1777,7 @@ static void runtime_tick_common(uint32_t cycles) {
     // this is the alignment clock: it records/parks at cycle-stride boundaries so
     // the recomp and interp instances stop at identical guest cycles. Placed at the
     // very end so g_runtime_cycles reflects this instruction's cost + any DMA-steal
-    // / HALT-wake cycles added above. See COSIM_ORACLE.md §3.
+    // / HALT-wake cycles added above.
     cosim_on_tick();
 #endif
 }
@@ -1936,9 +1960,9 @@ extern "C" void runtime_idle_backedge(uint32_t header_pc) {
     // access, and the disturbance epoch catches any other change.
     //
     // Under a CPU overclock runtime_tick charges each pass a varying share of
-    // its cost (the carry), so the period never repeats and the loop was
-    // never skipped: the 50x overclock spun every idle wait at full host
-    // cost (TLA, 1500 headless frames: 27 s at 1x, 147 s at 50x). An
+    // its cost (the carry), so the period never repeats and the loop would
+    // never be skipped: a 50x overclock would spin every idle wait at full host
+    // cost (measured in The Lost Age, 1500 headless frames: 27 s at 1x, 147 s at 50x). An
     // overclocked loop's phase is not exact anyway, so one undisturbed pass
     // with unchanged registers is proof enough and the skip runs to the
     // horizon (a period of one cycle).
@@ -2181,7 +2205,7 @@ static bool return_now_take() {
 // state. Hide the resume PC behind a sentinel that no call site can match;
 // runtime_yield_restore_pc() puts it back at the loop that re-dispatches it.
 // Sentinel 0xFFFFFFF0 is outside the GBA bus (max 0x0FFFFFFF) so it is never
-// a return address. See The Broken Seal FACTS.md "Door+Turbo crash".
+// a return address.
 extern "C" bool runtime_should_yield(void) {
     cost_bk(kBkShouldYield);
     if (g_return_now && return_now_take()) return true;

@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <limits>
 
-// World-map row geometry, measured from F12 0158 and the original routines:
+// World-map row geometry, measured from a capture and the original routines:
 // 0802DD70 produces 160 {scale, distance, ...} records, 20 bytes each, at
 // [0300001C]. 0802146C's copied ARM writer turns them into the two DMA maps.
 // Its integer PA/PC rounding is amplified by the renderer's 16-row endpoint

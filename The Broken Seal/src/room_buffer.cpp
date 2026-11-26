@@ -31,7 +31,7 @@ enum Refusal { kNoRoom, kNotMode0, kNotFieldSig, kBadOffset, kOutsideRoom,
                kOffGrid, kUnavailableEntry, kRefusalCount };
 std::uint64_t g_refuse[kRefusalCount] = {};
 
-// ---- measured addresses and layout (FACTS.md) ---------------------------
+// ---- measured addresses and layout ---------------------------
 constexpr std::uint32_t kEwramBase = 0x02000000u;
 constexpr std::uint32_t kRoomRect = 0x02030DC0u;   // min_x, max_x, min_y, max_y (u16)
 constexpr std::uint32_t kCamera = 0x02030DB0u;     // x, y as 16.16 fixed point
@@ -94,12 +94,13 @@ bool rect_is_room(const Rect& r) {
 
 // ---- field tilemap writers ----------------------------------------------
 //
-// The six writers take the grid cell as arguments; slot 0/1/2 selects the
+// The six writers take the grid cell as arguments. Slot 0/1/2 selects the
 // destination screenblock (0x2800/0x3000/0x3800 = BG3/BG2/BG1, FACTS.md
-// "Field register signature"), and the caller
-// passes a different cell per slot. room_buffer_on_function_args currently
-// only recognises them; the offsets used for drawing come from the scroll
-// registers (layer_offset).
+// "Field register signature"), and the caller passes a different cell per
+// slot.
+//
+// room_buffer_on_function_args currently only recognises the writers. The
+// offsets used for drawing come from the scroll registers (layer_offset).
 const std::uint32_t kFieldTilemapWriters[6] = {
     gs::rom(0x0800FEC8u), gs::rom(0x0800FF54u), gs::rom(0x08010230u),
     gs::rom(0x08010424u), gs::rom(0x08010560u), gs::rom(0x08010788u),
@@ -133,22 +134,28 @@ void note_rect(const Rect& r) {
 
 // Each layer's region offset, from its own scroll register.
 //
-// The registers hold camera + region offset, wider than the hardware's 9 bits;
-// the part the hardware discards is the offset. Measured equivalent to reading
-// the offsets out of the writers' arguments (91.5/94.3/95.3% against
-// 90.7/93.9/95.3% over one measured run), and preferable for drawing:
-// it is live, per layer, needs no observation to warm up, and cannot drift
-// from the registers the renderer is using on this very scanline. The
-// writer-argument capture in map_recorder.cpp is what established the layout
-// and stays as evidence.
+// The scroll registers hold camera + region offset. That is wider than the
+// hardware's 9 bits, and the part the hardware discards is the offset.
 //
-// Measured in TILES (8px), not cells (16px). In Goma Cave the room is 496x464,
-// a whole number of cells. BG3 and BG1 matched 99.32% and 99.81%, but BG2
-// refused every one of the 298 checked frames: its offset is exactly 0,8 px,
-// half a cell. A whole-cell offset cannot express that, so the layer declined
-// every frame and the margin fell back to the hardware's wrapped ring. The
-// atlas record already holds four 8px tiles per cell, so tile granularity
-// costs nothing, and a whole-cell offset still resolves to exactly the same
+// Reading the offsets from the registers measured about the same as reading
+// them out of the writers' arguments (91.5/94.3/95.3% against 90.7/93.9/95.3%
+// over one measured run). It is preferable for drawing because it:
+//   - is live and per layer,
+//   - needs no observation to warm up, and
+//   - cannot drift from the registers the renderer is using on this very
+//     scanline.
+// The writer-argument capture in map_recorder.cpp is what established the
+// layout, and it stays as evidence.
+//
+// The offset is measured in TILES (8px), not cells (16px). In Goma Cave the
+// room is 496x464, a whole number of cells. BG3 and BG1 matched 99.32% and
+// 99.81%, but BG2 refused every one of the 298 checked frames. Its offset is
+// exactly 0,8 px, which is half a cell. A whole-cell offset cannot express
+// that, so the layer declined every frame and the margin fell back to the
+// hardware's wrapped ring.
+//
+// Tile granularity costs nothing, because the atlas record already holds four
+// 8px tiles per cell. A whole-cell offset still resolves to exactly the same
 // tiles.
 //
 // Returns false if a register is mid-update and not a whole number of tiles,
@@ -168,11 +175,11 @@ bool layer_offset(const std::uint8_t* io, unsigned layer, std::int32_t cam_x,
     return true;
 }
 
-// The PPU calls the field source once per pixel, but all of those calls for a
-// row share the same live bus, scene registers, camera, room bounds and layer
+// The PPU calls the field source once per pixel. All of the calls for one row
+// share the same live bus, scene registers, camera, room bounds and layer
 // scrolls. The PPU-side begin hook resets this state for every render
-// invocation, including VBlank-rendered rows; it never substitutes the
-// VBlank-latched IO snapshot used by the compositor.
+// invocation, including VBlank-rendered rows. It never substitutes the
+// VBlank-latched IO snapshot that the compositor uses.
 struct PreparedLayer {
     bool scroll_valid = false;
     std::int32_t hofs = 0;
@@ -203,9 +210,9 @@ struct PreparedRow {
 
 PreparedRow g_prepared_row{};
 
-// The field's screen-base assignment: BG0=4, BG3=5, BG2=6, BG1=7. Checked
-// before drawing anything, because a Mode 0 frame during the world-map
-// transition still carries the overworld's BGCNT -- that combination was
+// The field's screen-base assignment is BG0=4, BG3=5, BG2=6, BG1=7. It is
+// checked before drawing anything. A Mode 0 frame during the world-map
+// transition still carries the overworld's BGCNT, and that combination was
 // garbling the screen on the way in and out.
 bool is_field_signature(const std::uint8_t* io) {
     return ((io_u16(io, 0x0Eu) >> 8) & 0x1Fu) == 5u &&
@@ -331,24 +338,27 @@ bool entry_for_prepared_row(unsigned layer, std::int32_t world_px,
         (source_tile_y & 1) * 2 + (source_tile_x & 1));
     cache.entry = read_u16(*g_prepared_row.bus,
                            kAtlas + id * 8u + sub * 2u);
-    // The room source runs before the older widescreen provider.  Letting an
-    // unavailable atlas entry through here bypasses that provider's sentinel
-    // guard and turns raw 0xffff into tile 0x3ff/palette 0xf: the yellow/red
-    // checker strip in the Bilibin Barricade capture (2026-09-13).  Apply the
-    // same measured fill rules as the presentation lookup so the PPU can fail
-    // closed and leave the margin transparent.
+    // The room source runs before the older widescreen provider. If an
+    // unavailable atlas entry got through here, it would bypass that
+    // provider's sentinel guard and turn raw 0xffff into tile 0x3ff/palette
+    // 0xf. That is the yellow/red checker strip seen in Bilibin Barricade.
+    // So this applies the same measured fill rules as the presentation
+    // lookup, which lets the PPU fail closed and leave the margin
+    // transparent.
     //
     // Metatile 0x01A is NOT rejected here, unlike in the older per-pixel
-    // provider. That rule rejects the id on its own -- its paired raw value
-    // was never measured -- and it was written for margin content invented
-    // from residue OUTSIDE the room, which this source never reads. Measured
-    // 2026-09-13 (maprec_20260913_161626, snap_00052, room 400x400): cell
-    // (23,1) holds id 0x01A with atlas 0341/13AA/13AA/13AB, ordinary authored
-    // tiles, and the blanket rule punched it out as a 16x16 black square in
-    // the margin. The raw 0xF200 fill and the 0xffff raw sentinel are both
-    // value-based and stay. 0xF200 is the un-authored fill; seen at id 0x017
-    // (earlier) and id 0x000 (Bilibin, gpu_frame_0084, 2026-09-29), so it is
-    // rejected for any metatile id.
+    // provider. That rule rejects the id on its own, and its paired raw value
+    // was never measured. It was written for margin content invented from
+    // residue OUTSIDE the room, which this source never reads. Measured in a
+    // 400x400 room: cell (23,1) holds id 0x01A with atlas 0341/13AA/13AA/13AB.
+    // Those are ordinary authored tiles, and the blanket rule punched them
+    // out as a 16x16 black square in the margin.
+    //
+    // Two fills are value-based and stay:
+    //   - The 0xffff raw sentinel.
+    //   - The raw 0xF200 fill, which is the un-authored fill. It was seen at
+    //     id 0x017 (earlier) and id 0x000 (Bilibin), so it is rejected for
+    //     any metatile id.
     const bool unavailable =
         cache.entry == widescreen::kGoldenSunFieldUnavailableTile ||
         cache.entry == widescreen::kGoldenSunFieldNoMapTile;
@@ -365,15 +375,17 @@ bool entry_for_prepared_row(unsigned layer, std::int32_t world_px,
 // ---- why a room fails ---------------------------------------------------
 //
 // layer_offset() refuses whenever a layer does not sit a whole number of 16px
-// cells from the camera, and the refusal alone cannot say whether the layer is
-// half a cell out (fixable: the atlas record already holds four 8px tiles) or
-// scrolling at its own rate (not fixable by an offset at all). Goma Cave is
-// the measured failure (FACTS.md, 2026-09-10: BG2 never resolved in 951
-// frames), so record the remainder itself.
+// cells from the camera. The refusal alone cannot say which of two things is
+// happening:
+//   - The layer is half a cell out. This is fixable, because the atlas record
+//     already holds four 8px tiles.
+//   - The layer is scrolling at its own rate. An offset cannot fix that.
+// Goma Cave is the measured failure (BG2 never resolved in 951 frames), so
+// the remainder itself is recorded.
 //
-// Both tables are bounded, hold one row per distinct tuple, and are filled
-// once per frame per layer from the self-check -- never from the per-pixel
-// render path.
+// Both tables are bounded and hold one row per distinct tuple. They are
+// filled once per frame per layer from the self-check, never from the
+// per-pixel render path.
 struct OffsetRemainder {
     unsigned layer;
     std::int32_t rx_mod, ry_mod;
@@ -399,11 +411,11 @@ void note_bad_offset(unsigned layer, std::int32_t rx, std::int32_t ry) {
     ++g_remainder_used;
 }
 
-// The check passes BG3's scroll register to layer_offset() as the camera. This
-// records how far that sits from the EWRAM camera, which the draw path uses
-// for the room test (room_buffer_supply). A nonzero delta means the two spaces
-// differ, which is what "outside-room" refusals would then be counting. One row
-// per distinct delta.
+// The check passes BG3's scroll register to layer_offset() as the camera.
+// This table records how far that sits from the EWRAM camera, which the draw
+// path uses for the room test (room_buffer_supply). A nonzero delta means the
+// two spaces differ, and that is what "outside-room" refusals would then be
+// counting. There is one row per distinct delta.
 struct CameraDelta {
     std::int32_t dx, dy;
     std::uint64_t frames;
@@ -425,18 +437,18 @@ void note_camera_delta(std::int32_t dx, std::int32_t dy) {
 
 // ---- the buffer ---------------------------------------------------------
 //
-// Read the 128x128 cell grid and its atlas directly from EWRAM. Once we
-// know the layer offset, a cell takes two reads. This picks up live edits
-// such as a pillar moved with Move.
+// The resolver reads the 128x128 cell grid and its atlas directly from EWRAM.
+// Once the layer offset is known, a cell takes two reads. This picks up live
+// edits, such as a pillar moved with Move.
 //
-// So "the room buffer" is: the room rect, the three region offsets, and this
-// resolver. That makes a pixel beyond the native screen edge an ordinary
+// So "the room buffer" is the room rect, the three region offsets and this
+// resolver. With those, a pixel beyond the native screen edge is an ordinary
 // lookup.
 //
 // tile_x/tile_y are world tile (8 px) coordinates with the room's top-left at
-// 0,0. Returns false when the answer is not known (no room loaded, offsets
-// not yet observed, or outside the room) and the caller must then fall back
-// to whatever it would have done anyway. Never guesses.
+// 0,0. It returns false when the answer is not known: no room loaded, offsets
+// not yet observed, or outside the room. The caller must then fall back to
+// whatever it would have done anyway. It never guesses.
 bool entry_for_tile(const gba::GbaBus& bus, const std::uint8_t* io,
                     unsigned layer, std::int32_t tile_x, std::int32_t tile_y,
                     std::int32_t cam_x, std::int32_t cam_y, const Rect& rect,
@@ -458,11 +470,11 @@ bool entry_for_tile(const gba::GbaBus& bus, const std::uint8_t* io,
         ++g_refuse[kOutsideRoom];
         return false;
     }
-    // Into this layer's own space, in tiles, and only then back to a grid cell
-    // plus which of the four entries in that cell's atlas record. A whole-cell
-    // offset gives exactly the old answer; a half-cell offset takes the two
-    // tile rows of a room cell from two different grid cells, which is what
-    // Goma Cave's BG2 needs.
+    // Convert into this layer's own space, in tiles, and only then back to a
+    // grid cell plus which of the four entries in that cell's atlas record.
+    // A whole-cell offset gives exactly the old answer. A half-cell offset
+    // takes the two tile rows of a room cell from two different grid cells,
+    // which is what Goma Cave's BG2 needs.
     const std::int32_t lx = tile_x + tdx;
     const std::int32_t ly = tile_y + tdy;
     const std::int32_t sx = lx >> 1;
@@ -484,22 +496,26 @@ bool entry_for_tile(const gba::GbaBus& bus, const std::uint8_t* io,
 
 // ---- the check ----------------------------------------------------------
 //
-// Per layer, walk the 16x16 cells the screenblock currently holds, work out
-// which grid cell each one is showing, build the four tile entries that cell
-// implies, and compare against VRAM. Cells whose grid position falls outside
-// the room are skipped, not counted: the ring is one to two cells larger than
-// the viewport, so its edge legitimately holds whatever was there before.
+// For each layer, the check:
+//   1. walks the 16x16 cells the screenblock currently holds,
+//   2. works out which grid cell each one is showing,
+//   3. builds the four tile entries that cell implies, and
+//   4. compares them against VRAM.
+// Cells whose grid position falls outside the room are skipped, not counted.
+// The ring is one to two cells larger than the viewport, so its edge
+// legitimately holds whatever was there before.
 struct Counters {
     std::uint64_t checked = 0;
     std::uint64_t matched = 0;
     std::uint64_t frames = 0;
     std::uint64_t skipped_frames = 0;
     std::uint32_t worst_frame_misses = 0;
-    // Where the misses are. If they sit on the edge of the resident window
-    // they are the game's streaming lag -- it writes each new strip as it
-    // scrolls in, so our answer is briefly ahead of its VRAM. If they are in
-    // the interior, something is actually wrong. Guessing between those two
-    // from a description of shimmer is what this replaces.
+    // Where the misses are. This replaces guessing from a description of
+    // shimmer. There are two cases:
+    //   - On the edge of the resident window: this is the game's streaming
+    //     lag. It writes each new strip as it scrolls in, so our answer is
+    //     briefly ahead of its VRAM.
+    //   - In the interior: something is actually wrong.
     std::uint64_t miss_edge = 0;
     std::uint64_t miss_interior = 0;
 };
@@ -527,11 +543,11 @@ void check_layer(const gba::GbaBus& bus, const std::uint8_t* io, unsigned layer,
         return;
     }
 
-    // Which 16 cells the ring is holding. The ring is exactly 16 cells and a
-    // cell shows at ring position (cell mod 16), so the resident set is the
-    // 16 consecutive cells starting at the camera -- NOT the 16 aligned to a
+    // Which 16 cells the ring is holding. The ring is exactly 16 cells, and a
+    // cell shows at ring position (cell mod 16). So the resident set is the
+    // 16 consecutive cells starting at the camera, NOT the 16 aligned to a
     // multiple of 16. Assuming the aligned window cost roughly 24 points of
-    // match rate (46.8% -> 71.0% on the town captures, 2026-09-05).
+    // match rate (46.8% -> 71.0% on the town captures).
     const std::int32_t origin_x = static_cast<std::int32_t>(cam_x / kCellPixels);
     const std::int32_t origin_y = static_cast<std::int32_t>(cam_y / kCellPixels);
 
@@ -558,23 +574,26 @@ void check_layer(const gba::GbaBus& bus, const std::uint8_t* io, unsigned layer,
                 ly0 + 1 >= static_cast<std::int32_t>(kGridSide) * 2) {
                 continue;  // this layer's region leaves the grid
             }
-            // Ring position wraps every 32 tile entries per axis, and it comes
-            // from THIS layer's own tile, not the ground layer's. The writer places
-            // the cell it was given at (its col mod 16, its row mod 16), so a
-            // layer whose region offset is not a multiple of 16 sits at a
-            // different ring position from the ground layer. Offsets of 32
-            // hide this (32 mod 16 == 0); offsets of 60 do not (60 mod 16 ==
-            // 12), which is why the match rate depended on which room and
-            // where the player stood. Using the layer's own cell lifts BG2
-            // from 66.9% to 93.9% and BG1 from 62.0% to 95.3% when re-run
-            // offline over a recorded run.
+            // Ring position wraps every 32 tile entries per axis. It comes
+            // from THIS layer's own tile, not the ground layer's.
+            //
+            // The writer places the cell it was given at (its col mod 16, its
+            // row mod 16). So a layer whose region offset is not a multiple
+            // of 16 sits at a different ring position from the ground layer.
+            // Offsets of 32 hide this (32 mod 16 == 0). Offsets of 60 do not
+            // (60 mod 16 == 12), which is why the match rate depended on which
+            // room and where the player stood.
+            //
+            // Using the layer's own cell lifts BG2 from 66.9% to 93.9% and
+            // BG1 from 62.0% to 95.3%, when re-run offline over a recorded
+            // run.
             bool cell_ok = true;
             for (unsigned row = 0; row < 2u; ++row) {
                 for (unsigned col = 0; col < 2u; ++col) {
                     // Deliberately routed through entry_for_tile, the same
-                    // function the renderer will call, so this measures the
-                    // thing that will actually draw rather than a parallel
-                    // copy of the same arithmetic.
+                    // function the renderer will call. That way this measures
+                    // the thing that will actually draw, not a parallel copy
+                    // of the same arithmetic.
                     std::uint16_t expected = 0;
                     if (!entry_for_tile(bus, io, layer,
                                         gx * 2 + static_cast<int>(col),
@@ -774,8 +793,8 @@ void room_buffer_init() {
     g_enabled = gbarecomp::env_flag("GSR_ROOM_BUFFER");
     // Rendering from the buffer is a second, separate opt-in. The check runs
     // without it, so the buffer can be measured against the hardware path in
-    // the same session that decides whether to trust it -- and drawing runs
-    // without the check, which is how it is normally played.
+    // the same session that decides whether to trust it. Drawing also runs
+    // without the check, which is how the game is normally played.
     if (gbarecomp::env_flag("GSR_ROOM_BUFFER_RENDER")) {
         gba::g_ws_field_tilemap_source = &gsr_field_tilemap_source;
         gba::g_ws_field_tilemap_source_begin =
@@ -800,10 +819,11 @@ void room_buffer_prepare_row(int screen_y, std::uint16_t dispcnt,
     prepare_row_state(screen_y, dispcnt, io);
 }
 
-// The render path. Screen coordinates in room space via the prepared camera;
-// answers only for the three field layers, only in a Mode 0 room, and only
-// once the row's live scene state has been prepared. Anything else returns
-// false and the PPU's own fetch stands -- so the worst case is today's picture.
+// The render path. It converts screen coordinates to room space via the
+// prepared camera. It answers only for the three field layers, only in a
+// Mode 0 room, and only once the row's live scene state has been prepared.
+// Anything else returns false and the PPU's own fetch stands, so the worst
+// case is today's picture.
 bool room_buffer_supply(int bg, int screen_x, int screen_y,
                         std::uint16_t* out_entry) {
     if (!g_rendering || out_entry == nullptr) return false;
@@ -848,10 +868,10 @@ void room_buffer_on_entry(std::uint32_t entry_pc) {
     const std::uint8_t* io = bus->io().raw();
     if (!io) return;
 
-    // Mode 0 field only. The world map works the same way but streams as the
-    // camera moves, so its ring holds rows built from earlier table contents;
-    // checking it needs a different comparison and is deliberately not done
-    // here (ROADMAP.md milestone 2, scope decided 2026-09-05).
+    // Mode 0 field only. The world map works the same way, but it streams as
+    // the camera moves, so its ring holds rows built from earlier table
+    // contents. Checking it needs a different comparison, which is
+    // deliberately not done here.
     const std::uint16_t dispcnt = io_u16(io, 0x00u);
     if ((dispcnt & 0x7u) != 0u || (dispcnt & 0x0E00u) == 0u) return;
 
@@ -859,8 +879,8 @@ void room_buffer_on_entry(std::uint32_t entry_pc) {
     if (!rect_is_room(rect)) return;
 
     // Counters are per room, not per session. A running total across rooms
-    // only drifts toward whatever the current room scores, which reads as the
-    // number "winding down" while standing still and hides which room is
+    // only drifts toward whatever the current room scores. That reads as the
+    // number "winding down" while standing still, and it hides which room is
     // actually failing.
     g_current_room = rect;
     g_have_room = true;

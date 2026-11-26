@@ -26,11 +26,12 @@ extern "C" void (*g_ws_field_tilemap_source_begin)(int screen_y,
                                                      uint16_t dispcnt,
                                                      const uint8_t* io) = nullptr;
 extern "C" unsigned long long g_ws_expanded_diag[4] = {0, 0, 0, 0};
-// Per-OBJ trust tally for the expanded-view margin defects: how many OBJ
-// entries (per frame, summed here as a running session total) had both axes
-// authenticated by a provider versus fell back to raw/wrapped OAM
-// coordinates on at least one axis. Read by the game's tracer as a delta
-// against the previous frame's totals. Never reset by the renderer.
+// Per-OBJ trust tally, used to track down expanded-view margin defects.
+// It counts OBJ entries as a running session total, summed over frames:
+//   - trusted: both axes were authenticated by a provider.
+//   - untrusted: at least one axis fell back to raw/wrapped OAM coordinates.
+// The game's tracer reads it as a delta against the previous frame's totals.
+// The renderer never resets it.
 extern "C" unsigned long long g_ws_obj_trusted_total = 0;
 extern "C" unsigned long long g_ws_obj_untrusted_total = 0;
 // See g_ws_obj_census_line in gba_ppu.h.
@@ -44,10 +45,10 @@ extern "C" int (*g_ws_bg_sample_provider)(int bg, int output_x, int screen_y,
 extern "C" unsigned g_ws_bg_sample_provider_layers = 0u;
 extern "C" unsigned g_ws_bg_sample_provider_ignore_window_layers = 0u;
 // Row composition census, armed by the same toggle as the row dump below.
-// For every row of the expanded canvas, how many pixels each layer finally
-// won. A band on screen that no register explains -- the stripe across the
-// battle arena, 2026-09-12 -- shows up here as rows whose winning layer
-// differs from their neighbours', which says WHICH layer to go and look at.
+// For every row of the expanded canvas it records how many pixels each layer
+// finally won. A band on screen that no register explains (such as the stripe
+// across the battle arena) shows up as rows whose winning layer differs from
+// their neighbours'. That says which layer to investigate.
 namespace {
 constexpr std::size_t kRowCensusRows = 512;
 constexpr std::size_t kRowCensusLayers = 7;  // BG0-3, OBJ, backdrop, other
@@ -101,11 +102,12 @@ void GbaPpu::serialize(gbarecomp::debug::SnapshotWriter& w) const {
     w.u16(vcount_);
     w.u64(frame_count_);
     w.boolean(has_latched_fb_);
-    // Snapshot layout remains the fixed native 240x160 payload. At native width
-    // retain the historical byte-for-byte path. A wide latch is row-major at
-    // render_width(), so its first kFramebufferBytes are NOT the native image;
-    // explicitly crop the authentic center instead. This also makes a wide save
-    // useful when loaded later in faithful mode.
+    // The snapshot layout stays the fixed native 240x160 payload.
+    //   - At native width, keep the historical byte-for-byte path.
+    //   - A wide latch is row-major at render_width(), so its first
+    //     kFramebufferBytes are not the native image. Crop the authentic
+    //     center explicitly instead. This also lets a wide save be loaded
+    //     later in faithful mode.
     if (!view_expanded()) {
         w.bytes(latched_fb_.data(), kFramebufferBytes);
     } else {
@@ -597,13 +599,15 @@ void render_scanline_internal(uint8_t* rgb,
     };
 
     // ── Windows (GBATEK "LCD I/O Windows") ──────────────────────────────
-    // window_control(x) returns the 6-bit per-pixel mask (BG0-3, OBJ, and bit5
-    // = color-special-effect enable) chosen by region, priority WIN0 > WIN1 >
-    // OBJ-window > outside. WIN0/WIN1 are COORDINATE windows: WINnH gives
-    // [X1,X2), WINnV gives [Y1,Y2). The per-scanline WIN0H the game rewrites
-    // each line is what carves the circular IRIS used by room transitions; it
-    // blanks everything outside the circle to the backdrop, hiding the room's
-    // VRAM/palette reload (MC-HP-003). With no window enabled, every layer is on.
+    // window_control(x) returns the 6-bit per-pixel mask for the region that
+    // pixel is in: bits for BG0-3 and OBJ, and bit 5 = colour special effect
+    // enable. Region priority is WIN0 > WIN1 > OBJ-window > outside.
+    // WIN0/WIN1 are coordinate windows: WINnH gives [X1,X2) and WINnV gives
+    // [Y1,Y2).
+    // The game rewrites WIN0H on every scanline. That carves the circular
+    // iris used by room transitions: everything outside the circle becomes
+    // the backdrop, which hides the room's VRAM/palette reload.
+    // With no window enabled, every layer is on.
     const bool win0_en   = (dispcnt & 0x2000u) != 0;
     const bool win1_en   = (dispcnt & 0x4000u) != 0;
     const bool objwin_en = (dispcnt & 0x8000u) != 0;
@@ -618,12 +622,14 @@ void render_scanline_internal(uint8_t* rgb,
         if (y2 > kScreenHeight || y1 > y2) y2 = kScreenHeight;
         return y >= y1 && y < y2;
     };
-    // x within WINnH? mGBA's rule (video-software.c, GBA_REG_WIN0H and
-    // _breakWindow), not GBATEK's "X1>X2 -> X2=width": X1 past the screen
-    // and past X2 reads as 0; X2 past the screen clamps to it; X1 > X2 then
-    // wraps, [X1,width) plus [0,X2). Golden Sun's Boreas summon writes
-    // WIN0H 0xFFF1 meaning the full width; GBATEK's rule made it empty and
-    // the summon's sky black (logs/gpu_frame_0113.bin, 2026-09-30).
+    // Is x within WINnH? This follows mGBA's rule (video-software.c,
+    // GBA_REG_WIN0H and _breakWindow), not GBATEK's "X1>X2 -> X2=width":
+    //   - X1 past the screen and past X2 reads as 0.
+    //   - X2 past the screen clamps to the screen width.
+    //   - X1 > X2 then wraps: [X1,width) plus [0,X2).
+    // Golden Sun's Boreas summon writes WIN0H 0xFFF1, meaning the full width.
+    // GBATEK's rule made that window empty and the summon's sky black (seen
+    // in a frame dump of that summon).
     auto win_h_in = [&](uint32_t hreg, uint32_t x) -> bool {
         uint32_t h  = static_cast<uint32_t>(io[hreg] | (io[hreg + 1] << 8));
         uint32_t x1 = (h >> 8) & 0xFFu, x2 = h & 0xFFu;
@@ -703,7 +709,7 @@ void render_scanline_internal(uint8_t* rgb,
         // semi-transparent sprite find no blend partner over another sprite
         // and fall through to the brightness effect -- Golden Sun's defend
         // flash (BLDCNT 0x3F90, BLDY 16) then painted every sprite overlap
-        // white (gpu_rewind_0050, FACTS.md 2026-09-25).
+        // white.
         if (layer == 4) {
             if (top[x].layer == 4) {
                 if (key < top[x].key) top[x] = cand;
@@ -915,13 +921,15 @@ void render_scanline_internal(uint8_t* rgb,
             int tiles_w = sw / 8;
             int tiles_h = sh / 8;
             int priority = static_cast<int>((attr2 >> 10) & 0x3u);
-            // Composite key (lower = front). Per-priority stride 256 with OBJ in
-            // [p*256, p*256+127] (tie-break by OAM idx) and BG in [p*256+128,
-            // p*256+131] (tie-break by layer) yields the exact GBA order
-            // OBJ0<BG0<OBJ1<BG1<OBJ2<BG2<OBJ3<BG3: an OBJ is in front of a same-
-            // priority BG, but a BG of priority p sits in front of any OBJ of
-            // priority p+1 (this is what lets the player walk BEHIND roof/tree
-            // tops). The stride MUST exceed 128 so OBJ idx (0..127) can't bleed
+            // Composite key (lower = front). Each priority gets a stride of 256:
+            //   - OBJ keys are in [p*256, p*256+127], tie-broken by OAM index.
+            //   - BG keys are in [p*256+128, p*256+131], tie-broken by layer.
+            // This gives the exact GBA order
+            // OBJ0<BG0<OBJ1<BG1<OBJ2<BG2<OBJ3<BG3. An OBJ is in front of a
+            // BG of the same priority, but a BG of priority p is in front of
+            // any OBJ of priority p+1 (this lets the player walk behind roof
+            // and tree tops).
+            // The stride must exceed 128 so an OBJ index (0..127) cannot bleed
             // into the next priority's BG band. emit_obj submits
             // lifted * 256 + idx, where lifted is the priority after obj_lift.
             bool obj_target2 = (second_targets & (1u << 4)) != 0;
@@ -968,7 +976,7 @@ void render_scanline_internal(uint8_t* rgb,
                 // OBJ when BLDCNT selects the OBJ layer (GBATEK, "LCD I/O
                 // Color Special Effects"). Golden Sun's defend flash
                 // brightens the one non-semi-transparent party member this
-                // way (BLDCNT 0x3F90, gpu_rewind_0051, FACTS.md 2026-09-25).
+                // way (BLDCNT 0x3F90).
                 // The window's effect bit gates only the BLDCNT choice: a
                 // semi-transparent OBJ blends even where the window turns
                 // effects off (mGBA PreprocessSprite). The title's lens
@@ -1060,17 +1068,21 @@ void render_scanline_internal(uint8_t* rgb,
 
 // ── Wide (view-expanded) scanline compositor ────────────────────────────────
 // Renders output scanline `y` into an `out_w`-pixel row, where output column x
-// maps to hardware column hx = x - ox (ox = left margin). This path is ONLY
-// entered when view-area expansion is active; the faithful build always takes
-// render_scanline_internal above, so OFF-mode stays byte-identical by construc-
-// tion. For central hx in [0,240) the per-pixel logic is the same as vanilla;
-// margin columns extend the BG scroll / affine extrapolation / OBJ sampling into
-// the surrounding map. WIN0/WIN1 register tests are NOT widened; a margin hx
-// falls outside [X1,X2) so it naturally resolves to WINOUT (the conservative
-// policy for columns the game never authored). OAM X keeps its 9-bit signed
-// decode and is tested against the expanded viewport, so wrapped-negative sprites
-// (left) and x>=240 sprites (right) both appear in the margins. `logical_y` is
-// the authentic hardware coordinate; output_y includes the top host margin.
+// maps to hardware column hx = x - ox (ox = left margin).
+//   - This path is only entered when view-area expansion is active. The
+//     faithful build always takes render_scanline_internal above, so OFF-mode
+//     stays byte-identical by construction.
+//   - For central hx in [0,240) the per-pixel logic is the same as vanilla.
+//   - Margin columns extend the BG scroll, affine extrapolation and OBJ
+//     sampling into the surrounding map.
+//   - WIN0/WIN1 register tests are not widened. A margin hx falls outside
+//     [X1,X2), so it resolves to WINOUT (the conservative policy for columns
+//     the game never authored).
+//   - OAM X keeps its 9-bit signed decode and is tested against the expanded
+//     viewport. Wrapped-negative sprites (left) and x>=240 sprites (right)
+//     therefore both appear in the margins.
+// `logical_y` is the authentic hardware coordinate; output_y includes the top
+// host margin.
 void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
                           uint16_t dispcnt,
                           const uint8_t* io, const uint8_t* vram,
@@ -1198,14 +1210,13 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
     if (g_ws_field_tilemap_source && g_ws_field_tilemap_source_begin)
         g_ws_field_tilemap_source_begin(logical_y, dispcnt, io);
 
-    // Deliberately WITHOUT default member initialisers. The two arrays below
-    // are sized by kMaxCompositeWidth (2400, the native supersampler's
-    // envelope), while an expanded row is 360 wide; an initialiser here makes
-    // the compiler construct all 2400 entries on every scanline -- 96 KB of
-    // stores per row, 23 MB per expanded frame, measured at roughly half the
-    // cost of an expanded frame (FACTS.md, 2026-09-13). Both arrays are
-    // written explicitly for [0, out_w) below instead; nothing past out_w is
-    // ever read.
+    // Deliberately without default member initialisers. The two arrays below
+    // are sized by kMaxCompositeWidth (2400, the native supersampler's limit),
+    // while an expanded row is 360 wide. An initialiser would make the
+    // compiler construct all 2400 entries on every scanline: 96 KB of stores
+    // per row and 23 MB per expanded frame, measured at roughly half the cost
+    // of an expanded frame. Instead both arrays are written explicitly for
+    // [0, out_w) below, and nothing past out_w is ever read.
     struct PixelCandidate {
         uint16_t color;
         // Real keys are priority * 256 + OBJ index or 128 + BG layer:
@@ -1371,7 +1382,7 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
         // layers beside the world, but it switched the background layers OFF
         // across the whole margin, because the edge column is often outside
         // the game's window rectangle. It cost far more than the stray tiles
-        // it hid (dropped 2026-09-05), and those need a different answer.
+        // it hid, and those need a different answer.
         if (g_ws_tilemap_provider &&
             (hx < 0 || hx >= static_cast<int>(kVanW))) {
             // Minish's room provider treats expanded columns as lying outside
@@ -1451,7 +1462,7 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
         // The 555 colour is kept and converted once, at output. Converting
         // here instead converted every BG and OBJ pixel that was later
         // overdrawn -- up to four conversions per output pixel where one is
-        // needed (FACTS.md, 2026-09-13).
+        // needed.
         cand.color = color;
         cand.key = key;
         cand.layer = layer;
@@ -1612,34 +1623,38 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
                     field_source_answered = true;
                     ++g_ws_expanded_diag[1];
                 } else if (beyond_native) {
-                    // Beyond the native area with no answer: draw nothing. The
-                    // 256px ring entry sitting here is the wrapped seam, i.e.
-                    // some unrelated part of the room repeated, and drawing it
-                    // is what produced the garbage margins in the three earlier
-                    // widescreen attempts. Transparent leaves black, which is
-                    // the agreed behaviour when a room cannot fill the view.
+                    // Beyond the native area with no answer: draw nothing.
+                    // The 256px ring entry sitting here is the wrapped seam,
+                    // meaning some unrelated part of the room repeated.
+                    // Drawing it produced the garbage margins in the three
+                    // earlier widescreen attempts. Transparent leaves black,
+                    // which is the agreed behaviour when a room cannot fill
+                    // the view.
                     ++g_ws_expanded_diag[3];
                     continue;
                 }
             }
             uint8_t source = static_cast<uint8_t>(kWsMarginSourceWrapped);
-            // Widescreen margin (hardware column outside 0..239): the 256px ring
-            // entry here is the wrapped/aliased seam. If the sidecar can supply
-            // the true off-screen world tile, use it; if it's armed but has no
-            // data, leave the pixel transparent (no seam) rather than draw the
-            // wrap. With no sidecar, keep vanilla wide behavior.
+            // Widescreen margin (hardware column outside 0..239). The 256px
+            // ring entry here is the wrapped/aliased seam.
+            //   - If the sidecar can supply the true off-screen world tile,
+            //     use it.
+            //   - If it is armed but has no data, leave the pixel transparent
+            //     (no seam) rather than draw the wrap.
+            //   - With no sidecar, keep vanilla wide behaviour.
             const bool outside_native =
                 world_hx < 0 || world_hx >= static_cast<int>(kVanW) ||
                 world_y < 0 || world_y >= static_cast<int>(kVanH);
             // ...and only when nothing better already answered. The field
             // tilemap source reconstructs the margin tile from the game's own
-            // map tables, so its answer is final. Running the older per-pixel
-            // margin provider over the top of it threw that answer away: the
-            // provider reports Unavailable for an ordinary field scene, and
-            // the `continue` below then dropped every margin pixel the room
-            // buffer had just supplied. That is why margins stayed black in
-            // runs whose own counters reported tens of millions of entries
-            // supplied (one run: 91.5M supplied, margins black).
+            // map tables, so its answer is final.
+            // Running the older per-pixel margin provider on top of it threw
+            // that answer away. The provider reports Unavailable for an
+            // ordinary field scene, and the `continue` below then dropped
+            // every margin pixel the room buffer had just supplied. That is
+            // why margins stayed black in runs whose own counters reported
+            // tens of millions of entries supplied (one run: 91.5M supplied,
+            // margins black).
             if (outside_native && !field_source_answered && !remapped) {
                 if (g_ws_tilemap_provider) {
                     uint16_t ext;
@@ -2171,7 +2186,7 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
     // Which side of the canvas a column is on, and whether this row's margins
     // are pillarboxed, do not change across the row. Asking them once here
     // instead of per pixel removes ~86,000 evaluations of a ten-term
-    // predicate per frame (FACTS.md, 2026-09-13).
+    // predicate per frame.
     const bool row_vertical_margin =
         logical_y < 0 || logical_y >= static_cast<int>(kVanH);
     const bool row_pillar_vertical = row_vertical_margin &&
@@ -2201,15 +2216,16 @@ void render_scanline_wide(uint8_t* rgb, int logical_y, uint32_t output_y,
                 x, kWsMarginTracePillarbox, kWsMarginSourcePillarbox);
             continue;
         }
-        // A margin pixel showing the BACKDROP means the room had no answer
-        // here, not that the game chose to show its backdrop. BLDCNT can name
-        // the backdrop as a blend target (bit 5), and Golden Sun does exactly
-        // that when a menu opens: every native pixel has a real layer on top
-        // and is unaffected, while the margin's backdrop pixels darken. The
-        // result is the extra area dimming on its own while the middle of the
-        // screen stays bright (reported 2026-09-11). Reconstructed margin
-        // layers are still ordinary blend targets and still fade with a real
-        // whole-screen fade; only "nothing was drawn here" is exempt.
+        // A margin pixel showing the backdrop means the room had no answer
+        // here, not that the game chose to show its backdrop.
+        // BLDCNT can name the backdrop as a blend target (bit 5), and Golden
+        // Sun does exactly that when a menu opens. Every native pixel has a
+        // real layer on top and is unaffected, while the margin's backdrop
+        // pixels darken. The extra area would then dim on its own while the
+        // middle of the screen stays bright.
+        // Reconstructed margin layers are still ordinary blend targets and
+        // still fade with a real whole-screen fade. Only "nothing was drawn
+        // here" is exempt.
         if (x_margin && top[x].layer == 5) {
             to_rgb888(top[x].color, dst);
             record_margin_final(x, top[x].layer, top[x].source);
@@ -2368,14 +2384,15 @@ void GbaPpu::render_native(uint8_t* rgb,
     if (scale > 10) scale = 10;
     const uint32_t out_w = kScreenWidth * scale;
     const std::size_t row_bytes = static_cast<std::size_t>(out_w) * 3u;
-    // Native scene rendering is a final-state, opt-in presentation layer. It
-    // intentionally does not alter the latched canonical framebuffer or any
-    // guest timing/state; callers can fall back to render() for interpolation,
-    // frame dumps, or any mode that needs per-scanline snapshots.
-    // Write each logical row directly to the first row of its scaled output
-    // group. The compositor evaluates affine transforms at native horizontal
-    // samples; vertical samples are replicated from the corresponding
-    // hardware scanline without leaving alternating source rows behind.
+    // Native scene rendering is an opt-in presentation layer that works from
+    // the final state. It does not alter the latched canonical framebuffer or
+    // any guest timing or state. Callers can fall back to render() for
+    // interpolation, frame dumps, or any mode that needs per-scanline
+    // snapshots.
+    // Each logical row is written directly to the first row of its scaled
+    // output group. The compositor evaluates affine transforms at native
+    // horizontal samples. Vertical samples are replicated from the matching
+    // hardware scanline, so no alternating source rows are left behind.
     for (uint32_t y = 0; y < kScreenHeight; ++y) {
         uint8_t* row = rgb + static_cast<std::size_t>(y) * scale * row_bytes;
         const int32_t* refs = affine_line_ref_valid_[y]
@@ -2448,12 +2465,12 @@ void GbaPpu::render_scanline(uint32_t y,
                              const uint8_t* oam,
                              const uint8_t* pal,
                              bool draw) {
-    // This, not render(), is the entry the headless/run loop uses: it is
-    // called once per scanline. Count scanlines; the caller divides by
-    // kScreenHeight to get a per-frame figure. Timed only with
-    // GBARECOMP_COST_PROBE: two clock reads per scanline were 0.9-1.1% of
-    // the phone's game thread (The Broken Seal FACTS, "Phone profile"), for
-    // an end-of-run statistic (runtime.cpp ppu_render_total_ms).
+    // This, not render(), is the entry the headless/run loop uses. It is
+    // called once per scanline, so scanlines are counted here and the caller
+    // divides by kScreenHeight to get a per-frame figure.
+    // Timing is done only with GBARECOMP_COST_PROBE: two clock reads per
+    // scanline cost 0.9-1.1% of the phone's game thread, for an end-of-run
+    // statistic (runtime.cpp ppu_render_total_ms).
     static const bool timed = gbarecomp::env_flag("GBARECOMP_COST_PROBE");
     struct ScanTimer {
         bool on;
@@ -2507,12 +2524,13 @@ void GbaPpu::render_scanline(uint32_t y,
     }
     const int32_t* refs = (y < kScreenHeight)
         ? &affine_ref_[0][0] : nullptr;
-    // GoldenSunRecomp edit: everything above this point is bookkeeping the
-    // GPU renderer depends on -- this row's registers, its affine reference
-    // -- and everything below is the drawing itself. Only the drawing is
-    // skipped (MODIFICATIONS.md). The margin policy call in the expanded
-    // branch is kept either way: it is how the game adapter learns what this
-    // frame is, not part of putting pixels down.
+    // GoldenSunRecomp edit: everything above this point is bookkeeping that
+    // the GPU renderer depends on (this row's registers and its affine
+    // reference). Everything below is the drawing itself, and only the drawing
+    // is skipped (MODIFICATIONS.md).
+    // The margin policy call in the expanded branch is kept either way. It is
+    // how the game adapter learns what this frame is, so it is not part of
+    // putting pixels down.
     if (!native_raster_enabled_ || !draw) {
         if (view_expanded() && y < kScreenHeight && g_ws_margin_policy)
             (void)g_ws_margin_policy(dispcnt, io);
@@ -2609,15 +2627,15 @@ void GbaPpu::latch_native_scene_state(uint16_t dispcnt,
 void GbaPpu::dump_row_state(uint16_t dispcnt) {
     if (g_ws_row_state_dump_mode >= 0 &&
     static_cast<int>(dispcnt & 0x07u) == g_ws_row_state_dump_mode) {
-    // Two files, because the two questions are different. battle_frames
-    // is one line per frame for the whole session: enough to find the
-    // moment a screen looks wrong and to see which registers moved
-    // between frames. battle_rows is the full 160 rows, written once for
-    // each distinct screen (a new combination of display mode, layer
-    // controls, camera scale and window band), which is what says whether
-    // the game is animating a register WITHIN the frame -- the thing a
-    // per-frame trace cannot show and the thing a magnified layer has to
-    // follow.
+    // Two files, because the two questions are different.
+    //   - battle_frames has one line per frame for the whole session. It is
+    //     enough to find the moment a screen looks wrong and to see which
+    //     registers moved between frames.
+    //   - battle_rows has the full 160 rows, written once for each distinct
+    //     screen (a new combination of display mode, layer controls, camera
+    //     scale and window band). It shows whether the game animates a
+    //     register within the frame, which a per-frame trace cannot show and
+    //     which a magnified layer has to follow.
     static unsigned long long dump_frame = 0;
     static unsigned long long summary_lines = 0;
     static int detail_blocks = 0;

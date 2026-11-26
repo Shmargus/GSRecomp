@@ -1,13 +1,14 @@
 // overlay_runtime_arm.h: the Stage-2 overlay shim.
 //
 // A runtime-recompiled overlay .c includes THIS instead of "runtime_arm.h".
-// The generated function body is byte-identical to the static corpus: it
+// The generated function body is byte-identical to the static corpus. It
 // still says `g_cpu.R[15] = ...`, `runtime_tick(...)`, `bus_read_u32(...)`,
-// etc. The only difference is the prelude: here, `g_cpu` is a macro for
-// `(*g_ovl->cpu)` and every runtime_*/bus_*/arm_* name is a static-inline
-// thunk that forwards through the GbaOverlayCallbacks the host installed at
-// overlay_init(). So the DLL has ZERO unresolved host symbols, yet mutates
-// the host's real CPU state through the pointer.
+// and so on. Only the prelude differs:
+//   - `g_cpu` is a macro for `(*g_ovl->cpu)`.
+//   - Every runtime_*/bus_*/arm_* name is a static-inline thunk that forwards
+//     through the GbaOverlayCallbacks the host installed at overlay_init().
+// So the DLL has ZERO unresolved host symbols, yet mutates the host's real CPU
+// state through the pointer.
 //
 // Identical body + identical semantics is exactly what makes a healed run's
 // per-instruction fingerprint ring byte-identical to the static build.
@@ -60,6 +61,14 @@ static inline void arm_set_nzcv_sbc(uint32_t a, uint32_t b, uint32_t ci, uint32_
 // ── Dispatch / call-return ──
 static inline void runtime_dispatch(uint32_t pc) { g_ovl->runtime_dispatch(pc); }
 static inline void runtime_dispatch_with_exchange(uint32_t pc) { g_ovl->runtime_dispatch_with_exchange(pc); }
+#if defined(__cplusplus) && defined(__clang__)
+// GBARECOMP_TAIL_DISPATCH's no-argument entries (runtime_arm_types.h).
+static uint32_t g_runtime_tail_pc;
+static inline void runtime_dispatch_tail(void) { g_ovl->runtime_dispatch(g_runtime_tail_pc); }
+static inline void runtime_dispatch_with_exchange_tail(void) {
+    g_ovl->runtime_dispatch_with_exchange(g_runtime_tail_pc);
+}
+#endif
 static inline void runtime_call_push_return(uint32_t pc) { g_ovl->runtime_call_push_return(pc); }
 static inline int  runtime_call_should_return(uint32_t pc) { return g_ovl->runtime_call_should_return(pc); }
 static inline void runtime_call_cancel_return(uint32_t pc) { g_ovl->runtime_call_cancel_return(pc); }

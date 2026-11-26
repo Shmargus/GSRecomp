@@ -200,7 +200,7 @@ BLOG_POST*.html
 /config/usa.toml.example
 /config/usa/overlay-observed-entries.json
 
-# Local player releases (made by make_release.bat).
+# Local player releases (made by Build Studio's Releases page).
 /GSRecomp-Release/
 /build_nolto_test.bat
 /build_lto_nosymbols.bat

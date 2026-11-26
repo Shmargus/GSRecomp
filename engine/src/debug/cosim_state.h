@@ -1,20 +1,25 @@
 // cosim_state.h: full guest-architectural-state canonical hash for the GBA
-// first-divergence co-simulation oracle. See COSIM_ORACLE.md.
+// first-divergence co-simulation oracle. The oracle runs the same game on the
+// recompiled code and on the interpreter, and stops at the first instruction
+// where their states differ.
 //
-// The one correctness rule: this hash must
-// cover EVERY piece of state that can influence future guest execution, and
-// NOTHING host-only (function pointers, JIT/overlay tables, SDL buffers, malloc
-// addresses, padding). A missed execution-relevant field is a blind spot (false
-// "no divergence"); an included host-only field is a false positive. The
-// validation gates (recomp-vs-recomp == 0, injected-fault halts at the right
-// field) exist to prove this list is exactly right.
+// The one correctness rule: this hash must cover EVERY piece of state that
+// can influence future guest execution, and NOTHING host-only (function
+// pointers, JIT/overlay tables, SDL buffers, malloc addresses, padding).
+//   - A missed execution-relevant field is a blind spot (a false "no
+//     divergence").
+//   - An included host-only field is a false positive.
+// The validation gates (recomp-vs-recomp == 0, injected-fault halts at the
+// right field) exist to prove this list is exactly right.
 //
-// R[15] (PC) is DELIBERATELY EXCLUDED from the cross-backend hash: the recomp
-// keeps it current only at dispatch boundaries while the interpreter keeps it
-// exact per-instruction, so at a mid-instruction cycle checkpoint they legitimately
-// differ while in the same architectural state. A real control-flow split shows up
-// as a differing GPR/memory value within one checkpoint (detection delayed by at
-// most one checkpoint, never a blind spot). PC stays available via the `cpu` dump.
+// R[15] (PC) is DELIBERATELY EXCLUDED from the cross-backend hash. The recomp
+// keeps it current only at dispatch boundaries, while the interpreter keeps
+// it exact per instruction. So at a mid-instruction cycle checkpoint they
+// legitimately differ while in the same architectural state.
+//
+// A real control-flow split still shows up as a differing GPR or memory value
+// within one checkpoint. Detection is delayed by at most one checkpoint,
+// never blind. PC stays available via the `cpu` dump.
 #pragma once
 
 #include <cstdint>

@@ -370,16 +370,20 @@ bool is_valid_c_identifier(const std::string& s) {
 // suffix. Mutates in place.
 //
 // Cart functions are emitted `extern "C"` into the SAME global symbol
-// namespace as the host program (libc, the GCC builtins, and the gbarecomp
-// runtime API). A guest function whose seed name is a libc name (`memcpy`,
-// `memset`, `abort`, …) would HIJACK the host's symbol at link: every host
-// call (including C-runtime startup, which runs before our constructors)
-// would jump into guest code operating on an uninitialised g_cpu, a pre-main
-// hang. A reserved `gf_` prefix the host never uses makes the collision
-// impossible by construction, and subsumes C++ keyword / `std` namespace
-// collisions for free. BIOS functions are NOT prefixed: they
-// dispatch through a separate table and their seed names (reset/swi/irq)
-// don't collide, but still get keyword/duplicate hardening.
+// namespace as the host program (libc, the GCC builtins and the gbarecomp
+// runtime API). Suppose a guest function's seed name is a libc name
+// (`memcpy`, `memset`, `abort`, …). It would HIJACK the host's symbol at
+// link. Every host call, including C-runtime startup (which runs before our
+// constructors), would then jump into guest code operating on an
+// uninitialised g_cpu, and the program would hang before main.
+//
+// A reserved `gf_` prefix that the host never uses makes the collision
+// impossible by construction. It also covers C++ keyword and `std` namespace
+// collisions for free.
+//
+// BIOS functions are NOT prefixed. They dispatch through a separate table,
+// and their seed names (reset/swi/irq) do not collide. They still get
+// keyword and duplicate hardening.
 void sanitize_function_identifiers(std::vector<Function>& funcs,
                                    bool prefix_guest,
                                    const std::string& symbol_prefix) {
@@ -995,8 +999,8 @@ int main(int argc, char** argv) {
 
     // ── Optional TOML config ───────────────────────────────────────
     // Per-binary configuration: manual function seeds, data-range
-    // exclusions, jump tables, identity hash. See
-    // docs/TOML_SCHEMA.md. When present, the binary's SHA-1 is
+    // exclusions, jump tables, identity hash. When
+    // present, the binary's SHA-1 is
     // verified against [identity].sha1 before any discovery runs, and
     // [program].load_address and [program].entry_pc become the discovery
     // base/entry. CLI --rom-base/--entry remain the no-config path and
@@ -1187,14 +1191,14 @@ int main(int argc, char** argv) {
     //    human must resolve it (shrink the range / exclude the caller).
     //
     //  * AUTO jump_table (the finder's own speculative abs32-table guess):
-    //    real code can never branch *into* a true code-pointer table, so a
-    //    collision here is proof the guess mis-modeled some packed/offset
-    //    THUMB switch (case handlers that each branch to a shared address
-    //    inside the table bytes, which are data). The data_range itself is
-    //    correct; only the decoded branches are artifacts. Downgrade to a
-    //    WARNING: keep the bytes as data and let the residual indirect
-    //    branches resolve through the runtime's reported self-heal path.
-    //    Never a build failure.
+    //    real code can never branch *into* a true code-pointer table. A
+    //    collision here therefore proves the guess mis-modeled some
+    //    packed/offset THUMB switch, where case handlers each branch to a
+    //    shared address inside the table bytes (which are data). The
+    //    data_range itself is correct; only the decoded branches are
+    //    artifacts. Downgrade to a WARNING: keep the bytes as data and let
+    //    the residual indirect branches resolve through the runtime's
+    //    reported self-heal path. Never a build failure.
     const auto& cols = finder.collisions();
     std::size_t fatal = 0, auto_jt = 0;
     for (const auto& c : cols) {

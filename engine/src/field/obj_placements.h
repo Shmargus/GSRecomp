@@ -1,31 +1,32 @@
 #pragma once
 
-// Where each object record was last placed, by record address, for the
-// expanded view's sprite positions. Shared by both games; each game records
-// at its own character builders and asks from its OAM attribute providers.
+// Remembers where each object record was last placed, by record address, for
+// the expanded view's sprite positions. Both games share it. Each game
+// records at its own character builders and asks from its OAM attribute
+// providers.
 //
-// The console's object Y is 8 bits and X 9: once objects are placed outside
-// its screen any raw value can mean either side. So each builder pass
-// records the object's real X and Y by its sprite record (attr0/1/2 at
-// +4/+6/+8), and the providers get them back from the record that holds
-// that raw position, or placed it there in the last few frames.
+// The console's object Y is 8 bits and X is 9. Once objects are placed
+// outside its screen, any raw value can mean either side. So each builder
+// pass records the object's real X and Y by its sprite record (attr0/1/2 at
+// +4/+6/+8). The providers get them back from the record that either holds
+// that raw position or placed it there in the last few frames.
 //
-// Measured in The Lost Age (F12 0015, 2026-10-05: a creature at row ~170
-// shown on one frame and gone for the next 50): a lookup that expires after
-// two frames or also needs the tile word fails whenever the game leaves an
-// object's record alone for a while or animates it after placing it, and the
-// object then falls back to the hardware's reading, above the screen.
+// Measured in The Lost Age (a creature at row ~170 shown on one frame and
+// gone for the next 50): a lookup that expires after two frames, or that
+// also needs the tile word, fails whenever the game leaves an object's
+// record alone for a while or animates it after placing it. The object then
+// falls back to the hardware's reading, above the screen.
 //
-// Each record keeps its last few placements, not only the newest: the scene
+// Each record keeps its last few placements, not only the newest. The scene
 // is captured at VBlank start, before the game's VBlank copies this frame's
-// objects to OAM, so OAM can still hold the previous placement of an object
-// that has since moved (TLA F12 0023-0025: walking NPCs at the bottom edge
-// flickered and jumped).
+// objects to OAM. So OAM can still hold the previous placement of an object
+// that has since moved. Without the history, walking NPCs at the bottom edge
+// flicker and jump in The Lost Age.
 //
-// Each placement also keeps the record's sprite words as they were then: a
+// Each placement also keeps the record's sprite words as they were then. A
 // world-map object the game unloads has its record zeroed while OAM still
-// shows its last placement for one frame (TLA F12 tla_rewind_0009,
-// 2026-10-14: a town blipping in at the bottom).
+// shows its last placement for one frame (in The Lost Age, a town blipping
+// in at the bottom).
 
 #include <array>
 #include <cstddef>
@@ -45,7 +46,7 @@ public:
         std::uint32_t record = 0;  // the sprite record that was placed
         // The game's full tile number for the record when it was placed, or
         // -1: OAM shows a placement a frame after the game may have
-        // released its tiles (TLA F12 tla_rewind_0047 frame 105).
+        // released its tiles.
         int tile = -1;
         // Only character bodies have the game's tile-owner field. Other
         // builders can reuse that byte for animation state.
@@ -100,13 +101,16 @@ public:
         p.uses_tile_grant = uses_tile_grant;
     }
 
-    // The placement an OAM entry came from, or null. A record answers if it
-    // still holds this raw position (an object the game has not moved
-    // since), or if it was placed there in the last few frames (OAM lags the
-    // records by one). An older placement of a record that has since moved
-    // on is no answer: a long-gone bottom-margin placement of another object
-    // answered for an NPC just above the view and drew it in the bottom
-    // margin (TLA, 2026-10-05).
+    // The placement an OAM entry came from, or null. A record answers if
+    // either:
+    //   - it still holds this raw position (an object the game has not moved
+    //     since), or
+    //   - it was placed there in the last few frames (OAM lags the records by
+    //     one).
+    // An older placement of a record that has since moved on is no answer. A
+    // long-gone bottom-margin placement of another object would answer for an
+    // NPC just above the view and draw it in the bottom margin (seen in The
+    // Lost Age).
     const Placement* find(gba::GbaBus& bus, unsigned long long now,
                           std::uint16_t attr0, std::uint16_t attr1,
                           std::uint16_t attr2) const {
@@ -122,11 +126,12 @@ public:
                    ((a1 ^ attr1) & 0xC000u) == 0u &&
                    ((a2 ^ attr2) & 0xFC00u) == 0u;
         };
-        // Sand puffs can share a raw position and kind (TLA F12 tla_rewind_0055
-        // f31, OAM 7 and 10). A new puff can also overlap last frame's OAM
-        // (tla_rewind_0056 f93, OAM 20 at 0x67,0x70, tile 0x30, record
-        // 0x03001648 placed at f92). Prefer a tile match, then a record still at
-        // that position, then the newest placement.
+        // Sand puffs can share a raw position and kind (The Lost Age). A new
+        // puff can also overlap last frame's OAM entry (for example OAM 20 at
+        // 0x67,0x70, tile 0x30). So prefer, in order:
+        //   1. a tile match,
+        //   2. a record still at that position,
+        //   3. the newest placement.
         const auto same_tile = [&](std::uint16_t a2) {
             return ((a2 ^ attr2) & 0x03FFu) == 0u;
         };
@@ -135,9 +140,9 @@ public:
         const std::uint32_t key = pos_key(raw_y, raw_x);
         for (std::size_t i = 0; i < placed_.size(); ++i) {
             // Most records hold no placement at this raw position, and such a
-            // record can never answer: skip it before reading its sprite
-            // words (phone profile, 18 November 2026: this search was 3.8% of
-            // the game thread, mostly those reads).
+            // record can never answer. Skip it before reading its sprite
+            // words. In a phone profile this search was 3.8% of the game
+            // thread, mostly those reads.
             const auto& keys = pos_[i];
             bool any = false;
             for (std::uint32_t k : keys) any |= (k == key);

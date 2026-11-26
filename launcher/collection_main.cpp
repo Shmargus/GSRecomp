@@ -556,6 +556,59 @@ void split_controls(ImDrawList* draw, ImFont* font, float size, float center, fl
     draw->AddText(font, size, {center + gap, top}, color, right);
 }
 
+// Centred text wrapped to `max_lines` lines of at most `max_width`; the last
+// line ends in "..." when it does not fit. Returns the box it drew in.
+Box wrapped_centered_text(ImDrawList* draw, ImFont* font, float size, float center, float top,
+                          float max_width, int max_lines, ImU32 color, const std::string& text) {
+    Box box{{center, top}, {center, top}};
+    std::size_t at = 0;
+    for (int line = 0; line < max_lines && at < text.size(); ++line) {
+        while (at < text.size() && text[at] == ' ') ++at;
+        std::string piece = text.substr(at);
+        const bool last = line + 1 == max_lines;
+        if (font->CalcTextSizeA(size, FLT_MAX, 0, piece.c_str()).x > max_width) {
+            // Break at the last space that fits, or cut with "..." on the last line.
+            std::size_t fit = 0;
+            for (std::size_t end = 0; (end = text.find(' ', at + fit + 1)) != std::string::npos;) {
+                if (font->CalcTextSizeA(size, FLT_MAX, 0, text.substr(at, end - at).c_str()).x > max_width) break;
+                fit = end - at;
+            }
+            if (last || !fit) {
+                while (!piece.empty() && font->CalcTextSizeA(size, FLT_MAX, 0, (piece + "...").c_str()).x > max_width)
+                    piece.pop_back();
+                while (!piece.empty() && (static_cast<unsigned char>(piece.back()) & 0xC0) == 0x80) piece.pop_back();
+                piece += "...";
+                at = text.size();
+            } else {
+                piece = text.substr(at, fit);
+                at += fit;
+            }
+        } else at = text.size();
+        const auto measured = font->CalcTextSizeA(size, FLT_MAX, 0, piece.c_str());
+        const float y = top + line * size * 1.15f;
+        draw->AddText(font, size, {center - measured.x / 2, y}, color, piece.c_str());
+        box.min.x = std::min(box.min.x, center - measured.x / 2);
+        box.max.x = std::max(box.max.x, center + measured.x / 2);
+        box.max.y = y + measured.y;
+    }
+    return box;
+}
+
+// Opens the build log (collection_build.h) in the system's viewer.
+void open_build_log(const fs::path& log) {
+    if (log.empty()) return;
+    const auto path = log.generic_u8string();
+    std::string url = "file://";
+    if (!path.empty() && path.front() != u8'/') url += '/';
+    for (const char8_t c : path) {
+        const auto byte = static_cast<unsigned char>(c);
+        if ((byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') || (byte >= '0' && byte <= '9') ||
+            std::strchr("/-_.~:", byte)) url += static_cast<char>(byte);
+        else { char hex[4]; std::snprintf(hex, sizeof(hex), "%%%02X", byte); url += hex; }
+    }
+    SDL_OpenURL(url.c_str());
+}
+
 void golden_title(ImDrawList* draw, ImFont* font, float size, float center, float top, const char* text) {
     const auto measured = font->CalcTextSizeA(size, FLT_MAX, 0, text);
     const ImVec2 position{center - measured.x / 2, top};
@@ -568,6 +621,41 @@ void golden_title(ImDrawList* draw, ImFont* font, float size, float center, floa
         const ImVec4 clip{0, top + measured.y * band / 3, FLT_MAX, top + measured.y * (band + 1) / 3};
         draw->AddText(font, size, position, colors[band], text, nullptr, 0, &clip);
     }
+}
+
+// Draws the Romhack button. It sits below the flags under a cartridge, and
+// one button serves every supported romhack. It is a small plaque in the
+// settings window's teal, edged and lettered in the titles' gold. While a
+// romhack is chosen it glows and pulses, as a chosen flag does.
+// `left` is its left edge and `grow` is the pulse.
+constexpr const char* kRomhackLabel = "Romhack";
+float romhack_button_width(ImFont* font, float scale) {
+    return font->CalcTextSizeA(13 * scale, FLT_MAX, 0, kRomhackLabel).x + 18 * scale;
+}
+Box draw_romhack_button(ImDrawList* draw, ImFont* font, float left, float center_y, float scale,
+                        bool chosen, bool hovered, float grow) {
+    const float w = romhack_button_width(font, scale), h = 20 * scale;
+    const float cx = left + w / 2, gw = w * grow, gh = h * grow, round = 5 * scale * grow;
+    const ImVec2 a{cx - gw / 2, center_y - gh / 2}, b{cx + gw / 2, center_y + gh / 2};
+    if (chosen || hovered) {
+        // A soft gold halo, three widening rings.
+        for (int ring = 3; ring >= 1; --ring) {
+            const float e = ring * 2.5f * scale;
+            draw->AddRectFilled({a.x - e, a.y - e}, {b.x + e, b.y + e},
+                                IM_COL32(255, 205, 90, chosen ? 30 : 16), round + e);
+        }
+    }
+    draw->AddRectFilled(a, b, chosen ? IM_COL32(64, 44, 15, 245) : hovered ? IM_COL32(30, 46, 42, 245)
+                                                                           : IM_COL32(12, 27, 30, 235), round);
+    // A bevel: light along the top inside edge, the gold rim around.
+    draw->AddLine({a.x + round, a.y + 1.5f * scale}, {b.x - round, a.y + 1.5f * scale},
+                  IM_COL32(255, 232, 151, chosen ? 110 : 60), 1.0f * scale);
+    draw->AddRect(a, b, chosen || hovered ? IM_COL32(255, 215, 97, 255) : IM_COL32(198, 134, 41, 255),
+                  round, 0, 1.4f * scale);
+    const float size = 13 * scale * grow;
+    golden_title(draw, font, size, cx, center_y - font->CalcTextSizeA(size, FLT_MAX, 0, kRomhackLabel).y / 2,
+                 kRomhackLabel);
+    return {{cx - w / 2 - 4 * scale, center_y - h / 2 - 4 * scale}, {cx + w / 2 + 4 * scale, center_y + h / 2 + 4 * scale}};
 }
 
 float grain(int x, int y) {
@@ -606,30 +694,19 @@ bool make_background(SDL_Renderer* renderer, Texture& background) {
     return true;
 }
 
-// The buttons under each cartridge, one per revision, showing which ROM the
-// launcher expects (collection_storage.h rom_language). USA/Europe is the US
-// and UK flags split on the diagonal. Spain, Italy, France and Germany use
-// their own flags. Reloaded (revision 5) is a plain badge: a gold "R" on
-// deep red, not the patch's own art. The Brazilian Portuguese patch
-// (revision 6) is Brazil's flag. All are drawn here on a 300x200 design
-// grid, with 4x4 samples per pixel.
+// Draws the flags under each cartridge. There is one flag per language
+// revision, showing which ROM the launcher expects (collection_storage.h
+// rom_language).
+//   - USA/Europe is the US and UK flags split on the diagonal.
+//   - Spain, Italy, France and Germany use their own flags.
+//   - The Brazilian Portuguese patch (revision 6) uses Brazil's flag.
+//   - Romhacks have no flag. They share the Romhack button beside the flags
+//     (draw_romhack_button).
+// All flags are drawn here on a 300x200 design grid, with 4x4 samples per
+// pixel.
 bool make_flag(SDL_Renderer* renderer, int language, Texture& flag) {
     struct Rgb { float r, g, b; };
     const auto color = [language](float x, float y) -> Rgb {
-        if (language == 5) {
-            // A gold "R": stem, a bowl (a ring's right half joined to the
-            // stem by two bars) and a diagonal leg.
-            const bool stem = x >= 100 && x < 132 && y >= 28 && y < 172;
-            const float bx = x - 150, by = y - 72, r = std::sqrt(bx * bx + by * by);
-            const bool bowl = (x >= 132 && x < 150 && ((y >= 28 && y < 56) || (y >= 88 && y < 116))) ||
-                              (x >= 150 && r < 44 && r >= 16);
-            // Distance from (x, y) to the leg's centre line (150,104)-(200,172).
-            const float lx = 50, ly = 68, t = std::clamp(((x - 150) * lx + (y - 104) * ly) / (lx * lx + ly * ly), 0.0f, 1.0f);
-            const float ex = x - (150 + t * lx), ey = y - (104 + t * ly);
-            const bool leg = ex * ex + ey * ey < 15.0f * 15.0f && y < 172;
-            if (stem || bowl || leg) return {255, 205, 60};
-            return {120, 16, 28};
-        }
         if (language == 6) {
             // Brazil: a yellow rhombus on green, a blue disc crossed by a
             // white band.
@@ -870,6 +947,11 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
     gsr_collection::ReleaseNotes notes;
     bool notes_open = false, request_notes = false;
     Box notes_box{};
+    // The build's pause note, clickable for the build log while it warns.
+    Box build_log_box{};
+    // Import emulator save, top left (collection_rom.h import_emulator_save).
+    Box import_box{};
+    bool import_pick = false;
     int selected = preview.empty() ? 0 : preview_choice, axis_direction = 0;
     int pending_choice = -1;
     int play_choice = -1;
@@ -907,21 +989,37 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
     int rom_language[2] = {preview.empty() ? gsr_collection::rom_language(root,0) : 0,
                            preview.empty() ? gsr_collection::rom_language(root,1) : 0};
     Box flag_boxes[2][gsr_launcher::kMaxRevisions]{};
+    // The Romhack button under each cartridge: a list of the romhacks already
+    // loaded (romhack_menu: that game, -1 closed), or the file window
+    // (romhack_pick: that game, opened between frames).
+    Box romhack_boxes[2]{};
+    int romhack_menu = -1, romhack_pick = -1;
+    bool romhack_open = false, request_romhack = false;
+    // A flag, a listed romhack or a loaded one: that revision's own ROM,
+    // saves and game build.
+    const auto choose_revision = [&](int game, int revision) {
+        rom_language[game] = revision;
+        selected = game;
+        if (!gsr_collection::set_rom_language(root, revision, game)) error = "Could not save the language choice.";
+        else error.clear();
+        refresh_builds();
+    };
     const Uint64 start = SDL_GetPerformanceCounter();
     int result = 0;
     int preview_frames = 0;
 #ifdef __ANDROID__
-    // Asks for a 60 Hz screen, as the game does. Unasked, a 120 Hz phone
-    // ran this window at 120: 36% of a core idle on the cartridge screen
-    // (Pixel 9 Pro, 16 November 2026). Asked again whenever the window comes
-    // back, since Android gives it a new surface.
+    // Asks for a 60 Hz screen, as the game does. Without the request, a
+    // 120 Hz phone ran this window at 120, using 36% of a core while idle on
+    // the cartridge screen (Pixel 9 Pro). The request is repeated whenever
+    // the window comes back, since Android gives it a new surface.
     bool frame_rate_asked = false;
-    // Untouched, the screen draws 30 pictures a second instead of 60: the
-    // glow is the only thing moving, and each picture's cost is mostly
-    // handing it to the screen (eglSwapBuffers 43%) and SDL converting the
-    // menu's shapes (SDL_RenderGeometryRaw 23%; simpleperf, Pixel 9 Pro,
-    // 18 November 2026, 40% of a core at 60). Any event, a transition or a
-    // fade brings back 60, until a second after the last touch or press.
+    // When untouched, the screen draws 30 pictures a second instead of 60.
+    // The glow is the only thing moving. Each picture costs mostly:
+    //   - handing it to the screen (eglSwapBuffers, 43%), and
+    //   - SDL converting the menu's shapes (SDL_RenderGeometryRaw, 23%).
+    // (Measured with simpleperf on a Pixel 9 Pro: 40% of a core at 60.)
+    // Any event, transition or fade brings back 60, until a second after the
+    // last touch or press.
     Uint64 last_input = SDL_GetPerformanceCounter();
     // The visible "Golden Sun Recompiled" folder (android_host.h): asked at
     // each start until allowed; checked again when the app comes back from
@@ -1050,6 +1148,9 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 continue;
             }
             if (build.running || building_choice >= 0) {
+                if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT &&
+                    build_log_box.contains(float(event.button.x), float(event.button.y)))
+                    open_build_log(build.log);
                 if ((event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) ||
                     (event.type == SDL_CONTROLLERBUTTONDOWN && event.cbutton.button == SDL_CONTROLLER_BUTTON_B))
                     { builder.cancel(); play_after_build = false; then_build = -1; }
@@ -1074,11 +1175,24 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 }
                 continue;
             }
+            // The romhack list takes the clicks (a click outside closes it).
+            if (romhack_open) {
+                if ((event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) ||
+                    (event.type == SDL_CONTROLLERBUTTONDOWN && event.cbutton.button == SDL_CONTROLLER_BUTTON_B)) {
+                    romhack_open = false;
+                }
+                continue;
+            }
             if (insertion_choice < 0 && pending_choice < 0 && !settings_open &&
                 event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT &&
                 notes_box.contains(float(event.button.x), float(event.button.y))) {
                 if (preview.empty()) notes.request();
                 notes_open = request_notes = true; play_choice = -1; continue;
+            }
+            if (insertion_choice < 0 && pending_choice < 0 && !settings_open &&
+                event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT &&
+                import_box.contains(float(event.button.x), float(event.button.y))) {
+                import_pick = true; play_choice = -1; continue;
             }
             if (settings_open) {
                 if ((event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) ||
@@ -1128,17 +1242,21 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                             flag_boxes[game][flag].contains(float(event.button.x),float(event.button.y))) {
                             flag_hit = flag; flag_game = game;
                         }
+            int romhack_hit = -1;
+            if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT)
+                for (int game = 0; game < 2; ++game)
+                    if (romhack_boxes[game].contains(float(event.button.x), float(event.button.y))) romhack_hit = game;
+            const bool idle = preview.empty() && !build.running && building_choice < 0 &&
+                              pending_choice < 0 && insertion_choice < 0;
             if (flag_hit >= 0) {
-                // Each revision (language or Reloaded) has its own ROM,
-                // saves and game build.
-                if (preview.empty() && flag_hit != rom_language[flag_game] && !build.running && building_choice < 0 &&
-                    pending_choice < 0 && insertion_choice < 0) {
-                    rom_language[flag_game] = flag_hit;
-                    selected = flag_game;
-                    if (!gsr_collection::set_rom_language(root, rom_language[flag_game],flag_game))
-                        error = "Could not save the language choice.";
-                    else error.clear();
-                    refresh_builds();
+                if (idle && flag_hit != rom_language[flag_game]) choose_revision(flag_game, flag_hit);
+            } else if (romhack_hit >= 0) {
+                // The romhacks already loaded, to pick from; with none yet,
+                // straight to the file window.
+                if (idle) {
+                    selected = romhack_hit;
+                    if (gsr_collection::loaded_romhacks(root, romhack_hit).empty()) romhack_pick = romhack_hit;
+                    else { romhack_menu = romhack_hit; romhack_open = request_romhack = true; }
                 }
             } else if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT) {
                 for (int i = 0; i < 2; ++i) if (cartridge_boxes[i].contains(float(event.button.x), float(event.button.y))) {
@@ -1151,6 +1269,26 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             pending_choice = play_choice;
             play_choice = -1;
             error.clear();
+        }
+        // "Load another romhack" (or the Romhack button with none loaded):
+        // the file window, then the picked hack is the game's revision.
+        if (romhack_pick >= 0 && preview.empty() && !build.running && building_choice < 0) {
+            const int game = romhack_pick; romhack_pick = -1;
+            int revision = -1;
+            std::string problem;
+            if (gsr_collection::load_romhack(window, root, game, revision, problem)) choose_revision(game, revision);
+            else if (!problem.empty())
+                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Romhack", problem.c_str(), window);
+        }
+        if (import_pick) {
+            import_pick = false;
+            std::string done, problem;
+            if (preview.empty() && !build.running && building_choice < 0) {
+                if (gsr_collection::import_emulator_save(window, root, done, problem))
+                    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Import emulator save", done.c_str(), window);
+                else if (!problem.empty())
+                    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Import emulator save", problem.c_str(), window);
+            }
         }
         gsr_online::Release release;
         // Use one completion snapshot so a check finishing between these calls
@@ -1272,6 +1410,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
         const int inserting = preview_insertion >= 0 ? preview_choice : fade_only ? -1 : insertion_choice;
         const float insertion_progress = transition_progress;
         for (auto& game_flags : flag_boxes) for (auto& flag_box : game_flags) flag_box = {};
+        for (auto& romhack_box : romhack_boxes) romhack_box = {};
         for (int i = 0; i < 2; ++i) {
             const float x = width * (i ? 0.75f : 0.25f);
             cartridge_boxes[i] = {{i ? center : 0, 208 * scale}, {i ? width : center, footer}};
@@ -1308,30 +1447,67 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             draw->PopClipRect();
             if (!starting) {
                 const auto game = gsr_session::game_root(root, i);
-                const std::string label = build.running && building_choice == i ? "Building..." :
+                const auto& identity = gsr_launcher::kGames[i];
+                std::string label = build.running && building_choice == i ? "Building..." :
                     checking_builds[i] ? "Checking build..." : build_label(game, i, built[i]);
+                // A chosen romhack is named here, its button being one for all.
+                if (gsr_launcher::rom_is_romhack(identity, rom_language[i]))
+                    label = std::string(identity.rom_names[rom_language[i]]) + " - " + label;
                 const ImU32 label_color = built[i] ? IM_COL32(188, 218, 195, 255) : IM_COL32(241, 194, 78, 255);
                 centered_text(draw, body, 16 * scale, x, 477 * scale, label_color, label.c_str());
                 // Hidden during a build, whose progress line runs across here.
                 if (!build.running) {
-                    // The language flags under the build status, one button each;
+                    // The language flags under the build status, one button each,
+                    // and below them the Romhack button for the game's romhacks;
                     // the chosen one glows and bounces as the selected cartridge.
                     namespace art = gbarecomp::cartridge_art;
                     const float flag_w = 30 * scale, flag_h = 20 * scale, gap = 14 * scale;
                     const float flag_y = 513 * scale;
-                    const int flag_count = gsr_launcher::rom_revision_count(gsr_launcher::kGames[i]);
-                    for (int f = 0; f < flag_count; ++f) {
-                        const float fx = x + (f - (flag_count - 1) / 2.0f) * (flag_w + gap);
+                    const bool interactive = !settings_open && !notes_open && !music_prompt_open && !romhack_open;
+                    const int revisions = gsr_launcher::rom_revision_count(identity);
+                    int flag_count = 0;
+                    bool has_romhacks = false;
+                    for (int f = 0; f < revisions; ++f) {
+                        if (gsr_launcher::rom_is_romhack(identity, f)) has_romhacks = true;
+                        else ++flag_count;
+                    }
+                    const float row_left = x - (flag_count * flag_w + (flag_count - 1) * gap) / 2;
+                    // The pulse of a chosen flag or romhack: a flag is small beside
+                    // a cartridge, so three times the cartridge's (kFlagPulse).
+                    constexpr float kFlagPulse = 3;
+                    const float chosen_grow = 1 + (pulse - 1) * kFlagPulse;
+                    if (has_romhacks) {
+                        const float button_w = romhack_button_width(heading, scale);
+                        const float left = x - button_w / 2, button_y = flag_y + 32 * scale;
+                        const Box hit{{left - 4 * scale, button_y - flag_h / 2 - 4 * scale},
+                                      {left + button_w + 4 * scale, button_y + flag_h / 2 + 4 * scale}};
+                        const bool chosen = gsr_launcher::rom_is_romhack(identity, rom_language[i]);
+                        const bool hover = interactive && ImGui::IsMouseHoveringRect(hit.min, hit.max, false);
+                        romhack_boxes[i] = draw_romhack_button(draw, heading, left, button_y, scale, chosen,
+                                                               hover || (romhack_open && romhack_menu == i),
+                                                               chosen ? chosen_grow : 1);
+                        if (hover) {
+                            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                            std::string tip = chosen ? std::string("Playing ") + identity.rom_names[rom_language[i]] + "\n" : "";
+                            tip += "Romhacks:";
+                            for (int f = 0; f < revisions; ++f)
+                                if (gsr_launcher::rom_is_romhack(identity, f)) tip += std::string(" ") + identity.rom_names[f] + ",";
+                            tip.back() = '.';
+                            ImGui::SetTooltip("%s", tip.c_str());
+                        }
+                    }
+                    for (int f = 0, slot = 0; f < revisions; ++f) {
+                        if (gsr_launcher::rom_is_romhack(identity, f)) continue;
+                        const float fx = row_left + slot++ * (flag_w + gap) + flag_w / 2;
                         flag_boxes[i][f] = {{fx - flag_w / 2 - 4 * scale, flag_y - flag_h / 2 - 4 * scale},
                                          {fx + flag_w / 2 + 4 * scale, flag_y + flag_h / 2 + 4 * scale}};
-                        const bool hover = !settings_open && !notes_open && !music_prompt_open &&
+                        const bool hover = interactive &&
                             ImGui::IsMouseHoveringRect(flag_boxes[i][f].min, flag_boxes[i][f].max, false);
                         const Texture& flag = flags[f];
-                        // A flag is small beside a cartridge, so its pulse is
-                        // three times the cartridge's and its glow brighter
-                        // and wider (kFlagGlowAlpha, kFlagGlowSpread).
-                        constexpr float kFlagPulse = 3, kFlagGlowAlpha = 1.6f, kFlagGlowSpread = 1.25f;
-                        const float grow = f == rom_language[i] ? 1 + (pulse - 1) * kFlagPulse : 1;
+                        // A chosen flag's glow is brighter and wider than the
+                        // cartridge's (kFlagGlowAlpha, kFlagGlowSpread).
+                        constexpr float kFlagGlowAlpha = 1.6f, kFlagGlowSpread = 1.25f;
+                        const float grow = f == rom_language[i] ? chosen_grow : 1;
                         const art::Glow no_glow;
                         for (const art::Piece& piece : art::selected(0, fx, flag_y, flag_w * grow, flag_h * grow,
                                  f == rom_language[i] && flag.glow ? flag.glow_info : no_glow, scale, seconds, 1)) {
@@ -1354,24 +1530,25 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                         }
                         if (hover) {
                             ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-                            ImGui::SetTooltip("%s ROM", gsr_launcher::kGames[i].rom_names[f]);
+                            ImGui::SetTooltip("%s ROM", identity.rom_names[f]);
                         }
                     }
                 }
             }
         }
         if (build.running) {
+            // The bottom band, top to bottom: the step (gold), the time
+            // against the last build, the bar, then what the build is doing
+            // or why it has gone quiet (collection_build.h build_feedback).
+            const auto feedback = gsr_collection::build_feedback(build);
+            const float text_width = width - 72 * scale;
             const std::string title = "Building " + std::string(building_choice ? "The Lost Age" : "The Broken Seal");
-            std::string note = title + (build.stage.empty() ? "..." : ": " + build.stage);
-            if (body->CalcTextSizeA(16 * scale, FLT_MAX, 0, note.c_str()).x > width - 72 * scale) {
-                while (!note.empty() && body->CalcTextSizeA(16 * scale, FLT_MAX, 0, (note + "...").c_str()).x > width - 72 * scale)
-                    note.pop_back();
-                note += "...";
-            }
-            centered_text(draw, body, 16 * scale, center, height - 91 * scale,
-                          IM_COL32(241, 194, 78, 255), note.c_str());
+            wrapped_centered_text(draw, body, 18 * scale, center, height - 103 * scale, text_width, 1,
+                                  IM_COL32(241, 194, 78, 255), title + (build.stage.empty() ? "..." : ": " + build.stage));
+            wrapped_centered_text(draw, body, 16 * scale, center, height - 80 * scale, text_width, 1,
+                                  IM_COL32(240, 232, 210, 255), feedback.summary);
             const float left = 36 * scale, right = width - left;
-            const float top = height - 65 * scale, bottom = top + 15 * scale;
+            const float top = height - 58 * scale, bottom = top + 12 * scale;
             draw->AddRectFilled({left, top}, {right, bottom}, IM_COL32(22, 13, 35, 255), 6 * scale);
             if (build.total > 0) {
                 const float fraction = gsr_launcher::progress_fraction(build.done, build.total);
@@ -1383,18 +1560,51 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 const float at = left + (right - left - segment) * phase;
                 draw->AddRectFilled({at, top}, {at + segment, bottom}, IM_COL32(172, 118, 220, 220), 6 * scale);
             }
+            // A warning takes both lines under the bar (it says how to go on;
+            // a click opens the log); otherwise the activity and the controls.
+            build_log_box = {};
+            const bool warning = feedback.level > 0;
+            if (!feedback.detail.empty()) {
+                const ImU32 tone = feedback.level == 2 ? IM_COL32(243, 174, 153, 255) :
+                                   feedback.level == 1 ? IM_COL32(241, 194, 78, 255) : IM_COL32(200, 192, 220, 255);
+                const Box box = wrapped_centered_text(draw, body, 16 * scale, center, height - 42 * scale,
+                                                      text_width, warning ? 2 : 1, tone, feedback.detail);
+                if (warning) {
+                    build_log_box = box;
+                    if (ImGui::IsMouseHoveringRect(box.min, box.max, false)) {
+                        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                        ImGui::SetTooltip("Open the build log");
+                    }
+                }
+            }
+            if (!warning)
+                split_controls(draw, body, 15 * scale, center, height - 21 * scale, IM_COL32(188, 198, 199, 255),
+                               "Keep this window open", "Esc / B to cancel", scale);
         } else if (starting || checking)
             centered_text(draw, body, 18 * scale, center, height - 70 * scale, IM_COL32(221, 218, 195, 255),
                           starting ? "Starting your adventure..." :
                           pending_choice >= 0 && !updates.done() ? "Checking for updates..." : "Checking game build...");
-        if (build.running)
-            split_controls(draw, body, 16 * scale, center, height - 43 * scale, IM_COL32(188, 198, 199, 255),
-                           "Keep this window open", "Esc / B to cancel", scale);
         if (!error.empty()) centered_text(draw, body, 14 * scale, center, height - 22 * scale, IM_COL32(243, 174, 153, 255), error.c_str());
         // What's New, in the titles' gold, bottom right; hidden while a build
         // or a start uses the bottom of the window.
         notes_box = {};
+        import_box = {};
         if (!build.running && !starting && !checking) {
+            // Import emulator save, top left, drawn like What's New.
+            const char* import_label = "Import emulator save";
+            const float import_size = 18 * scale;
+            const ImVec2 import_text = heading->CalcTextSizeA(import_size, FLT_MAX, 0, import_label);
+            const ImVec2 import_at{18 * scale, 16 * scale};
+            import_box = {{0, 0}, {import_at.x + import_text.x + 8 * scale, import_at.y + import_text.y + 6 * scale}};
+            golden_title(draw, heading, import_size, import_at.x + import_text.x / 2, import_at.y, import_label);
+            if (!settings_open && !notes_open &&
+                ImGui::IsMouseHoveringRect(import_box.min, import_box.max, false)) {
+                draw->AddLine({import_at.x, import_at.y + import_text.y + 1 * scale},
+                              {import_at.x + import_text.x, import_at.y + import_text.y + 1 * scale},
+                              IM_COL32(241, 194, 78, 255), 1.2f * scale);
+                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                ImGui::SetTooltip("Use a save from mGBA, VisualBoyAdvance or RetroArch");
+            }
             const std::string version = std::string("Version ") + gsr_online::kReleaseVersion;
             const float version_size = 14 * scale;
             const ImVec2 version_text = body->CalcTextSizeA(version_size, FLT_MAX, 0, version.c_str());
@@ -1480,12 +1690,20 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             ImGui::OpenPopup("Settings"); request_settings = false;
         }
         ImGui::SetNextWindowPos({center, height / 2}, ImGuiCond_Always, {0.5f, 0.5f});
+        // Phones: Settings fills the screen, in two columns (a centred box
+        // sized for a PC window left most of a phone empty).
+        constexpr bool phone_settings = gbarecomp::touch_ui::kEnabled;
+        if (phone_settings) {
+            const float margin = gbarecomp::touch_ui::min_target(window) * 0.25f;
+            ImGui::SetNextWindowSize({width - 2 * margin, height - 2 * margin}, ImGuiCond_Always);
+        } else {
 #ifdef GSR_COLLECTION_DEV
-        const float settings_height = 510 * scale;
+            const float settings_height = 510 * scale;
 #else
-        const float settings_height = std::max(360.0f, 360 * scale);
+            const float settings_height = std::max(360.0f, 360 * scale);
 #endif
-        ImGui::SetNextWindowSize({std::min(width - 32, 550 * scale), std::min(height - 32, settings_height)}, ImGuiCond_Always);
+            ImGui::SetNextWindowSize({std::min(width - 32, 550 * scale), std::min(height - 32, settings_height)}, ImGuiCond_Always);
+        }
         ImGui::PushStyleColor(ImGuiCol_PopupBg, {0.04f, 0.09f, 0.10f, 0.99f});
         ImGui::PushStyleColor(ImGuiCol_Border, {0.70f, 0.53f, 0.20f, 0.75f});
         ImGui::PushStyleColor(ImGuiCol_CheckMark, {0.95f, 0.76f, 0.31f, 1});
@@ -1499,25 +1717,35 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
         ImGui::PushFont(body);
         if (ImGui::BeginPopupModal("Settings", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings)) {
             if (!settings_open) ImGui::CloseCurrentPopup();
-            bool fullscreen = launcher_fullscreen();
-            if (ImGui::Checkbox("Fullscreen launcher", &fullscreen))
-                remember_launcher_fullscreen(fullscreen);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("F11");
-            ImGui::Separator();
+            if (!phone_settings) {  // a phone's launcher always fills the screen
+                bool fullscreen = launcher_fullscreen();
+                if (ImGui::Checkbox("Fullscreen launcher", &fullscreen))
+                    remember_launcher_fullscreen(fullscreen);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("F11");
+                ImGui::Separator();
+            }
             ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "Adventure settings");
             for (int game = 0; game < 2; ++game) {
                 if (game) ImGui::SameLine();
                 if (ImGui::Selectable(game ? "The Lost Age" : "The Broken Seal", settings_game == game, ImGuiSelectableFlags_DontClosePopups,
-                                      {ImGui::GetContentRegionAvail().x / (game ? 1 : 2) - (game ? 0 : 8), 28 * scale})) settings_game = selected = game;
+                                      {ImGui::GetContentRegionAvail().x / (game ? 1 : 2) - (game ? 0 : 8),
+                                       std::max(28 * scale, gbarecomp::touch_ui::min_target(window))})) settings_game = selected = game;
             }
             ImGui::Separator();
-            const float reserved = 48 * scale;
+            // Room for the button row under the options (taller on phones).
+            const float reserved = phone_settings
+                ? ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y * 3
+                : 48 * scale;
             ImGui::BeginChild("Settings options", {0, -reserved});
+            const bool two_columns = phone_settings &&
+                ImGui::BeginTable("Settings columns", 2, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchSame);
+            if (two_columns) ImGui::TableNextColumn();
             auto& game = settings[settings_game];
             if (settings_game == 0) {
                 // Seamless mode lives in The Broken Seal's own game_options.ini,
-                // the file next to its program (loaded when this page opens, and
-                // again before each write so the game's other keys survive).
+                // the file next to its program. It is loaded when this page
+                // opens, and again before each write so the game's other keys
+                // survive.
                 const auto options_file = (gsr_session::engine(gsr_session::game_root(root, 0), 0).parent_path() /
                                            "game_options.ini").string();
                 bool seamless_on = gbarecomp::game_option_get(gbarecomp::seamless::kOptionKey, 0) != 0;
@@ -1536,10 +1764,11 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 ImGui::Separator();
             }
             {
-                // Custom Battle Mode, in each game's own game_options.ini. The
-                // loaded options are The Broken Seal's (Seamless mode above);
-                // The Lost Age's value was read when the page opened, and a
-                // click writes its file, then loads The Broken Seal's back.
+                // Custom Battle Mode, in each game's own game_options.ini.
+                // The loaded options are The Broken Seal's (Seamless mode
+                // above). The Lost Age's value was read when the page opened.
+                // A click writes The Lost Age's file, then loads The Broken
+                // Seal's options back.
                 bool custom_battle_on = settings_game == 0
                     ? gbarecomp::game_option_get(gsr::custom_battle::kOptionKey, gsr::custom_battle::kOptionDefault) != 0
                     : tla_custom_battle;
@@ -1575,6 +1804,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             ImGui::TextWrapped("Accept a ROM other than the supported USA/Europe one, such as a translation or a hack. "
                                "The game is made for the supported ROM; another one may not work.");
             ImGui::Separator();
+            if (two_columns) ImGui::TableNextColumn();  // music and view on the right
             ImGui::BeginDisabled(!music_found[settings_game]);
             if (ImGui::Checkbox("Enable Music Mod", &music_on[settings_game]) && preview.empty() &&
                 !gsr_collection::set_music_mod(options_file(settings_game), music_on[settings_game]))
@@ -1603,7 +1833,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             ImGui::TextWrapped("Leave this off. Direct3D is only for computers where the game does not "
                                "start with OpenGL; some enhancements, screen filters and fixes are "
                                "unavailable with it.");
-#else
+#elif !defined(__ANDROID__)
             ImGui::TextWrapped("Graphics use OpenGL on Linux.");
 #endif
             auto& view = view_settings[settings_game];
@@ -1622,10 +1852,13 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 !gsr_collection::save_view_settings(
                     gsr_session::engine(gsr_session::game_root(root, settings_game), settings_game).parent_path(), view))
                 error = "Could not save view settings.";
+#ifndef __ANDROID__  // phones have no tracker windows (gsr::trackers)
             gsr_collection::tracker_settings(
                 trackers[settings_game],
                 gsr_session::engine(gsr_session::game_root(root, settings_game), settings_game).parent_path(),
                 preview.empty(), error);
+#endif
+            if (two_columns) ImGui::EndTable();
 #ifdef GSR_COLLECTION_DEV
             ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
             ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "Save testing");
@@ -1695,7 +1928,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
 #endif
             ImGui::SameLine();
             if (ImGui::Button("Done", {90 * scale, 0})) { settings_open = false; ImGui::CloseCurrentPopup(); }
-            ImGui::SameLine(); ImGui::TextDisabled("Esc / B to return");
+            if (!phone_settings) { ImGui::SameLine(); ImGui::TextDisabled("Esc / B to return"); }
             ImGui::EndPopup();
         }
         settings_open = ImGui::IsPopupOpen("Settings");
@@ -1776,6 +2009,41 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
             ImGui::EndPopup();
         }
         notes_open = ImGui::IsPopupOpen("What's New");
+        // The Romhack button's list: the romhacks already loaded (the chosen
+        // one highlighted), then the file window for another. Opens above the
+        // button, in the settings window's colours.
+        if (request_romhack) { ImGui::OpenPopup("Romhacks"); request_romhack = false; }
+        if (romhack_menu >= 0) {
+            const Box& button = romhack_boxes[romhack_menu];
+            ImGui::SetNextWindowPos({(button.min.x + button.max.x) / 2, button.min.y}, ImGuiCond_Always, {0.5f, 1.0f});
+        }
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {12 * scale, 10 * scale});
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 6 * scale);
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.4f * scale);
+        if (ImGui::BeginPopup("Romhacks", ImGuiWindowFlags_NoSavedSettings)) {
+            const int game = romhack_menu;
+            const auto& identity = gsr_launcher::kGames[game >= 0 ? game : 0];
+            ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "%s romhacks", game ? "The Lost Age" : "The Broken Seal");
+            ImGui::Separator();
+            const float row = std::max(26 * scale, gbarecomp::touch_ui::min_target(window) * 0.6f);
+            for (const int revision : gsr_collection::loaded_romhacks(root, game)) {
+                const bool chosen = rom_language[game] == revision;
+                if (ImGui::Selectable(identity.rom_names[revision], chosen, 0, {220 * scale, row})) {
+                    if (!chosen && !build.running && building_choice < 0) choose_revision(game, revision);
+                    romhack_open = false;
+                }
+            }
+            ImGui::Separator();
+            if (ImGui::Selectable("Load another romhack...", false, 0, {220 * scale, row})) {
+                romhack_pick = game;
+                romhack_open = false;
+            }
+            if (!romhack_open) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleVar(3);
+        romhack_open = ImGui::IsPopupOpen("Romhacks");
+        if (!romhack_open && !request_romhack) romhack_menu = -1;
         // First launch with a music mod in place: ask once, remember the answer.
         if (request_music_prompt && !settings_open && !notes_open) {
             ImGui::OpenPopup("Music mod"); request_music_prompt = false;

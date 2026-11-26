@@ -28,7 +28,7 @@ struct GameRamLayout {
     // OAM shadow buffer [start,end).
     uint32_t oam_shadow_start = 0, oam_shadow_end = 0;
 
-    // CRASH-03 pool-LDM probe: probed pc, two fixed slots, poison target and
+    // Pool-LDM probe: probed pc, two fixed slots, poison target and
     // the stack window [base,end) it tracks. The window may hold at most
     // kPoolLdmWindowMaxWords words; a larger window leaves the probe unarmed.
     uint32_t pool_ldm_pc = 0, pool_ldm_slot0 = 0, pool_ldm_slot1 = 0;

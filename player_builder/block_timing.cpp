@@ -1,10 +1,11 @@
 // Block timing for the player build: the same rewrite scripts/block_timing.py
 // does for the developer build (read that file's header for what and why).
-// Players must get the same game code as the developer build: the release
+//
+// Players must get the same game code as the developer build. The release
 // engine exports only what that code calls (scripts/engine_exports.cmake),
 // and per-instruction code calls functions the block-timing code does not.
 //
-// Keep the two in step: scripts/block_timing.py is the reference, and the
+// Keep the two in step. scripts/block_timing.py is the reference, and the
 // output here must be byte-for-byte the same for the same input. The
 // inserted helpers are shared: block_timing_prelude.inc.
 #include "block_timing.h"

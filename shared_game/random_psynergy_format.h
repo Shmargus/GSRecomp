@@ -1,32 +1,47 @@
-// The run's eight save-payload bytes (first Random Psynergy's): the run's
-// seed and which seed-driven modes it has besides Random Equipment (whose
-// own block is random_weapons_format.h). No engine dependencies, so save
-// readers outside the game can use it too (The Lost Age's Golden Sun save
-// import, gs_save.cpp).
-//   +0..3 seed (never 0)   +4 'R'   +5 version (low nibble), more flags
-//   (high nibble)   +6 flags   +7 check
-// Flags (6 and 7 November 2026): bit 0 Fair Play, bit 1 Random Psynergy,
-// bit 2 Random Items (chests, gifts, shops), bit 3 Bargains (shop prices),
-// bit 4 Random Coins, bit 5 Scaled difficulty (every battle's enemies rise
-// to the party's level), bit 6 Random Weapons finds, bit 7 Random Armor
-// finds (chests and gifts holding a weapon, or armour, give a random piece).
-// More flags (version 3, 7 November 2026): bit 0 was Key Items. It was
-// retired 8 November 2026 because key items never move; it is read and
-// ignored, never written, so a save made with it still loads. Version 2
-// bytes read with no more flags.
-// Version 4 (10 November 2026): Fair Play is a switch per randomized thing.
-// Flags bit 0 is Fair Psynergy; more flags bit 1 Fair Items, bit 2 Fair
-// Coins, bit 3 Fair Shops. In older versions bit 0 was the one Fair Play
-// switch and reads as all four. Version 5 (21 November 2026): more flags
-// bit 0, Key Items' old bit, is Enemy skills (enemy skills join Random
-// Psynergy's draw); version 3 bytes still read it as retired. Also version
-// 5: the seed has 25 bits (run_code.h), so byte +3 bits 1..7 are free; bit 1
-// is By class (Random Psynergy gives every class its own list), bit 2
-// Random Djinn (random_djinn.h). All zero is
-// Off, as every existing save is.
-// Version 6 selects the pooled treasure planner with the same flags as 5.
-// Version 7 adds regional artifact shops to the pooled planner.
-// A randomized Broken Seal run goes on to The Lost Age with these bytes.
+// The run's eight save-payload bytes (first Random Psynergy's). They hold the
+// run's seed and which seed-driven modes it has, besides Random Equipment
+// (whose own block is random_weapons_format.h). No engine dependencies, so
+// save readers outside the game can use it too (The Lost Age's Golden Sun
+// save import, gs_save.cpp).
+//
+// Layout:
+//   +0..3  seed (never 0)
+//   +4     'R'
+//   +5     version (low nibble), more flags (high nibble)
+//   +6     flags
+//   +7     check
+//
+// Flags (byte +6):
+//   bit 0  Fair Play
+//   bit 1  Random Psynergy
+//   bit 2  Random Items (chests, gifts, shops)
+//   bit 3  Bargains (shop prices)
+//   bit 4  Random Coins
+//   bit 5  Scaled difficulty (every battle's enemies rise to the party's level)
+//   bit 6  Random Weapons finds
+//   bit 7  Random Armor finds
+// (Weapon and armour finds are chests and gifts holding a weapon, or armour,
+// that give a random piece.)
+//
+// Version history:
+//   - Version 2 bytes read with no more flags.
+//   - Version 3: more flags bit 0 was Key Items. It was retired because key
+//     items never move. It is read and ignored, never written, so a save made
+//     with it still loads.
+//   - Version 4: Fair Play is a switch per randomized thing. Flags bit 0 is
+//     Fair Psynergy; more flags bit 1 is Fair Items, bit 2 Fair Coins, bit 3
+//     Fair Shops. In older versions bit 0 was the one Fair Play switch and
+//     reads as all four.
+//   - Version 5: more flags bit 0 (Key Items' old bit) is Enemy skills, which
+//     join Random Psynergy's draw. Version 3 bytes still read it as retired.
+//     Also, the seed has 25 bits (run_code.h), so byte +3 bits 1..7 are free.
+//     Bit 1 is By class (Random Psynergy gives every class its own list) and
+//     bit 2 is Random Djinn (random_djinn.h).
+//   - Version 6 selects the pooled treasure planner, with the same flags as 5.
+//   - Version 7 adds regional artifact shops to the pooled planner.
+//
+// All zero is Off, as every existing save is. A randomized Broken Seal run
+// goes on to The Lost Age with these bytes.
 #pragma once
 #include <array>
 #include <cstdint>

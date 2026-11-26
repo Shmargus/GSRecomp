@@ -3,7 +3,7 @@
 // `effect_particles.h` draws sparks; this decides WHICH sparks. They are
 // separate because the drawing is shared and the reading is not: the effect
 // systems measured so far do not agree on where their particles live, how many
-// there are, or even what a position means (FACTS.md, 2026-09-18).
+// there are, or even what a position means.
 //
 //   | system        | array                   | count | position         |
 //   |---------------|-------------------------|-------|------------------|
@@ -58,8 +58,7 @@ inline constexpr int kRecordDistance = 0x08;
 // are refused.
 inline constexpr int kPolarShiftCandidates[] = {6, 7, 8, 9, 10};
 
-// Guest addresses, named rather than spelled inline so the evidence trail in
-// FACTS.md can be followed from the code.
+// Guest addresses, named rather than spelled inline.
 inline constexpr std::uint32_t kEwramBase = 0x02000000u;
 inline constexpr std::uint32_t kIwramBase = 0x03000000u;
 inline constexpr std::uint32_t kStructurePointer = 0x03001EECu;
@@ -134,8 +133,7 @@ inline constexpr int kMinimumLive = 6;
 // Scoring needs care: a bright canvas flatters any
 // guess -- one of these canvases is 55% lit, so "landed on a drawn pixel" is
 // nearly free, and a degenerate answer that piles every spark on the middle
-// scores 100%. Two guards, both against fits that fooled us (FACTS.md,
-// 2026-09-18):
+// scores 100%. Two guards, both against fits that fooled us:
 //
 //   * beat the canvas's OWN lit fraction by a clear margin, not 50%;
 //   * keep a real spread, so a collapsed answer cannot win.

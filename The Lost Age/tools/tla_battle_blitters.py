@@ -1,7 +1,7 @@
 """Build every battle-effect blitter the game can assemble, for gba_recompile.
 
 Battle and Psynergy effects draw through small ARM routines the game builds
-in RAM from template pieces (FACTS.md, 2026-10-03): the builder 0x08196404
+in RAM from template pieces (FACTS.md "Battle-effect blitters"): the builder 0x08196404
 (r0 allocation id, r1 and r2 size exponents, r3 flags, [sp] mode; wrapper
 0x081963EC passes r1 = r2 = 7, flags = arg & 0xF, mode = arg >> 4) allocates
 0x1B4 bytes (0x08014CC0), DMA3-copies pieces from 0x081972A0.. into it,

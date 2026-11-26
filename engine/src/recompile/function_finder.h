@@ -141,35 +141,39 @@ struct FinderStats {
     // direct_call_continuation comment in discover_one().
     std::size_t long_branch_calls = 0;
     // Alias-candidate seeds on a THUMB BL_suffix halfword whose preceding
-    // halfword is NOT a matching BL_prefix. A genuine THUMB BL pair is two
-    // architectural instructions; the ARM7TDMI can take an IRQ between them
-    // and resume at the suffix half with the partial target already live in
-    // LR (see run()). That case is a real, supported resume entry point and
-    // is NOT counted here. This counter only tracks the cases that remain
-    // over-approximation: the halfword matches the BL_suffix bit pattern
-    // (0xF800..0xFFFF) but is not actually the second half of a real BL,
-    // e.g. a [[resume_range]] expansion landing on a coincidental bit
-    // pattern in data, or at the very start of the image with no preceding
-    // halfword at all. Dropped visibly (counted here), never silently.
+    // halfword is NOT a matching BL_prefix.
+    //
+    // A genuine THUMB BL pair is two architectural instructions. The
+    // ARM7TDMI can take an IRQ between them and resume at the suffix half
+    // with the partial target already live in LR (see run()). That case is a
+    // real, supported resume entry point and is NOT counted here.
+    //
+    // This counter only tracks the cases that remain over-approximation. The
+    // halfword matches the BL_suffix bit pattern (0xF800..0xFFFF) but is not
+    // the second half of a real BL. Examples: a [[resume_range]] expansion
+    // landing on a coincidental bit pattern in data, or at the very start of
+    // the image with no preceding halfword at all. These are dropped visibly
+    // (counted here), never silently.
     std::size_t alias_seeds_dropped_bl_suffix = 0;
-    // The complement of the above: alias-candidate BL_suffix seeds that
-    // DID verify against a genuine preceding BL_prefix and were kept as
-    // real post-IRQ resume entry points (see run()). This is the whole
-    // point of that gate existing rather than dropping every BL_suffix-
-    // shaped alias seed unconditionally: it should be > 0 whenever the
-    // ROM actually contains post-IRQ resumes on a BL pair's suffix half.
+    // The complement of the counter above: alias-candidate BL_suffix seeds
+    // that DID verify against a genuine preceding BL_prefix and were kept as
+    // real post-IRQ resume entry points (see run()). That is the whole point
+    // of the gate, as opposed to dropping every BL_suffix-shaped alias seed
+    // unconditionally. It should be > 0 whenever the ROM actually contains
+    // post-IRQ resumes on a BL pair's suffix half.
     std::size_t alias_seeds_kept_bl_suffix = 0;
-    // Alias-candidate seeds (any [[resume_range]]/resume=true expansion,
-    // any mode) whose walk ran into a declared [[data_range]] before
-    // hitting a terminator. Real code never falls into its own literal
-    // pool or jump table, so a walk from an alias entry point that lands
-    // in data proves the entry point itself is unreachable (bogus by
-    // construction): dropped, not reported as a data_range collision.
-    // Counted SEPARATELY from alias_seeds_dropped_bl_suffix: that one is
-    // a THUMB BL-pair-specific pre-walk filter, this one is a generic
+    // Alias-candidate seeds (any [[resume_range]]/resume=true expansion, any
+    // mode) whose walk ran into a declared [[data_range]] before hitting a
+    // terminator. Real code never falls into its own literal pool or jump
+    // table, so a walk from an alias entry point that lands in data proves
+    // the entry point itself is unreachable (bogus by construction). It is
+    // dropped and not reported as a data_range collision.
+    //
+    // This is counted SEPARATELY from alias_seeds_dropped_bl_suffix. That one
+    // is a THUMB BL-pair-specific pre-walk filter. This one is a generic
     // walk-time outcome for every mode and every terminator shape (jump
-    // tables, literal pools, any [[data_range]]). A non-alias seed that
-    // hits the same data_range is UNCHANGED (still a hard collision, see
+    // tables, literal pools, any [[data_range]]). A non-alias seed that hits
+    // the same data_range is UNCHANGED: still a hard collision (see
     // record_collision).
     std::size_t alias_seeds_dropped_data_range = 0;
 };
@@ -301,6 +305,12 @@ private:
     FinderStats stats_{};
 
     std::vector<DataRange>           data_ranges_;
+    // data_ranges_ merged into sorted, non-overlapping [start, end) spans,
+    // so the per-instruction "is this data?" check is a binary search.
+    // Rebuilt when data_ranges_ grows (auto jump tables add ranges while
+    // walking).
+    mutable std::vector<std::pair<uint32_t, uint32_t>> data_span_index_;
+    mutable std::size_t data_span_index_count_ = 0;
     std::vector<CodeCopyRange>       code_copies_;
     std::vector<RuntimeCodeEntry>    runtime_code_entries_;
     std::vector<DataRangeCollision>  collisions_;

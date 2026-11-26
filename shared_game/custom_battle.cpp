@@ -92,8 +92,7 @@ std::map<unsigned, std::vector<std::uint32_t>> g_arena_pictures;
 // Immutable, unpacked animation assets in the in-memory ROM extension.
 // Bank tags 8..13 encode the six native colour variants, independently of
 // the game's six RAM animation slots. Native banks are only 0..7; the
-// sprite record lookup masks the bank off with 0xFFF (both games). See TBS
-// FACTS, F12 0064.
+// sprite record lookup masks the bank off with 0xFFF (both games).
 struct AnimationAsset { std::uint32_t address = 0; unsigned bytes = 0; };
 std::map<unsigned, AnimationAsset> g_animation_assets;
 constexpr unsigned kAnimationBank = 8u;
@@ -232,7 +231,7 @@ bool unpack_sprite(Rom rom, unsigned asset, std::vector<std::uint8_t>& data) {
 
 // Monster `id`'s battle picture, first frame (custom_battle.h), from the
 // prepared, already recoloured animation assets. A composite's pieces sit
-// side by side, tops level, as battle draws Kraken (TBS F12 0064, OAM 8, 7).
+// side by side, tops level, as battle draws Kraken (OAM entries 8 and 7, measured in The Broken Seal).
 const Picture& picture(unsigned id) {
     auto found = g_pictures.find(id);
     if (found != g_pictures.end()) return found->second;
@@ -283,10 +282,10 @@ const Picture& picture(unsigned id) {
 }
 
 // Called at the entry of the set-text call for her last line. Her script
-// continues at `resume`, which is one of her own call-return addresses. If
-// `line` is given, that call shows our line in place of her question (the
-// text intake below swaps it in by her question's text ID). Otherwise the
-// call is skipped.
+// continues at `resume`, which is one of her own call-return addresses.
+//   - If `line` is given, that call shows our line in place of her question
+//     (the text intake below swaps it in by her question's text ID).
+//   - Otherwise the call is skipped.
 void resume_her_script(std::uint32_t resume, const std::string* line) {
     g_cpu.R[14] = resume | 1u;
     if (line) {
@@ -624,10 +623,10 @@ void panel_keys() {
 }
 
 // Her menu's frame wait while the panel is up: runs the panel and plays its
-// sounds. Her menu reads its keys through a register that the wait keeps, so
-// that register points at a zero block while the panel is up. Once the panel
-// is done it points back at the live keys, with A pressed for her menu at
-// once and the menu's own sound left out.
+// sounds. Her menu reads its keys through a register that the wait keeps.
+//   - While the panel is up, that register points at a zero block.
+//   - Once the panel is done, it points back at the live keys, with A pressed
+//     for her menu at once and the menu's own sound left out.
 void panel_frame() {
     Picker& p = g_picker;
     if (p.closing < 0) panel_keys();
@@ -650,7 +649,7 @@ void panel_frame() {
 }
 
 // Battle Mode's target level: party average plus the saved adjustment,
-// 1..99 (TBS 0x080C1AFC, TLA 0x0812764C).
+// 1..99 (The Broken Seal 0x080C1AFC, The Lost Age 0x0812764C).
 int target_level() {
     unsigned count = call(g_game.party_count_pc);
     const std::uint32_t context = bus_read_u32(g_game.battle_context_ptr);
@@ -724,8 +723,10 @@ void prepare_animation_assets(std::vector<std::uint8_t>* rom) {
         std::vector<std::uint8_t> data;
         if (!unpack_sprite(Rom(*rom), asset, data))
             throw std::runtime_error("Custom Battle animation could not be unpacked");
+        // Appended past the cartridge, which may already fill 16 MB (The
+        // Lost Age, Dawn of Djinn); the ROM window reaches 32 MB.
         const std::size_t at = (rom->size() + 3u) & ~std::size_t(3u);
-        if (at + data.size() > g_game.max_rom_bytes)
+        if (at + data.size() > gba::kRomMaxSize)
             throw std::runtime_error("Custom Battle animation storage exceeds ROM extension");
         const auto address = mods::kRomBase + std::uint32_t(at);
         std::size_t frame = 0;
@@ -772,7 +773,7 @@ void on_entry(std::uint32_t pc) {
     if (pc == g_game.load_enemy_animation && g_cpu.R[0] >= kFirstEnemySlot &&
         g_cpu.R[0] < kFirstEnemySlot + kMaxEnemies &&
         // Read here, not per entry: this observer sees every function entry
-        // (~2% of TLA Turbo battle time, session 20261030_121810).
+        // (~2% of The Lost Age's Turbo battle time, measured).
         gbarecomp::game_option_get(kOptionKey, kOptionDefault) != 0 &&
         read_flag(kArenaFlag)) {
         g_in_picker = true;

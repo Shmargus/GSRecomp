@@ -4,11 +4,12 @@
 
 namespace gsr::custom_battle::sprites {
 
-// GS1 08003FA4 / 08003F3C: the allocator hands out 96 grants, each
+// The Broken Seal 08003FA4 / 08003F3C: the allocator hands out 96 grants, each
 // {u16 size, u16 byte offset}.
 // The original allocator owns the first page; only its failed fighter
-// requests use the engine's existing second 32 KiB page. FACTS, F12 0063.
-// The allocator's ROM addresses are GS1's and live with its caller
+// requests use the engine's existing second 32 KiB page (measured in a
+// battle capture).
+// The allocator's ROM addresses are The Broken Seal's and live with its caller
 // (custom_battle_tbs.cpp); this header is shared with The Lost Age.
 inline constexpr std::uint32_t kGrants = 0x03001B10u;
 inline constexpr unsigned kOwners = 0x60u;

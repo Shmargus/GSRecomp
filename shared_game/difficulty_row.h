@@ -3,7 +3,7 @@
 // Scaled flag (random_psynergy_format.h).
 //
 // The game's row holds two values. Left takes one off and Right adds one,
-// wrapping, and either redraws the row (TBS 0x0801D800..0x0801D83E, TLA
+// wrapping, and either redraws the row (The Broken Seal 0x0801D800..0x0801D83E, The Lost Age
 // 0x08040458..0x0804049E; verified ROMs), so the game's own value only
 // flips. Each runner steps the row's choice on the same keys, shows its word
 // in the value's place, and on closing writes it back after A/Start only.

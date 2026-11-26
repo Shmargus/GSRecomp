@@ -155,16 +155,19 @@ std::string emit_function_body_str(
         }
     };
 
-    // Stage 2 idle-loop elision: an instruction is "idle-simple" if it can
+    // Stage 2 idle-loop elision. An instruction is "idle-simple" if it can
     // appear inside a quiescent (busy-wait) loop body without making the loop
-    // unsafe to fast-forward, i.e. it has no architecturally-visible side
-    // effect beyond writing a non-PC GP register / flags, and never transfers
-    // control. Allowed: data-processing / MOV, single-register loads, the
-    // multiplies, and MRS. Rejected (unsafe → ends an idle-candidate body):
-    // any store (STR*/STM/SWP*), any call or branch (BL*/BX/BLX/B), LDM (may
-    // load PC, multi-reg), SWI, MSR (mode/interrupt change), and any op that
-    // writes PC (rd == 15). The single back-edge branch that closes the loop
-    // is evaluated for eligibility BEFORE it is itself classified unsafe.
+    // unsafe to fast-forward. That means it has no architecturally-visible
+    // side effect beyond writing a non-PC GP register or the flags, and it
+    // never transfers control.
+    //   - Allowed: data-processing / MOV, single-register loads, the
+    //     multiplies, and MRS.
+    //   - Rejected (unsafe, so it ends an idle-candidate body): any store
+    //     (STR*/STM/SWP*), any call or branch (BL*/BX/BLX/B), LDM (it may load
+    //     PC and is multi-register), SWI, MSR (mode/interrupt change), and any
+    //     op that writes PC (rd == 15).
+    // The single back-edge branch that closes the loop is evaluated for
+    // eligibility BEFORE it is itself classified unsafe.
     auto is_idle_simple = [](const armv4t::Instr& ins) -> bool {
         switch (ins.op) {
             // Comparisons write only flags; always safe.
@@ -327,11 +330,13 @@ std::string emit_function_body_str(
     std::unordered_set<uint32_t> alias_set(fn.alias_entries.begin(),
                                            fn.alias_entries.end());
 
-    // Position-independent image prologue. Snapshot the base FIRST: it must
-    // precede the resume prologue below, whose forward gotos would otherwise
-    // cross an initialization, and it must be a local rather than a repeated
-    // read of the global because a call out of this image can dispatch into a
-    // different image and leave the global pointing somewhere else.
+    // Position-independent image prologue. Snapshot the base FIRST, for two
+    // reasons:
+    //   - The snapshot must precede the resume prologue below. Otherwise that
+    //     prologue's forward gotos would cross an initialization.
+    //   - It must be a local, not a repeated read of the global. A call out of
+    //     this image can dispatch into a different image and leave the global
+    //     pointing somewhere else.
     if (relocatable) {
         appendf(out,
             "    const uint32_t %s = g_runtime_image_base;\n"
@@ -425,12 +430,12 @@ std::string emit_function_body_str(
 
         bool ni = false;
         // A relocatable RAM image is cut into pieces at every address the
-        // game was seen entering, so `mov r12, lr` and its `bx r12` can land
-        // in different functions and the alias scan above misses the return.
-        // Compiled as a plain jump it leaves the caller's call-return frame
-        // behind; a loop of them overflowed the stack (TLA's opening scene:
+        // game was seen entering. So `mov r12, lr` and its `bx r12` can land
+        // in different functions, and the alias scan above misses the return.
+        // Compiled as a plain jump, it leaves the caller's call-return frame
+        // behind. A loop of them overflowed the stack (TLA's opening scene:
         // the signed divide 0x030004A8, split at its inner call's return
-        // 0x030004CC). In an image every BX checks for a waiting caller.
+        // 0x030004CC). So in an image, every BX checks for a waiting caller.
         ctx.force_bx_c_return =
             bx_c_return_pcs.count(pc) != 0 || ctx.image_size != 0u;
         std::string emitted = armv4t::ArmCodegen::emit_instr(ins, ctx, &ni);

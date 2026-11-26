@@ -3,7 +3,7 @@
 The boot IWRAM copy (ROM 0x080006B8 -> 0x03000100, 0x1000 bytes) holds a
 mixer that writes instructions into its own loops. Each patched spot has a
 small, fixed set of possible contents, all made from template words the
-copy itself carries (FACTS.md, 2026-10-03):
+copy itself carries (FACTS.md "Sound mixer variants"):
 
   A  0x0300096C copies one of three 6-word templates (0x03000AFC + 0x18*k)
      into the eight slots of the loop 0x030009A4..0x03000AE8: words 0-1 to

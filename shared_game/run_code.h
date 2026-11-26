@@ -1,17 +1,25 @@
-// The run code, both games: one nine-character code carries a randomizer run's
-// seed and its choices (Weapons, Armor, Items, Coins, Psynergy by hero or by
-// class, Enemy skills, Djinn, Stats, Scaling, Bargains, Fair Play), so a friend who types it at New Game plays
-// the same run. Difficulty and Challenge Mode are separate choices, not in
-// it. Weapons and Armor are the ticks; Stats says the pieces' stats shuffle
-// too. Fair Play is four choices, one per randomized thing: Psynergy,
-// Items, Coins, Shops. Their bits come out of the seed's share of the code
-// (the layout below).
+// The run code, both games. One nine-character code carries a randomizer
+// run's seed and its choices, so a friend who types it at New Game plays the
+// same run. The choices are Weapons, Armor, Items, Coins, Psynergy (by hero or
+// by class), Enemy skills, Djinn, Stats, Scaling, Bargains and Fair Play.
+// Difficulty and Challenge Mode are separate choices, not in the code.
 //
-// 45 bits: seed (25, never 0), choices (16), check (4), mixed by a reversible
-// 45-bit scramble so neighbouring seeds give unrelated codes; nine symbols
-// of five bits from an alphabet without look-alikes (no I, O, 0, 1).
-// Codes made before 21 November 2026 have eight symbols: 40 bits, choices
-// (12) and check (3). They still decode (no Enemy skills).
+// Notes on the choices:
+//   - Weapons and Armor are the ticks; Stats says the pieces' stats shuffle
+//     too.
+//   - Fair Play is four choices, one per randomized thing: Psynergy, Items,
+//     Coins, Shops. Their bits come out of the seed's share of the code (the
+//     layout below).
+//
+// The code is 45 bits:
+//   - seed (25 bits, never 0), choices (16), check (4);
+//   - mixed by a reversible 45-bit scramble, so neighbouring seeds give
+//     unrelated codes;
+//   - written as nine symbols of five bits, from an alphabet without
+//     look-alikes (no I, O, 0, 1).
+// Older codes have eight symbols: 40 bits, with choices (12) and check (3).
+// They still decode (no Enemy skills).
+//
 // Choice bit 15 marks the pooled treasure planner. Older codes leave it clear.
 // Pooled codes for the regional artifact planner flip the highest check bit.
 //

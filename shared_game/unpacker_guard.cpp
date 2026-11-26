@@ -26,8 +26,8 @@ extern "C" std::uint32_t runtime_recent_dispatch_copy(std::uint32_t* pcs,
 namespace gsr {
 namespace {
 
-// Func_2808 (FACTS.md 2026-10-07/08), as offsets from wherever it was
-// copied: TBS 0x03006000 (Func_5394), TLA its allocator's block + 4.
+// Func_2808, as offsets from wherever it was copied: The Broken Seal
+// 0x03006000 (copied by Func_5394), The Lost Age its allocator's block + 4.
 constexpr std::uint32_t kUnpackerSize = 0x4ECu;
 // Every return target inside the unpacker lies at or above its prologue;
 // +0x00..+0x0F is its entry-only format check.
@@ -37,7 +37,7 @@ constexpr std::uint32_t kBody = 0x10u;
 constexpr std::uint32_t kLoopHead = 0x108u;
 // The final `bx lr`, after `pop {r5-fp,lr}`: the stack is back at entry.
 constexpr std::uint32_t kExit = 0x2FCu;
-// Every reported crash went wrong at output byte 0x3E (FACTS.md); the forced
+// Every reported crash went wrong at output byte 0x3E; the forced
 // fault waits for it too.
 constexpr std::uint32_t kForceAfter = 0x3Eu;
 // The audit keeps every dispatch of the current unpack (31,286 in the
@@ -50,7 +50,7 @@ constexpr const char* kJournalFile = "unpacker_journal.csv";
 // every later dispatch inside it has exactly this frame.
 constexpr std::uint32_t kFormat0Size = 0x2C4u;
 constexpr std::uint32_t kFormat0Frame = 0x14u;
-// The input pointer of the TLA 0.6 crash (The Lost Age FACTS.md 2026-10-29),
+// The input pointer of a reported The Lost Age crash,
 // what the Force unpacker fault test option puts in Func_2544's r0.
 constexpr std::uint32_t kFormat0ForcedInput = 0x4B120EC4u;
 
@@ -159,11 +159,13 @@ std::uint32_t area_end(std::uint32_t a) {
 }
 
 // Returns why Func_2544's state at a dispatch at `pc` inside it is one no
-// correct run has, or null if the state is possible. r0 is the next input
-// byte. r1 is the last output byte on the format-0 path (which writes at
-// ++r1, starting at dst-1) and the next output byte on the other path (which
-// writes at r1++). So at a correct end r1 may stand one byte past the area,
-// or at the start of the routine.
+// correct run has, or null if the state is possible.
+//   - r0 is the next input byte.
+//   - r1 is the last output byte on the format-0 path (which writes at
+//     ++r1, starting at dst-1), and the next output byte on the other path
+//     (which writes at r1++).
+// So at a correct end, r1 may stand one byte past the area, or at the
+// start of the routine.
 const char* format0_impossible(std::uint32_t pc) {
     const std::uint32_t entry_sp = g_entry.r[13];
     const std::uint32_t src = g_entry.r[0], dst = g_entry.r[1];
@@ -271,7 +273,7 @@ void audit_return() {
     const bool ok = returned && length == live_length && diffs == 0;
     if (!ok) ++g_audit_mismatches;
     // The first check shows the audit is live; then every 25 (a short
-    // session has a few dozen unpacks: 32 in 25 s of TBS, 2026-10-14).
+    // session has a few dozen unpacks: 32 in 25 s of The Broken Seal).
     if (g_audited == 1u || g_audited % 25u == 0u || !ok) {
         std::fprintf(stderr, "[unpacker-audit] %llu unpacks checked, %llu "
                              "mismatched, %llu skipped (source not in ROM or output not in RAM)\n",
@@ -451,12 +453,13 @@ bool unpacker_guard_note_dispatch(std::uint32_t pc, GuardGuestFn fn,
         j.frozen_at = j.dispatches;
         return recover(pc, 0u, why) != 0;
     }
-    // The Force unpacker fault test option: inside a literal (its
+    // The Force unpacker fault test option. Inside a literal (its
     // `push {r5,sb}` frame live), once the output is past byte 0x3E, push one
-    // more frame of the current r5/sb. The literal's pop then takes this one
-    // and leaves its own: sb stays at the table value and sp 8 low, the state
-    // of every reported crash. Nothing is checked at this dispatch; the code
-    // runs on and the guard has to find it by itself.
+    // more frame of the current r5/sb. The literal's pop then takes this
+    // frame and leaves its own. That leaves sb at the table value and sp 8
+    // low, which is the state of every reported crash. Nothing is checked at
+    // this dispatch. The code runs on, and the guard has to find the fault by
+    // itself.
     if (g_force_fault && !g_forced && pc > g_start + kBody &&
         pc != g_start + kLoopHead && pc != g_start + kExit &&
         e.sp == entry_sp - kEntryFrame - kLiteralFrame &&
@@ -663,7 +666,7 @@ int recover(std::uint32_t at, std::uint32_t frames, const char* early_why) {
             std::fclose(f);
         }
         // A Func_2544 run left to go on writes until it overwrites all of
-        // memory and itself (FACTS.md 2026-10-29); stop now, with the
+        // memory and itself; stop now, with the
         // evidence above intact, rather than crash later with none.
         if (g_format0) {
             std::fprintf(stderr, "[unpacker-guard] stopping the game\n");

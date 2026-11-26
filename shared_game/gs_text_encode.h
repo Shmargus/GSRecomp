@@ -1,7 +1,7 @@
 // Encoder for Golden Sun's Huffman-coded text, and the block rebuild that
 // swaps edited lines into an extension of the in-memory ROM. C++ port of the
 // reference The Broken Seal/tools/gs_text_encode.py (format: see its
-// docstring; FACTS.md 2026-09-30). Pure functions over a ROM byte vector: no
+// docstring). Pure functions over a ROM byte vector: no
 // game state, no I/O.
 #pragma once
 
@@ -21,7 +21,7 @@ constexpr std::uint32_t kLastTextLine = 0x29E1;  // real text ends here
 constexpr std::size_t kMaxRomBytes = 16u * 1024u * 1024u;
 
 // Plain text, as Kyle the Runner's Portuguese patches of both games store it
-// (their rewritten text routines, FACTS.md "Portuguese (Kyle the Runner)"):
+// (their rewritten text routines):
 // line N starts at base + the 32-bit offset at offsets + 4*N, one byte per
 // character, ending in 0; same line numbers as USA/Europe. ROM offsets.
 struct PlainText {

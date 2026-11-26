@@ -1,34 +1,37 @@
 // Golden Sun: The Lost Age -- spell triangles past the console's canvas.
 //
 // Some battle effects are not stamped but drawn as textured triangles
-// (Thunder Card's bolts; bench: state 2 of 2026-10-09, frames 109643+). The
-// game copies a triangle rasterizer into IWRAM and calls it with r0 at a
-// descriptor: +4 the facing test, +8 the triangle list (12 bytes each, three
-// corner indices in the low bytes of the first word, the list ends where they
-// are 0), +0xC the corners (8 bytes each, the first word y << 16 | x), +0x10
-// the texture (bytes 0/1 log2 width/height, +4 its texels), +0x14 the
-// subtracted shade, +0x18 a texture offset. It draws into the 128x128 canvas
-// named by slot 0x03000060 and clips at its edges, so what lies past them
-// never existed for the margins. Seven variants live in ROM (FACTS.md), one
-// routine with a different pixel step each; the last one draws a 64x64
-// canvas and is left alone.
+// (Thunder Card's bolts). The game copies a triangle rasterizer into IWRAM and
+// calls it with r0 pointing at a descriptor:
+//   - +4: the facing test.
+//   - +8: the triangle list (12 bytes each; three corner indices in the low
+//     bytes of the first word; the list ends where they are 0).
+//   - +0xC: the corners (8 bytes each; the first word is y << 16 | x).
+//   - +0x10: the texture (bytes 0/1 are log2 width/height, +4 its texels).
+//   - +0x14: the subtracted shade.
+//   - +0x18: a texture offset.
+// It draws into the 128x128 canvas named by slot 0x03000060 and clips at its
+// edges, so what lies past them never existed for the margins.
+// Seven variants live in ROM (FACTS.md), one routine with a different pixel
+// step each. The last one draws a 64x64 canvas and is left alone.
 //
-// At the entry, for each neighbouring 128x128 square the expanded view
-// shows, the same routine runs here, natively (rasterize() is the game's
-// code line for line, its self-patched shifts as variables), with the
-// triangles that reach that square and every corner moved by it, into a
-// copy of the capture's history there. What it changed goes into the
-// history (effect_capture.h), which the margins draw. The game's own run
-// and state are untouched. Bench (Thunder Card, 360x240): every square of
-// all 386 calls equals the interpreter's run of the game's code; 0.06 ms a
-// call; the interpreter took 0.22-0.29 s over the cast.
+// What we do. At the entry, for each neighbouring 128x128 square that the
+// expanded view shows, the same routine runs here, natively. rasterize() is
+// the game's code line for line, with its self-patched shifts as variables.
+// It draws the triangles that reach that square, with every corner moved by
+// it, into a copy of the capture's history there. What it changed goes into
+// the history (effect_capture.h), which the margins draw. The game's own run
+// and state are untouched.
+// Bench (Thunder Card, 360x240): every square of all 386 calls equals the
+// interpreter's run of the game's code. It takes 0.06 ms a call; the
+// interpreter took 0.22-0.29 s over the cast.
 //
-// Summons also draw flat-colour triangles (Haures's black shards, F12 0170
-// frames 0-31: canvas values 0 and 1 only, the shards cut at the canvas's
-// edge). Four more routines in the same copy table do it, with the same
-// descriptor minus the texture: a 4-byte list entry, +0x14 one colour byte
-// per listed triangle. rasterize_flat() is that code line for line; the
-// 64x64 one (0x0813B7A0) is left alone too.
+// Summons also draw flat-colour triangles (Haures's black shards: canvas
+// values 0 and 1 only, the shards cut at the canvas's edge). Four more
+// routines in the same copy table do it, with the same descriptor minus the
+// texture: a 4-byte list entry, and at +0x14 one colour byte per listed
+// triangle. rasterize_flat() is that code line for line. The 64x64 one
+// (0x0813B7A0) is left alone too.
 
 #include "tla_rom_version.h"
 #include <algorithm>
@@ -86,8 +89,7 @@ constexpr u32 kPatched[] = {0x168u, 0x170u, 0x22Cu, 0x324u, 0x328u};
 
 // The flat-colour routines: a Thumb `bx pc` stub, then `push {r5-r12, lr}`
 // (where the entry hook sees them, the image's +4). Each clears bit 0 of
-// its one literal, the reciprocal table, on every call (FACTS.md
-// 2026-10-28; ROM 0x081390B8 etc. load it).
+// its one literal, the reciprocal table, on every call (ROM 0x081390B8 etc. load it).
 constexpr u32 kFlatEntryPush = 0xE92D5FE0u;
 struct FlatVariant {
     u32 rom;
@@ -471,7 +473,7 @@ std::vector<std::uint8_t> read_guest(gba::GbaBus* bus, u32 a, std::size_t len) {
 
 // The canvas pixels the expanded view shows: its corners through BG2's
 // transform, when BG2 is the 128 px affine layer that shows the canvas
-// (Thunder Card: PA 0x80, PD 0x100, Y -16.0, F12 0111); else every
+// (Thunder Card: PA 0x80, PD 0x100, Y -16.0); else every
 // neighbouring square. Empty in the console's own view.
 Box visible_canvas(gba::GbaBus* bus) {
     const gba::GbaPpu* ppu = gbarecomp::active_ppu();
@@ -589,8 +591,7 @@ void paint_squares(const Box& seen, u32 canvas, const std::vector<Triangle>& tri
 // The mesh routine was entered: paint its triangles into the margin squares.
 // Kept out of tla_spell_mesh_on_entry, which runs on every guest function
 // entry: this body's ~35 KB of locals made the entry hook probe ~9 stack
-// pages before its early returns (241-273 us per TLA frame in the 20 October
-// profile).
+// pages before its early returns (241-273 us per Lost Age frame when profiled).
 __attribute__((noinline)) void paint_mesh_margins(gba::GbaBus* bus, u32 pc) {
     const Box seen = visible_canvas(bus);
     if (seen.empty()) return;

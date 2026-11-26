@@ -1,4 +1,4 @@
-// TBS native world-map routes. Evidence: FACTS "Retreat visited-town list";
+// The Broken Seal's native world-map routes. Evidence: FACTS.md "Retreat visited-town list";
 // these are entry aliases, NOT actor IDs.
 #pragma once
 #include "../../shared_game/retreat_travel.h"
@@ -13,13 +13,13 @@ inline constexpr Town towns[] = {
     {"Tolbi", 40, 23}, {"Suhalla", 51, 27}, {"Lalivero", 55, 30},
 };
 // Leftover test rooms, in every supported ROM (identical room-table rows).
-// Names are the game's own location names. FACTS "Debug rooms in Retreat".
+// Names are the game's own location names. FACTS.md "Debug rooms in Retreat".
 inline constexpr DebugRoom debug_rooms[] = {
     {"Test 0", 191}, {"Test 1", 192}, {"Test 2", 193}, {"Test 3", 194},
     {"Test 4", 195}, {"Test 5", 196}, {"Test 6", 197}, {"Test 7", 198},
     {"Increase item and level", 199}, {"Menu test", 200},
 };
-// The party leader is field actor 0 on the world map (bench, FACTS
+// The party leader is field actor 0 on the world map (measured, FACTS.md
 // "Debug rooms in Retreat"): field state [0x03001EBC] + 0x14.
 inline std::uint32_t leader(gba::GbaBus* b) {
     return b->read32(b->read32(game->state_slot) + 0x14u);
@@ -60,7 +60,7 @@ inline bool arrive(const Destination& d) {
 }
 // The overworld adds a terrain layer to the leader's sprite. Retreat's
 // dungeon animation drives it too, turning the woodland mask solid black
-// (F12 0112). Native town loading replaces the actor after this effect.
+// (measured in a capture). Native town loading replaces the actor after this effect.
 inline void remove_departure_terrain(gba::GbaBus* b) {
     const auto actor = leader(b);
     if (!field_address(actor) || (b->read8(actor + 0x54u) & 0xFu) != 1u) return;

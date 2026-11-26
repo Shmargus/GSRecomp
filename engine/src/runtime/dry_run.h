@@ -1,10 +1,11 @@
 // Scratch memory for replaying a guest routine.
 //
 // Both games replay skipped spark draws with a copy of the CPU state.
-// DryRunBus reads EWRAM, IWRAM and ROM. It copies IWRAM on first write
-// because routines patch code there and use its stack. Other writes go
-// into a scratch overlay that later reads see. Unsupported accesses end
-// the replay.
+// DryRunBus reads EWRAM, IWRAM and ROM.
+//   - It copies IWRAM on first write, because routines patch code there and
+//     use its stack.
+//   - Other writes go into a scratch overlay that later reads see.
+//   - An unsupported access ends the replay.
 #pragma once
 
 #include <bitset>

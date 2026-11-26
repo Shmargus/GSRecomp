@@ -6,7 +6,7 @@
 #include "field_scene.h"
 #include "object_artwork.h"
 
-// The Vale storm's rain (Func_94820, F12 gpu_rewind_0050 and 0052).
+// The Vale storm's rain (Func_94820, measured in two captures).
 //
 // Each drop respawns at the object [[0x03001E70]]'s x and z plus
 // (rand16 << 8) - 128 pixels (0x0809494C..0x0809497C; Func_4458 returns 16
@@ -14,15 +14,15 @@
 // Repeating them 256 pixels in each direction tiles that square with the
 // same density and phase. In the expanded view the square is centred on the
 // view (golden_sun_rain_spawn_offset, runner_main.cpp); the game alone put
-// its landings 128..383 rows below the camera top (F12 0053): a dry top. The
+// its landings 128..383 rows below the camera top: a dry top. The
 // drops below the screen are the game's own (the upper-Y override at
 // 0x080948C8). A copy that would reach into the console's window is left out
 // whole, so no streak is cut at its edge.
 //
 // Recognised by artwork, not tile slot: the streak (16x32) and its four
-// splash frames (16x16) hash the same in 0050 (tiles 260, 268..280) and
-// 0052 (tiles 324, 332..344). The capture's drop pool is a frame ahead of
-// its OAM (0052: pool at frame N is OAM at N + 1), so the pool cannot name
+// splash frames (16x16) hash the same in both captures (tiles 260, 268..280 and
+// 324, 332..344). The capture's drop pool is a frame ahead of
+// its OAM (pool at frame N is OAM at N + 1), so the pool cannot name
 // the slots.
 inline bool golden_sun_rain_artwork(const gsr::FieldScene& scene,
                                     const gsr::SceneObject& object,

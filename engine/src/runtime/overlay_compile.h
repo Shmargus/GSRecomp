@@ -1,11 +1,14 @@
 // overlay_compile.h: compile (or load from cache) ONE self-heal overlay
-// function. The mechanical half of Stage 2: given a guest PC + the immutable
-// code image it lives in, discover its extent, emit its C (overlay_emit), run
-// g++ to a cached DLL, then LoadLibrary + ABI-gate + overlay_init +
-// GetProcAddress so the host can call it natively.
+// function. This is the mechanical half of Stage 2. Given a guest PC and the
+// immutable code image it lives in, it:
+//   1. discovers the function's extent,
+//   2. emits its C (overlay_emit),
+//   3. runs g++ to produce a cached DLL, then
+//   4. calls LoadLibrary, ABI-gates the DLL, runs overlay_init and calls
+//      GetProcAddress, so the host can call the function natively.
 //
-// This unit is deliberately stateless and thread-agnostic: overlay_loader.cpp
-// owns the worker thread, the work/ready queues, and g_healed, and calls
+// This unit is deliberately stateless and thread-agnostic. overlay_loader.cpp
+// owns the worker thread, the work/ready queues and g_healed. It calls
 // overlay_compile_one() from the worker (compile_if_missing=true) and from the
 // init-time warm-cache scan (compile_if_missing=false, load-only).
 
@@ -23,13 +26,14 @@ namespace gbarecomp {
 
 // Which compiler turns the emitted overlay C into the cached DLL. Both produce
 // the SAME emitted source (overlay_emit makes it C-and-C++-clean) and the SAME
-// loadable artifact; they differ only in the toolchain and the cache namespace:
-//   * Gcc: the dev default + release-quality producer. Needs a real g++ on the
-//            box; compiles the overlay as C++ (-x c++), optimized (-O2).
+// loadable artifact. They differ only in the toolchain and the cache namespace:
+//   * Gcc: the dev default and release-quality producer. Needs a real g++ on
+//          the box. It compiles the overlay as C++ (-x c++), optimized (-O2).
 //   * Tcc: the bundled, toolchain-free producer for shipped player boxes.
-//            Self-contained (own linker + headers); compiles the overlay as C.
-// Consumption is producer-blind (the loader scans both cache namespaces, gcc
-// first), so a shipped gcc DLL supersedes a player's local tcc shard.
+//          It is self-contained (own linker and headers) and compiles the
+//          overlay as C.
+// Consumption is producer-blind: the loader scans both cache namespaces, gcc
+// first. A shipped gcc DLL therefore supersedes a player's local tcc shard.
 enum class HealBackend { Gcc, Tcc };
 
 const char* heal_backend_name(HealBackend b);
@@ -96,19 +100,25 @@ bool overlay_compile_one(const OverlayWorkItem& w,
                          std::string* err);
 
 // Load an already-compiled overlay DLL using CALLER-SUPPLIED metadata (crc,
-// end) instead of re-deriving them from a live code image. Used only by the
-// background warm-loader (overlay_loader.cpp) for cache entries whose
-// (pc, thumb, crc) come from the cache filename and whose `end` comes from
-// the persisted ".c" sidecar's header comment, both written by THIS SAME
-// compiler at the original compile time (ground truth, not a guess). Unlike
-// overlay_compile_one, this performs NO disassembly and NO CRC recomputation
-// against any code image, so it never needs to read GBA memory and is safe
-// to call from any thread. Every entry loaded this way still gets the SAME
-// unconditional CRC32 recheck against LIVE bytes on every dispatch attempt
-// (see overlay_loader.cpp's heal_entry_crc_ok / heal_slot_resolve_ram)
-// before its native code is ever entered; callers must only use this for
-// entries whose dispatch path re-verifies on every call (RAM-backed), never
-// for entries dispatched with zero per-call overhead (ROM/BIOS-backed).
+// end) instead of re-deriving them from a live code image.
+//
+// Only the background warm-loader (overlay_loader.cpp) uses this, for cache
+// entries where:
+//   - (pc, thumb, crc) come from the cache filename, and
+//   - `end` comes from the persisted ".c" sidecar's header comment.
+// THIS SAME compiler wrote both at the original compile time (ground truth,
+// not a guess).
+//
+// Unlike overlay_compile_one, this performs NO disassembly and NO CRC
+// recomputation against any code image. It never needs to read GBA memory and
+// is safe to call from any thread.
+//
+// Every entry loaded this way still gets the SAME unconditional CRC32 recheck
+// against LIVE bytes on every dispatch attempt (see overlay_loader.cpp's
+// heal_entry_crc_ok / heal_slot_resolve_ram) before its native code is ever
+// entered. So callers must only use this for entries whose dispatch path
+// re-verifies on every call (RAM-backed), never for entries dispatched with
+// zero per-call overhead (ROM/BIOS-backed).
 bool overlay_load_cached(const std::string& dll_path, uint32_t pc, bool thumb,
                          uint32_t crc, uint32_t end,
                          const GbaOverlayCallbacks* cb,

@@ -6,8 +6,7 @@
 // runner installs its game's table through trackers.h (trackers_tbs.h, The
 // Lost Age's src/tla_trackers.cpp) and samples once per frame.
 //
-// Measured, both ROMs verified (each game's FACTS.md, "Treasure Tracker",
-// 2026-10-30); the tables come from The Broken Seal/tools/build_treasure_tracker.py:
+// Measured, both ROMs verified; the tables come from The Broken Seal/tools/build_treasure_tracker.py:
 //   Taken: the treasure's own flag (flag_bank.h).
 //   Chest or not: the sub-type whose "checked the chest..." message the game
 //   shows (kChest).

@@ -1,7 +1,7 @@
 // Random Treasure, The Broken Seal (rules: shared_game/treasure_plan.h; the
 // table: treasure_randomizer_data.h from tools/build_treasure_randomizer.py).
 //
-// Measured, verified ROMs (FACTS.md "Random Treasure", 6 November 2026):
+// Measured, verified ROMs (FACTS.md "Random Treasure"):
 // - Field pickups all pass 0x0808D9A4(actor). The room's records are 12
 //   bytes at [[0x03001EBC] + 0x10] up to 0xFFFFFFFF (0x0808D48C): +0 low
 //   nibble 3 = an actor's interaction, +4 actor, +6 flag (s16), +8 payload;
@@ -134,8 +134,8 @@ inline void sheet_lines(const random_psynergy::Config& c, std::vector<run_sheet:
 namespace gsr::run_sheet::tbs {
 inline const Game& game() {
     static constexpr const char* kNames[] = {"Isaac", "Garet", "Ivan", "Mia"};
-    // Class names: text 0x741 + class (Func_20198's literal; FACTS); Djinni
-    // names 0x45F + element*20 + index (FACTS "Djinn Tracker").
+    // Class names: text 0x741 + class (Func_20198's literal); Djinni
+    // names 0x45F + element*20 + index (FACTS.md "Djinn Tracker").
     static const Game g{&random_psynergy::tbs::game(), &random_weapons::tbs::game(), kNames,
                         &treasure::tbs::sheet_lines, gs::text(0x741u), &random_djinn::tbs::game(),
                         gs::text(0x45Fu)};

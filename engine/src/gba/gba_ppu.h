@@ -10,8 +10,8 @@
 //   VBlank lines    = 68 (scanlines 160..227)
 //   frame total     = 228 scanlines = 280896 cycles
 //
-// VCOUNT increments at the start of each scanline. HBlank flag sets
-// at dot 252 (cycle 1008 of the line), clears at start of next line.
+// VCOUNT increments at the start of each scanline. The HBlank flag is set at
+// dot 252 (cycle 1008 of the line) and cleared at the start of the next line.
 
 #pragma once
 
@@ -24,8 +24,8 @@ namespace gbarecomp::debug { class SnapshotWriter; class SnapshotReader; }
 namespace gba {
 
 // Payload-free accounting for the expanded-margin compositor. These enums are
-// deliberately a small ABI contract: a game-side observer can aggregate the
-// result without seeing a tile entry, palette value, or framebuffer byte.
+// a deliberately small ABI contract. A game-side observer can aggregate the
+// result without seeing any tile entry, palette value or framebuffer byte.
 enum WsMarginProviderTraceResult : std::size_t {
     kWsMarginProviderReplace = 0,
     kWsMarginProviderKeepWrapped = 1,
@@ -47,10 +47,12 @@ enum WsMarginTraceLayer : std::size_t {
     kWsMarginTraceLayerCount = 8,
 };
 
-// Source selected for the final margin pixel. `wrapped` is a normal resident
-// tilemap entry (including the no-provider path); `keep_wrapped` proves that a
-// provider explicitly retained that entry. The matrix in WsMarginDiagnostics
-// preserves the layer/source pairing needed to attribute a coloured seam.
+// Source selected for the final margin pixel.
+//   - `wrapped` is a normal resident tilemap entry, including the
+//     no-provider path.
+//   - `keep_wrapped` means a provider explicitly kept that entry.
+// The matrix in WsMarginDiagnostics keeps the layer/source pairing, which is
+// needed to find the cause of a coloured seam.
 enum WsMarginTraceSource : std::size_t {
     kWsMarginSourceWrapped = 0,
     kWsMarginSourceProviderReplace = 1,
@@ -121,10 +123,9 @@ public:
     GbaPpu();
     ~GbaPpu();
 
-    // Events that fired during a tick. The caller routes these to
-    // the IRQ controller (gating on the DISPSTAT enable bits the BIOS
-    // sets). Keeping events as a return value rather than a callback
-    // keeps the PPU pure / portable.
+    // Events that fired during a tick. The caller routes them to the IRQ
+    // controller, gated on the DISPSTAT enable bits the BIOS sets. Returning
+    // events instead of using a callback keeps the PPU pure and portable.
     struct TickEvents {
         bool vblank_started = false;  // scanline crossed from 159 → 160
         bool hblank_started = false;  // dot crossed visible → HBlank
@@ -132,12 +133,12 @@ public:
         bool frame_completed = false; // scanline wrapped 227 → 0
     };
 
-    // Advance the PPU by `cycles` host cycles. Increments dot/scanline
-    // counters and toggles VBlank/HBlank flags appropriately. The
-    // caller (scheduler) accumulates the cycle budget per CPU step.
+    // Advance the PPU by `cycles` host cycles. This advances the dot and
+    // scanline counters and sets or clears the VBlank/HBlank flags. The
+    // caller (the scheduler) accumulates the cycle budget per CPU step.
     //
-    // `vcount_compare` is the value DISPSTAT[15:8] specifies; we
-    // surface VCount-match in the returned events.
+    // `vcount_compare` is the value in DISPSTAT[15:8]. A VCount match is
+    // reported in the returned events.
     TickEvents tick(uint32_t cycles, uint16_t vcount_compare = 0xFFFFu);
 
     // Live state for IO reads.
@@ -164,22 +165,26 @@ public:
         kScreenWidth * kScreenHeight * 3;
 
     // ── View-area expansion (opt-in enhancement; default OFF = faithful) ──
-    // Generic "render extra margin columns/rows" runner capability. With every
-    // margin 0 the PPU runs the LITERAL vanilla path (render_scanline_internal),
-    // so OFF-mode is byte-identical to the faithful build BY CONSTRUCTION, not
-    // by algebraic equivalence (per the widescreen design review). Horizontal
-    // widening reuses each scanline's latched register state. Vertical widening
-    // synthesizes host rows from the nearest captured edge scanline, preserving
-    // signed logical coordinates while keeping VCOUNT/HBlank state unchanged.
-    // These margins are present-time host state and are NEVER serialized into
-    // the snapshot (the save format is unchanged).
-    // Experimental envelope: 120 horizontal and 80 vertical pixels per side
-    // gives a 480x320 maximum while the default remains literal 240x160.
+    // The runner can ask the PPU to render extra margin columns and rows
+    // around the 240x160 screen.
+    //   - With every margin 0 the PPU runs the literal vanilla path
+    //     (render_scanline_internal). Off-mode is therefore byte-identical to
+    //     the faithful build by construction, not by algebraic equivalence
+    //     (per the widescreen design review).
+    //   - Horizontal widening reuses each scanline's latched register state.
+    //   - Vertical widening synthesizes host rows from the nearest captured
+    //     edge scanline. It keeps signed logical coordinates and leaves
+    //     VCOUNT/HBlank state unchanged.
+    // The margins are present-time host state. They are never serialized into
+    // the snapshot, so the save format is unchanged.
+    // Experimental limit: 120 horizontal and 80 vertical pixels per side, a
+    // 480x320 maximum. The default stays the literal 240x160.
     static constexpr uint32_t kMaxExtraX = 120;
     static constexpr uint32_t kMaxExtraY = 80;
-    // Native compositor output is supersampled horizontally (up to 10x). Keep
-    // that envelope separate from the established 480px widened-view limit;
-    // the faithful/widescreen framebuffer and resize policy remain unchanged.
+    // The native compositor output can be supersampled horizontally (up to
+    // 10x). That limit is kept separate from the 480px widened-view limit, so
+    // the faithful and widescreen framebuffers and the resize policy do not
+    // change.
     static constexpr uint32_t kMaxRenderWidth  = kScreenWidth + 2u * kMaxExtraX;  // 480
     static constexpr uint32_t kMaxNativeRenderWidth = kScreenWidth * 10u;          // 2400
     static constexpr uint32_t kMaxCompositeWidth =
@@ -267,14 +272,15 @@ public:
         return latched_native_rows_frame_;
     }
 
-    // GoldenSunRecomp edit (see MODIFICATIONS.md): stop this compositor
-    // DRAWING, while it still records each scanline's registers and walks
-    // the affine references. A host that draws the frame some other way --
-    // GoldenSunRecomp's GPU renderer, via the frame-present override -- then
-    // pays for the raster once instead of twice, and a frame that renderer
-    // refuses shows whatever the host paints instead of a picture from here,
-    // which is what makes a refusal visible at all. Default on: with nothing
-    // calling this, the PPU behaves exactly as before.
+    // GoldenSunRecomp edit (see MODIFICATIONS.md): stop this compositor from
+    // drawing, while it still records each scanline's registers and walks the
+    // affine references.
+    // A host that draws the frame another way (GoldenSunRecomp's GPU
+    // renderer, via the frame-present override) then pays for the raster once
+    // instead of twice. If that renderer refuses a frame, the screen shows
+    // whatever the host paints instead of a picture from here, which makes
+    // the refusal visible.
+    // Default on: with nothing calling this, the PPU behaves exactly as before.
     void set_native_raster_enabled(bool on) { native_raster_enabled_ = on; }
     bool native_raster_enabled() const { return native_raster_enabled_; }
 
@@ -361,26 +367,29 @@ private:
     uint32_t extra_bottom_ = 0;
 };
 
-// Widescreen margin tilemap provider (Step C; see gba_ppu.cpp). Set by the
-// runtime-side sidecar; nullptr = vanilla wide behavior. It is queried for
-// every regular-BG sample whose signed logical X or Y lies outside the native
-// 240x160 canvas.
-// Result 0 means no authored continuation, 1 replaces the wrapped hardware
-// entry through out_entry, and 2 explicitly accepts the wrapped entry for a
-// deliberately tiled effect rather than room geometry.
+// Widescreen margin tilemap provider (Step C; see gba_ppu.cpp). The
+// runtime-side sidecar sets it; nullptr means vanilla wide behaviour. It is
+// queried for every regular-BG sample whose signed logical X or Y lies outside
+// the native 240x160 canvas.
+// Return values:
+//   - 0: no authored continuation.
+//   - 1: replace the wrapped hardware entry with the one written to out_entry.
+//   - 2: accept the wrapped entry, for a deliberately tiled effect rather
+//        than room geometry.
 enum WsTilemapProviderResult : int {
     kWsTilemapUnavailable = 0,
     kWsTilemapReplace = 1,
     kWsTilemapKeepWrapped = 2,
 };
 
-// Optional read-only policy for expanded-view margins. The callback is called
+// Optional read-only policy for expanded-view margins. The compositor calls it
 // for each rendered row with the standard DISPCNT value and that row's IO
-// snapshot (edge-line state for synthesized top/bottom rows). It returns a mask
-// telling the compositor which margins to blacken; zero permits the normal expanded
-// samples. While installed, this per-scanline result is authoritative and the
-// legacy g_ws_pillarbox* globals are ignored. A null callback preserves the
-// historical global-flag behavior.
+// snapshot (the edge-line state for synthesized top and bottom rows). It
+// returns a mask saying which margins to blacken. Zero allows the normal
+// expanded samples.
+// While a callback is installed, its per-scanline result is authoritative and
+// the legacy g_ws_pillarbox* globals are ignored. A null callback keeps the
+// historical global-flag behaviour.
 enum WsMarginPolicyFlags : unsigned {
     kWsMarginPillarboxLeft  = 1u << 0,
     kWsMarginPillarboxRight = 1u << 1,

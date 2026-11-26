@@ -329,8 +329,8 @@ struct GpuSurface::Targets {
 struct GpuSurface::UniformCache {
     // The last slot found for each (program, name pointer). Callers pass the
     // same literals every frame, so most lookups end here with one short
-    // string compare instead of hashing the name (profile of 16 November
-    // 2026: uniform_slot 2.9% of the phone's game thread). The compare
+    // string compare instead of hashing the name (measured: uniform_slot
+    // took 2.9% of a phone's game thread). The compare
     // keeps a reused name buffer with new text from matching.
     struct Recent {
         GpuProgram program = 0;
@@ -499,15 +499,18 @@ void GpuSurface::update_texture(GpuTexture texture, int x, int y,
     GLint previous = 0;
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous);
     glBindTexture(GL_TEXTURE_2D, texture);
-    // GL reads this upload through whatever pixel-store state is current, and
-    // this surface shares its context with SDL's renderer and with ImGui, both
-    // of which upload textures of their own. A row length or a skip left behind
-    // by either makes the driver read a larger span than the caller's buffer
-    // holds, past the end of it; a transfer buffer left bound turns `pixels`
-    // into an offset into that buffer instead. Nothing in an offline harness
-    // reproduces this -- nothing else there touches GL -- and the first of the
-    // two crashed the game inside the driver three seconds into a field screen.
-    // So pin every setting this transfer depends on, and put back what we found.
+    // GL reads this upload through whatever pixel-store state is current.
+    // This surface shares its context with SDL's renderer and with ImGui, and
+    // both upload textures of their own. They can leave state behind:
+    //   - A row length or a skip left behind by either makes the driver read
+    //     a larger span than the caller's buffer holds, past the end of it.
+    //   - A transfer buffer left bound turns `pixels` into an offset into that
+    //     buffer instead.
+    // Nothing in an offline harness reproduces this, because nothing else
+    // there touches GL. The first case crashed the game inside the driver
+    // three seconds into a field screen.
+    // So pin every setting this transfer depends on, and put back what we
+    // found.
     GLint prev_alignment = 4, prev_row_length = 0, prev_skip_rows = 0;
     GLint prev_skip_pixels = 0, prev_image_height = 0, prev_skip_images = 0;
     GLint prev_unpack_buffer = 0;
@@ -840,10 +843,10 @@ void GpuSurface::begin_frame(float r, float g, float b, float a) {
     glViewport(0, 0, target_w_, target_h_);
     glDisable(GL_SCISSOR_TEST);
     // Our passes write packed records (colour bytes, sort keys) that blending
-    // would mix with the target; they turn blending on only where they mean
-    // it (set_blend_mode). Whatever drew last may have left it on: on phones
-    // the menu and on-screen buttons do, and the field came out as a few
-    // green and red levels (2026-11-14).
+    // would mix with the target. They turn blending on only where they mean it
+    // (set_blend_mode). Whatever drew last may have left it on. On phones the
+    // menu and on-screen buttons do, and the field came out as a few green and
+    // red levels.
     glDisable(GL_BLEND);
     glDisable(GL_DEPTH_TEST);
     glClearColor(r, g, b, a);
@@ -939,9 +942,9 @@ void GpuSurface::clear_color_target(float r, float g, float b, float a) {
 // The depth buffer must match the colour attachment's size at ALL times, not
 // only while the depth test is on. A driver is free to restrict drawing and
 // clearing to the overlap of differently sized attachments WITHOUT reporting
-// the framebuffer incomplete, and this one does: a target widened while the
+// the framebuffer incomplete, and this one does. A target widened while the
 // depth buffer still held the previous width silently lost every pixel past
-// the old width, in passes that had the depth test switched off entirely.
+// the old width, even in passes that had the depth test switched off entirely.
 void GpuSurface::resize_depth_to_target() {
     if (!ready_ || !depth_rb_) return;
     if (depth_w_ == target_w_ && depth_h_ == target_h_) return;
@@ -1036,8 +1039,8 @@ void GpuSurface::draw_quads(GpuProgram program, const GpuQuad* quads,
     glBindBuffer(kArrayBuffer, vbo_);
     // New storage each time (the streaming idiom): writing into the buffer
     // an earlier draw of this frame still uses made the phone's driver copy
-    // the buffer first (profile of 16 November 2026: glBufferSubData 4.5% of
-    // the game thread, about ten draws a frame).
+    // the buffer first (measured: glBufferSubData took 4.5% of the game
+    // thread, with about ten draws a frame).
     const std::size_t bytes = vertices.size() * sizeof(float);
     glBufferData(kArrayBuffer, static_cast<ptrdiff_t>(bytes), vertices.data(),
                  kStreamDraw);

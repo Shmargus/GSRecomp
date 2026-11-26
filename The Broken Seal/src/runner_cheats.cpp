@@ -114,11 +114,13 @@ bool g_cheat_window_palette_known = false;
 }  // namespace gsr_runner
 namespace {
 
-// New Game onboarding (shared_game/new_game_flow.h). "Name the other
-// characters?" is asked on entry to the naming routine for the second hero;
-// the rest (Difficulty, Randomize and its follow-ups, Challenge, the last
-// choices) on entry to Func_77f40. Each question sits under a bar whose text
-// explains the highlighted row.
+// New Game onboarding (shared_game/new_game_flow.h). The questions are asked
+// at two points:
+//   - "Name the other characters?" is asked on entry to the naming routine for
+//     the second hero.
+//   - The rest (Difficulty, Randomize and its follow-ups, Challenge, the last
+//     choices) are asked on entry to Func_77f40.
+// Each question sits under a bar whose text explains the highlighted row.
 }  // namespace
 namespace gsr_runner {
 bool g_hard_prompt_open = false;
@@ -130,12 +132,14 @@ bool g_skip_opening_pending = false;        // "Skip Prologue & Sol Sanctum" cho
 // Frame the highlighted row was entered: its help text waits, then scrolls.
 unsigned long long g_check_row_since = 0;
 
-// The naming loop (FACTS "New Game onboarding"). The title overlay names
-// heroes 0..r5-1 by calling 0x08020BD8(index) (veneer 0x08015320). r5 becomes
-// 4 when the overlay halfword 0x020096B2 (Spain, Italy 0x020096A2) is set, as
-// the title's own secret code does. The answer is stored when Isaac is named,
-// and the question is asked before Garet. No answers for Garet, Ivan and Mia
-// at once (0: not back).
+// The naming loop (FACTS.md "New Game onboarding").
+//   - The title overlay names heroes 0..r5-1 by calling 0x08020BD8(index)
+//     (veneer 0x08015320).
+//   - r5 becomes 4 when the overlay halfword 0x020096B2 (Spain, Italy
+//     0x020096A2) is set, as the title's own secret code does.
+//   - The answer is stored when Isaac is named, and the question is asked
+//     before Garet.
+//   - There are no answers for Garet, Ivan and Mia at once (0: not back).
 enum class Names { Unasked, Yes, No };
 Names g_names = Names::Unasked;
 
@@ -213,24 +217,27 @@ void prompt_finish() {
     g_challenge_levels_pending = r.challenge.size > 0;
 }
 
-// Picks start at level 1 (challenge_mode.h). Their level-0 records are
-// restored, then the builder's own raise 0x080792FC(character, 1) runs,
-// followed by the stat rebuild 0x08077428, as the hero builder does. Finally
-// HP and PP are filled (copy +0x34/+0x36 to +0x38/+0x3A, and set the shares
-// at +0x14/+0x16 to 0x4000). Run from a function entry, where calling the
-// game is safe. (F12 0085: restoring the level-0 record alone left Ivan and
-// Mia at level 0 with 0 max HP.)
+// Picks start at level 1 (challenge_mode.h). For each pick:
+//   1. The level-0 record is restored. (Restoring it alone would leave Ivan
+//      and Mia at level 0 with 0 max HP.)
+//   2. The builder's own raise 0x080792FC(character, 1) runs.
+//   3. The stat rebuild 0x08077428 runs, as the hero builder does.
+//   4. HP and PP are filled: copy +0x34/+0x36 to +0x38/+0x3A, and set the
+//      shares at +0x14/+0x16 to 0x4000.
+// This runs from a function entry, where calling the game is safe.
 void challenge_apply_levels() {
     if (!g_challenge_levels_pending) return;
     g_challenge_levels_pending = false;
     const unsigned changed =
         gsr::challenge::restore_start_records(gsr::challenge::current(), 0xFu);
-    // Mia starts with Ivan's gear (her level-10 kit is far ahead at
-    // level 1). As the hero builder 0x08078EE8 does: clear the 15
-    // item slots +0xD8, then add 0x08078588(id, item) and equip
-    // 0x08078708(id, slot) each of hero table 0x080844EC + id*0xB4 + 0x98's
-    // 13 items. Ivan: Wooden Stick, Travel Vest, Leather Armlet, Circlet,
-    // Herb; each lists Mia (bit 3) in its equip mask (item +4).
+    // Mia starts with Ivan's gear, because her level-10 kit is far ahead at
+    // level 1. This follows the hero builder 0x08078EE8:
+    //   1. Clear the 15 item slots at +0xD8.
+    //   2. For each of the 13 items in the hero table
+    //      (0x080844EC + id*0xB4 + 0x98), add it with 0x08078588(id, item)
+    //      and equip it with 0x08078708(id, slot).
+    // Ivan's items are Wooden Stick, Travel Vest, Leather Armlet, Circlet and
+    // Herb. Each lists Mia (bit 3) in its equip mask (item +4).
     constexpr unsigned kIvan = 2, kMia = 3;
     if (changed & (1u << kMia)) {
         const std::uint32_t record = gsr::challenge::record(kMia);
@@ -266,9 +273,9 @@ std::uint32_t g_question_args[4] = {};
 std::uint32_t g_question_return = 0;
 std::uint32_t g_question_pc = 0;  // the held entry, re-entered once answered
 
-// Hold at the entry `pc`: return at once into the frame routine, which comes
-// back once a frame until the question closes; then `pc` runs with its own
-// arguments and return address (question_hold_frame_entry).
+// Hold at the entry `pc`. This returns at once into the frame routine, which
+// comes back once a frame until the question closes. Then `pc` runs with its
+// own arguments and return address (question_hold_frame_entry).
 void hold_at(std::uint32_t pc) {
     for (int i = 0; i < 4; ++i) g_question_args[i] = g_cpu.R[i];
     g_question_return = g_cpu.R[14];
@@ -324,26 +331,32 @@ void question_hold_naming_entry() {
 }  // namespace gsr_runner
 namespace {
 
-// Skip the opening (FACTS.md "Skip the opening", 4 November 2026). After
-// Func_77f40 the new-game overlay rom_7795e8 (0x0200855E..0x02008576) sets
-// room 0x02000400 = 8, entrance 0x02000402 = 0x14: the opening, then waits
-// through 0x0809163C(0x1E) (veneer 0x0808A010, call 0x02008CA6). On entry to
-// that wait the skip does what the opening would have left behind:
-//  - the game's own time skip 0x08077F70 (clears 0x20/0x21, sets 0x901,
-//    adult gear 0xF -> 0x10 and Psynergy for ids 0..2, +300 coins);
-//  - Garet joins through the game's join 0x0807961C (Challenge Mode's
-//    own join rule applies, as when the story adds him);
-//  - story flags 8..0xEFF become those of a measured file standing on the
-//    world map before Flint (a measured save); joined bits 0..7 and the
-//    0xF00 block (chest flags) are left as the new game made them;
-//  - room/entrance history 0x02000400..0x0200040D from the same file:
-//    room 2 (rom_77a7c8, the world map) entered by entrance 1 from Vale;
-//  - Flint, as after his lesson (FACTS.md "Skip past the Djinn lesson",
-//    14 November 2026): the world-map event (rom_77a7c8 0x02009CA4) gives
-//    him with 0x0807A1B4(id, 0, 0) and 0x0807A458(id, 0, 0), to id 0;
-//    here to the leader (Challenge Mode: the first pick). Its event-table
-//    record (0x0200E3F4: kind 2, trigger 0x5A, flag 0x30) is gated on flag
-//    0x30, Flint's owned flag, which is set so the encounter is over.
+// Skip the opening (FACTS.md "Skip the opening").
+//
+// After Func_77f40, the new-game overlay rom_7795e8 (0x0200855E..0x02008576)
+// sets room 0x02000400 = 8 and entrance 0x02000402 = 0x14. That is the
+// opening. The overlay then waits through 0x0809163C(0x1E) (veneer
+// 0x0808A010, call 0x02008CA6).
+//
+// On entry to that wait, the skip does what the opening would have left
+// behind:
+//  - The game's own time skip 0x08077F70 runs. It clears 0x20/0x21, sets
+//    0x901, gives adult gear 0xF -> 0x10 and Psynergy for ids 0..2, and adds
+//    300 coins.
+//  - Garet joins through the game's join routine 0x0807961C. Challenge Mode's
+//    own join rule applies, as when the story adds him.
+//  - Story flags 8..0xEFF become those of a measured save file standing on
+//    the world map before Flint. Joined bits 0..7 and the 0xF00 block (chest
+//    flags) are left as the new game made them.
+//  - The room/entrance history 0x02000400..0x0200040D comes from the same
+//    file: room 2 (rom_77a7c8, the world map), entered by entrance 1 from
+//    Vale.
+//  - Flint is given as after his lesson (FACTS.md "Skip past the Djinn
+//    lesson"). The world-map event (rom_77a7c8 0x02009CA4) gives him with
+//    0x0807A1B4(id, 0, 0) and 0x0807A458(id, 0, 0), to id 0. Here he goes to
+//    the leader (Challenge Mode: the first pick). His event-table record
+//    (0x0200E3F4: kind 2, trigger 0x5A, flag 0x30) is gated on flag 0x30,
+//    Flint's owned flag. That flag is set, so the encounter is over.
 // Levels, items and the rest of the party are the new game's own.
 constexpr std::uint16_t kSkipOpeningFlags[] = {
     0x100, 0x104, 0x106, 0x143, 0x144, 0x165, 0x169, 0x180, 0x182, 0x183,
@@ -432,7 +445,8 @@ std::uint16_t g_seamless_slot = 0;
 }  // namespace
 namespace gsr_runner {
 // Skip the credits into the game's own Clear Data save screen. It asks for
-// a slot and confirms overwrites; only a successful save hands over to TLA.
+// a slot and confirms overwrites; only a successful save hands over to
+// The Lost Age.
 void seamless_on_entry(std::uint32_t entry_pc) {
     using namespace gsr::seamless;
     if (g_seamless_phase == SeamlessPhase::Choosing &&
@@ -487,12 +501,12 @@ const gbarecomp::GameOptionSwitch kGameSwitches[] = {
     {gsr::treasure_tracker::kSwitchLabel, gsr::treasure_tracker::kSwitchCaption,
      gsr::treasure_tracker::kOptionKey},
 #endif
+    {gsr::select_menu::kSwitchLabel, gsr::select_menu::kSwitchCaption,
+     gsr::select_menu::kOptionKey},
     {gbarecomp::walk_through_walls::kSwitchLabel,
      gbarecomp::walk_through_walls::kSwitchCaption,
      gbarecomp::walk_through_walls::kOptionKey}};
 const int kGameSwitchCount = static_cast<int>(std::size(kGameSwitches));
-// Players see every switch except the last (walking through walls).
-constexpr int kPlayerGameSwitchCount = static_cast<int>(std::size(kGameSwitches)) - 1;
 
 std::uint16_t cheat_menu_keyinput_filter(std::uint16_t keyinput) {
     keyinput = gsr::qol::menu.keyinput(keyinput);
@@ -542,13 +556,17 @@ std::uint16_t cheat_menu_keyinput_filter(std::uint16_t keyinput) {
 }  // namespace gsr_runner
 namespace {
 
-// The onboarding: a one-line bar across the top whose text explains the
-// highlighted row (scrolling when it is wider than the bar), and below it the
-// question's window, running to the bottom of the screen (tile rows 3..19,
-// inner height 16 * 8 - 8 = 120). The title sits at y 0, with an optional
-// second line at 12. Rows start at 18 (30 with the second line) and are 12
-// apart; eight rows plus a gap end by 120. Both span tiles 1..28 so the
-// longest label fits. The code's letter grid draws in the same window.
+// The onboarding screen has two parts:
+//   - A one-line bar across the top. Its text explains the highlighted row,
+//     and scrolls when it is wider than the bar.
+//   - Below it, the question's window, running to the bottom of the screen
+//     (tile rows 3..19, inner height 16 * 8 - 8 = 120).
+// Both span tiles 1..28 so the longest label fits.
+//
+// Layout inside the window: the title sits at y 0, with an optional second
+// line at 12. Rows start at 18 (30 with the second line) and are 12 apart.
+// Eight rows plus a gap end by 120. The code's letter grid draws in the same
+// window.
 void paint_new_game_flow(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height) {
     using namespace gsr::cheat_menu;
     namespace rc = gsr::run_code;
@@ -712,10 +730,11 @@ int cheat_drop_branch(std::uint32_t pc, std::uint32_t original,
     return *out_decision != original ? 1 : 0;
 }
 
-// F12 0058 frame 91: the casting canvas is already visible at (0, 0), but
-// its first position (-102, -13) is still queued for VBlank. The arena's
-// line table has stopped, so spell_setup_torn_frame no longer catches this
-// incomplete setup picture. Keep the preceding picture until placement lands.
+// Seen in a captured frame: the casting canvas is already visible at (0, 0),
+// but its first position (-102, -13) is still queued for VBlank. The arena's
+// line table has stopped, so spell_setup_torn_frame does not catch this
+// incomplete setup picture. The preceding picture is kept until placement
+// lands.
 bool battle_spell_position_pending(const gba::GbaPpu& ppu) {
     using namespace gsr::battle_speed;
     if (!ppu.latched_native_line_io_valid()[0]) return false;

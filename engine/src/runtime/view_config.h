@@ -126,10 +126,10 @@ inline bool legacy_extra_to_view_width(int extra_per_side, int* width) {
     return true;
 }
 
-// Pure policy resolver kept separate from the renderer so capability and
-// faithful-default behavior can be unit-tested without launching a game.
-// Width and height are resolved together: accepting a 360-wide request must
-// not accidentally leave the old 160-line surface active.
+// Pure policy resolver, kept separate from the renderer so that capability
+// and faithful-default behavior can be unit-tested without launching a game.
+// Width and height are resolved together. Accepting a 360-wide request must
+// not leave the old 160-line surface active by accident.
 inline ViewGeometry resolve_view_geometry(
     int requested_width, int requested_height,
     std::uint32_t game_max_width, std::uint32_t game_max_height,

@@ -6,10 +6,9 @@
 // Actor ids 0..0x4F: 0x080CAD84 returns [[0x0300006C] + 0x14 + 4 * id] for
 // id <= 0xBF. The nearest-actor searches walk 0..0x50 through it
 // (0x080CDC10..34, 0x080CD942..0x080CDA38), and id 0x50 (S + 0x154) holds a
-// small counter in every capture. Interiors stage NPCs off the room (F12
-// 0079 Izumo, 0083, 0041-0043, 0045, 0077, 0165, 0178). The Psynergy beam's
-// sparks rise past the room's top (0019) and must stay (FACTS.md
-// 2026-11-12).
+// small counter in every capture measured. Interiors stage NPCs off the room
+// (e.g. Izumo). The Psynergy beam's sparks rise past the room's top and must
+// stay.
 #pragma once
 
 #include <bitset>

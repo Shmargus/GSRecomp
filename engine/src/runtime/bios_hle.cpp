@@ -1,24 +1,29 @@
 // bios_hle.cpp: opt-in High-Level Emulation of GBA BIOS SWI calls.
 //
-// See bios_hle.h for the design (opt-in, LLE stays the oracle, unimplemented
-// SWIs fall through to the recompiled BIOS). This file services a SWI by
-// computing its effect directly on the recompiled register file (g_cpu) and
-// guest memory (the bus_* bridge), then returning 1 so runtime_swi resumes the
-// caller at LR without an SVC-mode entry or BIOS dispatch.
+// See bios_hle.h for the design: it is opt-in, LLE stays the oracle, and
+// unimplemented SWIs fall through to the recompiled BIOS.
+//
+// This file services a SWI by computing its effect directly on the recompiled
+// register file (g_cpu) and guest memory (the bus_* bridge). It then returns
+// 1, so runtime_swi resumes the caller at LR without an SVC-mode entry or BIOS
+// dispatch.
 //
 // SWI semantics are ported from mGBA's src/gba/bios.c (MPL-2.0, © Jeffrey Pfau,
 // vendored under third_party/mgba) and GBATEK. See THIRD_PARTY_ATTRIBUTION.md.
 //
 // TIMING NOTE: the cycle cost charged per SWI is an approximation. The LLE
-// (recompiled real BIOS) accrues the exact hardware cycle count as it executes;
-// HLE cannot reproduce that bit-for-bit without re-deriving every stall. Where
-// mGBA provides a closed-form stall (Div/Sqrt/ArcTan/LZ77) we port it; the rest
-// charge a nominal cost. Cycle-exact HLE is a known limitation of HLE mode
-// (opt-in); LLE remains the timing oracle.
+// (recompiled real BIOS) accrues the exact hardware cycle count as it
+// executes. HLE cannot reproduce that bit-for-bit without re-deriving every
+// stall.
+//   - Where mGBA provides a closed-form stall (Div/Sqrt/ArcTan/LZ77), we port
+//     it.
+//   - The rest charge a nominal cost.
+// Cycle-exact HLE is a known limitation of HLE mode (opt-in). LLE remains the
+// timing oracle.
 //
 // FLOAT NOTE: the affine SWIs (BgAffineSet/ObjAffineSet) and MidiKey2Freq use
-// host float math (matching mGBA), which can differ from the real BIOS fixed
-// point in the low bits; another reason LLE stays the oracle.
+// host float math (matching mGBA). It can differ from the real BIOS fixed
+// point in the low bits, which is another reason LLE stays the oracle.
 
 #include "bios_hle.h"
 
@@ -454,10 +459,10 @@ void do_midi_key_2_freq() {
 
 // ── dispatcher ──────────────────────────────────────────────────────────────
 // Returns 1 (serviced in HLE) or 0 (fall through to the recompiled LLE BIOS).
-// The default of any un-cased SWI is 0, so LLE handles everything HLE omits
-// (SoftReset/RegisterRamReset/Halt/Stop/IntrWait/VBlankIntrWait, the sound
-// driver SWIs, MultiBoot, …): those need the halt/IRQ/reset machinery the
-// recompiled BIOS already implements exactly, and mGBA's own HLE likewise
+// The default of any un-cased SWI is 0, so LLE handles everything HLE omits:
+// SoftReset, RegisterRamReset, Halt, Stop, IntrWait, VBlankIntrWait, the sound
+// driver SWIs, MultiBoot and so on. Those need the halt/IRQ/reset machinery
+// the recompiled BIOS already implements exactly, and mGBA's own HLE likewise
 // delegates them.
 int dispatch(uint32_t swi) {
     uint32_t cost = 45;  // nominal SWI overhead for the non-stall cases
@@ -512,12 +517,16 @@ void bios_hle_set_mode(BiosHleMode mode) {
 
 void bios_hle_boot_skip(uint32_t cart_entry) {
     // Synthesize the state the real BIOS leaves when it hands off to the cart
-    // (GBATEK "GBA Reset"; the same state NanoBoyAdvance / mGBA HLE reproduce),
-    // then jump straight to the cart entry; the boot logo/chime never runs.
-    // reset_recomp_cpu() already seeded the canonical banked SPs; we flip to
-    // System mode, point the active SP at the System/User bank, clear the
-    // low registers, and zero the user IRQ-handler pointer the recompiled BIOS
-    // dispatcher (vector 0x18) reads. R13/R14/R15 are set explicitly below.
+    // (GBATEK "GBA Reset"; the same state NanoBoyAdvance / mGBA HLE
+    // reproduce), then jump straight to the cart entry. The boot logo/chime
+    // never runs.
+    // reset_recomp_cpu() already seeded the canonical banked SPs. Here we:
+    //   - flip to System mode,
+    //   - point the active SP at the System/User bank,
+    //   - clear the low registers, and
+    //   - zero the user IRQ-handler pointer the recompiled BIOS dispatcher
+    //     (vector 0x18) reads.
+    // R13/R14/R15 are set explicitly below.
     for (int i = 0; i < 13; ++i) g_cpu.R[i] = 0;
     g_cpu.banked_sp[ARM_BANK_SUPERVISOR] = 0x03007FE0u;
     g_cpu.banked_sp[ARM_BANK_IRQ]        = 0x03007FA0u;

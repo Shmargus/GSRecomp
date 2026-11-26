@@ -8,6 +8,7 @@
 #include "effect_capture.h"
 #include "field_scene.h"
 #include "frame_history.h"
+#include "../../shared_game/party_window_fade.h"
 
 namespace gsr {
 
@@ -38,7 +39,7 @@ struct GpuFieldCapture : gbarecomp::SceneSnapshot {
     // its own IWRAM heap and RELOCATES the routine that stamps particles into
     // that buffer to just behind it, so the routine exists only at runtime:
     // its address is never a ROM literal and the disassembly has no symbol for
-    // it (FACTS.md, 2026-09-18). A write trace can say where it wrote but
+    // it. A write trace can say where it wrote but
     // never what instructions it is. Capturing IWRAM captures the routine
     // itself, to be disassembled offline.
     std::vector<std::uint8_t> iwram;
@@ -57,6 +58,8 @@ struct GpuFieldCapture : gbarecomp::SceneSnapshot {
     std::vector<std::uint8_t> pal;    // bus->pal_ptr(), 1024 bytes
     // game_window_open() at this frame's capture (world-map margin hold).
     bool window_open = false;
+    // Fallen heroes' menu columns at this frame (party_window_fade.h).
+    gsr::party_window_fade::Fade fade;
 };
 
 std::string gpu_field_dump_bytes(const GpuFieldCapture& capture);

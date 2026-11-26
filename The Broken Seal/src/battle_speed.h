@@ -5,10 +5,11 @@
 #include "game_options.h"
 #include "rom_version.h"
 
-// Battle speed-up: Select in battle toggles 2x, shown as ">>" at the top
-// left.
+// Battle speed-up: Off, 2x or 4x (shared_game/battle_speed_level.h), set in
+// Quality of Life or stepped with Select in battle; ">>" or ">>>" shows at the
+// top left.
 //
-// Measured addresses, verified ROM (FACTS.md, 2026-09-23):
+// Measured addresses, verified ROM:
 //
 //   0x080030F8  frame routine: runs the frame's work, then waits for the
 //               next VBlank. The wait clears bit 0 of the game's VBlank
@@ -21,7 +22,8 @@
 //               battle snapshots in 17 recordings; the 45 other non-zero
 //               snapshots are the blank battle fade frames).
 //
-// On every other battle frame the runner hands the wait the mask 0xFFFF,
+// On every other battle frame (three of every four at 4x) the runner hands
+// the wait the mask 0xFFFF,
 // so the flag the last VBlank set stays set, and drops that frame's Halt:
 // the wait falls straight through and the next frame's work starts at
 // once. Two frames of battle then run per VBlank. If the flag was somehow
@@ -41,24 +43,23 @@ const std::uint32_t kBattleHeapSlot = gs::ram(0x03001F00u);
 // (set up each VBlank by 0x080944EC). 0x08094544 fills the other buffer and
 // flips the byte (0x080946FA) once per frame of guest work. With two per
 // VBlank the second would fill the buffer on screen, so on every dropped
-// wait the byte is put back to what the last VBlank used (FACTS.md,
-// 2026-09-23).
+// wait the byte is put back to what the last VBlank used.
 const std::uint32_t kBattleBgTablesSlot = gs::ram(0x03001ED8u);
 constexpr std::uint32_t kBattleBgIndexOffset = 0xF00u;
 
-// The arena's BG2CNT line table, the same scheme (verified ROM, 2026-09-23):
+// The arena's BG2CNT line table, the same scheme (verified ROM):
 // block at [0x03001E78] ([0x03001F00] - 0x88), index word at +0. The
 // VBlank-time setup 0x080C0130 points DMA0 (HBlank, dest BG2CNT) at
 // block + 0x20 + index * 0x140 and copies block + 0x10 to BG2PA..BG2Y;
 // 0x080C0A24 fills the other table and flips the word at 0x080C0BD0. Left
 // unprotected, the second frame of a pair rewrote the table on screen and
-// the bank switch landed 2-8 lines late (dark lines, gpu_rewind_0003).
+// the bank switch landed 2-8 lines late (dark lines).
 const std::uint32_t kBattleArenaTablesSlot = gs::ram(0x03001E78u);
 constexpr std::uint32_t kBattleArenaIndexOffset = 0x0u;
 
 // Display-paced work: some battle drawing advances once per displayed frame
 // while the battle script advances once per game pass, so at 2x it gets half
-// its steps (FACTS.md, 2026-09-24). 2x pauses, one pass per VBlank, during
+// its steps. 2x pauses, one pass per VBlank, during
 // battle entry only, as in The Lost Age (hit fades, effect canvas mode 2,
 // param 0x32, do not pause).
 //
@@ -70,8 +71,7 @@ constexpr std::uint32_t kBattleArenaIndexOffset = 0x0u;
 constexpr std::uint32_t kVCountHandlerSlot = 0x030000E0u + 2u * 4u;
 const std::uint32_t kEntryVCountHandler = gs::rom(0x080C0299u);
 
-// Layer switches wait for a real VBlank (FACTS.md 2026-10-15,
-// gpu_rewind_0045 frames 4-5 and 103-104). The game queues register writes
+// Layer switches wait for a real VBlank. The game queues register writes
 // for its VBlank handler: count u16 at 0x02002090 (at most 32), then 12-byte
 // entries from 0x02002094 {value, address, 0x20000} (helper 0x0800387C).
 // An attack's teardown queues DISPCNT 0x1541 (effect layer BG1 off), waits
@@ -85,22 +85,22 @@ constexpr std::uint32_t kVBlankQueueEntrySize = 12u;
 constexpr std::uint32_t kVBlankQueueMax = 32u;
 constexpr std::uint32_t kDispcnt = 0x04000000u;
 
-// Guest CPU overclock held while 2x runs in battle: the F1 menu's On value.
+// Guest CPU overclock held while 2x or 4x runs in battle: the F1 menu's On
+// value. Not measured for 4x: four battle frames per VBlank need four normal
+// frames of guest time, under this 10x as long as no frame runs past 2.5.
 constexpr unsigned kMinOverclock = 10u;
 
 // KEYINPUT, active low. Select toggles in battle only, as in The Lost Age.
 constexpr std::uint32_t kKeyInput = 0x04000130u;
 constexpr std::uint16_t kKeySelect = 0x0004u;
 
-// ">>" in the game's menu font, in native screen pixels: the top-left
-// corner, just below the party window (y 20 overlapped its Djinn counts).
-constexpr const char* kIndicator = ">>";
+// ">>" (">>>" at 4x) in the game's menu font, in native screen pixels: the
+// top-left corner, just below the party window (y 20 overlapped its Djinn
+// counts).
 constexpr int kIndicatorX = 4;
 constexpr int kIndicatorY = 32;
 
-constexpr const char* kOptionsKey = gbarecomp::kOptionBattleSpeed;
-
-// Field Psynergy speed-up, The Lost Age's rule (FACTS.md 2026-10-15). The
+// Field Psynergy speed-up, The Lost Age's rule. The
 // field Psynergy dispatcher 0x0808E680 (The Lost Age's 0x080CE61C, same
 // layout) runs the cast inside one of two
 // cast blocks: 0x08096960 (bl at 0x0808E8CA) or 0x08096810 (bl at
@@ -108,15 +108,14 @@ constexpr const char* kOptionsKey = gbarecomp::kOptionBattleSpeed;
 // [0x03001F30] and switch on its kind at +0x1E. So the return into the
 // dispatcher sits in a live stack frame for as long as the cast runs, and
 // is gone for the target's reaction and for scenes that only run a cast's
-// routines (Mars Star, FACTS.md 2026-10-05). With the setting on Fast those
+// routines (Mars Star). With the setting on Fast those
 // frames run at the same 2x as battle.
 const std::uint32_t kFieldCastSlot = gs::ram(0x03001F30u);
 const std::uint32_t kFieldDispatcherReturns[] = {gs::rom(0x0808E8CFu), gs::rom(0x0808E8D5u)};
 constexpr std::uint32_t kStackBottom = 0x03007000u;
 constexpr std::uint32_t kStackTop = 0x03007F00u;
 
-// Reveal's range (ROM 0x080982DC, run every frame while Reveal is up; FACTS
-// 2026-09-30). Let S = [0x03001EBC]. The cast spot is S+0xCBC (x) and
+// Reveal's range (ROM 0x080982DC, run every frame while Reveal is up). Let S = [0x03001EBC]. The cast spot is S+0xCBC (x) and
 // S+0xCBE (y), and S+0xCBA is a countdown. The routine computes
 // dx*0xD105>>16 and dy from the leader and compares dx*dx + dy*dy (r2) with
 // 0xE10 (60 px squared). When that limit is reached or the countdown is 0, it

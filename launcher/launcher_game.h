@@ -7,9 +7,10 @@
 // --session-game) and sets session_game_index once at its start.
 namespace gsr_launcher {
 
-// Revisions a game may list: five languages and two supported patches
-// (Reloaded, Brazilian Portuguese).
-inline constexpr int kMaxRevisions = 7;
+// Revisions a game may list: five languages, the Brazilian Portuguese patch
+// and the supported romhacks (Reloaded; The Broken Seal also Dawn of Djinn
+// Casual and Veteran and Jenna Edition, The Lost Age Maheo Hack).
+inline constexpr int kMaxRevisions = 10;
 
 struct GameIdentity {
     const char* stem;            // the game's folder in the collection
@@ -26,14 +27,20 @@ struct GameIdentity {
     const char* build_stamp;
     const wchar_t* build_stamp_w;
     const char* release_stamp;
+    // The first three letters of the cartridge's game code (ROM header 0xAC).
+    // Measured on every supported ROM, hacks and translations included:
+    // The Broken Seal AGSx, The Lost Age AGFx. Checked even with "Skip the
+    // ROM check" on, so the other game's ROM is refused.
+    const char* header_code;
     // One build per supported ROM revision (see each game's rom_revisions.inc).
     // The order is USA/Europe, other languages, then supported patches. The
-    // cartridge's flag or patch badge selects the expected revision. The
-    // builder identifies the ROM by SHA-1.
+    // cartridge's flag or its Romhack button selects the expected revision.
+    // The builder identifies the ROM by SHA-1.
     const char* rom_sha1s[kMaxRevisions];
     const char* rom_names[kMaxRevisions];
     const char* rom_codes[kMaxRevisions];      // config/<code>, local/<code>, language files
     const char* rom_languages[kMaxRevisions];  // the language row's code each plays as
+    bool rom_romhacks[kMaxRevisions];
 };
 
 inline bool accepts_rom(const GameIdentity& game, const std::string& sha1) {
@@ -67,6 +74,12 @@ inline bool rom_is_language(const GameIdentity& game, int revision) {
     return rom_language_row(game, revision) == revision;
 }
 
+// A gameplay romhack: chosen with the Romhack button under the cartridge,
+// not a flag of its own (every other revision is a flag).
+inline bool rom_is_romhack(const GameIdentity& game, int revision) {
+    return revision >= 0 && revision < rom_revision_count(game) && game.rom_romhacks[revision];
+}
+
 #ifdef _WIN32
 #define GSR_GAME_BINARIES(exe, lib, engine, android) exe ".exe", L"" exe ".exe", lib ".dll", engine ".dll"
 #elif defined(__ANDROID__)
@@ -77,54 +90,64 @@ inline bool rom_is_language(const GameIdentity& game, int revision) {
 #endif
 inline constexpr GameIdentity kGames[2] = {
     {"The Broken Seal", "Golden Sun Recompiled", L"Golden Sun Recompiled",
-     "Select the Golden Sun ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83a or Portuguese Beta 1.01)",
-     L"Select the Golden Sun ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83a or Portuguese Beta 1.01)",
+     "Select the Golden Sun ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83a, Portuguese Beta 1.01, Dawn of Djinn 2.0.5 or Jenna Edition 1.0.0 Modern)",
+     L"Select the Golden Sun ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83a, Portuguese Beta 1.01, Dawn of Djinn 2.0.5 or Jenna Edition 1.0.0 Modern)",
      GSR_GAME_BINARIES("GoldenSunRecomp", "GoldenSunGame", "GoldenSunEngine", "gs_engine"),
      "GoldenSunGame.build.txt", L"GoldenSunGame.build.txt",
-     "GoldenSunGame.release.txt",
-#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language) sha1,
+     "GoldenSunGame.release.txt", "AGS",
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language, romhack) sha1,
      {
 #include "../The Broken Seal/src/rom_revisions.inc"
      },
 #undef GSR_ROM_REVISION
-#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language) name,
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language, romhack) name,
      {
 #include "../The Broken Seal/src/rom_revisions.inc"
      },
 #undef GSR_ROM_REVISION
-#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language) code,
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language, romhack) code,
      {
 #include "../The Broken Seal/src/rom_revisions.inc"
      },
 #undef GSR_ROM_REVISION
-#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language) language,
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language, romhack) language,
+     {
+#include "../The Broken Seal/src/rom_revisions.inc"
+     },
+#undef GSR_ROM_REVISION
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language, romhack) romhack,
      {
 #include "../The Broken Seal/src/rom_revisions.inc"
      }},
 #undef GSR_ROM_REVISION
     {"The Lost Age", "Golden Sun: The Lost Age Recompiled",
      L"Golden Sun: The Lost Age Recompiled",
-     "Select the Golden Sun: The Lost Age ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83 or Portuguese Beta 1)",
-     L"Select the Golden Sun: The Lost Age ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83 or Portuguese Beta 1)",
+     "Select the Golden Sun: The Lost Age ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83, Portuguese Beta 1 or Maheo Hack 2.0)",
+     L"Select the Golden Sun: The Lost Age ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83, Portuguese Beta 1 or Maheo Hack 2.0)",
      GSR_GAME_BINARIES("TLARecomp", "TLAGame", "TLAEngine", "tla_engine"),
      "TLAGame.build.txt", L"TLAGame.build.txt",
-     "TLAGame.release.txt",
-#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language) sha1,
+     "TLAGame.release.txt", "AGF",
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language, romhack) sha1,
      {
 #include "../The Lost Age/src/tla_rom_revisions.inc"
      },
 #undef GSR_ROM_REVISION
-#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language) name,
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language, romhack) name,
      {
 #include "../The Lost Age/src/tla_rom_revisions.inc"
      },
 #undef GSR_ROM_REVISION
-#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language) code,
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language, romhack) code,
      {
 #include "../The Lost Age/src/tla_rom_revisions.inc"
      },
 #undef GSR_ROM_REVISION
-#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language) language,
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language, romhack) language,
+     {
+#include "../The Lost Age/src/tla_rom_revisions.inc"
+     },
+#undef GSR_ROM_REVISION
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language, romhack) romhack,
      {
 #include "../The Lost Age/src/tla_rom_revisions.inc"
      }},

@@ -1,16 +1,23 @@
 #pragma once
 
-// One window for both games (Windows). When The Broken Seal ends with a
-// Seamless code (seamless.h), its program (player_main.cpp) keeps the window
-// open and waits on a named pipe instead of exiting. The launcher's Broken
-// Seal session asks it for the game's exit code (Query); the Lost Age session
-// then sends The Lost Age's launch (Run) and the program runs it in the same
-// window, as if the session had started it. Quit releases a waiting program.
-// Whenever any step fails, both sides fall back to the old way: the program
-// exits and the next game opens its own window.
+// One window for both games (Windows).
 //
-// One request per connection: one byte, then for Run the Launch below. Reply:
-// Query, the exit code (int32); Run, 1 when the game is starting, else 0.
+// When The Broken Seal ends with a Seamless code (seamless.h), its program
+// (player_main.cpp) keeps the window open and waits on a named pipe instead
+// of exiting. Then:
+//   1. The launcher's Broken Seal session asks it for the game's exit code
+//      (Query).
+//   2. The Lost Age session sends The Lost Age's launch (Run).
+//   3. The program runs it in the same window, as if the session had
+//      started it.
+// Quit releases a waiting program. Whenever any step fails, both sides fall
+// back to the old way: the program exits and the next game opens its own
+// window.
+//
+// One request per connection: one byte, then for Run the Launch below.
+// Replies:
+//   - Query: the exit code (int32).
+//   - Run: 1 when the game is starting, else 0.
 
 #ifdef _WIN32
 #include <windows.h>

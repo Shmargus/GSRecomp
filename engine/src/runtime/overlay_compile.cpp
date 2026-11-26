@@ -173,12 +173,13 @@ std::string tcc_path() {
     return "tcc";
 }
 
-// Include arguments for compiling an overlay's emitted C. On a dev box the
-// baked GBARECOMP_SRC_DIR points at the engine source (shim headers in
-// src/runtime + src/armv4t). On a SHIPPED, source-less box those don't exist,
-// so fall back to the headers the release packager flattened into
-// <exe>/overlay_toolchain/include (beside the bundled tcc). Used by both gcc
-// and tcc.
+// Include arguments for compiling an overlay's emitted C. Both gcc and tcc
+// use them.
+//   - On a dev box, the baked GBARECOMP_SRC_DIR points at the engine source
+//     (shim headers in src/runtime and src/armv4t).
+//   - On a SHIPPED, source-less box those do not exist. It falls back to the
+//     headers the release packager flattened into
+//     <exe>/overlay_toolchain/include, beside the bundled tcc.
 std::vector<std::string> overlay_include_args() {
     // Android: the game runs inside the app's own process, so the headers'
     // folder is named by the launcher (the game's builder/engine/include).
@@ -361,13 +362,14 @@ int run_process(const std::vector<std::string>& args, const std::string& logpath
 
     pid_t pid = 0;
 #if defined(__ANDROID__)
-    // Android's posix_spawn forks: it copies the whole game process, and the
-    // copy then resets every signal through ART's signal chain, which logs a
-    // stack each time. The game thread stalls meanwhile: a phone profile
-    // (18 November 2026, Lost Age doors) had the compile thread 75% in fork
-    // in every window where the game thread lost most of its time. vfork
-    // shares the memory until the compiler starts; the child only opens the
-    // log, redirects to it and execs (async-signal-safe calls only).
+    // On Android, posix_spawn forks. That copies the whole game process, and
+    // the copy then resets every signal through ART's signal chain, which logs
+    // a stack each time. The game thread stalls meanwhile: a phone profile
+    // showed the compile thread spending 75% of its time in fork, in every
+    // window where the game thread lost most of its time.
+    //
+    // vfork shares the memory until the compiler starts. The child only opens
+    // the log, redirects to it and execs (async-signal-safe calls only).
     const std::string& log = logpath;
     pid = vfork();
     if (pid == 0) {
@@ -523,12 +525,14 @@ bool overlay_compile_one(const OverlayWorkItem& w,
         const std::vector<std::string> inc = overlay_include_args();
         std::vector<std::string> cmd;
         if (backend == HealBackend::Tcc) {
-            // tcc: a self-contained C compiler (own linker + headers), so it
-            // needs no host toolchain. The overlay is emitted C-clean (the
-            // extern "C" wrappers are __cplusplus-guarded), so tcc builds it
-            // as C; `tcc -shared` exports the global overlay_abi / overlay_init
-            // / func_<pc> symbols the loader resolves. No -O (tcc has no real
-            // optimizer) and no -x c++ (it is a C compiler).
+            // tcc is a self-contained C compiler with its own linker and
+            // headers, so it needs no host toolchain.
+            //   - The overlay is emitted C-clean (the extern "C" wrappers are
+            //     __cplusplus-guarded), so tcc builds it as C.
+            //   - `tcc -shared` exports the global overlay_abi, overlay_init
+            //     and func_<pc> symbols that the loader resolves.
+            //   - There is no -O, because tcc has no real optimizer, and no
+            //     -x c++, because it is a C compiler.
             cmd = {tcc_path(), "-shared"};
 #ifndef _WIN32
             cmd.push_back("-fPIC");

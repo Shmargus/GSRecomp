@@ -5,11 +5,11 @@
 #include <cstring>
 #include <vector>
 
-// Alhafra's port with the camera on Briggs's ship (map 98, F12
-// tla_rewind_0131: camera 664,720, "Ahoy, Briggs!"). The room grid still holds
+// Alhafra's port with the camera on Briggs's ship (map 98:
+// camera 664,720, "Ahoy, Briggs!"). The room grid still holds
 // the east end of the town's land, grid cells x28..38 / y33..43 (pixels
 // 448..624 / 528..704; BG3 grass 5/6/9/0x17, BG2 empty below row 38, the same
-// grid in 0040 and 0053). No capture's console view shows it, and in the
+// grid elsewhere in the room). No console view shows it, and in the
 // widened view it appears as a lone green square in the top-left margin of
 // the open sea. While the camera's left edge is past that land (x >= 624, so
 // none of it can be on the console's screen), the margins draw those cells

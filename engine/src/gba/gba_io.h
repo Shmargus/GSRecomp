@@ -14,9 +14,9 @@
 //       * IME: single-bit master interrupt enable.
 //       * POSTFLG: boot flag; 0 on cold boot.
 //       * HALTCNT: write-only; values: 0x00 = HALT, 0x80 = STOP.
-//   - Per PRINCIPLES.md "Unknown IO never silently returns a magic
-//     value": addresses outside the documented IO range, or to
-//     reserved bytes inside it, still emit `log_unmapped`.
+//   - Unknown IO never silently returns a made-up value. Addresses outside
+//     the documented IO range, and reserved bytes inside it, still emit
+//     `log_unmapped`.
 //
 // References:
 //   - GBATEK § "GBA I/O Map"
@@ -42,10 +42,11 @@ class GbaPpu;
 class GbaAudio;
 
 // ── Always-on MMIO write-trace ring (memory and I/O accuracy) ──────
-// A non-destructive, always-on ring recording every committed IO-register
-// write {cycle, addr, value, size, pc} so the mmio_cap TCP probe can QUERY a
-// [start,count] window without arming (ring-buffer discipline). The tap lives
-// at the GbaIo::write8/16/32 commit path and is zero-effect on write behavior.
+// A non-destructive, always-on ring that records every committed IO-register
+// write as {cycle, addr, value, size, pc}. The mmio_cap TCP probe can query a
+// [start,count] window without having to arm anything (ring-buffer
+// discipline). The tap lives at the GbaIo::write8/16/32 commit path and has no
+// effect on write behaviour.
 // `cycle` is g_runtime_cycles and `pc` is the recompiled CPU's g_cpu.R[15].
 // Both are meaningful only in the recompiled runtime. Under the bios_smoke
 // interpreter only addr/value/size are meaningful, because it drives its own
@@ -175,16 +176,18 @@ public:
     // For tests / debug.
     std::size_t unmapped_count() const { return unmapped_count_; }
 
-    // Canonical FNV-1a-64 hash of the GUEST-ARCHITECTURAL IO state, used by
-    // the first-divergence co-sim oracle (COSIM_ORACLE.md). It covers the MMIO
-    // register file (IE/IF/IME/WAITCNT/DISPSTAT/timer/DMA registers), the halt
-    // flag, the timer prescaler phase and the latched DMA addresses.
-    // DELIBERATELY EXCLUDES the emulator bookkeeping counters (unmapped_count_,
-    // dma_runs_, dma_words_). Those legitimately differ between the recomp and
-    // interp backends because they count accesses, not guest state, and
-    // hashing them would bring back the poll-count false positive the oracle
-    // exists to avoid. serialize() still keeps them as advisory save-state
-    // stats.
+    // Canonical FNV-1a-64 hash of the guest-architectural IO state, used by
+    // the first-divergence co-sim oracle (cosim_state.h). It covers:
+    //   - the MMIO register file (IE/IF/IME/WAITCNT/DISPSTAT/timer/DMA),
+    //   - the halt flag,
+    //   - the timer prescaler phase, and
+    //   - the latched DMA addresses.
+    // It deliberately excludes the emulator bookkeeping counters
+    // (unmapped_count_, dma_runs_, dma_words_). Those legitimately differ
+    // between the recomp and interp backends because they count accesses, not
+    // guest state. Hashing them would bring back the poll-count false positive
+    // the oracle exists to avoid. serialize() still keeps them as advisory
+    // save-state stats.
     uint64_t cosim_hash() const;
 
     // Human-readable dump of the architectural IO state, for co-sim
@@ -203,11 +206,13 @@ public:
     // Run all channels armed for a timed start mode (1=VBlank, 2=HBlank), one
     // transfer block each, advancing the running SAD/DAD across triggers.
     // The device tick calls this at each VBlank start and at the HBlank start
-    // of each visible line. With Repeat (CNT_H bit 9) set the channel stays
-    // armed, reloading DAD when dest_ctrl==3; otherwise the enable bit is
-    // cleared. This delivers the per-scanline WIN0H table that draws a
-    // transition's circular iris (MC-HP-003). Without it WIN0H gets a single
-    // value and the iris is a rectangle.
+    // of each visible line.
+    //   - With Repeat (CNT_H bit 9) set, the channel stays armed and reloads
+    //     DAD when dest_ctrl==3.
+    //   - Otherwise the enable bit is cleared.
+    // This delivers the per-scanline WIN0H table that draws a transition's
+    // circular iris. Without it WIN0H gets a single value and the iris is a
+    // rectangle.
     void run_timed_dma(int start_mode);
 
     // Host-side input update. The low 10 bits are GBA KEYINPUT

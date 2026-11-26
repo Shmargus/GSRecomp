@@ -1,27 +1,33 @@
 /* recomp_audio_drc.h - shared audio clock-domain bridge for the *recomp ecosystems.
  *
- * One persistent band-limited polyphase windowed-sinc fractional resampler driven
- * by a P-only normalized-fill controller, fed by a millisecond-measured SPSC ring,
- * with smooth fade-based startup / underrun / overflow handling.
+ * It is built from these parts:
+ *   - one persistent band-limited polyphase windowed-sinc fractional
+ *     resampler,
+ *   - driven by a P-only normalized-fill controller,
+ *   - fed by a millisecond-measured SPSC ring,
+ *   - with smooth fade-based startup / underrun / overflow handling.
  *
- * It exists because every runner (NES/SNES/GBA/N64/Genesis) is video-master /
- * audio-slaved: guest audio is produced ~1 frame per wall-clock frame while the
- * host device consumes at its own crystal rate. The unsynchronized clocks drift,
- * and the historical "fix" was to discard samples (drop/flush/decimate or a
- * nearest-neighbor servo) -- every discard is a click, and continuous micro
- * discard/dup is a sustained crackle. This bridge replaces all of that: the
+ * Why it exists: every runner (NES/SNES/GBA/N64/Genesis) is video-master and
+ * audio-slaved. Guest audio is produced at about 1 frame per wall-clock frame,
+ * while the host device consumes at its own crystal rate. The two clocks are
+ * unsynchronized, so they drift.
+ *
+ * The historical "fix" was to discard samples (drop/flush/decimate, or a
+ * nearest-neighbor servo). Every discard is a click, and continuous micro
+ * discard/dup is a sustained crackle. This bridge replaces all of that. The
  * controller nudges the *resample ratio* by <= +/-0.5% to hold the ring near a
  * target fill, and the band-limited resampler keeps the waveform continuous.
  *
  * Single-file. Define RECOMP_AUDIO_DRC_IMPL in exactly ONE translation unit.
- * C99 and C++ compatible. Depends only on the C stdlib + libm.
+ * C99 and C++ compatible. Depends only on the C stdlib and libm.
  *
- * Threading: rab_push() is called by the producer (emulation thread), rab_pull()
- * by the consumer (host audio callback). One producer, one consumer. The shared
- * state touched across threads (in_count / out_pos / ring) is accessed in a
- * single-producer/single-consumer pattern; integrate with whatever memory ordering
- * the host runner already uses for its existing queue (a mutex around push/pull is
- * fine and is what most of these runners already have).
+ * Threading: rab_push() is called by the producer (emulation thread) and
+ * rab_pull() by the consumer (host audio callback). There is one producer and
+ * one consumer. The state shared across threads (in_count / out_pos / ring) is
+ * accessed in a single-producer/single-consumer pattern. Integrate it with
+ * whatever memory ordering the host runner already uses for its existing
+ * queue. A mutex around push/pull is fine, and is what most of these runners
+ * already have.
  */
 #ifndef RECOMP_AUDIO_DRC_H
 #define RECOMP_AUDIO_DRC_H

@@ -1,5 +1,5 @@
 // The Broken Seal's radial Psynergy menu places (shared_game/radial_psynergy.h).
-// Evidence: FACTS "Radial Psynergy menu" (4 November 2026).
+// Evidence: FACTS.md "Radial Psynergy menu".
 #pragma once
 #include "../../shared_game/radial_psynergy.h"
 #include "rom_version.h"
@@ -13,7 +13,7 @@ namespace gsr::radial_psynergy::tbs {
 // 0x208; the field kind at +0xC is read as dispatcher 0x0808E6A8 reads it).
 // Icons are at 0x0802DE88 (160), in the common OBJ colours 0x0800779C. Names
 // are text 0x333 + id.
-// Auto Field Psynergy (FACTS "Auto Field Psynergy", 5 November 2026). The
+// Auto Field Psynergy (FACTS.md "Auto Field Psynergy"). The
 // field loop handles A at 0x0808CAC4..0x0808CB42. It tests the A mask
 // 0x02000450 against pressed [0x03001C94]. It talks when
 // 0x0808DDEC([0x02000434]) != -1 and 0x0808D5A4 of that result is nonzero;
@@ -21,6 +21,9 @@ namespace gsr::radial_psynergy::tbs {
 // searches the room's events ([field] + 0x10, 12 bytes, type 5 = Psynergy)
 // with 0x0808E4B4(category, kind, &out) for 0x10000005, 5, 0x50000005
 // (0x0808E7F4..0x0808E80E). Event bit 0x80 matches anywhere in the room.
+// Menu on Select only: the poll's first mask 0x02000454 (Select, 4 in every
+// capture) sets the menu request field + 0x172; A with no talk or check sets
+// the same request (0x0808CB3A..0x0808CB42).
 inline bool a_acts() {
     const std::uint32_t target = guest(GS_ROM(0x0808DDECu), gbarecomp::active_bus()->read32(0x02000434u));
     if (target != 0xFFFFFFFFu && guest(GS_ROM(0x0808D5A4u), target)) return true;
@@ -40,6 +43,7 @@ inline const AutoCast* auto_cast() {
     static const AutoCast places = {
         0x02000450u, gs::ram(0x03001C94u), 0x10u, a_acts, find,
         {0x10000005u, 0x5u, 0x50000005u}, 3u, 0x80u,
+        0x02000454u,
     };
     return &places;
 }
@@ -56,7 +60,7 @@ inline void install(void (*font)()) {
         font, auto_cast(),
         // 0x0800EA82..EA8E: halfword field + 0x19E == 3 is the world map;
         // the Psynergy menu writes its word to field + 0x17E there
-        // (0x080A5C44; measured 19 November 2026, FACTS).
+        // (0x080A5C44).
         0u, 0x19Eu, 2u, 0x17Eu,
     };
     radial_psynergy::install(profile);

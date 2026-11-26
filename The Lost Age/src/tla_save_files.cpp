@@ -1,26 +1,32 @@
 // The Lost Age's half of nine save files (shared_game/save_files_picker.h
 // runs the file screens; this is the game's description and save layer).
 //
-// Measured, verified ROM (FACTS.md "Nine save files", 4 November 2026):
-//   A file is one group of three 0x1000-byte flash sectors (0x3000 bytes:
-//   "CAMELOT", +7 slot, +8 u16 sum of the 0x2FF0 payload bytes, +0xA
-//   generation); five groups hold the three files and the game's spares.
-//   Every screen reaches them by slot number 0..2 (slot 3 is a separate
-//   record, 0x080160D4, left alone):
-//     0x08015E44 load(slot, dst)    1 = absent, 0 = loaded (group read to
-//                                   workspace +0x3C, payload to dst)
-//     0x08015CA4 write(slot, src)   0 = written
-//     0x08015E8C erase(slot)        1 = absent or failed, 0 = erased
-//     0x08016054 summaries()        workspace +0x303C + row * 0x40: group
-//                                   bytes 0..0x3F, +0x38 four bytes at group
-//                                   +0x1010; returns the files present
-//   and the screens' own questions:
-//     0x08043230 first empty row (Copy's destination), 999 = none
-//     0x0804325C count(non_clear)
-//     0x080432A4 clear flags        0x02003860 / 0x020036D8 / 0x02005350
-//   The file box is the picker 0x08043CD8(row, mode), the same build as The
-//   Broken Seal's with a sixth mode (6: refuses +0x33). The workspace is
-//   [0x030000CC]; the game's current file is the row at 0x020036D0.
+// Measured, verified ROM (FACTS.md "Nine save files").
+//
+// A file is one group of three 0x1000-byte flash sectors (0x3000 bytes):
+//   - "CAMELOT" at the start,
+//   - +7 the slot,
+//   - +8 a u16 sum of the 0x2FF0 payload bytes,
+//   - +0xA the generation.
+// Five groups hold the three files and the game's spares.
+//
+// Every screen reaches the files by slot number 0..2 (slot 3 is a separate
+// record, 0x080160D4, left alone):
+//   0x08015E44 load(slot, dst)   1 = absent, 0 = loaded (group read to
+//                                workspace +0x3C, payload to dst)
+//   0x08015CA4 write(slot, src)  0 = written
+//   0x08015E8C erase(slot)       1 = absent or failed, 0 = erased
+//   0x08016054 summaries()       workspace +0x303C + row * 0x40: group bytes
+//                                0..0x3F, +0x38 four bytes at group +0x1010;
+//                                returns the files present
+// The screens' own questions:
+//   0x08043230 first empty row (Copy's destination), 999 = none
+//   0x0804325C count(non_clear)
+//   0x080432A4 clear flags       0x02003860 / 0x020036D8 / 0x02005350
+//
+// The file box is the picker 0x08043CD8(row, mode), the same build as The
+// Broken Seal's with a sixth mode (6: refuses +0x33). The workspace is
+// [0x030000CC]; the game's current file is the row at 0x020036D0.
 //
 // Files 1-3 stay on the cartridge, untouched; files 4-9 are group images in
 // the battery extension, so a record is exactly what the game would have

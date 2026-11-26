@@ -1,4 +1,4 @@
-// Direct GS1 save transfer through TLA's existing link-data importer.
+// Direct Broken Seal save transfer through the Lost Age's existing link-data importer.
 #include "tla_rom_version.h"
 #include "tla.h"
 #include "env_flag.h"
@@ -14,6 +14,7 @@
 #include "../../shared_game/field_character.h"
 #include "../../shared_game/menu_text.h"
 #include "../../shared_game/save_files.h"
+#include "../../shared_game/party_window_fade.h"
 
 #ifdef GBARECOMP_HAVE_IMGUI
 #include "imgui.h"
@@ -79,20 +80,21 @@ int (*g_next_alu)(std::uint32_t, std::uint32_t, std::uint32_t*) = nullptr;
 
 // Seamless mode (engine seamless.h): the launcher started this run as The
 // Broken Seal ended, with its save file and slot. No key is pressed for the
-// player; each step the game would wait for is taken directly:
-// - the intro: the game starts in room 0 entrance 1 (0x080C99B4); right after
-//   (0x080C99D6 calls 0x08038348) the start room becomes the title, room 1
-//   entrance 1, as Start in the intro asks for (0x080D2AA4(1, 1));
-// - the title routine 0x0804D5AC takes its own no-saves path and returns New
-//   Game (cmp r0,#0 at 0x0804D5C0 compared with r0 itself);
-// - Felix is named as usual;
-// - "Load a Golden Sun save file?": its message (0x08038040 with r0 = 0x24)
-//   and window close (0x08038140) do not run, and Yes/No (0x08038378) returns
-//   0, Yes (engine guest_return_now);
-// - the import takes that file and slot without asking.
+// player. Each step the game would wait for is taken directly:
+//   1. The intro. The game starts in room 0 entrance 1 (0x080C99B4). Right
+//      after that (0x080C99D6 calls 0x08038348), the start room becomes the
+//      title, room 1 entrance 1, as Start in the intro asks for
+//      (0x080D2AA4(1, 1)).
+//   2. The title routine 0x0804D5AC takes its own no-saves path and returns
+//      New Game (cmp r0,#0 at 0x0804D5C0 compared with r0 itself).
+//   3. Felix is named as usual.
+//   4. "Load a Golden Sun save file?". Its message (0x08038040 with r0 = 0x24)
+//      and window close (0x08038140) do not run, and Yes/No (0x08038378)
+//      returns 0, Yes (engine guest_return_now).
+//   5. The import takes that file and slot without asking.
 // The picture stays black (engine set_screen_veil) except while Felix is
 // named, and again from the end of the import, so only the naming shows.
-// FACTS.md 2026-10-15, "Seamless mode" and "Seamless mode: straight to the
+// FACTS.md "Seamless mode" and "Seamless mode: straight to the
 // naming".
 enum class Seamless { Off, Intro, Title, Naming, Question, Close, Done };
 Seamless g_seamless = Seamless::Off;
@@ -174,8 +176,8 @@ fs::path detect_save(const fs::path& base) {
                            [](unsigned char c) { return char(std::tolower(c)); });
             if (extension == ".sav") candidates.push_back(it->path());
         }
-        // Stable choice when more than one GS1 file exists; validate contents,
-        // because TLA saves share the CAMELOT signature.
+        // Stable choice when more than one Broken Seal file exists; validate contents,
+        // because Lost Age saves share the CAMELOT signature.
         std::sort(candidates.begin(), candidates.end());
         for (const auto& path : candidates)
             if (!read_slots(path).empty()) return fs::absolute(path, ec);
@@ -456,6 +458,7 @@ void close_update() {
 
 void draw_game_page() {
     gsr::field_character::draw();
+    gsr::party_window_fade::draw();
     tla_new_game_draw_page();
     ImGui::BeginDisabled(g_import_menu.stage != ImportStage::Idle || update_active());
     if (ImGui::Button(gbarecomp::ui_text("Update from The Broken Seal..."))) {

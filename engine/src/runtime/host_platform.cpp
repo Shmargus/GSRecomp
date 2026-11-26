@@ -46,8 +46,8 @@ FramePacer::FramePacer(double target_hz) {
 
 // Android: tell the system how long each frame's work took against the
 // frame's time (Android 13+ APerformanceHint, fetched from libandroid.so as
-// the app supports Android 9). Measured on a Tensor G4 phone (14 November
-// 2026, simpleperf): the game thread was busy ~87% of the time on a middle
+// the app supports Android 9). Measured on a Tensor G4 phone with
+// simpleperf: the game thread was busy ~87% of the time on a middle
 // core the governor held at 1.2 of its 2.6 GHz, and frames ran 14.5..22.3 ms
 // apart. With the hint the governor can raise the clock before frames run
 // late. The work is the time from the end of one wait to the start of the

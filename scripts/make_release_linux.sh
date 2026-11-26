@@ -19,6 +19,7 @@ test_build=1
 dev=0
 launcher_only=0
 ashley_edition=0
+release_progress=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --rom) rom=$2; shift 2 ;;
@@ -29,9 +30,16 @@ while [ $# -gt 0 ]; do
         --dev) dev=1; launcher_only=1; shift ;;
         --launcher-only) launcher_only=1; shift ;;
         --ashley-edition) ashley_edition=1; shift ;;
+        --release-progress) release_progress=1; shift ;;
         *) echo "usage: $0 [--rom <path>] [--tla-rom <path>] [--no-test] [--version <GitHub release tag>] [--repository <owner/repo>] [--ashley-edition] [--launcher-only | --dev]" >&2; exit 2 ;;
     esac
 done
+
+release_stage() {
+    if [ "$release_progress" = 1 ]; then
+        printf '@release-stage %s: %s\n' "$progress_platform" "$1"
+    fi
+}
 [[ "$version" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "Version may only contain letters, digits, '.', '-' and '_'." >&2; exit 2; }
 [[ "$repository" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$ ]] || { echo 'Repository must be a GitHub owner/repository name.' >&2; exit 2; }
 if [ "$ashley_edition" = 1 ] && [ "$launcher_only" = 1 ]; then
@@ -57,7 +65,15 @@ tla_repo=$(cd "$repo/../The Lost Age" && pwd)
 tla_build=$work/build-tla
 tla_corpus=$tla_repo/local/tla_linux_block
 corpus=$repo/local/gs011_block
-release_root=$collection_root/Releases/linux
+# The ARM build (make_release_linux_arm64.sh runs this script on an emulated
+# ARM Ubuntu) gets its own folder and "-arm64" names; the launcher's update
+# check tells the two Linux zips apart by that word.
+case "$(uname -m)" in
+    x86_64) platform=linux; progress_platform='Linux x64' ;;
+    aarch64) platform=linux-arm64; progress_platform='Linux ARM64' ;;
+    *) echo "Unsupported machine: $(uname -m)" >&2; exit 1 ;;
+esac
+release_root=$collection_root/Releases/$platform
 stage=$work/release
 collection=$stage/"Golden Sun Recompiled"
 out=$collection/games/"The Broken Seal"
@@ -99,7 +115,7 @@ printf '%s\n' '#include "runtime_arm_types.h"' \
     | "$cxx" -std=c++20 -Og -Werror=attributes -I"$engine/src/armv4t" \
         -x c++ -c -o /dev/null -
 [ -f "$corpus/main/dispatch_table.cpp" ] || {
-    echo "Missing $corpus. Run build_dev.bat -Game BrokenSeal (or scripts/gs.ps1 -To recompile and" >&2
+    echo "Missing $corpus. Build The Broken Seal in Build Studio (or scripts/gs.ps1 -To recompile and" >&2
     echo "scripts/block_timing.py) on Windows first." >&2
     exit 1
 }
@@ -183,9 +199,11 @@ configure_release "$tla_build" -S "$tla_repo" -B "$tla_build" -G Ninja \
     "-DGSR_RELEASE_REPOSITORY=$repository" >/dev/null
 fi
 if [ "$launcher_only" = 1 ]; then
+    release_stage 'building the collection launcher'
     cmake --build "$build" --target GoldenSunCollection
+    release_stage 'packing the launcher update'
     if [ "$dev" = 1 ]; then dest=$release_root/dev; name=GoldenSunLauncher-dev.zip
-    else dest=$release_root; name=GoldenSunLauncher-linux-$version.zip; fi
+    else dest=$release_root; name=GoldenSunLauncher-$platform-$version.zip; fi
     # Zipped on the Linux file system so the launcher keeps its executable bit.
     zipdir=$work/launcher-zip
     safe_remove "$zipdir"; mkdir -p "$zipdir" "$dest"
@@ -197,7 +215,7 @@ if [ "$launcher_only" = 1 ]; then
     exit 0
 fi
 echo "Building (the game code part takes a while the first time)"
-# One generated game-code file peaks at 650 MB (measured: TLA recompiled_011.cpp,
+# One generated game-code file peaks at 650 MB (measured: The Lost Age's recompiled_011.cpp,
 # -Og). Ninja's default of one job per core plus two overran WSL's memory and
 # stalled in swap, so run only as many jobs as the free memory holds.
 available_mb=$(awk '/^MemAvailable:/ { print int($2 / 1024) }' /proc/meminfo)
@@ -205,7 +223,9 @@ jobs=$(( available_mb / 650 ))
 [ "$jobs" -le "$(nproc)" ] || jobs=$(nproc)
 [ "$jobs" -ge 1 ] || jobs=1
 echo "Compiling with $jobs jobs (${available_mb} MB free)"
+release_stage 'building The Broken Seal and launcher'
 cmake --build "$build" --target GoldenSunRecomp GoldenSunCollection gsr_builder gba_recompile --parallel "$jobs"
+release_stage 'building The Lost Age'
 cmake --build "$tla_build" --target TLARecomp tla_builder gba_recompile --parallel "$jobs"
 recompiler=$(find "$build" -name gba_recompile -type f -perm -u+x | head -1)
 for f in "$build/GoldenSunRecomp" "$build/GoldenSunCollection" "$build/gsr_builder" "$recompiler"; do
@@ -213,6 +233,7 @@ for f in "$build/GoldenSunRecomp" "$build/GoldenSunCollection" "$build/gsr_build
 done
 
 # ---- 2. A clean release folder ---------------------------------------------
+release_stage 'assembling game files and compiler'
 safe_remove "$collection"
 copy_collection "$collection"
 builder=$out/builder
@@ -326,7 +347,7 @@ for f in main/dispatch_table.cpp main/symbol_map.cpp main/recompiled_000.cpp sta
         | tr -d '\\' | tr ' ' '\n' | grep '^/usr/' | sort -u | while read -r h; do tc_copy "$h"; done
 done
 
-# TLA's runtime header may open different system headers than GS1's.
+# The Lost Age's runtime header may open different system headers than The Broken Seal's.
 for f in main/dispatch_table.cpp main/symbol_map.cpp main/recompiled_000.cpp; do
     [ -f "$tla_corpus/$f" ] || continue
     "$cxx" "${cxxflags[@]}" -I"$tla_corpus/main" -I"$engine/src/armv4t" -M "$tla_corpus/$f" \
@@ -467,6 +488,7 @@ PY
 
 # ---- 5. Test: build the game code with only the release's own tools ---------
 if [ "$test_build" = 1 ]; then
+    release_stage 'testing both packaged builders'
     rom=$(resolve_test_rom "$repo" "$rom")
     tla_rom=$(resolve_test_rom "$tla_repo" "$tla_rom")
     scratch=$work/test
@@ -504,10 +526,11 @@ if [ "$test_build" = 1 ]; then
 fi
 
 # ---- 6. The download ---------------------------------------------------------
+release_stage 'creating the release archive'
 stamp=$(date +%Y-%m-%d)
 edition_suffix=
 if [ "$ashley_edition" = 1 ]; then edition_suffix=-Ashley; fi
-archive=$release_root/GoldenSunRecompiled-linux$edition_suffix-$stamp.zip
+archive=$release_root/GoldenSunRecompiled-$platform$edition_suffix-$stamp.zip
 mkdir -p "$release_root"
 rm -f "$archive"
 # Audit both games before the archive is assembled.

@@ -73,7 +73,7 @@ void capture_layers(FieldScene* s, const std::uint8_t* io) {
         L.affine = (mode == 1 && bg == 2) || (mode == 2 && bg >= 2);
         // Taken UNMASKED: Golden Sun writes scroll values wider than the
         // hardware's 9 bits and the excess carries the layer's region of the
-        // shared map grid (FACTS.md, "Per-layer sourcing").
+        // shared map grid.
         L.scroll_x = static_cast<int>(rd16(io, 0x10u + static_cast<std::size_t>(bg) * 4u));
         L.scroll_y = static_cast<int>(rd16(io, 0x12u + static_cast<std::size_t>(bg) * 4u));
 
@@ -93,19 +93,21 @@ void capture_layers(FieldScene* s, const std::uint8_t* io) {
 }
 
 // Each sprite's position on the previous frame, for the X and Y wraps below.
-// A sprite leaving past the right edge reaches raw X 256+, which the hardware
-// reads as a position left of the screen. Mia running from a battle (128-px
-// double-size box, raw 333 -> -179) was drawn in Extra Wide's left margin
-// (TBS gpu_rewind_0016 frames 100-119, 2026-10-14). Y behaves the same way:
-// a world-map town in the bottom margin (raw 163 or 186) jumped to the top
-// edge for the two frames the menu takes to open, while no provider vouched
-// for it (TBS gpu_rewind_0020 frames 13-14, 0024 frames 116-117,
-// 2026-10-14). Extra Wide's top margin reaches raw 145..159 (y -111..-97),
-// so that band gets the same test.
+//
+// The problem is a sprite that leaves past the right edge. It reaches raw X
+// 256+, which the hardware reads as a position left of the screen. So Mia
+// running from a battle (128-px double-size box, raw 333 -> -179) would be
+// drawn in Extra Wide's left margin.
+//
+// Y behaves the same way. A world-map town in the bottom margin (raw 163 or
+// 186) would jump to the top edge for the two frames the menu takes to open,
+// while no provider vouched for it. Extra Wide's top margin reaches raw
+// 145..159 (y -111..-97), so that band gets the same test.
+//
 // The same sprite on the previous frame says which reading is meant. It is
 // identified by its tile, shape, size, colour depth and palette. Slots are
-// re-sorted every frame and the affine bits toggle while a battler runs (same
-// capture), but each sprite keeps its tiles.
+// re-sorted every frame and the affine bits toggle while a battler runs, but
+// each sprite keeps its tiles.
 struct Seen {
     unsigned identity = 0;
     int x = 0, y = 0;
@@ -165,14 +167,16 @@ void capture_objects(FieldScene* s, const std::uint8_t* oam, int extra_top,
         // hardware fallback rules, used as they are below whenever no provider
         // answers. They mirror gba_ppu.cpp's render_scanline_wide
         // (resolve_sy / resolve_sx) exactly, including the asymmetry between
-        // the two axes. Y's threshold is 160 (an 8-bit field, so values
-        // 160..255 are read as negative). X's is the top bit of a 9-bit field
-        // (0x100). That looks different from an "x >= 240" test but agrees
-        // with it for every natively visible value. Raw x of 240..255 is
-        // off-screen either way, so it is the only range where the two rules
-        // could differ, and even there they place the sprite off-screen; only
-        // the sign of that off-screen number differs, and it has never been
-        // observed.
+        // the two axes:
+        //   - Y's threshold is 160. It is an 8-bit field, so values 160..255
+        //     are read as negative.
+        //   - X's threshold is the top bit of a 9-bit field (0x100). That
+        //     looks different from an "x >= 240" test but agrees with it for
+        //     every natively visible value.
+        // Raw x of 240..255 is off-screen either way, so it is the only range
+        // where the two rules could differ. Even there they place the sprite
+        // off-screen. Only the sign of that off-screen number differs, and it
+        // has never been observed.
         const int raw_y = static_cast<int>(a0 & 0xFFu);
         const int raw_x = static_cast<int>(a1 & 0x1FFu);
         // This sprite on the previous frame, only when exactly one matches:
@@ -198,11 +202,11 @@ void capture_objects(FieldScene* s, const std::uint8_t* oam, int extra_top,
             y_trusted = true;
         } else {
             y = (raw_y >= 160) ? raw_y - 256 : raw_y;
-            // The two readings are 256 apart: the nearer one is meant, but
+            // The two readings are 256 apart. The nearer one is meant, but
             // only a reading the shown view can show. At the original size
-            // that is the console's own; menu icons that once dropped in
-            // from above stayed at y -158 instead of 98 (TLA F12
-            // tla_rewind_0118, Psynergy list).
+            // that is the console's own. Otherwise menu icons that once
+            // dropped in from above would stay at y -158 instead of 98 (The
+            // Lost Age's Psynergy list).
             const int other = (raw_y >= 160) ? raw_y : raw_y - 256;
             const int box_h = O.double_size ? 2 * O.height : O.height;
             const bool other_shown = extra_top < 0 ||
@@ -225,9 +229,9 @@ void capture_objects(FieldScene* s, const std::uint8_t* oam, int extra_top,
             // the sprite reaches back onto the screen from the left. If it
             // would stay hidden even in the widened left margin when read
             // that way, it can only be a sprite the game placed past the
-            // right edge, such as world-map towns whose visibility tests
-            // admit the right margin (FACTS.md, 2026-09-24). Reading it as
-            // positive cannot move anything that would otherwise show.
+            // right edge. World-map towns whose visibility tests admit the
+            // right margin are an example. Reading it as positive cannot move
+            // anything that would otherwise show.
             const int box_w = O.double_size ? 2 * O.width : O.width;
             if ((raw_x & 0x100) &&
                 x + box_w <= -field_game_profile().expanded_extra_x) {
@@ -294,8 +298,7 @@ void capture_effects(FieldScene* s, const std::uint8_t* io) {
 }
 
 // Rows are uniform when no captured row differs from row 0 across the register
-// window a draw depends on. Golden Sun's battle frames measure uniform
-// (FACTS.md, 2026-09-12), but this is checked per frame rather than assumed.
+// window a draw depends on. Golden Sun's battle frames measure uniform, but this is checked per frame rather than assumed.
 bool rows_are_uniform(const FieldScene* s) {
     int first = -1;
     for (int y = 0; y < FieldScene::kRows; ++y) {
@@ -332,11 +335,11 @@ bool field_scene_frame_supported(unsigned dispcnt, const char** why) {
     const int mode = static_cast<int>(dispcnt & 7u);
     // Modes 0-2 are tile-based: 0 is four regular layers, 1 makes BG2
     // affine, 2 makes BG2 and BG3 affine. Modes 3-5 are bitmap modes that
-    // redefine BG2 as a raw framebuffer instead of a tilemap; the emulated
+    // redefine BG2 as a raw framebuffer instead of a tilemap. The emulated
     // hardware itself renders no background for them either
     // (gba_ppu.cpp's render_scanline_internal only branches on mode 0/1/2),
-    // and the measured 2,429-snapshot corpus never uses them (FACTS.md), so
-    // refusing is correct, not a guess.
+    // and 2,429 measured snapshots never use them. So refusing is correct,
+    // not a guess.
     if (mode > 2) {
         if (why) *why = "the video mode uses a bitmap background";
         return false;
@@ -412,7 +415,7 @@ bool field_scene_capture(FieldScene* out,
     }
     // A field frame is only drawable when the room buffer actually holds this
     // room. Without it there is no world outside the console's own window, and
-    // inventing one is the defect this project already removed (D-008).
+    // inventing one draws a wrong picture.
     // (FieldGameProfile::room_source_ready; a game without a gate draws.)
     const FieldGameProfile& profile = field_game_profile();
     if (profile.room_source_ready && !profile.room_source_ready()) {

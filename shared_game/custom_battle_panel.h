@@ -5,12 +5,14 @@
 #include "custom_battle.h"
 #include "menu_text.h"
 
-// The opponent panel's contents (custom_battle.h), one copy for both runners:
-// the Monsters/Bosses/Arena tabs, the list, the highlighted preview, and
-// the picks so far. Each runner first paints the window in the game's own
+// The opponent panel's contents (custom_battle.h), one copy for both runners.
+// It draws the Monsters/Bosses/Arena tabs, the list, the highlighted preview
+// and the picks so far. Each runner first paints the window in the game's own
 // pieces, then passes in its menu font and pixels, in native coordinates:
-// draw_text(text, x, y), text_width(text), pixel(x, y) -> std::uint8_t* RGB
-// or nullptr. inner_x/inner_y are the window's inside.
+//   - draw_text(text, x, y)
+//   - text_width(text)
+//   - pixel(x, y) -> std::uint8_t* RGB, or nullptr
+// inner_x/inner_y are the window's inside.
 namespace gsr::custom_battle {
 
 template <class DrawText, class TextWidth, class Pixel>

@@ -8,7 +8,7 @@
 // the settings screen's fourth row, the game's own Auto-Sleep row, kept with
 // its storage: the screen's byte is saved in save block +0x22A and copied to
 // the live flag, so the choice is per save file and can change any time
-// (verified ROM, FACTS.md 2026-10-04, "Settings row 4 (Auto-Sleep) and the
+// (verified ROM, FACTS.md, "Settings row 4 (Auto-Sleep) and the
 // auto-sleep flag").
 //
 // Hard Mode is stored as 2 (kHardModeValue); 0 and 1 both mean Off. Value 1
@@ -25,7 +25,7 @@
 //
 // Enemy stats: Func_79460 copies an enemy's table data into the unit, then
 // calls Func_77428 (`bl` at 0x080795BC) which rebuilds every stat from the
-// base fields (FACTS.md 2026-10-04, "Enemy battle stats are set up by
+// base fields (FACTS.md, "Enemy battle stats are set up by
 // Func_79460"). The runner scales those base fields on entry to Func_77428
 // when it was called from there (r6 = unit).
 namespace gsr::hard_mode {

@@ -29,9 +29,9 @@ struct {
     int max_width = 0, max_height = 0;
 } g_counts;
 
-// Func_cd260's canvas modes, the same block layout in both games (FACTS.md
-// 2026-10-02): mode +0x7780, acting while +0x7824 is 1. Mode 1 is the plain
-// copy followed by a fill of the canvas with the param.
+// Func_cd260's canvas modes, which use the same block layout in both games
+// (FACTS.md). The mode is at +0x7780 and takes effect while +0x7824 is 1.
+// Mode 1 is the plain copy followed by a fill of the canvas with the param.
 constexpr std::uint32_t kCanvasModeOffset = 0x7780u;
 constexpr std::uint32_t kCanvasActiveOffset = 0x7824u;
 constexpr std::uint32_t kCanvasFillMode = 1u;
@@ -55,9 +55,9 @@ Copy copy_kind(std::uint32_t pc) {
     return pc == p.plain_copy ? Copy::Plain : Copy::None;
 }
 
-// One address per routine: a ROM address in the part copied to IWRAM
-// becomes its IWRAM copy's, and an entry at a resident routine's Thumb stub
-// becomes the routine's.
+// Gives one address per routine:
+//   - a ROM address in the part copied to IWRAM becomes its IWRAM copy's, and
+//   - an entry at a resident routine's Thumb stub becomes the routine's.
 std::uint32_t arm_entry(std::uint32_t pc) {
     const auto& p = profile();
     if (pc >= p.iwram_image_rom && pc < p.iwram_image_rom_end)
@@ -181,7 +181,7 @@ void effect_capture_on_entry(std::uint32_t pc, const std::uint32_t* r,
     pc = arm_entry(pc);
     const Memory memory{ewram, iwram, rom, rom_bytes};
     if (p.canvas_slot) {
-        // The canvas is whatever its allocation slot names now.
+        // The canvas is whatever its allocation slot currently names.
         const auto live = memory.word(p.canvas_slot);
         if (live != g_canvas || frame < g_frame) {
             g_history = {};

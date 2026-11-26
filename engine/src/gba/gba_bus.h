@@ -60,20 +60,22 @@ public:
     bool bios_access_enabled() const { return bios_access_enabled_; }
 
     // ── Open-bus prefetch model (GBATEK "Reading from Unused/BIOS Memory") ──
-    // The GBA has no pull resistors on the data bus: a read of the protected
+    // The GBA has no pull resistors on the data bus. A read of the protected
     // BIOS region (00000000-00003FFF from outside the BIOS) or of any unmapped
-    // address returns the most recently PRE-FETCHED opcode, not 0. Games rely on
-    // it (MC-HP-002: a NULL-animation-group deref reads the BIOS region. The
-    // open-bus value's high byte has bit7 set, so the frame-list walker
-    // terminates. Returning 0 made it march forever).
+    // address returns the most recently pre-fetched opcode, not 0.
+    // Games rely on this. A NULL animation-group dereference reads the BIOS
+    // region, and the open-bus value's high byte has bit 7 set, so the
+    // frame-list walker terminates. Returning 0 made it march forever.
     //
-    // latch_bios_prefetch() is called once per guest instruction while the PC
-    // is in the BIOS. When the BIOS hands control to the cart, bios_prefetch_
-    // therefore holds the prefetch at the exit instruction (the same as mGBA's
-    // biosPrefetch; for the GBA SWI return at BIOS 0x188 that is
-    // mem[0x190]=0xE3A02004). note_pc() stashes the live PC on each bus
-    // access, so an UNMAPPED read returns the CURRENT prefetch (the executing
-    // code's word at PC+8 in ARM state, PC+4 in THUMB state).
+    // How the model works:
+    //   - latch_bios_prefetch() is called once per guest instruction while the
+    //     PC is in the BIOS. When the BIOS hands control to the cart,
+    //     bios_prefetch_ therefore holds the prefetch at the exit instruction.
+    //     This is the same as mGBA's biosPrefetch. For the GBA SWI return at
+    //     BIOS 0x188 it is mem[0x190]=0xE3A02004.
+    //   - note_pc() stashes the live PC on each bus access, so an unmapped
+    //     read returns the current prefetch: the executing code's word at
+    //     PC+8 in ARM state, or PC+4 in THUMB state.
     void latch_bios_prefetch(uint32_t pc, bool thumb) {
         bios_prefetch_ = prefetch_word(pc, thumb);
     }
@@ -172,11 +174,12 @@ public:
     uint32_t last_fetched() const { return last_fetched_; }
 
     // Save-state serialization of the bus-owned memory regions
-    // (EWRAM/IWRAM/PAL/VRAM/OAM) plus bus-local scalars. The owned
-    // GbaIo / GbaAudio / GbaSave are serialized separately by the
-    // orchestrator via io()/audio()/save(). The BIOS image and ROM
-    // bytes are NOT serialized; they are reloaded (and hash-verified)
-    // on launch, and the snapshot's ROM-SHA-1 gate guarantees a match.
+    // (EWRAM/IWRAM/PAL/VRAM/OAM) plus bus-local scalars.
+    //   - The owned GbaIo / GbaAudio / GbaSave are serialized separately by
+    //     the orchestrator via io()/audio()/save().
+    //   - The BIOS image and ROM bytes are not serialized. They are reloaded
+    //     (and hash-verified) on launch, and the snapshot's ROM-SHA-1 gate
+    //     guarantees a match.
     // See debug/snapshot.h.
     void serialize(gbarecomp::debug::SnapshotWriter& w) const;
     void deserialize(gbarecomp::debug::SnapshotReader& r);

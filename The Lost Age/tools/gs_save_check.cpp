@@ -1,4 +1,4 @@
-// Standalone GS1 import checks using synthetic cartridge-save sectors.
+// Standalone Broken Seal import checks using synthetic cartridge-save sectors.
 // Optional argument: inspect a user's save read-only, printing slot metadata.
 #include "../src/gs_save.h"
 #include <algorithm>

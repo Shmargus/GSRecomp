@@ -1,12 +1,17 @@
-// asset_picker.h: Resolve user-supplied assets (BIOS, ROM, save) by
-// CLI path -> sidecar cache -> OS file dialog (Win32 only), validating
-// each with size + SHA-1 + CRC32. Hashes are WARN-and-try so the user
-// can boot with a region/revision we haven't catalogued yet, but a
-// wrong size hard-fails.
+// asset_picker.h: finds the user-supplied assets (BIOS, ROM, save).
 //
-// Checks both CRC32 and SHA-1 (the BIOS / ROM configs already carry the
-// latter). So end users don't have to type --bios / --rom every launch, the
-// first validated pick is cached next to the executable.
+// It looks in this order:
+//   1. the command-line path,
+//   2. the sidecar cache file, then
+//   3. an OS file dialog (Win32 only).
+//
+// Each candidate is checked by size, SHA-1 and CRC32 (the BIOS and ROM
+// configs already carry the SHA-1). A wrong size is a hard failure. A wrong
+// hash only warns and the file is still tried, so the user can boot a
+// region or revision we have not catalogued yet.
+//
+// The first validated pick is cached next to the executable, so end users
+// do not have to type --bios / --rom on every launch.
 
 #pragma once
 
@@ -50,9 +55,9 @@ struct AssetResult {
 //      successful pick (validate, refresh, return).
 //   3. Win32 OPENFILENAMEA dialog (loop until cancelled or validated).
 //
-// `argv0` is the running executable's argv[0]; used to locate the
-// sidecar cache. If argv0 is empty, the current working directory is
-// used as the cache root.
+// `argv0` is the running executable's argv[0]. It is used to locate the
+// sidecar cache. If argv0 is empty, the current working directory is the
+// cache root.
 AssetResult resolve_asset(const std::string& argv_path,
                           const AssetSpec& spec,
                           const std::string& argv0);

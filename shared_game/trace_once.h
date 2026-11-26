@@ -1,7 +1,6 @@
 // One stderr line per distinct event, at most 80 in a run: the session log
 // shows what a hook saw without flooding it. For a fault that only gameplay
-// shows (22 November 2026: enemy skill costs and scrolling names in The Lost
-// Age's battle list); remove the calls once it is understood.
+// shows; remove the calls once it is understood.
 #pragma once
 #include <cstdarg>
 #include <cstdint>

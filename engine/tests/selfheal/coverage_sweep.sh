@@ -2,7 +2,7 @@
 # coverage_sweep.sh: self-heal coverage sweep across gameplay savestates.
 #
 # The doctrine's definition of "done" is FULLY_STATIC: zero dispatch misses and
-# zero heals (PRINCIPLES.md "Coverage is reported"). This drives the
+# zero heals (src/runtime/self_heal.h). This drives the
 # already-built MinishCapRecomp from every available savestate with the self-heal
 # recompiler ON and the headless walk driver, reads each run's
 # recomp_coverage.json, and asserts FULLY_STATIC for every scene, surfacing any

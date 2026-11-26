@@ -1,13 +1,16 @@
 // Present the field renderer's texture directly on Android.
 //
-// Skip the GPU-to-CPU readback and blend flicker on the GPU using the
-// same rule as temporal_blend.h. Tensor G4 profile (14 November 2026):
-// graphics driver 19% of the game thread, frame copies 7%, CPU blend 6.6%.
+// This skips the GPU-to-CPU readback and blends flicker on the GPU, using the
+// same rule as temporal_blend.h. Measured on a Tensor G4 phone, the readback
+// path cost this share of the game thread:
+//   - graphics driver: 19%
+//   - frame copies: 7%
+//   - CPU blend: 6.6%
 //
-// Offer a GPU texture when the frame needs no CPU painting and the
-// window accepts direct presentation. Colour grading, screen filters,
-// 2x interpolation, native-scale textures and smooth scaling use the
-// readback path.
+// A GPU texture is offered when the frame needs no CPU painting and the window
+// accepts direct presentation. These features use the readback path instead:
+// colour grading, screen filters, 2x interpolation, native-scale textures and
+// smooth scaling.
 //
 // Desktop builds compile stubs: nothing is ever offered and nothing changes.
 #pragma once

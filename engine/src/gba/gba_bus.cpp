@@ -26,11 +26,12 @@ extern "C" void runtime_unpacker_slot_note_cpu(uint32_t addr, uint32_t width);
 extern "C" void runtime_note_ram_image_bus_write(uint32_t addr,
                                                    uint32_t width);
 
-// Protected BIOS-read inventory (BIOS removal plan, step 1). When
-// GBARECOMP_BIOS_READ_LOG names a file, every data read of 0x0000..0x3FFF
-// made while BIOS access is locked (the PC is outside the BIOS) is counted
-// by reading PC, address and width, and saved at exit. Addresses and counts
-// only: the value such a read returns is BIOS-derived and is not recorded.
+// Protected BIOS-read inventory (BIOS removal plan, step 1).
+// When GBARECOMP_BIOS_READ_LOG names a file, every data read of 0x0000..0x3FFF
+// made while BIOS access is locked (the PC is outside the BIOS) is counted by
+// reading PC, address and width, and saved at exit.
+// Only addresses and counts are kept. The value such a read returns comes from
+// the BIOS, so it is not recorded.
 namespace {
 struct BiosReadKey {
     uint32_t pc, addr, width;
@@ -152,11 +153,13 @@ bool is_eeprom_addr(uint32_t addr, const GbaSave& save) {
 // Reads
 // ─────────────────────────────────────────────────────────────────────
 
-// GBA open-bus: the value a protected-BIOS / unmapped read returns is the
-// recently pre-fetched opcode. We read it straight from the BIOS/ROM image at
-// the prefetch slot (ARM: word at PC+8; THUMB: the PC+4 halfword mirrored into
-// both halves, per GBATEK). The prefetch source is the same image the CPU is
-// fetching from. Never recurse through the bus accessors.
+// GBA open-bus: a protected-BIOS or unmapped read returns the recently
+// pre-fetched opcode. It is read straight from the BIOS/ROM image at the
+// prefetch slot:
+//   - ARM: the word at PC+8.
+//   - THUMB: the PC+4 halfword mirrored into both halves (per GBATEK).
+// The prefetch source is the same image the CPU is fetching from. Never
+// recurse through the bus accessors.
 uint32_t GbaBus::prefetch_word(uint32_t pc, bool thumb) const {
     auto code32 = [&](uint32_t a) -> uint32_t {
         if (a < 0x00004000u) return bios_ ? bios_->read32(a & 0x3FFFu) : 0u;
@@ -559,16 +562,16 @@ void GbaBus::write32(uint32_t addr, uint32_t v) {
 //   * ARM7TDMI TRM § "Memory Access Cycles"
 //
 // Game Pak cycle counts derive from the live WAITCNT value. Bus width and
-// waitstate combine: every 16-bit-bus region costs 2 cycles per
-// 32-bit access (two consecutive halfword bus cycles); EWRAM adds
-// 2 waitstates on top of that.
+// waitstate combine:
+//   - Every 16-bit-bus region costs 2 cycles per 32-bit access (two
+//     consecutive halfword bus cycles).
+//   - EWRAM adds 2 waitstates on top of that.
 //
-// `sequential` is the ARM7TDMI "S" cycle (an access immediately
-// following another in the same area). For ARM/THUMB on the GBA
-// most regions have S=N=1 for 16-bit and 1S=1N=1 / 2S=2N=2 for
-// 32-bit, but ROM with WAITCNT > 0 gets a faster S than N. We use
-// the same value for S/N in regions where they match and split
-// only where they don't (ROM).
+// `sequential` is the ARM7TDMI "S" cycle (an access immediately following
+// another in the same area). For ARM/THUMB on the GBA most regions have
+// S=N=1 for 16-bit and 1S=1N=1 / 2S=2N=2 for 32-bit, but ROM with WAITCNT > 0
+// gets a faster S than N. The same value is used for S/N in regions where
+// they match, and they are split only where they differ (ROM).
 uint32_t GbaBus::access_cycles(uint32_t addr, uint8_t width,
                                bool sequential) const {
     // 8-bit accesses use the same cycle count as 16-bit on hardware
@@ -628,11 +631,12 @@ int32_t GbaBus::data_access_cycles(uint32_t addr, uint8_t width,
     int32_t wait = static_cast<int32_t>(
         access_cycles(addr, width, sequential));
 
-    // mGBA GBAMemoryStall only applies to below-cartridge data accesses while
-    // code executes from a cartridge region with WAITCNT prefetch enabled.
-    // The algorithm and its signed intermediate values mirror the pinned
-    // oracle; in particular, the WAITCNT store that first enables prefetch can
-    // produce a negative data-access adjustment for that same instruction.
+    // mGBA's GBAMemoryStall only applies to below-cartridge data accesses
+    // while code executes from a cartridge region with WAITCNT prefetch
+    // enabled. The algorithm and its signed intermediate values mirror the
+    // pinned oracle. In particular, the WAITCNT store that first enables
+    // prefetch can produce a negative data-access adjustment for that same
+    // instruction.
     const uint32_t active_region = (executing_pc >> 24) & 0xFu;
     if (addr >= 0x08000000u || active_region < 0x8u ||
         (io_dispatch_.waitcnt() & 0x4000u) == 0u) {

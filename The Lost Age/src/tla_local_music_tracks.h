@@ -12,9 +12,10 @@ using gbarecomp::m4a_music::Recording;
 // Two have no other candidate with their loop length and are marked. The
 // bonus tracks 2-55..2-57 are alternate takes of 5, 18 and 37 and unused.
 // Songs carried over from The Broken Seal play its album (Music/TBS, the
-// launcher's second folder, "1-NN"): GS1's sequences note for note except
-// the two marked. Song 68 (The First Book Extended) uses TBS track 42 with
-// TLA's own loop override in Music/TLA/loops.txt; TBS still plays it once.
+// launcher's second folder, "1-NN"): the Broken Seal's sequences note for note
+// except the two marked. Song 68 (The First Book Extended) uses Broken Seal
+// track 42 with the Lost Age's own loop override in Music/TLA/loops.txt; the
+// Broken Seal still plays it once.
 constexpr unsigned kTbs = gbarecomp::kLocalMusicFolderTracks;
 inline const std::array<Recording, 98> recordings{{
     {TLA_ROM(0x82C80A8u), 1u, "The Second Book"}, // song 40: The Second Book
@@ -73,7 +74,7 @@ inline const std::array<Recording, 98> recordings{{
     {TLA_ROM(0x82D4910u), 53u, "Welcome Home (Not)"}, // song 67: Welcome Home (Not)
     {TLA_ROM(0x82D8DB8u), 54u, "Welcome Home"}, // song 73: Welcome Home
     {TLA_ROM(0x82D71C0u), kTbs + 1u, "The First Book"}, // song 70: The First Book
-    {TLA_ROM(0x82D6704u), kTbs + 42u, "The First Book Extended"}, // song 68: The First Book Extended (TLA loops; TBS plays once)
+    {TLA_ROM(0x82D6704u), kTbs + 42u, "The First Book Extended"}, // song 68: The First Book Extended (Lost Age loops; Broken Seal plays once)
     {TLA_ROM(0x82D98BCu), kTbs + 2u, "Page One"}, // song 74: Page One
     {TLA_ROM(0x82E87BCu), kTbs + 3u, "On that night, 3 years ago"}, // song 723: On that night, 3 years ago (same notes, tracks split differently)
     {TLA_ROM(0x82F11B8u), kTbs + 4u, "Isaac Battle"}, // song 750: Isaac Battle
@@ -89,12 +90,12 @@ inline const std::array<Recording, 98> recordings{{
     {TLA_ROM(0x82E9A98u), kTbs + 15u, "Mysterious Caves"}, // song 724: Mysterious Caves
     {TLA_ROM(0x82E1350u), kTbs + 16u, "Hopelessness"}, // song 702: Hopelessness
     {TLA_ROM(0x82EBCB8u), kTbs + 17u, "Mercury Lighthouse"}, // song 727: Mercury Lighthouse
-    {TLA_ROM(0x82F38D8u), kTbs + 18u, "Saturos Battle"}, // song 751: Saturos Battle (84% of GS1 notes; same loop and tempo)
+    {TLA_ROM(0x82F38D8u), kTbs + 18u, "Saturos Battle"}, // song 751: Saturos Battle (84% of the Broken Seal's notes; same loop and tempo)
     {TLA_ROM(0x82EAE10u), kTbs + 19u, "Winterly Imil"}, // song 726: Winterly Imil
     {TLA_ROM(0x82E1AA4u), kTbs + 20u, "The Royal Palace"}, // song 703: The Royal Palace
     {TLA_ROM(0x82E62C8u), kTbs + 21u, "Forest's Requiem"}, // song 721: Forest's Requiem
     {TLA_ROM(0x82E1E50u), kTbs + 22u, "Inside Tret - Altin Peak's Flood"}, // song 704: Inside Tret - Altin Peak's Flood
-    {TLA_ROM(0x82F525Cu), kTbs + 23u, "Boss Battle (GS1)"}, // song 752: Boss Battle (GS1)
+    {TLA_ROM(0x82F525Cu), kTbs + 23u, "Boss Battle (GS1)"}, // song 752: Boss Battle (Broken Seal)
     {TLA_ROM(0x82E0D98u), kTbs + 24u, "Happy Towns"}, // song 701: Happy Towns
     {TLA_ROM(0x82E2710u), kTbs + 25u, "Oriental"}, // song 705: Oriental
     {TLA_ROM(0x82EA730u), kTbs + 26u, "Desert Heat"}, // song 725: Desert Heat

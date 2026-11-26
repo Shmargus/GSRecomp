@@ -1,10 +1,11 @@
 // color_lut.h: present-time screen-color simulation (BGR555 → RGBA8 LUT).
 //
 // PRESENT-TIME ONLY. This never touches the emulation, the framebuffer the
-// PPU produces, or the differential-verify path: diff_frame / oracle
-// comparisons stay defined on the raw RGB888 the PPU renders. The LUT is a
-// 32768-entry table applied to a COPY of the frame at SDL-upload time, and
-// it defaults to Raw (exact passthrough), so default behavior and every
+// PPU produces, or the differential-verify path. diff_frame and oracle
+// comparisons stay defined on the raw RGB888 the PPU renders.
+//
+// The LUT is a 32768-entry table applied to a COPY of the frame at SDL-upload
+// time. It defaults to Raw (exact passthrough), so default behavior and every
 // hashed/verified frame are byte-identical unless a screen model is opted in
 // via GBARECOMP_SCREEN={raw,unlit,frontlit,backlit,classic,handheld,
 // handheld_light,soft,natural,warm,deep,custom,david_og_gba}.

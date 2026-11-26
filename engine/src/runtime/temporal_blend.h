@@ -3,18 +3,21 @@
 //
 // Real GBA hardware's LCD has a slow pixel response, so two frames drawn in
 // quick succession visibly blend together. Some Golden Sun effects (the
-// Kolima blue barrier, the world map) exploit this deliberately, alternating
-// their draw every other frame as a translucency trick; a renderer that
+// Kolima blue barrier, the world map) use this deliberately. They alternate
+// their draw every other frame as a translucency trick. A renderer that
 // switches pixels instantly instead of blending them makes that alternation
-// visibly shimmer/flicker. This is a presentation-only fix: blend the current
-// frame with the previous PRESENTED frame so an exact 2-frame alternation can
-// be fully stabilized (Strong = true 50/50 average). The default is "Flicker
-// only - Strong" (kTemporalBlendDefaultIndex).
+// visibly shimmer or flicker.
 //
-// Host-side and presentation-only: nothing here is read by the guest, and it
-// runs after the PPU has produced the frame, so it never affects emulation,
-// verify/frame-hash paths, or timing. Header-only and SDL-free so it can be
-// unit-tested against synthetic buffers without a display or a ROM.
+// This is a presentation-only fix. It blends the current frame with the
+// previous PRESENTED frame, so an exact 2-frame alternation can be fully
+// stabilized (Strong = a true 50/50 average). The default is "Flicker only -
+// Strong" (kTemporalBlendDefaultIndex).
+//
+// It is host-side and presentation-only. The guest never reads anything here,
+// and it runs after the PPU has produced the frame, so it never affects
+// emulation, the verify/frame-hash paths or timing. It is header-only and
+// SDL-free, so it can be unit-tested against synthetic buffers without a
+// display or a ROM.
 
 #pragma once
 
@@ -60,10 +63,12 @@ inline void temporal_blend_apply(const uint8_t* current, const uint8_t* prev,
 // of 3. Compare whole pixels. A match in one channel can be ordinary
 // motion.
 //
-// Per pixel: if it matches frame N-2 exactly AND differs from frame N-1, it
-// is alternating on an exact 2-frame period, so blend it with `prev` at
-// `weight` (same meaning as temporal_blend_apply's weight). Otherwise
-// (static pixels and moving pixels both) copy `current` through unchanged.
+// Per pixel:
+//   - If it matches frame N-2 exactly AND differs from frame N-1, it is
+//     alternating on an exact 2-frame period. Blend it with `prev` at
+//     `weight` (same meaning as temporal_blend_apply's weight).
+//   - Otherwise, copy `current` through unchanged. This covers both static
+//     pixels and moving pixels.
 //
 // `out` must be separate from all inputs. Pass the first two presented
 // frames through because there is no N-2 frame yet.

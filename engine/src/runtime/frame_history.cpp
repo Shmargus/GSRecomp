@@ -122,9 +122,12 @@ namespace {
 std::atomic<bool> g_capture_requested{false};
 
 // Sized for the 120 saved pictures at the widest Turbo stride the engine
-// allows: TurboPresentDecimator presents at least every 16.7 ms of wall
-// time, so a gap is at most one wall interval of guest frames. 4096 covers
-// ~34 guest frames per picture; write() says when it fell short.
+// allows.
+//   - TurboPresentDecimator presents at least every 16.7 ms of wall time.
+//   - So the gap between two pictures is at most one wall interval of guest
+//     frames.
+//   - 4096 covers about 34 guest frames per picture.
+// write() says when it fell short.
 struct TraceEntry {
     unsigned long long guest = 0, rows = 0, held_source = 0;
     bool drawn = false, turbo = false, held = false;

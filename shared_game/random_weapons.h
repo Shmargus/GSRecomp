@@ -1,18 +1,21 @@
-// Random Equipment (first Random Weapons), one copy of the running rules for
-// both games (the plan and the descriptions: random_weapons_plan.h). A new
-// game can tick "Random Equipment": the run's seed (run_code.h) and the
-// Scaling answer then decide every weapon's stat line and unleash, and every
-// armour piece's stat line, for the whole file.
+// Random Equipment (first Random Weapons): one copy of the running rules for
+// both games. The plan and the descriptions are in random_weapons_plan.h.
 //
-// The game reads its item records straight from the ROM, so the plan is
-// written into the running ROM image (the runtime's own copy in memory,
-// never the ROM file) whenever the loaded file's choice differs from what is
-// there, and the pristine records come back for a file without it. Every
-// reader (menus, shops, battles) then sees the same weapons. A weapon's
-// description line is answered from the plan through each game's text hook.
+// A new game can tick "Random Equipment". The run's seed (run_code.h) and the
+// Scaling answer then decide, for the whole file, every weapon's stat line
+// and unleash, and every armour piece's stat line.
+//
+// The game reads its item records straight from the ROM, so:
+//   - The plan is written into the running ROM image (the runtime's own copy
+//     in memory, never the ROM file) whenever the loaded file's choice
+//     differs from what is there.
+//   - The pristine records come back for a file without it.
+//   - Every reader (menus, shops, battles) then sees the same weapons.
+//   - A weapon's description line is answered from the plan through each
+//     game's text hook.
 //
 // The choice lives in eight save-payload bytes the game never writes
-// (random_weapons_format.h), so it saves, copies and erases with the file
+// (random_weapons_format.h), so it saves, copies and erases with the file,
 // and save states carry it.
 #pragma once
 #include <cstdint>

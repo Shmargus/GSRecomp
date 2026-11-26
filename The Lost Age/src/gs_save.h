@@ -1,5 +1,5 @@
-// GS1 battery-save parsing. Layout measured from its own save/load routines;
-// no cartridge data is embedded here. See FACTS.md (2026-10-11).
+// Broken Seal battery-save parsing. Layout measured from its own save/load routines;
+// no cartridge data is embedded here. See FACTS.md.
 #pragma once
 #include <array>
 #include <cstdint>

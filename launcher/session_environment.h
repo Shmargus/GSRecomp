@@ -1,8 +1,8 @@
 // The game's environment variables that the Windows and Linux sessions set
-// the same way. Each session fills in what differs between the platforms
-// (a path, the graphics-card choice) and applies the
-// resulting plan to the child its own way. Plain std::string on purpose: no
-// Win32 or POSIX types, so both sessions can include it.
+// the same way. Each session fills in what differs between the platforms (a
+// path, the graphics-card choice), then applies the resulting plan to the
+// child its own way. The types are plain std::string on purpose: with no
+// Win32 or POSIX types, both sessions can include this file.
 #pragma once
 
 #include <algorithm>
@@ -95,11 +95,11 @@ inline void add_common_environment(ChildEnvironmentPlan& plan, const CommonEnvir
 // leaves whatever the launcher inherited alone.
 using TestOptionState = std::function<std::optional<bool>(const char* environment)>;
 
-// Music mod (music_mod_settings.h): whenever a game's music folders hold
+// Music mod (music_mod_settings.h). Whenever a game's music folders hold
 // recordings, the game gets them as GBARECOMP_MUSIC_DIR (host_window.h
-// kLocalMusicFolderTracks), so F1 > Audio can switch the mod at any time; the
-// game's own MusicMod option decides whether they play. Every launcher, player
-// or developer, passes it.
+// kLocalMusicFolderTracks). That lets F1 > Audio switch the mod at any time;
+// the game's own MusicMod option decides whether they play. Every launcher,
+// player or developer, passes it.
 inline void add_music_environment(ChildEnvironmentPlan& plan,
                                   const std::filesystem::path& collection, int game) {
     if (gsr_collection::music_mod_available(collection, game))

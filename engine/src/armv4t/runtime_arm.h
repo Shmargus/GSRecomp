@@ -144,16 +144,18 @@ typedef void (*RuntimeGuestFn)(void);
 typedef RuntimeGuestFn (*RuntimeRamDispatchHook)(uint32_t pc, int thumb);
 extern RuntimeRamDispatchHook g_runtime_ram_dispatch_hook;
 
-// Optional game-owned query, consulted only when the static dispatch table
-// already has a fixed AOT entry for a transient-RAM pc AND that pc's page has
-// been marked dirty (some write landed in the containing 4 KiB page since
-// boot/load). RuntimeRamDispatchHook above already ran for this exact pc/
-// thumb earlier in the same runtime_dispatch call; a nonzero return here
-// means that hook independently confirmed (via its own identity/CRC check)
-// that the live bytes at this pc still match the reviewed ROM-sourced image
-// the AOT entry was built from, so the page write that set the dirty bit
-// landed somewhere else in the same page. A zero return (including a null
-// hook) preserves the existing heal/JIT fallback exactly as before.
+// Optional game-owned query. It is consulted only when both of these hold:
+//   - the static dispatch table already has a fixed AOT entry for a
+//     transient-RAM pc, and
+//   - that pc's page is marked dirty (some write landed in the containing
+//     4 KiB page since boot/load).
+// RuntimeRamDispatchHook above already ran for this exact pc/thumb earlier in
+// the same runtime_dispatch call. A nonzero return here means that hook
+// independently confirmed (through its own identity/CRC check) that the live
+// bytes at this pc still match the reviewed ROM-sourced image the AOT entry
+// was built from. The page write that set the dirty bit therefore landed
+// elsewhere in the same page. A zero return (including a null hook) keeps the
+// existing heal/JIT fallback exactly as before.
 typedef int (*RuntimeRamIdentityConfirmedHook)(uint32_t pc, int thumb);
 extern RuntimeRamIdentityConfirmedHook g_runtime_ram_identity_confirmed_hook;
 
@@ -330,22 +332,26 @@ void     bus_write_u32_slow(uint32_t addr, uint32_t val);
 void     bus_write_u16_slow(uint32_t addr, uint16_t val);
 void     bus_write_u8_slow (uint32_t addr, uint8_t  val);
 
-// EWRAM / IWRAM fast path. 33,198 static access sites in the translated corpus
-// took the slow path unconditionally — an out-of-line call plus a virtual
-// dispatch — though the common case is plain RAM, which needs none of it:
-//   * region 0x02/0x03 is never IO -> no MMIO catch-up, no horizon resync;
-//   * both are is_idle_safe_read -> a read bumps no idle epoch;
-//   * neither is BIOS nor open bus, so sync_bios_access()'s effects cannot
-//     change what THIS access returns, and every access that could observe
-//     them performs the sync itself;
-//   * nothing there is unmapped -> no trace_unmapped_read record.
-// What remains is a mirror mask and an indexed load/store. Masks are exactly
-// resolve_offset()'s (EWRAM mirrors every 256 KB, IWRAM every 32 KB), so the
-// value is bit-identical to GbaBus::read*/write*. A WRITE still bumps the idle
-// epoch, matching the slow path.
+// EWRAM / IWRAM fast path.
 //
-// Pointers are installed by set_active_bus() and null before then; null falls
-// back to the slow path. Raw pointers, so armv4t gains no dependency on gba.
+// 33,198 static access sites in the translated corpus used to take the slow
+// path unconditionally: an out-of-line call plus a virtual dispatch. The
+// common case is plain RAM, which needs none of that:
+//   * Region 0x02/0x03 is never IO, so there is no MMIO catch-up and no
+//     horizon resync.
+//   * Both regions are is_idle_safe_read, so a read bumps no idle epoch.
+//   * Neither is BIOS or open bus. sync_bios_access()'s effects therefore
+//     cannot change what THIS access returns, and every access that could
+//     observe them performs the sync itself.
+//   * Nothing there is unmapped, so there is no trace_unmapped_read record.
+// What remains is a mirror mask and an indexed load/store. The masks are
+// exactly resolve_offset()'s (EWRAM mirrors every 256 KB, IWRAM every 32 KB),
+// so the value is bit-identical to GbaBus::read*/write*. A WRITE still bumps
+// the idle epoch, matching the slow path.
+//
+// set_active_bus() installs the pointers; they are null before then, and null
+// falls back to the slow path. They are raw pointers, so armv4t gains no
+// dependency on gba.
 extern uint8_t* g_fast_ewram;
 extern uint8_t* g_fast_iwram;
 // Declared again further down with its full explanation; repeated here because
@@ -443,21 +449,24 @@ static inline uint8_t* bus_fast_ram(uint32_t addr) {
     return (uint8_t*)0;
 }
 
-// ROM fast path (reads only — ROM is never written by the guest through this
-// path). The cart image is constant for the whole run, so a plain array read
-// is correct as long as it can never observe any of the four Region::Rom
-// special cases in gba_bus.cpp's read8/16/32:
-//   1. RTC/GPIO window (0x080000C4..0xC9) — guarded off by g_fast_rom_ok
-//      (false whenever the cart has an active RTC) AND by requiring
-//      off >= 0xD0, clear of the guard band with margin.
-//   2. EEPROM save reads — guarded off by g_fast_rom_ok (false whenever the
-//      cart's save type is EEPROM).
-//   3. g_rom_read32_override — checked live (an LLE patch may install/clear
-//      it during play), since it is not fixed for the run like (1) and (2).
-//   4. Reads past the end of the ROM image (open-bus) — off + width must
-//      not exceed g_fast_rom_size.
-// g_fast_rom_ok is computed once by set_active_bus() from the bus's own RTC /
-// save-type accessors; a false value (including "couldn't tell") just means
+// ROM fast path. It handles reads only; the guest never writes ROM through
+// this path.
+//
+// The cart image is constant for the whole run, so a plain array read is
+// correct as long as it can never hit one of the four Region::Rom special
+// cases in gba_bus.cpp's read8/16/32:
+//   1. The RTC/GPIO window (0x080000C4..0xC9). It is guarded off by
+//      g_fast_rom_ok (false whenever the cart has an active RTC) AND by
+//      requiring off >= 0xD0, clear of the guard band with margin.
+//   2. EEPROM save reads. They are guarded off by g_fast_rom_ok (false
+//      whenever the cart's save type is EEPROM).
+//   3. g_rom_read32_override. It is checked live, because an LLE patch may
+//      install or clear it during play. Unlike (1) and (2), it is not fixed
+//      for the run.
+//   4. Reads past the end of the ROM image (open bus). off + width must not
+//      exceed g_fast_rom_size.
+// set_active_bus() computes g_fast_rom_ok once, from the bus's own RTC and
+// save-type accessors. A false value (including "could not tell") only means
 // every ROM access takes the slow path, which is always correct.
 extern const uint8_t* g_fast_rom;
 extern uint32_t        g_fast_rom_size;
@@ -603,7 +612,7 @@ static inline void bus_write_u8_inline(uint32_t addr, uint8_t val) {
 // Generated game code (GBARECOMP_OUTLINE_BUS, set by CMake on every
 // recompiled_*.cpp) calls one shared out-of-line copy of each fast path
 // instead of inlining it at all ~890k access sites: same behaviour, about a
-// quarter of the game's machine code less (The Broken Seal FACTS.md, "Generated code size").
+// quarter of the game's machine code less (measured on The Broken Seal's generated code).
 // Engine code keeps the inline copies.
 #if defined(GBARECOMP_OUTLINE_BUS)
 uint32_t runtime_bus_read_u32(uint32_t addr);
@@ -731,6 +740,12 @@ static inline void arm_set_nzcv_sbc(uint32_t a, uint32_t b, uint32_t c_in,
 void runtime_dispatch(uint32_t target_pc);
 void runtime_dispatch_with_exchange(uint32_t target_pc);
 void runtime_dispatch_miss(uint32_t target_pc);
+// GBARECOMP_TAIL_DISPATCH under Clang (runtime_arm_types.h): the same
+// dispatches with the target in g_runtime_tail_pc, so generated functions
+// (which take no arguments) can jump to them.
+extern uint32_t g_runtime_tail_pc;
+void runtime_dispatch_tail(void);
+void runtime_dispatch_with_exchange_tail(void);
 
 // AOT code copied into EWRAM/IWRAM is mutable guest memory.  The generated
 // function prologue validates its original instruction bytes through this
@@ -746,7 +761,7 @@ void runtime_mutable_ram_code_miss(uint32_t entry_pc, int thumb);
 // per guest instruction instead of dispatching generated code — interpreting the
 // main thread while reusing runtime_tick / runtime_swi for the device/IRQ/BIOS
 // path (so both co-sim backends share everything but instruction execution). Set
-// from GBARECOMP_FORCE_INTERP at startup. See COSIM_ORACLE.md §1.
+// from GBARECOMP_FORCE_INTERP at startup.
 extern int g_force_interp;
 void runtime_force_interp_step(void);
 
@@ -756,17 +771,22 @@ void runtime_force_interp_step(void);
 // no reliable stop address (a top-level / exception-return miss).
 int runtime_has_static_entry(uint32_t pc, int thumb);
 
-// The interpret-the-missed-subtree core of the on-miss bridge, factored so a
-// validation pass can reuse it as its "interpreter pass". Interprets from (entry_pc,
-// entry_thumb) until control returns to the stop address, mutating g_cpu live
-// and ticking each instruction (IRQ self-delivery + SWI routing exactly as in
-// normal play). forced_stop_pc=0 → use the call-return-stack contract (the
-// on-miss bridge). Non-zero → stop there instead: the gate passes the entry LR,
-// since a function reached by a computed jump (not a BL) has no matching
-// call-return frame and the stack-top contract would mis-target and run away.
-// max_instrs=0 → the default 200M abort-on-runaway; non-zero bounds the walk and
-// returns 0 (instead of aborting) if the stop isn't reached in that budget — the
-// gate uses this to fall back safely when its forced stop turns out wrong.
+// The core of the on-miss bridge that interprets the missed subtree. It is
+// factored out so a validation pass can reuse it as its "interpreter pass".
+//
+// It interprets from (entry_pc, entry_thumb) until control returns to the stop
+// address. It mutates g_cpu live and ticks each instruction, with IRQ
+// self-delivery and SWI routing exactly as in normal play.
+//   - forced_stop_pc = 0: use the call-return-stack contract (the on-miss
+//     bridge).
+//   - forced_stop_pc != 0: stop there instead. The gate passes the entry LR.
+//     A function reached by a computed jump (not a BL) has no matching
+//     call-return frame, so the stack-top contract would mis-target and run
+//     away.
+//   - max_instrs = 0: the default 200M-instruction abort-on-runaway limit.
+//   - max_instrs != 0: bounds the walk, and returns 0 (instead of aborting)
+//     if the stop is not reached within that budget. The gate uses this to
+//     fall back safely when its forced stop turns out to be wrong.
 // Returns 1 if it stopped cleanly at the stop address, 0 if it hit the budget.
 int runtime_bridge_interpret(uint32_t entry_pc, bool entry_thumb,
                              uint32_t forced_stop_pc, uint64_t max_instrs);
@@ -957,7 +977,7 @@ bool runtime_should_yield(void);
 // Each replaces a fixed sequence the translator writes at every instruction,
 // load or store with ONE call that does exactly the same work in the same
 // order, so the game's machine code carries one call where it carried two
-// to four (The Broken Seal FACTS.md, "Generated code size").
+// to four (measured on The Broken Seal's generated code).
 //
 // `if (runtime_should_yield()) return; if (g_runtime_insn_trace)
 //  runtime_insn_fp();`  ->  `if (runtime_insn_boundary()) return;`
@@ -1129,9 +1149,8 @@ extern uint32_t g_runtime_break_pc;
 // dispatches to the recompiled BIOS at 0x00000008 via
 // runtime_dispatch. Returns when the recompiled handler issues
 // `movs pc, lr` and we land back at the recompiled site. A missed
-// BIOS handler self-heals (bridge + on-the-fly recompile + log), it
-// is never hand-written HLE — see PRINCIPLES.md "BIOS is sacred —
-// recompiled and dispatched" and "Honest self-healing".
+// BIOS handler is bridged through the interpreter, recompiled on the fly
+// and logged; it is never replaced by a hand-written HLE routine.
 
 void runtime_swi(uint32_t swi_imm);
 void runtime_irq(uint32_t return_address);
@@ -1145,10 +1164,10 @@ void runtime_irq(uint32_t return_address);
 // LR, no BIOS dispatch — or 0 to fall through to the recompiled BIOS (the case
 // for every SWI the HLE layer does not implement). LLE stays load-bearing and
 // remains the verification oracle; HLE never becomes the oracle. This is the
-// PRINCIPLES.md "verified-enhancement HLE" carve-out: opt-in, reverts to LLE.
+// one opt-in exception to running the real BIOS; it reverts to LLE.
 extern int (*g_bios_hle_hook)(uint32_t swi_num);
 
-// ── No-BIOS mode (BIOS_REMOVAL_PLAN.md) ────────────────────────────
+// ── No-BIOS mode ────────────────────────────
 // Nonzero: no BIOS code is ever executed. runtime_irq performs the IRQ
 // vector's documented work itself (push r0-r3,r12,lr on the IRQ stack, call
 // the user handler at [0x03007FFC] with LR at the synthetic return 0x138,
@@ -1197,10 +1216,9 @@ void runtime_restore_cpsr_from_spsr(void);
 // ── Codegen gap (NOT a dispatch miss) ──────────────────────────────
 // Emitted for IrOps codegen hasn't lowered yet. The runtime ALWAYS
 // aborts here — this is a CODEGEN gap, not a dispatch miss, so it is
-// NOT self-healed; codegen must be completed for it. (Analogous to
-// the interpreter's own NotImplemented gate, which also stays loud —
-// see PRINCIPLES.md "Honest self-healing", "Genuine interpreter gaps
-// still abort loudly". Dispatch misses, by contrast, self-heal.)
+// NOT recovered at run time; codegen must be completed for it. (Analogous
+// to the interpreter's own NotImplemented gate, which also stays loud.
+// Dispatch misses, by contrast, are compiled at run time.)
 
 void runtime_unimplemented_op(const char* op_name, uint32_t pc);
 

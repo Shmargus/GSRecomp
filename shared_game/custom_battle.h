@@ -6,45 +6,59 @@
 #include <vector>
 #include "custom_battle_option.h"
 
-// Custom Battle Mode, both games: Battle Mode's receptionist lets the player
+// Custom Battle Mode, both games. Battle Mode's receptionist lets the player
 // choose how many monsters to fight, each one, and whether they match the
-// party's strength. Off by default (launcher switch, custom_battle_option.h).
-// The game's own dialogue window, Yes/No menu and battle setup do the work;
-// the runner asks the extra questions, shows the opponent panel (number, then
-// each monster from a list with its battle picture, plus an Arena tab that
-// picks the battle backdrop) and hands the game the chosen list and arena.
+// party's strength. It is off by default (launcher switch,
+// custom_battle_option.h).
+//
+// The game's own dialogue window, Yes/No menu and battle setup do the work.
+// The runner:
+//   - asks the extra questions,
+//   - shows the opponent panel (the number, then each monster from a list
+//     with its battle picture, plus an Arena tab that picks the battle
+//     backdrop), and
+//   - hands the game the chosen list and arena.
 //
 // One copy of the rules; each game installs its measured addresses (Game)
-// and its own catalogue: custom_battle_tbs.cpp (FACTS.md "Custom Battle
-// Mode" 2026-10-29) and The Lost Age's
-// src/tla_custom_battle.cpp (its FACTS.md 2026-10-30).
+// and its own catalogue: The Broken Seal's custom_battle_tbs.cpp and The Lost
+// Age's src/tla_custom_battle.cpp.
 //
-// How the receptionist is driven (measured in both games; the TLA handler is
-// the same routine with moved addresses): her talk handler asks "...Would you
-// like to battle a monster?" with a set-text call, a show call and Yes/No;
-// Yes sets the arena flag 0x173, No clears it, and both set their own line
-// with one set-text call and show it. Her script waits frames by swapping its
-// stack out, so host code cannot hold her dialogue open; each extra question
-// instead takes that last line's set-text call and sends her script back to
-// her own steps: `show_and_ask` (after her first set-text call) shows the set
-// line and asks Yes/No, `ask` (after her show call) only asks. Both are call
-// returns, resumable entries of her code. Skipping her Yes path's own steps
-// instead left show without a window (TBS bench, 29 Oct).
+// How the receptionist is driven (measured in both games; The Lost Age's
+// handler is the same routine with moved addresses).
+//   - Her talk handler asks "...Would you like to battle a monster?" with a
+//     set-text call, a show call and Yes/No.
+//   - Yes sets the arena flag 0x173 and No clears it. Both then set their
+//     own line with one set-text call and show it.
+//   - Her script waits frames by swapping its stack out, so host code cannot
+//     hold her dialogue open.
+// So each extra question instead takes that last line's set-text call and
+// sends her script back to her own steps:
+//   - `show_and_ask` (after her first set-text call) shows the set line and
+//     asks Yes/No.
+//   - `ask` (after her show call) only asks.
+// Both are call returns, resumable entries of her code. Skipping her Yes
+// path's own steps instead left show without a window (measured in The
+// Broken Seal).
 //
-// The opponent panel: while it is open the Yes/No menu under it stays up,
-// blind to A, B and Start; the panel takes the keys, and closes the menu with
-// Yes (one picked) or No (finish choosing). Her menu loop's frame wait keeps
-// a key pointer in a register (`menu_key_reg`); the panel points it at a ROM
-// zero block while open, then back at the live keys with A pressed and the
-// menu cursor set to the answer, the menu's own select sound left out.
+// The opponent panel. While it is open, the Yes/No menu under it stays up,
+// blind to A, B and Start. The panel takes the keys, and closes the menu with
+// Yes (one picked) or No (finish choosing).
 //
-// Battle Mode's fight: with flag 0x173 set the builder makes a 0-ended
-// halfword enemy list at its sp + 0x60 (pointer at sp + 0x1C), then gets
-// enemy slots 0x80.. (the first from `clear_slots_return`) and creates one
-// enemy per entry, at most six. When the word at sp + 0x20 is nonzero it
-// raises each enemy by that many levels (`stat_adjust_pc`); Battle Mode's
-// word is target level - formation level. Five kinds at most, and a space of
-// 6 with each enemy costing 2 - (small_enemy(id) != 0).
+// Her menu loop's frame wait keeps a key pointer in a register
+// (`menu_key_reg`). The panel points it at a ROM zero block while open. To
+// close, it points it back at the live keys with A pressed and the menu
+// cursor set to the answer, with the menu's own select sound left out.
+//
+// Battle Mode's fight. With flag 0x173 set, the builder:
+//   1. makes a 0-ended halfword enemy list at its sp + 0x60 (pointer at
+//      sp + 0x1C),
+//   2. gets enemy slots 0x80.. (the first from `clear_slots_return`), and
+//   3. creates one enemy per entry, at most six.
+// When the word at sp + 0x20 is nonzero, it raises each enemy by that many
+// levels (`stat_adjust_pc`). Battle Mode's word is target level - formation
+// level.
+// Limits: five kinds at most, and a space of 6 with each enemy costing
+// 2 - (small_enemy(id) != 0).
 namespace gsr::custom_battle {
 
 using Rom = std::span<const std::uint8_t>;
@@ -147,7 +161,6 @@ struct Game {
     std::uint32_t load_enemy_animation, animation_lookup;
     std::uint32_t unit_enemy_id;
     bool unit_id_halfword;
-    std::size_t max_rom_bytes;
     // Text: decoder tables, enemy name = ID + enemy_name_text.
     std::size_t text_table, tree_table;
     std::uint32_t glyph_widths;  // 224 native font advances, glyph - 32

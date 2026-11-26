@@ -1,5 +1,5 @@
 // The Lost Age's radial Psynergy menu places (shared_game/radial_psynergy.h).
-// Evidence: FACTS "Radial Psynergy menu" (4 November 2026).
+// Evidence: FACTS "Radial Psynergy menu".
 #include "tla.h"
 #include "../../shared_game/radial_psynergy.h"
 
@@ -11,15 +11,16 @@ std::uint16_t keys(std::uint16_t value) {
     value = radial::keyinput(value);
     return next_keys ? next_keys(value) : value;
 }
-// Auto Field Psynergy (FACTS "Auto Field Psynergy", 5 November 2026). The
-// field loop handles A (0x080CC192..0x080CC22E) like this. The actor is
-// actor 8 while the halfword 0x020004B6 is set, else [0x02000454]. It talks
-// when 0x080CD91C(actor) != -1 and the result is above 0x3F or 0x080CCE94 of
-// it is nonzero; otherwise it checks when 0x080CC54C() is nonzero. The
-// dispatcher finds the target with 0x080CE31C(kind), then
-// searches the room's events ([field] + 0x10) with 0x080CE458(category,
-// kind, target) for 0x80000005, 0x10000005, 5, 0x50000005
-// (0x080CE7F0..0x080CE86E); event bit 0x80 matches anywhere in the room.
+// Auto Field Psynergy (FACTS "Auto Field Psynergy"). How the field loop handles the A
+// button (0x080CC192..0x080CC22E):
+//   - The actor is actor 8 while the halfword 0x020004B6 is set, else [0x02000454].
+//   - It talks when 0x080CD91C(actor) != -1 and either the result is above 0x3F or
+//     0x080CCE94 of it is nonzero.
+//   - Otherwise it checks when 0x080CC54C() is nonzero.
+// The dispatcher finds the target with 0x080CE31C(kind). It then searches the room's
+// events ([field] + 0x10) with 0x080CE458(category, kind, target) for 0x80000005,
+// 0x10000005, 5 and 0x50000005 (0x080CE7F0..0x080CE86E). Event bit 0x80 matches
+// anywhere in the room.
 bool a_acts() {
     auto* b = gbarecomp::active_bus();
     const std::uint32_t actor = b->read16(0x020004B6u) ? 8u : b->read32(0x02000454u);
@@ -33,22 +34,28 @@ std::uint32_t find(std::uint32_t category, unsigned kind) {
 }
 }  // namespace
 
-// Field button poll 0x08026E60. It returns 0 while [0x0300006C] is 0. While
-// the byte at field + 0xCAC is set, every button queues one fixed action
-// instead (0x08026E72..0x08026EEA). Otherwise the masks at 0x02000470..
-// (L 0x200 at 0x02000478, R 0x100 at 0x0200047A) pick the shortcut words
-// 0x02000480 / 0x02000482 (written by the game's setter 0x080FD52C). Those
-// go to the cast routine 0x08026DD0, which queues field + 0x166 as the
-// Psynergy menu does, for the dispatcher 0x080CE61C.
-// Ability records: 0x080B7C14 (12 bytes, ids to 0x2DE; the field kind at +6
-// is what dispatcher 0x080CE64A reads). Icons: 0x08054A14 (260 entries; the
-// count routine is 0x0803D4D0, asked at build time because Reloaded moves the
-// table and returns 0xFFFF) in the common OBJ colours 0x08017B10. Names: text
-// 0x5A7 + id.
+// The field button poll, 0x08026E60.
+//   - It returns 0 while [0x0300006C] is 0.
+//   - While the byte at field + 0xCAC is set, every button queues one fixed action
+//     instead (0x08026E72..0x08026EEA).
+//   - Otherwise the masks at 0x02000470.. (L 0x200 at 0x02000478, R 0x100 at
+//     0x0200047A) pick the shortcut words 0x02000480 / 0x02000482, which the game's
+//     setter 0x080FD52C writes. Those go to the cast routine 0x08026DD0. It queues
+//     field + 0x166, as the Psynergy menu does, for the dispatcher 0x080CE61C.
+// Ability records: 0x080B7C14 (12 bytes, ids to 0x2DE). The field kind at +6 is what
+// dispatcher 0x080CE64A reads.
+// Icons: 0x08054A14 (260 entries), in the common OBJ colours 0x08017B10. The count
+// routine is 0x0803D4D0. It is asked at build time because Reloaded moves the table
+// and returns 0xFFFF.
+// Names: text 0x5A7 + id.
 void tla_install_radial_psynergy(gbarecomp::RunOptions& options) {
     static const radial::AutoCast auto_cast = {
         0x02000470u, 0x03001154u, 0x10u, a_acts, find,
         {0x80000005u, 0x10000005u, 0x5u, 0x50000005u}, 4u, 0x80u,
+        // Menu on Select only: the poll's first mask 0x02000474 (Select, 4
+        // in every capture) sets the menu request field + 0x15A; A with no
+        // talk or check sets the same request (0x080CC228..0x080CC22C).
+        0x02000474u,
     };
     static const radial::Game profile = {
         TLA_ROM(0x08026E60u), 0x0300006Cu, 0xCACu,

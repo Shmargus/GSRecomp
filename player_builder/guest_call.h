@@ -36,7 +36,7 @@ public:
     void set_instant_dma3(bool on) { instant_dma3_ = on; }
 
     // Optional write coverage for generated RAM routines. Off for ordinary
-    // calls; the TLA blitter builder uses it to check its output has no holes.
+    // calls; The Lost Age's blitter builder uses it to check its output has no holes.
     void track_writes(std::uint32_t start, std::uint32_t size) {
         tracked_start_ = start;
         written_.assign(size, false);

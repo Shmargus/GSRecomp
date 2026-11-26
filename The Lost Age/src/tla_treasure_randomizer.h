@@ -2,7 +2,7 @@
 // table: tla_treasure_randomizer_data.h from The Broken Seal/tools/
 // build_tla_treasure_randomizer.py). Included by tla_new_game.cpp only.
 //
-// Measured, verified ROMs (FACTS.md "Random Treasure", 7 November 2026):
+// Measured, verified ROMs (FACTS.md "Random Treasure"):
 // - Field treasures: the treasure table 0x080F2204 (8-byte entries, +4 flag,
 //   +6 item word: bit 15 coins, low 15 bits the amount; else the item) is
 //   read from the ROM by the pickup routine 0x080CCEC8, so the plan is written

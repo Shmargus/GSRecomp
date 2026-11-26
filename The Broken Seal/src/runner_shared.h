@@ -59,8 +59,8 @@ extern "C" const unsigned gsr_funca418_03003400_kDispatchTableLen;
 extern "C" const DispatchEntry gsr_func15afc_03003a84_kDispatchTable[];
 extern "C" const unsigned gsr_func15afc_03003a84_kDispatchTableLen;
 // The flash driver's relocatable working-area routines. Each is ONE
-// position-independent corpus serving every base the allocator hands out; see
-// kRelocatableCodeImages below.
+// position-independent corpus that serves every base the allocator hands out.
+// See kRelocatableCodeImages below.
 extern "C" const DispatchEntry gsr_func9bb8_pic_kDispatchTable[];
 extern "C" const unsigned gsr_func9bb8_pic_kDispatchTableLen;
 extern "C" const std::uint32_t gsr_func9bb8_pic_kImageOrigin;
@@ -107,9 +107,10 @@ extern "C" const unsigned gsr_func6abc_pic_kDispatchTableLen;
 extern "C" const std::uint32_t gsr_func6abc_pic_kImageOrigin;
 extern "C" const std::uint32_t gsr_func6abc_pic_kImageSize;
 // Position-independent: ONE corpus for Func_2cf4 at every stack depth its
-// caller reaches. The set of bases is bounded only by the call graph, so
-// per-base corpora (0x03007ba4, 0x03007dbc, 0x03007dc4, 0x03007dc8 and any
-// later one) are not used.
+// caller reaches. The set of bases is bounded only by the call graph. So
+// per-base corpora are not used. The bases seen so far are 0x03007ba4,
+// 0x03007dbc, 0x03007dc4 and 0x03007dc8, and any later one would be handled
+// the same way.
 extern "C" const DispatchEntry gsr_func2cf4_pic_kDispatchTable[];
 extern "C" const unsigned gsr_func2cf4_pic_kDispatchTableLen;
 extern "C" const std::uint32_t gsr_func2cf4_pic_kImageOrigin;
@@ -119,9 +120,9 @@ extern "C" const DispatchEntry gsr_func1dc8_pic_kDispatchTable[];
 extern "C" const unsigned gsr_func1dc8_pic_kDispatchTableLen;
 extern "C" const std::uint32_t gsr_func1dc8_pic_kImageOrigin;
 extern "C" const std::uint32_t gsr_func1dc8_pic_kImageSize;
-// Func_15afc and Func_15e10 share the 0x03003a84 staging slot, but a
-// 10,800-frame campaign run copied Func_15afc to 0x030044f4 instead, so a fixed
-// base is not enough; see kRelocatableCodeImages below.
+// Func_15afc and Func_15e10 share the 0x03003a84 staging slot. But a
+// 10,800-frame campaign run copied Func_15afc to 0x030044f4 instead, so a
+// fixed base is not enough. See kRelocatableCodeImages below.
 extern "C" const DispatchEntry gsr_func15afc_pic_kDispatchTable[];
 extern "C" const unsigned gsr_func15afc_pic_kDispatchTableLen;
 extern "C" const std::uint32_t gsr_func15afc_pic_kImageOrigin;
@@ -151,10 +152,10 @@ extern "C" const DispatchEntry gsr_func9bb8code_pic_kDispatchTable[];
 extern "C" const unsigned gsr_func9bb8code_pic_kDispatchTableLen;
 extern "C" const std::uint32_t gsr_func9bb8code_pic_kImageOrigin;
 extern "C" const std::uint32_t gsr_func9bb8code_pic_kImageSize;
-// Func_b5138, a transient allocator block DMA-copied into IWRAM at whatever
-// base the allocator hands out. Observed at 0x0300207c (first scripted
-// fight); base is allocator-determined, so this is registered
-// position-independent from the start rather than fixed. GS-011 follow-up.
+// Func_b5138, a transient allocator block that is DMA-copied into IWRAM at
+// whatever base the allocator hands out. It was observed at 0x0300207c (first
+// scripted fight). Because the base is chosen by the allocator, the block is
+// registered position-independent from the start, not at a fixed base.
 extern "C" const DispatchEntry gsr_funcb5138_pic_kDispatchTable[];
 extern "C" const unsigned gsr_funcb5138_pic_kDispatchTableLen;
 extern "C" const std::uint32_t gsr_funcb5138_pic_kImageOrigin;
@@ -166,25 +167,30 @@ extern "C" const DispatchEntry gsr_funcf0024_pic_kDispatchTable[];
 extern "C" const unsigned gsr_funcf0024_pic_kDispatchTableLen;
 extern "C" const std::uint32_t gsr_funcf0024_pic_kImageOrigin;
 extern "C" const std::uint32_t gsr_funcf0024_pic_kImageSize;
-// Func_a418, the same ROM routine already registered fixed at 0x03003400
-// (see kTransientCodeImages below), also observed at 0x03002000. Routine
-// and base vary independently (D-005), so it is registered
-// position-independent.
+// Func_a418 is the same ROM routine that is already registered fixed at
+// 0x03003400 (see kTransientCodeImages below). It was also observed at
+// 0x03002000. The routine and its base vary independently, so it is
+// registered position-independent.
 extern "C" const DispatchEntry gsr_funca418_pic_kDispatchTable[];
 extern "C" const unsigned gsr_funca418_pic_kDispatchTableLen;
 extern "C" const std::uint32_t gsr_funca418_pic_kImageOrigin;
 extern "C" const std::uint32_t gsr_funca418_pic_kImageSize;
-// The spell canvas's six DMA3-copied stack blobs, each a single ARM
-// STT_FUNC-sized routine copied by its own wrapper (Func_54e4, Func_5534,
-// 0x08005490, 0x0800543C, 0x0800562C, 0x0800567C; all the same shape):
-// "copy and fade" (ROM 0x08001ea8, 0x50 bytes), "copy and halve" (ROM
-// 0x08001ef8, 0x40 bytes), Func_1f38 (0x80 bytes), Func_1fb8 (0x84 bytes),
-// Func_203c (0x5c bytes) and Func_2098 (0x5c bytes). Each wrapper's
-// literal-pool word is a byte count (the wrapper right-shifts it by 2 to get
-// the DMA3 word count), not a word count. See
-// config/usa/transient-func_1ea8-relocatable.toml,
+// The spell canvas's six DMA3-copied stack blobs. Each is a single ARM
+// routine the size of its STT_FUNC, copied by its own wrapper. The wrappers
+// are Func_54e4, Func_5534, 0x08005490, 0x0800543C, 0x0800562C and
+// 0x0800567C, and all have the same shape. The six blobs are:
+//   - "copy and fade" (ROM 0x08001ea8, 0x50 bytes)
+//   - "copy and halve" (ROM 0x08001ef8, 0x40 bytes)
+//   - Func_1f38 (0x80 bytes)
+//   - Func_1fb8 (0x84 bytes)
+//   - Func_203c (0x5c bytes)
+//   - Func_2098 (0x5c bytes)
+// Each wrapper's literal-pool word is a byte count, not a word count. The
+// wrapper right-shifts it by 2 to get the DMA3 word count.
+//
+// For the derivation, see config/usa/transient-func_1ea8-relocatable.toml,
 // transient-func_1ef8-relocatable.toml and
-// transient-func_1f38-/1fb8-/2098-relocatable.toml for the derivation.
+// transient-func_1f38-/1fb8-/2098-relocatable.toml.
 extern "C" const DispatchEntry gsr_func1ea8_pic_kDispatchTable[];
 extern "C" const unsigned gsr_func1ea8_pic_kDispatchTableLen;
 extern "C" const std::uint32_t gsr_func1ea8_pic_kImageOrigin;
@@ -205,17 +211,17 @@ extern "C" const DispatchEntry gsr_func2098_pic_kDispatchTable[];
 extern "C" const unsigned gsr_func2098_pic_kDispatchTableLen;
 extern "C" const std::uint32_t gsr_func2098_pic_kImageOrigin;
 extern "C" const std::uint32_t gsr_func2098_pic_kImageSize;
-// Func_6c24 (ROM 0x08006c24, 0x44 bytes: THUMB code plus its own inline
-// literal pool), the whole unit Func_6c68 copies onto the stack before
-// jumping into it. Confirmed at offset 0 in session 20260923_202001 (not a
-// 16-byte interior slice). See config/usa/transient-func_6c24-relocatable.toml.
+// Func_6c24 is at ROM 0x08006c24 and is 0x44 bytes: THUMB code plus its own
+// inline literal pool. Func_6c68 copies this whole unit onto the stack before
+// jumping into it. A recorded session confirmed it at offset 0, not as a
+// 16-byte interior slice. See config/usa/transient-func_6c24-relocatable.toml.
 extern "C" const DispatchEntry gsr_func6c24_pic_kDispatchTable[];
 extern "C" const unsigned gsr_func6c24_pic_kDispatchTableLen;
 extern "C" const std::uint32_t gsr_func6c24_pic_kImageOrigin;
 extern "C" const std::uint32_t gsr_func6c24_pic_kImageSize;
-// Func_203c (ROM 0x0800203c, 0x5c bytes ARM, no interior $d), DMA3-copied
-// onto the stack by the wrapper at 0x0800562c (the same shape as
-// 0x080054e4/0x08005534). See config/usa/transient-func_203c-relocatable.toml.
+// Func_203c is at ROM 0x0800203c and is 0x5c bytes of ARM with no interior
+// $d. The wrapper at 0x0800562c DMA3-copies it onto the stack; that wrapper
+// has the same shape as 0x080054e4 and 0x08005534. See config/usa/transient-func_203c-relocatable.toml.
 extern "C" const DispatchEntry gsr_func203c_pic_kDispatchTable[];
 extern "C" const unsigned gsr_func203c_pic_kDispatchTableLen;
 extern "C" const std::uint32_t gsr_func203c_pic_kImageOrigin;
@@ -288,8 +294,9 @@ namespace gsr_runner {
 // ---- Types ----
 
 // A verified transient image is safe to reuse until one of its RAM pages
-// changes. The global generation is retained for diagnostics, but using it as
-// the dispatch-cache key made an unrelated overlay write flush every hot PC.
+// changes. The global generation is kept for diagnostics. It is not used as
+// the dispatch-cache key, because that made an unrelated overlay write flush
+// every hot PC.
 enum class VerifiedRamAction : std::uint8_t { Static, Native };
 
 inline constexpr std::size_t kNoVerifiedIdentity =
@@ -316,14 +323,16 @@ struct TransientCodeImage {
     std::uint32_t volatile_prefix = 0;
 };
 
-// A RAM code image whose translation is position-independent: guest addresses
-// inside it are computed from g_runtime_image_base, so one corpus dispatches
-// at every base the game copies the routine to. `origin` is the address the
-// corpus was generated at; the dispatch table is expressed in it, and a live
-// PC is translated by subtracting the verified base.
+// A RAM code image whose translation is position-independent. Guest
+// addresses inside it are computed from g_runtime_image_base, so one corpus
+// dispatches at every base the game copies the routine to.
 //
-// This is what turns the relocatable pool from an unbounded enumeration into a
-// finite one: a routine is registered once, not once per (routine, base).
+// `origin` is the address the corpus was generated at. The dispatch table is
+// expressed in that address, and a live PC is translated by subtracting the
+// verified base.
+//
+// This is what turns the relocatable pool from an unbounded enumeration into
+// a finite one: a routine is registered once, not once per (routine, base).
 struct RelocatableCodeImage {
     std::uint32_t rom_start;   // immutable ROM backing; 0 = no linear source
     int thumb;
@@ -333,17 +342,17 @@ struct RelocatableCodeImage {
     const std::uint32_t* size;
     const DispatchEntry* dispatch_table;
     const unsigned* dispatch_table_len;
-    // Declared [[data_range]] spans (offsets from origin/base) the image
-    // writes to itself at runtime. Skipped when computing the identity hash
-    // so self-modified data doesn't fail a code-only identity. Empty for
-    // every image that has no interior data range.
+    // Declared [[data_range]] spans (offsets from origin/base) that the image
+    // writes to itself at runtime. They are skipped when computing the
+    // identity hash, so self-modified data does not fail a code-only
+    // identity. Empty for every image that has no interior data range.
     const gsr::ByteRange* excluded_ranges = nullptr;
     unsigned excluded_ranges_len = 0;
 };
 
-// Written on the emulation thread by the settings loop's key-word loads and
-// read at present time, so everything the painter needs is copied here first:
-// it never reads guest memory itself.
+// Written on the emulation thread by the settings loop's key-word loads, and
+// read at present time. Everything the painter needs is copied here first,
+// because the painter never reads guest memory itself.
 struct SettingsPageFont {
     std::uint8_t tiles[256 * 32] = {};
     std::uint8_t widths[256 - 0x20] = {};
@@ -402,7 +411,6 @@ extern bool g_hard_prompt_open;
 extern QuestionHold g_question_hold;
 extern SeamlessPhase g_seamless_phase;
 extern const gbarecomp::GameOptionSwitch kGameSwitches[];
-extern const int kPlayerGameSwitchCount;
 extern const int kGameSwitchCount;
 
 // ---- Variables defined in runner_ram_code.cpp ----
@@ -470,8 +478,8 @@ void reset_relocatable_identity_cache();
 void print_ram_cache_image_detail();
 
 // ---- Inline helpers shared by the settings page and the cheat/prompt windows ----
-// pixel(x, y): a native pixel's RGB in the presented picture (widescreen
-// offset applied), null off it.
+// native_pixel_at gives pixel(x, y): a native pixel's RGB in the presented
+// picture (widescreen offset applied), or null off it.
 inline auto native_pixel_at(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height) {
     const int ox = static_cast<int>(g_golden_sun_wide_extra_left);
     const int oy = static_cast<int>(g_golden_sun_wide_extra_top);
@@ -484,9 +492,12 @@ inline auto native_pixel_at(std::uint8_t* rgb, std::uint32_t width, std::uint32_
     };
 }
 
-// Paints native pixels (widescreen offset applied) in the window palette:
-// the live one when bank 15 holds it, else the last one seen, else the
-// measured default. put(x, y, index); index 0 is transparent.
+// Paints native pixels (widescreen offset applied) in the window palette.
+// The palette is, in order of preference:
+//   1. the live one, when bank 15 holds it,
+//   2. else the last one seen,
+//   3. else the measured default.
+// The painter is put(x, y, index); index 0 is transparent.
 inline auto window_pixel_painter(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height) {
     using namespace gsr::cheat_menu;
     if (gba::GbaBus* bus = gbarecomp::active_bus()) {
@@ -518,11 +529,13 @@ inline auto window_pixel_painter(std::uint8_t* rgb, std::uint32_t width, std::ui
     };
 }
 
-// The window, drawn over the picture in the game's own pieces and colours
-// (src/cheat_menu.h), `tiles` x `rows` native tiles from tile (tile_x, tile_y).
-// `content(draw_text, text_width, inner_x, inner_y, pixel)` paints inside it;
-// `pixel(x, y)` is the RGB of a native pixel, null off the picture. Shared by
-// the Hard Mode prompt and the Custom Battle opponent panel.
+// Draws a window over the picture, in the game's own pieces and colours
+// (src/cheat_menu.h). The window is `tiles` x `rows` native tiles, starting
+// at tile (tile_x, tile_y).
+//   - `content(draw_text, text_width, inner_x, inner_y, pixel)` paints inside
+//     it.
+//   - `pixel(x, y)` is the RGB of a native pixel, or null off the picture.
+// Shared by the Hard Mode prompt and the Custom Battle opponent panel.
 template <typename Content>
 void menu_window_paint(std::uint8_t* rgb, std::uint32_t width,
                        std::uint32_t height, int tile_x, int tile_y, int tiles,

@@ -1,14 +1,14 @@
 // field_scene.h -- what the game asked to be drawn this frame.
 //
-// Capture the draw state once per frame so the renderer can draw without
+// The draw state is captured once per frame, so the renderer can draw without
 // reading live emulated memory.
 //
 // Why this exists before any GPU code. The existing renderer decides each
 // pixel while the frame is still being emulated, reading live registers as it
-// goes. A renderer that draws the whole frame at the end instead needs the
-// frame handed to it as data. Capturing that data first, and proving the old
-// renderer can be driven from it alone, is what shows the description is
-// complete -- before a single triangle depends on it.
+// goes. A renderer that draws the whole frame at the end needs the frame
+// handed to it as data instead. Capturing that data first, and proving the
+// old renderer can be driven from it alone, shows the description is
+// complete before a single triangle depends on it.
 //
 // Two things are deliberately NOT copied here:
 //
@@ -16,16 +16,19 @@
 //     more than it saves. The renderer keeps it on the graphics card and
 //     refreshes it when the game writes, which is a renderer concern.
 //   * The room's reconstructed map. `room_buffer.cpp` already owns that and
-//     rebuilds it on room entry; the scene only needs to say WHICH room, so
-//     the renderer knows whether what it already uploaded is still current.
+//     rebuilds it on room entry. The scene only says WHICH room, so the
+//     renderer knows whether what it already uploaded is still current.
 //
-// What IS copied is small and changes every frame: the display and layer
-// registers, each row's own copy of them where the game moved one mid-frame,
-// the object table, and both palettes. That is 3 KB or so per frame.
+// What IS copied is small and changes every frame, about 3 KB in total:
 //
-// The per-row tables are not new work: the PPU already latches every visible
-// row's IO and affine reference (FACTS.md, "The seams a GPU renderer needs
-// already exist"). This just takes a copy that outlives the frame.
+//   - the display and layer registers,
+//   - each row's own copy of them, where the game moved one mid-frame,
+//   - the object table, and
+//   - both palettes.
+//
+// The per-row tables are not new work. The PPU already latches every visible
+// row's IO and affine reference. This just takes a copy that outlives the
+// frame.
 #pragma once
 
 #include <array>
@@ -59,11 +62,12 @@ struct SceneLayer {
     std::int32_t affine_ref_x = 0, affine_ref_y = 0;
 };
 
-// Optional game-supplied data for the margins of one layer. It is deliberately
-// NOT part of FieldScene: that struct is copied byte for byte into the F12
-// capture's SCENE section (and replayed by sizeof), so it cannot hold a vector
-// or grow without orphaning every saved capture. A game that has these hands
-// them to the renderer with set_scene_margins().
+// Optional game-supplied data for the margins of one layer. A game that has
+// this data hands it to the renderer with set_scene_margins().
+//
+// It is deliberately NOT part of FieldScene. That struct is copied byte for
+// byte into the saved frame capture's SCENE section and replayed by sizeof.
+// So it cannot hold a vector or grow without orphaning every saved capture.
 struct SceneMarginLayer {
     // Scroll rows for the margins; native pixels always use their
     // captured registers. Entries are HOFS, VOFS. Row 0 sits at
@@ -152,19 +156,20 @@ struct SceneObject {
     bool     double_size = false;
     // True only when BOTH x and y came from the widescreen provenance
     // providers (g_ws_obj_attr_x_provider / g_ws_obj_attr_y_provider in
-    // gba_ppu.h), the same test gba_ppu.cpp's expanded object path uses
-    // (`sprite_trusted = sx_trusted && sy_trusted`). An untrusted object's
-    // position is only the hardware sign-wrap fallback. Diagnostic only: the
-    // renderer's clip test is `parked` below.
+    // gba_ppu.h). This is the same test gba_ppu.cpp's expanded object path
+    // uses (`sprite_trusted = sx_trusted && sy_trusted`). An untrusted
+    // object's position is only the hardware sign-wrap fallback.
+    // Diagnostic only: the renderer's clip test is `parked` below.
     bool     trusted = false;
 
     // True only for a slot sitting on Golden Sun's parked-sprite sentinel
     // (src/widescreen_policy.h). Such a slot is invisible on hardware and
-    // must stay invisible when the view is widened; every other object,
-    // authenticated or not, is drawn where it really is. This is the clip
-    // test rather than `trusted` because the providers only authenticate
-    // FIELD sprites, so clipping on `trusted` cut every battle monster and
-    // effect sprite off at the console's old screen edge.
+    // must stay invisible when the view is widened. Every other object,
+    // authenticated or not, is drawn where it really is.
+    //
+    // This is the clip test rather than `trusted`, because the providers only
+    // authenticate FIELD sprites. Clipping on `trusted` cut every battle
+    // monster and effect sprite off at the console's old screen edge.
     bool     parked = false;
 };
 
@@ -240,7 +245,7 @@ struct FieldScene {
 
     // True if every row has the same draw state as row 0. Used for diagnostics
     // only. The renderer always reads window and scroll registers per row.
-    // Golden Sun battle measurements are in FACTS.md (2026-09-12).
+    // Golden Sun's battle frames measure uniform.
     bool rows_uniform = true;
 
     // Which room this frame belongs to, so a renderer can tell whether the
@@ -252,7 +257,7 @@ struct FieldScene {
 
     // False whenever this frame uses something the scene model does not yet
     // describe. The caller must then use the emulated hardware path for the
-    // WHOLE frame; there is no correct way to draw part of it (FACTS.md).
+    // WHOLE frame; there is no correct way to draw part of it.
     bool supported = false;
     // Why not, for diagnostics. Never shown to the player.
     const char* unsupported_reason = nullptr;
@@ -278,13 +283,16 @@ bool field_scene_capture(FieldScene* out,
                          int view_extra_top = -1,
                          int view_extra_bottom = -1);
 
-// The registers a frame was really drawn with. The end-of-frame register
-// file `io` can already hold the next frame's: Golden Sun's battle flash on
-// the world map alternates a mode 2 frame with a white band drawn in mode 0
-// and a plain mode 2 frame, and on the plain ones DISPCNT already says mode 0
-// at VBlank (gpu_rewind_0087, frames 1683-1697). When every latched row
-// agrees on a display mode `io` does not, returns the first latched row
-// (kLineIoBytes long) for the caller to copy over `io`; otherwise nullptr.
+// The registers a frame was really drawn with.
+//
+// The end-of-frame register file `io` can already hold the next frame's.
+// Golden Sun's battle flash on the world map alternates a mode 2 frame, a
+// white band drawn in mode 0, and a plain mode 2 frame. On the plain ones
+// DISPCNT already says mode 0 at VBlank.
+//
+// When every latched row agrees on a display mode that `io` does not, this
+// returns the first latched row (kLineIoBytes long) for the caller to copy
+// over `io`. Otherwise it returns nullptr.
 const std::uint8_t* field_scene_rows_drawn_mode(const std::uint8_t* io,
                                                 const std::uint8_t* row_io_table,
                                                 const bool* row_io_valid);
@@ -296,9 +304,9 @@ bool field_scene_frame_supported(unsigned dispcnt, const char** why);
 // Writes the description back out as hardware state: register file, object
 // table and palette memory.
 //
-// Rebuild the captured state for renderer tests. Missing draw state
-// changes the rendered pixels. Pass the original video memory separately
-// because the capture omits tile art.
+// This rebuilds the captured state for renderer tests. Any draw state the
+// capture is missing changes the rendered pixels. Pass the original video
+// memory separately, because the capture omits tile art.
 //
 // `io` must already hold the frame's register file; only the fields the
 // description owns are overwritten, so unrelated hardware registers (timers,

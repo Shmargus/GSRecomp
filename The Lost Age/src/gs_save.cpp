@@ -14,12 +14,12 @@ unsigned halfword(const std::uint8_t* p) { return p[0] | (unsigned(p[1]) << 8); 
 bool valid_sector(const std::uint8_t* p) {
     if (std::memcmp(p, "CAMELOT", 7) != 0 || p[7] >= 16) return false;
     unsigned sum = 0;
-    // GS1 0x08005AE0 sums 0xFE8 bytes, excluding the final eight bytes.
+    // The Broken Seal's 0x08005AE0 sums 0xFE8 bytes, excluding the final eight bytes.
     for (std::size_t i = kHeaderBytes; i < 0xFF8; ++i) sum += p[i];
     return (sum & 0xFFFF) == halfword(p + 8);
 }
 bool character_name(const std::uint8_t* p) {
-    // GS1's records start at +0x500; TLA's start at +0x520. Reject a
+    // The Broken Seal's records start at +0x500; the Lost Age's at +0x520. Reject a
     // differently laid-out save rather than importing its preceding fields.
     if (p[0] == 0) return false;
     for (unsigned i = 0; i < 15; ++i) {
@@ -29,7 +29,7 @@ bool character_name(const std::uint8_t* p) {
     return false;
 }
 
-// File `number` from its two blocks (GS1 loads blocks i and i+3, 0x0802092C).
+// File `number` from its two blocks (the Broken Seal loads blocks i and i+3, 0x0802092C).
 void add_cleared(std::vector<ClearSlot>& out, unsigned number,
                  const std::uint8_t* p, const std::uint8_t* second) {
     if (!p || !second || p[0x31] == 0) return;
@@ -48,8 +48,8 @@ void add_cleared(std::vector<ClearSlot>& out, unsigned number,
         const auto ch = p[0x10 + n];
         slot.name += ch >= 0x20 && ch < 0x7F ? char(ch) : '?';
     }
-    // Exactly TLA's link receiver (0x02008D0E): flags/coins keep their
-    // GS1 offsets; the following block moves forward 0x20 bytes.
+    // Exactly the Lost Age's link receiver (0x02008D0E): flags/coins keep their
+    // Broken Seal offsets; the following block moves forward 0x20 bytes.
     // Its four character records then land at +0x520, as expected by
     // TLA's common importer 0x080AE410. The game rebuilds their stats.
     std::copy_n(body, 0x254, slot.transfer.begin());
@@ -67,7 +67,7 @@ std::vector<ClearSlot> cleared_slots(const std::vector<std::uint8_t>& bytes,
         const auto* p = bytes.data() + i;
         if (!valid_sector(p)) continue;
         auto& previous = latest[p[7]];
-        // Match GS1 0x080057C8: larger generation wins; ties keep first.
+        // Match the Broken Seal's 0x080057C8: larger generation wins; ties keep first.
         if (!previous || halfword(p + 10) > halfword(previous + 10)) previous = p;
     }
     for (unsigned i = 0; i < 3; ++i) add_cleared(out, i + 1, latest[i], latest[i + 3]);

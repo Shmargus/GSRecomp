@@ -26,7 +26,7 @@ def helper(name, *args):
     return run(sys.executable, ROOT / "tools" / name, *args, capture=True)
 
 
-def generate(rom, recompiler, output, cache, harvest_ram_code=True):
+def generate(rom, recompiler, output, cache):
     rom_sha1,revision=identify(rom.read_bytes())
     config_root=ROOT/"config"/revision["config"]
     # Check dependencies before replacing any generated output.
@@ -97,7 +97,9 @@ def generate(rom, recompiler, output, cache, harvest_ram_code=True):
         shutil.copyfile(src / "expected.cpp", dest / "expected.cpp")
         lines.append(f"TLA_FAMILY({name})")
 
-    # Both platforms retain the same measured cache harvest, even after clearing it.
+    # The play cache's RAM-code pieces are kept for tools/tla_harvest.py, but
+    # no harvested families are generated: player releases compile that code
+    # while playing, and developer builds match them (TLA_NO_HARVEST).
     keep = ROOT / "local" / revision["corpus"] / "pieces"
     (keep / rom_sha1).mkdir(parents=True, exist_ok=True)
     for pic in cache.rglob("*.pic"):
@@ -105,16 +107,6 @@ def generate(rom, recompiler, output, cache, harvest_ram_code=True):
             continue
         destination=keep / rom_sha1 / pic.name
         if pic.resolve()!=destination.resolve(): shutil.copyfile(pic,destination)
-    harvest = fresh("harvest")
-    # --no-harvest: no harv families, as a build with "Pre-built RAM code" off
-    # (TLA_NO_HARVEST) compiles none; the pieces above are still kept.
-    for line in (helper("tla_harvest.py", "--rom", rom, "--cache", keep, "--out", harvest)
-                 if harvest_ram_code else []):
-        name, spec = line.split()
-        src = harvest / name
-        dest = image(name, harvest / "harvest.gba", src / "variant.toml", spec)
-        shutil.copyfile(src / "expected.cpp", dest / "expected.cpp")
-        lines.append(f"TLA_HARVEST({name})")
 
     (reloc / "tla_reloc_images.inc").write_text("\n".join(lines) + "\n", encoding="ascii")
     for folder in (main, reloc):
@@ -129,8 +121,6 @@ def main():
     parser.add_argument("--recompile", type=Path)
     parser.add_argument("--out", type=Path, default=ROOT / "local/tla")
     parser.add_argument("--cache", type=Path, default=ROOT / "recomp_cache")
-    parser.add_argument("--no-harvest", action="store_true",
-                        help="leave out the harvested RAM code (Pre-built RAM code off)")
     args = parser.parse_args()
     try:
         config = {}
@@ -143,7 +133,7 @@ def main():
             raise ValueError("Generated output must be a directory inside this repository's local/.")
         if not recompiler.is_file():
             raise ValueError("Recompiler not found; build gba_recompile first.")
-        generate(rom, recompiler, output, args.cache.resolve(), not args.no_harvest)
+        generate(rom, recompiler, output, args.cache.resolve())
         return 0
     except (OSError, ValueError, KeyError, ImportError, subprocess.CalledProcessError) as error:
         print(f"tla_recompile: {error}", file=sys.stderr)

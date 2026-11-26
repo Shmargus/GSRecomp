@@ -1,13 +1,15 @@
-// Autosave, both games: each time the party enters a
-// new area, the game is saved to file 9, shown first in the file list as
-// "Autosave" (save_files.h). Manual saves never reach it, so the player's own
-// files are never overwritten. F1 > Game switch, off by default.
+// Autosave, both games. Each time the party enters a new area, the game is
+// saved to file 9, shown first in the file list as "Autosave" (save_files.h).
+// Manual saves never reach it, so the player's own files are never
+// overwritten. F1 > Game switch, off by default.
 //
-// The moment: the field button poll's entry (radial_psynergy.h), reached only
-// while the player has control on the field, with the room number changed
-// since the last poll. A loaded file or state starts a new baseline instead
-// of saving. Each game supplies the save itself: its own header and
-// map-object steps, then the record written straight into file 9.
+// When it saves: at the field button poll's entry (radial_psynergy.h). That
+// is reached only while the player has control on the field. It saves when
+// the room number has changed since the last poll. A loaded file or state
+// starts a new baseline instead of saving.
+//
+// Each game supplies the save itself: its own header and map-object steps,
+// then the record written straight into file 9.
 #pragma once
 #include <cstdint>
 #include "game_options.h"

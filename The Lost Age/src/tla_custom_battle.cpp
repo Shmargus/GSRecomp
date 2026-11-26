@@ -6,7 +6,7 @@
 // default.
 //
 // Evidence (ROM SHA-1 b500663220cb9bf56b9f8e8c0c544f1d6fa3a824; FACTS.md
-// 2026-10-30 "Custom Battle Mode"): ROM reading and disassembly, the room
+// "Custom Battle Mode"): ROM reading and disassembly, the room
 // code unpacked and relocated by running the game's own 0x080130CC on it.
 // Not yet run in the game.
 //
@@ -236,8 +236,6 @@ const cb::Game kGame = {
     .animation_lookup = TLA_ROM(0x080228BCu),
     .unit_enemy_id = 0x14Au,
     .unit_id_halfword = true,
-    // The cartridge fills 16 MB; the ROM window reaches 32 MB.
-    .max_rom_bytes = 32u * 1024u * 1024u,
     .text_table = TLA_ROM(0x080A9F54u) - 0x08000000u,
     .tree_table = TLA_ROM(0x08060C30u) - 0x08000000u,
     .glyph_widths = TLA_ROM(0x0805F484u),

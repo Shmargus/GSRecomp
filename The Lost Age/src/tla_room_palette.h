@@ -5,12 +5,12 @@
 #include <vector>
 
 // Djinn portraits replace banks 4-7, and the existing room-palette copy can
-// still return those menu colours (F12 0066).
+// still return those menu colours.
 // The game's room-colour allocation at slot 0x80 (0x2A04 bytes, ROM
 // 0x080D1684) retains the room colours: its first 224 entries are the
-// stored colours (F12 0035/0066; ROM 0x080D1760), and +0x2300 / +0x2680 are
+// stored colours (ROM 0x080D1760), and +0x2300 / +0x2680 are
 // the two after-effect buffers the game queues for palette RAM (ROM
-// 0x080D0D8E; the snow tint of F12 0163 lives only there). Use banks 4-7 of
+// 0x080D0D8E; the snow tint lives only there). Use banks 4-7 of
 // the first source whose other non-animated room banks all still agree.
 inline bool tla_restore_room_palette(bool window_open,
                                      const std::uint8_t* ewram, std::size_t ewram_size,
@@ -34,7 +34,7 @@ inline bool tla_restore_room_palette(bool window_open,
             return std::uint16_t(source[i * 2]) |
                    (std::uint16_t(source[i * 2 + 1]) << 8);
         };
-        // Bank 0 includes the animated water colours (0066 indices 12-15).
+        // Bank 0 includes the animated water colours (indices 12-15).
         // Banks 14-15 belong to the window system, not these 224-colour buffers.
         bool agree = true;
         for (int bank = 1; bank < 14 && agree; ++bank) {
@@ -43,9 +43,9 @@ inline bool tla_restore_room_palette(bool window_open,
                 if ((*palette)[i] != colour(i)) { agree = false; break; }
         }
         if (!agree) continue;
-        // A portrait or menu replaces all four banks (F12 0035, 0066, 0163:
-        // 15-16 colours in each). A bank that still agrees means nothing was
-        // replaced: the game's own effect owns the change (0185, Mt. Aleph's
+        // A portrait or menu replaces all four banks (15-16 colours in
+        // each). A bank that still agrees means nothing was
+        // replaced: the game's own effect owns the change (Mt. Aleph's
         // gold pulse in bank 4 alone, 15 colours; banks 5-7 agree).
         for (int bank = 4; bank < 8; ++bank) {
             bool differs = false;

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the evidence-backed GS-007 main-ROM TOML proposal."""
+"""Build the evidence-backed main-ROM TOML proposal for The Broken Seal."""
 
 from __future__ import annotations
 
@@ -43,9 +43,11 @@ REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 # `[[resume_range]]` is capped at 0x1000 bytes by the upstream TOML schema.
 RESUME_RANGE_MAX_BYTES = 0x1000
 
-# Exact conditional branches proven by the verified USA/Europe ROM to reject
-# viewport candidates before the unchanged PPU can clip them. The runner may
-# force only these decisions, and only for strict 360x240 geometry.
+# Conditional branches the runner is allowed to force.
+#
+# Each one is an exact branch, proven by the verified USA/Europe ROM, that
+# rejects a sprite or particle before the unchanged PPU could clip it. The
+# runner may force only these decisions, and only for strict 360x240 geometry.
 REVIEWED_CONDITIONAL_BRANCH_OVERRIDES = (
     (0x080F9F50, "Local intro music: title BGM left gain BLS, paired with MOVS080F9F52; loaded-file and R5 track ownership required"),
     (0x080F9F64, "Local intro music: title BGM right gain BLS, paired with MOVS080F9F66; loaded-file and R5 track ownership required"),
@@ -61,11 +63,13 @@ REVIEWED_CONDITIONAL_BRANCH_OVERRIDES = (
     (0x0800C708, "Func_c62c upper-Y BGT: bypass the direct reject route"),
     (0x0801CFC6, "Settings screen BLE: skip the icon bounce for Message speed Instant"),
     (0x080031BC, "Frame wait auto-sleep BEQ: idle timer off (Hard Mode replaces Auto-Sleep)"),
-    # Three sprite routines that queue with Func_3dec after an x+16 <= 255,
-    # y >= -32 test; world-map towns vanish at the old right edge on one of
-    # them (FACTS.md, 2026-09-24). X and lower-Y, plus Func_94820's upper-Y:
-    # its rain drops are placed by full position, so the bottom margin can
-    # take them (runner_main.cpp, golden_sun_worldmap_sprite_branch).
+    # Three sprite routines queue with Func_3dec only after an x+16 <= 255,
+    # y >= -32 test. World-map towns vanish at the old right edge in one of
+    # them.
+    #   - All three: the X test and the lower-Y test.
+    #   - Func_94820 also gets its upper-Y test. Its rain drops are placed by
+    #     full position, so the bottom margin can take them.
+    # See runner_main.cpp, golden_sun_worldmap_sprite_branch.
     (0x080948BC, "Func_94820 screen-X BHI: admit the expanded margins"),
     (0x080948C4, "Func_94820 lower-Y BLT: admit the top margin"),
     (0x080948C8, "Func_94820 upper-Y BGT: admit the bottom margin"),
@@ -74,31 +78,33 @@ REVIEWED_CONDITIONAL_BRANCH_OVERRIDES = (
     (0x08094F26, "Func_94e7c screen-X BHI: admit the expanded margins"),
     (0x08094F2E, "Func_94e7c lower-Y BLT: admit the top margin"),
     # Func_9b86c draws one field particle (the Djinni-join sparkles) only
-    # while its 16.16 centre is inside x -32..271, y -32..223
-    # (runner_main.cpp, golden_sun_particle_sprite_branch). X and lower-Y.
+    # while its 16.16 centre is inside x -32..271, y -32..223. Only the X and
+    # lower-Y tests are listed. See runner_main.cpp,
+    # golden_sun_particle_sprite_branch.
     (0x0809B8C2, "Func_9b86c screen-X BHI: admit the expanded margins"),
     (0x0809B8C8, "Func_9b86c lower-Y BLE: admit the top margin"),
-    # The battle reward tally's drop roll (Func_c24f0, FACTS.md 2026-09-25):
-    # the cheat menu's Item Drops multiplier decides it on a scaled threshold.
+    # The drop roll in the battle reward tally (Func_c24f0). The cheat menu's
+    # Item Drops multiplier decides it, using a scaled threshold.
     (0x080C26BE, "Func_c24f0 drop roll BLE: cheat menu drop multiplier"),
-    # The player's field walking routine (Func_ebec, FACTS.md 2026-10-23):
-    # the developers' debug byte + L path skips every wall and people test;
-    # the developer-only Walk through walls cheat takes it.
+    # The player's field walking routine (Func_ebec). The developers' debug
+    # byte plus the L key skips every wall and people test. The
+    # developer-only Walk through walls cheat takes that path.
     (0x0800ED22, "Func_ebec debug-byte BEQ: Walk through walls (developer cheat)"),
     (0x0800ED34, "Func_ebec debug L-key BEQ: Walk through walls (developer cheat)"),
-    # Field camera clamp (Func_10230, FACTS.md 2026-10-01): in the expanded
-    # view the camera keeps the whole view inside the room.
+    # Field camera clamp (Func_10230). In the expanded view, the camera keeps
+    # the whole view inside the room.
     (0x08010262, "Func_10230 camera min-X BGE: clamp the expanded view"),
     (0x0801027E, "Func_10230 camera min-Y BGE: clamp the expanded view"),
     (0x0801007C, "Func_10000 camera max-X BLE: clamp the expanded view"),
     (0x08010088, "Func_10000 camera max-Y BLE: clamp the expanded view"),
-    # Spark Plasma's spark loop (FACTS.md 2026-10-02): sparks it moves past
-    # its canvas are handed to the host spark capture. Decisions unchanged.
+    # Spark Plasma's spark loop. Sparks it moves past the edge of its canvas
+    # are handed to the host spark capture. The branch decisions are
+    # unchanged.
     (0x080D4532, "Spark Plasma spark x < 0 BLT: observe the skipped spark"),
     (0x080D4536, "Spark Plasma spark x > 119 BGT: observe the skipped spark"),
     (0x080D453A, "Spark Plasma spark y < 0 BLT: observe the skipped spark"),
-    # The same spark-loop shape in nine more spell routines (FACTS.md
-    # 2026-10-02): the x and y bounds tests that skip the stamp call.
+    # The same spark-loop shape appears in nine more spell routines. These are
+    # the x and y bounds tests that skip the stamp call.
     (0x080CE438, "Spell spark loop (stamp 0x080CE476) x BHI: observe the skipped spark"),
     (0x080CE43C, "Spell spark loop (stamp 0x080CE476) y < 0 BLT: observe the skipped spark"),
     (0x080D4B7E, "Supernova spark x BHI: observe the skipped spark"),
@@ -129,9 +135,11 @@ REVIEWED_CONDITIONAL_BRANCH_OVERRIDES = (
     (0x08020710, "Nine save files: file box Down: mode 5 not Clear Data BEQ: stop on every file (save_files_tbs.h)"),
 )
 
-# Instant text as a fourth Message-speed choice (value 3). The settings screen
-# wraps each option by the choice count it stores at setup; the runner raises
-# only Message speed's count, and only while the launcher option is on.
+# Instant text as a fourth Message-speed choice (value 3).
+#
+# The settings screen wraps each option around by the choice count it stores
+# at setup. The runner raises only Message speed's count, and only while the
+# launcher option is on.
 REVIEWED_THUMB_ALU_IMMEDIATE_OVERRIDES = (
     (0x080F9F52, "Local intro music: title player's left gain MOVS R0,#255 ->0 only with active local playback; other music/effects unchanged"),
     (0x080F9F66, "Local intro music: title player's right gain MOVS R0,#255 ->0 with the same playback and R5 ownership guards"),
@@ -152,9 +160,9 @@ REVIEWED_THUMB_ALU_IMMEDIATE_OVERRIDES = (
     (0x0808FDCA, "Func_8f52c iris row adds r3,r5,#0: no wrap below the screen"),
 )
 
-# The ROM speed tables hold three entries; index 3 reads the next table's
-# bytes. The runner re-bases these two table loads so value 3 reads Fast's
-# entry instead.
+# The ROM speed tables hold three entries, so index 3 would read the next
+# table's bytes. The runner re-bases these two table loads so that value 3
+# reads Fast's entry instead.
 REVIEWED_THUMB_LITERAL_OVERRIDES = (
     (0x08016E56, "Dialogue delay table 0x08073808 load, indexed by Message speed"),
     (0x08093332, "Battle text table 0x0809FC28 load, indexed by Message speed"),
@@ -176,14 +184,16 @@ REVIEWED_THUMB_LITERAL_OVERRIDES = (
     (0x08094958, "Func_94820 rain spawn offset -128: centre the rain on the expanded view"),
 )
 
-# ROM functions that strict-static execution has shown to take an asynchronous
-# IRQ return at an interior instruction. Listing individual PCs for these was a
-# crawl (each build surfaced the next instruction of the same loop), so the
-# whole ELF-bounded function is declared instead and `derive_resume_ranges`
-# splits it around its own `$d` literal pools. Membership still requires an
-# observed resume: this is not a whole-program policy.
+# ROM functions that strict-static execution has shown to take an
+# asynchronous IRQ return at an interior instruction.
+#
+# Listing individual PCs for these would never finish: each build surfaces
+# the next instruction of the same loop. So the whole ELF-bounded function is
+# declared instead, and `derive_resume_ranges` splits it around its own `$d`
+# literal pools. A function is listed only after a resume has been observed
+# in it; this is not a whole-program policy.
 REVIEWED_RESUME_FUNCTIONS = (
-    # Session 20260924_142353 healed 0x0800bb6c and 0x080c9d54 (thumb, each
+    # Runtime compiles at 0x0800bb6c and 0x080c9d54 (thumb, each
     # bridged once): interior PCs of the ELF functions below.
     {
         "addr": 0x0800BB20,
@@ -195,7 +205,7 @@ REVIEWED_RESUME_FUNCTIONS = (
         "mode": "thumb",
         "note": "observed resume at 0x080c9d54 (Func_c9ca8+0xac)",
     },
-    # Session 20260924_111847 healed 0x08006ff4 (thumb, bridged at top level,
+    # A runtime compile at 0x08006ff4 (thumb, bridged at top level,
     # LR 0x08006b74): the instruction after `ldrh r0,[r6]` in the polling
     # loop of Func_6f84 (ELF 0xa4 bytes, interior $d pools).
     {
@@ -203,8 +213,8 @@ REVIEWED_RESUME_FUNCTIONS = (
         "mode": "thumb",
         "note": "observed resume at 0x08006ff4 (Func_6f84+0x70)",
     },
-    # Runtime-compiled at interior PCs in sessions 20260923_101919 and
-    # _114927; each miss PC lies inside the sized ELF STT_FUNC listed.
+    # Runtime-compiled at interior PCs in two recorded sessions;
+    # each miss PC lies inside the sized ELF STT_FUNC listed.
     {
         "addr": 0x080F3078,
         "mode": "thumb",
@@ -255,9 +265,8 @@ REVIEWED_RESUME_FUNCTIONS = (
         "mode": "thumb",
         "note": "observed resume at 0x080ba974 (Func_ba918+0x5c)",
     },
-    # Runtime-compiled at their interior PCs in normal play (sessions
-    # 20260923_090349 and _093557, "SELF-HEAL bridge entered at top level");
-    # each miss PC lies inside the sized ELF STT_FUNC listed.
+    # Runtime-compiled at their interior PCs in normal play (two recorded
+    # sessions, logged as a bridge entered at top level); each miss PC lies inside the sized ELF STT_FUNC listed.
     {
         "addr": 0x08005AE0,
         "mode": "thumb",
@@ -293,7 +302,7 @@ REVIEWED_RESUME_FUNCTIONS = (
         "mode": "thumb",
         "note": "observed resume at 0x080219a6 (Func_21950+0x56)",
     },
-    # Second crawl iteration on the 2026-08-08 fight route: surfaced once the
+    # Found on a recorded fight route once the
     # first pair below was seeded. Each verified against the pinned ELF:
     # containing sized STT_FUNC, miss PC inside that function's $t run.
     {
@@ -311,7 +320,7 @@ REVIEWED_RESUME_FUNCTIONS = (
         "mode": "thumb",
         "note": "observed resume at 0x080c0b9a (Func_c0a24+0x176)",
     },
-    # Observed on the 2026-08-08 fight route after the corpus dedup fix. Both
+    # Observed on the same fight route. Both
     # verified against the pinned ELF: containing sized STT_FUNC, and the miss
     # PC sits inside that function's $t (THUMB) mapping run, not a $d run.
     {
@@ -447,8 +456,8 @@ REVIEWED_RESUME_FUNCTIONS = (
         ),
     },
     # Reached only once the position-independent RAM images cleared the
-    # relocatable pool: the campaign run no longer stops at a moving RAM base,
-    # so the next boundary is an ordinary ROM-space interior entry. Trace
+    # relocatable pool: the campaign run then no longer stops at a moving RAM
+    # base, so the next boundary is an ordinary ROM-space interior entry. Trace
     # #9814457 dispatches 0x08096a74 with r3 = 0x08096a74, i.e. a computed
     # target inside the ELF-sized Func_96960 (0x08096960, size 0x150).
     {
@@ -505,7 +514,7 @@ REVIEWED_RESUME_FUNCTIONS = (
     # Frame-boundary resume in WINDOWED play. Only reachable with
     # GBARECOMP_PRESENT_IN_PLACE=0, i.e. on the unwind-and-redispatch path;
     # present-in-place hid this class by never unwinding, at the cost of an
-    # unbounded host stack (see engine/docs/DEBUGGING.md).
+    # unbounded host stack.
     {
         "addr": 0x080040E8,
         "mode": "thumb",
@@ -513,12 +522,12 @@ REVIEWED_RESUME_FUNCTIONS = (
     },
     # Beyond 5,400 frames: the campaign track is fully static through 5,400, and
     # these are what the 10,800-frame extension of it finds.
-    # Seeded since the finder's BL-as-long-branch fix (engine/src/recompile/
-    # function_finder.cpp, direct_call_continuation).
+    # Seeded after the function finder learned to treat BL as a long branch
+    # (engine/src/recompile/function_finder.cpp, direct_call_continuation).
     # Func_a2680's ELF extent (0xc38, ending exactly at Func_a32b8), THUMB
     # mode, the $d pad at 0x080a29fa, the 13-word literal pool at
     # 0x080a29fc and the $t resume at 0x080a2a30 were measured and match the
-    # ROM/ELF bytes exactly. See docs/GS011_TRANSIENT_IMAGES.md.
+    # ROM/ELF bytes exactly.
     {
         "addr": 0x080A2680,
         "mode": "thumb",
@@ -610,11 +619,10 @@ REVIEWED_RESUME_FUNCTIONS = (
         "mode": "thumb",
         "note": "observed resume at 0x0801dfb2 (Func_1de5c+0x156)",
     },
-    # Third play-session batch: everything still translated AT RUNTIME
-    # during the Mt. Aleph boulder scene, enumerated from a cold-cache
-    # replay of the player's own recorded input. This is the stutter the
-    # player reported as 'MASSIVE slowdowns' - 70 runtime compiles across
-    # 16 containing routines.
+    # Everything still translated AT RUNTIME during the Mt. Aleph boulder
+    # scene, enumerated from a cold-cache replay of recorded input. This
+    # caused visible slowdowns: 70 runtime compiles across 16 containing
+    # routines.
     {
         "addr": 0x030003E0,
         "mode": "arm",
@@ -685,9 +693,8 @@ REVIEWED_RESUME_FUNCTIONS = (
         "mode": "thumb",
         "note": "observed resume at 0x0809205c (Func_92054+0x8)",
     },
-    # Second play-session batch: the sages' psynergy scene at Mt. Aleph.
-    # These were being translated AT RUNTIME mid-scene, which is what made
-    # the spell stutter - the player was watching a C compiler run.
+    # The sages' psynergy scene at Mt. Aleph. These were being translated
+    # AT RUNTIME mid-scene, which made the spell stutter.
     {
         "addr": 0x08003D28,
         "mode": "thumb",
@@ -728,8 +735,8 @@ REVIEWED_RESUME_FUNCTIONS = (
         "mode": "thumb",
         "note": "observed resume at 0x08094858 (Func_94820+0x38)",
     },
-    # THE FIRST FAILURE in that play session, and the one everything else
-    # followed from. Self-heal could not repair ARM 0x030001F0 ("function
+    # The first failure in that play session, and the one everything else
+    # followed from. Run-time compiling could not handle ARM 0x030001F0 ("function
     # finder found no entry at the miss PC") so it ran on the interpreter
     # bridge all session. ELF Func_948 sits at RUNTIME 0x030001d8 size 0x3c
     # with a single $a and no interior $d - the IWRAM image's symbols are
@@ -740,10 +747,10 @@ REVIEWED_RESUME_FUNCTIONS = (
         "mode": "arm",
         "note": "observed play-session resume at 0x030001f0 (Func_948+0x18)",
     },
-    # Batch promoted from a REAL play session (Mt. Aleph prologue, the
-    # sages' psynergy scene). Each is an interior resume inside an
-    # ELF-sized STT_FUNC, resolved from that session's own SELF-HEAL log
-    # by tools/resolve_miss_functions.py. Play found these; the scripted
+    # Batch from a real play session (Mt. Aleph prologue, the sages'
+    # psynergy scene). Each is an interior resume inside an ELF-sized
+    # STT_FUNC, resolved from that session's own run-time compile log by
+    # tools/resolve_miss_functions.py. Play found these; the scripted
     # campaign track never reached them.
     {
         "addr": 0x08003DEC,
@@ -855,7 +862,7 @@ REVIEWED_RESUME_FUNCTIONS = (
     # scan_veneer_stubs/derive_veneer_resume_points instead of hand-seeded
     # here. See THUMB_LDR_R4_PC0/THUMB_BX_R4 above.
     #
-    # ROM-space self-heal misses from two real play sessions. Each resolved via
+    # ROM-space run-time compile misses from two real play sessions. Each resolved via
     # tools/resolve_miss_functions.py to a sized ELF STT_FUNC with a $t
     # mapping symbol at the containing function's entry matching the observed
     # thumb mode, and the miss PC itself sits strictly between that $t and the
@@ -928,7 +935,7 @@ REVIEWED_RESUME_FUNCTIONS = (
         "mode": "thumb",
         "note": "observed resume at 0x08091296 (Func_91294+0x2)",
     },
-    # First scripted-fight battle-scene session, ROM-space misses only (RAM-
+    # A scripted-fight battle-scene session, ROM-space misses only (RAM-
     # space misses from the same session are a separate investigation). 13
     # observed PCs collapse into 4 containing STT_FUNC symbols. Entry mapping
     # symbols verified ($t at each function start, matching the observed
@@ -960,8 +967,8 @@ REVIEWED_RESUME_FUNCTIONS = (
         "mode": "thumb",
         "note": "observed resume at 0x080be76c (Func_be378+0x3f4)",
     },
-    # Save-state-1 play session at frame 9,066, 2026-08-08. These are the
-    # only self-heals from that run whose identities and extents are static:
+    # A save-state play session at frame 9,066. These are the
+    # only run-time compiles from that run whose identities and extents are static:
     # three ARM functions in the boot [[code_copy]], plus fourteen ROM THUMB
     # functions. The observed PCs were checked against their sized ELF
     # STT_FUNC and mapping-symbol runs. Runtime-generated code at 0x03006000+
@@ -1072,10 +1079,10 @@ REVIEWED_RESUME_FUNCTIONS = (
             "State-8 strict-static IRQ resume at Func_f2ebc+0x36; whole "
             "ELF-bounded THUMB run reviewed through the 0x080f2f08 literal pool"
         ),
-    },    # Real-play progression into Sol Sanctum, 2026-08-09. The process was
+    },    # Real-play progression into Sol Sanctum. The process was
     # terminated with STATUS_APPLICATION_HANG before its shutdown-only miss
     # fragment could be written, so the observed PCs were recovered from the
-    # session log and its newly written self-heal cache entries. All ROM PCs
+    # session log and its newly written run-time compile cache entries. All ROM PCs
     # resolve to sized ELF STT_FUNC symbols and sit in $t runs; the IWRAM PC is
     # in the declared boot code-copy and resolves to Func_984's $a run. None of
     # the THUMB PCs is a BL suffix.
@@ -1159,8 +1166,8 @@ REVIEWED_RESUME_FUNCTIONS = (
         "mode": "thumb",
         "note": "observed resume at 0x080a1a56 (Func_a1a40+0x16)",
     },
-    # Real-play progression from state 6 through the Vale bandit sequence
-    # (session_20260813_172202).  Each miss below resolves to a sized pinned-
+    # Real-play progression from state 6 through the Vale bandit sequence.
+    # Each miss below resolves to a sized pinned-
     # ELF STT_FUNC; every observed PC is in a $t run and none is a BL suffix.
     # 0x0800d1c2 and the unsized 0x08002338/0x08002340 are deliberately
     # excluded because the first is in a $d run and the latter two have no
@@ -1213,7 +1220,7 @@ REVIEWED_RESUME_FUNCTIONS = (
     {"addr": 0x080E3908, "mode": "thumb", "note": "observed resumes at 0x080e390a..0x080e391c (Func_e3908)"},
     {"addr": 0x080E3AA0, "mode": "thumb", "note": "observed resumes at 0x080e4018 and 0x080e402c (Func_e3aa0)"},
     {"addr": 0x080E47B8, "mode": "thumb", "note": "observed resumes at 0x080e4ab8 and 0x080e4ad0 (Func_e47b8)"},
-    # session_20260923_171845; each miss PC lies inside the sized ELF STT_FUNC
+    # Another recorded session; each miss PC lies inside the sized ELF STT_FUNC
     # listed (all thumb). Resolved with tools/resolve_miss_functions.py.
     {"addr": 0x080041D8, "mode": "thumb", "note": "observed resume at 0x08004214 (Func_41d8+0x3c)"},
     {"addr": 0x0800447C, "mode": "thumb", "note": "observed resumes at 0x08004496 and 0x080044c6 (Func_447c)"},
@@ -1227,17 +1234,17 @@ REVIEWED_RESUME_FUNCTIONS = (
     {"addr": 0x08016178, "mode": "thumb", "note": "observed resume at 0x080161fc (Func_16178+0x84)"},
     {"addr": 0x0808B868, "mode": "thumb", "note": "observed resume at 0x0808b8a0 (Func_8b868+0x38)"},
     {"addr": 0x080D41A4, "mode": "thumb", "note": "observed resumes at 0x080d4434, 0x080d452e and 0x080d457c (Func_d41a4)"},
-    # session_20260923_202001; miss PC lies inside the sized ELF STT_FUNC
+    # Another recorded session; miss PC lies inside the sized ELF STT_FUNC
     # listed (thumb). Resolved with tools/resolve_miss_functions.py.
     {"addr": 0x080F377C, "mode": "thumb", "note": "observed resume at 0x080f3798 (Func_f377c+0x1c)"},
-    # session_20261005_130544 (intro played with uncapped speed): 40 thumb
+    # A session with the intro played at uncapped speed: 40 thumb
     # PCs bridged at top level, all inside the two sized ELF STT_FUNCs below.
     # Resolved with tools/resolve_miss_functions.py.
     {"addr": 0x080AB5E4, "mode": "thumb", "note": "observed resumes at 0x080abda0..0x080ac19c, 32 PCs (Func_ab5e4)"},
     {"addr": 0x080AD6D4, "mode": "thumb", "note": "observed resumes at 0x080adcd0..0x080addea, 8 PCs (Func_ad6d4)"},
     # Older heals still served from recomp_cache with no static entry
-    # (cache dated 2026-09-26..09-30, 51 PCs; called 48 times in
-    # session_20261005_135417). Resolved with tools/resolve_miss_functions.py.
+    # (51 PCs; called 48 times in
+    # one session). Resolved with tools/resolve_miss_functions.py.
 {"addr": 0x080056CC, "mode": "thumb", "note": "observed resumes at 0x0800576a..0x080057f8, 2 PCs (Func_56cc)"},
     {"addr": 0x08005C08, "mode": "thumb", "note": "observed resume at 0x08005c22 (Func_5c08)"},
     {"addr": 0x0800FB38, "mode": "thumb", "note": "observed resume at 0x0800fbba (Func_fb38)"},
@@ -1254,11 +1261,12 @@ REVIEWED_RESUME_FUNCTIONS = (
     {"addr": 0x080DE2F8, "mode": "thumb", "note": "observed resumes at 0x080de4c4..0x080de55a, 6 PCs (Func_de2f8)"},
 )
 
-# Explicit mid-function resume entries require runtime evidence. This PC is the
-# first GS-010 strict-static boundary: native and mGBA architectural state agree
-# through the preceding instruction at 0x080047AC, whose tick reaches VBlank;
-# the headless runtime then unwinds before executing 0x080047AE. The containing
-# THUMB body begins at 0x080047A4.
+# Explicit mid-function resume entries require runtime evidence. This PC is
+# the first strict-static boundary:
+#   - Native and mGBA architectural state agree through the preceding
+#     instruction at 0x080047AC, whose tick reaches VBlank.
+#   - The headless runtime then unwinds before executing 0x080047AE.
+#   - The containing THUMB body begins at 0x080047A4.
 REVIEWED_RESUME_POINTS = (
     {
         "addr": 0x03000C70,
@@ -1333,13 +1341,14 @@ REVIEWED_RESUME_POINTS = (
     # Func_6878 spins two identical four-instruction flash-timing delay loops,
     # 0x080068ac..0x080068b6 and 0x080068f8..0x08006902. A VBlank IRQ can land
     # on any instruction of either loop, so the headless runtime re-enters at
-    # any of their aligned THUMB boundaries; the crawl produced one wall per
-    # build until every boundary was covered. Every PC below is an exact
-    # instruction start that ELF disassembly of the bounded function
-    # 0x08006878..0x08006910 decodes as THUMB, with no `$d` transition in
-    # either loop. The finder already roots host bodies at 0x080068ac,
-    # 0x080068b0, 0x080068b4, 0x080068f8, 0x080068fc, 0x080068fe and
-    # 0x08006900, so only the remaining five need explicit aliases.
+    # any of their aligned THUMB boundaries. Listing them one by one hit a
+    # new wall every build until every boundary was covered.
+    #
+    # Every PC below is an exact instruction start. ELF disassembly of the
+    # bounded function 0x08006878..0x08006910 decodes it as THUMB, with no
+    # `$d` transition in either loop. The finder already roots host bodies at
+    # 0x080068ac, 0x080068b0, 0x080068b4, 0x080068f8, 0x080068fc, 0x080068fe
+    # and 0x08006900, so only the remaining five need explicit aliases.
     *(
         {
             "addr": addr,
@@ -1451,11 +1460,13 @@ REVIEWED_RESUME_POINTS = (
     ),
 )
 
-# Static entries omitted by the ELF symbol table require both an observed
-# control-flow target/mode and an independently proven immutable source
-# mapping. GS-011 reaches the IWRAM IRQ handler through the real BIOS vector:
-# native and mGBA agree on PC 0x03000000 with CPSR.T clear. The containing
-# executable PT_LOAD maps that runtime address to ROM 0x08000770.
+# Static entries omitted by the ELF symbol table need two things: an observed
+# control-flow target and mode, and an independently proven immutable source
+# mapping.
+#
+# Here, the strict-static run reaches the IWRAM IRQ handler through the real
+# BIOS vector. Native and mGBA agree on PC 0x03000000 with CPSR.T clear. The
+# containing executable PT_LOAD maps that runtime address to ROM 0x08000770.
 REVIEWED_STATIC_SEEDS = (
     {
         "addr": 0x0800CACC,
@@ -1636,10 +1647,12 @@ REVIEWED_STATIC_SEEDS = (
             "entry Func_8d4 at 0x03000164"
         ),
     },
-    # Func_1af8 masks r2 to one of 0x00..0xe0 in steps of 0x20, subtracts
-    # that value from 0xf0, then executes ``add pc, r12, lsr #2`` at runtime
-    # 0x03001394. With the ARM visible PC of 0x0300139c, this produces exactly
-    # the eight entries below into its unrolled LDM/STM copy sequence.
+    # Func_1af8 copies with an unrolled LDM/STM sequence. It:
+    #   1. masks r2 to one of 0x00..0xe0 in steps of 0x20,
+    #   2. subtracts that value from 0xf0, and
+    #   3. executes ``add pc, r12, lsr #2`` at runtime 0x03001394.
+    # With the ARM visible PC of 0x0300139c, this produces exactly the eight
+    # entries below into the copy sequence.
     *(
         {
             "addr": addr,
@@ -1658,11 +1671,12 @@ REVIEWED_STATIC_SEEDS = (
         }
         for addr in range(0x030013A0, 0x030013E0, 8)
     ),
-    # Func_8d8 uses ``add pc, pc, r12, lsr #3`` at runtime 0x03000190
-    # after reducing r12 to 0xe0 - (r1 & 0xe0).  The decoded, hash-matched
+    # Func_8d8 uses ``add pc, pc, r12, lsr #3`` at runtime 0x03000190, after
+    # reducing r12 to 0xe0 - (r1 & 0xe0). The decoded, hash-matched
     # instruction therefore has exactly these eight possible ARM targets.
     # They enter the consecutive STMIA sequence in the same immutable PT_LOAD
-    # image; 0x030001b4 is also independently observed in the GS-011 oracle.
+    # image. 0x030001b4 is also independently observed in the strict-static
+    # run.
     *(
         {
             "addr": addr,
@@ -1683,7 +1697,7 @@ REVIEWED_STATIC_SEEDS = (
     ),
 )
 
-# GS-011 self-heal discovery observed each exact ROM PC as a THUMB dispatch
+# Run-time discovery observed each exact ROM PC as a THUMB dispatch
 # miss, then compiled it natively from the hash-verified immutable ROM. These
 # are reviewed bootstrap roots for finder gaps; they are not inferred ranges.
 REVIEWED_DISPATCH_MISS_SEEDS = tuple(
@@ -1740,13 +1754,15 @@ REVIEWED_DISPATCH_MISS_SEEDS = tuple(
     )
 )
 
-# The decompression inner loop constructs one of three ARM instruction images
-# in IWRAM. At 0x030007FC it sets the write cursor to 0x03000828; the loop
-# through 0x03000818 copies one of the ELF-marked templates at 0x030008D4,
-# 0x030008EC, or 0x03000904 across the placeholder span ending at 0x030008B0.
-# Control then enters the synthesized image at 0x03000828. The immutable
-# 0xFEDCBA98 words remain data; this declaration only creates a real
-# external dispatch boundary for an identity-aware runtime hook.
+# The decompression inner loop builds one of three ARM instruction images in
+# IWRAM:
+#   1. At 0x030007FC it sets the write cursor to 0x03000828.
+#   2. The loop through 0x03000818 copies one of the ELF-marked templates
+#      (at 0x030008D4, 0x030008EC or 0x03000904) across the placeholder span
+#      that ends at 0x030008B0.
+#   3. Control then enters the synthesized image at 0x03000828.
+# The immutable 0xFEDCBA98 words remain data. This declaration only creates a
+# real external dispatch boundary for an identity-aware runtime hook.
 REVIEWED_RUNTIME_CODE_ENTRIES = (
     {
         "addr": 0x03000828,
@@ -1776,11 +1792,13 @@ REVIEWED_RUNTIME_CODE_ENTRIES = (
     },
 )
 
-# The second slot's placeholders are ROM `mov r0, r0` words the ELF marks as
-# code; the writer above replaces all four pairs before the loop runs, so the
-# ROM words are never executed. Declared data so the main corpus stops at the
-# slot instead of baking the placeholders in (the recompiler requires a
-# runtime_code_entry to begin inside such a range).
+# The second slot's placeholders are ROM `mov r0, r0` words that the ELF marks
+# as code. The writer above replaces all four pairs before the loop runs, so
+# the ROM words are never executed.
+#
+# The slot is declared as data so the main corpus stops at it instead of
+# baking the placeholders in. (The recompiler requires a runtime_code_entry
+# to begin inside such a range.)
 REVIEWED_RUNTIME_PLACEHOLDER_RANGES = (
     (0x03000A5C, 0x03000A64),
     (0x03000A68, 0x03000A70),
@@ -1791,9 +1809,9 @@ REVIEWED_RUNTIME_PLACEHOLDER_RANGES = (
     (0x03000BD8, 0x03000C70),
 )
 
-# Func_77320 bounds the selector to 0..5 before loading one absolute word
-# from 0x080779c4 and moving it to PC.  The table is ELF-marked `$d`; every
-# decoded target below is ELF-marked `$t`.  GS-011 strict-static execution and
+# Func_77320 bounds the selector to 0..5, loads one absolute word from the
+# table at 0x080779c4 and moves it to PC. The table is ELF-marked `$d`, and
+# every decoded target below is ELF-marked `$t`. Strict-static execution and
 # mGBA both observe the first target, 0x080779dc.
 REVIEWED_JUMP_TABLES = (
     {
@@ -1850,7 +1868,7 @@ REVIEWED_JUMP_TABLES = (
 # `verify_reviewed_pointer_tables` re-checks the literal words against the
 # hash-verified ROM, so a different image aborts instead of seeding silently.
 #
-# GS-011 strict-static stopped at one of these targets, 0x0800d7e8, in the run
+# A strict-static run stopped at one of these targets, 0x0800d7e8, in the run
 # immediately after Func_cacc was seeded. 49 of the 74 distinct targets are
 # absent from the corpus proven set purely because their declared extents carry
 # ELF-marked literal pools (`confidence = "unresolved"` in
@@ -1894,7 +1912,7 @@ REVIEWED_POINTER_TABLES = (
 )
 
 
-# GS-011 execution reaches the `rom_9000` cluster (0x08009000..0x0801404c):
+# Strict-static execution reaches the `rom_9000` cluster (0x08009000..0x0801404c):
 # Func_cacc, Func_c62c, the Data_13624/Data_136e0 handler tables and everything
 # they reach live there. Every wall since the Func_8fefc jump table has had the
 # same shape: an exact ELF STT_FUNC/$t entry that the corpus files as
@@ -1905,8 +1923,8 @@ REVIEWED_POINTER_TABLES = (
 # That is a corpus conservatism, not missing evidence: those symbols passed
 # every entry-level check (symtab value, mapping-symbol mode, PT_LOAD source,
 # alignment, non-overlap) and differ from the proven set only in their
-# interiors. Seeding the whole cluster at once avoids a one-function-per-build
-# crawl.
+# interiors. Seeding the whole cluster at once avoids adding one function
+# per build.
 #
 # Scope is every executable ROM section from the reset vector through
 # `rom_8a000`, plus `rom_a1000` and `rom_c9000`. `rom_a1000` and `rom_c9000`
@@ -1950,8 +1968,8 @@ REVIEWED_SEED_SECTIONS = (
 # and execution continues at site+4. The continuation is straight-line THUMB
 # code inside the same ELF-bounded function, but it is only ever reached by an
 # inter-mode dispatch, so it needs an explicit entry. This is the same situation as the
-# already reviewed 0x0800fca0, 0x0800fcb0 and 0x0801cc64/74/84 resumes. GS-011
-# strict-static stopped at exactly one of these, 0x0800cc94 (Func_cacc+0x1c8),
+# already reviewed 0x0800fca0, 0x0800fcb0 and 0x0801cc64/74/84 resumes. A
+# strict-static run stopped at exactly one of these, 0x0800cc94 (Func_cacc+0x1c8),
 # with r12 = 0x0800cc94 on the exchange into Func_888.
 #
 # Both the continuations and the `0x0000` alignment pads that precede odd-aligned
@@ -1971,7 +1989,7 @@ THUMB_BX_VALUE = 0x4700
 # `+0x2`, the `bx r4` halfword, is only ever reached by falling out of
 # `+0x0`, never by a discovery walk that starts there, so it needs the same
 # explicit resume treatment as the `MOV ip,pc; BX rN` continuations above.
-# GS-011 self-heal discovery hand-reviewed exactly one of these the expensive
+# Run-time discovery led to hand-review of exactly one of these the expensive
 # way (_Func_92054 @ 0x0808a080, resume 0x0808a082, in
 # REVIEWED_STATIC_SEEDS); `scan_veneer_stubs` derives the rest of the class
 # from the hash-verified ELF/ROM instead of listing them one build at a time.

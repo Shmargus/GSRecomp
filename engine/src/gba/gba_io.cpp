@@ -23,10 +23,11 @@ extern "C" int runtime_unpacker_slot_dma_begin(uint32_t dst_lo, uint32_t bytes);
 extern "C" void runtime_unpacker_slot_dma_end(uint32_t dst, uint32_t src,
                                               uint32_t bytes);
 
-// Always-on MMIO write-trace ring (memory and I/O accuracy). The statics are file-local and
-// follow the ring style of runtime_arm.cpp. The ring is allocated on the first
-// write. The cycle and pc stamps come from the recompiled-code runtime globals,
-// declared here so this library does not need the ArmCpuState layout.
+// Always-on MMIO write-trace ring (memory and I/O accuracy).
+//   - The statics are file-local and follow the ring style of runtime_arm.cpp.
+//   - The ring is allocated on the first write.
+//   - The cycle and pc stamps come from the recompiled-code runtime globals,
+//     declared here so this library does not need the ArmCpuState layout.
 extern "C" unsigned long long g_runtime_cycles;
 extern "C" uint32_t runtime_current_pc(void);
 
@@ -225,11 +226,14 @@ std::unordered_set<uint64_t>& warned_set() {
 
 }  // namespace
 
-// GBATEK § "GBA DMA Transfers" timing: transferring `units` data units costs
-// read 1N+(units-1)S + write 1N+(units-1)S bus cycles, plus a ~2-cycle startup.
-// N/S come from the source/dest region wait-states (GbaBus::access_cycles). The
-// region is taken from the start addresses (DMA blocks stay within one region in
-// practice; FIFO dest is fixed in IO). This is the cycle the CPU is stalled.
+// DMA transfer cost, per GBATEK § "GBA DMA Transfers" timing. Transferring
+// `units` data units costs read 1N+(units-1)S + write 1N+(units-1)S bus
+// cycles, plus a startup of about 2 cycles. This is how long the CPU is
+// stalled.
+// N and S come from the source and destination region wait-states
+// (GbaBus::access_cycles). The region is taken from the start addresses. In
+// practice DMA blocks stay within one region, and the FIFO destination is
+// fixed in IO.
 uint32_t GbaIo::dma_transfer_cost(uint32_t src, uint32_t dst, bool transfer_32,
                                   uint32_t units) const {
     if (!bus_ || units == 0) return 0;
@@ -302,13 +306,13 @@ void GbaIo::run_immediate_dma(int channel) {
     ++dma_runs_[channel];
     dma_words_[channel] += word_count;
 
-    // Always-on DMA-write watchpoint (MC-HP-002). DMA writes go straight through
-    // bus_->write*, bypassing the recompiled-code runtime_trace path, so the CPU
-    // memory-write watchpoint cannot see them. When GBARECOMP_DMA_WATCH_ADDR
-    // falls in a transfer's destination range, the channel, source, destination
-    // and value are reported. That makes a corrupt value written to RAM by DMA
-    // (for example an animation frame pointer) traceable. It only observes.
-    // -1 means disabled.
+    // Always-on DMA-write watchpoint. DMA writes go straight through
+    // bus_->write*, bypassing the recompiled-code runtime_trace path, so the
+    // CPU memory-write watchpoint cannot see them.
+    // When GBARECOMP_DMA_WATCH_ADDR falls in a transfer's destination range,
+    // the channel, source, destination and value are reported. That makes a
+    // corrupt value written to RAM by DMA (for example an animation frame
+    // pointer) traceable. It only observes. -1 means disabled.
     static long long dma_watch = -2;
     if (dma_watch == -2) {
         const char* e = std::getenv("GBARECOMP_DMA_WATCH_ADDR");
@@ -378,12 +382,14 @@ void GbaIo::run_immediate_dma(int channel) {
 
 // VBlank/HBlank-timed DMA. The CNT_H enable bit and the running SAD/DAD were
 // latched on the rising enable edge (in write16). This function does the
-// transfer, once per trigger: at each VBlank start for mode 1, and at each
-// visible-line HBlank start for mode 2. The running SAD/DAD
-// (dma_next_source_/dest_) carry across triggers, so an HBlank channel walks a
-// per-scanline source table, such as the WIN0H circle table that draws a
-// transition iris (MC-HP-003). Sound-FIFO mode 3 is handled separately
-// (run_sound_fifo_dma); DMA3 video-capture mode 3 is not modeled.
+// transfer once per trigger:
+//   - mode 1: at each VBlank start.
+//   - mode 2: at each visible-line HBlank start.
+// The running SAD/DAD (dma_next_source_/dest_) carry across triggers, so an
+// HBlank channel walks a per-scanline source table, such as the WIN0H circle
+// table that draws a transition iris.
+// Sound-FIFO mode 3 is handled separately (run_sound_fifo_dma). DMA3
+// video-capture mode 3 is not modeled.
 std::atomic<bool> g_hblank_dma_latch{false};
 std::atomic<bool> g_hblank_dma_cpu_write_wins{false};
 
@@ -876,12 +882,12 @@ void GbaIo::write16(uint32_t off, uint16_t v) {
             return;
         case IoReg::SIOCNT: {
             // SIO control. In Normal mode with the internal shift clock
-            // (bit 0 = 1), writing the start/busy bit (bit 7) kicks a
-            // transfer; on completion the bit auto-clears and, if bit 14
+            // (bit 0 = 1), writing the start/busy bit (bit 7) starts a
+            // transfer. On completion the bit clears itself and, if bit 14
             // (IRQ enable) is set, the Serial IRQ fires. Games (e.g. the
             // Minish Cap) re-arm it from the handler to get a periodic IRQ.
             // External-clock (slave) transfers never complete without a
-            // partner, so we don't arm those. (GBATEK § "SIO Normal Mode".)
+            // partner, so those are not armed. (GBATEK § "SIO Normal Mode".)
             uint16_t old = load_u16(&io_[off]);
             store_u16(&io_[off], v);
             bool start_edge    = (old & 0x0080u) == 0 && (v & 0x0080u) != 0;

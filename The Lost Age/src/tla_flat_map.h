@@ -1,11 +1,10 @@
 #pragma once
 
-// The flat world map (Select map; F12 tla_rewind_0072, 2026-10-21): the
-// margins of a widened view show more of the map around the console's
-// picture instead of the held sailing view.
+// The flat world map (Select map). The margins of a widened view show more of
+// the map around the console's picture, instead of the held sailing view.
 //
-// Measured (ROM SHA-1 b500663220cb9bf56b9f8e8c0c544f1d6fa3a824, 0072's 120
-// frames):
+// Measured (ROM SHA-1 b500663220cb9bf56b9f8e8c0c544f1d6fa3a824, over a
+// recorded 120 frames):
 // - The screen is mode 0 with BG0, BG1 and objects (DISPCNT 0x1340), BG1CNT
 //   0x8682 (256 colours), EWRAM+0x428 == 2. BG1 is a fixed 32x24 grid of
 //   tiles 0x100..0x3FF; the game scrolls by rewriting their graphics, so
@@ -23,14 +22,18 @@
 //   (0x2A4..0x1BD5E); rows 0..46 are format 0, row 47 format 1; every row
 //   unpacks to 4096 bytes. 0x080ECE40 clamps the scroll to x <= 0x110,
 //   y <= 0xE0, i.e. a 512x384 map.
-// - tla_rom::unpack (0x080128A8) reproduces the 22 rows 0072 holds (20..41)
+// - tla_rom::unpack (0x080128A8) reproduces the 22 rows the capture holds (20..41)
 //   byte for byte. Format 1 (row 47 only) has no live row to check against.
 // - The colours are the live BG palette, converted as the graphics card does
-//   (round(c * 255 / 31); every native BG1 pixel of 0072's frame_100).
+//   (round(c * 255 / 31); every native BG1 pixel of one measured frame).
 //
-// Every frame the rows the game itself shows are compared with the unpacked
-// map; any difference, file 0x23 (not measured), a window, or an alpha blend
-// over BG1 (not measured) paints black margins. Black outside the map.
+// Every frame, the rows the game itself shows are compared with the unpacked
+// map. Black margins are painted if any of these holds:
+//   - the rows differ,
+//   - file 0x23 is in use (not measured),
+//   - a window is active,
+//   - an alpha blend is over BG1 (not measured).
+// Outside the map the margins are black.
 
 #include <algorithm>
 #include <array>
@@ -58,7 +61,7 @@ constexpr std::size_t kFileSwitch = 0x2A640u;       // EWRAM 0x0202A640
 // At VOFS 0xE0, the initial loader (0x080ECE40, call at 0x080ECF18) and
 // scroll loader (0x080ECF74, call at 0x080ECFD0) both ask for row 48 of 0x24.
 // That reads file + 0x3EB90000 (open bus) into slot 24, past the ring.
-// The row is offscreen. See the 2026-11-02 and 2026-11-03 reports.
+// The row is offscreen.
 inline bool past_table(const std::uint8_t* rom, std::size_t rom_bytes, unsigned file,
                        std::uint32_t src) {
     std::size_t at = 0;

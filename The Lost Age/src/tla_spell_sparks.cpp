@@ -1,18 +1,16 @@
 // Golden Sun: The Lost Age -- spell sparks past the console's canvas.
 //
-// Golden Sun 1's skipped-spark capture (its FACTS.md, 2026-10-02), re-found
-// on this ROM (FACTS.md, 2026-10-08). Twelve battle spell routines (kLoops)
+// The Broken Seal's skipped-spark capture, re-found
+// on this ROM (FACTS.md). Twelve battle spell routines (kLoops)
 // move a particle record, then run bounds tests (x past the canvas, y < 0)
 // that jump straight to the instruction after the stamp call. A spark that
 // left the 128x128 canvas therefore keeps moving but is not drawn. Here the
 // stamp call is
-// `mov lr, rN` / `bl lr` (0xF800), not GS1's `bl 0x080072F4` (`bx r4`).
-// Plasma's loop is 0x08149A84..0x08149B0C (found on the bench: in state 2
-// with Plasma, the stack at the frame wait held 0x08149B2F). The other ten
+// `mov lr, rN` / `bl lr` (0xF800), not the Broken Seal's `bl 0x080072F4` (`bx r4`).
+// Plasma's loop is 0x08149A84..0x08149B0C (found while running: with Plasma, the stack at the frame wait held 0x08149B2F). The other ten
 // were found by searching the whole ROM for the same shape: of 2075 `bl lr`
 // calls, these are the ones with a bounce `b` to the join plus x and y
-// bounds tests that branch to it. Supernova was found later from GS1's loop
-// (FACTS.md, 2026-10-30).
+// bounds tests that branch to it. Supernova was found later from the Broken Seal's loop.
 //
 // On a taken test the game's own skipped path is dry-run (dry_run.h):
 // the remaining bounds tests are treated as passed, and at the stamp call
@@ -41,7 +39,7 @@ struct SkippedSparkLoop {
 };
 const SkippedSparkLoop kLoops[] = {
     {{TLA_ROM(0x08149AFEu), 0u}, TLA_ROM(0x08149B00u), {TLA_ROM(0x08149AB8u), TLA_ROM(0x08149ABCu), TLA_ROM(0x08149AC0u)}},  // Plasma
-    // Supernova: GS1's loop instruction for instruction; each test jumps to
+    // Supernova: the Broken Seal's loop instruction for instruction; each test jumps to
     // its own reload tail, not the join, so the shape sweep missed it.
     {{TLA_ROM(0x0814A150u), 0u}, TLA_ROM(0x0814A152u), {TLA_ROM(0x0814A10Au), TLA_ROM(0x0814A10Eu), 0u}},
     {{TLA_ROM(0x0814A732u), 0u}, TLA_ROM(0x0814A734u), {TLA_ROM(0x0814A6E8u), TLA_ROM(0x0814A6EEu), TLA_ROM(0x0814A6F2u)}},

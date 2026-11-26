@@ -63,7 +63,7 @@ SEAM_WINDOW = 2048
 
 # Artist-reviewed seams for the exact distributed recording (SHA-256 of
 # the file). Other recordings of the same song still use the detector.
-# JusteD, 2026-10-31: Venus Lighthouse's similar A/B openings fooled it.
+# JusteD: Venus Lighthouse's similar A/B openings fooled it.
 REVIEWED_JUMPS = {
     ('tbs', 38, 'f5f20b712b190d85a6015066c156b2eaf448ee2bd57404e628fd612fb36e5255'):
         (7281013, 3643628),
@@ -283,9 +283,9 @@ def main(*, default_game: str = 'tbs') -> int:
         m = re.match(r'\d+-(\d+) .*\.(flac|wav)$', name, re.IGNORECASE)
         if m:
             files[int(m.group(1))] = os.path.join(args.music, name)
-    # TLA may loop a borrowed recording which TBS plays once. Such an
-    # exception belongs in TLA's manifest, using the qualified fallback ID.
-    # Other borrowed songs keep their existing TBS loop settings.
+    # The Lost Age may loop a borrowed recording which The Broken Seal plays
+    # once. Such an exception belongs in The Lost Age's manifest, using the qualified fallback ID.
+    # Other borrowed songs keep their existing Broken Seal loop settings.
     shared_once = set()
     if args.game == 'tla':
         shared = os.path.join(os.path.dirname(os.path.abspath(args.music)), 'TBS')

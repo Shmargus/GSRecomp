@@ -7,7 +7,9 @@
 #include <vector>
 #include "quality_of_life_menu.h"
 #include "gba_bus.h"
+#include "developer_session.h"
 #include "game_options.h"
+#include "host_config_ui.h"
 #include "runtime.h"
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
@@ -27,6 +29,15 @@ struct Game {
 inline const Game* game = nullptr;
 inline const gbarecomp::GameOptionSwitch* switches = nullptr;
 inline int switch_count = 0;
+// A game's switch table ends with Menu on Select only, then walking through
+// walls. Quality of Life lists every row but the last; F1 > Game lists the
+// last two, the last in developer sessions only.
+inline void set_switches(const gbarecomp::GameOptionSwitch* rows, int count) {
+    switches = rows;
+    switch_count = count - 1;
+    gbarecomp::config_ui_set_game_switches(rows + count - 2,
+                                           gbarecomp::developer_session() ? 2 : 1);
+}
 inline qol_menu::Widget menu;
 inline std::uint32_t hold_sp = 0;
 inline bool calling = false;

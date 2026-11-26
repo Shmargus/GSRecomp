@@ -4,11 +4,12 @@
 // The Lost Age/src/tla_save_files.cpp) and answers its own save layer; the
 // file box, the screens' file questions and the scrollbar are handled here.
 //
-// Both games build the box the same way (GS1 FACTS / TLA FACTS "Nine save
-// files"): picker(row, mode) with the row in r8, the result in r5, the
-// three 0x40-byte summaries in the save workspace, rows drawn once before the
-// loop, Up/Down through step(row + 2 or + 4, 3), and the screen's bobbing
-// title tab kept at [sp+0x10].
+// Both games build the box the same way (measured in both):
+//   - picker(row, mode) takes the row in r8 and leaves the result in r5.
+//   - The three 0x40-byte summaries are in the save workspace.
+//   - The rows are drawn once, before the loop.
+//   - Up/Down go through step(row + 2 or + 4, 3).
+//   - The screen's bobbing title tab is kept at [sp+0x10].
 #pragma once
 #include <algorithm>
 #include <array>
@@ -18,6 +19,7 @@
 #include <vector>
 #include "menu_text.h"
 #include "save_files.h"
+#include "save_record.h"
 #include "gba_bus.h"
 #include "runtime.h"
 #include "runtime_arm.h"
@@ -98,20 +100,6 @@ inline void set_base(const Game& g, int value) {
     set_window_base(e, value);
     bus()->save().mark_extension_dirty();
 }
-constexpr std::size_t kRecordHeader = 0x10;  // record bytes before the payload
-inline bool present(const std::uint8_t* record) {
-    return std::memcmp(record, "CAMELOT", 7) == 0;
-}
-// A record the game's own load would accept: present, and its +8 sum of the
-// first `summed` payload bytes matches (the rule answer_record writes). A
-// damaged file reads as absent, as the cartridge's damaged groups do; its
-// bytes stay in the extension until the player saves over it.
-inline bool valid(const std::uint8_t* record, std::size_t summed) {
-    if (!present(record)) return false;
-    std::uint32_t sum = 0;
-    for (std::size_t i = 0; i < summed; ++i) sum += record[kRecordHeader + i];
-    return (sum & 0xFFFFu) == static_cast<std::uint32_t>(record[8] | (record[9] << 8));
-}
 inline std::uint32_t workspace(const Game& g) { return bus()->read32(g.workspace); }
 
 // The cartridge's flash as it stands; empty when the game has none.
@@ -141,13 +129,18 @@ inline const std::uint8_t* newest_record(const std::vector<std::uint8_t>& flash,
     return newest;
 }
 
-// A file in the extension, answered as both games' save layers answer their
-// flash records (TBS 0x08005A78/0x08005920/0x08005AC0, TLA 0x08015E44/
-// 0x08015CA4/0x08015E8C). A record is `bytes` long: "CAMELOT", +7 `number`
-// (the block or slot the game names it by), +8 u16 sum of the first `summed`
-// payload bytes, +0xA generation (+1, back to 1 past 0xFDE8), payload from
-// +0x10. Load copies the record to the game's `image` and the payload to
-// r1; write takes the payload from r1. Returns to the game with its answer.
+// A file in the extension, answered the way both games' save layers answer
+// their flash records. The save-layer routines are:
+//   - The Broken Seal: 0x08005A78, 0x08005920, 0x08005AC0.
+//   - The Lost Age: 0x08015E44, 0x08015CA4, 0x08015E8C.
+// A record is `bytes` long and laid out as:
+//   - "CAMELOT" at the start,
+//   - +7 `number` (the block or slot the game names it by),
+//   - +8 u16 sum of the first `summed` payload bytes,
+//   - +0xA generation (+1 each save, back to 1 past 0xFDE8),
+//   - payload from +0x10.
+// Load copies the record to the game's `image` and the payload to r1. Write
+// takes the payload from r1. Both return to the game with its answer.
 enum class RecordCall { Load, Write, Erase };
 // Writes record `r` from the payload at guest `data`, as the save layers do.
 inline void fill_record(std::uint8_t* r, std::size_t bytes, std::size_t summed,
@@ -218,14 +211,17 @@ static_assert(sizeof kAutosaveName <= kNameBytes);
 // An empty Autosave row reads "No autosaved data" instead of the game's
 // usual empty-file line.
 //
-// How: the file box draws each row's line by calling the game's text routine
-// (Game::text) with the text id in r0 and the row's y (row * 16) in r3. For
-// an empty row that id is the literal at picker + empty_text (0 in both
-// games), and the routine then starts decoding the line under the same id
-// (TLA 0x08041FA4 -> 0x0803B094(id, 1); The Broken Seal 0x0801E74C ->
-// 0x08018038(id, 1)). When such a call is for the Autosave's row (row 0 of
-// the first window) we remember the id, and each game's text hook swaps in
-// our line for it. The next text call, or the box closing, forgets it again.
+// How it works:
+//   1. The file box draws each row's line by calling the game's text routine
+//      (Game::text) with the text id in r0 and the row's y (row * 16) in r3.
+//   2. For an empty row, that id is the literal at picker + empty_text (0 in
+//      both games). The routine then starts decoding the line under the same
+//      id (TLA 0x08041FA4 -> 0x0803B094(id, 1); The Broken Seal 0x0801E74C
+//      -> 0x08018038(id, 1)).
+//   3. When such a call is for the Autosave's row (row 0 of the first
+//      window), we remember the id, and each game's text hook swaps in our
+//      line for it.
+//   4. The next text call, or the box closing, forgets the id again.
 // Only the letters drawn change: no save is read or written.
 constexpr char kNoAutosave[] = "No autosaved data";
 struct AutosaveLine {
@@ -261,18 +257,23 @@ inline bool autosave_character(std::uint32_t text_id, std::uint32_t* character) 
     return true;
 }
 
-// Each file's row names the party leader, not the game's own
-// choice. The header builder (TBS 0x0801F818, TLA 0x08043358; the
-// same bytes in all ten ROMs) copies the 12-byte name of the field identity's
-// record (word 0x02000434 / 0x02000454: Isaac / Felix, even when he is not
-// in the party) to summary +0x10, and the party order's first four ids
-// (0x080796C4 / 0x080AFE78 from 0x02000438 / 0x02000458; 0xFF ends) to
-// +0x2C. So the leader is +0x2C, and his name is in the file's own character
-// records (ids 0..7, as the record lookups 0x08077394 / 0x08016CA4 take
-// them). Only the row's letters change; no save is read differently or
-// written. A cartridge file's record is the one the summary was copied from.
-// The builders take the level from record +0xF to summary +0x1C and the
-// class from record +0x129 to +0x1D (TBS 0x0801F890, TLA 0x080433CE).
+// Each file's row names the party leader, not the game's own choice.
+//
+// What the game does. The header builder (TBS 0x0801F818, TLA 0x08043358; the
+// same bytes in all ten ROMs) copies two things into the summary:
+//   - The 12-byte name of the field identity's record (word 0x02000434 /
+//     0x02000454: Isaac / Felix, even when he is not in the party), to
+//     summary +0x10.
+//   - The party order's first four ids (0x080796C4 / 0x080AFE78, from
+//     0x02000438 / 0x02000458; 0xFF ends), to +0x2C.
+// The builders also take the level from record +0xF to summary +0x1C, and
+// the class from record +0x129 to +0x1D (TBS 0x0801F890, TLA 0x080433CE).
+//
+// What we do. The leader is the id at +0x2C, and his name is in the file's
+// own character records (ids 0..7, as the record lookups 0x08077394 /
+// 0x08016CA4 take them). Only the row's letters change; no save is read
+// differently or written. A cartridge file's record is the one the summary
+// was copied from.
 constexpr std::size_t kLeaderAt = 0x2C, kSummaryOwnBytes = 0x38;
 constexpr std::size_t kLevelAt = 0x1C, kRecordLevel = 0xF;
 constexpr std::size_t kClassAt = 0x1D, kRecordClass = 0x129;
@@ -569,7 +570,7 @@ bool paint(const Game& g, Put& put, Pixel& pixel) {
     const int w = b->read16(g_picker.window + 8), h = b->read16(g_picker.window + 0xA);
     if (w < 3 || h < 3) return false;
     // Rows are 16 pixels from 4 inside the window's corner, the border 4
-    // wide (F12 0086, TBS: window tile (1, 2), rows from y 20). The
+    // wide (measured in The Broken Seal: window tile (1, 2), rows from y 20). The
     // window's blues become the same shades of red; letters, shadows and the
     // game's own highlight are not blue and stay.
     for (int row = 0; row < kRows; ++row) {

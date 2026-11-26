@@ -2,7 +2,7 @@
 // scene to FieldSceneRenderer::draw.
 //
 // The game and tla_frame_check.cpp share these draw steps, including the
-// wider camera bounds used at Lemuria's dock stairs (F12 0136). The caller
+// wider camera bounds used at Lemuria's dock stairs. The caller
 // reads back pixels and draws any extra margins.
 #pragma once
 
@@ -28,6 +28,7 @@
 #include "tla_world_climates.h"
 #include "tla_world_affine.h"
 #include "world_map_source.h"
+#include "../../shared_game/party_window_fade.h"
 
 // What one frame hands the renderer besides its scene. Pointers may be null
 // where a saved frame has no such section.
@@ -49,6 +50,8 @@ struct TlaFieldFrame {
     const std::uint16_t* room_palette = nullptr;
     std::size_t room_palette_entries = 0;
     bool menu_open = false;
+    // Fallen heroes' menu columns (party_window_fade.h).
+    gsr::party_window_fade::Fade fade;
     bool reveal_full = false;  // Better Field Psy: Reveal covers the whole view
     // Flicker reduction's weight for sprites shown every other frame
     // (FieldSceneRenderer::set_flicker_smoothing); 0 = off.
@@ -130,7 +133,7 @@ inline bool tla_field_draw(gsr::FieldSceneRenderer& renderer, gsr::FieldScene& s
         r.background = tla_background_margins(scene, margins, in.ewram, in.ewram_bytes);
         // Credits glow: one 256x128 picture, with a uniform outer colour
         // that carries the fade. Extend that border, never wrap the light
-        // into another copy (F12 0191). The held map stays beneath it.
+        // into another copy. The held map stays beneath it.
         if (in.ewram && in.ewram_bytes >= 0x42Au &&
             tla_beam_glow_frame(in.io, unsigned(in.ewram[0x428] | (in.ewram[0x429] << 8)))) {
             margins.layers[0].vram_height = 128;
@@ -150,6 +153,7 @@ inline bool tla_field_draw(gsr::FieldSceneRenderer& renderer, gsr::FieldScene& s
         renderer.upload_room_palette(in.room_palette, in.room_palette_entries);
     renderer.set_room_source_enabled(expanded);
     renderer.set_menu_open(in.menu_open);
+    gsr::party_window_fade::apply(renderer, in.fade);
     // Sprites shown on every other frame (sprite_flicker.h).
     renderer.set_flicker_smoothing(in.flicker_weight);
     renderer.set_reveal_full(in.reveal_full);

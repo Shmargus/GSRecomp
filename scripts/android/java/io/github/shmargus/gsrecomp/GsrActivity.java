@@ -129,6 +129,21 @@ public abstract class GsrActivity extends SDLActivity {
         });
     }
 
+    // While a game build runs: keep this process and its compilers at full
+    // speed in the background (BuildService). Any thread.
+    public void keepAwake(final boolean on) {
+        Class<?> service = this instanceof SessionActivity ? SessionBuildService.class : BuildService.class;
+        Intent intent = new Intent(this, service).putExtra("on", on);
+        try {
+            // Stopping goes through the service too (BuildService.onStartCommand).
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent);
+            else startService(intent);
+        } catch (Exception ignored) {
+            // Not allowed now (Android 12+ from the background): the build
+            // runs as before; nothing was started that needs stopping.
+        }
+    }
+
     // Request a display rate that matches the frame rate on Android 11+.
     // On resume, reapply it to the new surface.
     public void setFrameRate(float hz) {

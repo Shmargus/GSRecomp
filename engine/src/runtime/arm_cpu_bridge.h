@@ -6,13 +6,14 @@
 //   * armv4t::CPUState     (cpu_state.h):    the interpreter's view,
 //     CPSR as a bitfield, otherwise the same fields.
 //
-// Both keep the ACTIVE register window in R[0..15] and the inactive
-// copies in banked_sp/lr/spsr + r8_12_{user,fiq}; the bank-index order
-// is identical (User=0 .. Undefined=5 == armv4t::Bank_Count). So the
-// conversion is a field-by-field copy plus a CPSR pack/unpack; there is
-// no mode-swap step, because the source already has the correct window
-// live in R[] (the recompiler maintains this via runtime_msr_cpsr, the
-// interpreter via its own mode handling).
+// Both keep the ACTIVE register window in R[0..15] and the inactive copies in
+// banked_sp/lr/spsr + r8_12_{user,fiq}. The bank-index order is identical
+// (User=0 .. Undefined=5 == armv4t::Bank_Count).
+//
+// So the conversion is a field-by-field copy plus a CPSR pack/unpack. There is
+// no mode-swap step, because the source already has the correct window live in
+// R[]. The recompiler maintains this via runtime_msr_cpsr, and the interpreter
+// via its own mode handling.
 //
 // Used by the self-healing interpreter fallback (runtime_arm_default_aborts.cpp)
 // to enter the interpreter from recompiled state at a dispatch miss and write

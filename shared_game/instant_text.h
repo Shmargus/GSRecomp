@@ -3,7 +3,7 @@
 //
 // Each game hooks its own routines (The Broken Seal text_speed_cheat.h and
 // runner_main.cpp, The Lost Age src/tla_text_speed.cpp); the values below
-// are the same in both ROMs (each game's FACTS.md "Instant text").
+// are the same in both ROMs.
 #pragma once
 
 #include <cstdint>

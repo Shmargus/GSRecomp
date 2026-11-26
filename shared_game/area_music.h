@@ -97,7 +97,7 @@ public:
     // The accepted header store happens before ALL target-specific
     // initialisation. Both measured drivers still use R7 for the voicegroup,
     // tracks and reverb. The stored header and the R2 priority are left as
-    // the game requested them, because the game's StartOrContinue equality and
+    // the game requested them. The game's StartOrContinue equality and
     // priority checks must see their original input.
     void header_write(std::uint32_t pc, std::uint32_t address,
                       std::uint32_t source, std::uint32_t width) {
@@ -111,9 +111,9 @@ public:
     }
 
     // The frame-wait routine is outside the sound IRQ and already supports
-    // guest_call. Let the original MPlayStart initialise native audio when an
-    // area/choice changes; its accepted-store hook above also selects the
-    // recording. In particular, towns sharing a continued song stay separate.
+    // guest_call. When an area or choice changes, let the original MPlayStart
+    // initialise native audio. Its accepted-store hook above also selects the
+    // recording. This keeps towns that share a continued song separate.
     void on_entry(std::uint32_t pc) {
         if (pc != frame_ || restarting_) return;
         prepare_areas();
@@ -144,11 +144,13 @@ public:
     }
 
     void on_load() {
-        // Native track pointers in the state may belong to a previous choice.
-        // Reapply current preferences through the driver at the safe frame site.
-        // Untouched/default installations retain exact native music resume.
-        // Once this feature has been used, even an explicit Off must restore
-        // original tracks when loading a state made with a replacement.
+        // Native track pointers in the state may belong to a previous choice,
+        // so reapply the current preferences through the driver at the safe
+        // frame site. Two cases:
+        //   - Untouched/default installations retain exact native music resume.
+        //   - Once this feature has been used, even an explicit Off must
+        //     restore the original tracks when loading a state made with a
+        //     replacement.
         force_ = gbarecomp::game_option_get(gbarecomp::kOptionAreaMusic, -1) != -1;
         source_ = played_ = 0;
         music_.set_playback_header(0, 0);

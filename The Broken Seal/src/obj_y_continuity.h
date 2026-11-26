@@ -4,12 +4,11 @@
 // OAM keeps Y in 8 bits, so every raw value has two readings 256 apart.
 // The expanded view uses its current top and bottom margins. BOTH readings
 // can reach those bounds for tall sprites, and the providers' answer can put
-// the sprite on the wrong edge. Measured 2026-10-04 over every saved
+// the sprite on the wrong edge. Measured over every saved
 // capture (nine such moments): the Vale boulder falling in from the top
 // was drawn in the bottom margin for 2 frames and, flying out of the top,
-// drawn rising from the bottom for 6 (Steam Deck gpu_rewind_0007/0008); a
-// sprite leaving the bottom was drawn at the top for one frame
-// (gpu_rewind_0065, frame 103). In all nine the reading nearer the same
+// drawn rising from the bottom for 6; a
+// sprite leaving the bottom was drawn at the top for one frame. In all nine the reading nearer the same
 // sprite's previous-frame position is the right one.
 //
 // With no previous position, an ambiguous guess is held inside the console's
@@ -19,7 +18,7 @@
 // sign rule when no provider answered. A position taken from the game's own
 // record (provenance) or our position table stands, and so does a world-map
 // town the actor table placed. Other world-map sprites (a Psynergy's
-// sparkles rising off the top, gpu_rewind_0096) follow this rule too.
+// sparkles rising off the top) follow this rule too.
 #pragma once
 
 #include <array>
@@ -73,7 +72,7 @@ void apply_obj_y_continuity(FieldScene* scene, const std::uint8_t* oam,
     // A sprite moves a few pixels a frame (the boulder 6, the fastest seen
     // 8); the two readings are 256 apart, so this cannot pick the wrong one.
     constexpr int kMatchRadius = 24;
-    // Rewind and fast-forward skip frames: gpu_rewind_0065 holds every third.
+    // Rewind and fast-forward skip frames; one capture holds every third.
     constexpr std::uint64_t kMaxFrameGap = 4;
 
     const std::uint64_t frame = scene->frame;

@@ -1,7 +1,7 @@
 // Random Djinn, The Broken Seal's places (rules: shared_game/random_djinn.h,
 // one copy with The Lost Age).
 //
-// Measured, verified ROM (FACTS.md "Random Djinn", 21 November 2026):
+// Measured, verified ROM (FACTS.md "Random Djinn"):
 // - join 0x080955B0(r0, element, index): with flag 0x16E (the Djinn lesson)
 //   set it only sets the Djinni's flag; otherwise it calls the grant through
 //   the veneer 0x08077288 at 0x080955E6 (return 0x080955EA), plays the
@@ -11,8 +11,8 @@
 //   with 0x08079338 at 0x0807A11C (return 0x0807A120), set with 0x08079358
 //   at 0x0807A194 (return 0x0807A198).
 // - Flags from byte 0x02000040; party records 0x02000500 + id*0x14C, owned
-//   bits +0xF8 (FACTS "Djinn Tracker").
-// - The look (FACTS "Random Djinn", 22 November): join's caller 0x08095778
+//   bits +0xF8 (FACTS.md "Djinn Tracker").
+// - The look (FACTS.md "Random Djinn"): join's caller 0x08095778
 //   finds the map Djinni among actors 8..0x41 (0x0808D394) by halfword +2 ==
 //   0x30 + element*20 + index. Actor context [0x03001EBC] (+0x14 + 4*id),
 //   sprite at actor +0x50, primary layer +0x28; Djinni sprites 90..93,

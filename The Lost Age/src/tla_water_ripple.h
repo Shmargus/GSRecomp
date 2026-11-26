@@ -9,7 +9,7 @@ int tla_sine(ReadSine read_sine, unsigned angle) {
     return int(read_sine(((angle + 32u) & 0xFFFFu) >> 6)) * 4;
 }
 
-// F12 0118/0119: the RAM routine at 0x020082A4 builds BG2HOFS using
+// The RAM routine at 0x020082A4 builds BG2HOFS using
 // 3*sin((y+row)*0x3300+phase*1024) + 7*sin((y+row)*0x1320-phase*1024),
 // shifted right 19. Its sine veneer reaches 0x08002096, which rounds the
 // angle by 32, indexes the signed-halfword ROM asset at 0x080020A8 and
@@ -63,7 +63,7 @@ bool tla_water_ripple(gsr::FieldScene& scene, gsr::SceneMargins& margins,
     return false;
 }
 
-// The port's water (map 98, F12 tla_rewind_0040..0044): the room's RAM
+// The port's water (map 98): the room's RAM
 // routine 0x02008A98 fills a 160-row BG1VOFS table, row i =
 // base + (sine((counter - i - base + 160) << 9) >> 15), base = the s16 at
 // [[0x03000020] + 0x17E], counter the byte at 0x0300122C (the ripple's

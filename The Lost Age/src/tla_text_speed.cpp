@@ -2,7 +2,7 @@
 //
 // Message speed is the byte 0x0200046C (save block 0x02000240 + 0x22C):
 // 0 Slow, 1 Normal, 2 Fast; Instant is 3. Measured addresses are in FACTS.md
-// (2026-10-03); the hook sites are declared in config/tla/main.toml.
+// "Message speed and the dialogue routine"; the hook sites are declared in config/tla/main.toml.
 //
 // The dialogue routine 0x08039864 draws until a per-call allowance at
 // [sp+0x20] runs out. It seeds it from the table {1,1,10} (store at
@@ -45,31 +45,35 @@ constexpr uint32_t kScreenMessageSpeedOffset = it::kScreenValueOffset;
 constexpr uint32_t kMessageSpeedRow = it::kRow;
 const uint32_t kBounceRowComparePc = TLA_ROM(0x0803FC00u);
 
-// Caption: text ID = value + 0x113B, drawn at x 0xA0 on line 0x28. The
-// runner draws the whole caption in its place (src/tla_text.cpp): the speed
-// word, with "< " / " >" while the cursor is on this row. The row's three
-// icons are uploaded blank, so the caption is the selector, centred under
-// where the icons were (Golden Sun 1's layout, re-measured).
+// Caption: text ID = value + 0x113B, drawn at x 0xA0 on line 0x28. The runner
+// draws the whole caption in its place (src/tla_text.cpp): the speed word,
+// with "< " / " >" while the cursor is on this row. The row's three icons are
+// uploaded blank, so the caption is the selector, centred under where the
+// icons were (Golden Sun 1's layout, re-measured).
 const uint32_t kCaptionBaseLiteralPc = TLA_ROM(0x080402F4u);
 const uint32_t kCaptionBase = TLA_TEXT(0x113Bu);
 using it::kSpeedWords;
 TlaValueCaption g_caption;
 
-// Caption clear `movs r1,#0xa0` (to x 0xC8) and draw `movs r2,#0xa0`. The
-// Message-speed icons sit at x 0x54 / 0x6C / 0x84, the Auto-Sleep and
-// Speech icons at 0x64 / 0x7C: the clear starts at the first icon, the
-// caption is centred on 0x7C (kTlaValueClearX / kTlaValueCentreX).
+// Caption clear `movs r1,#0xa0` (to x 0xC8) and draw `movs r2,#0xa0`.
+//   - The Message-speed icons sit at x 0x54 / 0x6C / 0x84.
+//   - The Auto-Sleep and Speech icons sit at 0x64 / 0x7C.
+// The clear starts at the first icon, and the caption is centred on 0x7C
+// (kTlaValueClearX / kTlaValueCentreX).
 const uint32_t kCaptionClearXPc = TLA_ROM(0x080402FEu);
 const uint32_t kCaptionDrawXPc = TLA_ROM(0x0804030Cu);
 
 // Rows drawn as words instead of icons: Message speed here and Hard Mode on
-// the Auto-Sleep row (src/tla_hard_mode.cpp). Each row's icon table is
-// loaded once by setup (which then reads one icon per entry) and once per
-// icon by the redraw. Message speed: table 0x0805EA7C {0x22, 0x23, 0x24},
-// loaded at 0x0803FFEA / 0x080401D8. Auto-Sleep: table 0x0805EA81
-// {0x27, 0x28}, loaded at 0x08040068 / 0x0804024E. The icon loader 0x08045048 hands its picture to the OBJ
-// upload 0x080142D4 at `adds r2,r5,#0` (0x08045092); a source of
-// 0xFFFFFFFF makes the upload zero-fill the slot (0x0801432A -> 0x03000258).
+// the Auto-Sleep row (src/tla_hard_mode.cpp). Each row's icon table is loaded
+// once by setup (which then reads one icon per entry) and once per icon by the
+// redraw.
+//   - Message speed: table 0x0805EA7C {0x22, 0x23, 0x24}, loaded at 0x0803FFEA
+//     / 0x080401D8.
+//   - Auto-Sleep: table 0x0805EA81 {0x27, 0x28}, loaded at 0x08040068 /
+//     0x0804024E.
+// The icon loader 0x08045048 hands its picture to the OBJ upload 0x080142D4 at
+// `adds r2,r5,#0` (0x08045092). A source of 0xFFFFFFFF makes the upload
+// zero-fill the slot (0x0801432A -> 0x03000258).
 struct WordRow {
     uint32_t setup_pc, setup_count, redraw_pc, first_icon, last_icon;
 };

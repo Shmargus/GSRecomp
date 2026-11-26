@@ -1,5 +1,4 @@
-// config.cpp: TOML loader for gba_recompile. See config.h /
-// docs/TOML_SCHEMA.md.
+// config.cpp: TOML loader for gba_recompile. See config.h.
 
 #include "config.h"
 
@@ -576,8 +575,7 @@ bool parse_exclude_funcs(const toml::array& arr,
     return true;
 }
 
-// Cross-section structural validation. See docs/TOML_SCHEMA.md
-// "Precedence and conflict resolution" step 2.
+// Cross-section structural validation.
 bool validate_cross_section(const Config& cfg) {
     // exclude_func + extra_func at the same addr is contradictory.
     for (const auto& ex : cfg.exclude_funcs) {

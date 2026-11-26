@@ -1,23 +1,23 @@
 // tla_kept_cells.h -- battle sprites the game reuses while they sit past the
 // console's screen keep their picture in the margins.
 //
-// Eclipse fills all 32 KB of sprite memory with 32 32x32 8-bit cells (F12
-// tla_rewind_0177, block map 0x02003410). At f042 the game reuses the
+// Eclipse fills all 32 KB of sprite memory with 32 32x32 8-bit cells (block map
+// 0x02003410). At one point the game reuses the
 // wingtip's tile 800 at x 252 for a piece at x 60, y 42. That wingtip is
 // outside the GBA view but visible in widescreen. Draw its previous
-// contents there (FACTS.md, 2026-10-28).
+// contents there (FACTS.md).
 //
 // A sprite counts as reused when, from one frame to the next, the same tile
 // moves by at least its own size (positions compared through the hardware's
 // 9-bit x and 8-bit y wrap: Haures's body enters past x 255 and reads as
-// -244, 0176 f012-f013) while its old place was wholly past the console's
+// -244) while its old place was wholly past the console's
 // left or right edge, and its picture changed. The game paints the new
-// picture a frame before it moves the sprite (0177: art f042, OAM f043), so
+// picture a frame before it moves the sprite (measured: art one frame, OAM the next), so
 // the old picture is taken from up to two frames back. It is then drawn,
 // margins only, at its old offset from its nearest same-size neighbour that
 // did not jump, until that neighbour goes, another sprite of its size takes
-// its place, or the battle ends. Over all 178 saved F12 histories this keeps
-// only Eclipse's wing tip (0140 f052, 0177 f043).
+// its place, or the battle ends. Over all 178 recorded histories this keeps
+// only Eclipse's wing tip.
 //
 // The pictures go into our copy of video memory, in the second sprite page
 // (tiles 0x400 and up, which the renderer reads; tla_sprite_memory.cpp)

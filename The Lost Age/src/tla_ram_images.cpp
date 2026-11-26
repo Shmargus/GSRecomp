@@ -17,10 +17,10 @@
 // fixed-address variants (tools/tla_mixer_variants.py) and recognized the
 // same way against their expected bytes.
 //
-// Everything else the game ran from RAM in play sessions -- overlays,
-// stack copies, patched code -- is harvested from the engine's self-heal
-// cache (tools/tla_harvest.py) and packed the same way, as Golden Sun 1
-// pre-built its RAM code.
+// Everything else the game ran from RAM in play sessions (overlays, stack
+// copies, patched code) is harvested from the engine's cache of code compiled
+// at run time (tools/tla_harvest.py). It is packed the same way, as the Broken
+// Seal pre-built its RAM code.
 //
 // Battle and Psynergy effects draw through blitters the game assembles from
 // template pieces (builder 0x08196404). Every routine it can build is
@@ -29,7 +29,7 @@
 // any base, like a copied routine.
 //
 // Installing a RAM dispatch hook changes two engine defaults, both restored
-// here: unmatched RAM code still reaches the self-heal overlay tier, and a
+// here: unmatched RAM code still reaches the run-time compile tier, and a
 // fixed RAM function on a written page still runs behind its own CRC guard.
 
 #include "tla_rom_version.h"
@@ -128,9 +128,9 @@ const Skip kSkips[] = {
 #undef TLA_VARIANT
 #undef TLA_RELOC
 
-// Each image's skips, gathered once: a byte check runs on every RAM dispatch
+// Each image's skips, gathered once. A byte check runs on every RAM dispatch
 // that misses the cache, against every candidate image (in one battle, ~90,000
-// times a frame), and finding the skips by name there cost most of the frame.
+// times a frame). Finding the skips by name there cost most of the frame.
 const std::vector<const Skip*>& skips_of(unsigned index) {
     static const std::vector<std::vector<const Skip*>> all = [] {
         std::vector<std::vector<const Skip*>> v(kImageCount);
@@ -397,26 +397,28 @@ struct Member {
     RuntimeGuestFn fn;
     uint32_t order;
 };
-// One instruction puts up to 15,858 entries in a single measured bucket.
-// Eight opening bytes reduce the captured searches sharply. Short tails
-// keep the instruction index; full routine verification still decides identity.
+// One instruction can put up to 15,858 entries in a single measured bucket.
+// Eight opening bytes reduce the captured searches sharply. Short tails keep
+// the instruction index. Full routine verification still decides identity.
 constexpr unsigned kMemberPrefixSize = sizeof(uint64_t);
 std::unordered_map<uint64_t, std::vector<Member>> g_members_by_prefix[2];
 std::unordered_map<uint64_t, std::vector<Member>> g_members_by_opcode;
 // The last base each routine was verified at.
 // Family/routine indices are dense and fixed by the generated image tables.
-// Keep the verification result directly at those indices: this lookup runs
-// even on a cache hit, so hashing the packed indices repeats needless work.
+// The verification result is kept directly at those indices, because this
+// lookup runs even on a cache hit and hashing the packed indices would repeat
+// needless work.
 std::vector<std::vector<Placement>> g_member_placement;
 unsigned g_members_logged = 0;
 // The routine last dispatched at each entry address: checked first, since a
 // built routine is entered many times while it lives.
 std::unordered_map<uint64_t, const Member*> g_member_hit;
 
-// A pc no family routine matched (overlay code served by self-heal, other
-// static code): the search is skipped until a store lands in the bytes it
-// read, [lo, hi), watched exactly (ram_code_words.h). Without this every
-// call repeated the whole candidate search (~4-6% of TLA Turbo battle time).
+// A pc that no family routine matched (overlay code compiled at run time,
+// other static code). The search is skipped until a store lands in the bytes
+// it read, [lo, hi), which are watched exactly (ram_code_words.h). Without this
+// every call repeated the whole candidate search (~4-6% of TLA Turbo battle
+// time).
 struct MemberMiss { uint32_t lo, hi; unsigned long long signature; };
 std::unordered_map<uint64_t, MemberMiss> g_member_miss;
 
@@ -579,10 +581,9 @@ RuntimeGuestFn tla_ram_dispatch(uint32_t pc, int thumb) {
 }
 
 // The data unpackers (The Broken Seal's Func_2808 and Func_2544, 0x08012B74
-// and 0x080128AC here) are copied behind a `bx pc` stub; their ARM entries
-// are watched by the shared unpacker guard (shared_game/unpacker_guard.h),
-// as in The Broken Seal. The guard's own
-// first-word test keeps this cheap.
+// and 0x080128AC here) are copied behind a `bx pc` stub. Their ARM entries are
+// watched by the shared unpacker guard (shared_game/unpacker_guard.h), as in
+// The Broken Seal. The guard's own first-word test keeps this cheap.
 void unpacker_watch_return(uint32_t return_pc, uint32_t) {
     gsr::unpacker_guard_note_return(return_pc);
 }
@@ -606,8 +607,8 @@ int tla_ram_identity_confirmed(uint32_t, int) { return 1; }
 void tla_install_ram_images() {
     g_runtime_ram_dispatch_hook = tla_ram_dispatch_watched;
     g_runtime_call_return_hook = unpacker_watch_return;
-    gsr::unpacker_guard_install(TLA_ROM(0x08012B74u));  // Func_2808 (FACTS.md 2026-10-14)
-    // Func_2544 (format0, reloc_128a8; FACTS.md 2026-10-29)
+    gsr::unpacker_guard_install(TLA_ROM(0x08012B74u));  // Func_2808 (FACTS.md)
+    // Func_2544 (format0, reloc_128a8; FACTS.md)
     gsr::unpacker_guard_install_format0(TLA_ROM(0x080128ACu));
     g_runtime_ram_identity_confirmed_hook = tla_ram_identity_confirmed;
 }

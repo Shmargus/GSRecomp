@@ -3,13 +3,13 @@
 // The world map has four terrain sets (BG3 and BG2 tile graphics plus the
 // background palette, swapped together), and the game loads ONE for the
 // whole screen, chosen by the 16-pixel cell under the ship. Past the
-// console's screen that put a snowy island in green (F12 0073/0074). This
+// console's screen that put a snowy island in green. This
 // unpacks all four from the cartridge, once, and names each cell's set the
 // game's way, so the renderer draws a margin cell whose set is not the
 // loaded one with its own artwork and colours. The loaded set's cells, and
 // everything inside the 240x160, stay on video memory.
 //
-// Evidence (21 October 2026, snow investigation, ROM SHA-1 b5006632):
+// Evidence (ROM SHA-1 b5006632):
 //  * selector, Thumb 0x0802C58C..0x0802C6B2: cell word at 0x02020000 (the
 //    first layer's ring); bits 24..29 divided by 10 (0x08002054): 3 -> set 3,
 //    2 -> set 2, 4 -> set 1, else set 0; set record 0x0802ED34 + 36 * set,
@@ -20,9 +20,9 @@
 //    assets 3..6 the character blocks, staged at 0x02038000/A000/C000/E000
 //    and copied to VRAM 0x8000/A000/C000/E000 (0x0802C76E..0x0802C7D6),
 //    unpacked by 0x0801587C (format of ARM 0x080128A8).
-//  * both unpackers checked byte for byte: 0073 frame 0 (snow, set 1) and
-//    frame 60 (set 0), all eight staged assets equal EWRAM, the palette
-//    equals PAL 1..223. Over 207 frames of 0073/0074 no colour 1..223 ever
+//  * both unpackers checked byte for byte: snow (set 1) and
+//    another frame (set 0), all eight staged assets equal EWRAM, the palette
+//    equals PAL 1..223. Over 207 frames measured no colour 1..223 ever
 //    differs from the loaded set's (no colour cycling), so a palette that
 //    does differ (a fade, a menu) turns this off for the frame.
 //  * the snow set's tiles never change in video memory; set 0 animates 54
@@ -61,7 +61,7 @@ public:
         }
         // While the game is still loading the new set's tiles into video
         // memory, it holds part of the old set: no margin cell reads it then
-        // (F12 0116 frame 46: the snowy island garbled for a few frames).
+        // (otherwise the snowy island garbled for a few frames).
         const int in_vram = loading ? -1 : loaded;
         if (map.generation() != cells_map_ || in_vram != cells_loaded_) {
             const auto& attributes = map.cell_attributes();
@@ -102,7 +102,7 @@ private:
     // The set record the game last chose, and whether its 12-step load is
     // still running: the word [S+0x958] counts the steps down, and the
     // loader runs only while it is non-zero (ldr/cmp at 0x0802C6C2..C6C6;
-    // F12 0116 shows 10..0 after each switch).
+    // measured: it counts 10..0 after each switch).
     static int loaded_set(const std::uint8_t* iwram, std::size_t bytes, bool* loading) {
         const auto word = [&](std::uint32_t addr, std::uint32_t* v) {
             const std::uint32_t off = addr - 0x03000000u;

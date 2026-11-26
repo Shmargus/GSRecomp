@@ -3,7 +3,7 @@
 param(
     [ValidateRange(1, 100)][int]$CpuPercent = 90,
     [ValidateRange(1, 100)][int]$RamPercent = 90,
-    # None builds only the collection launcher (build_launcher.bat).
+    # None builds only the collection launcher (Build Studio's Rebuild launcher).
     [ValidateSet('Both', 'BrokenSeal', 'LostAge', 'None')][string]$Game = 'Both',
     [switch]$CheckOnly,
     [int]$LauncherProcessId = 0,
@@ -128,7 +128,7 @@ function Get-Plan([string]$Name, [string]$Source, [string]$BuildDir, $Cache, [ob
         Set-Setting $settings 'GSR_RELEASE_LAUNCHER' 'BOOL' 'OFF'
         Set-Setting $settings 'GSR_BUILD_LOCAL_RUNNER' 'BOOL' 'ON'
     } else {
-        # Settings that no longer exist (kept configurations may still hold them).
+        # Obsolete settings (kept configurations may still hold them).
         foreach ($retired in @('TLA_COLLECTION_ROOT', 'TLA_RELEASE_LAUNCHER', 'TLA_PLAYER_RELEASE')) {
             $null = $settings.Remove($retired)
         }
@@ -181,7 +181,7 @@ function Invoke-NativeLogged([string]$Executable, [string[]]$NativeArguments, [s
     if ($nativeExit -ne 0) { throw "Command failed ($nativeExit). See $LogFile" }
 }
 
-# Engine self-tests (measured 20 October 2026: about a minute to build;
+# Engine self-tests (measured: about a minute to build;
 # ram_heal_tests 27-41 s because it compiles real overlays, the rest under a
 # second each). Left out: the placeholder armv4t/thumb/timer/irq tests, and
 # heal_gate_tests, which covers code nothing calls.

@@ -48,7 +48,7 @@ REVIEWED_EXECUTED_ALIGNMENT = {
 # Reviewed operand overrides inside an overlay, answered at run time by
 # src/runner_main.cpp. The world map's OvlFunc_598 hides towns and caves
 # outside a box around the camera sized for the 240x160 screen; the expanded
-# view grows it (FACTS.md, 2026-09-25).
+# view grows it.
 REVIEWED_OVERLAY_OVERRIDES = {
     "rom_77a7c8": (
         ("thumb_literal_override", 0x020085D2,
@@ -62,7 +62,7 @@ REVIEWED_OVERLAY_OVERRIDES = {
     ),
     # Sol Sanctum's cloud rows are queued only while on the 240x160 screen
     # (`cmp r3,#0xAF; bhi`, r3 = y + 16); the expanded view admits the top
-    # margin (FACTS.md, 2026-10-05).
+    # margin.
     "rom_78c76c": (
         ("conditional_branch_override", 0x02008EEC,
          "Sol Sanctum cloud rows: screen-Y BHI, admit the top margin"),

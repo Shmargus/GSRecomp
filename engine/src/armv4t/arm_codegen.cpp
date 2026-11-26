@@ -56,6 +56,15 @@ void emit_image_base_resync(std::ostringstream& s, const CodegenCtx& ctx,
 }  // namespace
 
 std::string emit_tail_transfer(const std::string& call) {
+    // Dispatches take the target as an argument; GBARECOMP_TAIL_DISPATCH
+    // lets Clang guarantee the jump too (runtime_arm_types.h).
+    for (const char* fn : {"runtime_dispatch_with_exchange", "runtime_dispatch"}) {
+        const std::string open = std::string(fn) + "(";
+        if (call.compare(0, open.size(), open) == 0 && call.back() == ')') {
+            return "GBARECOMP_TAIL_DISPATCH(" + std::string(fn) + ", " +
+                   call.substr(open.size(), call.size() - open.size() - 1) + ");\n";
+        }
+    }
     return "GBARECOMP_TAIL_TRANSFER(" + call + ");\n";
 }
 
@@ -550,10 +559,11 @@ std::string emit_direct_branch(uint32_t target, uint32_t branch_pc,
     const std::string call = self_loop ? std::string()
         : name ? *name + "()"
         : "runtime_dispatch(" + fmt_guest_addr(ctx, target) + ")";
-    // B is a tail-call: never return to this caller. BL is a call: after
-    // the callee returns (its `bx lr` sets PC=LR, then C-returns), control
-    // must resume in this function's body at the next instruction, so let
-    // C control fall through to the next decoded instruction.
+    // B is a tail-call: it never returns to this caller.
+    // BL is a call. After the callee returns (its `bx lr` sets PC=LR, then
+    // C-returns), control must resume in this function's body at the next
+    // instruction. So let C control fall through to the next decoded
+    // instruction.
     if (!is_link) {
         if (call.empty()) s << indent << "return;\n";
         else s << indent << emit_tail_transfer(call);
@@ -1583,13 +1593,14 @@ std::string ArmCodegen::emit_instr(const Instr& ins, const CodegenCtx& ctx,
 
     emit_cond_close(os, ins.cond);
 
-    // Instruction boundary. Advance R15 to the next instruction so a
-    // pending IRQ delivered by the tick saves the correct return address
-    // (the stacked LR must match the interpreter, or IWRAM diverges),
-    // then pump the accumulated cost. Branch / PC-write / SWI ops have
-    // already set R15 and ticked _cyc before returning, so for them this
-    // is dead code; it is the live path for fall-through ops and the
-    // cond-fail case (where _cyc is the 1-cycle fetch baseline).
+    // Instruction boundary. Advance R15 to the next instruction, so a pending
+    // IRQ delivered by the tick saves the correct return address. (The
+    // stacked LR must match the interpreter, or IWRAM diverges.) Then pump
+    // the accumulated cost.
+    // Branch, PC-write and SWI ops have already set R15 and ticked _cyc
+    // before returning, so for them this is dead code. It is the live path
+    // for fall-through ops and the cond-fail case (where _cyc is the 1-cycle
+    // fetch baseline).
     os << "    g_cpu.R[15] = "
        << fmt_guest_addr(ctx, ins.pc + (ins.thumb ? 2u : 4u)) << ";\n";
     os << "    runtime_tick(" << cyc_var << ");\n";

@@ -2,20 +2,19 @@
 // both games share are in djinn_tracker.h and treasure_tracker.h).
 //
 // Djinn Tracker.
-// Measured, verified ROM 5c4695205413df7db52b9a184815a07783999971 (FACTS.md,
-// "Djinn Tracker", 2026-10-30):
+// Measured, verified ROM 5c4695205413df7db52b9a184815a07783999971 (FACTS.md
+// "Djinn Tracker"):
 //   Party records 02000500 + character * 0x14C (story_progress.h has_item),
 //   Isaac, Garet, Ivan, Mia; owned +0xF8 matches Clear Data's Djinn screen.
 //   Names in text 0x45F + element * 20 + index (the same order as the bits
 //   and as the Djinn flags 0x30 + element * 20 + index, grant 0807A0F4).
 //   Pictures: field sprites 90 Venus, 91 Mercury, 92 Mars, 93 Jupiter in the
 //   sprite records at 08185024; OBJ palette 0800779C.
-// Locations: the former guide's authored Djinn routes
-// (Archive/2026-10-30-tbs-guide).
+// Locations: the authored Djinn routes of a guide tool.
 //
 // Treasure Tracker.
-// Measured, verified ROM 5c4695205413df7db52b9a184815a07783999971 (FACTS.md,
-// "Treasure Tracker", 2026-10-30): location lookup 0808B158 over the records
+// Measured, verified ROM 5c4695205413df7db52b9a184815a07783999971 (FACTS.md
+// "Treasure Tracker"): location lookup 0808B158 over the records
 // at 0809DDD8, room keys 0809F1A8 + room * 8 + 2; current room/entrance
 // 02000400/02000402. Rewards are item IDs, named from text 0x182 + id
 // (FACTS.md "Item names"; gs::text gives the other ROMs' block); 269 items.
@@ -67,7 +66,7 @@ namespace gsr::treasure_tracker::tbs {
 
 // Gifts Random Treasure moves (treasure_randomizer_data.h, not the story
 // items) and the flag each one's scene sets as it gives the item (FACTS.md
-// "Treasure Tracker: gifts", 22 November 2026; ROM overlay code, gameplay
+// "Treasure Tracker: gifts"; ROM overlay code, gameplay
 // unconfirmed). Pack 0x3A8 (Kalay) gives its Herb at two spots. Not listed
 // (TODO-EVIDENCE: no flag of their own): Vale's opening scene (pack 0x374,
 // items 180 and 207) and Altin Peak's (0x3A4, item 202).

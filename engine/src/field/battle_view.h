@@ -6,10 +6,10 @@
 // their native coordinates, clipping and scale; sprites, menus and command
 // icons remain native.
 //
-// Full vertical remapping was tested and deferred: the game's detailed rows
-// can carry different BGxCNT map geometry even when the sampled frame summary
-// shows no scroll/scale/reference animation. A source-row-complete renderer
-// would be a larger change than this fallback.
+// Full vertical remapping is not done. The game's detailed rows can carry
+// different BGxCNT map geometry even when the sampled frame summary shows no
+// scroll/scale/reference animation. A source-row-complete renderer would be a
+// larger change than this fallback.
 #pragma once
 
 #include <cstdint>

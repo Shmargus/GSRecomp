@@ -54,7 +54,8 @@ public:
             surface.cancel_texture_readback();
             // A failed enqueue still leaves a successfully received older
             // copy usable, but only with its OWN state. Otherwise the caller
-            // keeps its current synchronous picture. Never relabel old RGB.
+            // keeps its current synchronous picture.
+            // Never relabel old RGB with newer state.
             if (previous) return previous;
         }
         return current;

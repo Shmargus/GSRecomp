@@ -36,7 +36,7 @@ option(GBARECOMP_STATIC_RELEASE
     "Statically link SDL2 + the mingw C++ runtime into release exes"
     OFF)
 
-# First-divergence co-simulation oracle (COSIM_ORACLE.md). When ON, compiles the
+# First-divergence co-simulation oracle (src/debug/cosim_state.h). When ON, compiles the
 # cosim full-state hash + cycle-keyed park/step TCP engine and arms the runtime_tick
 # checkpoint hook. Defined PUBLIC on gbarecomp_debug so it propagates through
 # gbarecomp_runtime (runtime.cpp / runtime_bus_bridge.cpp) to the game exe. The
@@ -668,6 +668,15 @@ target_include_directories(ppu_smoke_tests PRIVATE src/runtime src/debug)
 target_link_libraries(ppu_smoke_tests PRIVATE gbarecomp_gba)
 add_test(NAME ppu_smoke_tests COMMAND ppu_smoke_tests)
 
+# These tests keep whole GbaBus/GbaPpu objects (hundreds of KB each) on the
+# stack. Clang lays them out without sharing slots and overflowed Windows'
+# default 1 MB (measured, 2026-11-26); give them the games' 16 MB stack.
+if(MINGW)
+    foreach(big_stack_test bus_tests ppu_smoke_tests)
+        target_link_options(${big_stack_test} PRIVATE -Wl,--stack,16777216)
+    endforeach()
+endif()
+
 add_executable(view_config_tests tests/view_config/test_main.cpp)
 target_include_directories(view_config_tests PRIVATE src/runtime)
 add_test(NAME view_config_tests COMMAND view_config_tests)
@@ -817,7 +826,7 @@ endif()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Oracle binary: opt-in (-DGBARECOMP_BUILD_ORACLE=ON). Embeds libmgba
-# (MPL-2.0). Per PRINCIPLES.md the native build has zero copyleft deps;
+# (MPL-2.0). The native build has zero copyleft dependencies;
 # the oracle binary is the ONLY place libmgba may be linked, and it
 # runs as a SEPARATE PROCESS over TCP.
 # ─────────────────────────────────────────────────────────────────────────────

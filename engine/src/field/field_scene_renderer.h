@@ -5,25 +5,31 @@
 // draws it through gbarecomp's generic GpuSurface.
 //
 // How the tiles reach the card. Video memory and the palettes are uploaded as
-// they are -- raw bytes and raw 15-bit colours -- and the shader does the whole
-// lookup itself: map entry, tile, pixel, palette, colour. Nothing is decoded on
-// the processor. That is the difference between this and the offline preview
-// tool, which rebuilt a whole room into one picture and took 173-399 ms to do
-// it. Here an upload is 96 KB when video memory changes and nothing at all when
-// it does not.
+// they are, as raw bytes and raw 15-bit colours. The shader does the whole
+// lookup itself: map entry, tile, pixel, palette, colour. Nothing is decoded
+// on the processor.
 //
-// What this draws today: Modes 0-2's background layers, regular and affine,
-// and objects, faithfully, at the native viewport, including fades, alpha
-// blending, semi-transparent objects, and windows (WIN0, WIN1 and the object
-// window) -- window and background scroll registers are read per scanline,
-// exactly as the console does, so a frame that rewrites one mid-frame (the
-// room-transition iris rewrites WIN0H every scanline to carve its shrinking
-// circle) draws correctly too. The room buffer only ever sources a regular
-// field layer (BG1-3 outside battle/overworld); an affine layer always draws
-// from video memory. The bitmap modes (3-5) and mosaic are the remaining
-// pieces; the renderer reports what it cannot yet draw rather than drawing
-// it wrongly, and the caller falls back to the emulated hardware path for
-// the whole frame.
+// That is the difference from the offline preview tool, which rebuilt a whole
+// room into one picture and took 173-399 ms to do it. Here an upload is 96 KB
+// when video memory changes and nothing at all when it does not.
+//
+// What this draws today, faithfully and at the native viewport:
+//
+//   - the background layers of modes 0-2, regular and affine, and objects,
+//   - fades, alpha blending and semi-transparent objects,
+//   - windows (WIN0, WIN1 and the object window).
+//
+// Window and background scroll registers are read per scanline, exactly as
+// the console does. So a frame that rewrites one mid-frame draws correctly
+// too. For example, the room-transition iris rewrites WIN0H every scanline to
+// carve its shrinking circle.
+//
+// The room buffer only ever sources a regular field layer (BG1-3 outside
+// battle and the overworld). An affine layer always draws from video memory.
+//
+// Still missing are the bitmap modes (3-5) and mosaic. The renderer reports
+// what it cannot yet draw rather than drawing it wrongly, and the caller then
+// falls back to the emulated hardware path for the whole frame.
 #pragma once
 
 #include <bitset>
@@ -98,7 +104,7 @@ public:
     // Whether the last draw() drew the margins from the whole world map.
     bool world_map_used() const { return world_map_used_; }
     static constexpr int kRoomCheckMinTiles = 40;
-    static constexpr int kRoomCheckMinAgreement = 80;  // measured, see FACTS
+    static constexpr int kRoomCheckMinAgreement = 80;  // measured
     // Video memory for room tiles drawn OUTSIDE the console's 240x160:
     // the same bytes, except that a character block a game window has
     // borrowed keeps what it held before the window opened. Optional;
@@ -111,24 +117,25 @@ public:
     void upload_room_palette(const std::uint16_t* palette,
                              std::size_t entries);
 
-    // Selects the field's background source: video memory only (default --
-    // what the pixel-identity gate compares against, and what BG0, the
-    // lighting layer, always uses -- FACTS.md, "the lighting layer cannot be
-    // reconstructed by the room buffer's method"), or the room's own tables
-    // for BG1-3, falling back to video memory per pixel wherever the room
-    // buffer does not know the answer.
+    // Selects the field's background source. There are two choices:
+    //   - Video memory only (the default). This is what the pixel-identity
+    //     gate compares against. BG0, the lighting layer, always uses it,
+    //     because the room buffer's method cannot reconstruct that layer.
+    //   - The room's own tables for BG1-3. Wherever the room buffer does not
+    //     know the answer for a pixel, that pixel falls back to video memory.
     void set_room_source_enabled(bool enabled);
 
     // Supplement the game's canvas with captured sparks beyond its edges.
     // Off by default; disabling this preserves the original picture.
     void set_effect_renderer_enabled(bool enabled);
 
-    // Stretch the effect's canvas across the whole view. Off: the effect
-    // keeps the size the game drew it at, and the view is simply wider than
-    // the artwork that exists. On: the same artwork covers the full width,
-    // magnified to do so. There is no third option -- past canvas column 117
-    // of 127 there is nothing drawn, so 124 pixels of a 360-wide view have no
-    // artwork in existence to show (FACTS.md, 2026-09-18).
+    // Stretch the effect's canvas across the whole view.
+    //   - Off: the effect keeps the size the game drew it at, and the view is
+    //     simply wider than the artwork that exists.
+    //   - On: the same artwork covers the full width, magnified to do so.
+    // There is no third option. Past canvas column 117 of 127 there is
+    // nothing drawn, so 124 pixels of a 360-wide view have no artwork in
+    // existence to show.
     void set_effect_span_enabled(bool enabled);
 
     // Name the spell-effect layer for this frame, so it can be sampled
@@ -141,11 +148,14 @@ public:
                               const std::uint8_t* art, std::size_t art_bytes,
                               int effect_layer);
 
-    // After upload_effect_sparks: find where the effect layer's map shows
-    // the game's 128x128 canvas (a wrapping 256x256 affine layer with it at
-    // the map origin, or a 256x256 8-bit regular layer with it anywhere) and
-    // read the canvas's fill (the tint under everything the console shows of
-    // it). Then the margins draw fill plus our sparks instead of the wrapped
+    // Call this after upload_effect_sparks. It does two things:
+    //   1. Finds where the effect layer's map shows the game's 128x128
+    //      canvas. That is either a wrapping 256x256 affine layer with the
+    //      canvas at the map origin, or a 256x256 8-bit regular layer with it
+    //      anywhere.
+    //   2. Reads the canvas's fill, the tint under everything the console
+    //      shows of it.
+    // The margins then draw the fill plus our sparks instead of the wrapped
     // map, so the spell neither repeats nor stops at its canvas edge. `vram`
     // is the frame's video memory; `bg` is the layer set_effect_layer named.
     //
@@ -178,6 +188,14 @@ public:
     // Whether a game window (menu, shop, dialogue) is open this frame;
     // its priority-0 sprites then stay inside the console's 240x160.
     void set_menu_open(bool open) { menu_open_ = open; }
+    // Part of a game window shown see-through: where BG0 is the front layer,
+    // inside the console's tile columns set in `columns` (bit n = pixels
+    // 8n..8n+7) and tile rows row0..row1, the picture is mixed with what lies
+    // beneath at `opacity` (0 = gone, 1 = as drawn). columns 0 = off.
+    void set_window_fade(std::uint32_t columns, int row0, int row1, float opacity) {
+        fade_columns_ = columns; fade_row0_ = row0; fade_row1_ = row1;
+        fade_opacity_ = opacity;
+    }
     // Better Field Psy (settings page two): Reveal's circle opens to the
     // whole view instead of blacking out everything around it.
     void set_reveal_full(bool full) { reveal_full_ = full; }
@@ -205,7 +223,7 @@ public:
     // the burst, standing still and fading. Same thread rule.
     void add_trail(float x0, float y0, float x1, float y1);
 
-    // F12-only readback: distinguish disabled drawing from a lost GPU upload.
+    // Debug readback: distinguish disabled drawing from a lost GPU upload.
     void log_effect_state() const;
 
     bool room_source_enabled() const { return room_source_enabled_; }
@@ -232,7 +250,7 @@ public:
 
     // Load the room rect, camera, cell grid and atlas for this frame. The
     // buffer starts at guest address 0x02000000, whether live or captured.
-    // See The Broken Seal's room_buffer.h and FACTS.md for the addresses.
+    // See The Broken Seal's room_buffer.h for the addresses.
     // Call every frame. If the rect is invalid, return false and draw from
     // video memory.
     bool upload_room(const std::uint8_t* ewram, std::size_t ewram_bytes);
@@ -274,13 +292,15 @@ public:
     int room_camera_y() const { return room_camera_y_; }
 
     // Draws one described frame. Returns false when the scene contains
-    // something this renderer cannot reproduce, having drawn nothing -- the
-    // caller must then use the emulated hardware path for the WHOLE frame.
-    // There is no correct way to draw part of it (FACTS.md).
-    // `side_picture`: an extra draw in the same frame (the world map's live
-    // margins), drawn plain and kept out of the flicker history; counted,
-    // its sprites taken out make the frame's own look like every-other-frame
-    // flicker and they come out half see-through.
+    // something this renderer cannot reproduce, having drawn nothing. The
+    // caller must then use the emulated hardware path for the WHOLE frame,
+    // because there is no correct way to draw part of it.
+    //
+    // `side_picture` marks an extra draw in the same frame (the world map's
+    // live margins). It is drawn plain and kept out of the flicker history.
+    // If it were counted, the difference between its sprites and the frame's
+    // own would look like every-other-frame flicker, and the frame's sprites
+    // would come out half see-through.
     bool draw(const FieldScene& scene, bool side_picture = false);
 
     // The finished picture, for presenting or for comparison.
@@ -362,6 +382,9 @@ private:
     unsigned effect_size_code_ = 0;
     bool effect_hidden_ = false;
     bool menu_open_ = false;
+    std::uint32_t fade_columns_ = 0;
+    int fade_row0_ = 0, fade_row1_ = 0;
+    float fade_opacity_ = 1.0f;
     bool reveal_full_ = false;
     std::bitset<FieldScene::kObjects> character_objects_;
     // Rows in the per-row register texture: FieldScene::kRows, plus the output
@@ -410,8 +433,8 @@ private:
     int room_camera_x_ = 0, room_camera_y_ = 0;
     // The game's camera keep-out rectangles (FieldGameProfile::
     // keep_out_list_addr), room pixels, half-open: x0, y0, x1, y1 each. The
-    // most any map lists is 2 (every map overlay in the TLA ROM scanned,
-    // 2026-10-21); a longer list is not read (count 0).
+    // most any map lists is 2 (every map overlay in The Lost Age's ROM was
+    // scanned); a longer list is not read (count 0).
     static constexpr int kKeepOutMax = 2;
     int keep_out_[kKeepOutMax][4] = {};
     int keep_out_count_ = 0;
@@ -425,7 +448,7 @@ private:
         bool have_record = false;
     };
     LayerWrap layer_wrap_[4];
-    // Each layer's region_y as it was when the current map loaded
+    // Each layer's region_y when the current map loaded
     // (upload_room). Altin's drain sinks BG1's region 1024 -> 1000; the
     // margins keep water only where it was at this rest position.
     int rest_map_ = -1;

@@ -30,9 +30,10 @@ bool stamp_spark_expanding(EffectCanvas* canvas, const EffectSpark& spark,
     if (!canvas) return false;
     const std::int64_t x = std::int64_t(spark.x) - effect_stamp_width(spark) / 2;
     const std::int64_t y = std::int64_t(spark.y) - effect_stamp_height(spark) / 2;
-    // Growth stops kMaxReach pixels from the origin; the stamp is clipped there.
-    // A stray far-off spark (Heat Wave, 2026-09-27) otherwise asked for a
-    // canvas gigabytes large and the allocation threw. That far is off-screen.
+    // Growth stops kMaxReach pixels from the origin, and the stamp is clipped
+    // there. Otherwise a stray far-off spark (Heat Wave) would ask for a
+    // canvas gigabytes large, and the allocation would throw. That far is
+    // off-screen anyway.
     constexpr std::int64_t kMaxReach = 512;
     const auto left = std::max(std::min(x, -std::int64_t(canvas->origin_x)), -kMaxReach);
     const auto top = std::max(std::min(y, -std::int64_t(canvas->origin_y)), -kMaxReach);
@@ -72,7 +73,7 @@ bool stamp_spark(EffectCanvas* canvas, const EffectSpark& spark,
     if (!canvas || canvas->width <= 0 || canvas->height <= 0 || !art) return false;
 
     // The game clamps the index into its own table rather than rejecting it
-    // (IWRAM 0x0300635A..0x03006366), so a spark whose life has run past the
+    // (IWRAM 0x0300635A..0x03006366). So a spark whose life has run past the
     // end of the table draws as the largest spark rather than vanishing.
     int index = spark.size_index;
     if (index < 0) index = 0;

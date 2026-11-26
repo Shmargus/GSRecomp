@@ -3,17 +3,20 @@
 //
 // The sampler thread (runtime_bus_bridge.cpp, host_prof_loop) suspends the
 // emulation thread and reads its instruction pointer. That says WHERE in the
-// host binary it was, not WHY: a sample in ntdll.dll could be the vsync wait
-// inside present, SDL event pumping, or a lock inside guest execution. The
-// emulation thread therefore publishes a small phase id, and the sampler
-// records it next to every sample.
+// host binary the thread was, not WHY. For example, a sample in ntdll.dll
+// could be any of:
+//   - the vsync wait inside present,
+//   - SDL event pumping, or
+//   - a lock inside guest execution.
+// So the emulation thread publishes a small phase id, and the sampler records
+// it next to every sample.
 //
-// Deliberately NOT included by runtime_arm.h: every translated game file
-// includes that header, so anything added there recompiles ~450 files. Only
-// the engine's own .cpp files include this one.
+// This header is deliberately NOT included by runtime_arm.h. Every translated
+// game file includes that header, so anything added there recompiles about 450
+// files. Only the engine's own .cpp files include this one.
 //
 // Cost when the profiler is off: one load of g_host_prof_enabled and a
-// not-taken branch per scope; nothing is written.
+// not-taken branch per scope. Nothing is written.
 
 #pragma once
 
@@ -56,8 +59,8 @@ extern std::atomic<std::uint8_t> g_host_prof_phase;
 extern std::atomic<std::uint64_t> g_host_prof_frame;
 // The frame key of the last row appended to the frame-phase CSV
 // (frame_phase.record in runtime.cpp). Samples taken after it belong to the
-// NEXT row: a CSV row's guest_us spans the time between two presents, and the
-// PPU counter alone straddles that span (it wraps mid-way).
+// NEXT row. A CSV row's guest_us spans the time between two presents, and the
+// PPU counter alone straddles that span, because it wraps part-way through.
 extern std::atomic<std::uint64_t> g_host_prof_present_frame;
 
 // RAII: mark a region, restore the enclosing phase on exit. Scopes nest
@@ -88,13 +91,16 @@ inline void host_prof_note_row_recorded(std::uint64_t frame) {
 
 // ── Per-instruction bookkeeping call counts (GBARECOMP_COST_PROBE) ───────────
 // Generated code calls these out-of-line helpers for every guest instruction
-// (runtime_arm.h). With the cost probe on, each helper bumps its slot here
-// (one predictable branch on g_cost_probe); runtime.cpp turns the per-frame
-// deltas into trailing columns of the frame-phase CSV. Each helper counts its
-// OWN entries, including entries made by another helper: runtime_insn_begin
-// calls runtime_insn_boundary, which calls runtime_should_yield, and all of
-// them reach runtime_mem_cycles, so the slots are logical call counts, not
-// disjoint shares. Names are the CSV column suffixes.
+// (runtime_arm.h). With the cost probe on, each helper bumps its slot here,
+// using one predictable branch on g_cost_probe. runtime.cpp turns the
+// per-frame deltas into trailing columns of the frame-phase CSV.
+//
+// Each helper counts its OWN entries, including entries made by another
+// helper. For example, runtime_insn_begin calls runtime_insn_boundary, which
+// calls runtime_should_yield, and all of them reach runtime_mem_cycles. So the
+// slots are logical call counts, not disjoint shares.
+//
+// The names are the CSV column suffixes.
 enum CostBk {
     kBkInsnBegin = 0,
     kBkInsnBoundary,

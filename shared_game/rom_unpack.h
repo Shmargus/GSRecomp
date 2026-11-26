@@ -4,9 +4,8 @@
 //   1: the byte-flag format of 0x08001B70 (gbarecomp::lz_decompress);
 //   0: a bit stream read lowest bit first: 1 + 8 bits is a literal byte,
 //      0 + a length code + a distance is a copy of earlier output.
-// Checked byte for byte against the game's own output (The Lost Age F12 0072
-// and 0073, 21 October 2026) and against every asset of every supported ROM
-// of both games (17 November 2026).
+// Checked byte for byte against the game's own output (two The Lost Age
+// captures) and against every asset of every supported ROM of both games.
 #pragma once
 
 #include <cstddef>

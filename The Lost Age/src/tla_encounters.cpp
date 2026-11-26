@@ -1,8 +1,8 @@
 // Golden Sun: The Lost Age -- Encounters: Normal / Half / Off / Double
 // (settings page two), as in Golden Sun 1.
 //
-// The field's encounter step 0x080C9FD8 is Golden Sun 1's 0x0808AE74 with
-// moved offsets (FACTS.md, 2026-10-05). It works out the step's amount
+// The field's encounter step 0x080C9FD8 is the Broken Seal's 0x0808AE74 with
+// moved offsets (FACTS.md). It works out the step's amount
 // (call_via at 0x080CA0CC, result in r0), loads the base 0x02000240 at
 // 0x080CA0CE, adds the amount to the counter at base + 0x258 (0x02000498)
 // and starts a battle once the counter reaches the threshold at

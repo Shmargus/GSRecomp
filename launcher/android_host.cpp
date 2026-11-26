@@ -317,6 +317,12 @@ std::string pick_file(const std::string& title, const fs::path& destination) {
     return g_picked;
 }
 
+void keep_awake(bool on) {
+    Jni jni;
+    if (jmethodID keep = jni.method("keepAwake", "(Z)V"))
+        jni.env->CallVoidMethod(jni.activity, keep, static_cast<jboolean>(on));
+}
+
 void open_url(const std::string& url) {
     Jni jni;
     jmethodID open = jni.method("openUrl", "(Ljava/lang/String;)V");

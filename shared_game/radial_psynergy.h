@@ -4,13 +4,14 @@
 // field shortcut, B closes. Each Psynergy appears once; whoever in the party
 // knows it and has the most PP casts it.
 //
-// Everything runs through the games' own field shortcut (FACTS "Radial
-// Psynergy menu", 4 November 2026): both games keep L and R shortcut words in
-// the save data (id | caster << 10) and read them in their field button poll,
-// which hands the word to the shortcut cast routine. That routine queues the
-// cast exactly as the Psynergy menu does. Here the poll's entry is the moment
-// the player has control: the radial opens there and casts through that
-// routine. L2/R2 are our own words in game_options.ini.
+// Everything runs through the games' own field shortcut. Both games:
+//   - keep L and R shortcut words in the save data (id | caster << 10),
+//   - read them in their field button poll, and
+//   - hand the word to the shortcut cast routine, which queues the cast
+//     exactly as the Psynergy menu does.
+// Here the poll's entry is the moment the player has control. The radial
+// opens there and casts through that routine. L2/R2 are our own words in
+// game_options.ini.
 #pragma once
 #include <algorithm>
 #include <array>
@@ -36,8 +37,8 @@ namespace gsr::radial_psynergy {
 
 // Auto Field Psynergy: A with nothing to talk to or check casts the field
 // Psynergy the game itself would react to there. Every question goes to the
-// game's own routines (FACTS "Auto Field Psynergy" in both games, November
-// 2026), asked from the field poll's entry; the game files hold the calls.
+// game's own routines (in both games), asked from the field poll's entry; the
+// game files hold the calls.
 struct AutoCast {
     std::uint32_t a_mask;          // halfword: the game's A button mask
     std::uint32_t pressed;         // word: buttons pressed this frame
@@ -47,6 +48,7 @@ struct AutoCast {
     std::uint32_t categories[4];   // what the cast itself searches
     unsigned category_count;
     std::uint32_t anywhere;        // event word bit: reacts anywhere in the room
+    std::uint32_t menu_mask;       // halfword: the button that opens the menu (Select)
 };
 
 // A game routine's r0, or 0 when it did not return.
@@ -83,20 +85,22 @@ struct Game {
     void (*prepare_font)();        // the runner's menu font, before the box shows
     const AutoCast* auto_cast = nullptr;  // null: no Auto Field Psynergy
     // The game's own icon-count routine, asked instead of icon_count when
-    // set: a patched ROM may change it (Reloaded TLA returns 0xFFFF for its
-    // 269-icon table, FACTS 15 November 2026).
+    // set: a patched ROM may change it (the Reloaded patch of The Lost
+    // Age returns 0xFFFF for its 269-icon table).
     std::uint32_t icon_count_routine = 0;
-    // The world map: the cast routine's own branch for it (state 3 at field
-    // + world_state, a byte or a halfword) answers L/R itself and drops the
-    // word, so the word goes in the field's cast request (field + request),
-    // as the game's Psynergy menu does there. 0: no such branch.
+    // The world map. The cast routine has its own branch for it (state 3 at
+    // field + world_state, a byte or a halfword). That branch answers L/R
+    // itself and drops the word. So the word goes in the field's cast request
+    // (field + request), as the game's Psynergy menu does there. 0: no such
+    // branch.
     unsigned world_state = 0, world_state_size = 0, request = 0;
 };
 
-// Measured in both games (FACTS): 0x14C-byte character records, current HP
-// +0x38, current PP +0x3A, 32 learned-ability words from +0x58 (id in the low
-// 14 bits). Ability records: target byte +0 (2 = one ally: the heals, which
-// the field menu casts on a party member, not here), icon +4, PP cost +9.
+// Measured in both games:
+//   - Character records are 0x14C bytes: current HP +0x38, current PP +0x3A,
+//     32 learned-ability words from +0x58 (id in the low 14 bits).
+//   - Ability records: target byte +0 (2 = one ally: the heals, which the
+//     field menu casts on a party member, not here), icon +4, PP cost +9.
 constexpr unsigned kRecordSize = 0x14C, kPp = 0x3A;
 constexpr unsigned kAbilities = 0x58, kAbilitySlots = 32;
 constexpr unsigned kTargetAlly = 2, kIconOffset = 4, kCostOffset = 9;
@@ -158,7 +162,7 @@ inline std::atomic<unsigned> hotkey_down{0}, hotkey_held{0};
 // The games' icon unpacker (The Broken Seal ARM 0x08015AFC, The Lost Age the
 // same 0x278 bytes at 0x08038B18): LSB-first bits, a 16-entry move-to-front
 // history (two words of nibbles), 256 pixel indices. Checked equal to the
-// original routine for all 160 / 260 Psynergy icons and 371 TLA item icons.
+// original routine for all 160 / 260 Psynergy icons and 371 The Lost Age item icons.
 inline bool decode_icon(gba::GbaBus& b, std::uint32_t src, std::array<std::uint8_t, 256>& out) {
     std::uint32_t ip = 1, at = src;
     if (src & 3u) {
@@ -353,6 +357,16 @@ inline std::uint32_t auto_word(gba::GbaBus& b, std::uint32_t field) {
     return 0;
 }
 
+// Menu on Select only, from the poll's entry: A alone, with nobody to talk to
+// and nothing to check, would end in the field loop's menu request (the same
+// one Select sets in the poll), so the poll is answered "nothing pressed".
+inline bool a_only_opens_menu(gba::GbaBus& b) {
+    const AutoCast& a = *game->auto_cast;
+    const std::uint32_t pressed = b.read32(a.pressed);
+    return (b.read16(a.a_mask) & pressed) && !(b.read16(a.menu_mask) & pressed) &&
+           !a.a_acts();
+}
+
 // --- hooks ------------------------------------------------------------------
 inline void reset() {
     std::lock_guard<std::mutex> guard(lock);
@@ -512,7 +526,11 @@ inline bool on_entry(std::uint32_t pc) {
     }
     bool answered = false;
     std::uint32_t result = 0;
-    if (w && on_world_map(*b, field)) {
+    if (!w && !cast && !was_open && !asked && game->auto_cast &&
+        gbarecomp::game_option_get(select_menu::kOptionKey, 0) && a_only_opens_menu(*b)) {
+        gbarecomp::guest_return_now(pc, 0);
+        answered = true;
+    } else if (w && on_world_map(*b, field)) {
         b->write16(field + game->request, static_cast<std::uint16_t>(w));
         gbarecomp::guest_return_now(pc, w);
         answered = true;
@@ -560,7 +578,7 @@ bool paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height, Box box
         p[2] = static_cast<std::uint8_t>((bl << 3) | (bl >> 2));
     };
     // The pulse runs at half the battle target cursor's beat (it bobs once
-    // every 8 frames, FACTS "The cursor bobs", F12 0062).
+    // every 8 frames, as measured).
     // Counted in game frames, so it pauses and speeds up with the game. The
     // highlighted frame brightens and dims and its icon grows by up to two
     // pixels a side.

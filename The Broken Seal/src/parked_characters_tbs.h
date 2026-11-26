@@ -6,10 +6,8 @@
 // Actor ids 0..0x42: 0x0808BA1C returns [[0x03001EBC] + 0x14 + 4 * id] for
 // id <= 0xBF; the loops that walk it stop at 0x41 (0x08095748, 0x0809C384)
 // or 0x42 (0x08096D16). Higher entries hold other fields (S + 0x1E0 is the
-// focus actor). Over every 10th saved field frame, each sprite hidden off
-// the room covered an actor point (0056, 0072, 0092 the Wise One); the
-// effects there (0050, 0053, 0080, 0081, 0091, 0098-0100) covered none
-// (FACTS.md 2026-11-12).
+// focus actor). Sampling every 10th saved field frame, each sprite hidden off
+// the room covered an actor point; the effects there covered none.
 #pragma once
 
 #include <bitset>

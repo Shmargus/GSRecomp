@@ -40,7 +40,7 @@ extern "C" bool g_yield_resume_pending;
 namespace gsr {
 namespace {
 
-// Func_2808 as Func_5394 copies it (FACTS.md 2026-10-07/08). The first 16
+// Func_2808 as Func_5394 copies it. The first 16
 // bytes are its entry-only format check, which its own output may overwrite.
 constexpr std::uint32_t kUnpackerStart = 0x03006000u;
 constexpr std::uint32_t kUnpackerEnd = 0x030064ECu;

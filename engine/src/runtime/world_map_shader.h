@@ -2,9 +2,10 @@
 #pragma once
 
 // u_world_cell_art / u_world_art: other artwork for some cells
-// (FieldSceneRenderer::upload_world_cell_art). Per 16-pixel cell, the set it
-// is drawn from, 255 for video memory; each set's character blocks 2-3
-// (VRAM 0x8000-0xFFFF) and, in palette row 2 + set, its colours.
+// (FieldSceneRenderer::upload_world_cell_art).
+//   - Per 16-pixel cell, the set it is drawn from. 255 means video memory.
+//   - Each set's character blocks are 2-3 (VRAM 0x8000-0xFFFF).
+//   - Each set's colours are in palette row 2 + set.
 #define GBARECOMP_WORLD_MAP_UNIFORMS \
     "uniform usampler2D u_world_map;\n" \
     "uniform int u_use_world;\n" \

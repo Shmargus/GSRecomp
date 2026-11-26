@@ -56,10 +56,7 @@ void image_a_entry() {
     if (!g_tail_probe) return;
     record_tail_stack();
     if (++g_tail_laps < 2000u) {
-#if defined(__clang__)
-        [[clang::musttail]]
-#endif
-        return runtime_dispatch(kSharedPc);
+        GBARECOMP_TAIL_DISPATCH(runtime_dispatch, kSharedPc);
     }
 }
 

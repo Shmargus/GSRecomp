@@ -1,7 +1,7 @@
 """Turn the RAM code the game ran into static translations.
 
-Golden Sun 1's way (its docs/features/STATIC_RAM_CODE.md): code the static
-build did not know is compiled at runtime by the engine's self-heal tier,
+The Broken Seal's approach: code the static build did not know is compiled
+at run time by the engine's self-healing tier (engine/src/runtime/self_heal.h),
 and the engine keeps every such piece in its cache with the exact bytes it
 compiled (recomp_cache/<rom sha1>/<compiler>/<host>/*.pic: "GBAPIC5\\0",
 then schema, ABI, pc, end, crc, thumb, length, and the bytes). This reads
@@ -37,19 +37,19 @@ SOURCE = 0x08C00000          # where harvest.gba holds the packed families
 # image. At run time, TLA_HARVEST matches routines by their expected bytes and
 # RAM origin, never by these SOURCE addresses
 # (tla_recompile.py:image; tla_ram_images.cpp:Family/build_family_index).
-# Measured 2026-10-17: 13,681 pieces pack into 6,566 routines / 4,190,336
+# Measured: 13,681 pieces pack into 6,566 routines / 4,190,336
 # bytes, ending at 0x08FFF080, which is beyond the 0x08F00000 blitter
 # boundary.
 SOURCE_END = 0x0A000000      # exclusive end of the 32 MiB GBA ROM window
 STRIDES = (0x40, 0x100, 0x400, 0x1000)
 GROUP = 64
-# Measured 2026-10-17: compiling harv73 as one 125,240,222-byte block unit
+# Measured: compiling harv73 as one 125,240,222-byte block unit
 # exhausted build memory. The 32-way function sharding already in use makes
 # the largest large-stride unit 5,261,927 bytes; three large units compiled
 # at a 610,156,544-byte job peak. Smaller-stride families stay whole. The
 # sharding does not change packing or routine identities.
 
-# F12 tla_rewind_0001/0002: the live Thumb function at 0x0200B6A8
+# The live Thumb function at 0x0200B6A8
 # compares world-object descriptor x/z with the camera focus box.
 WORLD_DESCRIPTOR_BOUNDS = (
     (0x0200B768, 0xDC00, "descriptor x above the lower camera focus bound; taken retains descriptor"),
@@ -58,7 +58,7 @@ WORLD_DESCRIPTOR_BOUNDS = (
     (0x0200B780, 0xDB00, "descriptor z below the upper camera focus bound; taken retains descriptor"),
 )
 
-# F12 0103/0104: measured pad emitter at 0x0200B0F4; full coordinates
+# Measured pad emitter at 0x0200B0F4; full coordinates
 # alone cannot draw sections rejected by these original visibility tests.
 JUMP_PAD_BOUNDS = (
     (0x0200B1BE, 0xD845, "pad x + 15 above 270; taken skips cap and stem"),
@@ -71,7 +71,7 @@ SPARKLE_BOUNDS = (
     (0x0200B5B4, 0xD821, "sparkle y + 47 above 238; taken skips sprite"),
 )
 
-# F12 tla_rewind_0144/0145, 0147, 0148: the pillar-top routine, loaded at
+# The pillar-top routine, loaded at
 # 0x0200925C (map 255), 0x0200B77C (map 263) and 0x02009A78 (map 264).
 PILLAR_TOP_SITES = (
     (0xB6, 0xD85E, "pillar top x + 7 above 334; taken skips piece"),
@@ -84,8 +84,8 @@ PILLAR_TOP_SITES = (
 PILLAR_TOP_BOUNDS = tuple((start + offset, opcode, bound)
                           for start in (0x0200925C, 0x0200B77C, 0x02009A78)
                           for offset, opcode, bound in PILLAR_TOP_SITES)
-# F12 tla_rewind_0173 (map 292): the emitter timer, loaded at 0x0200A42C
-# there and at 0x0200A0EC (self-heal cache, identical test section).
+# The emitter timer (map 292), loaded at 0x0200A42C there and at
+# 0x0200A0EC (run-time compiled cache, identical test section).
 EMITTER_SITES = (
     (0xD8, 0xD840, "emitter x + 7 above 334; taken skips its timer"),
     (0xE0, 0xDD3C, "emitter row -48 or less; taken skips its timer"),
@@ -121,7 +121,7 @@ def clusters_of(pieces):
     loader's bound checks (0x0200B752..0x0200B784) once went only into an
     older routine at 0x0200B69C that differs from the live one in 174 bytes,
     so the live loader matched no harvested routine there and its pieces ran
-    unhooked (F12 tla_rewind_0004-0007, 2026-10-13)."""
+    unhooked."""
     clusters = []
     for pc, thumb, code in pieces:
         end = pc + len(code)

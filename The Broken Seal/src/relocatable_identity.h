@@ -1,6 +1,6 @@
 // relocatable_identity.h: code-only identity hashing for RAM code images.
 //
-// GS-011 established the defect class ("Hashing data as if it were code"):
+// Hashing data as if it were code is a defect class here:
 // an image's identity hash must cover bytes the copy's WRITER leaves alone,
 // not the whole copied extent. Most images handle this by trimming a trailing
 // literal pool off the hashed extent. Func_b5138 self-relocates a jump table
@@ -58,7 +58,7 @@ std::string sha1_excluding(std::uint32_t size, ByteReader&& read_byte,
     return gba::sha1(bytes.data(), bytes.size()).hex();
 }
 
-// --- Page-epoch cache core (GS-cost: relocatable dispatch rehash) --------
+// --- Page-epoch cache core (relocatable dispatch rehash) --------
 //
 // A relocatable image's identity hash above is correct but unconditional:
 // callers who already proved it true for the current (image, base) pay a

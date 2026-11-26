@@ -1,13 +1,18 @@
-// self_heal.h: Stage-1 self-healing dispatch-miss bookkeeping.
+// self_heal.h: bookkeeping for self-healing, the engine's fallback for guest
+// code the ahead-of-time translation did not cover.
 //
-// On a dispatch miss, runtime_dispatch_miss runs the call in the reference
-// interpreter and returns to generated code. See its stop-address rule in
-// runtime_arm_default_aborts.cpp. Record each bridge for the coverage
-// report and TOML proposal.
+// A dispatch miss is a jump to a guest address with no translated function.
+// Stage 1: runtime_dispatch_miss runs the call in the reference interpreter
+// and returns to generated code (stop-address rule in
+// runtime_arm_default_aborts.cpp). Stage 2: the function is compiled into a
+// native overlay at run time and cached on disk (overlay_loader.h), so later
+// calls run natively. Every miss is logged, counted in the coverage report at
+// exit, and written to a TOML proposal that a person reviews before it joins
+// the game's configuration; proposals are never merged automatically. A run
+// that needed either stage is reported as not fully static.
 //
-// Log each miss, try to compile it (overlay_loader.h), and write a separate
-// TOML proposal for review. See PRINCIPLES.md (Self-healing and Coverage
-// is reported).
+// A codegen gap (an instruction form the translator cannot lower) is not a
+// miss: it always aborts loudly (runtime_unimplemented_op).
 
 #pragma once
 

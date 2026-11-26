@@ -4,8 +4,7 @@
 #include "rom_version.h"
 
 // Walk through walls (developer F1 cheat, engine/src/runtime/
-// developer_session.h). Measured in the SHA-1-verified ROM (FACTS.md,
-// 2026-10-23). The player's field walking routine 0x0800EBEC tests each step
+// developer_session.h). Measured in the SHA-1-verified ROM. The player's field walking routine 0x0800EBEC tests each step
 // with 0x080120DC (2: wall tile, 1: ground over 8 px higher, -1: over 12 px
 // lower) and then tests the other objects; any failure stops or slides the
 // player. Before those tests the developers left a path that skips them all:

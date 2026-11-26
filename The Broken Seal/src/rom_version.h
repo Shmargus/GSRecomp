@@ -3,14 +3,19 @@
 // Which Golden Sun ROM this build runs, and where an English address is in it.
 //
 // Feature code names USA/Europe ROM addresses. A localized ROM (Spain, Italy,
-// France, Germany) or a supported patched ROM (Golden Sun Reloaded) is its own
-// revision: most code moved and ~160 routines changed (FACTS.md "Localized
-// ROMs"). Each language gets its own game library, generated from that ROM;
-// the library exports the SHA-1 it was generated from, so the version is known
-// before any feature installs. German global RAM slots also move; gs::ram()
-// maps those measured slots.
-// Overlay-relative addresses and text IDs have their own measured maps below.
+// France, Germany) or a supported patched ROM (a romhack, Portuguese) is its
+// own revision. In those, most code moved and ~160 routines changed (FACTS.md
+// "Localized ROMs").
 //
+// Each language gets its own game library, generated from that ROM. The
+// library exports the SHA-1 it was generated from, so the version is known
+// before any feature installs.
+//
+// Some addresses have their own measured maps:
+//   - German global RAM slots also move; gs::ram() maps those slots.
+//   - Overlay-relative addresses and text IDs are mapped below.
+//
+// The lookups:
 // gs::rom(usa)   the loaded revision's address for a USA ROM address; aborts
 //                loudly on an address with no measured counterpart.
 // GS_ROM(usa)    the same, cached per call site; `usa` must be a constant.
@@ -31,16 +36,25 @@
 namespace gs {
 
 // The language the loaded ROM plays as, in the row order of
-// src/rom_revisions.inc. A patched revision (Reloaded) reports the language
-// it is a patch of; gs::reloaded() and gs::portuguese() tell them apart.
+// src/rom_revisions.inc. A patched revision (a romhack, Portuguese) reports
+// the language it is a patch of; gs::romhack() and gs::portuguese() tell
+// them apart.
 enum class RomVersion : std::uint8_t { Usa, Spain, Italy, France, Germany };
 
 // The SHA-1 the game library was generated from (lower-case hex).
 const char* game_rom_sha1();
 RomVersion rom_version();
 const char* rom_version_name();
-// Golden Sun Reloaded 1.83a (an English patch; rom_version() is Usa).
-bool reloaded();
+// A gameplay romhack (Reloaded 1.83a; Dawn of Djinn 2.0.5 Casual or
+// Veteran; Jenna Edition 1.0.0 Modern): an English patch (rom_version() is
+// Usa) whose abilities and classes are its own, not the measured USA ones.
+bool romhack();
+// Dawn of Djinn 2.0.5 (either difficulty): stores plain text as the
+// Portuguese patch does (plain_text).
+bool dawn_of_djinn();
+// Jenna Edition 1.0.0 Modern (same author and text routines as Dawn of
+// Djinn): plain text as the Portuguese patch (plain_text).
+bool jenna_edition();
 // Kyle the Runner's Brazilian Portuguese Beta 1.01 (a patch of USA/Europe;
 // rom_version() is Usa, addresses as USA). Our menus show in Portuguese.
 bool portuguese();

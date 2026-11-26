@@ -1,16 +1,17 @@
 // snapshot.h: save-state container + per-subsystem serialization.
 //
-// Per PRINCIPLES.md "Control Flow Semantics": save/load restores guest
-// CPU + memory + devices at a well-defined generated-code resume
-// boundary. It NEVER serializes host C-stack state.
+// Save/load restores the guest CPU, memory and devices at a well-defined
+// generated-code resume boundary. It NEVER serializes host C-stack state.
 //
-// The resume boundary is the gap between two runtime step_once() calls:
-// step_once() runs runtime_dispatch(g_cpu.R[15]), which returns with the
-// host C stack fully unwound and g_cpu.R[15] pointing at the next guest
-// PC. At that point g_cpu (plus the host-side call-return stack, device
-// state, and memory) fully describes where execution resumes. Snapshots
-// are taken ONLY at that boundary; TCP commands run between frame steps,
-// and the host-window hotkey is sampled at the top of a loop iteration.
+// The resume boundary is the gap between two runtime step_once() calls.
+// step_once() runs runtime_dispatch(g_cpu.R[15]), which returns with the host
+// C stack fully unwound and g_cpu.R[15] pointing at the next guest PC. At
+// that point g_cpu fully describes where execution resumes, together with the
+// host-side call-return stack, device state and memory.
+//
+// Snapshots are taken ONLY at that boundary. TCP commands run between frame
+// steps, and the host-window hotkey is sampled at the top of a loop
+// iteration.
 //
 // Layering note: SnapshotWriter / SnapshotReader are header-only so the
 // gba/ subsystem .cpp files can use them without depending on the debug

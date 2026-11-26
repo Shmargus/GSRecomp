@@ -11,11 +11,12 @@ namespace gbarecomp::seamless {
 // question and the launcher's switch all read and write this one value.
 inline constexpr const char* kOptionKey = "Seamless";
 
-// The Broken Seal exits with kExitCodeBase + the saved file (0..8, nine save
-// files: shared_game/save_files.h) once its Clear Data is written; the
-// launcher then starts The Lost Age at once. The base can be any value the
-// game does not return otherwise (it returns 0, or 1 when the save could not
-// be written). The launcher reports 127 itself.
+// Once its Clear Data is written, The Broken Seal exits with kExitCodeBase +
+// the saved file (0..8, nine save files: shared_game/save_files.h). The
+// launcher then starts The Lost Age at once.
+// The base can be any value the game does not return otherwise. The game
+// returns 0, or 1 when the save could not be written. The launcher reports 127
+// itself.
 inline constexpr int kExitCodeBase = 75;
 inline constexpr int kSlotCount = 9;
 

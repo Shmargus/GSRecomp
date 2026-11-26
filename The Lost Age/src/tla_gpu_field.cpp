@@ -14,7 +14,7 @@
 // alone. In the expanded view (F1 Screen size, 360x240) the field's
 // background layers beyond the console's picture come from the game's own
 // room tables (the room source; the Lost Age's addresses are in
-// field_scene_renderer.cpp, FACTS.md 2026-10-05). Golden Sun 1's world-map
+// field_scene_renderer.cpp). The Broken Seal's world-map
 // source, menu-graphics copy and spell-effect margins are not ported yet.
 //
 // Bench check (TLA_GPU_FIELD_CHECK=1, with GSR_GPU_FIELD=1): every drawn
@@ -58,6 +58,7 @@
 #include "tla_world_map.h"
 #include "../../shared_game/autosave.h"
 #include "../../shared_game/held_palette_effect.h"
+#include "../../shared_game/party_window_fade.h"
 
 namespace {
 
@@ -88,6 +89,7 @@ struct Capture {
     std::vector<std::uint8_t> room_vram;
     std::vector<std::uint16_t> room_palette;
     bool window_open = false;
+    gsr::party_window_fade::Fade fade;  // fallen heroes' menu columns
     unsigned ripple_phase = 0;
     // The iris wipe the frame shows (iris_window), or none.
     gsr::IrisWindow iris;
@@ -110,17 +112,21 @@ struct GpuPresentation {
 };
 gbarecomp::TextureReadbackQueue<GpuPresentation> g_readback;
 
-// The iris wipe, window effect 9 (FACTS.md, 2026-10-16). The effect block
-// [0x0300007C] holds the type (s16 +0x528) and the size step k (u16 +0x52A;
-// it grows by 2 a frame, and with bit 5 set it counts down from 32).
-// 0x080CFEF4 centres the wipe on the leader, actor
-// [[0x0300006C] + 0x14 + id * 4]. The id is 8 when s16 [0x020004B6] != 0,
-// otherwise [0x02000454]. The centre is x = actor+8 - camera x and
-// y = (actor+0x10 - actor+0xC) - camera y - 16 (16.16, camera in whole
-// pixels). Row y's half-width is sqrt((5k)^2 - 1.5 (y - cy)^2), clamped to
-// 0..240. The rows on screen use the k read at the previous VBlank (F12
-// tla_rewind_0045 frames 99..111, every row). The centre was below the
-// console's screen, so the renderer could not fit it from the rows.
+// The iris wipe, window effect 9 (FACTS.md).
+//   - The effect block [0x0300007C] holds the type (s16 +0x528) and the size
+//     step k (u16 +0x52A). k grows by 2 a frame; with bit 5 set it counts down
+//     from 32.
+//   - The routine 0x080CFEF4 centres the wipe on the leader, actor
+//     [[0x0300006C] + 0x14 + id * 4]. The id is 8 when s16 [0x020004B6] != 0,
+//     otherwise [0x02000454].
+//   - The centre is x = actor+8 - camera x and
+//     y = (actor+0x10 - actor+0xC) - camera y - 16 (16.16, camera in whole
+//     pixels).
+//   - Row y's half-width is sqrt((5k)^2 - 1.5 (y - cy)^2), clamped to 0..240.
+//   - The rows on screen use the k read at the previous VBlank (checked over
+//     every row of a recorded wipe).
+// The centre was below the console's screen, so the renderer could not fit it
+// from the rows.
 gsr::IrisWindow iris_window(gba::GbaBus* bus, int* last_k) {
     gsr::IrisWindow out;
     const std::uint32_t block = bus->read32(0x0300007Cu);
@@ -155,54 +161,61 @@ gsr::IrisWindow iris_window(gba::GbaBus* bus, int* last_k) {
 
 // ---- Room graphics behind menus (Golden Sun 1's build_room_vram) ----------
 //
-// A menu borrows background tiles and colours the room's layers also use; on
-// the console it covers them, in the expanded margins they showed as noise
-// (F12 0090 Djinn, 0091 Status). While no window is open this keeps the 64 KB
-// background area and the 256 background colours; while one is open the
-// margins' room tiles read the copy. The copy is refreshed only after the
-// windows have stood closed for 30 field frames (Golden Sun 1's measured
-// settle: menus free and retake their tiles between screens). Battle frames
-// never refresh it and restart the count: a battle has no window map, so the
-// copy took the Djinn battle's graphics, and the Djinn's dialogue and Set
-// screen right after it never let 30 field frames pass (F12 0102, battle
-// 33858-34944, noise behind the Set screen at 35616).
+// A menu borrows background tiles and colours that the room's layers also
+// use. On the console the menu covers them; in the expanded margins they
+// showed as noise (seen on the Djinn and Status screens).
 //
-// Open: BG0 is on and the window system's map of it (kTlaWindowMapOffset)
-// holds any tile but tile 0 in its first 20 rows. It equals BG0's own map
-// on that test in all 59 mode 0 F12 captures, and with no window both are
-// all tile 0. Text tiles alone missed the Djinn screen's first frame, empty
-// boxes before their text (F12 0099 frame 108: one frame of noise and a
-// parked Djinn in the margins). The window map, not BG0 itself, because
-// Golden Sun 1 also used BG0 for room lighting; and it is written a frame
-// before BG0 gets it at VBlank, so the copy also serves the one frame after
-// a window closes. The game's tile-use table (window block + 0xE38, 256
-// bytes, Golden Sun 1's + 0xDA0) agreed in 87 of 90: 0076, 0080 and 0097
-// kept two entries with no window, which would hold the copy into the next
-// room.
+// While no window is open, this code keeps a copy of the 64 KB background area
+// and the 256 background colours. While a window is open, the margins' room
+// tiles read the copy.
 //
-// Colours: Djinn replaces banks 4-7 and 14, Status 0, 1 and 14 (0090/0091
-// against 0092), as in Golden Sun 1. A screen-wide change (a fade, a flash)
-// changes every used bank of 0-13 and keeps the live colours there. The Lost
-// Age fades with the colours themselves (BLDY 0), so the copy taken while
-// leaving Madra was black; a bank black in the copy but not live counts as
-// used, or the town's name box on return painted the margins black (F12
-// 0106, from guest 66080).
+// The copy is refreshed only after the windows have stood closed for 30 field
+// frames (Golden Sun 1's measured settle: menus free and retake their tiles
+// between screens).
+//   - Battle frames never refresh it and restart the count. A battle has no
+//     window map, so the copy took the Djinn battle's graphics. Then the
+//     Djinn's dialogue and Set screen right after it never let 30 field
+//     frames pass (noise showed behind the Set screen).
+//   - For a map's first 30 field frames, every closed frame refreshes the
+//     copy, without the settle. A room's name box can open before 30 frames
+//     pass, and the copy would still hold the last room's graphics.
 //
-// For a map's first 30 field frames every closed frame refreshes the copy,
-// without the settle: a room's name box can open before 30 frames pass, and
-// the copy would still hold the last room's graphics.
+// When a window is "open". BG0 is on, and the window system's map of it
+// (kTlaWindowMapOffset) holds any tile but tile 0 in its first 20 rows.
+//   - That map equals BG0's own map on this test in all 59 mode 0 captures
+//     measured; with no window both are all tile 0.
+//   - Text tiles alone missed the Djinn screen's first frame, empty boxes
+//     before their text (one frame of noise and a parked Djinn in the
+//     margins).
+//   - The window map is used, not BG0 itself, because the Broken Seal also
+//     used BG0 for room lighting. It is also written a frame before BG0 gets
+//     it at VBlank, so the copy also serves the one frame after a window
+//     closes.
+//   - The game's tile-use table (window block + 0xE38, 256 bytes; the Broken
+//     Seal's is at + 0xDA0) agreed in 87 of 90 captures. Three kept two
+//     entries with no window, which would hold the copy into the next room.
 //
-// The room's own tile animation keeps running behind a window: Alhafra's
-// port water (map 98, F12 tla_rewind_0131) rewrites its 32 tiles at
-// 0x0600F800 every second frame through the whole "Ahoy, Briggs!" dialogue,
-// and the copy froze it in the margins. A tile slot that changes between two
-// trusted closed frames (those that may refresh the copy) is animation; the
-// images it showed then are kept, and while a window is open the slot takes
-// the live image whenever it is one of them. A menu's own tile is never one,
-// so a slot a menu borrows keeps the copy. Over every TLA F12 capture's
-// closed frames, animated slots cycle 2 to 32 images (32: the port water,
-// a complete cycle in 120 frames); a slot showing more is not a looping
-// animation (a field spell's canvas) and stays frozen for the map.
+// Colours. The Djinn screen replaces banks 4-7 and 14, and Status replaces
+// banks 0, 1 and 14 (measured against the room's own colours), as in the
+// Broken Seal. A screen-wide change (a fade, a flash) changes every used bank
+// of 0-13 and keeps the live colours there. The Lost Age fades with the
+// colours themselves (BLDY 0), so the copy taken while leaving Madra was
+// black. A bank that is black in the copy but not live therefore counts as
+// used; otherwise the town's name box on return painted the margins black.
+//
+// The room's own tile animation keeps running behind a window. Example:
+// Alhafra's port water (map 98) rewrites its 32 tiles at 0x0600F800 every
+// second frame through the whole "Ahoy, Briggs!" dialogue, and the copy froze
+// it in the margins. So:
+//   - A tile slot that changes between two trusted closed frames (those that
+//     may refresh the copy) is animation. The images it showed then are kept.
+//   - While a window is open, the slot takes the live image whenever it is one
+//     of those images.
+//   - A menu's own tile is never one, so a slot a menu borrows keeps the copy.
+//   - Over every closed frame measured, animated slots cycle 2 to 32 images
+//     (32: the port water, a complete cycle in 120 frames). A slot showing
+//     more is not a looping animation (a field spell's canvas) and stays
+//     frozen for the map.
 struct RoomTileImages {
     std::vector<std::uint64_t> seen;
     bool not_animation = false;
@@ -419,6 +432,7 @@ void capture() {
     capture->vram.assign(bus->vram_ptr(), bus->vram_ptr() +
         gba::GbaBus::kNativeVram + (bus->obj_extra() ? gba::GbaBus::kObjExtraVram : 0));
     capture->window_open = window_open;
+    capture->fade = gsr::party_window_fade::find(*bus);
     const bool field =
         scene.video_mode == 0 && bus->read32(kTlaBattleSlot) == 0u;
     build_room_vram(capture->vram, field, bus->read16(kTlaMapIdAddr),
@@ -579,6 +593,7 @@ bool draw_capture(const std::shared_ptr<const Capture>& owned, std::uint8_t* rgb
         in.room_palette_entries = capture.room_palette.size();
     }
     in.menu_open = capture.window_open;
+    in.fade = capture.fade;
     in.reveal_full = tla_field_psy_reveal();
     in.flicker_weight = gbarecomp::temporal_blend_weight_for_index(
         gbarecomp::flicker_reduction_index());
@@ -636,12 +651,12 @@ bool draw_capture(const std::shared_ptr<const Capture>& owned, std::uint8_t* rgb
 //
 // A menu over the world map switches the screen from the world map's mode 2
 // to mode 0 text layers on the same map blocks (BG2 block 10, BG3 block 8;
-// F12 0011, 2026-10-05: DISPCNT 0x1F40, BG2CNT 0xAA0F, BG3CNT 0xA80B, as in
-// Golden Sun 1). The margins are only drawn from the world map in mode 2, so
-// they went black for as long as the menu was open. The camera cannot move
-// while a menu is open, so the margins of the last settled world-map frame
-// are still the right picture: keep them and paint them around the live
-// picture on menu frames.
+// measured: DISPCNT 0x1F40, BG2CNT 0xAA0F, BG3CNT 0xA80B, as in Golden Sun 1).
+// The margins are only drawn from the world map in mode 2, so they went black
+// for as long as the menu was open.
+// The camera cannot move while a menu is open, so the margins of the last
+// settled world-map frame are still the right picture. We keep them and paint
+// them around the live picture on menu frames.
 std::vector<std::uint8_t> g_world_margin;
 std::shared_ptr<const Capture> g_world_settled;
 gsr::HeldPaletteEffect g_world_palette_effect;
@@ -655,11 +670,11 @@ bool world_map_blocks(const std::vector<std::uint8_t>& io) {
 }
 
 // Entering a town, black bars close in from the top and bottom of the world
-// map: the game switches those rows to mode 0 while the rest stay mode 2
-// (F12 tla_rewind_0164, 2026-10-28, frames 84-96: rows 0..k and 159-k..159
-// at DISPCNT 0x1F40, the rest 0x1F42). A bar row's margins, and the rows
-// above the first row and below the last, take the bar's colour so the bars
-// cross the whole screen. True for any frame mixing mode 2 with other rows.
+// map. The game switches those rows to mode 0 while the rest stay mode 2
+// (measured: rows 0..k and 159-k..159 at DISPCNT 0x1F40, the rest 0x1F42).
+// A bar row's margins, and the rows above the first row and below the last,
+// take the bar's colour so the bars cross the whole screen.
+// True for any frame mixing mode 2 with other rows.
 bool paint_shutter_rows(std::uint8_t* rgb, std::uint32_t width,
                         std::uint32_t height, const gsr::FieldScene& sc) {
     constexpr int kRows = gsr::FieldScene::kRows;
@@ -723,15 +738,17 @@ bool bg0_opaque(const std::vector<std::uint8_t>& io,
     return ((px & 1u) ? vram[p] >> 4 : vram[p] & 0xFu) != 0u;
 }
 
-// A quake scrolls BG1, the 240x160 snapshot of the map, by -3..3 pixels, so
-// the console shows BG1 past the snapshot (wrapped columns, other video
+// A quake scrolls BG1, the 240x160 snapshot of the map, by -3..3 pixels. The
+// console then shows BG1 past the snapshot (wrapped columns, other video
 // memory) in a strip along the edges it moves away from. On the console that
-// strip is the screen's edge; in the expanded view it outlined the native
-// window on every shake (F12 tla_rewind_0213, 2026-11-08: offsets (-3,-3) a
-// noise column on the left and a repeated strip on top, (+2,0) a column on
-// the right, (0,+3) a line at the bottom). Those pixels take the held map
-// at the same shake, as the margins do, unless the text box (BG0) or a
-// sprite's box covers them.
+// strip is the screen's edge. In the expanded view it outlined the native
+// window on every shake:
+//   - offsets (-3,-3) gave a noise column on the left and a repeated strip on
+//     top,
+//   - (+2,0) gave a column on the right,
+//   - (0,+3) gave a line at the bottom.
+// Those pixels take the held map at the same shake, as the margins do, unless
+// the text box (BG0) or a sprite's box covers them.
 void cover_shake_strips(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height,
                         const Capture& capture, const std::vector<std::uint8_t>& map,
                         int shake_x, int shake_y) {
@@ -879,7 +896,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     static std::vector<std::uint8_t> live_margins;
     static const auto mix = std::make_shared<Capture>();
     const std::vector<std::uint8_t>* margin_src = &g_world_margin;
-    // F12 frames.csv: this picture's margins come from remembered scenery.
+    // This picture's margins come from remembered scenery (noted in the frame trace).
     if (held)
         gbarecomp::frame_trace_note_held_scene(
             capture.scene.frame, g_world_settled ? g_world_settled->scene.frame : 0u);
@@ -892,7 +909,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
             margin_src = &live_margins;
     }
     // A quake shakes the map picture by scrolling BG1, the 256-colour layer
-    // that holds it on these screens (F12 tla_rewind_0151, 2026-10-24:
+    // that holds it on these screens (measured:
     // BG1CNT 0x0682, offsets -1..2 every frame; the edges meet the picture
     // only at 0,0). The held edges move with it.
     int shake_x = 0, shake_y = 0;
@@ -908,7 +925,7 @@ void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
     // A lighthouse beam: the margins already hold BG0's glow added to the
     // black backdrop (tla_field_draw.h), so add the held map beneath it the
     // way the console adds the snapshot (second target, weight EVB/16; EVB
-    // 16 in every beam frame of 0181..0184).
+    // 16 in every beam frame measured).
     const unsigned evb = std::min(io[0x53] & 0x1Fu, 16u);
     for (std::uint32_t y = 0; y < height; ++y) {
         const bool native_row = y >= y0 && y < y0 + 160u;

@@ -15,6 +15,7 @@
 #include "host_overlay.h"
 #include "runtime_bus_bridge.h"
 #include "tla.h"
+#include "../../shared_game/battle_speed_level.h"
 #include "../../shared_game/unpacker_guard.h"
 
 namespace {
@@ -65,7 +66,8 @@ bool present(uint8_t* rgb, uint32_t width, uint32_t height) {
     // The indicator belongs to the delivered picture, not the live guest.
     std::uint8_t* const layer = direct ? g_overlay_layer.begin(width, height) : rgb;
     if (frame.battle_2x) {
-        tla_paint_text(layer, width, height, 4, 4, ">>", 5);
+        tla_paint_text(layer, width, height, 4, 4,
+                       gsr::battle_speed_level::indicator(), 5);
         drawn = true;
     }
     drawn = tla_settings_page_paint(rgb, width, height) || drawn;

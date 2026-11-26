@@ -1,7 +1,6 @@
 // config.h: TOML config loader for gba_recompile.
 //
-// One TOML file per binary, loaded via --config <path>. See
-// docs/TOML_SCHEMA.md for the format.
+// One TOML file per binary, loaded via --config <path>.
 //
 // The config supplements (never replaces) the function-finder's
 // automated walk. Manual entries deduplicate against discovered

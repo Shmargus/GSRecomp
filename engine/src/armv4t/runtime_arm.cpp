@@ -773,31 +773,35 @@ uint32_t g_iwram_code_ring_next = 0;
 unsigned long long g_iwram_code_word_frame[kIwramCodeDiagWords];
 }  // namespace
 
-// Unpacker-slot journal (crash diagnosis). Always on, and independent of the
-// ring above: that ring only sees writes to pages registered as RAM-code pages
-// (runtime_register_ram_code_page), which is not guaranteed for the unpacker
-// page, and it is flooded by data writes elsewhere. This one records only
-// events touching the overlay unpacker's slot (g_game_ram_layout.unpacker_slot):
-//   dma   one entry per DMA transfer whose destination overlaps the slot
-//         (dst, src, byte count) plus the first word at the slot afterwards,
-//         which says which routine was copied in;
-//   cpu   one entry per (word, frame) for bus/interpreter CPU stores, and for
-//         generated-code stores on registered RAM-code pages;
-//   enter every runtime_dispatch to exactly the slot start (ARM), with r0, r1,
-//         r6, sp, lr, the game's IWRAM allocator pointer and whether the
-//         dispatch resumed a yield;
-//   yield_resume  a yield restore whose resume pc lies inside the slot
-//         (repeats of the same pc collapse into one entry with a count);
-//   push/ret_match/ret_unwind/cancel  the generated call-return stack
-//         (runtime_call_push_return / _should_return / _cancel_return) when
-//         the return pc lies inside the slot. Tests whether a stale unpacker
-//         return frame is resumed after another routine is copied into the
-//         slot (only the address is compared by the return matcher).
-// CPU stores have their own small ring so a decompressor writing over the slot
-// cannot push the copies, entries and returns out (a player crash on
-// 2026-10-03 lost them that way; FACTS.md). The dump merges both rings in
-// order and adds the last 16 dispatch targets. Dumped by the runner's
-// unknown-identity report and the bridge-abort path.
+// Unpacker-slot journal, used to diagnose crashes. It is always on.
+//
+// It is separate from the ring above. That ring only sees writes to pages
+// registered as RAM-code pages (runtime_register_ram_code_page), which is not
+// guaranteed for the unpacker page, and data writes elsewhere flood it. This
+// journal records only events that touch the overlay unpacker's slot
+// (g_game_ram_layout.unpacker_slot). The event kinds are:
+//   dma           one entry per DMA transfer whose destination overlaps the
+//                 slot: (dst, src, byte count), plus the first word at the
+//                 slot afterwards, which says which routine was copied in.
+//   cpu           one entry per (word, frame) for bus/interpreter CPU stores,
+//                 and for generated-code stores on registered RAM-code pages.
+//   enter         every runtime_dispatch to exactly the slot start (ARM),
+//                 with r0, r1, r6, sp, lr, the game's IWRAM allocator pointer
+//                 and whether the dispatch resumed a yield.
+//   yield_resume  a yield restore whose resume pc lies inside the slot.
+//                 Repeats of the same pc collapse into one entry with a count.
+//   push/ret_match/ret_unwind/cancel
+//                 events of the generated call-return stack
+//                 (runtime_call_push_return / _should_return /
+//                 _cancel_return) when the return pc lies inside the slot.
+//                 They test whether a stale unpacker return frame is resumed
+//                 after another routine is copied into the slot. The return
+//                 matcher compares only the address.
+// CPU stores have their own small ring, so a decompressor writing over the
+// slot cannot push the copies, entries and returns out. (A player crash lost
+// them that way.) The dump merges both rings in order and adds the last 16
+// dispatch targets. The runner's unknown-identity report and the bridge-abort
+// path dump it.
 extern "C" bool g_frame_present_in_progress = false;  // set by the host bridge
 extern "C" uint32_t g_irq_nest_depth;
 
@@ -1374,14 +1378,15 @@ uint32_t g_trace_seq = 0;
 constexpr uint32_t kCallReturnStackSize = 1024u;
 uint32_t g_call_return_stack[kCallReturnStackSize] = {};
 uint32_t g_call_return_depth = 0;
-// The guest code around each RAM return point when it was pushed (the call
-// instruction before it and the instruction at it). RAM code is copied in and
-// replaced at the same addresses, so an address alone does not say the frame
-// still belongs to the code now there: a routine that leaves a
-// never-matched return behind can be matched by a different routine later
-// loaded at the same address, which then runs the first routine's host code
-// on its registers (seen in Golden Sun; FACTS.md).
-// A RAM entry matches only while these words are unchanged.
+// The guest code around each RAM return point, captured when the return was
+// pushed: the call instruction before it and the instruction at it.
+//
+// RAM code is copied in and replaced at the same addresses, so an address
+// alone does not show that the frame still belongs to the code now there.
+// A routine can leave a never-matched return behind. A different routine
+// loaded later at the same address can then match it, and so run the first
+// routine's host code on its own registers (seen in Golden Sun).
+// A RAM entry therefore matches only while these words are unchanged.
 uint64_t g_call_return_code[kCallReturnStackSize] = {};
 
 inline bool call_return_in_ram(uint32_t pc) {
@@ -1410,14 +1415,19 @@ bool call_return_code_replaced(uint32_t slot) {
     }
     return true;
 }
-// Barrier into the GLOBAL guest call-return stack. An IRQ is dispatched on top
-// of whatever mainline (or enclosing-IRQ) call frames are live, but the handler's
-// guest returns/cancels must NOT match or pop those interrupted frames: doing so
-// makes a handler return-cancel unwind into the mainline, skipping the rest of
-// the handler (e.g. LeafGreen's VBlankIntr tail `gMain.intrCheck |= VBLANK` is
-// never reached, so WaitForVBlank spins forever). runtime_irq() raises this floor
-// to the live depth for the duration of the handler; should_return/cancel_return
-// never look below it. Saved/restored across nested IRQs by runtime_irq().
+// A floor in the GLOBAL guest call-return stack, so a handler cannot touch
+// the frames it interrupted.
+//
+// An IRQ is dispatched on top of whatever mainline (or enclosing-IRQ) call
+// frames are live. The handler's guest returns and cancels must NOT match or
+// pop those interrupted frames. If they did, a handler return-cancel would
+// unwind into the mainline and skip the rest of the handler. For example,
+// LeafGreen's VBlankIntr tail `gMain.intrCheck |= VBLANK` would never run,
+// and WaitForVBlank would spin forever.
+//
+// runtime_irq() raises this floor to the live depth for the duration of the
+// handler, and should_return/cancel_return never look below it. runtime_irq()
+// saves and restores it across nested IRQs.
 uint32_t g_call_return_floor = 0;
 
 // Dump-time view of the call-return stack for the unpacker-slot journal:
@@ -1472,12 +1482,12 @@ extern "C" void runtime_trace_event(uint32_t kind, uint32_t pc,
     g_runtime_mem_write_override_pending_valid = 0u;
     if (kind == RUNTIME_TRACE_MEM_WRITE && g_runtime_mem_write_observer)
         g_runtime_mem_write_observer(pc, addr, value, aux);
-    // The factor selects the player-speed multiplier only; a factor of 1 is
+    // The factor selects the player-speed multiplier only. A factor of 1 is
     // the identity transform, and the runtime records nothing unless the
-    // callback actually changes the value. Gating the call on factor > 1
-    // therefore did not keep the run faithful, it just made the hook
-    // unreachable for every other game-owned policy. Each policy gates
-    // itself; the hook remains null by default.
+    // callback actually changes the value. Gating the call on factor > 1 did
+    // not keep the run faithful. It only made the hook unreachable for every
+    // other game-owned policy. Each policy gates itself, and the hook stays
+    // null by default.
     if (kind == RUNTIME_TRACE_MEM_WRITE &&
         g_runtime_mem_write_override &&
         (!g_mem_write_override_filter ||
@@ -1514,10 +1524,10 @@ extern "C" void runtime_trace_event(uint32_t kind, uint32_t pc,
     // STORE WATCHPOINT. GBARECOMP_STORE_WATCH=<lo>[:<hi>] reports every guest
     // write into that address range with the PC responsible.
     //
-    // The DMA watch answers "which bulk copy touched this address"; it cannot
+    // The DMA watch answers "which bulk copy touched this address". It cannot
     // see ordinary stores, so an address that a copy fills and an unrelated
-    // loop later overwrites looks untouched. The abort ring dump only carries
-    // the last 160 events, which is far too short to reach backwards to a
+    // loop later overwrites looks untouched. The abort ring dump carries only
+    // the last 160 events, which is far too short to reach back to a
     // corruption that happened many frames earlier.
     {
         static int watch_init = 0;
@@ -1551,16 +1561,18 @@ extern "C" void runtime_trace_event(uint32_t kind, uint32_t pc,
     }
     // PERF MEASUREMENT GATE. The ring is written on every store, branch and
     // dispatch, so it is the first thing to measure when guest throughput is
-    // the problem. Turning it off ALSO disables every abort watchpoint and
-    // the on-abort ring dump that this project's attribution work depends
-    // on: recording only, never a change to guest-observable execution
-    // (nothing below this point writes g_cpu, the bus, or g_runtime_cycles;
-    // every abort site is a std::abort() diagnostic crash, itself gated by
-    // its own separate GBARECOMP_ABORT_ON_* env var).
+    // the problem.
     //
-    // GBARECOMP_TRACE overrides the UI for the life of the process. Otherwise
-    // read the Logging tab's "Additional debug logging" switch on each trace
-    // call with a relaxed atomic load. The switch defaults to off.
+    // Turning it off ALSO disables every abort watchpoint and the on-abort
+    // ring dump, which this project's attribution work depends on. It only
+    // stops recording and never changes guest-observable execution:
+    //   - nothing below this point writes g_cpu, the bus or g_runtime_cycles;
+    //   - every abort site is a std::abort() diagnostic crash, gated by its
+    //     own separate GBARECOMP_ABORT_ON_* env var.
+    //
+    // GBARECOMP_TRACE overrides the UI for the life of the process.
+    // Otherwise each trace call reads the Logging tab's "Additional debug
+    // logging" switch with a relaxed atomic load. The switch defaults to off.
     static int trace_env_forced = -2;  // -2 unread, -1 unset, 0/1 forced off/on
     if (trace_env_forced == -2) {
         trace_env_forced = std::getenv("GBARECOMP_TRACE")
@@ -1634,11 +1646,11 @@ extern "C" void runtime_trace_event(uint32_t kind, uint32_t pc,
         const char* env = std::getenv("GBARECOMP_ABORT_ON_MEM_WRITE_MIN_FRAME");
         abort_min_vblank = env ? std::strtoull(env, nullptr, 0) : 0ull;
     }
-    // Optional value gate: only abort when the written value matches. Lets a
-    // watchpoint skip a correct write to an address and fire on the specific
-    // erroneous value (e.g. a per-frame countdown written 0x0C first (correct),
-    // then 0x0B by an extra tick; watch value=0x0B to land on the duplicate
-    // write, not the legitimate one). -1 = match any value.
+    // Optional value gate: only abort when the written value matches. This
+    // lets a watchpoint skip a correct write to an address and fire on the
+    // specific wrong value. Example: a per-frame countdown is written 0x0C
+    // first (correct), then 0x0B by an extra tick. Watch value=0x0B to land on
+    // the duplicate write, not the legitimate one. -1 = match any value.
     static long long abort_mem_value = -2;
     if (abort_mem_value == -2) {
         const char* env = std::getenv("GBARECOMP_ABORT_ON_MEM_WRITE_VALUE");
@@ -1850,11 +1862,12 @@ extern "C" void (*g_runtime_bios_open_bus_hook)(uint32_t value) = nullptr;
 static void no_bios_vector(uint32_t pc);
 
 namespace {
-// ~8M instructions of history (~60+ PPU-frames). The recomp runs several frames
-// ahead of the interp oracle in cumulative cycle (boot step_frame overshoot), so
-// a 1M (~8-frame) ring barely overlapped the interp's at the same frame number;
-// a divergence deep in a run needs a window wide enough that one dump spans
-// both the pre-divergence anchor and the first divergent instruction.
+// About 8M instructions of history (60+ PPU frames).
+// The recompiled code runs several frames ahead of the interpreter oracle in
+// cumulative cycles (the boot step_frame overshoots). A 1M-entry ring (about 8
+// frames) barely overlapped the interpreter's at the same frame number.
+// To debug a divergence deep in a run, one dump must span both the
+// pre-divergence anchor and the first divergent instruction.
 // 80 bytes/entry → ~640 MB, only touched when armed (GBARECOMP_INSN_TRACE=1).
 constexpr uint32_t kFpSize = 1u << 23;
 // The F1 crash log's ring: the last ~65k instructions, 5 MB.
@@ -2003,13 +2016,16 @@ extern "C" unsigned long long runtime_bios_pc_log_sample_count(void) {
 extern "C" uint32_t runtime_current_pc(void) { return g_cpu.R[15]; }
 
 // ── IRQ-vector log ─────────────────────────────────────────────────
-// A dedicated, always-on, cycle-stamped log of EVERY IRQ vectoring. The
-// general trace ring (4096) is diluted by mem-writes (thousands/frame) so it
-// spans only a fraction of a frame; this log records one entry per IRQ vector
-// (~1-2/frame) so it spans ~10^4 frames: enough to find, on a fresh boot, the
-// frame where the recomp vectors an extra VBlank IRQ vs the interp oracle. The
-// `from_halt` flag distinguishes the wake-from-HALT delayed path from the
-// running immediate path. Dumped as CSV on exit when GBARECOMP_IRQ_LOG is set.
+// An always-on, cycle-stamped log of EVERY IRQ vectoring.
+//
+// The general trace ring (4096 entries) is diluted by memory writes (thousands
+// per frame), so it spans only a fraction of a frame. This log records one
+// entry per IRQ vector (about 1-2 per frame), so it spans about 10^4 frames.
+// That is enough to find, on a fresh boot, the frame where the recompiled code
+// vectors an extra VBlank IRQ compared with the interpreter oracle.
+// The `from_halt` flag tells the delayed wake-from-HALT path from the
+// immediate running path. It is dumped as CSV on exit when GBARECOMP_IRQ_LOG
+// is set.
 namespace {
 constexpr uint32_t kIrqLogSize = 1u << 17;   // 131072 vectors (~32k+ frames)
 using IrqLogEntry = RuntimeIrqLogEntry;       // public type (runtime_arm.h)
@@ -2072,14 +2088,16 @@ extern "C" uint32_t runtime_irq_log_copy_recent(RuntimeIrqLogEntry* out,
 }
 
 // ── SWI log ────────────────────────────────────────────────────────
-// Always-on, cycle-stamped log of every SWI (BIOS call). VBlankIntrWait is
-// SWI 5; it runs once per main-loop iteration, so its sequence IS the main-loop
-// cadence. We capture cycle + caller(ret) + r0/r1 args + the BIOS IntrWait
-// flags at 0x03007FF8, so a recomp-vs-interp SWI-5 sequence diff shows an extra
-// main-loop iteration and the IntrWait flag state that produced it. The route
-// column records whether the call used the recompiled BIOS (LLE), was serviced
-// by HLE, or fell through HLE to LLE.
-// Armed by env GBARECOMP_SWI_LOG; CSV on exit.
+// An always-on, cycle-stamped log of every SWI (BIOS call).
+//
+// VBlankIntrWait is SWI 5. It runs once per main-loop iteration, so its
+// sequence IS the main-loop cadence. Each entry holds the cycle, the caller
+// (ret), the r0/r1 arguments and the BIOS IntrWait flags at 0x03007FF8. A diff
+// of the recompiled and interpreter SWI-5 sequences then shows an extra
+// main-loop iteration and the IntrWait flag state that caused it.
+// The route column records whether the call used the recompiled BIOS (LLE),
+// was serviced by HLE, or fell through HLE to LLE.
+// Armed by env GBARECOMP_SWI_LOG; written as CSV on exit.
 namespace {
 constexpr uint32_t kSwiLogSize = 1u << 17;
 struct SwiLogEntry { unsigned long long cycles; uint32_t imm; uint32_t ret;
@@ -2297,28 +2315,30 @@ void (*lookup_in(const DispatchEntry* table, unsigned len,
 constexpr uint32_t kBiosRegionEnd = 0x00004000u;
 
 // ── Function coverage (input-explorer measurement, Part 1) ──────────
-// GBARECOMP_FUNC_COVERAGE=<path> opt-in, following the GBARECOMP_IRQ_LOG /
-// GBARECOMP_SWI_LOG convention: presence of the env var both arms recording
-// and names the exit-time output path. Default OFF, and off costs NOTHING
-// beyond what every build already pays: generated function prologues always
-// carry `if (g_runtime_fn_entry_hook) g_runtime_fn_entry_hook(entry_pc);`
-// (see recompile/emit_function.cpp) for the general debug-probe surface;
-// this feature only supplies a handler for that existing hook, so an
-// unarmed run is BYTE-IDENTICAL to one built without this feature at all.
+// Opt-in: GBARECOMP_FUNC_COVERAGE=<path>, following the GBARECOMP_IRQ_LOG /
+// GBARECOMP_SWI_LOG convention. Setting the env var both arms recording and
+// names the output path written on exit.
 //
-// A direct BL uses the host C stack and never goes through runtime_dispatch
-// (see runtime_call_push_return below), so hooking
-// runtime_dispatch alone would miss most function executions: the vast
-// majority of calls in a real run are direct. The function-entry hook fires
-// for EVERY generated function body regardless of how it was reached, which
-// is why coverage is wired there instead of at the dispatch-table lookup.
+// It is OFF by default, and off costs NOTHING beyond what every build already
+// pays. Generated function prologues always carry
+// `if (g_runtime_fn_entry_hook) g_runtime_fn_entry_hook(entry_pc);`
+// (see recompile/emit_function.cpp) for the general debug-probe surface.
+// This feature only supplies a handler for that existing hook, so an unarmed
+// run is BYTE-IDENTICAL to one built without this feature at all.
 //
-// One bit per dispatch-table entry (bios table + cart table, kept as two
-// arrays since table indices aren't comparable across them), set the first
-// time that entry's function executes. A hit/no-hit bit is all an input
-// explorer needs ("did this input reach new code"); a per-function count
-// would cost an extra memory write on every one of tens of millions of
-// dispatches for a number nothing downstream reads.
+// Why the hook and not runtime_dispatch: a direct BL uses the host C stack
+// and never goes through runtime_dispatch (see runtime_call_push_return
+// below). Hooking runtime_dispatch alone would miss most function executions,
+// because the vast majority of calls in a real run are direct. The
+// function-entry hook fires for EVERY generated function body, however it was
+// reached.
+//
+// What is recorded: one bit per dispatch-table entry, set the first time that
+// entry's function executes. The BIOS table and the cart table are kept as
+// two arrays, since table indices are not comparable across them.
+// A hit/no-hit bit is all an input explorer needs ("did this input reach new
+// code"). A per-function count would cost an extra memory write on every one
+// of tens of millions of dispatches, for a number nothing downstream reads.
 int g_coverage_armed = 0;
 std::vector<uint8_t> g_coverage_bios;  // sized to kBiosDispatchTableLen bits
 std::vector<uint8_t> g_coverage_cart;  // sized to kDispatchTableLen bits
@@ -2484,6 +2504,12 @@ void runtime_dispatch(uint32_t target_pc) {
     runtime_dispatch_miss(target_pc);
 }
 
+extern "C" uint32_t g_runtime_tail_pc = 0;
+extern "C" void runtime_dispatch_tail(void) { runtime_dispatch(g_runtime_tail_pc); }
+extern "C" void runtime_dispatch_with_exchange_tail(void) {
+    runtime_dispatch_with_exchange(g_runtime_tail_pc);
+}
+
 extern "C" void runtime_dispatch_with_exchange(uint32_t target_pc) {
     // Bit 0 of target indicates THUMB. An ARM target is word-aligned: the
     // ARM7TDMI ignores bits 1:0 of an ARM-state PC, and code relies on it --
@@ -2592,16 +2618,20 @@ extern "C" int runtime_call_should_return(uint32_t target_pc) {
     if (g_runtime_unmatched_return_hook && g_runtime_unmatched_return_hook(pc))
         return 1;
     // An unmatched return normally dispatches its target nested inside the
-    // returning C frame. A callee that rewrites its own return address
-    // (`sub lr, pc, #imm` before `bx lr`) and is called in a loop therefore
-    // nests one frame deeper per iteration: Golden Sun's decompressor
-    // Func_2544 refills its bit buffer this way, and a large decompression
-    // (the world map's R-button view) overflowed the stack and aborted. Past
-    // kUnwindDepth live frames, report "return" instead: this C frame returns
-    // with R15 already set to the target, each generated call site above it
-    // sees the mismatch, cancels its own frame and returns, and the dispatch
-    // loop at the bottom continues at R15 -- the same path a scheduler yield
-    // takes. Below the threshold nothing changes.
+    // returning C frame. That is a problem for a callee that rewrites its own
+    // return address (`sub lr, pc, #imm` before `bx lr`) and is called in a
+    // loop: it nests one frame deeper per iteration. Golden Sun's
+    // decompressor Func_2544 refills its bit buffer this way, and a large
+    // decompression (the world map's R-button view) overflowed the stack and
+    // aborted.
+    //
+    // Past kUnwindDepth live frames, report "return" instead:
+    //   1. This C frame returns with R15 already set to the target.
+    //   2. Each generated call site above it sees the mismatch, cancels its
+    //      own frame and returns.
+    //   3. The dispatch loop at the bottom continues at R15. A scheduler
+    //      yield takes the same path.
+    // Below the threshold nothing changes.
     constexpr uint32_t kUnwindDepth = kCallReturnStackSize / 4u;
     if (g_call_return_depth - g_call_return_floor >= kUnwindDepth) {
         // Journal this even when the target itself is outside the unpacker
@@ -2632,18 +2662,20 @@ extern "C" int runtime_call_should_return(uint32_t target_pc) {
 
 extern "C" void runtime_call_cancel_return(uint32_t return_pc) {
     uint32_t pc = return_pc & ~1u;
-    // A strict top-only check looks correct but isn't: some ARM code
-    // shares one BL target as a trampoline from several call sites, then
-    // computes its own return address unconditionally (e.g. `sub r14,r15,
-    // #imm`) instead of using the LR each caller actually pushed. Every
-    // site's frame resolves to the same nested-dispatch PC, so by the
-    // time control unwinds back to a given call site in C, that site's
-    // frame is no longer on top: it is buried under frames the nested
-    // dispatch pushed while running the trampoline's resolved target.
-    // Top-only cancel then silently no-ops, stranding the frame forever;
-    // one leaked frame per iteration eventually overflows the stack. Scan
-    // down to the floor exactly like runtime_call_should_return does, and
-    // truncate at the matched slot: everything above it is provably dead,
+    // A strict top-only check looks correct but is not. Some ARM code shares
+    // one BL target as a trampoline from several call sites, then computes its
+    // own return address unconditionally (e.g. `sub r14,r15,#imm`) instead of
+    // using the LR each caller actually pushed.
+    //
+    // Every site's frame then resolves to the same nested-dispatch PC. By the
+    // time control unwinds back to a given call site in C, that site's frame
+    // is no longer on top. It is buried under frames the nested dispatch
+    // pushed while running the trampoline's resolved target. A top-only cancel
+    // would silently do nothing and strand the frame forever. One leaked frame
+    // per iteration eventually overflows the stack.
+    //
+    // So scan down to the floor exactly like runtime_call_should_return does,
+    // and truncate at the matched slot. Everything above it is provably dead,
     // since control has already unwound back to this call site in C.
     for (uint32_t i = g_call_return_depth; i != g_call_return_floor; --i) {
         uint32_t slot = i - 1u;
@@ -3034,8 +3066,7 @@ extern "C" void runtime_restore_cpsr_from_spsr(void) {
 //   PC          ← 0x00000008
 //
 // Then we runtime_dispatch(0x08) into the recompiled BIOS SWI
-// vector. No interpreter fallback here (PRINCIPLES.md
-// "Self-healing" governs dispatch misses). If the BIOS dispatch table is
+// vector. No interpreter fallback here. If the BIOS dispatch table is
 // empty, the dispatch falls through to runtime_dispatch_miss; the
 // strong (production) version aborts there: that abort is the
 // "BIOS not recompiled" gate.
@@ -3097,13 +3128,17 @@ extern "C" void runtime_swi(uint32_t swi_imm) {
     // ── BIOS HLE (opt-in alternative to the recompiled/LLE BIOS) ────────
     // When an HLE handler is installed and it services this SWI, the guest
     // resumes at LR (already in g_cpu.R[15], set by the SWI codegen) with NO
-    // SVC-mode entry and NO BIOS dispatch: the hook computes the effect on
-    // g_cpu + memory directly and charges its own cycle cost. A return of 0
-    // (default, and for any SWI the HLE layer does not implement) falls through
-    // to the recompiled BIOS below. LLE therefore still does all the real work and
-    // remains the correctness oracle; HLE is purely additive. The SWI number is
-    // decoded the way the real BIOS reads it: THUMB from the low byte, ARM from
-    // bits 23..16 (arm_decode stores the full 24-bit comment in swi_imm).
+    // SVC-mode entry and NO BIOS dispatch. The hook computes the effect on
+    // g_cpu and memory directly and charges its own cycle cost.
+    //
+    // A return of 0 falls through to the recompiled BIOS below. That is the
+    // default, and also the result for any SWI the HLE layer does not
+    // implement. LLE therefore still does all the real work and remains the
+    // correctness oracle; HLE is purely additive.
+    //
+    // The SWI number is decoded the way the real BIOS reads it: THUMB from the
+    // low byte, ARM from bits 23..16 (arm_decode stores the full 24-bit
+    // comment in swi_imm).
     if (g_bios_hle_hook) {
         log_route = kSwiRouteHleFallback;
         if (g_bios_hle_hook(swi_num)) {
@@ -3137,24 +3172,27 @@ extern "C" void runtime_swi(uint32_t swi_imm) {
     g_cpu.R[15]                 = 0x00000008u;
 
     // Charge the SWI instruction's own cost (instr_cycle_base(SWI) = 3:
-    // 2S+1N). Ticked here, AFTER CPSR.I is masked above, so a VBlank/
-    // timer IRQ that becomes pending during these 3 cycles stays masked
-    // until the handler re-enables it, matching the interpreter oracle
-    // (enter_swi sets I=1, the 3 cycles are then pumped, and the
-    // next-boundary IRQ check sees I=1). The recompiled SWI codegen does not tick this op.
+    // 2S+1N). The recompiled SWI codegen does not tick this op.
+    //
+    // It is ticked here, AFTER CPSR.I is masked above. A VBlank or timer IRQ
+    // that becomes pending during these 3 cycles therefore stays masked until
+    // the handler re-enables it. This matches the interpreter oracle:
+    // enter_swi sets I=1, the 3 cycles are then pumped, and the next-boundary
+    // IRQ check sees I=1.
     runtime_tick(3u);
 
     runtime_dispatch(0x00000008u);
 }
 
-// Count of IRQ vectorings performed by the recompiled runtime (every
-// runtime_irq call = one exception entry to 0x18). The recomp delivers IRQs
-// here (called from runtime_tick), NOT in runtime.cpp's run loop, so this is
-// the authoritative per-engine IRQ-entry tally. The TCP `counters` command
-// surfaces it (runtime.cpp wires ctx.irq_entries here) so a probe can compare
-// IRQ delivery against the interpreter oracle (does the recomp vector an
-// extra/early VBlank IRQ?). Never reset; probes
-// compare per-frame deltas.
+// Count of IRQ vectorings performed by the recompiled runtime. Every
+// runtime_irq call is one exception entry to 0x18.
+//
+// The recompiled code delivers IRQs here (called from runtime_tick), NOT in
+// runtime.cpp's run loop, so this is the authoritative per-engine IRQ-entry
+// tally. The TCP `counters` command surfaces it (runtime.cpp wires
+// ctx.irq_entries here), so a probe can compare IRQ delivery against the
+// interpreter oracle: does the recompiled code vector an extra or early
+// VBlank IRQ? It is never reset; probes compare per-frame deltas.
 extern "C" unsigned long long g_runtime_irq_entries = 0;
 // Live host-recursion nesting depth of IRQ delivery (++ on entry, -- after the
 // handler unwinds) and the high-water mark. Distinguishes IRQ-storm
@@ -3176,7 +3214,7 @@ extern "C" uint32_t      g_irq_iret_depth = 0;
 // and leaves g_cpu.R[15] = 0xFFFFFFF0 so no generated call site's
 // `if (g_cpu.R[15] != <ret>)` can match a stale frame. Every loop that
 // re-dispatches R15 after runtime_dispatch() returns calls
-// runtime_yield_restore_pc() first. See FACTS.md "Door+Turbo crash".
+// runtime_yield_restore_pc() first.
 extern "C" uint32_t g_yield_resume_pc = 0;
 extern "C" bool     g_yield_resume_pending = false;
 
@@ -3267,23 +3305,28 @@ extern "C" void runtime_irq(uint32_t return_address) {
     //
     // A single runtime_dispatch(0x18) finishes the handler ONLY if nothing
     // inside it triggers a "return-to-top" unwind. A BIOS SWI executed inside
-    // the handler does exactly that: the SWI return path leaves R15 at the
-    // after-SWI PC and unwinds the host C stack via the per-call-site cancel
-    // cascade (runtime_call_cancel_return): the SAME mechanism a SWI in the
-    // main thread uses to unwind back to step_frame's dispatch loop, which
-    // then re-dispatches R15. runtime_irq has no such loop, so the cascade
-    // would abandon the handler mid-flight: e.g. FireRed's VBlank handler
-    // (VBlankCB_Copyright calls LoadOam, which calls CpuSet, a SWI) never
-    // reaches intr_main's post-handler `REG_IE = saved` restore. VBlank then
-    // stays masked in IE forever, the game's VBlank busy-wait spins, and the
-    // game freezes permanently.
+    // the handler does exactly that. The SWI return path leaves R15 at the
+    // after-SWI PC and unwinds the host C stack through the per-call-site
+    // cancel cascade (runtime_call_cancel_return). A SWI in the main thread
+    // uses the SAME mechanism to unwind back to step_frame's dispatch loop,
+    // which then re-dispatches R15.
     //
-    // Mirror the main loop here: keep re-dispatching R15 until THIS IRQ's
+    // runtime_irq has no such loop, so the cascade would abandon the handler
+    // mid-flight. Example: FireRed's VBlank handler (VBlankCB_Copyright calls
+    // LoadOam, which calls CpuSet, a SWI) would never reach intr_main's
+    // post-handler `REG_IE = saved` restore. VBlank would then stay masked in
+    // IE forever, the game's VBlank busy-wait would spin, and the game would
+    // freeze permanently.
+    //
+    // So mirror the main loop here: keep re-dispatching R15 until THIS IRQ's
     // handler has executed its iret (an IRQ-mode runtime_exception_return at
-    // our nesting depth). g_irq_nest_depth stays > 0 across the whole loop so
-    // runtime_should_yield() never unwinds us mid-handler. Nested IRQs are
-    // handled because the iret depth is matched to this frame's depth; the
-    // saved/restored g_irq_iret_depth keeps an enclosing IRQ's loop intact.
+    // our nesting depth).
+    //   - g_irq_nest_depth stays > 0 across the whole loop, so
+    //     runtime_should_yield() never unwinds us mid-handler.
+    //   - Nested IRQs work because the iret depth is matched to this frame's
+    //     depth.
+    //   - Saving and restoring g_irq_iret_depth keeps an enclosing IRQ's loop
+    //     intact.
     uint32_t my_depth      = g_irq_nest_depth;
     uint32_t saved_iret    = g_irq_iret_depth;
     g_irq_iret_depth       = 0u;  // sentinel: this IRQ has not iret'd yet

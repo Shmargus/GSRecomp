@@ -1,16 +1,16 @@
 // cosim_state.cpp: full guest-architectural-state canonical hash. See
-// COSIM_ORACLE.md and cosim_state.h. Active ONLY in the GBA_COSIM build; the whole
+// cosim_state.h. Active ONLY in the GBA_COSIM build; the whole
 // translation unit is empty otherwise, so it is safe in the shared source list.
 //
-// Principle: hash exactly the state a real GBA exposes to the running program plus
-// the device-timing quantities that determine WHEN a guest-visible bit flips,
-// and never our emulator's host-only bookkeeping. This list is refined by the
-// injected-divergence and recomp-vs-recomp gates.
+// Principle: hash exactly the state a real GBA exposes to the running program,
+// plus the device-timing quantities that determine WHEN a guest-visible bit
+// flips. Never hash our emulator's host-only bookkeeping. This list is
+// refined by the injected-divergence and recomp-vs-recomp gates.
 //
-// v1 note: memories are hashed DIRECTLY every checkpoint (no incremental
-// page-hash). That is more reliable (no dirty-tracking bugs) and cheap enough for an
-// oracle at coarse stride; incremental page-hash-on-write is a future perf item if
-// fine-stride drilling needs it.
+// v1 note: memories are hashed DIRECTLY at every checkpoint, with no
+// incremental page-hash. That is more reliable (no dirty-tracking bugs) and
+// cheap enough for an oracle at coarse stride. Incremental page-hash-on-write
+// is a future perf item if fine-stride drilling needs it.
 #ifdef GBA_COSIM
 
 #include "cosim_state.h"
@@ -24,12 +24,15 @@
 #include <cstddef>
 #include <cstdint>
 
-// Materialize lazily-accumulated device cycles (g_pending_cycles) to the current
-// master clock, exactly as a guest IO read does (runtime_bus_bridge.cpp). Without
-// this, state_hash reads timer/PPU counters that lag by the unflushed cycles, and
-// two backends sitting at different lazy-flush boundaries diff spuriously. Fires no
-// new events (the budget already accounts for these cycles); a pure read-
-// consistency op. See COSIM_ORACLE.md "reading parked state must be side-effect-free".
+// Materialize lazily-accumulated device cycles (g_pending_cycles) to the
+// current master clock, exactly as a guest IO read does
+// (runtime_bus_bridge.cpp). Without this, state_hash reads timer/PPU counters
+// that lag by the unflushed cycles, and two backends sitting at different
+// lazy-flush boundaries diff spuriously.
+//
+// This fires no new events, because the budget already accounts for these
+// cycles. It is a pure read-consistency operation: reading parked state must
+// have no side effects.
 extern "C" void runtime_mmio_catch_up(void);
 
 namespace gbarecomp::cosim {
@@ -47,7 +50,7 @@ inline uint64_t fnv_u32(uint64_t h, uint32_t v) { return fnv(h, &v, 4); }
 inline uint64_t fnv_u64(uint64_t h, uint64_t v) { return fnv(h, &v, 8); }
 
 // Hash a subsystem's canonical serialize() output as an opaque blob. Reuses the
-// version-locked save-state serializers (audited in COSIM_ORACLE.md §2).
+// version-locked save-state serializers.
 template <class Fn>
 uint64_t hash_serialized(Fn&& serialize_into) {
     gbarecomp::debug::SnapshotWriter w;

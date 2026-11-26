@@ -51,13 +51,16 @@ public:
     void clear_dirty() { dirty_ = false; }
 
     // Cartridge FLASH controller (Macronix MX29L010 1 Mbit / 128 KB, the
-    // chip every pret Gen3 game uses; also models 512 Kbit / 64 KB). The
-    // chip is command-driven through writes to the save region (0x0E...):
-    // an unlock sequence (0xAA @ 0x5555, 0x55 @ 0x2AAA) precedes each
-    // command (0x90 enter-ID, 0xA0 program-byte, 0x80.. erase, 0xB0
-    // bank-select, 0xF0 reset). 1 Mbit parts page two 64 KB banks through
-    // the 64 KB window. See agb_flash.c in the pret decomp + GBATEK
-    // § "GBA Backup Flash ROM".
+    // chip every pret Gen3 game uses; it also models 512 Kbit / 64 KB).
+    // The chip is command-driven through writes to the save region (0x0E...).
+    // An unlock sequence (0xAA @ 0x5555, 0x55 @ 0x2AAA) precedes each command:
+    //   - 0x90: enter-ID
+    //   - 0xA0: program-byte
+    //   - 0x80..: erase
+    //   - 0xB0: bank-select
+    //   - 0xF0: reset
+    // 1 Mbit parts page two 64 KB banks through the 64 KB window.
+    // See agb_flash.c in the pret decomp + GBATEK § "GBA Backup Flash ROM".
     //   bytes: total chip size (0x20000 for 1 Mbit, 0x10000 for 512 Kbit).
     void configure_flash(std::size_t bytes);
     bool flash_enabled() const { return flash_enabled_; }

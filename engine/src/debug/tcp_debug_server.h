@@ -1,15 +1,15 @@
 // tcp_debug_server.h: native debug TCP server.
 //
-// Mirrors the mGBA oracle's command shape (oracle/main.cpp) but
-// against the NATIVE runtime's CPU/bus/PPU state. The diff harness
-// can speak the same line-delimited JSON to both sides on different
-// ports (default 19842 native, 19843 oracle).
+// This server answers the same commands as the mGBA oracle (oracle/main.cpp),
+// but against the NATIVE runtime's CPU/bus/PPU state. The diff harness can
+// speak the same line-delimited JSON to both sides on different ports
+// (default 19842 native, 19843 oracle).
 //
-// Operates command-driven: the server's run() blocks on a single
-// client at a time, dispatching commands until the client sends
-// "quit". Frame stepping is explicit: `step` runs one PPU frame,
-// other commands inspect current state. This is the shape diff_frame
-// needs to sync native and oracle on the same PPU-frame boundary.
+// The server is command-driven. Its run() blocks on a single client at a
+// time and dispatches commands until the client sends "quit". Frame stepping
+// is explicit: `step` runs one PPU frame, and the other commands inspect
+// current state. This is the shape diff_frame needs to sync native and
+// oracle on the same PPU-frame boundary.
 //
 // Lifetime: pointers passed in `Context` must outlive the run() call.
 
@@ -74,18 +74,22 @@ public:
         uint64_t* cycles_elapsed     = nullptr;
         uint32_t* last_step_cycles   = nullptr;
         uint64_t* sync_frames        = nullptr;
-        // Stage-2 self-heal: returns a JSON snapshot of the live dispatch-miss
-        // / heal state (bridged PCs, which have healed to native, native-call
-        // counts). Wired in runtime.cpp to gbarecomp::self_heal_misses_json so
-        // the debug lib stays independent of the runtime lib.
+        // Returns a JSON snapshot of the live dispatch-miss state for code
+        // first seen at run time: bridged PCs, which have been compiled to
+        // native, and native-call counts. Wired in runtime.cpp to
+        // gbarecomp::self_heal_misses_json, so the debug lib stays
+        // independent of the runtime lib.
         std::function<std::string()> misses_query;
-        // Free-run control (game core on its own thread; server on the main
-        // thread). `continue` (alias `resume`) frees the server to answer OBSERVATION commands
-        // while the game thread is busy/wedged (the whole point: a hung core
-        // stays introspectable). `pause` parks the game at a frame boundary
-        // (waits, best-effort). `run_status` reports the live run-state. `step`
-        // stays synchronous (signals the game thread and waits) for oracle
-        // lockstep. All optional: null in single-threaded / non-TCP harnesses.
+        // Free-run control. The game core runs on its own thread and the
+        // server on the main thread. The commands are:
+        //   - `continue` (alias `resume`) frees the server to answer
+        //     OBSERVATION commands while the game thread is busy or wedged.
+        //     That is the whole point: a hung core stays introspectable.
+        //   - `pause` parks the game at a frame boundary (waits, best-effort).
+        //   - `run_status` reports the live run-state.
+        //   - `step` stays synchronous, for oracle lockstep: it signals the
+        //     game thread and waits.
+        // All are optional: null in single-threaded and non-TCP harnesses.
         std::function<void()>        resume;       // free-run (continue)
         std::function<void()>        pause;        // park at frame boundary
         std::function<std::string()> run_status;   // JSON: run-state/parked/pc

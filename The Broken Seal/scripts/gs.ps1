@@ -13,7 +13,7 @@
     2. recompile   the main corpus with the patched gba_recompile (HARD GATE:
                    zero data_range collisions)
     3. verify      the strict-static tracks on the normal build
-                   (build/gs011_opt, built by the launcher or build_dev.bat),
+                   (build/gs011_opt, built by the launcher or Build Studio),
                    comparing semantic fingerprints against
                    config/usa/acceptance-baseline.json
 
@@ -337,7 +337,7 @@ function Invoke-Track {
 if (Test-Stage 'verify') {
     Write-Step 'verify      strict-static tracks'
 
-    if (-not (Test-Path $Runner)) { throw "No runner at $Runner. Build the game first (launcher or build_dev.bat)." }
+    if (-not (Test-Path $Runner)) { throw "No runner at $Runner. Build the game first (launcher or Build Studio)." }
 
     $baseline = if (Test-Path $BaselineFile) {
         Get-Content $BaselineFile -Raw | ConvertFrom-Json

@@ -2,7 +2,7 @@
 // shared_game/random_weapons.h and random_weapons_plan.h, one copy with The
 // Lost Age).
 //
-// Measured, verified ROMs (FACTS.md "Random Weapons", 5 November 2026):
+// Measured, verified ROMs (FACTS.md "Random Weapons"):
 // - Item records 0x0807B6A8 + id * 0x2C, ids 0..268 (269 and up are enemy text);
 //   51 weapons (type 1), byte-identical in all five ROMs (each revision's
 //   mapped table).
@@ -10,13 +10,13 @@
 //   unleash names the ability names 0x333 + id (0x42A); decoded with each
 //   ROM's own tables. Font advances 0x080370D4 (Custom Battle's). Item names
 //   (the spoiler sheet) text 0x182 + id (Spain, Italy, France, Germany 0x16C;
-//   rom_addresses.inc evidence, 6 November 2026).
+//   rom_addresses.inc evidence).
 // - Armour: types 2, 3, 4, 5, 9 of the same table (random_weapons_plan.h),
 //   84 pieces, Defense +0xA.
 // - Stat rebuild 0x08077428(id) (the hero builder's, Challenge Mode's).
 // - The choice lives in the save payload, RAM 0x02000038..3F: the header
 //   builder 0x0801F818 never writes it, and it is zero in every saved slot
-//   and all 89 F12 memory captures measured. The bytes:
+//   and all 89 saved memory captures measured. The bytes:
 //   shared_game/random_weapons_format.h.
 #pragma once
 #include "../../shared_game/random_weapons.h"

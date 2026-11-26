@@ -1,7 +1,7 @@
 // Fresh-session defaults for the launcher's test options.
 //
 // The options are intentionally not persisted.  The user can opt into a
-// diagnostic run from the collection launcher, while self-healing remains
+// diagnostic run from the collection launcher, while run-time code compiling remains
 // available for the normal run.  Frame rewind, the screen filters and the
 // unpacker catcher are always on and are not listed here.
 #pragma once

@@ -1,21 +1,25 @@
 // cosim.cpp: GBA first-divergence co-simulation engine + minimal TCP server.
-// See COSIM_ORACLE.md. Active ONLY in the GBA_COSIM build (empty TU otherwise, so
+// Active ONLY in the GBA_COSIM build (empty TU otherwise, so
 // it is safe in the shared source list). Design follows psxrecomp's cosim,
 // adapted to the ARM7 master clock.
 //
-// Model: the guest runs normally on the main thread. runtime_tick (the shared
-// per-instruction master-clock advance for BOTH backends) calls cosim_on_tick() at
-// each instruction boundary. When the guest cycle crosses a stride boundary it
-// folds a full-state hash into a cumulative chain, stamps a ring entry, and, when
-// the coordinator's step budget is exhausted, PARKS the guest thread at that
-// deterministic cycle so the coordinator can read a quiescent machine over TCP,
-// compare, and resume. Two instances (recomp + force-interp) driven in lockstep by
+// Model: the guest runs normally on the main thread. runtime_tick is the
+// shared per-instruction master-clock advance for BOTH backends. It calls
+// cosim_on_tick() at each instruction boundary. When the guest cycle crosses a
+// stride boundary, cosim_on_tick():
+//   1. folds a full-state hash into a cumulative chain,
+//   2. stamps a ring entry, and
+//   3. if the coordinator's step budget is exhausted, PARKS the guest thread
+//      at that deterministic cycle. The coordinator can then read a quiescent
+//      machine over TCP, compare, and resume.
+// Two instances (recomp + force-interp) driven in lockstep by
 // oracle/gba_cosim.py converge on the first divergent checkpoint.
 //
-// Parking is at FIXED cycle-stride boundaries (never a wall-time "notice a stop
-// flag" point): two processes noticing an async flag at different wall-times would
-// park at different cycles, a harness nondeterminism masquerading as a guest
-// divergence. Stride is fixed at launch (env) before either process runs.
+// Parking is at FIXED cycle-stride boundaries, never at a wall-time "notice a
+// stop flag" point. Two processes noticing an async flag at different
+// wall-times would park at different cycles, which is a harness
+// nondeterminism masquerading as a guest divergence. The stride is fixed at
+// launch (env) before either process runs.
 #ifdef GBA_COSIM
 
 #include "cosim.h"

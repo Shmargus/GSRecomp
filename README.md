@@ -89,9 +89,7 @@ shared_game/            features shared by both Golden Sun games
 launcher/               launcher source: game selection, builds, settings, reports
 player_builder/         builder that player packages run on the player's ROM
 scripts/                shared build, readiness and release scripts
-build_dev.bat           developer build of both games and the launcher
-build_launcher.bat      developer build of the launcher only
-make_release.bat        player release window
+Build Studio.bat        developer builds, code regeneration and releases
 MUSIC_MODS.md           how music mods work and how to make one
 ATTRIBUTION.md          who owns what, licences and credits
 The Broken Seal/        GS1: runner, ROM configuration, hooks, tools, build tree
@@ -110,8 +108,8 @@ generated code stay in its own folder.
 ## Building
 
 See [BUILDING.md](BUILDING.md). In short: the launcher builds a game from its
-cartridge or the gold cog, and `build_dev.bat` builds both developer games
-and the launcher.
+cartridge or the gold cog, and **Build Studio.bat** handles developer builds,
+code regeneration and releases.
 
 ## Credits
 

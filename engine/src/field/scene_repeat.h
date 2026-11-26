@@ -2,12 +2,15 @@
 
 // scene_repeat.h -- continue a repeating background layer into the margins.
 //
-// One game-independent rule for effect layers (heat haze, mist, sunlight)
-// instead of one rule per map. The evidence is the console's own picture:
-// every map row the 160 screen rows show must equal the row `period` rows
-// further down, moved `shift` columns, over the whole width of the map, and
-// the shown rows must hold the pattern at least twice. The margins then copy
-// the nearest shown period, so no row the game did not stream is ever drawn.
+// This is one game-independent rule for effect layers (heat haze, mist,
+// sunlight), instead of one rule per map. The evidence is the console's own
+// picture. A layer repeats when:
+//   - every map row that the 160 screen rows show equals the row `period`
+//     rows further down, moved `shift` columns, over the whole width of the
+//     map, and
+//   - the shown rows hold the pattern at least twice.
+// The margins then copy the nearest shown period, so no row the game did not
+// stream is ever drawn.
 //
 // Measured over every saved capture (tools/scene_repeat_bench.cpp): it finds
 // Yampi's haze, Air's Rock's mist (8 map rows) and Champa's sunlight (4 rows,
@@ -93,8 +96,8 @@ inline LayerRepeat find_layer_repeat(const FieldScene& scene,
     if (!varied) return out;   // one tile everywhere: nothing to continue
     // Different but see-through tiles are empty space too. The Lost Age
     // streams an empty layer as a checkerboard of two blank tiles, which
-    // "repeats"; continuing it erased the room's own light shaft (map 179,
-    // F12 0127/0128) and river water (map 159, 0119) in the margins.
+    // "repeats"; continuing it would erase the room's own light shaft (map
+    // 179) and river water (map 159) in the margins.
     bool drawn = false;
     for (int r = 0; r < shown && !drawn; ++r)
         for (int c = 0; c < width && !drawn; ++c)
@@ -114,7 +117,7 @@ inline LayerRepeat find_layer_repeat(const FieldScene& scene,
     }
     // The same across the columns the screen shows (row 0's scroll), at
     // least twice: Jupiter Lighthouse's clouds repeat every 64 both ways
-    // (TLA F12 tla_rewind_0142/0146/0147/0149).
+    // (The Lost Age).
     const int hofs = int(row_reg(scene, 0, 0x10 + bg * 4) & 511u);
     const int first_col = hofs >> 3;
     const int cols = ((hofs & 7) + 240 - 1) / 8 + 1;
@@ -129,14 +132,15 @@ inline LayerRepeat find_layer_repeat(const FieldScene& scene,
     return out;
 }
 
-// Margin rows for a found repeat: each margin row draws the map row a whole
+// Margin rows for a found repeat. Each margin row draws the map row a whole
 // number of periods away inside the console's 160 rows, moved by the
-// repeat's shift, with the horizontal scroll of the nearest screen row (row
-// 0 above, row 159 below). Taking the copied row's own scroll instead carried
-// Air's Rock's sideways sway into the margin and left a seam along the old
-// screen edge (replay of tla_rewind_0024). The layer's live map is used in
-// the margins. `first_y` is the margin's top row (negative), `rows` the
-// output height.
+// repeat's shift. It uses the horizontal scroll of the nearest screen row
+// (row 0 above, row 159 below). Taking the copied row's own scroll instead
+// would carry Air's Rock's sideways sway into the margin and leave a seam
+// along the screen edge.
+//
+// The layer's live map is used in the margins. `first_y` is the margin's top
+// row (negative), `rows` the output height.
 inline void continue_layer_repeat(const FieldScene& scene, SceneMarginLayer& margin,
                                   int bg, const LayerRepeat& repeat,
                                   int first_y, int rows) {
@@ -172,15 +176,20 @@ inline bool layer_blended_overlay(const FieldScene& scene, int bg) {
     return true;
 }
 
-// The one margin rule for repeating layers. Every regular layer no game rule
-// has already claimed (no margin scroll rows, no live-map margin) and whose
-// shown picture repeats is continued with continue_layer_repeat, unless it
-// is ordinary room scenery that the room source already fills
-// (`room_fills(bg)`): the room knows what lies past the screen, a repeat
-// only guesses. A see-through overlay is continued even then: Champa's
-// sunlight matches the room's tiles on screen (96%) but the room's copy is
-// not the moving light (The Lost Age FACTS, Champa sunlight 0115).
-// Needs the game profile's margin_scroll_rows.
+// The one margin rule for repeating layers. Needs the game profile's
+// margin_scroll_rows.
+//
+// Every regular layer is continued with continue_layer_repeat if:
+//   - no game rule has already claimed it (no margin scroll rows, no live-map
+//     margin), and
+//   - its shown picture repeats.
+//
+// The exception is ordinary room scenery that the room source already fills
+// (`room_fills(bg)`). The room knows what lies past the screen, while a
+// repeat only guesses.
+//
+// A see-through overlay is continued even then. Champa's sunlight matches the
+// room's tiles on screen (96%), but the room's copy is not the moving light.
 template <class RoomFills>
 inline void continue_repeating_layers(const FieldScene& scene, SceneMargins& margins,
                                       const std::uint8_t* vram, std::size_t vram_bytes,
@@ -191,11 +200,11 @@ inline void continue_repeating_layers(const FieldScene& scene, SceneMargins& mar
         const LayerRepeat repeat = find_layer_repeat(scene, vram, vram_bytes, bg);
         if (!repeat.found && !repeat.period_x) continue;
         if (room_fills(bg) && !layer_blended_overlay(scene, bg)) {
-            // Above or left of its art a parallax room layer has nothing:
-            // Jupiter Lighthouse's clouds went black there (TLA map 263,
-            // F12 tla_rewind_0146 f119: BG3 VOFS 60, layer rows -20..-1;
-            // map 264, 0149: HOFS 90, columns -30..-1). Their console rows
-            // and columns repeat every 64.
+            // Above or left of its art, a parallax room layer has nothing.
+            // Jupiter Lighthouse's clouds would go black there (The Lost Age
+            // map 263: BG3 VOFS 60, layer rows -20..-1; map 264: HOFS 90,
+            // columns -30..-1). Their console rows and columns repeat every
+            // 64.
             if (repeat.found) {
                 margin.art_repeat_y = repeat.period;
                 margin.art_repeat_shift = repeat.shift;

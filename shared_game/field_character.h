@@ -38,7 +38,8 @@ struct Game {
 };
 
 inline const Game* game = nullptr;
-// Action IDs are below 0x40 (dispatcher TBS 0x0800CB40, TLA 0x08024016).
+// Action IDs are below 0x40 (dispatcher: The Broken Seal 0x0800CB40, The Lost
+// Age 0x08024016; TBS and TLA below abbreviate the two games).
 inline constexpr unsigned kNoAction = 0x40;
 inline constexpr char kOption[] = "WalkingCharacter";
 constexpr int kPartyLeader = 0, kOriginal = 1, kFirstHero = 2;
@@ -157,16 +158,16 @@ inline void on_entry(std::uint32_t pc) {
     // Isaac, TLA Isaac/Felix) have 6-8 (jump; the game raises the actor for
     // the bounce) and 9 (a pose-1 idle). The other heroes hold unrelated
     // animations there, so they use their walk and stand instead.
-    // Field Psynergy casts 20 then 21 (F12 TBS 0069, TLA 0208/0209), the ring
+    // Field Psynergy casts 20 then 21 (measured in both games), the ring
     // cast every hero has.
     // Ladder and vine poses 10-13 walk (see below). So do the room-exit stair
     // poses 23-26, which only Isaac draws, sinking into or rising out of the
-    // stairs (F12 TBS 0093/0094 Ivan: 26 climbing out under the facing
-    // 0xC000, 24 arriving under 0x4000; TLA Isaac's 23-26 are the same ROM
-    // drawings).
+    // stairs (measured with Ivan in The Broken Seal: 26 climbing out under
+    // the facing 0xC000, 24 arriving under 0x4000; The Lost Age Isaac's 23-26
+    // are the same ROM drawings).
     // Every other pose (pushing, story gestures) stands, so the original body
-    // never shows and a held story pose does not walk in place (F12 TBS 0081
-    // Sanctum pose 22).
+    // never shows and a held story pose does not walk in place (seen as
+    // pose 22 in The Broken Seal's Sanctum).
     constexpr unsigned kSharedPose[] = {0, 1, 2, 3, 4, 5, 2, 2, 2, 1};
     constexpr unsigned kWalkPose = 2;
     constexpr unsigned kStandPose = 1;
@@ -191,10 +192,10 @@ inline void on_entry(std::uint32_t pc) {
     if (target == original && !previously_changed) return;
     // R1 is the animator's view angle (direction table TBS 0x080130AC, TLA
     // 0x0802EAF4); the actor's own facing is untouched. Ladder and vine poses
-    // 10-13 (getting on 13, climbing 10/12, hopping off 10; F12 TLA 0211) walk
+    // 10-13 (getting on 13, climbing 10/12, hopping off 10; measured in The Lost Age) walk
     // with the back turned: 0xC000 is the back view (ROM frames drawn). On a
     // diagonal rope the facing stays fixed and the walk faces backwards
-    // compared with the native hang (F12 TLA 0210), so mirror it.
+    // compared with the native hang (measured in The Lost Age), so mirror it.
     if (target != original) {
         if (pose >= 10 && pose <= 13) g_cpu.R[1] = 0xC000u;
         else if (rope) g_cpu.R[1] ^= 0x8000u;

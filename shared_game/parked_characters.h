@@ -2,14 +2,14 @@
 // the map (FieldSceneRenderer::set_character_objects, the renderer's
 // off-room rule). Both games stage cutscene actors and interior NPCs outside
 // the room, where the wider view showed them floating in the black; effects
-// there (Psynergy sparks rising past the room's top, TLA F12 0019) must stay.
+// there (Psynergy sparks rising past the room's top, seen in The Lost Age) must stay.
 //
 // A sprite is a character's when its box covers an actor's body point or
-// ground point (its shadow). Same layout in both games (FACTS.md 2026-11-12):
+// ground point (its shadow). Same layout in both games:
 //   field state  [field_slot]: camera x/y at +0xE4/+0xE8 (16.16)
 //   actors       [[actor_slot] + 0x14 + 4 * id], id < actor_count; null is
 //                unused; x +0x08, height +0x0C, y +0x10 (16.16)
-// Every body hidden over the saved captures also matched its actor's sprite
+// Every body hidden in the measured captures also matched its actor's sprite
 // record (+0x50, attr0/attr1 at +4/+6); every other one was its shadow.
 #pragma once
 

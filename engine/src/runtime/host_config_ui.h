@@ -25,25 +25,30 @@ union SDL_Event;
 
 namespace gbarecomp {
 
-// CPU overclock choices (TURBO-B2-UI), used by host_window.cpp to persist and
-// apply the factor. Index -> factor: 0=Off(1x) 1=On(50x ceiling). A pinned
-// factor is already a ceiling: the game gets up to this many GBA cycles per
-// frame and HALTs once its frame's work is done, so it never spends more than
-// it needs.
+// CPU overclock choices (TURBO-B2-UI). host_window.cpp uses them to persist
+// and apply the factor.
+// Index -> factor: 0 = Off (1x), 1 = On (50x ceiling).
+// A pinned factor is already a ceiling. The game gets up to this many GBA
+// cycles per frame and HALTs once its frame's work is done, so it never
+// spends more than it needs.
 inline constexpr unsigned kOverclockFactors[2] = {1, 50};
 inline constexpr int kOverclockItemCount = 2;
 
-// Synthetic "pad button" ids for the L2/R2 analog triggers, stored in the same
-// int fields (HotkeyBind::pad_button / ConfigUiState::hotkey_pad) that
-// otherwise hold an SDL_GameControllerButton. SDL reports the triggers as an
-// axis (SDL_CONTROLLERAXISMOTION), never as a button. These ids sit strictly
-// above SDL_CONTROLLER_BUTTON_MAX (21 in the pinned SDL2), so they cannot
-// collide with a real button (0..20) or the -1 "unbound" sentinel.
-// Written as a literal because this header deliberately carries no SDL
-// include; each .cpp that uses them static_asserts the literal against
+// Synthetic "pad button" ids for the L2/R2 analog triggers. They are stored in
+// the same int fields (HotkeyBind::pad_button / ConfigUiState::hotkey_pad)
+// that otherwise hold an SDL_GameControllerButton. SDL reports the triggers as
+// an axis (SDL_CONTROLLERAXISMOTION), never as a button.
+//
+// These ids sit strictly above SDL_CONTROLLER_BUTTON_MAX (21 in the pinned
+// SDL2). So they cannot collide with a real button (0..20) or with the -1
+// "unbound" sentinel.
+//
+// The value is written as a literal because this header deliberately carries
+// no SDL include. Each .cpp that uses them static_asserts the literal against
 // SDL_CONTROLLER_BUTTON_MAX.
+//
 // Shared by host_window.cpp (event dispatch, INI parse/write) and
-// host_config_ui.cpp (bind-box capture + display label).
+// host_config_ui.cpp (bind-box capture and display label).
 inline constexpr int kPadTriggerLeftValue  = 21;  // == SDL_CONTROLLER_BUTTON_MAX
 inline constexpr int kPadTriggerLeft  = kPadTriggerLeftValue;      // synthetic "L2"
 inline constexpr int kPadTriggerRight = kPadTriggerLeftValue + 1;  // synthetic "R2"
@@ -146,6 +151,7 @@ struct ConfigUiState {
     std::vector<int> hotkey_pad;      // SDL_GameControllerButton, -1 = unbound
     int   hotkey_count = 0;
     const char* const* hotkey_names = nullptr;  // display labels, not the persisted config.ini keys
+    std::vector<bool> hotkey_window_only;  // Fullscreen and window size: the phone page leaves these out
 
     bool  stick_bindings_available = false;  // host supports synthetic stick ids
 
@@ -209,10 +215,11 @@ struct ConfigUiState {
     bool  widescreen_available = false;
     bool  widescreen = false;
     int   overclock_index = 0;       // 0=Off(1x) 1=On(50x), see kOverclockFactors
-    // VFX-FLICKER-02/03: temporal frame blend ("LCD ghosting"). The menu
-    // offers 0=Off, 1..3=Flicker only Light/Medium/Strong; 4..6 are legacy
-    // whole-frame values that host_window.cpp migrates to 1..3. See
-    // kTemporalBlendItemCount and kTemporalBlendDefaultIndex in
+    // VFX-FLICKER-02/03: temporal frame blend ("LCD ghosting").
+    // The menu offers 0 = Off and 1..3 = Flicker only Light/Medium/Strong.
+    // Values 4..6 are legacy whole-frame values that host_window.cpp migrates
+    // to 1..3.
+    // See kTemporalBlendItemCount and kTemporalBlendDefaultIndex in
     // temporal_blend.h (not included here). The default (3) must match
     // kTemporalBlendDefaultIndex.
     int   temporal_blend_index = 3;
@@ -272,12 +279,14 @@ inline constexpr const char* kQuitWarning =
 // Create/destroy the ImGui context and SDL backends. Safe to call when ImGui
 // is not compiled in (init returns false, shutdown does nothing).
 //
-// `use_opengl` is host_window's runtime check (SDL_GetRendererInfo on the
-// created renderer, not the hint) of whether `renderer` really is the
-// "opengl" SDL_Renderer driver. When true, this wires up imgui_impl_opengl3 +
-// docking + real multi-viewport (panels torn into their own OS windows). When
-// false (the d3d11/software fallback) it uses imgui_impl_sdlrenderer2 with
-// docking but no viewports, since that backend has none upstream.
+// `use_opengl` is host_window's runtime check of whether `renderer` really is
+// the "opengl" SDL_Renderer driver. It asks SDL_GetRendererInfo on the created
+// renderer, not the hint.
+//   - When true, this wires up imgui_impl_opengl3 with docking and real
+//     multi-viewport (panels torn into their own OS windows).
+//   - When false (the d3d11/software fallback), it uses
+//     imgui_impl_sdlrenderer2 with docking but no viewports, since that
+//     backend has none upstream.
 bool config_ui_init(SDL_Window* window, SDL_Renderer* renderer,
                      bool use_opengl);
 void config_ui_shutdown();
@@ -322,21 +331,29 @@ bool config_ui_capture_pad(ConfigUiState* st, int button);
 void config_ui_draw(ConfigUiState* st);
 
 // Extra host-side ImGui content, drawn every frame (like the debug overlay)
-// regardless of whether the F1 menu itself is open. Game-owned code (e.g. a
-// function-call tracer) sets this once at startup; nullptr draws nothing
-// extra. Declared unconditionally so the assignment compiles the same way
-// whether or not Dear ImGui was actually compiled in; the pointer is simply
-// unused in that case. This is the one seam game code uses to draw its own
-// ImGui windows -- it must not call any other ImGui/SDL internals here.
+// whether or not the F1 menu itself is open. Game-owned code (for example a
+// function-call tracer) sets this once at startup. nullptr draws nothing
+// extra.
+//
+// It is declared unconditionally, so the assignment compiles the same way
+// whether or not Dear ImGui was compiled in. The pointer is simply unused in
+// that case.
+//
+// This is the one seam game code uses to draw its own ImGui windows. Game
+// code must not call any other ImGui/SDL internals here.
 extern void (*g_config_ui_extra_draw)();
 
-// Paired predicate: does the extra content above want to own the keyboard
-// right now (e.g. a text box in it is focused, or it has a modal prompt
-// up)? The host consults this next to config_ui_visible() wherever it gates
-// guest keyinput and hotkeys on the F1 menu, so typing into a game-owned
-// ImGui window (which can be open while the F1 menu itself is closed)
-// doesn't also reach the guest or fire a hotkey. nullptr means "never wants
-// it" -- the default, and what every build without such a window gets.
+// The paired predicate for the extra content above. It answers: does that
+// content want to own the keyboard right now? (For example, a text box in it
+// is focused, or it has a modal prompt up.)
+//
+// The host consults this next to config_ui_visible() wherever it gates guest
+// keyinput and hotkeys on the F1 menu. That way, typing into a game-owned
+// ImGui window (which can be open while the F1 menu itself is closed) does
+// not also reach the guest or fire a hotkey.
+//
+// nullptr means "never wants it". That is the default, and what every build
+// without such a window gets.
 // Declared unconditionally, same as g_config_ui_extra_draw.
 extern bool (*g_config_ui_extra_wants_keyboard)();
 
@@ -375,5 +392,8 @@ const char* ui_text(const char* english);
 // 16 pixels each), drawn into the current ImGui window, so a game-owned
 // window looks like the F1 menu. Draws nothing before the menu art arrives.
 void config_ui_draw_menu_frame(float x, float y, float width, float height);
+// F1's own labelled slider row (label translated, D-pad steps), for a game's
+// page. True when the value changed. False without the UI.
+bool config_ui_slider_int(const char* label, int* value, int lo, int hi, const char* format);
 
 }  // namespace gbarecomp

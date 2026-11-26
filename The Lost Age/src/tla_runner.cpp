@@ -1,18 +1,18 @@
 // Golden Sun: The Lost Age -- the bare runner.
 //
 // The first-boot runner: the gbarecomp engine and the translated game code,
-// with none of Golden Sun 1's game-specific hooks (effects, RAM-code
+// with none of the Broken Seal's game-specific hooks (effects, RAM-code
 // identity tables). Code the static translation did not find -- RAM-resident
 // routines and anything reached only through data -- goes through the
-// engine's interpreter bridge and self-heal path, which log each miss so it
+// engine's interpreter bridge and run-time compile path, which log each miss so it
 // can be added to config/tla/main.toml with evidence.
 //
 // Routines the game copies into RAM buffers at moving addresses run from
 // position-independent translations (src/tla_ram_images.cpp). Instant text
 // is the settings screen's fourth Message-speed choice (src/tla_text_speed.cpp).
 //
-// Golden Sun 1 features are brought over one at a time, each re-measured on
-// this ROM; none of GS1's addresses apply here.
+// Broken Seal features are brought over one at a time, each re-measured on
+// this ROM; none of its addresses apply here.
 
 // The engine plug-in calls this runner's main directly.
 #define SDL_MAIN_HANDLED

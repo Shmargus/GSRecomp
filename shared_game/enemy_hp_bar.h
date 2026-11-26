@@ -9,8 +9,7 @@
 // name. F1 switch, off by default. One copy (enemy_hp_bar.cpp); each runner
 // installs its game's addresses and paints with its own menu font.
 //
-// The Broken Seal, measured, verified ROM (FACTS.md, 2026-10-29, Saves
-// state 4, Creeper battle):
+// The Broken Seal, measured, verified ROM (a Creeper battle):
 //
 //   0x08026080  target-selection routine, shared by its six callers
 //               (0x08027638, 0x08027896, 0x08027ADE, 0x08027C72,
@@ -31,7 +30,7 @@
 // ("Creeper1"), max HP u16 at +0x34, current HP u16 at +0x38 (89/89 before
 // Isaac's attack, 28/89 after).
 //
-// Enemy name label (ROM, F12 gpu_rewind_0062, Storm Lizard):
+// Enemy name label (ROM, measured in a Storm Lizard battle capture):
 //
 //   0x08026354  opens the label window with 0x080162D4(0, 12, 30, 4): tile
 //               (0, 12), so its inside starts at pixel (8, 104).
@@ -42,7 +41,7 @@
 //               (widths 0x080370D4): "Storm Lizard" measures 70 there and
 //               70 pixels on screen (x 60..129, top row y 108, x arg 51).
 //
-// The Lost Age (ROM only, SHA-1 verified; its FACTS.md 2026-10-30): the same
+// The Lost Age (ROM only, SHA-1 verified): the same
 // routine at 0x0804A85C (same frame, sub sp 0x144), frame call 0x08013560
 // from 0x0804B642 (return 0x0804B646), candidate list pointer [sp+0x14]
 // (0x0804A994, read at 0x0804B5D8), count [sp+0x3C], index [sp+0x44]; label

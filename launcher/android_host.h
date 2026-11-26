@@ -39,11 +39,12 @@ bool has_file_access();
 // Opens the system page that allows it; the answer arrives when the app
 // comes back to the front.
 void ask_file_access();
-// With file access: makes the collection's ROMs, Saves and Music links to
-// the visible folder, first copying in what the app already held (a file
-// already there wins; the app's old folders are kept in local/). Without
-// access, or on failure, nothing changes. Returns false and sets *error
-// when a folder could not be moved.
+// With file access, makes the collection's ROMs, Saves and Music folders
+// links to the visible folder. First it copies in what the app already held:
+//   - a file already in the visible folder wins, and
+//   - the app's old folders are kept in local/.
+// Without access, or on failure, nothing changes. Returns false and sets
+// *error when a folder could not be moved.
 bool link_shared_folders(std::string* error);
 // Opens the visible folder in the phone's own file manager.
 void open_shared_folder();
@@ -63,6 +64,11 @@ int wait_child();
 // Show the system picker and copy the chosen file to `destination`.
 // Return its path, or "" on cancellation or read failure.
 std::string pick_file(const std::string& title, const fs::path& destination);
+
+// While a game build runs: keep this process and its compilers at full speed
+// when the player is in another app or the screen is off (BuildService.java).
+// Any thread.
+void keep_awake(bool on);
 
 // Opens a web page in the phone's browser.
 void open_url(const std::string& url);

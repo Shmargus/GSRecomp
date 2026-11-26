@@ -4,7 +4,7 @@
 // The check (GSR_ROOM_BUFFER) changes nothing on screen. It builds the tile
 // entries the game is about to put in VRAM and compares them against what the
 // game actually put there. A mismatch count of zero over a session is the
-// evidence that a room can be reconstructed offline (see ROADMAP.md).
+// evidence that a room can be reconstructed offline.
 // Verifying against live VRAM is exact, needs no renderer change, and cannot
 // be fooled the way a "looks right on screen" check can.
 //
@@ -23,7 +23,7 @@
 //               by (BGxHOFS - camera_x)/16, (BGxVOFS - camera_y)/16, taking
 //               the scroll registers UNMASKED: the game writes values wider
 //               than the hardware's 9 bits and the excess is the offset
-//               ("Per-layer sourcing, settled 2026-09-05")
+//               (FACTS.md "Per-layer sourcing")
 #pragma once
 
 #include <cstdint>
@@ -43,7 +43,7 @@ void room_buffer_on_entry(std::uint32_t entry_pc);
 
 // Hook for the field tilemap writers' arguments. The writer takes the grid
 // cell as an argument and the offsets between layers are per-room, with even
-// the axis changing between rooms (FACTS.md, "The per-layer regions, observed
+// the axis changing between rooms (FACTS.md "The per-layer regions, observed
 // directly"). Drawing reads the offsets from the scroll registers instead;
 // this hook currently does nothing beyond recognising the writers.
 void room_buffer_on_function_args(std::uint32_t entry_pc, std::uint32_t r0,

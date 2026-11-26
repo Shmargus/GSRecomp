@@ -73,6 +73,7 @@
 #include "battle_speed.h"
 #include "../../shared_game/enemy_hp_bar.h"
 #include "../../shared_game/battle_retarget.h"
+#include "../../shared_game/battle_speed_level.h"
 #include "../../shared_game/field_character.h"
 #include "../../shared_game/challenge_mode.h"
 #include "../../shared_game/spanish_menu.h"
@@ -108,9 +109,10 @@ std::atomic<bool> g_settings_font_loaded{false};
 // True from the settings screen's setup to its closing: Hard Mode's label
 // and help text are replaced only then, never in dialogue.
 bool g_settings_screen_text = false;
-// Set by the settings loop's first frame; cleared by the next screen setup
+// Set by the settings loop's first frame. Cleared by the next screen setup
 // and by a savestate load, which can leave the screen without closing it.
-// Not a frame count: a loop frame that runs late must not hide the page.
+// It is not a frame count, because a loop frame that runs late must not hide
+// the page.
 std::atomic<bool> g_settings_open{false};
 }  // namespace gsr_runner
 namespace gsr_runner {
@@ -119,11 +121,6 @@ namespace gsr_runner {
 std::atomic<int> g_encounter_rate{0};
 bool g_encounter_skip_next = false;
 }  // namespace gsr_runner
-namespace {
-// Battle speed-up (src/battle_speed.h), toggled with Select in battle; saved
-// with the other options.
-std::atomic<bool> g_battle_speed_on{false};
-}  // namespace
 namespace {
 std::string g_options_path = gsr::settings_page::kOptionsFile;
 
@@ -140,8 +137,7 @@ void load_game_options(const char* argv0) {
     const int encounters = gbarecomp::game_option_get(kEncounterKey, kEncounterNormal);
     if (encounters >= kEncounterNormal && encounters < kEncounterRateCount)
         g_encounter_rate.store(encounters);
-    g_battle_speed_on.store(
-        gbarecomp::game_option_get(gsr::battle_speed::kOptionsKey, 0) != 0);
+    gsr::battle_speed_level::load();
     gsr::field_psy::load();
 }
 }  // namespace gsr_runner
@@ -150,8 +146,6 @@ namespace {
 void save_game_options() {
     gbarecomp::game_option_set(gsr::settings_page::kEncounterKey,
                                g_encounter_rate.load());
-    gbarecomp::game_option_set(gsr::battle_speed::kOptionsKey,
-                               g_battle_speed_on.load() ? 1 : 0);
 }
 
 }  // namespace
@@ -175,9 +169,9 @@ void note_settings_loop_frame() {
     g_settings_open.store(true);
 }
 
-// Sound effects our menus play with the game's own call (settings_page.h
-// kSoundPc), queued where the menu acts and played at the next entry to the
-// frame routine, where a guest call is safe. Emulation thread.
+// Sound effects that our menus play with the game's own call (settings_page.h
+// kSoundPc). A sound is queued where the menu acts, and played at the next
+// entry to the frame routine, where a guest call is safe. Emulation thread.
 std::vector<std::uint32_t> g_menu_sounds;
 
 void play_menu_sounds() {
@@ -200,8 +194,8 @@ int settings_page_repeat_keys(std::uint32_t*) {
     return 0;
 }
 
-// A word in the player's language (gbarecomp::ui_text), in the
-// font's codes: the table is UTF-8, the font Latin-1 (á = 0xE1; FACTS.md
+// A word in the player's language (gbarecomp::ui_text), in the font's codes.
+// The text table is UTF-8 but the font is Latin-1 (á = 0xE1; FACTS.md
 // "Spanish ROM: menu text").
 std::string settings_text(const char* english) {
     return gsr::menu_text(english);
@@ -212,24 +206,30 @@ namespace {
 // ---- Battle speed-up (src/battle_speed.h) ------------------------------
 bool g_battle_toggle_held = false;
 bool g_battle_skip_this_frame = false;
+// Passes in a row whose wait was dropped (src/battle_speed.h).
+int g_battle_skipped_run = 0;
 bool g_battle_halt_drop_armed = false;
 // The battle background table index the last real VBlank used, or -1.
 int g_battle_bg_front_index = -1;
 std::int64_t g_battle_arena_front_index = -1;
-// When the dropped wait put an index back, the game's own value it replaced
-// and the value written, or -1. The game only fills and flips a table when
-// the picture changes: if the pass after the drop does not flip again, its
-// VBlank must scan out the table the dropped pass filled, not the restored
-// one (a settled world-map battle camera otherwise kept the stale table for
-// good: gpu_rewind_0033 at 2x vs 0034 at 1x, FACTS.md 2026-09-24).
+// Set when the dropped wait put an index back. "pending" is the game's own
+// value that was replaced; "restored" is the value written (or -1).
+//
+// The game only fills and flips a table when the picture changes. If the pass
+// after the drop does not flip again, its VBlank must scan out the table the
+// dropped pass filled, not the restored one. Otherwise a settled world-map
+// battle camera kept the stale table for good, as comparing 2x with 1x
+// showed.
 int g_battle_bg_pending_index = -1;
 int g_battle_bg_restored_index = -1;
 std::int64_t g_battle_arena_pending_index = -1;
 std::int64_t g_battle_arena_restored_index = -1;
 
 // ---- Field Psynergy speed-up (src/battle_speed.h) ----------------------
-// A cast is in progress while the cast object is set and a field Psynergy
-// dispatcher's return sits in a live stack frame, read at the frame wait.
+// Tracks a field Psynergy cast. It is read at the frame wait, and a cast is in
+// progress while both of these hold:
+//   - the cast object is set, and
+//   - a field Psynergy dispatcher's return sits in a live stack frame.
 // Emulation thread only.
 bool g_field_psy_running = false;  // the field path is holding 2x (for the log)
 
@@ -264,11 +264,11 @@ std::atomic<unsigned long long> g_battle_speed_seen_frame{0};
 // speed-up has not raised it.
 unsigned g_battle_speed_saved_overclock_q8 = 0;
 
-// Two battle frames must finish inside one VBlank period, or the VBlank
-// handler commits a half-built second frame (seen as flicker with the
-// overclock at 1x, session 20260923_101919). While the speed-up runs, the
-// guest CPU gets at least kMinOverclock; the player's setting comes back
-// when the battle ends or 2x is turned off, unless they changed it meanwhile.
+// Two battle frames must finish inside one VBlank period. Otherwise the
+// VBlank handler commits a half-built second frame, seen as flicker with the
+// overclock at 1x. So while the speed-up runs, the guest CPU gets at least
+// kMinOverclock. The player's setting comes back when the battle ends or 2x
+// is turned off, unless they changed it meanwhile.
 void battle_speed_hold_overclock(bool hold) {
     constexpr unsigned kQ8 = 256u;
     const unsigned minimum = gsr::battle_speed::kMinOverclock * kQ8;
@@ -285,7 +285,7 @@ void battle_speed_hold_overclock(bool hold) {
     }
 }
 
-// True while battle work paced by the display is running (the entry); 2x
+// True while battle work paced by the display is running (the entry). 2x
 // then runs one pass per VBlank (src/battle_speed.h). Hit fades run at 2x,
 // as in The Lost Age.
 bool battle_speed_display_paced() {
@@ -310,17 +310,16 @@ bool battle_speed_layer_switch_queued() {
 }  // namespace
 namespace gsr_runner {
 // The wait's mask load, once per frame routine pass: reads Select, and on
-// every other battle frame keeps the VBlank flag and arms the Halt drop.
+// battle frames it keeps the VBlank flag and arms the Halt drop: every other
+// one at 2x, three of every four at 4x (shared_game/battle_speed_level.h).
 int battle_speed_wait_mask(std::uint32_t* out_value) {
     using namespace gsr::battle_speed;
     const bool in_battle = bus_read_u32(kBattleHeapSlot) != 0u;
     const bool toggle = (~bus_read_u16(kKeyInput) & kKeySelect) != 0u;
-    if (in_battle && toggle && !g_battle_toggle_held) {
-        g_battle_speed_on.store(!g_battle_speed_on.load());
-        save_game_options();
-    }
+    if (in_battle && toggle && !g_battle_toggle_held)
+        gsr::battle_speed_level::step(1);
     g_battle_toggle_held = toggle;
-    const bool battle_2x = in_battle && g_battle_speed_on.load();
+    const bool battle_2x = in_battle && gsr::battle_speed_level::on();
     // A field Psynergy cast at Fast: the same 2x, outside battle only.
     const bool field_2x = !in_battle && gsr::field_psy::on(gsr::field_psy::kFaster) &&
                           field_psynergy_casting();
@@ -342,6 +341,7 @@ int battle_speed_wait_mask(std::uint32_t* out_value) {
     }
     if (!battle_2x && !field_2x) {
         g_battle_skip_this_frame = false;
+        g_battle_skipped_run = 0;
         battle_speed_hold_overclock(false);
         return 0;
     }
@@ -351,25 +351,26 @@ int battle_speed_wait_mask(std::uint32_t* out_value) {
         // Per-line tables are read as they stood at the start of each frame.
         gba::g_hblank_dma_latch.store(true, std::memory_order_relaxed);
         // A spell that sets its own layer register while the arena's line
-        // table still runs keeps it once the table stops: at 2x the frame
-        // wait between the two can be the dropped one, and Mist, Aqua Sock
-        // and Heat Flash were left showing the table's last value
-        // (gpu_rewind_0122/0123/0125, FACTS.md 2026-10-02).
+        // table still runs keeps that value once the table stops. At 2x, the
+        // frame wait between the two can be the dropped one, and Mist, Aqua
+        // Sock and Heat Flash were left showing the table's last value.
         gba::g_hblank_dma_cpu_write_wins.store(true, std::memory_order_relaxed);
         load_menu_font();
         g_battle_speed_seen_frame.store(runtime_current_frame());
         display_paced = battle_speed_display_paced();
     }
     if (battle_speed_layer_switch_queued()) display_paced = true;
-    g_battle_skip_this_frame = !display_paced && !g_battle_skip_this_frame;
+    const int max_skips = battle_2x ? gsr::battle_speed_level::skips() : 1;
+    g_battle_skip_this_frame = !display_paced && g_battle_skipped_run < max_skips;
+    g_battle_skipped_run = g_battle_skip_this_frame ? g_battle_skipped_run + 1 : 0;
     // Both index tables are battle blocks; 0 leaves them alone in the field.
     const std::uint32_t bg_index = battle_2x ? battle_bg_index_address() : 0u;
     const std::uint32_t arena_index =
         battle_2x ? battle_arena_index_address() : 0u;
     if (!g_battle_skip_this_frame) {
         // This wait halts. If the dropped pass's flip was put back and this
-        // pass did not flip again, hand the game its own choice back first:
-        // that table is the complete one.
+        // pass did not flip again, first hand the game its own choice back,
+        // because that table is the complete one.
         if (bg_index && g_battle_bg_pending_index >= 0 &&
             bus_read_u8(bg_index) == g_battle_bg_restored_index) {
             bus_write_u8(bg_index,
@@ -424,7 +425,7 @@ int golden_sun_swi_override(std::uint32_t return_pc, std::uint32_t swi_num) {
 
 bool battle_speed_indicator_visible() {
     if (!g_settings_font_loaded.load(std::memory_order_acquire)) return false;
-    return g_battle_speed_on.load() &&
+    return gsr::battle_speed_level::on() &&
            runtime_current_frame() <= g_battle_speed_seen_frame.load() + 1u;
 }
 
@@ -432,7 +433,7 @@ bool battle_speed_indicator_visible() {
 void paint_battle_speed_indicator(std::uint8_t* rgb, std::uint32_t width,
                                   std::uint32_t height) {
     using namespace gsr::battle_speed;
-    const char* const text = kIndicator;
+    const char* const text = gsr::battle_speed_level::indicator();
     constexpr std::uint8_t kLetter[3] = {0xF8, 0xF8, 0xF8};
     constexpr std::uint8_t kShadow[3] = {0x28, 0x28, 0x28};
     int x = kIndicatorX + static_cast<int>(g_golden_sun_wide_extra_left);
@@ -487,6 +488,7 @@ std::vector<gsr::qol_menu::Row> quality_of_life_rows() {
         [] { return runtime_get_no_slowdown() ? "On" : "Off"; },
         [](int) { runtime_request_no_slowdown(!runtime_get_no_slowdown()); }});
     rows.push_back(gsr::field_psy::qol_row(kRowLabels[kFieldPsynergyRow], kRowHelp[kFieldPsynergyRow]));
+    rows.push_back(gsr::battle_speed_level::qol_row());
     rows.push_back(gsr::battle_retarget::qol_row());
     gsr::qol::append_switches(rows);
     return rows;

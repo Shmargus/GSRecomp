@@ -39,11 +39,11 @@ inline void shown_rows(const gsr::FieldScene& scene, bool (&shown)[kRows],
 }  // namespace tla_haze
 
 // Recognize rain and snow by their complete 4bpp artwork, not map, palette or
-// tile slot. The rain fingerprints (FNV-1a) were measured from 0093 and agree
-// in every rain object in 0097/0098 despite their different sprite-memory
-// allocations. Prox's snow is one 32x16 flake (0161..0163: every blended
+// tile slot. The rain fingerprints (FNV-1a) were measured from one recording and agree
+// in every rain object in two others despite their different sprite-memory
+// allocations. Prox's snow is one 32x16 flake (every blended
 // sprite, x -16..239, y -32..159, so screen-space like the rain); no other
-// saved capture shows it.
+// capture shows it.
 inline bool tla_weather_artwork(const gsr::FieldScene& scene,
                                 const gsr::SceneObject& object,
                                 const std::vector<std::uint8_t>& vram) {
@@ -63,14 +63,15 @@ inline bool tla_weather_artwork(const gsr::FieldScene& scene,
            hash == UINT64_C(0x9179ca96918010b8);
 }
 
-// Weather behind a menu (F12 tla_rewind_0169, Jupiter Lighthouse, Djinn
-// screen): the game stops every field sprite while a menu is open, its wind
-// streaks (Prox's snow artwork) included. OAM is identical in all 120 frames
-// while the sky layer keeps scrolling, so the margins' copies froze. On the
-// console the menu covers them. In the same room with no menu (0168) the
-// streaks move 16 px right and 7..12 down a frame, 5..26 of them. Frames whose
-// weather moves are recorded; while a menu holds it still, the margins loop
-// the recording and the console's 240x160 keeps the game's own still sprites.
+// Weather behind a menu (Jupiter Lighthouse, Djinn screen). The game stops
+// every field sprite while a menu is open, its wind streaks (Prox's snow
+// artwork) included. OAM is identical in all 120 frames while the sky layer
+// keeps scrolling, so the margins' copies froze. On the console the menu
+// covers them.
+// In the same room with no menu, the streaks move 16 px right and 7..12 down a
+// frame, 5..26 of them. Frames whose weather moves are recorded. While a menu
+// holds the weather still, the margins loop the recording, and the console's
+// 240x160 keeps the game's own still sprites.
 // The loop length is not measured: two seconds, the F12 history's length.
 struct TlaWeatherReplay {
     static constexpr std::size_t kFrames = 120;
@@ -93,10 +94,10 @@ inline bool tla_same_weather(const std::vector<gsr::SceneObject>& a,
 }
 
 // Apojii's rain and Prox's snow are screen-space sprite layouts
-// (0093/0097/0098, 0161..0163). This continues such a layer into the margins
+// (measured over several recordings). This continues such a layer into the margins
 // at its original density and animation phase. Rainbow Water is attached to
 // the stream, so repeating its sprites across the screen would put copies on
-// unrelated ground and sea (0094/0095); its real placements are kept.
+// unrelated ground and sea; its real placements are kept.
 // If `replay` is null (or no menu is holding the weather), the live sprites
 // are repeated.
 inline void tla_weather_sprite_margins(gsr::FieldScene& scene,
@@ -152,27 +153,27 @@ inline void tla_weather_sprite_margins(gsr::FieldScene& scene,
 }
 
 // The haze and mist are one 64-pixel tile pattern: eight different map rows,
-// row r the same as row r + 8 (32x32 map at 0x3800; Air's Rock map 84, F12
-// tla_rewind_0030 frames 41/80/119; Yampi map 69, 0031 f119; map 75, 0036
-// visible rows). The game rewrites only the rows the console screen shows as
-// the layer drifts. Rows out of its view keep what they held: blank entries
-// (0x5180) above Air's Rock's screen, black stripes in the margin; rows one
-// step out of the cycle in the Yampi cave (0036 f119: rows 2..11 one row
-// behind), seams at the old screen edge. The haze, mist and Champa's
-// sunlight are continued by the shared repeating-layer rule
-// (engine/src/field/scene_repeat.h), which draws margins only from shown
-// rows. This copy-in of the cycle remains for the port water below, whose
-// wave moves rows up and down so the shared rule does not apply.
+// with row r the same as row r + 8 (32x32 map at 0x3800; Air's Rock map 84,
+// Yampi map 69 and map 75, measured on the visible rows).
+// The game rewrites only the rows the console screen shows as the layer
+// drifts. Rows out of its view keep what they held:
+//   - blank entries (0x5180) above Air's Rock's screen, which gave black
+//     stripes in the margin;
+//   - rows one step out of the cycle in the Yampi cave (rows 2..11 one row
+//     behind), which gave seams at the old screen edge.
+// The haze, mist and Champa's sunlight are continued by the shared
+// repeating-layer rule (engine/src/field/scene_repeat.h), which draws margins
+// only from shown rows. This copy-in of the cycle remains for the port water
+// below, whose wave moves rows up and down so the shared rule does not apply.
 //
-// Alhafra's port water (map 98, tla_port_wave) is the same kind of layer:
-// the room's BG1 is the 0x3E0..0x3E7 pattern, four map rows a cycle, and
-// the game streams only the rows its camera covers. The wave lifts screen
-// rows 0 and 1 by a pixel into a row it never streamed, which still holds
-// the last room's tiles: a pale line along the top (F12 tla_rewind_0053:
-// map row 25, tiles 0x200/0x220). Over all 720 map-98 frames (0040..0044,
-// 0053) only screen rows 0 and 1 ever showed a non-water row, so for it
-// `first` = 2: rows 2..159 name the streamed rows, and the rest, row 0's
-// included, take the cycle.
+// Alhafra's port water (map 98, tla_port_wave) is the same kind of layer. The
+// room's BG1 is the 0x3E0..0x3E7 pattern, four map rows a cycle, and the game
+// streams only the rows its camera covers. The wave lifts screen rows 0 and 1
+// by a pixel into a row it never streamed, which still holds the last room's
+// tiles: a pale line along the top (map row 25, tiles 0x200/0x220).
+// Over all 720 map-98 frames measured, only screen rows 0 and 1 ever showed a
+// non-water row. So for it `first` = 2: rows 2..159 name the streamed rows,
+// and the rest, row 0's included, take the cycle.
 inline bool tla_haze_fill_rows(const std::vector<std::uint8_t>& vram,
                                const gsr::FieldScene& scene,
                                std::vector<std::uint8_t>* out,

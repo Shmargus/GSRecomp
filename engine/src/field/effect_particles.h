@@ -2,12 +2,16 @@
 //
 // WHY THIS EXISTS. The game paints every spell effect into a canvas exactly as
 // wide as the console's own screen, and clips each spark to it. In a widened
-// view that clip is visible: seven of nine captured effects run at full
-// opacity into canvas column 0 and stop dead (FACTS.md, 2026-09-18). The
-// canvas cannot be widened in place -- the game generates its stamping routine
-// at runtime, that generator takes ONE size for both axes, above 128 it emits
-// instructions whose destination register becomes `pc`, and the next size up
-// is 65,536 bytes against a 65,536-byte heap. All three walls are structural.
+// view that clip is visible: seven of nine measured effects run at full
+// opacity into canvas column 0 and stop dead.
+//
+// The canvas cannot be widened in place. There are three structural walls:
+//
+//   1. The game generates its stamping routine at runtime, and that generator
+//      takes ONE size for both axes.
+//   2. Above 128, the generator emits instructions whose destination register
+//      becomes `pc`.
+//   3. The next size up is 65,536 bytes, against a 65,536-byte heap.
 //
 // The capture observes the game's stamp calls before their canvas clipping.
 // The requested positions and artwork are handed to this stamper directly.
@@ -15,16 +19,17 @@
 // WHAT THIS FILE OWNS. Only the stamping, which is the part every effect
 // system shares and the part that is fully measured:
 //
-//   * captured width/height include the large effect artwork, not just the
-//     small-spark table (32x64 and 48x48 callers, FACTS.md 2026-09-19);
-//   * maximum and saturating-add blend operations follow the live generated
-//     routine, as do source flips;
-//   * positions are centres here; capture converts the game's top-left once.
+//   * Captured width/height include the large effect artwork, not just the
+//     small-spark table (32x64 and 48x48 callers).
+//   * Maximum and saturating-add blend operations follow the live generated
+//     routine, as do source flips.
+//   * Positions are centres here. The capture converts the game's top-left
+//     once.
 //
 // Deliberately NOT here: where the particles live. Each effect system keeps
-// them somewhere different -- one on the game's heap, another at a fixed
-// address it shares with two hundred other routines -- so the source is the
-// caller's problem and this file just draws what it is handed.
+// them somewhere different. One uses the game's heap; another uses a fixed
+// address it shares with two hundred other routines. So the source is the
+// caller's problem, and this file just draws what it is handed.
 //
 // The output buffer is LINEAR, one byte per pixel, unlike the game's
 // tile-ordered canvas. Nothing downstream of us needs the tile order, and a
@@ -60,7 +65,7 @@ struct EffectSpark {
 };
 
 // The game's own spark geometry, read from ROM tables at 0x080C3620 and
-// 0x080C3604 (FACTS.md, 2026-09-18). Index 0 is a single pixel; 4, 5 and 6 are
+// 0x080C3604 (FACTS.md). Index 0 is a single pixel; 4, 5 and 6 are
 // all 4x4 and differ only in which artwork they point at.
 inline constexpr int kSpriteCount = 7;
 inline constexpr int kSpriteSizes[kSpriteCount] = {1, 2, 3, 4, 4, 4, 4};
@@ -122,9 +127,9 @@ int stamp_sparks(EffectCanvas* canvas, const EffectSpark* sparks, int count,
                  const std::uint8_t* art, std::size_t art_bytes);
 
 // How many of `count` sparks would the GAME have kept, given its canvas width?
-// This exists to measure what the widening actually buys on a real capture:
-// run it over the same sparks with the game's 128 and with our width, and the
-// difference is the artwork the player was losing.
+// This exists to measure what the widening actually buys on real frames. Run
+// it over the same sparks with the game's 128 and with our width. The
+// difference is the artwork the game's clip would lose.
 int sparks_inside(const EffectSpark* sparks, int count, int canvas_width,
                   int canvas_height, int origin_x, int origin_y);
 

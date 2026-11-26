@@ -2,12 +2,12 @@
 // and in-game menu.
 //
 // On Android, from the platform's own design guidelines:
-//   * body text at 16 dp (Material Design body text; 1 dp = dpi / 160 px),
-//   * every tappable row at least 48 dp tall (Android's minimum touch
-//     target),
-//   * a finger drag scrolls the window under it once it moves past 8 dp
-//     (Android's touch slop, ViewConfiguration), and cancels the tap it
-//     started, as phone lists do.
+//   * Body text is 16 dp (Material Design body text; 1 dp = dpi / 160 px).
+//   * Every tappable row is at least 48 dp tall (Android's minimum touch
+//     target).
+//   * A finger drag scrolls the window under it once it moves past 8 dp
+//     (Android's touch slop, ViewConfiguration). The drag also cancels the tap
+//     it started, as phone lists do.
 #pragma once
 
 #include <SDL.h>

@@ -11,7 +11,7 @@ namespace gsr::settings_help {
 
 // The description font is NOT the 8x8 menu font. Each character is a
 // 16-bit advance followed by fifteen 16-bit bitmap rows (MSB on the left).
-// Its ordinary space advances five pixels. See FACTS, F12 0192.
+// Its ordinary space advances five pixels (measured).
 class Line {
 public:
     template<class Read>

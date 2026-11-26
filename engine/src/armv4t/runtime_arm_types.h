@@ -23,16 +23,27 @@ extern "C" {
 // Bank indexes match armv4t::BankedSlot: User=0, FIQ=1, IRQ=2,
 // Supervisor=3, Abort=4, Undefined=5.
 // A guest transfer that never comes back to the emitting function (B, a
-// computed jump, a fall-through). `call` is a void call expression. GCC 15+
-// in C++ guarantees a host jump, even at -Og/-O0, so guest loops that cross
-// generated functions without BL keep a constant native stack. Otherwise
-// (tcc heal overlays, older GCC) it is the plain call-and-return it always
-// was, and only the optimizer may turn it into a jump.
-#if defined(__cplusplus) && defined(__GNUC__) && !defined(__clang__) && \
-    __GNUC__ >= 15
+// computed jump, a fall-through). `call` is a void call expression;
+// GBARECOMP_TAIL_DISPATCH(fn, pc) is the same for runtime_dispatch and
+// runtime_dispatch_with_exchange. GCC 15+ and Clang in C++ guarantee a host
+// jump, even at -Og/-O0, so guest loops that cross generated functions
+// without BL keep a constant native stack. Clang guarantees it only to a
+// function with the caller's parameters, and generated functions take none:
+// a dispatch passes its target in g_runtime_tail_pc to the no-argument
+// <fn>_tail entry (runtime_arm.h; measured: without this, Clang left 65-94
+// dispatches per game file as calls on Windows). Otherwise (tcc heal
+// overlays, older GCC) it is the plain call-and-return it always was, and
+// only the optimizer may turn it into a jump.
+#if defined(__cplusplus) && defined(__clang__)
+#define GBARECOMP_TAIL_TRANSFER(call) [[clang::musttail]] return call
+#define GBARECOMP_TAIL_DISPATCH(fn, pc) \
+    do { g_runtime_tail_pc = (pc); [[clang::musttail]] return fn##_tail(); } while (0)
+#elif defined(__cplusplus) && defined(__GNUC__) && __GNUC__ >= 15
 #define GBARECOMP_TAIL_TRANSFER(call) [[gnu::musttail]] return call
+#define GBARECOMP_TAIL_DISPATCH(fn, pc) [[gnu::musttail]] return fn(pc)
 #else
 #define GBARECOMP_TAIL_TRANSFER(call) do { call; return; } while (0)
+#define GBARECOMP_TAIL_DISPATCH(fn, pc) do { fn(pc); return; } while (0)
 #endif
 
 #define ARM_BANK_USER       0u

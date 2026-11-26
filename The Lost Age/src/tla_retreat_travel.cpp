@@ -39,10 +39,10 @@ unsigned location(gba::GbaBus* b, unsigned room, unsigned entrance) {
     const auto label = tt::location(*tt::game, b->rom_ptr(), b->rom_size(), room, entrance, &found);
     return found ? label : ~0u;
 }
-// Prefer the exact native town dock. Lemuria's map target is its city room
-// (199), whereas its native mooring row names its dock (202). Resolve that
-// through the native location-name lookup already used by the tracker;
-// its city and dock have DIFFERENT room keys but the same location label.
+// Prefer the exact native town dock. Lemuria's map target is its city room (199),
+// but its native mooring row names its dock (202). The city and dock have DIFFERENT
+// room keys but the same location label, so resolve the dock through the native
+// location-name lookup the tracker already uses.
 bool mooring(gba::GbaBus* b, unsigned room, unsigned entrance, unsigned& result) {
     unsigned sibling = 0, siblings = 0;
     const auto label = location(b, room, entrance);

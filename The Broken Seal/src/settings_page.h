@@ -14,7 +14,7 @@
 // The native screen is fixed at five rows filling the native height, so the
 // page is drawn by the runner over the settings window at present time; the
 // game's screen underneath is never changed. Measured addresses, verified
-// ROM (FACTS.md, 2026-09-22):
+// ROM:
 //
 //   0x0801D4CC  settings input loop. After its per-frame wait it reads the
 //               pressed-keys word 0x03001C94 (literal at 0x0801D772; Select,
@@ -106,7 +106,7 @@ constexpr const char* kOnOffWords[2] = {"Off", "On"};
 // through FieldSceneRenderer::set_reveal_full, overworld Retreat travel) are
 // separate switches: shared_game/field_psynergy_options.h.
 
-// Random encounters (FACTS.md, 2026-09-23). The field's encounter step
+// Random encounters. The field's encounter step
 // 0x0808AEE0.. loads the base 0x02000240 at 0x0808AF84, adds the step's
 // amount to the word at base + 0x238 (0x02000478) and starts a battle once
 // it reaches the threshold the step keeps at [fp + 0x1AC]; the battle start
@@ -125,7 +125,7 @@ constexpr int kEncounterOff = 2;
 constexpr int kEncounterDouble = 3;
 constexpr int kEncounterRateCount = 4;
 // Page two is drawn in the game's own window graphics, not over the picture.
-// Verified ROM + gpu_rewind_0005/0006 (FACTS.md, 2026-09-23):
+// Verified ROM and captured frames:
 //
 //   [0x03001E8C]  the window system block B (EWRAM). B + 0x000 is the BG0
 //                 tilemap shadow (32 cells a row, u16) that DMA3 copies to

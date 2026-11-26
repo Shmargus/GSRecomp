@@ -78,8 +78,7 @@ IMAGES = [
 
 # Areas a routine writes inside its own copy -- data, never executed. They
 # are data ranges, and the runner's byte check skips them (offsets from the
-# routine start). Each was read from the routine's code (FACTS.md,
-# 2026-10-03); such routines are exempt from the self-modification check.
+# routine start). Each was read from the routine's code (FACTS.md); such routines are exempt from the self-modification check.
 WRITABLE = {
     # cache word (`str r2,[pc,#0x7c]` at +0x158) and a 0xE0-byte lookup table
     # filled by 8 x `stm r3!,{7 regs}` from r3 = +0x1E8 (+0x164); code ends
@@ -105,8 +104,7 @@ for _src, _slot in ((0x08138FC8, 0x1F4), (0x081391C8, 0x204),
 # their setup code (entry `b` to it): `ldr r3,[pc,#-]; orr r3,r3,r5,lsl #7
 # [orrne r3,r3,#0x20]; str r3,[pc,#-]` into the shift fields of the words at
 # +0x168, +0x170, +0x22C, +0x324, +0x328, and in three of them `strb r4,
-# [pc,#-]` into the immediate of `subs sl,sl,#0` at +0x334 (FACTS.md,
-# 2026-10-03). Those words are [[dynamic_operand2]]: the translation reads
+# [pc,#-]` into the immediate of `subs sl,sl,#0` at +0x334 (FACTS.md). Those words are [[dynamic_operand2]]: the translation reads
 # the field live. Setup then DMA3-copies n words from +0x324 to +0x324 + 4n
 # (`mov r5,#n; orr r5,r5,#0x84000000; sub r3,pc,#; sub r4,pc,#; stm sb`):
 # the ROM holds zeros there, so the body is translated from a copy with

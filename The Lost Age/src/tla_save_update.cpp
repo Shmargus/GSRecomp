@@ -11,9 +11,9 @@
 
 namespace tla_save_update {
 namespace {
-// TLA's own loader/checksum (0x08015E44/0x08015EC8), slot summaries
+// The Lost Age's own loader/checksum (0x08015E44/0x08015EC8), slot summaries
 // (0x08016054), and Update picker mode 6 (0x08043E10..0x08043E5C).
-// FACTS.md, "Updating a saved adventure", 2026-10-18.
+// FACTS.md, "Updating a saved adventure".
 constexpr std::size_t kGroupBytes = 0x3000;
 constexpr std::size_t kHeaderBytes = 0x10;
 constexpr std::size_t kPayloadBytes = kGroupBytes - kHeaderBytes;

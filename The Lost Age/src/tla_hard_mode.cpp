@@ -3,49 +3,57 @@
 // The game has three difficulty levels in the byte 0x020004C7 (save block
 // 0x02000240 + 0x287): 0 Normal, 1 Easy, 2 Hard ("Monsters are stronger").
 // It only offers them on a new game when a save slot holds Clear Data
-// (FACTS.md, 2026-10-07), and nothing in the game ever reads the byte
-// (FACTS.md, 2026-10-08), so Hard alone changes nothing. The runner makes it
-// Golden Sun 1's Hard Mode: enemies get 1.5x HP and 1.25x Attack and
-// Defence. Every new game offers Hard Mode on the New Game checklist
-// (src/tla_new_game.cpp), and the settings screen's Auto-Sleep row becomes a
-// Difficulty row (Normal, Scaled, Hard, Hard Scaled). That one byte is the
-// only switch, so answering Hard on a Clear Data file, the checklist row and
-// the settings row are the same thing and never stack.
+// (FACTS.md), and nothing in the game ever reads the byte (FACTS.md), so Hard
+// alone changes nothing.
+// The runner makes it the Broken Seal's Hard Mode: enemies get 1.5x HP and
+// 1.25x Attack and Defence. Every new game offers Hard Mode on the New Game
+// checklist (src/tla_new_game.cpp), and the settings screen's Auto-Sleep row
+// becomes a Difficulty row (Normal, Scaled, Hard, Hard Scaled). That one byte
+// is the only switch, so answering Hard on a Clear Data file, the checklist
+// row and the settings row are the same thing and never stack.
 //
-// Enemies. Setup 0x080AFBEC copies the monster's table entry into its unit
-// (r5): base HP +0x10, also max HP +0x34 and HP +0x38; base Attack +0x18;
-// base Defence +0x1A (as Golden Sun 1's units). It then rebuilds the unit's
-// stats with 0x080AD3F8 (`bl` at 0x080AFD60). On that call's entry the
-// runner scales those fields (measured: the Wild Wolf's unit 0x020308C8,
-// HP 45 written at 0x080AFC52..0x080AFC56, max HP rewritten by the rebuild
-// at 0x080ADB4A).
+// Enemies
+//   Setup 0x080AFBEC copies the monster's table entry into its unit (r5):
+//     - base HP at +0x10, also max HP at +0x34 and HP at +0x38,
+//     - base Attack at +0x18,
+//     - base Defence at +0x1A (as Golden Sun 1's units).
+//   It then rebuilds the unit's stats with 0x080AD3F8 (`bl` at 0x080AFD60). On
+//   that call's entry the runner scales those fields. Measured: the Wild
+//   Wolf's unit 0x020308C8 has HP 45 written at 0x080AFC52..0x080AFC56, and
+//   max HP rewritten by the rebuild at 0x080ADB4A.
 //
-// New game. The title menu's code is unpacked to 0x02008000; after "Transfer
-// data from Golden Sun?" it asks for a level only when the halfword
-// 0x02003860 (any slot with Clear Data, set by 0x080432A4) is non-zero:
-// "Play on EASY level?" (text 0x25, at 0x020085B2), "Play on HARD level?"
-// (0x27, at 0x02008648; Yes stores 2) and "Play on Normal level?" (0x28; No
-// asks again from Easy). The New Game flow's Difficulty question replaces
-// them: the gate's `beq` past the questions (0x020085B0, Spain/Italy/France/
-// Germany 0x020085AA, after `cmp r3, #0`; target 0x0200869C / 0x02008696) is
-// always taken, so every new game starts at Normal and the flow's choice
-// applies at the opening.
+// New game
+//   The title menu's code is unpacked to 0x02008000. After "Transfer data from
+//   Golden Sun?" it asks for a level only when the halfword 0x02003860 (any
+//   slot with Clear Data, set by 0x080432A4) is non-zero:
+//     - "Play on EASY level?" (text 0x25, at 0x020085B2),
+//     - "Play on HARD level?" (0x27, at 0x02008648; Yes stores 2),
+//     - "Play on Normal level?" (0x28; No asks again from Easy).
+//   The New Game flow's Difficulty question replaces them. The gate's `beq`
+//   past the questions (0x020085B0, Spain/Italy/France/Germany 0x020085AA,
+//   after `cmp r3, #0`; target 0x0200869C / 0x02008696) is always taken, so
+//   every new game starts at Normal and the flow's choice applies at the
+//   opening.
 //
-// Settings. Setup 0x0803FC38 copies Auto-Sleep [0x0200048A] into the screen.
-// A stores it back there and into the live flag 0x03001200, then branches
-// (0x08040528) past B's call to 0x0803F9C0. Both A and B then call 0x0803FD14
-// from 0x0804058E. The runner shows Hard Mode in that byte while the screen
-// is open and takes it back on that last call, so Auto-Sleep itself stays 0
-// (after B the byte still holds what setup showed, so nothing changes). The idle count
-// that sleeps after 10800 frames (0x08013610 `beq` on the live flag) is
-// always skipped, and the "In Sleep Mode..." notice (0x1161, shown when the
-// row is turned on, 0x080404D2) is never shown. The row's label and help line
-// are replaced (src/tla_text.cpp), and its value is a word selector like
-// Message speed's: "No" / "Yes", with "< " / " >" while the cursor is on the
-// row, centred on x 0x7C where the row's two icons were (blanked,
-// src/tla_text_speed.cpp). The redraw loads the value's text ID 0x1144 +
-// value at 0x08040346 (value in r2, screen r7, cursor row halfword at
-// +0x574), clears from x 0xA0 (0x08040350) and draws at x 0xA0 (0x08040360).
+// Settings
+//   Setup 0x0803FC38 copies Auto-Sleep [0x0200048A] into the screen.
+//   Button A stores it back there and into the live flag 0x03001200, then
+//   branches (0x08040528) past B's call to 0x0803F9C0. Both A and B then call
+//   0x0803FD14 from 0x0804058E.
+//   The runner shows Hard Mode in that byte while the screen is open and takes
+//   it back on that last call, so Auto-Sleep itself stays 0 (after B the byte
+//   still holds what setup showed, so nothing changes).
+//   - The idle count that sleeps after 10800 frames (0x08013610 `beq` on the
+//     live flag) is always skipped.
+//   - The "In Sleep Mode..." notice (0x1161, shown when the row is turned on,
+//     0x080404D2) is never shown.
+//   - The row's label and help line are replaced (src/tla_text.cpp).
+//   - Its value is a word selector like Message speed's: "No" / "Yes", with
+//     "< " / " >" while the cursor is on the row, centred on x 0x7C where the
+//     row's two icons were (blanked, src/tla_text_speed.cpp).
+//   - The redraw loads the value's text ID 0x1144 + value at 0x08040346 (value
+//     in r2, screen r7, cursor row halfword at +0x574), clears from x 0xA0
+//     (0x08040350) and draws at x 0xA0 (0x08040360).
 
 #include "tla_rom_version.h"
 #include <cstdint>

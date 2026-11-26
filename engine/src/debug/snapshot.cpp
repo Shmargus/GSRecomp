@@ -8,11 +8,11 @@
 //   section_count u32
 //   sections[]                  each: tag u32 | payload_len u32 | payload
 //
-// Each subsystem owns its payload via serialize()/deserialize(); this
-// file only frames them and enforces the header gate. Sections are
-// keyed by a FourCC tag and looked up by tag on load, so reordering or
-// an unknown trailing section degrades gracefully (the version gate is
-// the hard guarantee that layouts match).
+// Each subsystem owns its payload via serialize()/deserialize(). This file
+// only frames the payloads and enforces the header gate. Sections are keyed
+// by a FourCC tag and looked up by tag on load, so reordering or an unknown
+// trailing section degrades gracefully. The version gate is the hard
+// guarantee that layouts match.
 
 #include "snapshot.h"
 
@@ -236,17 +236,19 @@ bool apply_state(const std::vector<uint8_t>& blob, const SectionMap& sections,
     });
     apply(TAG_SAVE,  [&](SnapshotReader& r) { ctx.bus->save().deserialize(r); });
     apply(TAG_PPU,   [&](SnapshotReader& r) { ctx.ppu->deserialize(r); });
-    // Optional trailing subsystem section: v1 states written before affine
+    // Optional trailing subsystem section. v1 states written before affine
     // hidden-state tracking remain loadable and reconstruct from BGxX/Y on the
-    // first rendered line. New states restore the exact mid-frame accumulators.
+    // first rendered line. New states restore the exact mid-frame
+    // accumulators.
     apply(TAG_AFFINE, [&](SnapshotReader& r) { ctx.ppu->deserialize_affine_state(r); });
     apply(TAG_META,  [&](SnapshotReader& r) { deserialize_meta(r, ctx); });
     // Optional: states from before the second sprite page leave it clear.
     std::uint8_t* extra = ctx.bus->vram_ptr() + gba::GbaBus::kNativeVram;
     std::memset(extra, 0, gba::GbaBus::kObjExtraVram);
     apply(TAG_OBJX,  [&](SnapshotReader& r) { r.bytes(extra, gba::GbaBus::kObjExtraVram); });
-    // Optional: a state rolls the battery extension back like the chip; one
-    // from before it (or another size) leaves it untouched.
+    // Optional. A state rolls the battery extension back like the chip. A
+    // state from before the extension (or of another size) leaves it
+    // untouched.
     apply(TAG_SAVX, [&](SnapshotReader& r) {
         gba::GbaSave& sv = ctx.bus->save();
         const uint32_t len = r.u32();

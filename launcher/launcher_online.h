@@ -7,11 +7,11 @@
 //     has a download for this platform, the player is told and can open the
 //     release's GitHub page. Nothing is downloaded by the launcher.
 //   * Bug reports: the "Send report" button uploads a report archive to the
-//     project's report service (The Broken Seal/tools/report_service/worker.js). Its address
-//     is not in the source: only the official release scripts build it in
-//     (GSR_REPORT_HOST). A launcher built without it has no Send button and
-//     offers the bug report form instead, so a fork never sends reports to
-//     the project by accident.
+//     project's report service (The Broken Seal/tools/report_service/
+//     worker.js). The service's address is not in the source: only the
+//     official release scripts build it in (GSR_REPORT_HOST). A launcher
+//     built without it has no Send button and offers the bug report form
+//     instead, so a fork never sends reports to the project by accident.
 //
 // Plain C++ only: the HTTP and file work is platform code in each launcher.
 #pragma once
@@ -263,8 +263,14 @@ inline const Json* read_newest_release(const std::string& reply, Json* root, Rel
 }
 
 // The newest release in GitHub's reply to kReleasesApiPath, with the zip for
-// this platform: on Linux the asset with "linux" in its name, on Windows the
-// .zip without it.
+// this platform: on Linux the asset with "linux" in its name (on ARM Linux
+// also "arm64", elsewhere without it), on Windows the .zip without "linux".
+// Android keeps matching the plain Linux zip.
+#if defined(__aarch64__) && !defined(__ANDROID__) && !defined(_WIN32)
+inline constexpr bool kArmLinuxBuild = true;
+#else
+inline constexpr bool kArmLinuxBuild = false;
+#endif
 inline bool parse_newest_release(const std::string& reply, bool linux_build, Release* out,
                                  std::string* error) {
     Json root;
@@ -284,13 +290,14 @@ inline bool parse_newest_release(const std::string& reply, bool linux_build, Rel
         const bool is_zip = lower.size() > 4 && lower.compare(lower.size() - 4, 4, ".zip") == 0;
         const bool is_linux = lower.find("linux") != std::string::npos;
         if (!is_zip || is_linux != linux_build) continue;
+        if (linux_build && (lower.find("arm64") != std::string::npos) != kArmLinuxBuild) continue;
         out->asset_name = name;
         out->asset_url = a.str("browser_download_url");
         out->asset_size = static_cast<std::uint64_t>(a.num("size"));
         return !out->asset_url.empty();
     }
     *error = std::string("The newest release has no download for ") +
-             (linux_build ? "Linux." : "Windows.");
+             (!linux_build ? "Windows." : kArmLinuxBuild ? "Linux ARM64." : "Linux.");
     return false;
 }
 

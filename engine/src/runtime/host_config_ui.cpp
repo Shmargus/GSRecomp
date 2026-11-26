@@ -114,11 +114,14 @@ bool g_visible = false;
 int g_selected_page = 0;
 SDL_Renderer* g_renderer = nullptr;
 // The MAIN window and its GL context, captured at config_ui_init() (opengl
-// path only). SHUTDOWN-FREEZE-01: with multi-viewport, ImGui may leave a
-// torn-off viewport's GL context current at exit; shutdown makes the MAIN
-// context current again first, or ImGui_ImplOpenGL3_Shutdown() deletes GL
-// objects against the wrong context and DestroyPlatformWindows() can destroy
-// the context that owns them.
+// path only).
+//
+// SHUTDOWN-FREEZE-01: with multi-viewport, ImGui may leave a torn-off
+// viewport's GL context current at exit. Shutdown therefore makes the MAIN
+// context current again first. Otherwise:
+//   - ImGui_ImplOpenGL3_Shutdown() deletes GL objects against the wrong
+//     context, and
+//   - DestroyPlatformWindows() can destroy the context that owns them.
 SDL_Window* g_window = nullptr;
 SDL_GLContext g_gl_context = nullptr;
 // Which ImGui rendering backend is live, set once at config_ui_init() from
@@ -625,8 +628,8 @@ void clear_edition_badge() {
 enum class Capture { None, Key, Pad, Hotkey, HotkeyPad };
 Capture g_capture = Capture::None;
 // A bind box armed with a controller button (A on the focused box) waits for
-// every controller button to be let go, so that same press is not taken as
-// the new binding. The next press binds.
+// every controller button to be let go. That way the same press is not taken
+// as the new binding. The next press binds.
 bool g_capture_wait_release = false;
 
 bool gamepad_button_held() {
@@ -685,9 +688,10 @@ void hotkey_label(char* out, std::size_t n, int keycode, unsigned mods) {
 }
 
 // A key or button already bound elsewhere on the Controls or Hotkeys page.
-// The new binding waits while the player chooses to remove the other ones
-// or keep both. Keyboard rows compare by key and modifiers (Controls rows
-// have none); controller rows by button.
+// The new binding waits while the player chooses to remove the other ones or
+// keep both. Rows are compared as follows:
+//   - keyboard rows by key and modifiers (Controls rows have no modifiers);
+//   - controller rows by button.
 struct BindUse { Capture kind; int index; int slot; };
 struct PendingBind {
     bool open = false;
@@ -861,9 +865,9 @@ void section(const char* title) {
 
 // A bind row: label on the left, a button showing the current binding that
 // arms capture when clicked, and a clear button. Returns true if changed.
-// `column` places the value/clear pair at a table column other than 1/2
-// (draw_hotkeys_page puts the pad half of a row at columns 3/4, beside the
-// keyboard half at 1/2).
+// By default the value/clear pair sits at table columns 1/2. `column` moves
+// it elsewhere: draw_hotkeys_page puts the pad half of a row at columns 3/4,
+// beside the keyboard half at 1/2.
 bool bind_row(const char* label, const char* value, bool armed,
               Capture kind, int index, bool* cleared, int column = 0) {
     const bool is_pad = (kind == Capture::Pad || kind == Capture::HotkeyPad);
@@ -1059,8 +1063,49 @@ void draw_controls_page(ConfigUiState* st) {
     }
 }
 
+// The controller half of hotkey row `h` (bind_row's `column`).
+void hotkey_pad_cell(ConfigUiState* st, int h, const char* label, int column) {
+    bool cleared = false;
+    const bool armed = g_capture == Capture::HotkeyPad && g_capture_index == h;
+    if (bind_row(label, pad_label(st->hotkey_pad[h]), armed, Capture::HotkeyPad, h, &cleared,
+                 column)) {
+        if (armed) g_capture = Capture::None;
+        else {
+            g_capture = Capture::HotkeyPad;
+            g_capture_index = h;
+            g_capture_wait_release = gamepad_button_held();
+        }
+    }
+    if (cleared) {
+        st->hotkey_pad[h] = -1;
+        st->binds_changed = true;
+    }
+}
+
 void draw_hotkeys_page(ConfigUiState* st) {
     section("Hotkeys");
+    if (touch_ui::kEnabled) {
+        // Phones have no keyboard: one controller column, and no window
+        // shortcuts (the game always fills the screen).
+        caption("Shortcuts for a controller. Tap a box, then press the controller button to use; "
+                "Back cancels. Auto-repeat repeatedly presses A or B while the button is held. "
+                "Restart game returns to the start; unsaved progress is lost.");
+        if (ImGui::BeginTable("hotkeys", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
+            const float clear_w = ImGui::CalcTextSize(ui_text("clear")).x +
+                ImGui::GetStyle().FramePadding.x * 2;
+            ImGui::TableSetupColumn(ui_text("Action"), ImGuiTableColumnFlags_WidthStretch, 1.5f);
+            ImGui::TableSetupColumn(ui_text("Controller"), ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, clear_w);
+            ImGui::TableHeadersRow();
+            for (int h = 0; h < st->hotkey_count; ++h) {
+                if (h < static_cast<int>(st->hotkey_window_only.size()) && st->hotkey_window_only[h])
+                    continue;
+                hotkey_pad_cell(st, h, st->hotkey_names ? st->hotkey_names[h] : "?", 0);
+            }
+            ImGui::EndTable();
+        }
+        return;
+    }
     caption("Shortcuts that work while playing. Each can use a key, a controller button, or both. Auto-repeat repeatedly presses A or B while the shortcut is held. Restart game returns to the start; unsaved progress is lost.");
     const ImGuiStyle& style = ImGui::GetStyle();
     float action_w = 0;
@@ -1108,22 +1153,7 @@ void draw_hotkeys_page(ConfigUiState* st) {
             }
 
             // Controller half: same row, columns 3/4.
-            bool pad_cleared = false;
-            const bool pad_armed =
-                (g_capture == Capture::HotkeyPad && g_capture_index == h);
-            if (bind_row(stacked ? "Controller" : "", pad_label(st->hotkey_pad[h]), pad_armed,
-                         Capture::HotkeyPad, h, &pad_cleared, stacked ? 0 : 3)) {
-                if (pad_armed) g_capture = Capture::None;
-                else {
-                    g_capture = Capture::HotkeyPad;
-                    g_capture_index = h;
-                    g_capture_wait_release = gamepad_button_held();
-                }
-            }
-            if (pad_cleared) {
-                st->hotkey_pad[h] = -1;
-                st->binds_changed = true;
-            }
+            hotkey_pad_cell(st, h, stacked ? "Controller" : "", stacked ? 0 : 3);
         }
         ImGui::EndTable();
     }
@@ -1157,10 +1187,11 @@ void draw_video_page(ConfigUiState* st) {
         {
             SettingsPanel panel(touch_ui::kEnabled ? "Screen" : "Window");
 #if !defined(__ANDROID__)  // a phone's game always fills the screen
-            // The slider edits a menu-local copy: host_window republishes st->scale
-            // from the live window every frame, which would overwrite a dragged value
-            // before release. The copy follows the window only while the slider is
-            // idle, and the (expensive) resize is requested once, on release.
+            // The slider edits a menu-local copy. host_window republishes
+            // st->scale from the live window every frame, which would
+            // overwrite a dragged value before release. The copy follows the
+            // window only while the slider is idle, and the (expensive)
+            // resize is requested once, on release.
             static int pending_scale = 0;
             static bool scale_active = false;
             const int max_scale = std::clamp(st->max_scale, 1, 8);
@@ -1408,8 +1439,11 @@ void draw_audio_page(ConfigUiState* st) {
 
 void draw_turbo_page(ConfigUiState* st) {
     section("Fast Forward");
-    caption("Set the Fast Forward buttons on the Hotkeys page. Hold runs "
-            "fast while pressed; Toggle switches it on and off.");
+    caption(touch_ui::kEnabled
+        ? "The >> button on screen switches Fast Forward on and off; drag it to move it. "
+          "A controller can have Fast Forward buttons on the Hotkeys page."
+        : "Set the Fast Forward buttons on the Hotkeys page. Hold runs "
+          "fast while pressed; Toggle switches it on and off.");
     // 0.1 is ImGui's own controller step for a "%.1f" float slider.
     if (slider_float("Speed", &st->turbo_multiplier, 1.0f,
                      static_cast<float>(kMaxTurboMultiplier), 0.1f, "%.1fx")
@@ -1424,11 +1458,12 @@ void draw_turbo_page(ConfigUiState* st) {
 
 void draw_enhancements_page(ConfigUiState* st) {
     section("Flicker");
-    // VFX-FLICKER-02: selective temporal blend ("LCD ghosting"). Legacy
-    // config values 4..6 are whole-frame modes that are not offered any more;
-    // they are migrated through the normal change path so an old file cannot
-    // keep a hidden mode active. Greyed, not hidden, while 2x scene interpolation
-    // is on (see host_window.cpp's present()).
+    // VFX-FLICKER-02: selective temporal blend ("LCD ghosting").
+    // Legacy config values 4..6 are whole-frame modes that are not offered any
+    // more. They are migrated through the normal change path, so an old file
+    // cannot keep a hidden mode active.
+    // The control is greyed, not hidden, while 2x scene interpolation is on
+    // (see host_window.cpp's present()).
     static const char kTemporalBlendItems[] =
         "Off\0" "Light\0" "Medium\0" "Strong\0";
     if (st->temporal_blend_index >= 4 &&
@@ -1954,6 +1989,10 @@ void config_ui_draw_menu_frame(float x, float y, float width, float height) {
     draw_menu_frame(ImVec2(x, y), ImVec2(width, height));
 }
 
+bool config_ui_slider_int(const char* label, int* value, int lo, int hi, const char* format) {
+    return slider_int(label, value, lo, hi, format).changed;
+}
+
 void config_ui_set_visible(bool on) {
     if (!g_ready) return;
     if (on && !g_visible) g_config_window_recover = true;
@@ -1985,9 +2024,9 @@ bool config_ui_handle_event(const SDL_Event* e, bool quit_modal) {
 
     // SDL_Renderer rewrites the game window's mouse motion into its logical
     // coordinates whenever a logical size is set (the 240x160 view sets one).
-    // ImGui reads the real desktop position while no button is held but only
-    // these events during a drag, so a dragged slider would see the pointer
-    // jump by the window scale. Give ImGui the same real position it reads
+    // ImGui reads the real desktop position while no button is held, but only
+    // these events during a drag. A dragged slider would then see the pointer
+    // jump by the window scale. So give ImGui the same real position it reads
     // between drags.
     SDL_Event event = *e;
     if (event.type == SDL_MOUSEMOTION && g_window &&
@@ -2040,6 +2079,9 @@ bool config_ui_capture_key(ConfigUiState* st, int scancode, int keycode,
     if (g_capture == Capture::Key && g_capture_index >= 0) {
         request_bind(st, Capture::Key, g_capture_index, 0, scancode, 0);
     } else if (g_capture == Capture::Hotkey && g_capture_index >= 0) {
+        // F2..F10 are the save-state slots; the game handles them before any
+        // shortcut, so a shortcut there would never fire. Stay armed.
+        if (keycode >= SDLK_F2 && keycode <= SDLK_F10) return true;
         request_bind(st, Capture::Hotkey, g_capture_index, 0, keycode,
                      mods & (KMOD_CTRL | KMOD_ALT | KMOD_SHIFT));
     } else {
@@ -2075,9 +2117,8 @@ bool config_ui_capture_pad(ConfigUiState* st, int button) {
 
 // The phone's menu (touch_ui.h). It fills the screen: first a grid of big
 // page tiles, then the chosen page full screen with Back and Resume. The
-// pages are the PC menu's own (same settings, same saving). Only the PC-only
-// pages are left out: Controls and Hotkeys bind keyboard keys, which a phone
-// does not have.
+// pages are the PC menu's own (same settings, same saving). Controls and
+// Hotkeys show only their controller columns: a phone has no keyboard.
 int g_phone_page = -1;  // -1: the home grid
 
 // Phone (touch_ui.h): the menu's font enlarged by a whole number of its art
@@ -2109,12 +2150,13 @@ void fit_phone_menu() {
 
 void draw_phone_menu(ConfigUiState* st) {
     struct Tile { const char* name; int id; };  // id: g_selected_page; -2 quits
-    Tile tiles[10];
+    Tile tiles[11];
     int count = 0;
     tiles[count++] = {"Video", 0};
     tiles[count++] = {"Audio", 1};
     if (g_music_page_draw) tiles[count++] = {"Music", 8};
     tiles[count++] = {"Controls", 2};
+    tiles[count++] = {"Hotkeys", 3};
     tiles[count++] = {"Speed", 4};
     tiles[count++] = {"Game", 5};
     tiles[count++] = {"Cheats", 6};
@@ -2222,6 +2264,7 @@ void draw_phone_menu(ConfigUiState* st) {
                     break;
                 case 1: draw_audio_page(st); break;
                 case 2: draw_controls_page(st); break;
+                case 3: draw_hotkeys_page(st); break;
                 case 4: draw_turbo_page(st); break;
                 case 5: draw_game_page(); break;
                 case 6: draw_cheats_page(st); break;
@@ -2271,10 +2314,10 @@ void config_ui_draw(ConfigUiState* st) {
     // Initialize backend device objects before installing the bitmap atlas;
     // first-frame font creation would otherwise replace its nearest filtering.
     apply_pending_menu_art();
-    // ImGui reads the controller every frame, menu open or not, and holding
-    // its menu button (X, the west face button) opens its own window switcher:
+    // ImGui reads the controller every frame, menu open or not. Holding its
+    // menu button (X, the west face button) opens its own window switcher:
     // an empty F1-style box during play when X is bound to Auto-repeat A.
-    // Controller navigation only while the menu is open.
+    // So controller navigation is enabled only while the menu is open.
     {
         ImGuiIO& io = ImGui::GetIO();
         if (g_visible) io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
@@ -2659,6 +2702,7 @@ bool config_ui_handle_event(const SDL_Event*, bool) { return false; }
 bool config_ui_visible() { return false; }
 bool config_ui_text_input_active() { return false; }
 void config_ui_draw_menu_frame(float, float, float, float) {}
+bool config_ui_slider_int(const char*, int*, int, int, const char*) { return false; }
 void config_ui_toggle() {}
 void config_ui_set_visible(bool) {}
 bool config_ui_capture_key(ConfigUiState*, int, int, unsigned) { return false; }

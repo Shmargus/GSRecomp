@@ -64,8 +64,17 @@ inline bool validate_rom(const fs::path& path, std::string* error,
         return false;
     }
     if (any_rom) {
-        if (std::ifstream file(path, std::ios::binary); file) return true;
-        *error = "The ROM could not be read.";
+        std::ifstream file(path, std::ios::binary);
+        char code[3] = {};
+        if (!file || !file.seekg(0xAC) || !file.read(code, sizeof(code))) {
+            *error = "The ROM could not be read.";
+            return false;
+        }
+        if (std::string_view(code, sizeof(code)) == game.header_code) return true;
+        const GameIdentity& other = &game == &kGames[0] ? kGames[1] : kGames[0];
+        *error = std::string_view(code, sizeof(code)) == other.header_code
+            ? std::string("That is a ") + other.stem + " ROM.\n\nChoose your " + game.stem + " ROM."
+            : std::string("That is not a ") + game.stem + " ROM.";
         return false;
     }
     std::string actual;
@@ -84,9 +93,9 @@ inline bool validate_rom(const fs::path& path, std::string* error,
     const int found = rom_revision_of(game, actual);  // accepts_rom checked above
     if (language >= 0 && found != language &&
         (!same_language || rom_language_row(game, found) != rom_language_row(game, language))) {
-        *error = std::string("That is the ") + game.rom_names[found] + " ROM, but the flag under " +
-                 game.title + " is set to " + game.rom_names[language] +
-                 ".\n\nClick the flag to switch, or choose the " + game.rom_names[language] + " ROM.";
+        *error = std::string("That is the ") + game.rom_names[found] + " ROM, but " + game.title +
+                 " is set to " + game.rom_names[language] + ".\n\nSwitch with the flags or the Romhack "
+                 "button under the cartridge, or choose the " + game.rom_names[language] + " ROM.";
         return false;
     }
     return true;
@@ -129,9 +138,10 @@ inline bool name_starts_with(const fs::path& path, const char* prefix) {
     return path.filename().native().rfind(fs::path(prefix).native(), 0) == 0;
 }
 
-// Keeps the newest (kKeepLogCount - 1) existing logs so this session's new
-// file brings the total back up to kKeepLogCount. session_YYYYMMDD_HHMMSS
-// sorts lexicographically in chronological order, so no parsing is needed.
+// Keeps the newest (kKeepLogCount - 1) existing logs, so this session's new
+// file brings the total back up to kKeepLogCount. Names of the form
+// session_YYYYMMDD_HHMMSS sort lexicographically in chronological order, so
+// no parsing is needed.
 inline void prune_old_logs(const fs::path& logs_dir) {
     std::error_code ec;
     std::vector<fs::path> logs;
@@ -233,6 +243,7 @@ inline std::string report_info_text(const std::string& system, std::size_t captu
 struct ReportSources {
     fs::path root, game_dir, crash_dir, session_log, save;
     bool crashed = false;
+    fs::path controls_dir;  // the collection's shared bindings (Controls)
 };
 
 struct StagedReport {
@@ -279,6 +290,17 @@ inline StagedReport stage_bug_report(const ReportSources& sources, std::string i
     for (const char* file : {"config.ini", "game_options.ini", "keybinds.ini", "run_state.txt"})
         copy(sources.game_dir / file);
     copy(sources.game_dir / session_game().build_stamp);
+    // Key and controller bindings, shortcuts included, are shared by both games
+    // and live outside the game folder; kept in their own folder because the
+    // game folder has a config.ini of its own.
+    if (!sources.controls_dir.empty()) {
+        const auto controls = staged.folder / "Controls";
+        std::error_code controls_ec;
+        fs::create_directory(controls, controls_ec);
+        for (const char* file : {"config.ini", "keybinds.ini"})
+            if (!copy_into_report(sources.controls_dir / file, controls, true))
+                staged.errors += std::string("Could not include Controls/") + file + "\n";
+    }
     // Crash files belong to the program that was running during a hand-over.
     if (sources.crashed) {
         copy(sources.crash_dir / "crash_report.txt", false);
@@ -302,16 +324,18 @@ inline StagedReport stage_bug_report(const ReportSources& sources, std::string i
 // The file in a report's capture folder that lists its differenced frames.
 constexpr char kFrameDifferencesFile[] = "frame_differences.txt";
 
-// Copies one F12 capture folder into a report (`out`, created here), with
-// each frame_NNN.bin and frame_NNN.ppm from 001 on stored as its difference
-// from the frame before: every byte XORed with frame N-1's byte, when both
-// are the same size. Neighbouring frames are almost the same, so the
-// differences are almost all zeros, and zip/gzip (which look only 32 KB
-// back, less than one frame) shrink them to nearly nothing. Measured,
-// tla_rewind_0217: 26.8 MB packed before, about 1.2 MB after; gpu_rewind_0103
-// about 12 MB before, 2.9 MB after. kFrameDifferencesFile names each
-// differenced file; The Broken Seal/tools/restore_report_frames.py turns
-// them back.
+// Copies one F12 capture folder into a report (`out`, created here).
+//
+// Each frame_NNN.bin and frame_NNN.ppm from 001 on is stored as its
+// difference from the frame before: every byte XORed with frame N-1's byte,
+// when both are the same size. Neighbouring frames are almost the same, so
+// the differences are almost all zeros. Zip and gzip look only 32 KB back,
+// which is less than one frame, yet they shrink such data to nearly nothing.
+// Measured on two captures:
+//   - 26.8 MB packed before, about 1.2 MB after.
+//   - about 12 MB before, 2.9 MB after.
+// kFrameDifferencesFile names each differenced file.
+// The Broken Seal/tools/restore_report_frames.py turns them back.
 inline bool stage_capture(const fs::path& capture, const fs::path& out, std::string* error) {
     std::error_code ec;
     if (!fs::create_directory(out, ec) || ec) {
@@ -421,9 +445,10 @@ inline std::string release_fingerprint(const fs::path& root,
 }
 
 // The ROM the game code must be built from: the clean ROM of the chosen
-// language (the game's flag), so switching language asks for a rebuild. With
-// "Skip the ROM check" on, the played ROM may be patched; the build still
-// comes from the clean one (collection_build.h), so playing it needs none.
+// language (the game's flag), so switching language asks for a rebuild.
+// With "Skip the ROM check" on, the played ROM may be patched. The build
+// still comes from the clean one (collection_build.h), so playing the patched
+// ROM needs no build of its own.
 inline std::string required_rom_sha1(const fs::path& root, const GameIdentity& game) {
     int language = 0;
     try {

@@ -1,7 +1,7 @@
 // Random Psynergy, The Broken Seal's places (rules: shared_game/
 // random_psynergy.h, one copy with The Lost Age).
 //
-// Measured, verified ROMs (FACTS.md "Random Psynergy", 4 November 2026):
+// Measured, verified ROMs (FACTS.md "Random Psynergy"):
 // - The game rebuilds a character's 32 Psynergy words (record +0x58, every
 //   4 bytes, id in the low half) in 0x08078BF0(id), from the class update
 //   0x08079AE8, the level-up 0x0807905C, equipping 0x08078708 and 0x08078E28's
@@ -19,7 +19,7 @@
 //
 // The seed lives in the save payload, RAM 0x02000030..37: the header builder
 // 0x0801F818 never writes it, and it is zero in every saved first block and
-// all 72 distinct F12 memory captures. All zero is Off, as every existing
+// all 72 distinct saved memory captures. All zero is Off, as every existing
 // save is. The bytes: shared_game/random_psynergy_format.h.
 #pragma once
 #include "../../shared_game/name_scroll.h"
@@ -45,7 +45,7 @@ constexpr int kClasses = 85;
 // no one learned Ply). Appended last so Frost and Whirlwind keep their holders.
 constexpr Key kKeys[] = {{24, 0xFu}, {78, 0x7u}, {93, 0xFu}};
 
-// Enemy skills (FACTS.md "Enemy skills", 21 November 2026): enemy records
+// Enemy skills (FACTS.md "Enemy skills"): enemy records
 // 0x08080EC8 + (id - 8) * 0x54, 0xFA of them (the getter 0x08077198 takes
 // id - 8 > 0xF9 as row 0), abilities at +0x38; ability rows 0x0807EE58, 16
 // bytes, getter 0x08078B9C clamps ids >= 0x208. The PP readers by their
@@ -75,7 +75,7 @@ inline std::span<const PpSite> pp_sites() {
 
 inline const Game& game() {
     // Heroes Isaac, Garet, Ivan, Mia (ids 0..3) and the level each joins at
-    // (the new game's hero builder, FACTS "Challenge Mode": 1, 1, 4, 10).
+    // (the new game's hero builder, 1, 1, 4, 10).
     static const Game g{
         0x02000030u, 0x02000500u, 0x14Cu, GS_ROM(0x08078BF0u), GS_ROM(0x0807B6A8u),
         {GS_ROM(0x08084B1Cu), kClasses, false},
@@ -103,12 +103,12 @@ inline void pp_on_getter(std::uint32_t pc, std::uint32_t r0, std::uint32_t r5, s
     random_psynergy::pp_on_getter(game(), pc, r0, r5, r10, lr);
 }
 // The decoder's next character of an enemy skill's description, in the
-// loaded language (not Golden Sun Reloaded, whose abilities are its own).
+// loaded language (not a romhack, whose abilities are its own).
 inline bool description_character(std::uint32_t text_id, std::uint32_t* character) {
-    return random_psynergy::description_character(game(), !gs::reloaded(), text_id, character);
+    return random_psynergy::description_character(game(), !gs::romhack(), text_id, character);
 }
-// Scrolling names (shared_game/name_scroll.h; FACTS "Scrolling names", 22
-// November 2026): the printer 0x0801E7C0 (veneer 0x08015080), window block
+// Scrolling names (shared_game/name_scroll.h; FACTS.md "Scrolling names"):
+// the printer 0x0801E7C0 (veneer 0x08015080), window block
 // [0x03001E8C] (tilemap shadow +0, mode byte +0xEA7, colour +0xEAE: the
 // glyph routine 0x0801DE5C), font advances 0x080370D4. The lists that print
 // an ability name (text 0x333 + id) and then read its cost, by return

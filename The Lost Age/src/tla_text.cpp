@@ -34,8 +34,8 @@ const uint32_t kDecodedCharPc = TLA_ROM(0x0803B13Cu);
 // 0x0803B12A; The Broken Seal's 0x08019BAC). A pass can stop before the
 // line's end -- dialogue measures up to a {1E} prompt and stops there --
 // so a replacement restarts at its first character on each start, or the
-// printing pass would carry on past the end and show nothing (Custom
-// Battle's questions, 30 Oct).
+// printing pass would carry on past the end and show nothing (as with Custom
+// Battle's questions).
 const uint32_t kLineStartPc = TLA_ROM(0x0803D178u);
 uint32_t g_line_id = 0;
 
@@ -59,12 +59,12 @@ int (*g_next_conditional_branch)(uint32_t, uint32_t, uint32_t*) = nullptr;
 
 // The window, in the game's own pieces: menu font tiles 16..23 are its
 // corners and edges and 32 its inside, drawn with background palette bank
-// 15 (the battle's party window in F12 0047, BG0 map 0x06002000).
+// 15 (the battle's party window, BG0 map 0x06002000).
 constexpr unsigned char kTopLeft = 16, kTop = 17, kTopRight = 18;
 constexpr unsigned char kBottomLeft = 19, kBottom = 20, kBottomRight = 21;
 constexpr unsigned char kLeft = 22, kRight = 23, kFill = 32;
 constexpr uint32_t kWindowBank = 0x05000000u + 15u * 32u;
-// Bank 15 as F12 0047 held it; used until the live bank is seen holding the
+// Bank 15 as the battle's party window held it; used until the live bank is seen holding the
 // window palette (letter 0x7FFF at index 1 and shadow 0 at index 3).
 constexpr uint16_t kDefaultWindowPalette[16] = {
     0x44E0, 0x7FFF, 0x318C, 0x0000, 0x45A0, 0x3980, 0x3160, 0x2940,
@@ -76,7 +76,7 @@ std::array<uint8_t, 256 - 0x20> g_menu_widths{};
 bool g_menu_art_loaded = false;
 
 // The live window palette when bank 15 holds it, else the last one seen,
-// else F12 0047's.
+// else the battle window's.
 const uint16_t* window_palette() {
     if (gba::GbaBus* b = gbarecomp::active_bus()) {
         uint16_t bank[16];

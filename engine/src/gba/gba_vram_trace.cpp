@@ -20,13 +20,14 @@ namespace {
 
 int g_default_enabled = 0;
 int g_env_override = -1;
-// Whether the environment has been consulted, kept separate from the ANSWER.
-// g_env_override stays -1 when the variable is unset, because an unset
-// variable must leave g_default_enabled in charge (and that one can still be
-// changed at runtime by the setter below). trace_enabled() runs on every
-// VRAM write, so the environment must be read once, not per call: a getenv
-// per write was measured at 11.5% of host samples in an Earthquake profile
-// (2026-09-16).
+// Whether the environment has been consulted. This is kept separate from the
+// answer itself.
+//   - g_env_override stays -1 when the variable is unset. An unset variable
+//     must leave g_default_enabled in charge, and that can still be changed
+//     at runtime by the setter below.
+//   - trace_enabled() runs on every VRAM write, so the environment must be
+//     read once, not per call. A getenv per write was measured at 11.5% of
+//     host samples in an Earthquake profile.
 bool g_env_read = false;
 DmaDescriptorObserver g_dma_descriptor_observer = nullptr;
 OamShadowWriteObserver g_oam_shadow_write_observer = nullptr;
@@ -44,9 +45,9 @@ std::FILE* g_text_trace_file = nullptr;
 std::uint64_t g_text_trace_sequence = 0;
 std::size_t g_text_trace_pending_rows = 0;
 
-// Match the existing function-tracer signal flush cadence. This is a flush
-// cadence only; the address range remains the live BG0 range selected by the
-// guest's display registers and no payload is retained.
+// Match the existing function-tracer signal flush cadence. This only sets how
+// often output is flushed. The address range is still the live BG0 range
+// selected by the guest's display registers, and no payload is retained.
 constexpr std::size_t kTextTraceFlushRows = 300u;
 
 constexpr std::uint32_t kTextRegionChar = 1u;
@@ -298,14 +299,16 @@ void flush_text_trace() {
 
 // ---- spell-effect canvas trace (GSR_EFFECT_TRACE) -------------------------
 //
-// Golden Sun does not store its spell effects as tile art. It software-paints
-// each frame's effect into an affine background's CHARACTER block, using that
-// block as a 128x128 8-bit canvas: BG2's map holds 256 distinct tile ids,
-// 0..255, one each, and the 16 KB behind it differs on every one of the six
-// captured effect frames (FACTS.md, 2026-09-18). The hardware then stretches
-// that canvas 2x horizontally across the console's 240-pixel screen, which is
-// why a widened view shows the effect stopping in a straight line: the canvas
-// is only as wide as the old screen, and the artwork runs to its edge.
+// Golden Sun does not store its spell effects as tile art. It paints each
+// frame's effect in software into an affine background's character block,
+// using that block as a 128x128 8-bit canvas.
+//   - BG2's map holds 256 distinct tile ids, 0..255, one each.
+//   - The 16 KB behind it differs on every one of the six captured effect
+//     frames.
+// The hardware then stretches that canvas 2x horizontally across the console's
+// 240-pixel screen. That is why a widened view shows the effect stopping in a
+// straight line: the canvas is only as wide as the old screen, and the artwork
+// runs to its edge.
 //
 // This trace exists to answer whether a wider canvas is worth building. It
 // reports two things per frame:
@@ -338,7 +341,7 @@ std::string g_effect_columns_buffer;
 std::uint64_t g_effect_writer_rows = 0;
 std::uint64_t g_effect_column_rows = 0;
 
-// Budgets, sized as "how much answer is enough" rather than tuned to a
+// Budgets. They are sized as "how much answer is enough", not tuned to a
 // measurement: a few minutes of battles at 60 Hz, with room for every writer
 // in each frame.
 constexpr std::uint64_t kEffectMaxWriterRows = 200000ull;
@@ -402,7 +405,7 @@ void flush_effect_at_exit() {
     flush_effect_files();
 }
 
-// Numbered like the F12 frame dumps so a second capture session cannot
+// Numbered like the frame dumps so a second capture session cannot
 // silently overwrite the first one that was captured.
 bool ensure_effect_files() {
     if (g_effect_open_failed) return false;
@@ -636,22 +639,23 @@ void effect_note(const std::uint8_t* io, std::uint8_t kind, std::uint32_t pc,
 
 // ---- effect staging-buffer trace (rides on GSR_EFFECT_TRACE) --------------
 //
-// The canvas trace above watches the VRAM side and found that the effect is
+// The canvas trace above watches the VRAM side. It found that the effect is
 // not drawn there at all: it is composed in a 16 KB buffer on the game's own
-// IWRAM heap and blitted whole into VRAM each frame (FACTS.md, 2026-09-18).
-// The routine that actually stamps particles into that buffer is relocated
-// into IWRAM at runtime, never appears as a ROM literal, and has no symbol --
-// so it cannot be read out of the ROM. It has to be watched.
+// IWRAM heap and blitted whole into VRAM each frame.
+// The routine that stamps particles into that buffer is relocated into IWRAM
+// at runtime. It never appears as a ROM literal and has no symbol, so it
+// cannot be read out of the ROM. It has to be watched.
 //
 // No new bus hook is needed. Every IWRAM write already passes through
-// trace_oam_shadow_write() (gba_bus.cpp, all three widths); nothing outside
-// the OAM shadow range consumed it. This is that consumer.
+// trace_oam_shadow_write() (gba_bus.cpp, all three widths), and nothing
+// outside the OAM shadow range consumed it. This is that consumer.
 //
-// The range is the game's own IWRAM heap (g_game_ram_layout.iwram_heap_first
-// ..iwram_heap_last), whose bounds are literals in its allocator. Watching the whole
-// heap rather than a remembered buffer address is deliberate -- the canvas is
-// an allocation, so its address moves between effects and between runs, and
-// the pointer lives in a global this hook cannot read.
+// The watched range is the game's own IWRAM heap
+// (g_game_ram_layout.iwram_heap_first..iwram_heap_last), whose bounds are
+// literals in its allocator. Watching the whole heap, rather than a
+// remembered buffer address, is deliberate. The canvas is an allocation, so
+// its address moves between effects and between runs, and the pointer lives
+// in a global this hook cannot read.
 //
 // Two outputs, because two different questions:
 //
@@ -810,30 +814,30 @@ void effect_stage_note(std::uint32_t pc, std::uint32_t address,
             frame >= g_stage_walk_last_frame + kStageWalkFrameGap;
     }
 
-    // The ordered sample: single-byte writes issued BY CODE RUNNING IN THE
-    // HEAP, and only every so many frames.
+    // The ordered sample: single-byte writes issued by code running in the
+    // heap, and only every so many frames.
     //
-    // Two attempts were spent getting this filter right, both times because
-    // the budget went on the BIOS at boot instead of the stamping:
+    // Two earlier attempts at this filter failed, both because the budget went
+    // on the BIOS at boot instead of the stamping:
     //
-    //   * sampling every write caught frames 0..27, all of it one BIOS word
+    //   * Sampling every write caught frames 0..27, all of it one BIOS word
     //     fill stepping +4 (logs/effect_stage_walk_001.csv).
-    //   * narrowing to 1-byte writes caught frames 0..48, because the BIOS
-    //     writes single bytes too -- 0x000020A0 and 0x000020B0 alone made
+    //   * Narrowing to 1-byte writes caught frames 0..48, because the BIOS
+    //     writes single bytes too. 0x000020A0 and 0x000020B0 alone made
     //     124,096 of them (logs/effect_stage_walk_002.csv).
     //
-    // What actually separates them is WHERE THE WRITER IS EXECUTING. The stamp
-    // routine is relocated into the heap, immediately behind the canvas it
-    // draws into, so its PC is inside the heap as well: the 136 pure 1-byte
-    // writers measured inside this range are the stampers, and all 60 outside
+    // What separates them is where the writer is executing. The stamp routine
+    // is relocated into the heap, immediately behind the canvas it draws into,
+    // so its PC is inside the heap as well. Of the pure 1-byte writers
+    // measured, the 136 inside this range are the stampers, and all 60 outside
     // it are BIOS or ROM. The BIOS cannot match, because no game code has been
     // copied here yet while it runs.
     //
     // The frame spacing is the other half. A budget spent on the first frames
-    // that qualify would document one menu effect rather than a battle, so
-    // take a frame only once every kStageWalkFrameGap frames; that spreads
-    // 32 sampled frames across two thousand, which is a whole session rather
-    // than its first few seconds.
+    // that qualify would document one menu effect rather than a battle. So a
+    // frame is taken only once every kStageWalkFrameGap frames, which spreads
+    // 32 sampled frames across two thousand. That covers a whole session, not
+    // its first few seconds.
     const bool walk_candidate =
         size == 1u && stage_heap_contains(pc);
     if (walk_candidate && g_stage_walk_frame_taken &&
@@ -896,14 +900,14 @@ unsigned& affine_dma_records() {
 }
 
 // A per-writer budget for the Mode 0 stream, replacing a single shared count.
-// The point of this trace is to ENUMERATE the writers, not to sample writes,
-// and a shared count does not do that: in one measured run one chatty
-// writer pair (`0x0800FF1E` / `0x0800FF26`, the BG3 tilemap builder) took all
-// 512 records at a single room load, so the BG1 and BG2 writers were never
-// recorded at all. The two capacities below are how many distinct writers to
-// keep room for and how many examples of each are enough to read its
-// addressing pattern: sizes of the answer wanted, not thresholds tuned to a
-// measurement.
+// This trace exists to enumerate the writers, not to sample writes, and a
+// shared count cannot do that. In one measured run one chatty writer pair
+// (`0x0800FF1E` / `0x0800FF26`, the BG3 tilemap builder) took all 512 records
+// at a single room load, so the BG1 and BG2 writers were never recorded.
+// The two capacities below are:
+//   - how many distinct writers to keep room for, and
+//   - how many examples of each are enough to read its addressing pattern.
+// They are sizes of the answer wanted, not thresholds tuned to a measurement.
 constexpr unsigned kMode0MaxWriters = 64u;
 constexpr unsigned kMode0RecordsPerWriter = 4u;
 
@@ -927,12 +931,12 @@ bool mode0_pc_budget(std::uint32_t pc) {
 
 void reset_mode0_pc_budget() { g_mode0_used = 0; }
 
-// Per-visit budgets, not per-session. In one measured run all 512
-// affine CPU records were spent between cycle 7,878,553 and 57,203,487 --
-// the first ~3.4 s of a run that reached cycle 595M, i.e. boot, before the
-// savestate load -- so the overworld play the session was captured for
-// recorded nothing at all. Reset both affine budgets on each transition
-// into an affine Mode 2 scene so every visit gets its own records.
+// Per-visit budgets, not per-session. In one measured run all 512 affine CPU
+// records were spent between cycle 7,878,553 and 57,203,487. That is the first
+// ~3.4 s of a run that reached cycle 595M: boot, before the savestate load.
+// The overworld play the session was captured for recorded nothing at all.
+// Both affine budgets are therefore reset on each transition into an affine
+// Mode 2 scene, so every visit gets its own records.
 void note_affine_scene_edge(const std::uint8_t* io) {
     static bool s_was_affine = false;
     const bool now_affine = mode2_affine(io);
@@ -976,7 +980,7 @@ bool oam_shadow_trace_enabled() {
     if (cached < 0) {
         const bool shadow = gbarecomp::env_flag("GSR_OAM_SHADOW_TRACE");
         const bool wide = gbarecomp::env_flag("GBARECOMP_VRAM_MAP_TRACE");
-        // The WIDE-01 launcher toggle arms the complete payload-free object
+        // The launcher's widescreen toggle arms the complete payload-free object
         // capture. Keep the older standalone OAM toggle as a compatible alias.
         cached = (shadow || wide) ? 1 : 0;
     }

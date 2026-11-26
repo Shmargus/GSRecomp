@@ -21,7 +21,7 @@ struct Treasure {
     unsigned pack = 0;         // a gift's scene code pack or file (Random Treasure's key)
 };
 // A gift: its place's name (as in the places list), the flag the game sets
-// when it is given (each game's FACTS.md "Treasure Tracker: gifts"), and
+// when it is given, and
 // Random Treasure's key: the scene's code pack or file and the original item.
 struct Gift { const char* place; unsigned flag, pack, item; };
 } // namespace gsr::treasure_tracker

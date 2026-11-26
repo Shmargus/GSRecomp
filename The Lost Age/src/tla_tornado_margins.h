@@ -5,7 +5,7 @@
 
 #include "field_scene.h"
 
-// F12 0121: Air's Rock's tornado is BG0, characters 0xC000, map 0x2000.
+// Air's Rock's tornado is BG0, characters 0xC000, map 0x2000.
 // Its wind artwork ends at the console's top edge; below row 159 the map
 // holds unrelated graphics. The margin continues its upper two tile
 // rows (16 pixels) upward, with the captured horizontal shake.
@@ -14,16 +14,14 @@
 // The wind is drawn at fixed screen rows, the room and Felix with the camera.
 // While the expanded view's camera rule holds the camera `hold` rows below
 // where the game put it (tla_camera_hold_y), the room moved up that far and
-// the wind did not, so it sat on Felix (Extra Wide 80 rows, F12 0017,
-// 2026-10-14). Every row therefore shows the wind row `hold` further down.
+// the wind did not, so it sat on Felix (Extra Wide, 80 rows). Every row therefore shows the wind row `hold` further down.
 // Above the wind's row 0 the margin uses the upward continuation described
 // above; below its row 159 it shows the empty rows 144..159. A `hold` of 0
 // changes nothing.
 //
 // Recognised by the wind itself, not a map list: the same wind is on Air's
-// Rock's entrance (map 82, BG0CNT 0x040D), inside (84, 0x040E: priority 2;
-// F12 tla_rewind_0025) and a later desert cutscene (241, 0x040D; F12
-// tla_rewind_0138, 2026-10-23). Every saved TLA capture with BG0 on these
+// Rock's entrance (map 82, BG0CNT 0x040D), inside (84, 0x040E: priority 2)
+// and a later desert cutscene (241, 0x040D). Every capture measured with BG0 on these
 // characters and map at VOFS 0 on every row is one of those three rooms, and
 // all have the blank map rows 18..19 (pixels 144..159) checked below.
 // `vram` null (no margins) changes nothing.

@@ -1,10 +1,13 @@
 // effect_capture.h -- the spell-trail capture shared by both games.
 //
-// Follows the game's 128x128 effect canvas (stamps, clears, the fading copy
-// to video memory) and keeps a history that can grow past the canvas, so the
-// expanded view can draw trails the console would have cut off. ONE copy,
-// compiled by The Broken Seal and The Lost Age; every address is in the
-// game's effect_capture_profile() (each game's src/field_game_profile.cpp).
+// This follows the game's 128x128 effect canvas: its stamps, its clears and
+// the fading copy to video memory. It keeps a history that can grow past the
+// canvas, so the expanded view can draw trails the console would have cut
+// off.
+//
+// There is ONE copy of this code, compiled by The Broken Seal and The Lost
+// Age. Every address is in the game's effect_capture_profile() (each game's
+// src/field_game_profile.cpp).
 #pragma once
 
 #include <cstddef>
@@ -30,9 +33,12 @@ struct EffectCaptureProfile {
     // taken as its IWRAM copy's. Empty: no such copy is followed.
     std::uint32_t iwram_image_rom = 0, iwram_image_rom_end = 0;
 
-    // Canvas copy-to-VRAM routines, up to two entries each (0 = unused):
-    // copy then fade to 3/4, copy then halve, copy then subtract the
-    // parameter (floor 0), copy then add it (cap 63).
+    // Canvas copy-to-VRAM routines, up to two entries each (0 = unused).
+    // Each copies the canvas, then:
+    //   - copy_fade: fades it to 3/4,
+    //   - copy_halve: halves it,
+    //   - copy_subtract: subtracts the parameter (floor 0),
+    //   - copy_add: adds the parameter (cap 63).
     std::uint32_t copy_fade[2] = {};
     std::uint32_t copy_halve[2] = {};
     std::uint32_t copy_subtract[2] = {};
@@ -58,7 +64,7 @@ struct EffectCaptureProfile {
 const EffectCaptureProfile& effect_capture_profile();
 
 // The completed persistent canvas is packed as one rectangular stamp, so
-// both presentation and F12 replay include the game's fading trails.
+// both presentation and saved-frame replay include the game's fading trails.
 struct CapturedEffectFrame {
     std::uint32_t canvas = 0;
     std::vector<EffectSpark> stamps;
@@ -79,10 +85,10 @@ void effect_capture_on_entry(std::uint32_t pc, const std::uint32_t* registers,
                              const std::uint8_t* rom, std::size_t rom_bytes,
                              std::uint64_t frame);
 // A spark the game moved but did not draw because it left its canvas (the
-// caller's own bounds test). Stamped into the same expanding history with
-// the routine, art and box the game would have passed, so it fades with the
-// game's own trails. Ignored unless it targets the canvas being followed.
-// No guest state changes.
+// caller's own bounds test). It is stamped into the same expanding history,
+// with the routine, art and box the game would have passed, so it fades with
+// the game's own trails. Ignored unless it targets the canvas being
+// followed. No guest state changes.
 void effect_capture_skipped_spark(std::uint32_t routine, std::uint32_t canvas,
                                   std::uint32_t art, std::int32_t x,
                                   std::int32_t y, std::uint32_t width,
@@ -93,7 +99,7 @@ void effect_capture_skipped_spark(std::uint32_t routine, std::uint32_t canvas,
                                   std::size_t rom_bytes, std::uint64_t frame);
 // The history over the 128x128 square at canvas (left, top), row-major, 0
 // where it holds nothing. False unless `canvas` is the one being followed
-// (TLARecomp's triangle capture, src/tla_spell_mesh.cpp).
+// (The Lost Age's triangle capture, src/tla_spell_mesh.cpp).
 bool effect_capture_history_read(std::uint32_t canvas, int left, int top,
                                  std::uint8_t* out);
 // Copies all `pixels`, including zero (row-major, width x height), into the history

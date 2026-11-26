@@ -1,19 +1,21 @@
 // sprite_flicker.h -- sprites a game shows only on every other frame.
 //
 // Some effects draw two sets of sprites on alternate frames and leave the
-// GBA's slow LCD to blend them into one steady, half see-through picture:
-// Golden Sun's title lens flare swaps two halo sets every frame, keeping
-// both sets' tiles loaded and changing only the object table (measured
-// 2026-11-12, The Broken Seal FACTS.md). A sharp modern display shows the
-// swap as flicker.
+// GBA's slow LCD to blend them into one steady, half see-through picture.
+// For example, Golden Sun's title lens flare swaps two halo sets every frame,
+// keeping both sets' tiles loaded and changing only the object table
+// (measured). A sharp modern display shows the swap as flicker.
 //
-// This finds such sprites by comparing the object table with the last three
-// frames', and builds the object table of the OTHER phase: this frame's
-// sprites with the alternating ones taken out and last frame's alternating
-// ones put back. The renderer draws the frame once with each table and mixes
-// the two pictures (FieldSceneRenderer::set_flicker_smoothing), so only the
-// pixels those sprites touch change. Image-based detection was measured and
-// rejected: scrolling dithered grass and floor tiles look like flicker to it.
+// This file finds such sprites by comparing the object table with the last
+// three frames'. It then builds the object table of the OTHER phase:
+//   - this frame's sprites with the alternating ones taken out, and
+//   - last frame's alternating ones put back.
+// The renderer draws the frame once with each table and mixes the two
+// pictures (FieldSceneRenderer::set_flicker_smoothing), so only the pixels
+// those sprites touch change.
+//
+// Image-based detection was measured and rejected: scrolling dithered grass
+// and floor tiles look like flicker to it.
 //
 // Header-only and GPU-free so it can be tested on its own.
 
@@ -30,22 +32,24 @@ using SceneObjectTable = std::array<SceneObject, FieldScene::kObjects>;
 
 // How far a sprite may move between two frames of the same phase (two
 // frames apart) and still count as the same sprite. The title flare's
-// halos move at most 1 pixel in two frames (OAM at frames 441-444); 4
-// allows twice that per frame.
+// halos move at most 1 pixel in two frames (measured). 4 allows twice that
+// per frame.
 inline constexpr int kSpriteFlickerReach = 4;
-// How far from it the sprite must be missing in the frames between. A
-// shaking screen (gpu_rewind_0038, a ladder jumping 5-10 pixels) or a
-// battler running in to attack (gpu_rewind_0089) is present nearby, only
-// moved; a flickering sprite is gone. The flare's other halo set reuses one
-// tile, but that copy sits about 200 pixels away (parked below the screen).
+// How far from its position the sprite must be missing in the frames between.
+// A sprite that is present nearby has only moved. Examples are a shaking
+// screen (a ladder jumping 5-10 pixels) or a battler running in to attack.
+// A flickering sprite is gone. The flare's other halo set reuses one tile,
+// but that copy sits about 200 pixels away (parked below the screen).
 inline constexpr int kSpriteFlickerGone = 32;
 
-// Affine (zoomed or turned) sprites are never candidates: one put back from
+// Affine (zoomed or turned) sprites are never candidates. One put back from
 // last frame would be drawn with THIS frame's transform group, which the game
-// may have changed or cleared. The Psynergy menu's selected icon (affine,
-// group 0) is the measured case: leaving it clears group 0 to zeros, and the
-// put-back icon drew as a solid 32x32 block of its centre colour
-// (gpu_rewind_0102, 15 November 2026). The title flare's halos are not affine.
+// may have changed or cleared.
+//
+// The Psynergy menu's selected icon (affine, group 0) is the measured case.
+// Leaving the menu clears group 0 to zeros, and the put-back icon would draw
+// as a solid 32x32 block of its centre colour. The title flare's halos are
+// not affine.
 inline bool sprite_flicker_candidate(const SceneObject& o) {
     return o.present && !o.window && !o.affine;
 }
@@ -91,10 +95,12 @@ private:
 };
 
 // Builds the other phase's object table into `out`. Returns false (out
-// untouched) when nothing alternates. A sprite alternates when it is gone
-// from the previous frame and the one three back but present two back --
-// four frames of a steady every-other-frame pattern, so a sprite that
-// appears, disappears or blinks once is left alone.
+// untouched) when nothing alternates.
+//
+// A sprite alternates when it is present two frames back and gone from the
+// previous frame and from three frames back. That is four frames of a steady
+// every-other-frame pattern, so a sprite that appears, disappears or blinks
+// once is left alone.
 inline bool sprite_flicker_other_phase(const SceneObjectTable& now,
                                        const SpriteFlickerHistory& history,
                                        SceneObjectTable* out) {
@@ -131,8 +137,8 @@ inline bool sprite_flicker_other_phase(const SceneObjectTable& now,
     *out = now;
     for (int s = 0; s < FieldScene::kObjects; ++s)
         if (drop[s]) (*out)[s].present = false;
-    // Last frame's sprites go back in their own slots (slot order is draw
-    // order); one whose slot is taken goes in the next free slot.
+    // Last frame's sprites go back in their own slots, because slot order is
+    // draw order. One whose slot is taken goes in the next free slot.
     for (int s = 0; s < FieldScene::kObjects; ++s) {
         if (!add[s]) continue;
         int slot = -1;

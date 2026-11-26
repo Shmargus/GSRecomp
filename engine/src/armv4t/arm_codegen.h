@@ -15,8 +15,8 @@
 //     runtime_dispatch with the new PC.
 //
 // If emit_instr can't lower an instruction, it sets `not_implemented` and
-// the caller emits `runtime_unimplemented_op(...)`. See the self-healing
-// rules in PRINCIPLES.md.
+// the caller emits `runtime_unimplemented_op(...)`, which aborts loudly (it
+// is not recovered at run time).
 
 #pragma once
 

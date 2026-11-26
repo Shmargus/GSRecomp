@@ -1,26 +1,33 @@
 // overlay_loader.h: Stage-2 self-heal dispatch tier + background compiler.
 //
-// Stage 1 bridges a dispatch miss through the interpreter on EVERY hit. Stage 2
-// closes the loop: the first miss for a PC enqueues a background compile (emit
-// → g++ → cached DLL → LoadLibrary); once the native function lands, a third
-// dispatch tier (overlay_resolve) routes that PC to native code on every
-// subsequent hit, and the interpreter bridge stops running for it.
+// How the two stages differ:
+//   - Stage 1 bridges a dispatch miss through the interpreter on EVERY hit.
+//   - Stage 2 closes the loop. The first miss for a PC enqueues a background
+//     compile (emit -> g++ -> cached DLL -> LoadLibrary). Once the native
+//     function lands, a third dispatch tier (overlay_resolve) routes that PC
+//     to native code on every later hit, and the interpreter bridge stops
+//     running for it.
 //
-// Threading: g_healed (the PC → native-fn table) is written ONLY by the game
-// thread (overlay_drain_ready moves finished work at frame or safe guest-call
-// boundaries), so the hot-path read in overlay_resolve is lock-free. Only
-// the work/ready queues cross to the worker thread (mutex-protected).
+// Threading: g_healed (the PC -> native-fn table) is written ONLY by the game
+// thread. overlay_drain_ready moves finished work in at frame or safe
+// guest-call boundaries. So the hot-path read in overlay_resolve is
+// lock-free. Only the work/ready queues cross to the worker thread, and they
+// are mutex-protected.
 //
-// The feature is on by default. GBARECOMP_SELFHEAL_RECOMPILE=0 turns it off:
-// overlay_loader_init no-ops, overlay_resolve always returns nullptr, and the
-// runtime is a pure Stage-1 bridge. Healing of mutable IWRAM/EWRAM code is a
-// further opt-in (GBARECOMP_SELFHEAL_RAM=1).
+// The feature is on by default.
+//   - GBARECOMP_SELFHEAL_RECOMPILE=0 turns it off. overlay_loader_init then
+//     does nothing, overlay_resolve always returns nullptr, and the runtime
+//     is a pure Stage-1 bridge.
+//   - Healing of mutable IWRAM/EWRAM code is a further opt-in
+//     (GBARECOMP_SELFHEAL_RAM=1).
 //
-// Doctrine (PRINCIPLES.md): healed-from-cache is STILL NOT fully static; the
-// build is done only when the merged TOML makes the static corpus cover it.
+// Code served from the overlay cache is still not fully static. The build is
+// done only when the merged TOML makes the static corpus cover it.
 // See self_heal.h.
-// GBARECOMP_STRICT_STATIC=1 is the acceptance gate: it disables cache loading,
-// background compilation, and interpreter bridging; any dispatch miss aborts.
+//
+// GBARECOMP_STRICT_STATIC=1 is the acceptance gate. It disables cache loading,
+// background compilation and interpreter bridging, so any dispatch miss
+// aborts.
 
 #pragma once
 
@@ -121,13 +128,15 @@ bool overlay_alias_relocatable_for_test(uint32_t from_pc, uint32_t to_pc,
 void overlay_relocatable_alias_counters(uint64_t* hits, uint64_t* misses);
 
 // ── Frame-tagged self-heal/SMC instrumentation (diagnostic) ─────────────
-// Correlates per-frame wall-clock spikes with self-heal churn. Env-gated on
-// GBARECOMP_FRAME_EVENTS=<path>: when unset, every call below is a single bool
-// check, so there is no hot-path cost. When set, a CSV keyed by frame index
-// (dispatch_miss, compile_enqueued, heal_installed, ram_crc_mismatch,
-// ram_smc_fallback, bridge_us, plus ready-queue and warm-load columns) is
-// written at shutdown, so it can be joined on `frame` with the per-frame
-// phase CSV from GBARECOMP_FRAME_PHASE.
+// Correlates per-frame wall-clock spikes with self-heal churn. It is gated on
+// GBARECOMP_FRAME_EVENTS=<path>.
+//   - When unset, every call below is a single bool check, so there is no
+//     hot-path cost.
+//   - When set, a CSV keyed by frame index is written at shutdown. Its columns
+//     are dispatch_miss, compile_enqueued, heal_installed, ram_crc_mismatch,
+//     ram_smc_fallback and bridge_us, plus ready-queue and warm-load columns.
+//     It can be joined on `frame` with the per-frame phase CSV from
+//     GBARECOMP_FRAME_PHASE.
 //
 // overlay_note_frame: called once per presented frame (from the runtime's
 // present hook, both the present-in-place and fallback paths) so later
@@ -148,11 +157,11 @@ void overlay_note_bridge_miss(uint32_t pc, bool thumb, uint64_t ns,
                               uint64_t interpreted_insns,
                               OverlayRequestOutcome outcome);
 
-// RAM churn probe (GSR_RAM_CHURN_PROBE=1). Writes a sparse, bounded CSV at
-// clean shutdown (beside the GBARECOMP_FRAME_EVENTS path if set, else
-// ram-churn.csv). Independent of the frame aggregate CSV; it has no
-// dispatch/cache behavior of its own. overlay_note_ram_crc_mismatch records one
-// stale-RAM detection.
+// RAM churn probe (GSR_RAM_CHURN_PROBE=1). It writes a sparse, bounded CSV at
+// clean shutdown, beside the GBARECOMP_FRAME_EVENTS path if set, else as
+// ram-churn.csv. It is independent of the frame aggregate CSV and has no
+// dispatch or cache behavior of its own.
+// overlay_note_ram_crc_mismatch records one stale-RAM detection.
 void overlay_note_ram_crc_mismatch(uint32_t pc, bool thumb);
 
 // True if healing started this session. Remains true after shutdown for
@@ -162,11 +171,14 @@ bool overlay_was_enabled();
 // ── Test-only ─────────────────────────────────────────────────────────────
 // Clears every in-memory heal structure (g_healed, inflight/failed sets,
 // counters, LRU tick, undrained ready entries) WITHOUT touching the on-disk
-// cache, so a single test process can call overlay_loader_init/shutdown
-// twice against the SAME cache directory and have the second init's
-// background warm-load see exactly what a real second process launch would.
-// Call only between overlay_loader_shutdown() and the next
-// overlay_loader_init(). Never used by production code.
+// cache.
+//
+// This lets a single test process call overlay_loader_init/shutdown twice
+// against the SAME cache directory. The second init's background warm-load
+// then sees exactly what a real second process launch would.
+//
+// Call it only between overlay_loader_shutdown() and the next
+// overlay_loader_init(). Production code never uses it.
 void overlay_loader_reset_state_for_test();
 bool overlay_mark_current_request_failed_for_test(uint32_t pc, bool thumb);
 bool overlay_ready_pending_for_test();

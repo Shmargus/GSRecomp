@@ -55,13 +55,16 @@ std::string emit_overlay_c(uint32_t pc, bool thumb,
                   pc, thumb ? "thumb" : "arm", target->end_addr);
     out += hdr;
     out += "#include \"overlay_runtime_arm.h\"\n\n";
-    // The overlay body is plain C (g_cpu.R[..], C-style casts, C99 mixed decls)
-    // and the ABI/shim headers are __cplusplus-guarded, so this file compiles
-    // under BOTH g++ (the dev/release producer, C++) and tcc (the bundled,
-    // toolchain-free producer, C). OVL_EXPORT gives the three entry points C
-    // linkage under C++ and DLL-exports them so the loader's GetProcAddress
-    // resolves them: gcc would otherwise need -Wl,--export-all-symbols and tcc
-    // has no such flag, so the export attribute is on the symbols themselves.
+    // The overlay body is plain C (g_cpu.R[..], C-style casts, C99 mixed
+    // decls) and the ABI/shim headers are __cplusplus-guarded. So this file
+    // compiles under BOTH g++ (the dev/release producer, C++) and tcc (the
+    // bundled, toolchain-free producer, C).
+    //
+    // OVL_EXPORT gives the three entry points C linkage under C++ and
+    // DLL-exports them, so the loader's GetProcAddress resolves them. gcc
+    // would otherwise need -Wl,--export-all-symbols and tcc has no such flag,
+    // so the export attribute is on the symbols themselves.
+    //
     // Keep this dual-toolchain-clean: no C++-only syntax below.
     out += "#ifdef _WIN32\n"
            "#define OVL_DLLEXPORT __declspec(dllexport)\n"

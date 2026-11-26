@@ -5,7 +5,7 @@
 
 #include "field_scene.h"
 
-// Jupiter Lighthouse's cloud wave (F12 tla_rewind_0171, map 290): ROM
+// Jupiter Lighthouse's cloud wave (map 290): ROM
 // 0x080D607C builds the table the DMA below reads. Its state is at
 // B = [0x03000088]:
 // - byte +0xF00: the shown buffer (two buffers of 160 x 12 bytes from B; the
@@ -21,20 +21,20 @@
 // (acc >> 16) & 0xFF. A step of 0 writes the base.
 // The renderer does not know which counter and camera values the build used,
 // so it searches for them. Standing still, the shown tables used
-// counter + camera 2 before the saved sum (0167, 0171, 0175 all frames), or 1
-// or 0 (0168: 38 and 1 of 120 frames). Walking the stairs moves the camera
-// after the build, by -5..+1 (0179: the old guess of -2..0 missed 37 of 120
+// counter + camera 2 before the saved sum (in all frames of three recordings), or 1
+// or 0 (38 and 1 of 120 frames in another). Walking the stairs moves the camera
+// after the build, by -5..+1 (a guess of -2..0 missed 37 of 120
 // frames, which drew the plain, unrippled fallback and flickered). The sum is
 // searched nearest first over one sine period (256), which covers every table
 // the builder can make with a multiplier of 0x10000. Every row 1..159 matched
-// on all frames of 0167, 0168, 0171, 0175 and 0179. Rows above and below the
+// on all frames measured. Rows above and below the
 // console's rows continue the same rows. A table that does not reproduce
 // every row is left to the row-1 rule below.
 // Row 0 is a fault in the game itself: 0x080D5FF8 stores entry 0's three
 // words all at 0x04000014, so BG1 ends with BG3's scroll and BG2/BG3 keep
 // whatever the last line's transfer left. That shows as one stray line at the
-// console's top edge, which is mid-picture in a taller view: the stripe of
-// F12 tla_rewind_0175 (BG1 0xF5,0x3D, BG3 0x114,0x40, against row 1's
+// console's top edge, which is mid-picture in a taller view: the stripe seen
+// in a recording (BG1 0xF5,0x3D, BG3 0x114,0x40, against row 1's
 // 0x180,0x465 and 0xF5,0x3D). In expanded views only (the caller), row 0 gets
 // the entry the game meant: the formula at row 0 for waved layers, and row
 // 1's constant otherwise.
@@ -129,17 +129,15 @@ inline bool tla_cloud_wave(gsr::FieldScene& scene, gsr::SceneMargins& margins,
 // A layer whose scroll an HBlank DMA writes from a per-line table: the
 // transfer at the end of line N loads line N+1 (runtime_bus_bridge.cpp), so
 // rows 1..159 are the table's and row 0 is whatever the game left in the
-// registers over VBlank. Jupiter Lighthouse map 290 (F12 tla_rewind_0167,
-// 2026-10-28): DMA0 writes BG1..BG3 scroll (dest 0x04000014, 3 words,
+// registers over VBlank. Jupiter Lighthouse map 290: DMA0 writes BG1..BG3 scroll (dest 0x04000014, 3 words,
 // CNT_H 0xA660) from 0x0203528C for its BG3 cloud wave; the table's row-0
 // entry 0x02035280 holds BG1 0x148,0x478, but row 0 carries the wave's
-// 0xEC,0x47 in BG1 on every saved frame. Row 0 elsewhere equals that entry
-// (0015, 0025, 0133). The top margin held row 0's scroll and read BG1 from
+// 0xEC,0x47 in BG1 on every frame measured. Row 0 elsewhere equals that entry. The top margin held row 0's scroll and read BG1 from
 // the clouds' part of the map (grid y < 512) with BG1's tiles: a band of
 // pale "banners" above the view. Rows above the console continue row 1, the
 // table's first row, and so does row 0 beside the console: with only the
 // top fixed, row 0's side margins kept the stale scroll, a one-pixel line
-// across the margins at the console's top edge (F12 tla_rewind_0168). Margin
+// across the margins at the console's top edge. Margin
 // pixels only; layers another rule already gave scroll rows are left alone.
 // `io` is the full register file (0x400 bytes).
 inline void tla_line_table_margins(const gsr::FieldScene& scene,

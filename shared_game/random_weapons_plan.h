@@ -1,26 +1,39 @@
 // Random Equipment (first Random Weapons): the seed's plan and the new
-// descriptions. Pure functions over ROM bytes (no engine), so a host bench
-// can run them on the real ROMs. Runtime part: random_weapons.h. Design:
-//  - every weapon takes the stat line of a random OTHER weapon (no newly
-//    rolled numbers) and a random unleash;
-//  - armour is folded in: every piece takes the stat line of a
-//    random other piece of the same kind (body, arm, head, feet, undershirt);
-//  - who can equip it, its name, look, price, curse and use stay its own;
-//  - Scaling on: the other piece's stat line is scaled to its own Attack
+// descriptions. These are pure functions over ROM bytes (no engine), so a
+// host bench can run them on the real ROMs. The runtime part is
+// random_weapons.h.
+//
+// Design:
+//  - Every weapon takes the stat line of a random OTHER weapon (no newly
+//    rolled numbers) and a random unleash.
+//  - Armour is folded in. Every piece takes the stat line of a random other
+//    piece of the same kind (body, arm, head, feet, undershirt).
+//  - Who can equip it, its name, look, price, curse and use stay its own.
+//  - With Scaling on, the other piece's stat line is scaled to its own Attack
 //    or Defense. Unique pooled weapon finds scale to the location's rolled
 //    Attack and get a comparable vanilla unleash.
 //
-// Item records, 0x2C bytes, measured in both games (each game's FACTS.md
-// "Random Weapons"; the weapon records are byte-identical in all five ROMs
-// of a game): +2 type (1 = weapon), +3 flags, +4 equip mask, +6 icon,
-// +8 Attack (i16), +0xB unleash chance in 5% steps (7 = 35%, 8 = 40%; 0
-// with no unleash), +0xC use kind, +0xE unleash ability (u16), +0x14
-// element (4 = none), +0x18 four bonuses of 4 bytes (u8 kind, i8 amount,
-// two zero bytes), +0x28 use ability. Armour, measured the same way (6
-// November 2026, both games' item tables): types 2 body, 3 arm (shields,
-// gloves, armlets), 4 head, 5 feet, 9 undershirts; Defense +0xA (u8, up to
-// 53); some carry Attack +8 (Spiked Armor 10); no unleash (+0xB, +0xE zero);
-// element +0x14 always 4. Rings (type 8) carry only a use and stay.
+// Item records are 0x2C bytes, measured in both games (the weapon records are
+// byte-identical in all five ROMs of a game):
+//   +2     type (1 = weapon)
+//   +3     flags
+//   +4     equip mask
+//   +6     icon
+//   +8     Attack (i16)
+//   +0xB   unleash chance in 5% steps (7 = 35%, 8 = 40%; 0 with no unleash)
+//   +0xC   use kind
+//   +0xE   unleash ability (u16)
+//   +0x14  element (4 = none)
+//   +0x18  four bonuses of 4 bytes (u8 kind, i8 amount, two zero bytes)
+//   +0x28  use ability
+// Armour, measured the same way (both games' item tables):
+//   - Types: 2 body, 3 arm (shields, gloves, armlets), 4 head, 5 feet,
+//     9 undershirts.
+//   - Defense is at +0xA (u8, up to 53).
+//   - Some pieces carry Attack at +8 (Spiked Armor 10).
+//   - No unleash (+0xB and +0xE are zero).
+//   - Element at +0x14 is always 4.
+// Rings (type 8) carry only a use and stay.
 #pragma once
 #include <algorithm>
 #include <array>
@@ -180,8 +193,8 @@ inline Unleash unleash_near(const Record& anchor, const std::vector<Weapon>& all
     return {unleash_of(*closest), (*closest)[kChance]};
 }
 
-// `weapons`, `armour`: which of the two are dealt (separate choices since 7
-// November 2026).
+// `weapons`, `armour`: which of the two are dealt (separate
+// choices).
 inline Plan make_plan(std::vector<Weapon> all, std::uint32_t seed, bool scaling, bool weapons,
                       bool armour, const LocationStrengths& locations = {}) {
     Plan plan;

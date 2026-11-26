@@ -329,7 +329,8 @@ void test_in_function_branches_use_gotos() {
           "forward in-function branch did not lower to goto");
     check(body.find("L_08000008:\n") != std::string::npos,
           "forward in-function branch target has no label");
-    check(body.find("runtime_dispatch(0x08000008u)") == std::string::npos,
+    check(body.find("runtime_dispatch(0x08000008u)") == std::string::npos &&
+              body.find("runtime_dispatch, 0x08000008u)") == std::string::npos,
           "in-function branch still routes through runtime dispatch");
     check(body.find("runtime_idle_backedge(0x08000008u)") !=
               std::string::npos,

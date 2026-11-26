@@ -13,12 +13,13 @@
 // fighter a move was aimed at has fallen before it runs, the move goes to a
 // random living fighter on that side instead of the turn being lost.
 //
-// The game's rule (ROM, both SHA-1 verified; FACTS.md "Battle retarget"):
-// one target-list builder per game, GS1 0x080BE18C, TLA 0x08123648, called
-// only from that game's move resolver (GS1 0x080BE378, TLA 0x0812381C; six
-// calls each) with r0 = the ability and sb = the resolver's frame. It reads
-// the command and the battle state through that frame (GS1: command
-// [sb-0x10], state [sb-0xC]; TLA swapped). Command +0 s16 actor (party 0..7,
+// The game's rule (read from the ROM, both SHA-1 verified): one target-list
+// builder per game, The Broken Seal 0x080BE18C, The Lost Age 0x08123648,
+// called only from that game's move resolver (The Broken Seal 0x080BE378,
+// The Lost Age 0x0812381C; six calls each) with r0 = the ability and sb = the
+// resolver's frame. It reads the command and the battle state through that
+// frame (The Broken Seal: command [sb-0x10], state [sb-0xC]; The Lost Age
+// swapped). Command +0 s16 actor (party 0..7,
 // enemies 0x80..), +0xA u16 selection (low 4 bits the chosen position, 0x80
 // the enemy list), +0xC s16 reach. Lists: state +0x58 party, +0x66 enemies,
 // s16 ids, 0xFF ends, 0xFE an empty place. Positions centre-reach+1 ..

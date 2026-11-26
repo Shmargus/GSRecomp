@@ -1,6 +1,6 @@
 // cosim.h: GBA first-divergence co-simulation engine hooks (GBA_COSIM build).
-// See COSIM_ORACLE.md. These are plain free functions so the runtime_tick hook
-// site (runtime_bus_bridge.cpp) and startup (runtime.cpp) can call them without
+// These are plain free functions, so the runtime_tick hook site
+// (runtime_bus_bridge.cpp) and startup (runtime.cpp) can call them without
 // pulling in engine internals.
 #pragma once
 

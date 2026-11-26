@@ -63,16 +63,17 @@ public:
     // backend. When false, open() always fails.
     static bool is_available();
 
-    // Open a window. `scale` is the integer scale factor applied to
-    // the logical surface, whose size is `base_w` x `base_h` (240x160 for the
-    // faithful view, wider when view-area expansion is active). Returns false on
-    // failure (also when is_available() is false).
-    // `screen` is the per-game color model from [video].screen in game.toml
-    // (raw|unlit|frontlit|backlit|classic), or nullptr for none. The
-    // GBARECOMP_SCREEN env var, when set, overrides it.
-    // `linear_filter` selects linear (vs nearest) texture scaling, the
-    // launcher's "Linear filtering" toggle; default preserves the historical
-    // nearest look.
+    // Open a window. Returns false on failure, and also when is_available()
+    // is false.
+    //   - `scale` is the integer scale factor applied to the logical surface.
+    //     That surface is `base_w` x `base_h`: 240x160 for the faithful view,
+    //     wider when view-area expansion is active.
+    //   - `screen` is the per-game color model from [video].screen in
+    //     game.toml (raw|unlit|frontlit|backlit|classic), or nullptr for none.
+    //     The GBARECOMP_SCREEN env var, when set, overrides it.
+    //   - `linear_filter` selects linear (rather than nearest) texture
+    //     scaling. It is the launcher's "Linear filtering" toggle. The
+    //     default keeps the historical nearest look.
     bool open(int scale = 3, int base_w = 240, int base_h = 160,
               const char* title = "gbarecomp", const char* screen = nullptr,
               bool linear_filter = false, bool resize_driven_view = false,
@@ -81,11 +82,12 @@ public:
     bool is_open() const { return open_; }
 
     // One window for both games (the player program, seamless hand-over).
-    // give_window(): the next open() uses this SDL_Window instead of making
-    // one, and keeps its size, position and fullscreen state (the game's own
-    // saved window size is not applied; the player can still change it).
-    // keep_window_on_close(): close() leaves the window open instead of
-    // destroying it; take_kept_window() then hands it back (once).
+    //   - give_window(): the next open() uses this SDL_Window instead of
+    //     making one. It keeps the window's size, position and fullscreen
+    //     state. (The game's own saved window size is not applied, but the
+    //     player can still change it.)
+    //   - keep_window_on_close(): close() leaves the window open instead of
+    //     destroying it. take_kept_window() then hands it back, once.
     static void give_window(void* sdl_window);
     static void keep_window_on_close(bool keep);
     static void* take_kept_window();
@@ -97,21 +99,22 @@ public:
     bool set_surface_size(int base_w, int base_h);
     bool drawable_size(int* width, int* height) const;
 
-    // Load player keybinds + system hotkeys from `dir` (the exe directory):
-    //   * keybinds.ini: [player1] section, SDL scancode names. Absent file
-    //     => the built-in defaults: A=X B=Z L=C R=V Start=Return
-    //     Select=RShift + arrow keys.
-    //   * config.ini [KeyMap]: hotkey bindings (SDL keycode names with
-    //     Ctrl+/Alt+/Shift+ prefixes): Fullscreen, Pause, Turbo (Fast
-    //     Forward hold in the UI), WindowBigger, WindowSmaller, VolumeUp,
-    //     VolumeDown, DisplayPerf, Menu, TurboToggle (Fast Forward toggle),
-    //     CheatMenu, AutoFireA, AutoFireB, QuitGame.
-    //   * config.ini [KeyMap.Pad]: the controller half of the same rows,
-    //     same names, SDL game-controller button strings (mirrors
-    //     keybinds.ini's [player1]/[player1_pad] split).
-    // Never called => built-in defaults for both (all hotkeys unbound on
-    // the pad side except what the user binds on the Hotkeys page). Safe to
-    // call when the files don't exist.
+    // Load player keybinds and system hotkeys from `dir` (the exe directory).
+    // Three sources are read:
+    //   * keybinds.ini, [player1] section: SDL scancode names. If the file is
+    //     absent, the built-in defaults apply: A=X B=Z L=C R=V Start=Return
+    //     Select=RShift, plus the arrow keys.
+    //   * config.ini [KeyMap]: hotkey bindings, as SDL keycode names with
+    //     Ctrl+/Alt+/Shift+ prefixes. The rows are: Fullscreen, Pause, Turbo
+    //     (Fast Forward hold in the UI), WindowBigger, WindowSmaller,
+    //     VolumeUp, VolumeDown, DisplayPerf, Menu, TurboToggle (Fast Forward
+    //     toggle), CheatMenu, AutoFireA, AutoFireB, QuitGame.
+    //   * config.ini [KeyMap.Pad]: the controller half of the same rows, with
+    //     the same names and SDL game-controller button strings. It mirrors
+    //     the [player1]/[player1_pad] split in keybinds.ini.
+    // If this is never called, both use the built-in defaults. (All hotkeys
+    // are then unbound on the pad side, except what the user binds on the
+    // Hotkeys page.) It is safe to call when the files do not exist.
     void load_input_config(const char* dir);
 
     // Live window/audio controls (hotkey + launcher-driven). All no-ops when
@@ -198,16 +201,20 @@ public:
         // dispatch boundary), never mid-frame.
         int      save_slot = 0;
         int      load_slot = 0;
-        // True when Turbo should be active this pump. Speeds up the frame
-        // limiter: how much is `turbo_multiplier`, unless `turbo_uncapped`,
-        // in which case the limiter is switched off entirely (as fast as the
-        // host allows; audio will not keep up). Both come from the config
-        // menu's Fast Forward page and are meaningless while fast_forward is
-        // false. Driven by two separately bindable hotkeys sharing this one
-        // flag: "Fast Forward (hold)" (level-triggered, default Tab: on only
-        // while down) and "Fast Forward (toggle)" (edge-triggered latch: press
-        // to flip on/off). fast_forward is true when EITHER is active;
-        // releasing Hold does not clear an active Toggle latch.
+        // True when Turbo should be active this pump. Turbo speeds up the
+        // frame limiter by `turbo_multiplier`. If `turbo_uncapped` is set, the
+        // limiter is switched off entirely instead: the game runs as fast as
+        // the host allows, and audio will not keep up. Both values come from
+        // the config menu's Fast Forward page and mean nothing while
+        // fast_forward is false.
+        //
+        // Two separately bindable hotkeys share this one flag:
+        //   - "Fast Forward (hold)" is level-triggered (default Tab). It is
+        //     on only while the key is down.
+        //   - "Fast Forward (toggle)" is an edge-triggered latch. Each press
+        //     flips it on or off.
+        // fast_forward is true when EITHER is active. Releasing Hold does not
+        // clear an active Toggle latch.
         bool     fast_forward = false;
         float    turbo_multiplier = 4.0f;
         bool     turbo_uncapped = false;

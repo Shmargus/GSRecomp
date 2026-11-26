@@ -331,7 +331,7 @@ int main(int argc, char** argv) {
     uint32_t last_step_cycles = 0;
     bool frame_just_completed = false;
 
-    // MC-HP-002 IRQ-vector log, mirroring the recomp's runtime_irq_log
+    // IRQ-vector log, mirroring the recomp's runtime_irq_log
     // (GBARECOMP_IRQ_LOG). One CSV row per IRQ vectoring so the recomp's and
     // interp's IRQ delivery (VBlank cycle timing, VCount onset) can be diffed
     // apples-to-apples. Armed by the same env var; dumped on TCP-server exit.
@@ -425,7 +425,7 @@ int main(int argc, char** argv) {
     // ── Per-instruction fingerprint ring (interp oracle mirror) ───────
     // Mirrors the recomp's runtime_insn_fp ring (runtime_arm.cpp) in the SAME
     // GFP1 binary layout so oracle/diff_cycle_trace.py can align the two engines
-    // by cumulative cycle and find the first divergent instruction (MC-HP-002).
+    // by cumulative cycle and find the first divergent instruction.
     // Armed for the whole run via GBARECOMP_INSN_TRACE (same env as the recomp),
     // so the ring is on from reset and we query it after the fact.
     const bool fp_armed = [] {
@@ -479,20 +479,28 @@ int main(int argc, char** argv) {
 
     // ── Stage 0.2: profile-guided seed harvesting ────────────────────
     // With --emit-target-seeds, record every INDIRECT control-transfer
-    // destination the interpreter reaches (recording is on from reset; the
-    // result is read once at exit). These are function entries reached
-    // through function pointers, indirect tail calls or computed calls,
-    // which the recompiler's static walk cannot follow. Direct B/BL targets
-    // are already found by the static walk, so they are counted but not
-    // emitted. Returns (bx lr, pop {pc}, mov pc,lr) are dropped using the
-    // decoder's is_return flag. The remaining destinations must start with
-    // a recognised function prologue (THUMB `push {..,lr}` or ARM
-    // `stmfd sp!,{..,lr}`); that rejects jump-table case labels and return
-    // sites that are not real function entries. Known cost of this gate: a
-    // leaf function reached only by pointer that never pushes lr is missed
-    // (rare; Stage 1 self-healing catches it at runtime). The result is
-    // written as a seed TSV in the imported_symbols.tsv format that needs
-    // review and is never merged automatically into game.toml or symbols.
+    // destination the interpreter reaches. Recording is on from reset, and
+    // the result is read once at exit. These destinations are function
+    // entries reached through function pointers, indirect tail calls or
+    // computed calls, which the recompiler's static walk cannot follow.
+    //
+    // Filtering:
+    //   - Direct B/BL targets are already found by the static walk, so they
+    //     are counted but not emitted.
+    //   - Returns (bx lr, pop {pc}, mov pc,lr) are dropped using the
+    //     decoder's is_return flag.
+    //   - The remaining destinations must start with a recognised function
+    //     prologue (THUMB `push {..,lr}` or ARM `stmfd sp!,{..,lr}`). That
+    //     rejects jump-table case labels and return sites, which are not
+    //     real function entries.
+    //
+    // Known cost of this gate: a leaf function reached only by pointer that
+    // never pushes lr is missed. This is rare, and Stage 1 self-healing
+    // catches it at runtime.
+    //
+    // The result is written as a seed TSV in the imported_symbols.tsv format.
+    // It needs review and is never merged automatically into game.toml or
+    // symbols.
     const bool seed_armed = !args.emit_target_seeds.empty();
     struct SeedRec { uint8_t thumb = 0; uint64_t hits = 0; };
     std::map<uint32_t, SeedRec> rom_seeds;   // statically-recompilable ROM entries
@@ -697,14 +705,15 @@ int main(int argc, char** argv) {
         // mirror it into the interpreter's CPUState via the shared bridge.
         gbarecomp::load_arm_cpu_into_interp(g_cpu, cpu);
         vblank_count = ppu.frame_count();  // re-sync frame clock to restored PPU
-        // Re-origin the fingerprint cycle clock and ring at the load point so
+        // Re-origin the fingerprint cycle clock and ring at the load point, so
         // the interpreter and recomp share a cycle origin for
-        // diff_cycle_trace.py. The snapshot restored cycles_elapsed to the
-        // (large) absolute count saved in the state, but the recomp's
-        // g_runtime_cycles is not snapshotted and starts at 0. Without this
-        // the clocks differ and the diff's cycle-based anchor can pick the
-        // wrong loop iteration. The diff is relative to the load, so zeroing
-        // both is correct.
+        // diff_cycle_trace.py.
+        //
+        // The snapshot restored cycles_elapsed to the (large) absolute count
+        // saved in the state. The recomp's g_runtime_cycles is not
+        // snapshotted and starts at 0. Without this, the clocks differ and the
+        // diff's cycle-based anchor can pick the wrong loop iteration. The
+        // diff is relative to the load, so zeroing both is correct.
         cycles_elapsed = 0;
         fp_write = 0;
         fp_count = 0;
@@ -773,12 +782,15 @@ int main(int argc, char** argv) {
     // Stage 0.2: deterministic demo-input driver for the headless profiling
     // run. A headless run with no input idles on the title/menu screen and
     // never exercises the indirect-dispatch-heavy gameplay code we want to
-    // profile. So when --emit-target-seeds is active (and we own the loop,
-    // i.e. not --window or --tcp) we synthesize a button track: each button
-    // is held 6 frames, then released 6 (edge-triggered menus need the
-    // release). Start/A cycle to get through menus; directions/B move and
-    // interact in game. The track is indexed by frame (no RNG), so the
-    // profile is reproducible.
+    // profile.
+    //
+    // So when --emit-target-seeds is active (and we own the loop, i.e. not
+    // --window or --tcp), we synthesize a button track:
+    //   - Each button is held 6 frames, then released 6 (edge-triggered menus
+    //     need the release).
+    //   - Start/A cycle to get through menus; directions/B move and interact
+    //     in game.
+    // The track is indexed by frame (no RNG), so the profile is reproducible.
     enum : uint16_t {
         KEY_A = 1u << 0, KEY_B = 1u << 1, KEY_START = 1u << 3,
         KEY_RIGHT = 1u << 4, KEY_LEFT = 1u << 5,

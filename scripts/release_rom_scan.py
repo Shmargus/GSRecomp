@@ -59,7 +59,7 @@ def counting(rows: np.ndarray) -> np.ndarray:
     """Windows that are a counter in 8-, 16- or 32-bit steps (0, 1, 2, ...,
     possibly wrapping once, as 12..15 then 0..11): at most two different
     steps between neighbours. Our own programs hold such index tables too;
-    they were the only matches on the 14 October 2026 engine, launcher and
+    they were the only matches in our engine, launcher and
     builder binaries."""
     result = np.zeros(rows.shape[0], dtype=bool)
     for unit in (np.uint8, np.dtype("<u2"), np.dtype("<u4")):
@@ -83,7 +83,7 @@ class RomIndex:
         self.hashes = hashes[keep][order]
         self.offsets = offsets[keep][order]
         # Use the high bits as a quick filter. If a prefix occurs in the ROM hash
-        # list, check the full hash in the sorted list. On 16 November 2026,
+        # list, check the full hash in the sorted list.
         # np.isin re-sorted the ROM list for each file and took 306 s on a 112 MB
         # release.
         self.filter = np.zeros(1 << FILTER_BITS, dtype=bool)

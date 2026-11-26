@@ -160,25 +160,31 @@ public:
                         bool filtered);
 
     // Reads a texture's pixels back to host memory as top-down RGB888 (three
-    // bytes per pixel, row 0 first, no padding) -- the layout the rest of the
+    // bytes per pixel, row 0 first, no padding), the layout the rest of the
     // host already presents. GL stores a texture bottom-up and this format is
-    // RGBA, so this flips rows and drops the alpha channel; `out_rgb` must
-    // hold at least width*height*3 bytes. This is a full GPU round trip:
-    // only call it where a caller has already decided that cost is worth
-    // paying (see MODIFICATIONS.md).
-    // False on invalid texture/dimensions/context or GL failure; output is
-    // untouched on failure, so the caller can keep its hardware fallback.
+    // RGBA, so this flips rows and drops the alpha channel. `out_rgb` must
+    // hold at least width*height*3 bytes.
+    //
+    // This is a full GPU round trip. Only call it where a caller has already
+    // decided that cost is worth paying (see MODIFICATIONS.md).
+    //
+    // Returns false on an invalid texture, dimensions or context, or on a GL
+    // failure. The output is untouched on failure, so the caller can keep its
+    // hardware fallback.
     bool read_texture_rgb(GpuTexture texture, int width, int height,
                           std::uint8_t* out_rgb);
 
     // The same readback split in two, to overlap GPU and CPU work.
-    // begin_texture_readback queues a copy into host-readable memory (false when the
-    // context cannot do that, OpenGL 3.2 sync objects being required).
-    // finish_texture_readback delivers the copy queued by the most recent begin,
-    // in read_texture_rgb's layout -- normally long finished by then -- and
-    // returns false if there is none of this size or the GPU did not finish
-    // it in time (the existing wait ceiling is 50 ms). A pipelined caller
-    // presents one frame behind, with owned metadata for that older picture.
+    //   - begin_texture_readback queues a copy into host-readable memory. It
+    //     returns false when the context cannot do that (OpenGL 3.2 sync
+    //     objects are required).
+    //   - finish_texture_readback delivers the copy queued by the most recent
+    //     begin, in read_texture_rgb's layout. The copy is normally long
+    //     finished by then. It returns false if there is no queued copy of
+    //     this size, or the GPU did not finish it in time (the existing wait
+    //     ceiling is 50 ms).
+    // A pipelined caller presents one frame behind, with owned metadata for
+    // that older picture.
     bool begin_texture_readback(GpuTexture texture, int width, int height);
     bool finish_texture_readback(int width, int height, std::uint8_t* out_rgb);
     // Discard fences/identity at a presentation boundary. PBO storage is
@@ -206,9 +212,10 @@ private:
 
     // One framebuffer per colour target texture, so switching the target
     // between passes is a framebuffer bind. Re-attaching textures to the one
-    // framebuffer made the phone's driver rebuild the attachment every pass
-    // (Pixel 9 Pro profile, 16 November 2026: bind_color_target 3.4% of the
-    // game thread, the attachment's preparation under the clear 4.4%).
+    // framebuffer made the phone's driver rebuild the attachment every pass.
+    // Measured on a Pixel 9 Pro:
+    //   - bind_color_target took 3.4% of the game thread;
+    //   - the attachment's preparation under the clear took 4.4%.
     // fbo_ stays the main target's own.
     struct Targets;
     Targets* targets_ = nullptr;

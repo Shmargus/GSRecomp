@@ -1,4 +1,5 @@
-// Challenge Mode, one copy of the rules for both runners.
+// Challenge Mode, one copy of the rules for both runners. (In this file TBS
+// means The Broken Seal and TLA The Lost Age.)
 //
 // - Chosen per save file at New Game and locked for that file: Solo, Duo or
 //   Triple (The Lost Age adds a four-character choice, No 2nd party).
@@ -117,12 +118,14 @@ inline void leave(gba::GbaBus& b, unsigned id) {
 }
 
 // A Djinni's new owner. The game's grant (TBS 0x0807A0F4) gives it to the
-// member with the fewest Djinn in total, first in party order on a tie,
+// member with the fewest Djinn in total (first in party order on a tie),
 // skipping anyone holding more than 9 of its element. Left-out members hold
-// none, so every Djinni would go to the dead (F12 0089: Flint to Isaac, and
-// the Djinn lesson battle never ends). The same rule over the picks only;
-// `counts_offset` is the record's four per-element counts. -1: no pick can
-// take it (the game's own choice stands).
+// none, so every Djinni would go to the dead (seen in a capture: Flint to
+// Isaac, and the Djinn lesson battle never ends).
+//
+// This applies the same rule over the picks only. `counts_offset` is the
+// record's four per-element counts. Returns -1 when no pick can take it (the
+// game's own choice stands).
 inline int djinn_recipient(unsigned element, std::uint32_t counts_offset) {
     gba::GbaBus* b = bus();
     if (!game || !b || element > 3u) return -1;
@@ -202,11 +205,12 @@ inline int spared = -1;
 
 // A revival the game gives a left-out hero while every pick is down, out of
 // battle, goes to the first pick instead, at the same share of max HP.
-// After a party defeat the Sanctum brings back a hero by name. The phone
-// capture android_rewind_0002 (14 November 2026, solo Ivan) shows Ivan, Isaac
-// and Garet all at 0 HP in the Sanctum: keep_down leaves the revived Isaac
-// down, so no pick is revived. This handles only that case; if a pick is
-// alive there is nothing to move.
+//
+// Why: after a party defeat, the Sanctum brings back a hero by name. A
+// capture with a solo Ivan shows Ivan, Isaac and Garet all at 0 HP in the
+// Sanctum. keep_down leaves the revived Isaac down, so no pick is revived.
+// This handles only that case. If a pick is alive there, there is nothing to
+// move.
 inline void revive_first_pick(gba::GbaBus& b, const Config& c) {
     if (!game->max_hp_offset || b.read32(game->battle_context) != 0) return;
     for (int i = 0; i < c.size; ++i)

@@ -69,7 +69,7 @@ void EffectBurst::add_particles(BurstKind kind, int count, float x, float y) {
         p.trail_y = p.y;
         if (kind == BurstKind::Chunk || kind == BurstKind::Geyser) {
             // An angle from straight up (screen y grows downward). Chunks use
-            // the narrow cone for most and the wide one for the rest; the
+            // the narrow cone for most and the wide one for the rest. The
             // geyser stays in its own tight cone.
             const bool geyser = kind == BurstKind::Geyser;
             const float cone =

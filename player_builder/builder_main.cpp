@@ -2,17 +2,25 @@
 // from their ROM. The GSR_BUILDER_TLA variant, tla_builder, does the same for
 // The Lost Age (TLAGame.dll); the description below is The Broken Seal's.
 //
-// The release ships only our own code: the engine (GoldenSunEngine.dll, run
-// by GoldenSunRecomp.exe), this builder, the translator (gba_recompile.exe),
-// a trimmed compiler and the configuration data. Everything from Golden Sun,
-// code included, comes from the player's ROM, here:
+// The release ships only our own code:
+//   - the engine (GoldenSunEngine.dll, run by GoldenSunRecomp.exe),
+//   - this builder,
+//   - the translator (gba_recompile.exe),
+//   - a trimmed compiler, and
+//   - the configuration data.
+// Everything from Golden Sun, code included, comes from the player's ROM.
+// This builder gets it there in three steps:
 //
-//   1. check the ROM (SHA-1),
-//   2. translate it into C++ following data/game_code_plan.txt (copied from
-//      config/usa). The plan covers the main program, the RAM-copied
-//      routines, the overlays (which the game's own decompressor unpacks via
-//      guest_call.h), the synthesized variants and the particle stamps,
-//   3. compile that with the bundled GCC and link GoldenSunGame.dll against
+//   1. Check the ROM (SHA-1).
+//   2. Translate it into C++, following data/game_code_plan.txt (copied from
+//      config/usa). The plan covers:
+//        - the main program,
+//        - the RAM-copied routines,
+//        - the overlays (the game's own decompressor unpacks them, via
+//          guest_call.h),
+//        - the synthesized variants, and
+//        - the particle stamps.
+//   3. Compile that with the bundled GCC and link GoldenSunGame.dll against
 //      the engine's import library.
 //
 // The launcher runs it and reads its progress lines from stdout:
@@ -21,10 +29,12 @@
 //   @done
 //   @error <text>
 //
-// Layout (all overridable): <root>/builder/gsr_builder.exe, with data/,
-// engine/ and gba_recompile.exe beside it; the compiler is the shared
-// games/mingw64 (bundled_toolchain.h; on Linux builder/toolchain/); the DLL
-// goes to <root>.
+// Layout (all of it can be overridden):
+//   - <root>/builder/gsr_builder.exe, with data/, engine/ and
+//     gba_recompile.exe beside it.
+//   - The compiler is the shared games/mingw64 (bundled_toolchain.h). On
+//     Linux it is builder/toolchain/.
+//   - The DLL goes to <root>.
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -77,7 +87,7 @@ struct RomRevision {
     const char* sha1;
     std::uint32_t stamp_builder, stamp_allocator;
 };
-#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language) {code, sha1, stamp_builder, stamp_allocator},
+#define GSR_ROM_REVISION(code, name, sha1, stamp_builder, stamp_allocator, language, romhack) {code, sha1, stamp_builder, stamp_allocator},
 
 #ifdef GSR_BUILDER_TLA
 constexpr RomRevision kRevisions[] = {
@@ -301,9 +311,9 @@ int run_process(const fs::path& exe, const std::vector<std::string>& args,
     return static_cast<int>(code);
 }
 #else
-// Children find the bundled toolchain first, then the system's basics. The
-// bundled compiler's own libraries (GMP, MPFR, ISL, BFD...) are in
-// toolchain/hostlib, which few distros have at the right versions.
+// Children find the bundled toolchain first, then the system's basics.
+// The bundled compiler's own libraries (GMP, MPFR, ISL, BFD...) are in
+// toolchain/hostlib, because few distros have them at the right versions.
 void set_child_path(const fs::path& toolchain_bin) {
     const std::string path = toolchain_bin.string() + ":/usr/bin:/bin";
     setenv("PATH", path.c_str(), 1);
@@ -502,9 +512,10 @@ std::vector<Overlay> read_registry(const fs::path& p) {
 
 // ---------------------------------------------------------------- overlays
 
-// Func_2fb0's two steps, run from the ROM: the decompressor at 0x08002544
-// (r0 = compressed source, r1 = destination; returns the size), then the
-// BL fix-up at 0x08002D5C over the result.
+// Unpacks an overlay from the ROM. These are the two steps of Func_2fb0:
+//   1. The decompressor at 0x08002544 (r0 = compressed source,
+//      r1 = destination; returns the size).
+//   2. The BL fix-up at 0x08002D5C, run over the result.
 bool unpack_overlay(const std::vector<std::uint8_t>& rom, const Overlay& o,
                     std::vector<std::uint8_t>* image, std::string* error) {
     GuestMachine m(rom);
@@ -676,10 +687,10 @@ struct StampVariant {
     std::string sha1;
 };
 
-// Particle stamps: every routine
-// Func_ed408 (ROM 0x080ED408, Thumb) builds, run with its two measured
-// stand-ins (the slot allocator 0x080048B0 returns the destination; DMA3
-// copies at once).
+// Particle stamps: every routine that Func_ed408 (ROM 0x080ED408, Thumb)
+// builds. Each is run with two measured stand-ins:
+//   - the slot allocator 0x080048B0 returns the destination, and
+//   - DMA3 copies at once.
 bool build_stamps(const std::vector<std::uint8_t>& rom, const RomRevision& rev,
                   std::vector<StampVariant>* out, std::string* error) {
     const std::uint32_t kBuilder = rev.stamp_builder, kAllocator = rev.stamp_allocator;
@@ -921,9 +932,10 @@ bool generate(const Setup& s, const std::vector<std::uint8_t>& rom, std::string*
 bool has_prefix(const std::string& s, const char* p) { return s.rfind(p, 0) == 0; }
 
 // The sources the game build compiles from each generated folder (the
-// CMakeLists.txt globs): recompiled*.cpp and dispatch_table.cpp everywhere,
-// plus symbol_map.cpp for the main program and stamp_registry.cpp for the
-// stamps.
+// CMakeLists.txt globs):
+//   - recompiled*.cpp and dispatch_table.cpp, in every folder,
+//   - symbol_map.cpp, for the main program, and
+//   - stamp_registry.cpp, for the stamps.
 std::vector<fs::path> game_sources(const fs::path& gen) {
     std::vector<fs::path> out;
     for (const auto& f : fs::recursive_directory_iterator(gen)) {
@@ -1003,13 +1015,14 @@ bool apply_block_timing(const Setup& s, std::string* error) {
     return true;
 }
 
-// Hash the ROM, generated sources, engine headers, compiler, compile
-// arguments and exports. Skip building only when these inputs match the
-// record and its installed library is intact (compile_and_link). An
-// unreadable input gives an empty hash and forces a rebuild.
+// Hashes everything a build depends on: the ROM, generated sources, engine
+// headers, compiler, compile arguments and exports. The build is skipped only
+// when these inputs match the record and its installed library is intact
+// (compile_and_link). An unreadable input gives an empty hash and forces a
+// rebuild.
 //
-// Not covered: the C library headers of the bundled compiler's sysroot (the
-// generated code uses fixed-width integers and nothing else from them).
+// Not covered: the C library headers of the bundled compiler's sysroot. The
+// generated code uses fixed-width integers and nothing else from them.
 std::string build_inputs_sha1(const Setup& s, const std::string& rom_sha1,
                               const fs::path& compiler,
                               const std::vector<std::string>& compile_args,
@@ -1178,9 +1191,10 @@ bool compile_and_link(const Setup& s, const std::string& rom_sha1,
     fs::remove(log, ec);
 #if defined(__ANDROID__)
     // lld directly (the Clang driver would look for a program called
-    // ld.lld): the inputs and options the NDK's clang++ passes for -shared
-    // (measured with -### on NDK r29), plus the engine plug-in, which makes
-    // the game library load it.
+    // ld.lld). The link uses:
+    //   - the inputs and options the NDK's clang++ passes for -shared
+    //     (measured with -### on NDK r29), plus
+    //   - the engine plug-in, which makes the game library load it.
     const fs::path libs = sysroot / "usr" / "lib" / "aarch64-linux-android";
     const fs::path api = libs / std::to_string(kAndroidApi);
     const fs::path builtins = android_resource_dir(s) / "lib" / "linux" /
@@ -1204,10 +1218,10 @@ bool compile_and_link(const Setup& s, const std::string& rom_sha1,
                                      (s.engine / kApiLibrary).string()},
                                log);
 #else
-    // ELF needs no export or import list: the library exports every table,
-    // and what it calls in the engine is found in the game program when the
-    // game loads it (the linker exports each engine symbol the build's own
-    // copy of this library called, and this one calls the same).
+    // ELF needs no export or import list. The library exports every table.
+    // What it calls in the engine is found in the game program when the game
+    // loads it. (The linker exports each engine symbol that the build's own
+    // copy of this library called, and this one calls the same ones.)
     std::vector<std::string> link = {"-shared", "-Wl,-Bsymbolic", "-o", dll_tmp.string(),
                                      "@" + rsp.string()};
     if (fs::is_directory(sysroot)) link.push_back("--sysroot=" + sysroot.string());
@@ -1267,9 +1281,9 @@ int usage() {
     return 2;
 }
 
-// Left in every work folder the builder creates. A custom --work folder is
-// only ever cleared when it holds this file (or is empty), so a mistyped
-// path cannot erase someone's files.
+// A marker file left in every work folder the builder creates. A custom
+// --work folder is only ever cleared when it holds this file (or is empty),
+// so a mistyped path cannot erase someone's files.
 constexpr const char* kWorkMarker = ".gsr_builder_work";
 
 fs::path comparable(const fs::path& p) {
@@ -1295,10 +1309,12 @@ bool path_within(const fs::path& inner, const fs::path& outer) {
     return true;
 }
 
-// Why the work folder may not be cleared, or empty if it may. It must not
-// hold the builder, the ROM, the release parts or the output, nor sit inside
-// the release parts; a custom folder that already has files must carry the
-// marker from an earlier build.
+// Returns why the work folder may not be cleared, or empty if it may.
+// The folder must not:
+//   - hold the builder, the ROM, the release parts or the output, or
+//   - sit inside the release parts.
+// A custom folder that already has files must carry the marker from an
+// earlier build.
 std::string work_dir_problem(const Setup& s, const fs::path& here) {
     for (const fs::path* keep : {&here, &s.rom, &s.data, &s.engine, &s.toolchain,
                                  &s.recompiler, &s.out_dir}) {
@@ -1413,10 +1429,10 @@ int main(int argc, char** cargv) {
     if (!s.revision) {
         if (!gbarecomp::any_rom_allowed()) {
 #ifdef GSR_BUILDER_TLA
-            return fail("This release requires the English, Spanish, Italian, French, German, Reloaded 1.83 or Portuguese Beta 1 Golden Sun: The Lost Age ROM.");
+            return fail("This release requires the English, Spanish, Italian, French, German, Reloaded 1.83, Portuguese Beta 1 or Maheo Hack 2.0 Golden Sun: The Lost Age ROM.");
 #else
             return fail(std::string("This release requires the ") + kGameName +
-                        ", Golden Sun (Spain), Golden Sun (Italy), Golden Sun (France), Golden Sun (Germany), Golden Sun Reloaded 1.83a or Portuguese Beta 1.01 ROM.");
+                        ", Golden Sun (Spain), Golden Sun (Italy), Golden Sun (France), Golden Sun (Germany), Golden Sun Reloaded 1.83a, Portuguese Beta 1.01, Dawn of Djinn 2.0.5 or Jenna Edition 1.0.0 Modern ROM.");
 #endif
         }
         s.revision = &kRevisions[0];
@@ -1436,11 +1452,15 @@ int main(int argc, char** cargv) {
 #else
     const fs::path compiler = s.toolchain / "bin" / (std::string("g++") + kExeSuffix);
 #endif
-    for (const fs::path& need : {s.recompiler,
-                                 compiler,
-                                 engine_link_input,
-                                 s.data / kConfigFile}) {
+    for (const fs::path& need : {s.recompiler, s.data / kConfigFile}) {
         if (!fs::exists(need)) return fail("Missing part of the release: " + need.string());
+    }
+    // --generate-only (a developer tree before its first engine build)
+    // translates the ROM and needs neither the compiler nor the engine.
+    if (!s.generate_only) {
+        for (const fs::path& need : {compiler, engine_link_input}) {
+            if (!fs::exists(need)) return fail("Missing part of the release: " + need.string());
+        }
     }
 
     const std::string work_problem = work_dir_problem(s, here);

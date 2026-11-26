@@ -2,7 +2,7 @@
 
 #include "field_scene.h"
 
-// F12 0150: Jupiter's pillar is two identical 32x64 pieces, 32 pixels apart,
+// Jupiter's pillar is two identical 32x64 pieces, 32 pixels apart,
 // vertically flipped without vertical scaling. Their overlapping rounded ends
 // make the continuous beam; the upper piece alone ends at native y -56.
 // Continue that same stack upward, keeping its live horizontal sway, palette

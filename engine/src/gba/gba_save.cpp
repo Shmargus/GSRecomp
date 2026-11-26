@@ -68,9 +68,9 @@ void GbaSave::serialize(gbarecomp::debug::SnapshotWriter& w) const {
     w.u32(read_bit_index_);
 
     // FLASH state: appended after the EEPROM block so an older savestate
-    // (whose SAVE section ends here) still deserializes: the reader is
+    // (whose SAVE section ends here) still deserializes. The reader is
     // bounded to the section length, and deserialize() only reads these
-    // fields when bytes remain. No snapshot-version bump required.
+    // fields when bytes remain. No snapshot-version bump is required.
     w.boolean(flash_enabled_);
     w.u64(flash_size_);
     w.u32(flash_banks_);
@@ -296,8 +296,8 @@ void GbaSave::configure_flash(std::size_t bytes) {
     if (flash_banks_ == 0) flash_banks_ = 1;
     // Macronix, with the device ID of the part that size really is. The
     // 512 Kbit-only SDK driver (FLASH_V12x, e.g. Golden Sun's FLASH_V123)
-    // knows 0x1C (MX29L512) but not 0x09 (MX29L010), and without a known ID
-    // it treats the cartridge as having no usable save chip.
+    // knows 0x1C (MX29L512) but not 0x09 (MX29L010). Without a known ID it
+    // treats the cartridge as having no usable save chip.
     flash_maker_ = 0xC2;
     flash_device_ = (bytes == 0x10000) ? 0x1C : 0x09;
     flash_state_ = FlashState::Idle;

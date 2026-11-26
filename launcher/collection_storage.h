@@ -175,11 +175,11 @@ inline std::vector<fs::path> associated_directories(const fs::path& source) {
 }
 } // namespace storage_detail
 
-// Each game's ROM revision, chosen with the buttons under its cartridge (or
-// by picking a supported patched ROM, collection_rom.h prepare_rom): the row
-// of its revision list (launcher_game.h rom_codes; 0 USA/Europe). Each
-// revision has its own ROM, save and savestates, named "<game> (<name>)";
-// scripts/build_game.ps1 reads the same file.
+// Each game's ROM revision, as a row of its revision list (launcher_game.h
+// rom_codes; 0 is USA/Europe). The player chooses it with the buttons under
+// the cartridge, or by picking a supported patched ROM (collection_rom.h
+// prepare_rom). Each revision has its own ROM, save and savestates, named
+// "<game> (<name>)". scripts/build_game.ps1 reads the same file.
 inline fs::path rom_language_file(const fs::path& root, int game = 0) {
     return root / "local" / (game ? "lost-age-language.txt" : "broken-seal-language.txt");
 }
@@ -214,10 +214,28 @@ inline ManagedFiles managed_paths(const fs::path& root, const std::string& game_
     return {absolute, absolute / "ROMs" / (name + ".gba"), absolute / "Saves" / (name + ".sav"), absolute / "Saves" / name};
 }
 
-// A patched ROM (played with "Skip the ROM check") is kept beside the game's
-// clean one under its own name, "<game> [<patch file name>]", with its own
-// save and savestates, so a hack never shares progress with the normal game.
-// `selected` already in ROMs under such a name keeps it.
+// The romhacks already loaded for `game` (their ROM is in ROMs under the
+// hack's own name, managed_paths), in revision order: the Romhack button's
+// list.
+inline std::vector<int> loaded_romhacks(const fs::path& root, int game) {
+    std::vector<int> result;
+    const auto& identity = gsr_launcher::kGames[game];
+    try {
+        for (int revision = 0; revision < gsr_launcher::rom_revision_count(identity); ++revision) {
+            std::error_code ec;
+            if (gsr_launcher::rom_is_romhack(identity, revision) &&
+                fs::is_regular_file(managed_paths(root, identity.stem, revision).rom, ec))
+                result.push_back(revision);
+        }
+    } catch (const std::exception&) {}  // no collection folder: none loaded
+    return result;
+}
+
+// Patched ROMs (played with "Skip the ROM check"). A patched ROM is kept
+// beside the game's clean one under its own name, "<game> [<patch file
+// name>]", with its own save and savestates. So a hack never shares progress
+// with the normal game. If `selected` is already in ROMs under such a name,
+// it keeps that name.
 inline bool patched_name(const std::string& stem, const std::string& base) {
     return stem.size() > base.size() + 2 && stem.rfind(base + " [", 0) == 0 && stem.back() == ']';
 }

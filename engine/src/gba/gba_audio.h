@@ -1,12 +1,16 @@
 // gba_audio.h: GBA sound channels + sample mixer.
 //
-// Implemented and mixed into the output: SOUND1 (square + sweep),
-// SOUND2 (square), SOUND3 (wave RAM), SOUND4 (noise), and the
-// DMA-driven Direct Sound A / B FIFOs (the streamed-PCM path the
-// MP2K/m4a music driver uses), fed via timer_overflow() + DMA refill,
-// mixed in mix_one_sample(). The mixer generates 16-bit signed samples;
-// the rate follows SOUNDBIAS resolution (32768 Hz default, 65536 Hz
-// when the BIOS raises it).
+// Implemented and mixed into the output:
+//   - SOUND1 (square + sweep)
+//   - SOUND2 (square)
+//   - SOUND3 (wave RAM)
+//   - SOUND4 (noise)
+//   - the DMA-driven Direct Sound A / B FIFOs. This is the streamed-PCM path
+//     the MP2K/m4a music driver uses. It is fed via timer_overflow() plus DMA
+//     refill.
+// Everything is mixed in mix_one_sample(). The mixer generates 16-bit signed
+// samples. The rate follows the SOUNDBIAS resolution (32768 Hz by default,
+// 65536 Hz when the BIOS raises it).
 //
 // Audio correctness vs the mGBA oracle is validated separately
 // (differential audio sweeps).
@@ -75,14 +79,16 @@ struct PsgMixResult {
 };
 
 // Combines the four PSG channels into left/right totals the way mGBA's
-// GBAAudioSamplePSG does: ch1+ch2+ch3 are summed and the combined sum is
-// shifted left by 3; ch4 is pre-shifted left by 3 and added separately
-// (third_party/mgba/src/gb/audio.c:752-763). Left shift distributes over
-// addition, so scaling each channel by <<3 individually before summing
-// (as done here) is arithmetically identical to mGBA's sum-then-shift and
-// gives all four channels the same ×8 scale. Does not apply the DMG
-// volume-ratio shift or SOUNDCNT_L master volume multiply; callers in
-// GbaAudio::mix_one_sample apply those to the result afterward.
+// GBAAudioSamplePSG does:
+//   - ch1+ch2+ch3 are summed, and the combined sum is shifted left by 3.
+//   - ch4 is pre-shifted left by 3 and added separately
+//     (third_party/mgba/src/gb/audio.c:752-763).
+// Left shift distributes over addition, so scaling each channel by <<3
+// individually before summing (as done here) gives the same result as mGBA's
+// sum-then-shift. All four channels get the same x8 scale.
+// This does not apply the DMG volume-ratio shift or the SOUNDCNT_L master
+// volume multiply. Callers in GbaAudio::mix_one_sample apply those to the
+// result afterward.
 PsgMixResult mix_psg_samples(const PsgChannelSamples& samples,
                              const PsgChannelRouting& routing);
 
@@ -133,15 +139,16 @@ public:
     uint64_t samples_generated() const { return samples_generated_; }
 
     // ── Always-on, non-destructive audio capture ring (observability) ──
-    // The playback FIFO (ring_) is consume-once: both the SDL host pump and
+    // The playback FIFO (ring_) is consume-once. Both the SDL host pump and
     // the legacy audio_samples TCP command drain it, so they compete for
-    // samples. THIS ring is never drained. It records every generated mixed
-    // sample plus the raw per-channel PSG and Direct Sound FIFO ([-128,127])
-    // contributions, keyed by the absolute samples_generated_ index. Probes
-    // query a [start,count] window backward from the live head. They never
-    // arm or drain it (the project's ring-buffer discipline). Sample
-    // generation is cycle-deterministic, so PSG channels are bit-reproducible
-    // across runs.
+    // samples. This ring is never drained.
+    // It records every generated mixed sample plus the raw per-channel PSG and
+    // Direct Sound FIFO ([-128,127]) contributions, keyed by the absolute
+    // samples_generated_ index. Probes query a [start,count] window backward
+    // from the live head. They never arm or drain it (the project's
+    // ring-buffer discipline).
+    // Sample generation is cycle-deterministic, so PSG channels are
+    // bit-reproducible across runs.
     struct CapSample {
         bool canonical_valid = false;
         uint32_t sample_rate = 0;

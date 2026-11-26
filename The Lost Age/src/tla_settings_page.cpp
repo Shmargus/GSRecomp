@@ -1,12 +1,12 @@
 // Golden Sun: The Lost Age -- settings screen hooks. Shared wording is in
 // shared_game/settings_page_labels.h.
 //
-// The old second settings page is gone: its rows live in the Pause menu's
+// The old second settings page is gone. Its rows now live in the Pause menu's
 // Quality of Life menu (shared_game/quality_of_life*.h), built from
-// quality_of_life_rows below. What is left here is the settings loop's key
-// hook (literal 0x080403C4, key block 0x03001150), which forwards repeat keys
-// to the Difficulty row (tla_hard_mode.cpp), and the Quality of Life menu's
-// present-time painter and install.
+// quality_of_life_rows below. What is left here:
+//   - the settings loop's key hook (literal 0x080403C4, key block 0x03001150), which
+//     forwards repeat keys to the Difficulty row (tla_hard_mode.cpp), and
+//   - the Quality of Life menu's present-time painter and install.
 
 #include "../../shared_game/settings_page_labels.h"
 #include "tla_rom_version.h"
@@ -25,6 +25,7 @@
 #include "../../shared_game/quality_of_life.h"
 #include "../../shared_game/field_psynergy_options.h"
 #include "../../shared_game/battle_retarget.h"
+#include "../../shared_game/battle_speed_level.h"
 
 namespace {
 
@@ -134,6 +135,7 @@ std::vector<gsr::qol_menu::Row> quality_of_life_rows() {
             [i](int direction) { change_row(i, direction > 0); }});
         if (i == kScreenRow) rows.push_back(gsr::qol::aspect_row());
     }
+    rows.push_back(gsr::battle_speed_level::qol_row());
     rows.push_back(gsr::battle_retarget::qol_row());
     gsr::qol::append_switches(rows);
     return rows;

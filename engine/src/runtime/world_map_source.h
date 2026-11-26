@@ -4,7 +4,7 @@
 // in 256-pixel pieces around the camera, so it guarantees about 128 map pixels
 // either side of it. That is exactly what the console's L-button zoom-out
 // needs; the expanded view needs more, and past the ring the game's memory
-// holds leftover pieces (FACTS.md, 2026-09-25). This unpacks every piece the
+// holds leftover pieces (FACTS.md "world-map ring"). This unpacks every piece the
 // same way the game does -- piece table and directory from the game's own
 // state, compressed bytes from the cartridge, tile entries from the game's own
 // table -- so the renderer can draw the margins from the real world.
@@ -69,7 +69,7 @@ public:
     // the game's memory stays as it is now. For a rebuild that disagrees
     // with the screen: cutscenes and the pause menu reuse part of the tile
     // table at 0x02010000 while the screen still shows the old world
-    // (FACTS.md 2026-10-07). False when there is no earlier map.
+    // (FACTS.md "world-map ring"). False when there is no earlier map.
     bool restore_previous();
 
 private:

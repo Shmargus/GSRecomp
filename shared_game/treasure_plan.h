@@ -1,21 +1,23 @@
-// Random Treasure: the seed's plan. Pure functions (no engine), so a host
-// bench can run them on the real tables. Runtime part:
-// shared_game/treasure_randomizer.h, then each game's adapter. Design:
-//  - field treasures and NPC gifts trade contents; coin spots and item spots
+// Random Treasure: the seed's plan. These are pure functions (no engine), so
+// a host bench can run them on the real tables. The runtime part is
+// shared_game/treasure_randomizer.h, then each game's adapter.
+//
+// Design:
+//  - Field treasures and NPC gifts trade contents. Coin spots and item spots
 //    mix, and every coin spot gets a new amount (small ones common, thousands
-//    sometimes, the coin cap a rare jackpot);
-//  - key items never move in either game: story items (`fixed`) and Psynergy
-//    items (type 6) stay at their own spots, whatever the options;
-//  - shops sell a random selection of their own kind; Bargains prices every
-//    item by tier, 5 to 1000 coins;
-//  - Fair Play (a switch per thing) strives for a fair
-//    progression: Items spreads healing items and gear evenly through the
-//    story, with gear loosely stronger as it goes; Coins gives amounts that
-//    grow with the story as the game's own do; Shops draws new stock near
-//    each shop's own level;
-//  - Random Weapons / Armor finds: every spot that holds a
-//    weapon (or armour) once the rest is dealt gives a random one from the
-//    whole game instead, any strength anywhere.
+//    sometimes, the coin cap a rare jackpot).
+//  - Key items never move in either game. Story items (`fixed`) and Psynergy
+//    items (type 6) stay at their own spots, whatever the options.
+//  - Shops sell a random selection of their own kind. Bargains prices every
+//    item by tier, 5 to 1000 coins.
+//  - Fair Play (a switch per thing) strives for a fair progression:
+//      - Items spreads healing items and gear evenly through the story, with
+//        gear loosely stronger as it goes.
+//      - Coins gives amounts that grow with the story, as the game's own do.
+//      - Shops draws new stock near each shop's own level.
+//  - Random Weapons / Armor finds: once the rest is dealt, every spot that
+//    holds a weapon (or armour) gives a random one from the whole game
+//    instead, any strength anywhere.
 //
 // With every key item at home, every spot stays as reachable as in the
 // normal game. Gifts cannot hold coins (the gift routine gives items only).
@@ -155,11 +157,11 @@ inline std::size_t pick_rank(std::size_t count, std::size_t anchor, std::vector<
     return pick_weighted(weights, total, rng);
 }
 
-// Fair Items' gear pacing (loose). `gear` comes
-// back in the order it will be dealt through the story: for each place in
-// turn, a piece is drawn from those left, likeliest the one whose place in
-// the price order matches and rarer the further off. So gear is mostly
-// around the level of where you are, with an occasional surprise either way.
+// Fair Items' gear pacing (loose). `gear` comes back in the order it will be
+// dealt through the story. For each place in turn, a piece is drawn from
+// those left. The likeliest piece is the one whose place in the price order
+// matches; the further off, the rarer. So gear is mostly around the level of
+// where you are, with an occasional surprise either way.
 inline void pace_gear(std::vector<Content>& gear, std::span<const Item> items, Rng& rng,
                      std::span<const std::uint16_t> effective = {}) {
     const auto price = [&](const Content& c) {
@@ -334,13 +336,15 @@ inline Plan make_plan(std::span<const Spot> spots, std::span<const Item> items, 
     return plan;
 }
 
-// Random Weapons / Armor finds: after make_plan, the game keeps as many
-// weapon (`weapons`) and armour (`armour`) finds as it had, but they move
-// anywhere (they shuffle into the entire pool): each group's finds go to
-// random item spots (field or gift; never a story spot, a Psynergy item or
-// coins), the treasure there moving to the spots they left. Each find is
-// then a piece of its group from the pool (every named, priced, uncursed
-// piece of the game), each piece once until the pool runs out, then again.
+// Random Weapons / Armor finds, applied after make_plan. The game keeps as
+// many weapon (`weapons`) and armour (`armour`) finds as it had, but they
+// move anywhere (they shuffle into the entire pool):
+//   1. Each group's finds go to random item spots (field or gift; never a
+//      story spot, a Psynergy item or coins). The treasure there moves to the
+//      spots they left.
+//   2. Each find then becomes a piece of its group from the pool (every
+//      named, priced, uncursed piece of the game). Each piece is used once
+//      until the pool runs out, then again.
 inline void new_finds(Plan& plan, std::span<const Spot> spots, std::span<const Item> items, bool weapons,
                       bool armour, std::span<const std::uint16_t> weapon_pool,
                       std::span<const std::uint16_t> armour_pool) {

@@ -15,7 +15,7 @@
 // Infinite HP and PP are the engine's F1 cheats (runtime_set_infinite_hp/pp),
 // so both menus always show the same state. The three multipliers act on
 // Golden Sun's battle reward tally, Func_c24f0, run once per defeated enemy
-// (verified ROM, FACTS.md 2026-09-25). It adds the enemy's coins (enemy
+// It adds the enemy's coins (enemy
 // data +0x4C) to total +0 and its experience (+0x52) to total +4, at
 // [0x03001E74] + 0x530, then rolls its drop. Func_c2724 pays the total out:
 // +4 to every party member's experience (+0x124) with text 0x83A, +0 as
@@ -61,12 +61,12 @@ constexpr const char* kDropKey = gbarecomp::kOptionDropMultiplier;
 
 // The window, in the game's own pieces: menu font tiles 16..23 are its
 // corners and edges and 32 its inside, drawn with background palette bank
-// 15 (measured on gpu_rewind_0025's item menu, BG0 map 0x2000).
+// 15 (measured on the item menu, BG0 map 0x2000).
 constexpr unsigned char kTopLeft = 16, kTop = 17, kTopRight = 18;
 constexpr unsigned char kBottomLeft = 19, kBottom = 20, kBottomRight = 21;
 constexpr unsigned char kLeft = 22, kRight = 23, kFill = 32;
 constexpr int kWindowBank = 15;
-// Bank 15 as that capture held it; used when the live bank is not the
+// Bank 15 as the item menu holds it; used when the live bank is not the
 // window palette (letter 0x7FFF at index 1 and shadow 0 at index 3).
 constexpr std::uint16_t kDefaultWindowPalette[16] = {
     0x44E0, 0x7FFF, 0x318C, 0x0000, 0x4580, 0x3960, 0x3140, 0x2920,

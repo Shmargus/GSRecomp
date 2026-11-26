@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Make the block-timing copy of the game code (ROADMAP.md, "block bookkeeping").
+"""Make the block-timing copy of the game code (per-block cycle bookkeeping).
 
     python scripts/block_timing.py local/gs011 local/gs011_block
 
@@ -25,8 +25,8 @@ once per block (engine/src/armv4t/runtime_arm.h, "Block timing"):
     g_runtime_mem_cost) and call runtime_mem_cycles only when WAITCNT differs
     from the value the table was built for. The numbers are the same, but
     there is no call into the engine. With the rewrites above applied, these
-    calls were ~23% of the heaviest Ragnarok frames
-    (logs/session_20260930_184503.hostprof.txt). Data-access costs (third
+    calls were ~23% of the heaviest Ragnarok frames (host
+    profile). Data-access costs (third
     argument 2u) keep calling the engine, because they can take the prefetch
     path.
   * `arm_cond_passes(` becomes `gsr_bt_cond_passes(`, which uses the same
@@ -37,7 +37,7 @@ once per block (engine/src/armv4t/runtime_arm.h, "Block timing"):
 
 The player build does the same rewrite in C++ (player_builder/
 block_timing.cpp), which must give byte-for-byte the same output; change
-both together (checked 2026-09-30: all 845 generated .cpp files identical).
+both together (checked: all 845 generated .cpp files identical).
 The inserted helpers come from one file both read,
 player_builder/block_timing_prelude.inc.
 
@@ -51,7 +51,7 @@ A source file whose size and modification time match the last run, under
 this same script, with its output still as written, is not read again: its
 counts come from the cache file CACHE_NAME in the destination. Rewriting
 every file took 43 s (Broken Seal) and 19 s (Lost Age) per build even with
-nothing changed (measured 2026-10-14).
+nothing changed (measured).
 """
 import hashlib
 import json
@@ -167,7 +167,7 @@ def transform(text, stats):
         # only repeat through a label or a function entry, which keep their
         # check, so the check here is dropped too (R15 is still set). The
         # heaviest Ragnarok frames made ~1.1 M such checks against ~140 k
-        # instruction starts (logs/session_20260930_165552.phase.csv).
+        # instruction starts (measured in a profiling session).
         if BOUNDARY.match(line):
             if keep_next:
                 keep_next = False

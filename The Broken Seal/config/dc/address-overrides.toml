@@ -1,0 +1,174 @@
+# Reviewed Dawn of Djinn 2.0.5 Casual counterparts the address map cannot give by itself
+# (tools/build_rom_address_table.py). Measured 25 November 2026 against the
+# verified USA/Europe ROM; local/dd/casual/address-map.json.
+
+[[rom]]
+usa = 0x08015430
+dawn_casual = 0x08015430
+evidence = "RAM-code copy source of Func_15430: the routine starts in place, byte-identical to the Portuguese patch's (first 0x14 bytes rewritten: next text byte from a plain pointer); copy size and destinations unchanged (config/dc transient configs)"
+
+[[rom]]
+usa = 0x08015570
+dawn_casual = 0x08015570
+evidence = "RAM-code copy source of Func_15570: the routine starts in place, byte-identical to the Portuguese patch's (first 0x2C bytes rewritten: line start from the plain offset table 0x08800000); copy size and destinations unchanged (config/dc transient configs)"
+
+[[rom]]
+usa = 0x08015140
+dawn_casual = 0x08015140
+evidence = "Interworking veneer in place (ldr r4,[pc,#0]; bx r4); only its target word changed, to the hack's wrapper 0x08890F41, which ends by jumping to USA's own target 0x08019A55 (literal 0x08891094) or 0x0809C139 (literal 0x08891098). Entering the veneer keeps its role (25 November 2026)."
+
+[[rom]]
+usa = 0x080736B8
+dawn_casual = 0x080736B8
+evidence = "Huffman text table: rewritten in place, and the patched Func_15570 (byte-identical to the Portuguese patch's) no longer reads it (its literals name the plain offset table 0x08800000 and text base 0x0880A7F0); feature text reads use the plain table (gs::plain_text)"
+
+[[overlay]]
+overlay = "rom_7795e8"
+usa = 0x020096B2
+dawn_casual = 0x020096B2
+evidence = "Decompressed rom_7795e8 (0x171A bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085D2
+dawn_casual = 0x020085D2
+evidence = "Decompressed rom_77a7c8 (0x679C bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085D6
+dawn_casual = 0x020085D6
+evidence = "Decompressed rom_77a7c8 (0x679C bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085E4
+dawn_casual = 0x020085E4
+evidence = "Decompressed rom_77a7c8 (0x679C bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085E6
+dawn_casual = 0x020085E6
+evidence = "Decompressed rom_77a7c8 (0x679C bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_78c76c"
+usa = 0x02008EEC
+dawn_casual = 0x02008EEC
+evidence = "Decompressed rom_78c76c (0x2978 bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008BE2
+dawn_casual = 0x02008BE2
+evidence = "Decompressed rom_7fb4a8 (0x1F4C bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008BEA
+dawn_casual = 0x02008BEA
+evidence = "Decompressed rom_7fb4a8 (0x1F4C bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008BF2
+dawn_casual = 0x02008BF2
+evidence = "Decompressed rom_7fb4a8 (0x1F4C bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008C7A
+dawn_casual = 0x02008C7A
+evidence = "Decompressed rom_7fb4a8 (0x1F4C bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008D48
+dawn_casual = 0x02008D48
+evidence = "Decompressed rom_7fb4a8 (0x1F4C bytes, unpacked with the ROM's own routines) is byte-identical in both ROMs."
+
+[[text]]
+usa = 0x00000075
+dawn_casual = 0x00000075
+evidence = "The hack keeps the USA text numbering: its Func_15570 (byte-identical to the Portuguese patch's) indexes the plain offset table at 0x08800000 by the same line number, and the code literals naming this ID are in place; the line has the same role (content is the hack's own: items, Psynergy, Djinn and classes are remixed) (25 November 2026)."
+
+[[text]]
+usa = 0x00000182
+dawn_casual = 0x00000182
+evidence = "The hack keeps the USA text numbering: its Func_15570 (byte-identical to the Portuguese patch's) indexes the plain offset table at 0x08800000 by the same line number, and the code literals naming this ID are in place; the line has the same role (content is the hack's own: items, Psynergy, Djinn and classes are remixed) (25 November 2026)."
+
+[[text]]
+usa = 0x00000287
+dawn_casual = 0x00000287
+evidence = "The hack keeps the USA text numbering: its Func_15570 (byte-identical to the Portuguese patch's) indexes the plain offset table at 0x08800000 by the same line number, and the code literals naming this ID are in place; the line has the same role (content is the hack's own: items, Psynergy, Djinn and classes are remixed) (25 November 2026)."
+
+[[text]]
+usa = 0x00000333
+dawn_casual = 0x00000333
+evidence = "The hack keeps the USA text numbering: its Func_15570 (byte-identical to the Portuguese patch's) indexes the plain offset table at 0x08800000 by the same line number, and the code literals naming this ID are in place; the line has the same role (content is the hack's own: items, Psynergy, Djinn and classes are remixed) (25 November 2026)."
+
+[[text]]
+usa = 0x0000045F
+dawn_casual = 0x0000045F
+evidence = "The hack keeps the USA text numbering: its Func_15570 (byte-identical to the Portuguese patch's) indexes the plain offset table at 0x08800000 by the same line number, and the code literals naming this ID are in place; the line has the same role (content is the hack's own: items, Psynergy, Djinn and classes are remixed) (25 November 2026)."
+
+[[text]]
+usa = 0x0000053A
+dawn_casual = 0x0000053A
+evidence = "The hack keeps the USA text numbering: its Func_15570 (byte-identical to the Portuguese patch's) indexes the plain offset table at 0x08800000 by the same line number, and the code literals naming this ID are in place; the line has the same role (content is the hack's own: items, Psynergy, Djinn and classes are remixed) (25 November 2026)."
+
+[[text]]
+usa = 0x00000741
+dawn_casual = 0x00000741
+evidence = "The hack keeps the USA text numbering: its Func_15570 (byte-identical to the Portuguese patch's) indexes the plain offset table at 0x08800000 by the same line number, and the code literals naming this ID are in place; the line has the same role (content is the hack's own: items, Psynergy, Djinn and classes are remixed) (25 November 2026)."
+
+[[text]]
+usa = 0x00000C0A
+dawn_casual = 0x00000C0A
+evidence = "The hack keeps the USA text numbering: its Func_15570 (byte-identical to the Portuguese patch's) indexes the plain offset table at 0x08800000 by the same line number, and the code literals naming this ID are in place; the line has the same role (content is the hack's own: items, Psynergy, Djinn and classes are remixed) (25 November 2026)."
+
+[[text]]
+usa = 0x00000C12
+dawn_casual = 0x00000C12
+evidence = "The hack keeps the USA text numbering: its Func_15570 (byte-identical to the Portuguese patch's) indexes the plain offset table at 0x08800000 by the same line number, and the code literals naming this ID are in place; the line has the same role (content is the hack's own: items, Psynergy, Djinn and classes are remixed) (25 November 2026)."
+
+[[text]]
+usa = 0x00000C13
+dawn_casual = 0x00000C13
+evidence = "The hack keeps the USA text numbering: its Func_15570 (byte-identical to the Portuguese patch's) indexes the plain offset table at 0x08800000 by the same line number, and the code literals naming this ID are in place; the line has the same role (content is the hack's own: items, Psynergy, Djinn and classes are remixed) (25 November 2026)."
+
+[[text]]
+usa = 0x00000C19
+dawn_casual = 0x00000C19
+evidence = "The hack keeps the USA text numbering: its Func_15570 (byte-identical to the Portuguese patch's) indexes the plain offset table at 0x08800000 by the same line number, and the code literals naming this ID are in place; the line has the same role (content is the hack's own: items, Psynergy, Djinn and classes are remixed) (25 November 2026)."
+
+[[text]]
+usa = 0x00000C24
+dawn_casual = 0x00000C24
+evidence = "The hack keeps the USA text numbering: its Func_15570 (byte-identical to the Portuguese patch's) indexes the plain offset table at 0x08800000 by the same line number, and the code literals naming this ID are in place; the line has the same role (content is the hack's own: items, Psynergy, Djinn and classes are remixed) (25 November 2026)."
+
+[[text]]
+usa = 0x00000C28
+dawn_casual = 0x00000C28
+evidence = "The hack keeps the USA text numbering: its Func_15570 (byte-identical to the Portuguese patch's) indexes the plain offset table at 0x08800000 by the same line number, and the code literals naming this ID are in place; the line has the same role (content is the hack's own: items, Psynergy, Djinn and classes are remixed) (25 November 2026)."
+
+[[text]]
+usa = 0x00002930
+dawn_casual = 0x00002930
+evidence = "The hack keeps the USA text numbering: its Func_15570 (byte-identical to the Portuguese patch's) indexes the plain offset table at 0x08800000 by the same line number, and the code literals naming this ID are in place; the line has the same role (content is the hack's own: items, Psynergy, Djinn and classes are remixed) (25 November 2026)."
+
+[[text]]
+usa = 0x00002935
+dawn_casual = 0x00002935
+evidence = "The hack keeps the USA text numbering: its Func_15570 (byte-identical to the Portuguese patch's) indexes the plain offset table at 0x08800000 by the same line number, and the code literals naming this ID are in place; the line has the same role (content is the hack's own: items, Psynergy, Djinn and classes are remixed) (25 November 2026)."
+
+[[text]]
+usa = 0x00002936
+dawn_casual = 0x00002936
+evidence = "The hack keeps the USA text numbering: its Func_15570 (byte-identical to the Portuguese patch's) indexes the plain offset table at 0x08800000 by the same line number, and the code literals naming this ID are in place; the line has the same role (content is the hack's own: items, Psynergy, Djinn and classes are remixed) (25 November 2026)."
+
+[[text]]
+usa = 0x00002937
+dawn_casual = 0x00002937
+evidence = "The hack keeps the USA text numbering: its Func_15570 (byte-identical to the Portuguese patch's) indexes the plain offset table at 0x08800000 by the same line number, and the code literals naming this ID are in place; the line has the same role (content is the hack's own: items, Psynergy, Djinn and classes are remixed) (25 November 2026)."

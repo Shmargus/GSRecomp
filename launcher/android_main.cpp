@@ -81,7 +81,7 @@ int run_game(std::vector<std::string> args) {
 
     // Give the game a 16 MiB stack, matching the Windows link settings.
     // SDL runs on a Java thread with about 1 MiB. The Broken Seal's Camelot
-    // intro overflows that smaller stack (see FACTS.md).
+    // intro overflows that smaller stack.
     struct Run {
         GameMain game_main;
         int argc;

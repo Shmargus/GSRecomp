@@ -1,5 +1,5 @@
 // Where a Windows release keeps its compiler. Used by the builder (its
-// default --toolchain) and by the launcher (the game's self-heal compiler),
+// default --toolchain) and by the launcher (the game's run-time code compiler),
 // so both resolve the same folder.
 //
 // One copy in games/mingw64 serves both games. Releases up to 0.6 kept one
