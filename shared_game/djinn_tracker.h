@@ -5,7 +5,8 @@
 // name and where it is found. F1 > Game switch, off by default. Where the
 // graphics card draws (OpenGL, ImGui viewports) it is its own desktop window,
 // dragged by its title and resized from any edge; otherwise it floats inside
-// the game window. Position, size and folds are saved. One copy; each runner
+// the game window. Position, size and folds are saved. A phone shows it on
+// the menu's Trackers page instead (trackers.h). One copy; each runner
 // installs its game's table through trackers.h (trackers_tbs.h, The Lost
 // Age's src/tla_trackers.cpp) and samples once per frame.
 //
@@ -29,6 +30,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <string>
 #include <vector>
 
 #include "tracker_window.h"
@@ -207,11 +209,115 @@ inline void draw_question_mark(ImDrawList* draw, ImVec2 lo, float cell) {
                   IM_COL32(200, 200, 200, 170), "?");
 }
 
+// What the save has: each slot found or not, and the Djinni it shows (its
+// own, or in a Random Djinn run the one its spot gives).
+struct Found {
+    std::array<std::uint32_t, kElements> have{};
+    std::array<int, kElements> found{};
+    std::vector<int> shows;
+    int total = 0;
+};
+inline Found found_now(const Game& g) {
+    Found f;
+    f.shows.resize(std::size_t(kElements * g.per_element));
+    for (int e = 0; e < kElements; ++e) {
+        f.have[e] = owned[e].load(std::memory_order_relaxed);
+        const std::uint32_t spots = spot_taken[e].load(std::memory_order_relaxed);
+        for (int i = 0; i < g.per_element; ++i) {
+            int& slot = f.shows[std::size_t(e * g.per_element + i)];
+            slot = e * g.per_element + i;
+            if (const int given = gives[std::size_t(e * 20 + i)].load(std::memory_order_relaxed) - 1;
+                given >= 0 && given % 20 < g.per_element) {
+                slot = given / 20 * g.per_element + given % 20;
+                f.have[e] = (f.have[e] & ~(1u << i)) | (((spots >> i) & 1u) << i);
+            }
+            f.found[e] += (f.have[e] >> i) & 1u;
+        }
+        f.total += f.found[e];
+    }
+    return f;
+}
+
+inline std::string title(const Game& g, const Found& f) {
+    return tracker_text::format(gbarecomp::ui_text("Djinn  %d/%d"), f.total, kElements * g.per_element);
+}
+
+// One section per element: a header line, tapped or clicked to fold it, over
+// rows of `columns`; the Djinn shrink or grow to fill the space left. Unfound
+// Djinn are question marks unless showing all. Pointing at (or tapping) one
+// shows its name and where it is found.
+inline void draw_contents(const Game& g, const Found& f) {
+    if (folded < 0) folded = gbarecomp::game_option_get(kFoldedKey, 0);
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float line_h = ImGui::GetTextLineHeight() + style.ItemSpacing.y;
+    const int element_rows = (g.per_element + g.columns - 1) / g.columns;
+    const bool show_all = gbarecomp::game_option_get(kShowAllKey, 0) != 0;
+    float fixed_h = 0.0f;
+    int rows = 0;
+    for (int e = 0; e < kElements; ++e) {
+        fixed_h += line_h;
+        if (!(folded & (1 << e))) {
+            rows += element_rows;
+            fixed_h += style.ItemSpacing.y;
+        }
+    }
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const float cell = std::max(8.0f, rows ? std::min(avail.x / g.columns, (avail.y - fixed_h) / rows)
+                                           : avail.x / g.columns);
+    ImDrawList* list = ImGui::GetWindowDrawList();
+    const bool ready = pictures_ready.load(std::memory_order_acquire);
+    int hovered = -1;
+    for (int e = 0; e < kElements; ++e) {
+        const bool open = !(folded & (1 << e));
+        const auto text = tracker_text::format(gbarecomp::ui_text("%s Djinn  %d/%d"),
+            gbarecomp::ui_text(kElementNames[e]), f.found[e], g.per_element);
+        if (tracker_window::fold_header(e, open, text.c_str())) {
+            folded ^= 1 << e;
+            gbarecomp::game_option_set(kFoldedKey, folded);
+        }
+        if (!open) continue;
+        const ImVec2 origin = ImGui::GetCursorScreenPos();
+        for (int i = 0; i < g.per_element; ++i) {
+            const bool bright = (f.have[e] >> i) & 1u;
+            const ImVec2 lo(origin.x + (i % g.columns) * cell, origin.y + (i / g.columns) * cell);
+            if (!bright && !show_all) {
+                draw_question_mark(list, lo, cell);
+            } else if (ready) {
+                const Picture& pic = pictures[f.shows[std::size_t(e * g.per_element + i)] / g.per_element];
+                const float scale = cell / float(std::max(pic.width, pic.height));
+                draw_picture(list, pic, ImVec2(lo.x + (cell - pic.width * scale) * 0.5f,
+                                               lo.y + (cell - pic.height * scale) * 0.5f), scale, bright);
+            } else {
+                list->AddRect(ImVec2(lo.x + 2, lo.y + 2), ImVec2(lo.x + cell - 2, lo.y + cell - 2),
+                              ImGui::GetColorU32(ImGuiCol_Border, bright ? 1.0f : 0.35f));
+            }
+            if (ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(lo, ImVec2(lo.x + cell, lo.y + cell)))
+                hovered = e * g.per_element + i;
+        }
+        ImGui::Dummy(ImVec2(cell * g.columns, cell * element_rows));
+    }
+    if (hovered >= 0) {
+        const bool have_it = (f.have[hovered / g.per_element] >> (hovered % g.per_element)) & 1u;
+        ImGui::BeginTooltip();
+        if (show_all || have_it)
+            ImGui::TextColored(kGold, "%s%s", tracker_text::name(g.djinn[f.shows[std::size_t(hovered)]].name).c_str(),
+                have_it ? "" : gbarecomp::ui_text(" (not found yet)"));
+        else
+            ImGui::TextColored(kGold, "%s", gbarecomp::ui_text("Unfound Djinni"));
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() +
+            std::max(1.0f, ImGui::GetMainViewport()->WorkSize.x - style.WindowPadding.x * 2));
+        // The slot is the spot, so its location is the spot's own.
+        ImGui::TextUnformatted(tracker_text::route(g.djinn[hovered].location).c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    }
+}
+
+// The computer's window (F1 > Game switch).
 inline void draw() {
     if (window.previous) window.previous();
     if (!game || gbarecomp::game_option_get(kOptionKey, 0) == 0) return;
     const Game& g = *game;
-    if (folded < 0) folded = gbarecomp::game_option_get(kFoldedKey, 0);
     const ImGuiStyle& style = ImGui::GetStyle();
     const float line_h = ImGui::GetTextLineHeight() + style.ItemSpacing.y;
     const int element_rows = (g.per_element + g.columns - 1) / g.columns;
@@ -219,103 +325,30 @@ inline void draw() {
     const ImVec2 size(g.columns * kDefaultCell + style.WindowPadding.x * 2,
                       (kElements + 2) * line_h + kElements * (element_rows * kDefaultCell + style.ItemSpacing.y) +
                           style.WindowPadding.y * 2);
-    // Each slot: found or not, and the Djinni it shows (its own, or in a
-    // Random Djinn run the one its spot gives).
-    std::array<std::uint32_t, kElements> have;
-    std::array<int, kElements> found{};
-    std::vector<int> shows(std::size_t(kElements * g.per_element));
-    int total = 0;
-    for (int e = 0; e < kElements; ++e) {
-        have[e] = owned[e].load(std::memory_order_relaxed);
-        const std::uint32_t spots = spot_taken[e].load(std::memory_order_relaxed);
-        for (int i = 0; i < g.per_element; ++i) {
-            int& slot = shows[std::size_t(e * g.per_element + i)];
-            slot = e * g.per_element + i;
-            if (const int given = gives[std::size_t(e * 20 + i)].load(std::memory_order_relaxed) - 1;
-                given >= 0 && given % 20 < g.per_element) {
-                slot = given / 20 * g.per_element + given % 20;
-                have[e] = (have[e] & ~(1u << i)) | (((spots >> i) & 1u) << i);
-            }
-            found[e] += (have[e] >> i) & 1u;
-        }
-        total += found[e];
-    }
-    const auto title = tracker_text::format(gbarecomp::ui_text("Djinn  %d/%d"), total, kElements * g.per_element);
-    if (tracker_window::begin(window, size, title.c_str(), ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
-        // One section per element: a header line, clicked to fold it, over
-        // rows of `columns`; the Djinn shrink or grow to fill the window.
-        // Unfound Djinn are question marks unless showing all.
-        const bool show_all = gbarecomp::game_option_get(kShowAllKey, 0) != 0;
-        float fixed_h = 0.0f;
-        int rows = 0;
-        for (int e = 0; e < kElements; ++e) {
-            fixed_h += line_h;
-            if (!(folded & (1 << e))) {
-                rows += element_rows;
-                fixed_h += style.ItemSpacing.y;
-            }
-        }
-        const ImVec2 avail = ImGui::GetContentRegionAvail();
-        const float cell = std::max(8.0f, rows ? std::min(avail.x / g.columns, (avail.y - fixed_h) / rows)
-                                               : avail.x / g.columns);
-        ImDrawList* list = ImGui::GetWindowDrawList();
-        const bool ready = pictures_ready.load(std::memory_order_acquire);
-        int hovered = -1;
-        for (int e = 0; e < kElements; ++e) {
-            const bool open = !(folded & (1 << e));
-            const auto text = tracker_text::format(gbarecomp::ui_text("%s Djinn  %d/%d"),
-                gbarecomp::ui_text(kElementNames[e]), found[e], g.per_element);
-            if (tracker_window::fold_header(e, open, text.c_str())) {
-                folded ^= 1 << e;
-                gbarecomp::game_option_set(kFoldedKey, folded);
-            }
-            if (!open) continue;
-            const ImVec2 origin = ImGui::GetCursorScreenPos();
-            for (int i = 0; i < g.per_element; ++i) {
-                const bool bright = (have[e] >> i) & 1u;
-                const ImVec2 lo(origin.x + (i % g.columns) * cell, origin.y + (i / g.columns) * cell);
-                if (!bright && !show_all) {
-                    draw_question_mark(list, lo, cell);
-                } else if (ready) {
-                    const Picture& pic = pictures[shows[std::size_t(e * g.per_element + i)] / g.per_element];
-                    const float scale = cell / float(std::max(pic.width, pic.height));
-                    draw_picture(list, pic, ImVec2(lo.x + (cell - pic.width * scale) * 0.5f,
-                                                   lo.y + (cell - pic.height * scale) * 0.5f), scale, bright);
-                } else {
-                    list->AddRect(ImVec2(lo.x + 2, lo.y + 2), ImVec2(lo.x + cell - 2, lo.y + cell - 2),
-                                  ImGui::GetColorU32(ImGuiCol_Border, bright ? 1.0f : 0.35f));
-                }
-                if (ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(lo, ImVec2(lo.x + cell, lo.y + cell)))
-                    hovered = e * g.per_element + i;
-            }
-            ImGui::Dummy(ImVec2(cell * g.columns, cell * element_rows));
-        }
-        if (hovered >= 0) {
-            const bool have_it = (have[hovered / g.per_element] >> (hovered % g.per_element)) & 1u;
-            ImGui::BeginTooltip();
-            if (show_all || have_it)
-                ImGui::TextColored(kGold, "%s%s", tracker_text::name(g.djinn[shows[std::size_t(hovered)]].name).c_str(),
-                    have_it ? "" : gbarecomp::ui_text(" (not found yet)"));
-            else
-                ImGui::TextColored(kGold, "%s", gbarecomp::ui_text("Unfound Djinni"));
-            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() +
-                std::max(1.0f, ImGui::GetMainViewport()->WorkSize.x - style.WindowPadding.x * 2));
-            // The slot is the spot, so its location is the spot's own.
-            ImGui::TextUnformatted(tracker_text::route(g.djinn[hovered].location).c_str());
-            ImGui::PopTextWrapPos();
-            ImGui::EndTooltip();
-        }
-    }
+    const Found f = found_now(g);
+    if (tracker_window::begin(window, size, title(g, f).c_str(), ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+        draw_contents(g, f);
     tracker_window::end(window);
+}
+
+// The phone's Trackers page (trackers.h): the title with the "show all"
+// switch, then the Djinn filling the rest.
+inline void draw_page() {
+    if (!game) return;
+    const Game& g = *game;
+    const Found f = found_now(g);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(kGold, "%s", title(g, f).c_str());
+    ImGui::SameLine();
+    bool show_all = gbarecomp::game_option_get(kShowAllKey, 0) != 0;
+    if (ImGui::Checkbox(gbarecomp::ui_text("Show all###DjinnShowAll"), &show_all))
+        gbarecomp::game_option_set(kShowAllKey, show_all ? 1 : 0);
+    draw_contents(g, f);
 }
 #endif
 
 // Once at startup, after anything else that installs extra ImGui drawing.
-inline void install(const Game& g) {
-    game = &g;
-#ifdef GBARECOMP_HAVE_IMGUI
-    tracker_window::chain(window, draw);
-#endif
-}
+// trackers.h then shows it: a window on a computer, a page on a phone.
+inline void install(const Game& g) { game = &g; }
 
 } // namespace gsr::djinn_tracker

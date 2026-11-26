@@ -4,8 +4,25 @@ param(
     [ValidateSet('Games', 'Regenerate', 'Releases', 'Extras')][string]$Page = ''
 )
 $ErrorActionPreference = 'Stop'
+# The window starts hidden, so an error would otherwise vanish: log it and say so.
+trap {
+    $text = "$_`r`n$($_.InvocationInfo.PositionMessage)`r`n$($_.ScriptStackTrace)"
+    try {
+        $dir = Join-Path (Split-Path -Parent $PSScriptRoot) 'local/build-studio'
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir 'startup-error.log') -Value $text -Encoding utf8
+    } catch { }
+    try {
+        Add-Type -AssemblyName PresentationFramework
+        [void][Windows.MessageBox]::Show("Build Studio could not start:`r`n`r`n$text", 'Build Studio', 'OK', 'Error')
+    } catch { }
+    exit 1
+}
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Xaml
-Add-Type -Namespace Gsr -Name Dwm -MemberDefinition '[DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(System.IntPtr hwnd, int attr, ref int value, int size);'
+Add-Type -Namespace Gsr -Name Dwm -MemberDefinition @'
+[DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(System.IntPtr hwnd, int attr, ref int value, int size);
+[DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr hwnd, int cmd);
+'@
 
 $collectionRoot = Split-Path -Parent $PSScriptRoot
 $releaseRoot = Join-Path $collectionRoot 'Releases'
@@ -488,6 +505,13 @@ $window.Add_SourceInitialized({
     $hwnd = [Windows.Interop.WindowInteropHelper]::new($window).Handle
     $on = 1
     [void][Gsr.Dwm]::DwmSetWindowAttribute($hwnd, 20, [ref]$on, 4)
+})
+# Started hidden (no console), and Windows applies that to our first window too:
+# show it again explicitly and bring it to the front.
+$window.Add_ContentRendered({
+    $hwnd = [Windows.Interop.WindowInteropHelper]::new($window).Handle
+    [void][Gsr.Dwm]::ShowWindow($hwnd, 5)
+    [void]$window.Activate()
 })
 
 $brush = { param($hex) [Windows.Media.BrushConverter]::new().ConvertFromString($hex) }

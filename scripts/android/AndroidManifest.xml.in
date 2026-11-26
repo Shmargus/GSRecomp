@@ -18,6 +18,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Android 13+: the build's progress notification. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- ROMs, Saves and Music live in a visible "Golden Sun Recompiled"
          folder on the phone's storage, for the player's file manager and a
          PC over USB (android_host.cpp link_shared_folders). Android 11+:

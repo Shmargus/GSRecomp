@@ -6,7 +6,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
+#include "host_config_ui.h"
 #include "imgui.h"
 
 namespace gbarecomp {
@@ -25,6 +29,23 @@ struct Layout {
     Rect l{}, r{};
 };
 
+// The GBA buttons the player can move (touch_controls_begin_placing), in
+// the saved order: D-pad, A, B, Select, Start, L, R.
+constexpr int kPlaceable = 7;
+// Each one's centre as a share of the window's width and height, or x < 0
+// for where layout_for puts it.
+struct Placed { float x = -1, y = -1; };
+Placed g_placed[kPlaceable];
+bool g_layout_changed = false;  // touch_controls_take_layout_changed
+
+// Moves the centre of a control `half_w` by `half_h` to its saved place,
+// kept wholly on screen.
+void place(float* cx, float* cy, float half_w, float half_h, const Placed& p, float w, float h) {
+    if (p.x < 0) return;
+    *cx = std::clamp(p.x * w, std::min(half_w, w * 0.5f), std::max(w - half_w, w * 0.5f));
+    *cy = std::clamp(p.y * h, std::min(half_h, h * 0.5f), std::max(h - half_h, h * 0.5f));
+}
+
 Layout layout_for(float w, float h) {
     Layout k;
     const float u = std::min(w, h);
@@ -36,7 +57,27 @@ Layout layout_for(float w, float h) {
     k.start = {w - 0.11f * u, 0.30f * u, 0.065f * u};
     k.l = {0.0f, 0.0f, 0.30f * u, 0.15f * u};
     k.r = {w - 0.30f * u, 0.0f, 0.30f * u, 0.15f * u};
+    Circle* circles[] = {&k.dpad, &k.a, &k.b, &k.select, &k.start};
+    for (int i = 0; i < 5; ++i)
+        place(&circles[i]->x, &circles[i]->y, circles[i]->r, circles[i]->r, g_placed[i], w, h);
+    Rect* rects[] = {&k.l, &k.r};
+    for (int i = 0; i < 2; ++i) {
+        Rect& r = *rects[i];
+        float cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
+        place(&cx, &cy, r.w * 0.5f, r.h * 0.5f, g_placed[5 + i], w, h);
+        r.x = cx - r.w * 0.5f;
+        r.y = cy - r.h * 0.5f;
+    }
     return k;
+}
+
+// Control `i`'s centre, in placing order.
+void control_centre(const Layout& k, int i, float* x, float* y) {
+    const Circle* circles[] = {&k.dpad, &k.a, &k.b, &k.select, &k.start};
+    if (i < 5) { *x = circles[i]->x; *y = circles[i]->y; return; }
+    const Rect& r = i == 5 ? k.l : k.r;
+    *x = r.x + r.w * 0.5f;
+    *y = r.y + r.h * 0.5f;
 }
 
 // Accept taps slightly outside the visible button.
@@ -203,9 +244,153 @@ Circle draw_float(ImDrawList* draw, FloatButton& fb, float width, float height, 
     return m;
 }
 
+// ---- placing the GBA buttons (Menu > Controls > Place on-screen buttons) --
+
+bool g_placing = false;
+struct Grab { bool held = false; SDL_FingerID finger = 0; float dx = 0, dy = 0; };
+Grab g_grab[kPlaceable];  // dx, dy: the finger's offset from the centre
+Grab g_bar;               // a finger on Done or Reset; dx, dy: where it is
+int g_bar_target = -1;    // 0 Done, 1 Reset
+
+// Done and Reset, side by side at the top centre, between L and R.
+void placing_bar(float w, float h, Rect* done, Rect* reset) {
+    const float u = std::min(w, h);
+    const float bw = 0.30f * u, bh = 0.12f * u, gap = 0.04f * u, top = 0.05f * u;
+    *done = {w * 0.5f - gap * 0.5f - bw, top, bw, bh};
+    *reset = {w * 0.5f + gap * 0.5f, top, bw, bh};
+}
+
+// The control a new touch at (x, y) picks up: the nearest one under it.
+int control_at(const Layout& k, float x, float y) {
+    int best = -1;
+    float best_d = 0;
+    const Circle* circles[] = {&k.dpad, &k.a, &k.b, &k.select, &k.start};
+    for (int i = 0; i < kPlaceable; ++i) {
+        const bool hit = i < 5 ? in_circle(*circles[i], x, y, i == 0 ? 1.2f : kSlack)
+                               : in_rect(i == 5 ? k.l : k.r, x, y);
+        if (!hit) continue;
+        float cx, cy;
+        control_centre(k, i, &cx, &cy);
+        const float d = std::hypot(x - cx, y - cy);
+        if (best < 0 || d < best_d) { best = i; best_d = d; }
+    }
+    return best;
+}
+
+bool finger_is_down(SDL_FingerID id, float w, float h, float* x, float* y) {
+    for (int d = 0; d < SDL_GetNumTouchDevices(); ++d) {
+        const SDL_TouchID touch = SDL_GetTouchDevice(d);
+        for (int f = 0; f < SDL_GetNumTouchFingers(touch); ++f) {
+            const SDL_Finger* finger = SDL_GetTouchFinger(touch, f);
+            if (finger && finger->id == id) { *x = finger->x * w; *y = finger->y * h; return true; }
+        }
+    }
+    return false;
+}
+
+// One frame of placing: drag controls, tap Done or Reset. No game input.
+void poll_placing(float w, float h) {
+    const Layout k = layout_for(w, h);
+    Rect done, reset;
+    placing_bar(w, h, &done, &reset);
+    // Fingers already holding a control move it, or let go.
+    for (int i = 0; i < kPlaceable; ++i) {
+        Grab& g = g_grab[i];
+        if (!g.held) continue;
+        float x, y;
+        if (!finger_is_down(g.finger, w, h, &x, &y)) { g.held = false; continue; }
+        g_placed[i] = {std::clamp((x - g.dx) / w, 0.0f, 1.0f), std::clamp((y - g.dy) / h, 0.0f, 1.0f)};
+    }
+    if (g_bar.held) {
+        float x = 0, y = 0;
+        if (finger_is_down(g_bar.finger, w, h, &x, &y)) {
+            g_bar.dx = x;
+            g_bar.dy = y;
+        } else {
+            g_bar.held = false;
+            // Acts on release over the same button, like any phone button.
+            if (in_rect(g_bar_target == 0 ? done : reset, g_bar.dx, g_bar.dy)) {
+                if (g_bar_target == 0) {
+                    g_placing = false;
+                    g_layout_changed = true;
+                    for (Grab& g : g_grab) g.held = false;
+                } else {
+                    for (Placed& p : g_placed) p = {};
+                }
+            }
+        }
+    }
+    // New touches pick up a control or press Done / Reset.
+    for (int d = 0; d < SDL_GetNumTouchDevices(); ++d) {
+        const SDL_TouchID touch = SDL_GetTouchDevice(d);
+        for (int f = 0; f < SDL_GetNumTouchFingers(touch); ++f) {
+            const SDL_Finger* finger = SDL_GetTouchFinger(touch, f);
+            if (!finger) continue;
+            bool owned = g_bar.held && g_bar.finger == finger->id;
+            for (const Grab& g : g_grab) owned |= g.held && g.finger == finger->id;
+            if (owned) continue;
+            const float x = finger->x * w, y = finger->y * h;
+            if (in_rect(done, x, y) || in_rect(reset, x, y)) {
+                if (!g_bar.held) {
+                    g_bar = {true, finger->id, x, y};
+                    g_bar_target = in_rect(done, x, y) ? 0 : 1;
+                }
+                continue;
+            }
+            const int i = control_at(k, x, y);
+            if (i < 0 || g_grab[i].held) continue;
+            float cx, cy;
+            control_centre(k, i, &cx, &cy);
+            g_grab[i] = {true, finger->id, x - cx, y - cy};
+        }
+    }
+}
+
 }  // namespace
 
 bool touch_controls_enabled() { return true; }
+
+void touch_controls_begin_placing() {
+    g_placing = true;
+    g_bar = {};
+    for (Grab& g : g_grab) g = {};
+}
+
+bool touch_controls_placing() { return g_placing; }
+
+bool touch_controls_take_layout_changed() {
+    const bool changed = g_layout_changed;
+    g_layout_changed = false;
+    return changed;
+}
+
+std::string touch_controls_layout() {
+    std::string text;
+    for (int i = 0; i < kPlaceable; ++i) {
+        char item[32];
+        if (g_placed[i].x < 0) std::snprintf(item, sizeof(item), "-");
+        else std::snprintf(item, sizeof(item), "%.4f,%.4f", g_placed[i].x, g_placed[i].y);
+        if (i) text += ';';
+        text += item;
+    }
+    return text;
+}
+
+void touch_controls_set_layout(const char* text) {
+    for (Placed& p : g_placed) p = {};
+    const char* at = text;
+    for (int i = 0; i < kPlaceable && at && *at; ++i) {
+        char* end = nullptr;
+        const float x = std::strtof(at, &end);
+        if (end != at && *end == ',') {
+            const char* y_at = end + 1;
+            const float y = std::strtof(y_at, &end);
+            if (end != y_at && x >= 0 && x <= 1 && y >= 0 && y <= 1) g_placed[i] = {x, y};
+        }
+        at = std::strchr(at, ';');
+        if (at) ++at;
+    }
+}
 
 void touch_controls_set_buttons_shown(bool shown) { g_buttons_shown = shown; }
 
@@ -215,8 +400,23 @@ TouchControlsInput touch_controls_poll(int width, int height, bool menu_open) {
     TouchControlsInput in;
     if (width <= 0 || height <= 0) return in;
     const float w = static_cast<float>(width), h = static_cast<float>(height);
-    const Layout k = layout_for(w, h);
     const Uint64 now = SDL_GetTicks64();
+    if (g_placing) {
+        // Opening the menu (a controller's menu button) ends placing as Done.
+        if (menu_open) {
+            g_placing = false;
+            g_layout_changed = true;
+        } else {
+            poll_placing(w, h);
+        }
+        for (FloatButton* fb : {&g_menu, &g_speed}) {
+            fb->held = fb->dragging = false;
+            fb->last_used = now;
+        }
+        g_held = 0;
+        return in;
+    }
+    const Layout k = layout_for(w, h);
 
     // The floating buttons hide while the menu is open.
     if (menu_open) {
@@ -266,7 +466,10 @@ void touch_controls_draw_overlay(float width, float height, bool menu_open) {
     };
     const auto held = [](int bit) { return ((g_held >> bit) & 1u) != 0; };
 
-    if (!menu_open && g_buttons_shown) {
+    const bool placing = g_placing && !menu_open;
+    // While placing, a dark veil says the game is not taking input.
+    if (placing) draw->AddRectFilled({0, 0}, {width, height}, IM_COL32(0, 0, 0, 110));
+    if (placing || (!menu_open && g_buttons_shown)) {
         // D-pad: a cross, each arm lit while held.
         const float arm = k.dpad.r, bar = k.dpad.r * 0.62f;
         const float cx = k.dpad.x, cy = k.dpad.y;
@@ -299,6 +502,33 @@ void touch_controls_draw_overlay(float width, float height, bool menu_open) {
         draw->AddRectFilled({k.r.x, k.r.y}, {k.r.x + k.r.w, k.r.y + k.r.h}, fill(held(kR)));
         label(k.l.x + k.l.w * 0.5f, k.l.y + k.l.h * 0.5f, k.l.h * 0.55f, "L");
         label(k.r.x + k.r.w * 0.5f, k.r.y + k.r.h * 0.5f, k.r.h * 0.55f, "R");
+    }
+
+    if (placing) {
+        // Gold outlines on what can be moved; brighter while held.
+        const ImU32 gold = IM_COL32(190, 140, 40, 200), bright = IM_COL32(240, 190, 70, 255);
+        const float line = k.u * 0.008f;
+        const Circle* circles[] = {&k.dpad, &k.a, &k.b, &k.select, &k.start};
+        for (int i = 0; i < 5; ++i)
+            draw->AddCircle({circles[i]->x, circles[i]->y}, circles[i]->r * (i == 0 ? 1.15f : 1.1f),
+                            g_grab[i].held ? bright : gold, 48, line);
+        const Rect* rects[] = {&k.l, &k.r};
+        for (int i = 0; i < 2; ++i)
+            draw->AddRect({rects[i]->x, rects[i]->y}, {rects[i]->x + rects[i]->w, rects[i]->y + rects[i]->h},
+                          g_grab[5 + i].held ? bright : gold, 0, 0, line);
+        Rect done, reset;
+        placing_bar(width, height, &done, &reset);
+        const auto bar_button = [&](const Rect& r, int target, const char* text) {
+            const bool down = g_bar.held && g_bar_target == target && in_rect(r, g_bar.dx, g_bar.dy);
+            draw->AddRectFilled({r.x, r.y}, {r.x + r.w, r.y + r.h},
+                                down ? IM_COL32(240, 190, 70, 240) : IM_COL32(190, 140, 40, 230), r.h * 0.2f);
+            label(r.x + r.w * 0.5f, r.y + r.h * 0.5f, r.h * 0.45f, ui_text(text));
+        };
+        bar_button(done, 0, "Done");
+        bar_button(reset, 1, "Reset");
+        label(width * 0.5f, done.y + done.h + k.u * 0.06f, k.u * 0.045f,
+              ui_text("Drag the buttons where you want them."));
+        return;  // no menu or >> button while placing
     }
 
     if (menu_open) return;  // the menu has its own Resume
@@ -334,6 +564,11 @@ bool touch_controls_enabled() { return false; }
 TouchControlsInput touch_controls_poll(int, int, bool) { return {}; }
 void touch_controls_set_buttons_shown(bool) {}
 void touch_controls_set_fast_forward(bool) {}
+void touch_controls_begin_placing() {}
+bool touch_controls_placing() { return false; }
+bool touch_controls_take_layout_changed() { return false; }
+std::string touch_controls_layout() { return {}; }
+void touch_controls_set_layout(const char*) {}
 void touch_controls_draw_overlay(float, float, bool) {}
 }  // namespace gbarecomp
 

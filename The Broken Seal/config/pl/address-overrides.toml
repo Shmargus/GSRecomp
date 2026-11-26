@@ -1,0 +1,180 @@
+# Reviewed counterparts in the Polish translation of Golden Sun (gspl_1v.ppf,
+# PPF3 on the verified USA/Europe ROM) that the address map cannot give by
+# itself (tools/build_rom_address_table.py). Measured 26 November 2026;
+# local/pl/address-map.json. Below 0x08800000 the patched ROM equals USA
+# except Func_15430/Func_15570's first 0x14/0x2C bytes (byte-identical to the
+# Portuguese patch's), one cmp immediate in Func_155d0 (0x080155F0: 0x6F ->
+# 0xFF, the font's highest character), font glyphs 0x080336A8..0x08033CFC and
+# image data 0x08322830..0x08322E8F; the header is unchanged. Its text is a
+# plain table appended at 0x08800000, as the Portuguese patch's.
+
+[[rom]]
+usa = 0x08015430
+polish = 0x08015430
+evidence = "RAM-code copy source of Func_15430: the routine starts in place; the patch rewrote its first 0x14 bytes as the Portuguese patch did (next text byte from a plain pointer), the copy size and destinations are unchanged (config/pl transient-images.json)"
+
+[[rom]]
+usa = 0x08015570
+polish = 0x08015570
+evidence = "RAM-code copy source of Func_15570: the routine starts in place; the patch rewrote its first 0x2C bytes as the Portuguese patch did (line start from the plain offset table), the copy size and destinations are unchanged (config/pl transient-images.json)"
+
+[[rom]]
+usa = 0x080000B8
+polish = 0x080000B8
+evidence = "cartridge header word used as a constant zero: reads 0x00000000 in both ROMs (the patch leaves the header unchanged)"
+
+[[rom]]
+usa = 0x080736B8
+polish = 0x080736B8
+evidence = "Huffman text table: bytes unchanged in place, but the patched Func_15570 no longer reads it (its literal now names the plain offset table 0x08800000 and text base 0x0880A7F0); feature text reads use the plain table (gs::plain_text)"
+
+[[overlay]]
+overlay = "rom_7795e8"
+usa = 0x020096B2
+polish = 0x020096B2
+evidence = "The compressed overlay lies below 0x08800000, where the patched ROM equals USA apart from Func_15430/Func_15570/Func_155d0, the font glyphs and one image (none inside an overlay); same image, same address."
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085D2
+polish = 0x020085D2
+evidence = "The compressed overlay lies below 0x08800000, where the patched ROM equals USA apart from Func_15430/Func_15570/Func_155d0, the font glyphs and one image (none inside an overlay); same image, same address."
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085D6
+polish = 0x020085D6
+evidence = "The compressed overlay lies below 0x08800000, where the patched ROM equals USA apart from Func_15430/Func_15570/Func_155d0, the font glyphs and one image (none inside an overlay); same image, same address."
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085E4
+polish = 0x020085E4
+evidence = "The compressed overlay lies below 0x08800000, where the patched ROM equals USA apart from Func_15430/Func_15570/Func_155d0, the font glyphs and one image (none inside an overlay); same image, same address."
+
+[[overlay]]
+overlay = "rom_77a7c8"
+usa = 0x020085E6
+polish = 0x020085E6
+evidence = "The compressed overlay lies below 0x08800000, where the patched ROM equals USA apart from Func_15430/Func_15570/Func_155d0, the font glyphs and one image (none inside an overlay); same image, same address."
+
+[[overlay]]
+overlay = "rom_78c76c"
+usa = 0x02008EEC
+polish = 0x02008EEC
+evidence = "The compressed overlay lies below 0x08800000, where the patched ROM equals USA apart from Func_15430/Func_15570/Func_155d0, the font glyphs and one image (none inside an overlay); same image, same address."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008BE2
+polish = 0x02008BE2
+evidence = "The compressed overlay lies below 0x08800000, where the patched ROM equals USA apart from Func_15430/Func_15570/Func_155d0, the font glyphs and one image (none inside an overlay); same image, same address."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008BEA
+polish = 0x02008BEA
+evidence = "The compressed overlay lies below 0x08800000, where the patched ROM equals USA apart from Func_15430/Func_15570/Func_155d0, the font glyphs and one image (none inside an overlay); same image, same address."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008BF2
+polish = 0x02008BF2
+evidence = "The compressed overlay lies below 0x08800000, where the patched ROM equals USA apart from Func_15430/Func_15570/Func_155d0, the font glyphs and one image (none inside an overlay); same image, same address."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008C7A
+polish = 0x02008C7A
+evidence = "The compressed overlay lies below 0x08800000, where the patched ROM equals USA apart from Func_15430/Func_15570/Func_155d0, the font glyphs and one image (none inside an overlay); same image, same address."
+
+[[overlay]]
+overlay = "rom_7fb4a8"
+usa = 0x02008D48
+polish = 0x02008D48
+evidence = "The compressed overlay lies below 0x08800000, where the patched ROM equals USA apart from Func_15430/Func_15570/Func_155d0, the font glyphs and one image (none inside an overlay); same image, same address."
+
+[[text]]
+usa = 0x00000075
+polish = 0x00000075
+evidence = "The patch keeps the USA text numbering: its Func_15570 indexes the plain offset table at 0x08800000 by the same line number; this line decodes to the same role in both ROMs (compared with the Portuguese patch, 26 November 2026)."
+
+[[text]]
+usa = 0x00000182
+polish = 0x00000182
+evidence = "The patch keeps the USA text numbering: its Func_15570 indexes the plain offset table at 0x08800000 by the same line number; this line decodes to the same role in both ROMs (compared with the Portuguese patch, 26 November 2026)."
+
+[[text]]
+usa = 0x00000287
+polish = 0x00000287
+evidence = "The patch keeps the USA text numbering: its Func_15570 indexes the plain offset table at 0x08800000 by the same line number; this line decodes to the same role in both ROMs (compared with the Portuguese patch, 26 November 2026)."
+
+[[text]]
+usa = 0x00000333
+polish = 0x00000333
+evidence = "The patch keeps the USA text numbering: its Func_15570 indexes the plain offset table at 0x08800000 by the same line number; this line decodes to the same role in both ROMs (compared with the Portuguese patch, 26 November 2026)."
+
+[[text]]
+usa = 0x00000C0A
+polish = 0x00000C0A
+evidence = "The patch keeps the USA text numbering: its Func_15570 indexes the plain offset table at 0x08800000 by the same line number; this line decodes to the same role in both ROMs (compared with the Portuguese patch, 26 November 2026)."
+
+[[text]]
+usa = 0x00000C12
+polish = 0x00000C12
+evidence = "The patch keeps the USA text numbering: its Func_15570 indexes the plain offset table at 0x08800000 by the same line number; this line decodes to the same role in both ROMs (compared with the Portuguese patch, 26 November 2026)."
+
+[[text]]
+usa = 0x00000C13
+polish = 0x00000C13
+evidence = "The patch keeps the USA text numbering: its Func_15570 indexes the plain offset table at 0x08800000 by the same line number; this line decodes to the same role in both ROMs (compared with the Portuguese patch, 26 November 2026)."
+
+[[text]]
+usa = 0x00000C19
+polish = 0x00000C19
+evidence = "The patch keeps the USA text numbering: its Func_15570 indexes the plain offset table at 0x08800000 by the same line number; this line decodes to the same role in both ROMs (compared with the Portuguese patch, 26 November 2026)."
+
+[[text]]
+usa = 0x00000C24
+polish = 0x00000C24
+evidence = "The patch keeps the USA text numbering: its Func_15570 indexes the plain offset table at 0x08800000 by the same line number; this line decodes to the same role in both ROMs (compared with the Portuguese patch, 26 November 2026)."
+
+[[text]]
+usa = 0x00000C28
+polish = 0x00000C28
+evidence = "The patch keeps the USA text numbering: its Func_15570 indexes the plain offset table at 0x08800000 by the same line number; this line decodes to the same role in both ROMs (compared with the Portuguese patch, 26 November 2026)."
+
+[[text]]
+usa = 0x00002930
+polish = 0x00002930
+evidence = "The patch keeps the USA text numbering: its Func_15570 indexes the plain offset table at 0x08800000 by the same line number; this line decodes to the same role in both ROMs (compared with the Portuguese patch, 26 November 2026)."
+
+[[text]]
+usa = 0x00002935
+polish = 0x00002935
+evidence = "The patch keeps the USA text numbering: its Func_15570 indexes the plain offset table at 0x08800000 by the same line number; this line decodes to the same role in both ROMs (compared with the Portuguese patch, 26 November 2026)."
+
+[[text]]
+usa = 0x00002936
+polish = 0x00002936
+evidence = "The patch keeps the USA text numbering: its Func_15570 indexes the plain offset table at 0x08800000 by the same line number; this line decodes to the same role in both ROMs (compared with the Portuguese patch, 26 November 2026)."
+
+[[text]]
+usa = 0x00002937
+polish = 0x00002937
+evidence = "The patch keeps the USA text numbering: its Func_15570 indexes the plain offset table at 0x08800000 by the same line number; this line decodes to the same role in both ROMs (compared with the Portuguese patch, 26 November 2026)."
+
+[[text]]
+usa = 0x00000741
+polish = 0x00000741
+evidence = "The patch keeps the USA text numbering: the class-name code at 0x080201E2 is byte-identical and its literal is 0x741 (checked on this ROM 26 November 2026)."
+
+[[text]]
+usa = 0x0000045F
+polish = 0x0000045F
+evidence = "The patch keeps the USA text numbering: all seven literal words 0x45F (Djinni names, e.g. 0x08027C5C) are in place (checked on this ROM 26 November 2026)."
+
+[[text]]
+usa = 0x0000053A
+polish = 0x0000053A
+evidence = "The patch keeps the USA text numbering: its Func_15570 indexes the plain offset table by the same line number; the Huffman copy still decodes 0x53A + 3 / + 0x8C as USA's Quake and Move lines (bytes unchanged; checked 26 November 2026)."

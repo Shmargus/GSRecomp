@@ -87,6 +87,7 @@
 #include "../../shared_game/french_menu.h"
 #include "../../shared_game/german_menu.h"
 #include "../../shared_game/portuguese_menu.h"
+#include "../../shared_game/polish_menu.h"
 #include "../../shared_game/gs_text_encode.h"
 #include "obj_placements.h"
 #include "runtime.h"
@@ -11195,6 +11196,16 @@ int main(int argc, char** argv) {
         gbarecomp::config_ui_set_translations(
             gsr::portuguese_menu::kTable,
             static_cast<int>(std::size(gsr::portuguese_menu::kTable)));
+    else if (gs::polish()) {
+        // The menu font's Polish letters, measured on the patched ROM's font
+        // (asset 0x13; FACTS.md "Polish translation").
+        static constexpr gsr::polish_menu::Letter kLetters[] = {
+            {U'ą', 0xE1}, {U'ć', 0xE7}, {U'ę', 0xE9}, {U'ł', 0xEE}, {U'ń', 0xF6},
+            {U'ó', 0xF3}, {U'ś', 0xE4}, {U'ź', 0xE2}, {U'ż', 0xEB},
+            {U'Ą', 0xC4}, {U'Ć', 0xC7}, {U'Ę', 0xC9}, {U'Ł', 0xD4}, {U'Ń', 0xD1},
+            {U'Ó', 0xD3}, {U'Ś', 0xCA}, {U'Ź', 0xC5}, {U'Ż', 0xD6}};
+        gsr::polish_menu::install(kLetters);
+    }
     options.launcher_region = gs::rom_version_name();
     options.launcher_game_config = "game.toml";
     options.launcher_expose_widescreen = true;

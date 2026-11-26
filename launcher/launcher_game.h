@@ -7,10 +7,11 @@
 // --session-game) and sets session_game_index once at its start.
 namespace gsr_launcher {
 
-// Revisions a game may list: five languages, the Brazilian Portuguese patch
-// and the supported romhacks (Reloaded; The Broken Seal also Dawn of Djinn
-// Casual and Veteran and Jenna Edition, The Lost Age Maheo Hack).
-inline constexpr int kMaxRevisions = 10;
+// Revisions a game may list: five languages, the Brazilian Portuguese and
+// Polish translations and the supported romhacks (Reloaded; The Broken Seal
+// also Dawn of Djinn Casual and Veteran and Jenna Edition, The Lost Age
+// Maheo Hack and Balance Age).
+inline constexpr int kMaxRevisions = 11;
 
 struct GameIdentity {
     const char* stem;            // the game's folder in the collection
@@ -90,8 +91,8 @@ inline bool rom_is_romhack(const GameIdentity& game, int revision) {
 #endif
 inline constexpr GameIdentity kGames[2] = {
     {"The Broken Seal", "Golden Sun Recompiled", L"Golden Sun Recompiled",
-     "Select the Golden Sun ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83a, Portuguese Beta 1.01, Dawn of Djinn 2.0.5 or Jenna Edition 1.0.0 Modern)",
-     L"Select the Golden Sun ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83a, Portuguese Beta 1.01, Dawn of Djinn 2.0.5 or Jenna Edition 1.0.0 Modern)",
+     "Select the Golden Sun ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83a, Portuguese Beta 1.01, Polish v1, Dawn of Djinn 2.0.5 or Jenna Edition 1.0.0 Modern)",
+     L"Select the Golden Sun ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83a, Portuguese Beta 1.01, Polish v1, Dawn of Djinn 2.0.5 or Jenna Edition 1.0.0 Modern)",
      GSR_GAME_BINARIES("GoldenSunRecomp", "GoldenSunGame", "GoldenSunEngine", "gs_engine"),
      "GoldenSunGame.build.txt", L"GoldenSunGame.build.txt",
      "GoldenSunGame.release.txt", "AGS",
@@ -122,8 +123,8 @@ inline constexpr GameIdentity kGames[2] = {
 #undef GSR_ROM_REVISION
     {"The Lost Age", "Golden Sun: The Lost Age Recompiled",
      L"Golden Sun: The Lost Age Recompiled",
-     "Select the Golden Sun: The Lost Age ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83, Portuguese Beta 1 or Maheo Hack 2.0)",
-     L"Select the Golden Sun: The Lost Age ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83, Portuguese Beta 1 or Maheo Hack 2.0)",
+     "Select the Golden Sun: The Lost Age ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83, Portuguese Beta 1, Polish 1.1c, Maheo Hack 2.0 or Balance Age 1.34hf)",
+     L"Select the Golden Sun: The Lost Age ROM (USA/Europe, Spain, Italy, France, Germany, Reloaded 1.83, Portuguese Beta 1, Polish 1.1c, Maheo Hack 2.0 or Balance Age 1.34hf)",
      GSR_GAME_BINARIES("TLARecomp", "TLAGame", "TLAEngine", "tla_engine"),
      "TLAGame.build.txt", L"TLAGame.build.txt",
      "TLAGame.release.txt", "AGF",

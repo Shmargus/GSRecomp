@@ -14,12 +14,16 @@ namespace tla_rom {
 // them apart.
 enum class Version : std::uint8_t { English, Spanish, Italian, French, German };
 Version version();
-// A gameplay romhack (Reloaded, Maheo Hack): its abilities and classes are
+// A gameplay romhack (Reloaded, Maheo Hack, Balance Age): its abilities and classes are
 // its own, not the measured English ones.
 bool romhack();
 // Kyle the Runner's Brazilian Portuguese Beta 1 (a patch of English;
 // version() is English, addresses as English). Our menus show in Portuguese.
 bool portuguese();
+// The Polish translation 1.1c, alone or under Polish Balance Age (patches of
+// English; version() is English, addresses as English). Our menus show in
+// Polish.
+bool polish();
 // Where the loaded ROM keeps plain text (gsr::mods::PlainText), as ROM
 // offsets; false when its text is the game's own Huffman format.
 bool plain_text(std::uint32_t* offsets, std::uint32_t* base);

@@ -32,9 +32,9 @@ using OverlayRow = rr::OverlayRowN<kColumns>;
 
 constexpr Row kRomAddrs[] = {
 #define GS_RAM_ADDR(usa, germany)
-#define GS_ROM_ADDR(usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern) {usa, {spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern}},
-#define GS_OVL_ADDR(id, usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern)
-#define GS_TEXT_ID(usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern)
+#define GS_ROM_ADDR(usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern, polish) {usa, {spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern, polish}},
+#define GS_OVL_ADDR(id, usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern, polish)
+#define GS_TEXT_ID(usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern, polish)
 #include "rom_addresses.inc"
 #undef GS_ROM_ADDR
 #undef GS_OVL_ADDR
@@ -43,9 +43,9 @@ constexpr Row kRomAddrs[] = {
 };
 constexpr OverlayRow kOvlAddrs[] = {
 #define GS_RAM_ADDR(usa, germany)
-#define GS_ROM_ADDR(usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern)
-#define GS_OVL_ADDR(id, usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern) {#id, usa, {spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern}},
-#define GS_TEXT_ID(usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern)
+#define GS_ROM_ADDR(usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern, polish)
+#define GS_OVL_ADDR(id, usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern, polish) {#id, usa, {spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern, polish}},
+#define GS_TEXT_ID(usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern, polish)
 #include "rom_addresses.inc"
 #undef GS_ROM_ADDR
 #undef GS_OVL_ADDR
@@ -54,9 +54,9 @@ constexpr OverlayRow kOvlAddrs[] = {
 };
 constexpr Row kTextIds[] = {
 #define GS_RAM_ADDR(usa, germany)
-#define GS_ROM_ADDR(usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern)
-#define GS_OVL_ADDR(id, usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern)
-#define GS_TEXT_ID(usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern) {usa, {spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern}},
+#define GS_ROM_ADDR(usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern, polish)
+#define GS_OVL_ADDR(id, usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern, polish)
+#define GS_TEXT_ID(usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern, polish) {usa, {spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern, polish}},
 #include "rom_addresses.inc"
 #undef GS_ROM_ADDR
 #undef GS_OVL_ADDR
@@ -91,6 +91,7 @@ bool dawn_of_djinn() {
 bool jenna_edition() { return std::strcmp(kRevisions[revision()].code, "je") == 0; }
 bool romhack() { return kRomhacks[revision()]; }
 bool portuguese() { return std::strcmp(kRevisions[revision()].code, "pt") == 0; }
+bool polish() { return std::strcmp(kRevisions[revision()].code, "pl") == 0; }
 bool usa_europe_rom() { return revision() == 0; }
 
 // Where the Portuguese patch keeps its plain text. Measured from the patched
@@ -99,9 +100,10 @@ bool usa_europe_rom() { return revision() == 0; }
 //   - the text base, 0x0880A7F0.
 // (FACTS.md "Portuguese (Kyle the Runner)".) Dawn of Djinn's Func_15570 is
 // byte-identical and has the same literals (FACTS.md "Dawn of Djinn 2.0.5"),
-// as is Jenna Edition's (FACTS.md "Jenna Edition 1.0.0 Modern").
+// as is Jenna Edition's (FACTS.md "Jenna Edition 1.0.0 Modern") and the
+// Polish translation's (FACTS.md "Polish translation").
 bool plain_text(std::uint32_t* offsets, std::uint32_t* base) {
-    if (!portuguese() && !dawn_of_djinn() && !jenna_edition()) return false;
+    if (!portuguese() && !dawn_of_djinn() && !jenna_edition() && !polish()) return false;
     *offsets = 0x00800000u;
     *base = 0x0080A7F0u;
     return true;
@@ -137,9 +139,9 @@ std::uint32_t text(std::uint32_t usa_text_id) {
 std::uint32_t ram(std::uint32_t usa) {
     if (rom_version() != RomVersion::Germany) return usa;
     switch (usa) {
-#define GS_ROM_ADDR(usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern)
-#define GS_OVL_ADDR(id, usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern)
-#define GS_TEXT_ID(usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern)
+#define GS_ROM_ADDR(usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern, polish)
+#define GS_OVL_ADDR(id, usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern, polish)
+#define GS_TEXT_ID(usa, spain, italy, france, germany, reloaded, portuguese, dawn_casual, dawn_veteran, jenna_modern, polish)
 #define GS_RAM_ADDR(usa, germany) case usa: return germany;
 #include "rom_addresses.inc"
 #undef GS_ROM_ADDR

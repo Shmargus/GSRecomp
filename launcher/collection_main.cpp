@@ -609,6 +609,10 @@ void open_build_log(const fs::path& log) {
     SDL_OpenURL(url.c_str());
 }
 
+// Shown under the logo; Jim's note to the players, new every release.
+const std::string kMessageFromJim =
+    "Message from Jim: \"Thank you for all the support so far guys, it's been crazy! Keep the bug reports coming!\"";
+
 void golden_title(ImDrawList* draw, ImFont* font, float size, float center, float top, const char* text) {
     const auto measured = font->CalcTextSizeA(size, FLT_MAX, 0, text);
     const ImVec2 position{center - measured.x / 2, top};
@@ -696,18 +700,20 @@ bool make_background(SDL_Renderer* renderer, Texture& background) {
 
 // Draws the flags under each cartridge. There is one flag per language
 // revision, showing which ROM the launcher expects (collection_storage.h
-// rom_language).
-//   - USA/Europe is the US and UK flags split on the diagonal.
+// rom_language); `code` is the revision's (launcher_game.h rom_codes).
+//   - USA/Europe ("en") is the US and UK flags split on the diagonal.
 //   - Spain, Italy, France and Germany use their own flags.
-//   - The Brazilian Portuguese patch (revision 6) uses Brazil's flag.
+//   - The Brazilian Portuguese patches ("pt") use Brazil's flag.
+//   - The Polish translations ("pl") use Poland's flag.
 //   - Romhacks have no flag. They share the Romhack button beside the flags
 //     (draw_romhack_button).
 // All flags are drawn here on a 300x200 design grid, with 4x4 samples per
 // pixel.
-bool make_flag(SDL_Renderer* renderer, int language, Texture& flag) {
+bool make_flag(SDL_Renderer* renderer, const std::string& code, Texture& flag) {
     struct Rgb { float r, g, b; };
-    const auto color = [language](float x, float y) -> Rgb {
-        if (language == 6) {
+    const auto color = [&code](float x, float y) -> Rgb {
+        if (code == "pl") return y < 100 ? Rgb{255, 255, 255} : Rgb{220, 20, 60};
+        if (code == "pt") {
             // Brazil: a yellow rhombus on green, a blue disc crossed by a
             // white band.
             const float dx = x - 150, dy = y - 100;
@@ -718,10 +724,10 @@ bool make_flag(SDL_Renderer* renderer, int language, Texture& flag) {
             if (std::abs(dx) / 125 + std::abs(dy) / 85 < 1) return {254, 221, 0};
             return {0, 151, 57};
         }
-        if (language == 4) return y < 200.0f / 3 ? Rgb{0, 0, 0} : y < 400.0f / 3 ? Rgb{221, 0, 0} : Rgb{255, 206, 0};
-        if (language == 3) return x < 100 ? Rgb{0, 85, 164} : x < 200 ? Rgb{255, 255, 255} : Rgb{239, 65, 53};
-        if (language == 2) return x < 100 ? Rgb{0, 146, 70} : x < 200 ? Rgb{255, 255, 255} : Rgb{206, 43, 55};
-        if (language == 1) return y < 50 || y >= 150 ? Rgb{170, 21, 27} : Rgb{241, 191, 0};
+        if (code == "de") return y < 200.0f / 3 ? Rgb{0, 0, 0} : y < 400.0f / 3 ? Rgb{221, 0, 0} : Rgb{255, 206, 0};
+        if (code == "fr") return x < 100 ? Rgb{0, 85, 164} : x < 200 ? Rgb{255, 255, 255} : Rgb{239, 65, 53};
+        if (code == "it") return x < 100 ? Rgb{0, 146, 70} : x < 200 ? Rgb{255, 255, 255} : Rgb{206, 43, 55};
+        if (code == "es") return y < 50 || y >= 150 ? Rgb{170, 21, 27} : Rgb{241, 191, 0};
         if (x / 300 + y / 200 < 1) {  // United States, top left
             if (x < 120 && y < 200 * 7 / 13.0f) {
                 const float sx = std::fmod(x, 20.0f) - 10, sy = std::fmod(y, 200 * 7 / 65.0f) - 100 * 7 / 65.0f;
@@ -852,9 +858,12 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
     gbarecomp::touch_ui::apply_style(window, g_touch_scale, 20.0f * g_touch_scale);
     ImGui_ImplSDL2_InitForSDLRenderer(window, renderer);
     ImGui_ImplSDLRenderer2_Init(renderer);
-    Texture logo, cartridges[2], background, flags[gsr_launcher::kMaxRevisions];
+    Texture logo, cartridges[2], background, flags[2][gsr_launcher::kMaxRevisions];
     bool flags_made = make_background(renderer, background);
-    for (int f = 0; flags_made && f < gsr_launcher::kMaxRevisions; ++f) flags_made = make_flag(renderer, f, flags[f]);
+    for (int g = 0; g < 2; ++g)
+        for (int f = 0; flags_made && f < gsr_launcher::rom_revision_count(gsr_launcher::kGames[g]); ++f)
+            if (!gsr_launcher::rom_is_romhack(gsr_launcher::kGames[g], f))
+                flags_made = make_flag(renderer, gsr_launcher::kGames[g].rom_codes[f], flags[g][f]);
     if (!flags_made) {
         std::fprintf(stderr, "Cannot create launcher background: %s\n", SDL_GetError());
         ImGui_ImplSDLRenderer2_Shutdown(); ImGui_ImplSDL2_Shutdown(); ImGui::DestroyContext();
@@ -1395,7 +1404,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
         const float center = width / 2, footer = height - 104 * scale;
         auto* draw = ImGui::GetBackgroundDrawList();
         draw->AddImage(reinterpret_cast<ImTextureID>(background.texture), {0, 0}, {width, height});
-        draw->AddRectFilledMultiColor({0, 0}, {width, 200 * scale}, IM_COL32(4, 9, 13, 150), IM_COL32(4, 9, 13, 150), 0, 0);
+        draw->AddRectFilledMultiColor({0, 0}, {width, 214 * scale}, IM_COL32(4, 9, 13, 150), IM_COL32(4, 9, 13, 150), 0, 0);
         const bool starting = preview_insertion >= 0 || insertion_choice >= 0;
         const bool checking = (pending_choice >= 0 && (!updates.done() || checking_builds[pending_choice] ||
                                 (!built[pending_choice] && checking_builds[1 - pending_choice]))) ||
@@ -1404,7 +1413,11 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
         const float logo_height = logo_width * logo.height / logo.width;
         const float logo_top = 14 * scale;
         draw->AddImage(reinterpret_cast<ImTextureID>(logo.texture), {center - logo_width / 2, logo_top}, {center + logo_width / 2, logo_top + logo_height});
-        golden_title(draw, heading, 24 * scale, center, 172 * scale, "Choose Your Adventure");
+        // Message from Jim: a note to the players, changed every release
+        // (kMessageFromJim), between the logo and the heading.
+        wrapped_centered_text(draw, body, 15 * scale, center, 158 * scale, std::min(width - 40 * scale, 760 * scale), 2,
+                              IM_COL32(236, 222, 182, 255), kMessageFromJim);
+        golden_title(draw, heading, 24 * scale, center, 186 * scale, "Choose Your Adventure");
         const double seconds = preview.empty() ? elapsed : 1.0;
         const float pulse = gbarecomp::cartridge_art::pulse(seconds);
         const int inserting = preview_insertion >= 0 ? preview_choice : fade_only ? -1 : insertion_choice;
@@ -1414,7 +1427,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
         for (int i = 0; i < 2; ++i) {
             const float x = width * (i ? 0.75f : 0.25f);
             cartridge_boxes[i] = {{i ? center : 0, 208 * scale}, {i ? width : center, footer}};
-            golden_title(draw, heading, 29 * scale, x, 223 * scale, i ? "The Lost Age" : "The Broken Seal");
+            golden_title(draw, heading, 29 * scale, x, 232 * scale, i ? "The Lost Age" : "The Broken Seal");
             const Texture& image = cartridges[i];
             const float base_width = std::min(width * 0.36f, 184 * scale * image.width / image.height);
             const float starting_scale = preview_insertion >= 0 ? pulse : insertion_scale;
@@ -1503,7 +1516,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                                          {fx + flag_w / 2 + 4 * scale, flag_y + flag_h / 2 + 4 * scale}};
                         const bool hover = interactive &&
                             ImGui::IsMouseHoveringRect(flag_boxes[i][f].min, flag_boxes[i][f].max, false);
-                        const Texture& flag = flags[f];
+                        const Texture& flag = flags[i][f];
                         // A chosen flag's glow is brighter and wider than the
                         // cartridge's (kFlagGlowAlpha, kFlagGlowSpread).
                         constexpr float kFlagGlowAlpha = 1.6f, kFlagGlowSpread = 1.25f;

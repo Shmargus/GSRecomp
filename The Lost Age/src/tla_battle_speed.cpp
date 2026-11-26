@@ -218,6 +218,31 @@ bool entry_running(gba::GbaBus* b) {
            (dispstat >> 8) == kEntryVCountLine;
 }
 
+// Layer switches wait for a real VBlank, the Broken Seal's rule. The game
+// queues register writes for its VBlank handler's flush 0x08013D84: count at
+// 0x020038E0 (at most 32), then 12-byte entries from 0x020038E4
+// {value, address, 0x20000}. An attack's teardown queues DISPCNT 0x1541
+// (effect layer BG1 off) and BG1CNT 0x1F83, and the layer's resting map goes
+// back into BG1's map (0x0600F800) directly. When the wait after the queueing
+// was a dropped one, that map showed on a BG1 still lit and blended: a
+// one-frame white flash after an attack at 4x (bug report 2026-11-26, F12
+// frame 97: queue holds both entries, map already back, DISPCNT still
+// 0x7741). A pass that leaves a DISPCNT write queued therefore keeps its wait.
+constexpr uint32_t kVBlankQueueCount = 0x020038E0u;
+constexpr uint32_t kVBlankQueueEntries = 0x020038E4u;
+constexpr uint32_t kVBlankQueueEntrySize = 12u;
+constexpr uint32_t kVBlankQueueMax = 32u;
+constexpr uint32_t kDispcnt = 0x04000000u;
+
+bool layer_switch_queued(gba::GbaBus* b) {
+    uint32_t count = b->read16(kVBlankQueueCount);
+    if (count > kVBlankQueueMax) count = kVBlankQueueMax;
+    for (uint32_t i = 0; i < count; ++i)
+        if (b->read32(kVBlankQueueEntries + i * kVBlankQueueEntrySize + 4u) == kDispcnt)
+            return true;
+    return false;
+}
+
 // Once per frame wait: reads Select and decides whether this pass skips.
 void decide_pass() {
     gba::GbaBus* b = bus();
@@ -259,7 +284,7 @@ void decide_pass() {
     const bool flag_set = (b->read16(kVBlankFlag) & 1u) != 0u;
     const int max_skips = battle_2x ? level::skips() : 1;
     g_skip_this_pass = g_skipped_run < max_skips && flag_set &&
-                       !(battle_2x && entry_running(b));
+                       !(battle_2x && entry_running(b)) && !layer_switch_queued(b);
     g_skipped_run = g_skip_this_pass ? g_skipped_run + 1 : 0;
     if (g_skip_this_pass) keep_oam_parking(b);
     if (g_skip_this_pass && field_2x) advance_skipped_field_fade(b);

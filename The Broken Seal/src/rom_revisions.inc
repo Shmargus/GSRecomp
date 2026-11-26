@@ -22,3 +22,4 @@ GSR_ROM_REVISION("pt", "Portuguese Beta 1.01", "17bc59e18ff59dc2ff20b8c04c247f4a
 GSR_ROM_REVISION("dc", "Dawn of Djinn 2.0.5 Casual", "1864e0f1ae44e07f10c2d0ac826e6104c69ca5e9", 0x080ED408u, 0x080048B0u, "en", true)
 GSR_ROM_REVISION("dv", "Dawn of Djinn 2.0.5 Veteran", "c88300c6e88167fc73ca182b5ffb80cfa5077a34", 0x080ED408u, 0x080048B0u, "en", true)
 GSR_ROM_REVISION("je", "Jenna Edition 1.0.0 Modern", "1ad46b64768c3d14eb5871512af1b4f10636af29", 0x080ED408u, 0x080048B0u, "en", true)
+GSR_ROM_REVISION("pl", "Polish v1", "882d49db7bdbc131bc1d06f9163582efc5bef6f6", 0x080ED408u, 0x080048B0u, "en", false)

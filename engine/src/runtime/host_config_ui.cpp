@@ -26,6 +26,7 @@ const GameOptionSwitch* g_game_switches = nullptr;
 int g_game_switch_count = 0;
 void (*g_game_page_draw)() = nullptr;
 void (*g_music_page_draw)() = nullptr;
+void (*g_trackers_page_draw)() = nullptr;
 void (*g_cheats_page_draw)() = nullptr;
 std::mutex g_menu_art_mutex;
 std::array<uint8_t, 256 * 32> g_menu_tiles{};
@@ -62,6 +63,7 @@ const char* ui_text(const char* english) {
 }
 void config_ui_set_game_page(void (*draw)()) { g_game_page_draw = draw; }
 void config_ui_set_music_page(void (*draw)()) { g_music_page_draw = draw; }
+void config_ui_set_trackers_page(void (*draw)()) { g_trackers_page_draw = draw; }
 void config_ui_set_cheats_page(void (*draw)()) { g_cheats_page_draw = draw; }
 void config_ui_set_game_switches(const GameOptionSwitch* switches, int count) {
     g_game_switches = switches;
@@ -950,6 +952,11 @@ void draw_controls_page(ConfigUiState* st) {
         if (setting_checkbox("Show on-screen buttons", &st->touch_buttons))
             st->video_changed = true;
         caption("The menu button stays either way.");
+        if (native_button("Place on-screen buttons")) {
+            touch_controls_begin_placing();
+            config_ui_set_visible(false);
+        }
+        caption("Drag each button where you want it, then tap Done.");
     }
     section("Buttons");
     // Phones have no keyboard, so there is no keyboard column.
@@ -2150,8 +2157,10 @@ void fit_phone_menu() {
 
 void draw_phone_menu(ConfigUiState* st) {
     struct Tile { const char* name; int id; };  // id: g_selected_page; -2 quits
-    Tile tiles[11];
+    Tile tiles[12];
     int count = 0;
+    // First, so a glance at the trackers is the menu button and one tap.
+    if (g_trackers_page_draw) tiles[count++] = {"Trackers", 9};
     tiles[count++] = {"Video", 0};
     tiles[count++] = {"Audio", 1};
     if (g_music_page_draw) tiles[count++] = {"Music", 8};
@@ -2248,7 +2257,8 @@ void draw_phone_menu(ConfigUiState* st) {
                         resume = true;
                     } else {
                         g_phone_page = tiles[i].id;
-                        g_selected_page = tiles[i].id;
+                        // Trackers (9) is the phone's own: no PC tab.
+                        if (tiles[i].id != 9) g_selected_page = tiles[i].id;
                         ImGui::SetNextWindowScroll(ImVec2(0, 0));
                     }
                 }
@@ -2269,6 +2279,7 @@ void draw_phone_menu(ConfigUiState* st) {
                 case 5: draw_game_page(); break;
                 case 6: draw_cheats_page(st); break;
                 case 8: if (g_music_page_draw) g_music_page_draw(); break;
+                case 9: if (g_trackers_page_draw) g_trackers_page_draw(); break;
                 default: draw_troubleshooting_page(st); break;
             }
             ImGui::EndChild();

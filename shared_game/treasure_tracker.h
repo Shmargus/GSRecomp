@@ -2,7 +2,8 @@
 // object, listed per location, each marked once the save has taken it. The
 // location the party is in opens by itself; the others fold. Options in the
 // window: chests only, and showing what each holds. F1 > Game switch, off by
-// default; a tracker_window.h window like the Djinn Tracker. One copy; each
+// default; a tracker_window.h window like the Djinn Tracker (a phone: the
+// menu's Trackers page, trackers.h). One copy; each
 // runner installs its game's table through trackers.h (trackers_tbs.h, The
 // Lost Age's src/tla_trackers.cpp) and samples once per frame.
 //
@@ -27,6 +28,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -135,71 +137,98 @@ inline const char* container(const Game& g, unsigned sub) {
     return gbarecomp::ui_text("Treasure");
 }
 
+// The counts the title and headers show, and whether the party just
+// arrived somewhere (that place then opens and the rest fold).
+struct Counts {
+    bool chests_only = false, contents = false, arrived = false;
+    int here = -1, total = 0, total_done = 0;
+    std::vector<int> count, done;
+};
+inline bool is_taken(std::size_t i) {
+    return (taken[i / 32].load(std::memory_order_relaxed) >> (i % 32)) & 1u;
+}
+inline Counts counts_now(const Game& g) {
+    Counts c;
+    const std::size_t places = g.places.size();
+    c.chests_only = gbarecomp::game_option_get(kChestsOnlyKey, 0) != 0;
+    c.contents = gbarecomp::game_option_get(kContentsKey, 0) != 0;
+    c.count.assign(places, 0);
+    c.done.assign(places, 0);
+    for (std::size_t i = 0; i < all.size(); ++i) {
+        const auto& t = all[i];
+        if (c.chests_only && t.sub != kChest) continue;
+        ++c.count[t.place];
+        ++c.total;
+        if (is_taken(i)) { ++c.done[t.place]; ++c.total_done; }
+    }
+    open.resize(places, false);
+    c.here = current_place.load(std::memory_order_relaxed);
+    c.arrived = c.here >= 0 && c.here != shown_place;
+    shown_place = c.here;
+    if (c.arrived)
+        for (std::size_t p = 0; p < places; ++p) open[p] = int(p) == c.here;
+    return c;
+}
+
+inline std::string title(const Counts& c) {
+    return tracker_text::format("%s  %d/%d",
+        gbarecomp::ui_text(c.chests_only ? "Chests" : "Treasures"), c.total_done, c.total);
+}
+
+// The two switches, then every place in a list scrolled on its own.
+inline void draw_contents(const Game& g, const Counts& c) {
+    const std::size_t count_all = all.size(), places = g.places.size();
+    bool value = c.chests_only;
+    if (ImGui::Checkbox(gbarecomp::ui_text("Chests only###ChestsOnly"), &value)) gbarecomp::game_option_set(kChestsOnlyKey, value ? 1 : 0);
+    ImGui::SameLine();
+    value = c.contents;
+    if (ImGui::Checkbox(gbarecomp::ui_text("Contents###Contents"), &value)) gbarecomp::game_option_set(kContentsKey, value ? 1 : 0);
+    ImGui::BeginChild("##places");
+    const ImVec4 text = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+    const ImVec4 dim = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+    std::size_t i = 0;
+    for (std::size_t p = 0; p < places; ++p) {
+        const std::size_t first = i;
+        while (i < count_all && all[i].place == p) ++i;
+        if (!c.count[p]) continue;
+        if (c.arrived && int(p) == c.here) ImGui::SetScrollHereY(0.0f);
+        const auto header = tracker_text::format("%s  %d/%d", tracker_text::name(g.places[p]).c_str(), c.done[p], c.count[p]);
+        if (tracker_window::fold_header(int(p), open[p], header.c_str())) open[p] = !open[p];
+        if (!open[p]) continue;
+        ImGui::Indent();
+        for (std::size_t k = first; k < i; ++k) {
+            const auto& t = all[k];
+            if (c.chests_only && t.sub != kChest) continue;
+            const bool got = is_taken(k);
+            if (c.contents) {
+                const unsigned value = rewards[k].load(std::memory_order_relaxed);
+                const unsigned reward = value ? value : t.reward;
+                const auto label = (reward & kCoins) ? tracker_text::coins(reward & ~kCoins)
+                                                   : tracker_text::reward_name(reward, t.sub == kTablet);
+                ImGui::TextColored(got ? dim : text, "%s %s: %s", got ? "x" : "-", container(g, t.sub), label.c_str());
+            } else ImGui::TextColored(got ? dim : text, "%s %s", got ? "x" : "-", container(g, t.sub));
+        }
+        ImGui::Unindent();
+    }
+    ImGui::EndChild();
+}
+
+// The computer's window (F1 > Game switch).
 inline void draw() {
     if (window.previous) window.previous();
     if (!game || gbarecomp::game_option_get(kOptionKey, 0) == 0) return;
-    const Game& g = *game;
-    const std::size_t count_all = all.size(), places = g.places.size();
-    const bool chests_only = gbarecomp::game_option_get(kChestsOnlyKey, 0) != 0;
-    const bool contents = gbarecomp::game_option_get(kContentsKey, 0) != 0;
-    const auto is_taken = [](std::size_t i) {
-        return (taken[i / 32].load(std::memory_order_relaxed) >> (i % 32)) & 1u;
-    };
-    std::vector<int> count(places, 0), done(places, 0);
-    int total = 0, total_done = 0;
-    for (std::size_t i = 0; i < count_all; ++i) {
-        const auto& t = all[i];
-        if (chests_only && t.sub != kChest) continue;
-        ++count[t.place];
-        ++total;
-        if (is_taken(i)) { ++done[t.place]; ++total_done; }
-    }
-    // Arriving somewhere opens that place and folds the rest.
-    open.resize(places, false);
-    const int here = current_place.load(std::memory_order_relaxed);
-    const bool arrived = here >= 0 && here != shown_place;
-    shown_place = here;
-    if (arrived) {
-        for (std::size_t p = 0; p < places; ++p) open[p] = int(p) == here;
-    }
-    const auto title = tracker_text::format("%s  %d/%d",
-        gbarecomp::ui_text(chests_only ? "Chests" : "Treasures"), total_done, total);
-    if (tracker_window::begin(window, ImVec2(300.0f, 420.0f), title.c_str())) {
-        bool value = chests_only;
-        if (ImGui::Checkbox(gbarecomp::ui_text("Chests only###ChestsOnly"), &value)) gbarecomp::game_option_set(kChestsOnlyKey, value ? 1 : 0);
-        ImGui::SameLine();
-        value = contents;
-        if (ImGui::Checkbox(gbarecomp::ui_text("Contents###Contents"), &value)) gbarecomp::game_option_set(kContentsKey, value ? 1 : 0);
-        ImGui::BeginChild("##places");
-        const ImVec4 text = ImGui::GetStyleColorVec4(ImGuiCol_Text);
-        const ImVec4 dim = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
-        std::size_t i = 0;
-        for (std::size_t p = 0; p < places; ++p) {
-            const std::size_t first = i;
-            while (i < count_all && all[i].place == p) ++i;
-            if (!count[p]) continue;
-            if (arrived && int(p) == here) ImGui::SetScrollHereY(0.0f);
-            const auto header = tracker_text::format("%s  %d/%d", tracker_text::name(g.places[p]).c_str(), done[p], count[p]);
-            if (tracker_window::fold_header(int(p), open[p], header.c_str())) open[p] = !open[p];
-            if (!open[p]) continue;
-            ImGui::Indent();
-            for (std::size_t k = first; k < i; ++k) {
-                const auto& t = all[k];
-                if (chests_only && t.sub != kChest) continue;
-                const bool got = is_taken(k);
-                if (contents) {
-                    const unsigned value = rewards[k].load(std::memory_order_relaxed);
-                    const unsigned reward = value ? value : t.reward;
-                    const auto label = (reward & kCoins) ? tracker_text::coins(reward & ~kCoins)
-                                                       : tracker_text::reward_name(reward, t.sub == kTablet);
-                    ImGui::TextColored(got ? dim : text, "%s %s: %s", got ? "x" : "-", container(g, t.sub), label.c_str());
-                } else ImGui::TextColored(got ? dim : text, "%s %s", got ? "x" : "-", container(g, t.sub));
-            }
-            ImGui::Unindent();
-        }
-        ImGui::EndChild();
-    }
+    const Counts c = counts_now(*game);
+    if (tracker_window::begin(window, ImVec2(300.0f, 420.0f), title(c).c_str()))
+        draw_contents(*game, c);
     tracker_window::end(window);
+}
+
+// The phone's Trackers page (trackers.h).
+inline void draw_page() {
+    if (!game) return;
+    const Counts c = counts_now(*game);
+    ImGui::TextColored(tracker_window::kGold, "%s", title(c).c_str());
+    draw_contents(*game, c);
 }
 #endif
 
@@ -218,10 +247,7 @@ inline void install(const Game& g) {
         all.push_back({place, gift.flag, kGift, gift.item, 0u, gift.pack});
     }
     std::stable_sort(all.begin(), all.end(), [](const Treasure& a, const Treasure& b) { return a.place < b.place; });
-    game = &g;
-#ifdef GBARECOMP_HAVE_IMGUI
-    tracker_window::chain(window, draw);
-#endif
+    game = &g;  // trackers.h then shows it: a window on a computer, a page on a phone
 }
 
 } // namespace gsr::treasure_tracker

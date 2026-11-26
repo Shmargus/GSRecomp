@@ -323,6 +323,15 @@ void keep_awake(bool on) {
         jni.env->CallVoidMethod(jni.activity, keep, static_cast<jboolean>(on));
 }
 
+void build_progress(const std::string& step, int done, int total) {
+    Jni jni;
+    jmethodID progress = jni.method("buildProgress", "(Ljava/lang/String;II)V");
+    if (!progress) return;
+    jstring s = jni.string(step);
+    jni.env->CallVoidMethod(jni.activity, progress, s, static_cast<jint>(done), static_cast<jint>(total));
+    jni.env->DeleteLocalRef(s);
+}
+
 void open_url(const std::string& url) {
     Jni jni;
     jmethodID open = jni.method("openUrl", "(Ljava/lang/String;)V");

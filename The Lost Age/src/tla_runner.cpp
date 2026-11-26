@@ -38,6 +38,7 @@
 #include "../../shared_game/italian_menu.h"
 #include "../../shared_game/french_menu.h"
 #include "../../shared_game/portuguese_menu.h"
+#include "../../shared_game/polish_menu.h"
 #include "../../shared_game/gs_text_encode.h"
 #include "../../shared_game/german_menu.h"
 
@@ -123,6 +124,17 @@ int main(int argc, char** argv) {
     else if (tla_rom::portuguese())
         gbarecomp::config_ui_set_translations(gsr::portuguese_menu::kTable,
             static_cast<int>(std::size(gsr::portuguese_menu::kTable)));
+    else if (tla_rom::polish()) {
+        // The menu font's Polish letters, measured on the patched ROM's font
+        // (asset 0x13; FACTS.md "Polish 1.1c and Balance Age 1.34hf"). It has
+        // no capital A-ogonek, E-ogonek or N-acute: plain letters stand in.
+        static constexpr gsr::polish_menu::Letter kLetters[] = {
+            {U'ą', 0xE1}, {U'ć', 0xE7}, {U'ę', 0xE9}, {U'ł', 0xED}, {U'ń', 0xF4},
+            {U'ó', 0xF3}, {U'ś', 0xEB}, {U'ź', 0xFA}, {U'ż', 0xFC},
+            {U'Ą', 'A'}, {U'Ć', 0xC7}, {U'Ę', 'E'}, {U'Ł', 0xD6}, {U'Ń', 'N'},
+            {U'Ó', 0xD3}, {U'Ś', 0xCB}, {U'Ź', 0xDA}, {U'Ż', 0xDC}};
+        gsr::polish_menu::install(kLetters);
+    }
     else gbarecomp::config_ui_set_translations(nullptr,0);
     // Feature text reads (trackers, Custom Battle, area names) follow the
     // ROM's own text format.

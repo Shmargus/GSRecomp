@@ -69,6 +69,9 @@ std::string pick_file(const std::string& title, const fs::path& destination);
 // when the player is in another app or the screen is off (BuildService.java).
 // Any thread.
 void keep_awake(bool on);
+// The build's step and count, shown as a progress bar in that notification
+// (total 0: a moving bar). Any thread.
+void build_progress(const std::string& step, int done, int total);
 
 // Opens a web page in the phone's browser.
 void open_url(const std::string& url);

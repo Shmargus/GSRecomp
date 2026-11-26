@@ -397,12 +397,32 @@ class CollectionBuild {
                 set_activity_locked(value);
             }
         };
+#ifdef __ANDROID__
+        // The phone's build notification follows the step and whole percents.
+        std::string noted_stage; int noted_percent = -2;
+        auto note = [&] {
+            std::string stage; int done, total;
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                stage = state_.stage; done = state_.done; total = state_.total;
+            }
+            const int percent = total > 0 ? static_cast<int>(100LL * std::min(done, total) / total) : -1;
+            if (stage == noted_stage && percent == noted_percent) return;
+            noted_stage = stage; noted_percent = percent;
+            gsr_android::build_progress(stage, done, total);
+        };
+#endif
         bool discarding = false;
         auto consume = [&](const char* bytes, size_t count) {
             log.write(bytes, static_cast<std::streamsize>(count)); log.flush();
             for (size_t i = 0; i < count; ++i) {
                 if (bytes[i] == '\n') {
-                    if (!discarding) line(pending);
+                    if (!discarding) {
+                        line(pending);
+#ifdef __ANDROID__
+                        note();
+#endif
+                    }
                     pending.clear(); discarding = false;
                 } else if (!discarding) {
                     if (pending.size() < 65536) pending += bytes[i];

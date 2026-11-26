@@ -25,27 +25,27 @@ constexpr unsigned kColumns = std::size(kRevisions) - 1;
 using Row = rr::RowN<kColumns>;
 using OverlayRow = rr::OverlayRowN<kColumns>;
 constexpr Row addresses[] = {
-#define TLA_ROM_ADDR(en, es, it, fr, de, rl, pt, mh) {en, {es, it, fr, de, rl, pt, mh}},
-#define TLA_OVERLAY_ADDR(image, en, es, it, fr, de, rl, pt, mh)
-#define TLA_TEXT_ID(en, es, it, fr, de, rl, pt, mh)
+#define TLA_ROM_ADDR(en, es, it, fr, de, rl, pt, mh, pl, ba) {en, {es, it, fr, de, rl, pt, mh, pl, ba}},
+#define TLA_OVERLAY_ADDR(image, en, es, it, fr, de, rl, pt, mh, pl, ba)
+#define TLA_TEXT_ID(en, es, it, fr, de, rl, pt, mh, pl, ba)
 #include "tla_rom_addresses.inc"
 #undef TLA_ROM_ADDR
 #undef TLA_OVERLAY_ADDR
 #undef TLA_TEXT_ID
 };
 constexpr OverlayRow overlays[] = {
-#define TLA_ROM_ADDR(en, es, it, fr, de, rl, pt, mh)
-#define TLA_OVERLAY_ADDR(image, en, es, it, fr, de, rl, pt, mh) {#image, en, {es, it, fr, de, rl, pt, mh}},
-#define TLA_TEXT_ID(en, es, it, fr, de, rl, pt, mh)
+#define TLA_ROM_ADDR(en, es, it, fr, de, rl, pt, mh, pl, ba)
+#define TLA_OVERLAY_ADDR(image, en, es, it, fr, de, rl, pt, mh, pl, ba) {#image, en, {es, it, fr, de, rl, pt, mh, pl, ba}},
+#define TLA_TEXT_ID(en, es, it, fr, de, rl, pt, mh, pl, ba)
 #include "tla_rom_addresses.inc"
 #undef TLA_ROM_ADDR
 #undef TLA_OVERLAY_ADDR
 #undef TLA_TEXT_ID
 };
 constexpr Row texts[] = {
-#define TLA_ROM_ADDR(en, es, it, fr, de, rl, pt, mh)
-#define TLA_OVERLAY_ADDR(image, en, es, it, fr, de, rl, pt, mh)
-#define TLA_TEXT_ID(en, es, it, fr, de, rl, pt, mh) {en, {es, it, fr, de, rl, pt, mh}},
+#define TLA_ROM_ADDR(en, es, it, fr, de, rl, pt, mh, pl, ba)
+#define TLA_OVERLAY_ADDR(image, en, es, it, fr, de, rl, pt, mh, pl, ba)
+#define TLA_TEXT_ID(en, es, it, fr, de, rl, pt, mh, pl, ba) {en, {es, it, fr, de, rl, pt, mh, pl, ba}},
 #include "tla_rom_addresses.inc"
 #undef TLA_ROM_ADDR
 #undef TLA_OVERLAY_ADDR
@@ -73,15 +73,28 @@ const char* sha1() { return gsr_game_rom_sha1; }
 Version version() { return static_cast<Version>(language_row()); }
 bool romhack() { return kRomhacks[revision()]; }
 bool portuguese() { return std::strcmp(kRevisions[revision()].code, "pt") == 0; }
+bool polish() {
+    const char* code = kRevisions[revision()].code;
+    return std::strcmp(code, "pl") == 0 || std::strcmp(code, "ba") == 0;
+}
 
-// Where the Portuguese patch keeps its text. Measured: the literals of the patched,
-// copied routine 0x0803857C (ROM 0x080385A4 / 0x080385A8) name the offset table
-// 0x08F80000 and the text base 0x08F8C300 (FACTS.md "Portuguese (Kyle the Runner)").
+// Where a plain-text patch keeps its text. Measured: the literals of the
+// patched, copied routine 0x0803857C (ROM 0x080385A4 / 0x080385A8) name the
+// offset table and the text base (FACTS.md "Portuguese (Kyle the Runner)",
+// "Polish 1.1c and Balance Age 1.34hf").
 bool plain_text(std::uint32_t* offsets, std::uint32_t* base) {
-    if (!portuguese()) return false;
-    *offsets = 0x00F80000u;
-    *base = 0x00F8C300u;
-    return true;
+    static constexpr struct { const char* code; std::uint32_t offsets, base; } kTables[] = {
+        {"pt", 0x00F80000u, 0x00F8C300u},
+        {"pl", 0x00FA0000u, 0x00FAC300u},
+        {"ba", 0x01000000u, 0x0100C300u},
+    };
+    for (const auto& table : kTables)
+        if (std::strcmp(kRevisions[revision()].code, table.code) == 0) {
+            *offsets = table.offsets;
+            *base = table.base;
+            return true;
+        }
+    return false;
 }
 bool spanish() { return version() == Version::Spanish; }
 const char* name() { return kRevisions[revision()].name; }

@@ -1429,10 +1429,10 @@ int main(int argc, char** cargv) {
     if (!s.revision) {
         if (!gbarecomp::any_rom_allowed()) {
 #ifdef GSR_BUILDER_TLA
-            return fail("This release requires the English, Spanish, Italian, French, German, Reloaded 1.83, Portuguese Beta 1 or Maheo Hack 2.0 Golden Sun: The Lost Age ROM.");
+            return fail("This release requires the English, Spanish, Italian, French, German, Reloaded 1.83, Portuguese Beta 1, Polish 1.1c, Maheo Hack 2.0 or Balance Age 1.34hf Golden Sun: The Lost Age ROM.");
 #else
             return fail(std::string("This release requires the ") + kGameName +
-                        ", Golden Sun (Spain), Golden Sun (Italy), Golden Sun (France), Golden Sun (Germany), Golden Sun Reloaded 1.83a, Portuguese Beta 1.01, Dawn of Djinn 2.0.5 or Jenna Edition 1.0.0 Modern ROM.");
+                        ", Golden Sun (Spain), Golden Sun (Italy), Golden Sun (France), Golden Sun (Germany), Golden Sun Reloaded 1.83a, Portuguese Beta 1.01, Polish v1, Dawn of Djinn 2.0.5 or Jenna Edition 1.0.0 Modern ROM.");
 #endif
         }
         s.revision = &kRevisions[0];

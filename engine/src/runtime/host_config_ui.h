@@ -374,6 +374,9 @@ void config_ui_set_game_page(void (*draw)());
 void config_ui_set_cheats_page(void (*draw)());
 // Optional game-owned content on F1's Music page.
 void config_ui_set_music_page(void (*draw)());
+// Optional game-owned page on the phone menu only (a Trackers tile): what a
+// computer shows in its own windows, a full screen to glance at.
+void config_ui_set_trackers_page(void (*draw)());
 // The F1 menu's words in another language: a game installs {English, text}
 // pairs, UTF-8. The menu draws the ROM's font, whose codes 0xA0..0xFF are
 // Latin-1 (á = 0xE1, ñ = 0xF1, ¿ = 0xBF), so accented letters show as such.

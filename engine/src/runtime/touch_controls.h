@@ -5,7 +5,8 @@
 //
 // Two round edge buttons: the menu (opens the F1 menu) and fast forward
 // (>>, switches the Fast Forward (toggle) latch on and off; gold while on).
-// Tap one, or drag it to move it. Idle, each slides partly offscreen and can
+// Tap one, or drag it to move it. Menu > Controls > Place on-screen buttons
+// lets the player move the GBA buttons too (saved in config.ini). Idle, each slides partly offscreen and can
 // still be tapped; fast forward stays out while it runs.
 //
 // Desktop builds compile the stubs: touch_controls_enabled() is false there
@@ -13,6 +14,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 namespace gbarecomp {
 
@@ -33,6 +35,16 @@ void touch_controls_set_buttons_shown(bool shown);
 
 // Whether fast forward is running, for the >> button's look.
 void touch_controls_set_fast_forward(bool on);
+
+// Placing: the player drags the GBA buttons, with Done and Reset at the
+// top; the game gets no input. Done (or opening the menu) ends it.
+void touch_controls_begin_placing();
+bool touch_controls_placing();
+// True once after placing ends: save touch_controls_layout() then.
+bool touch_controls_take_layout_changed();
+// The saved places, for config.ini [Video] TouchLayout ("": the defaults).
+std::string touch_controls_layout();
+void touch_controls_set_layout(const char* text);
 
 // Draw the buttons in the current ImGui frame using window coordinates.
 // Skip drawing while the menu is open.

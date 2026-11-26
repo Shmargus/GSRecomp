@@ -2306,6 +2306,8 @@ void HostWindow::load_input_config(const char* dir) {
             b->touch_buttons = on;
         } else if (SDL_strcasecmp(key, "ControllerAsked") == 0) {
             b->controller_asked = on;
+        } else if (SDL_strcasecmp(key, "TouchLayout") == 0) {
+            touch_controls_set_layout(val);
         } else if (SDL_strcasecmp(key, "VSync") == 0) {
             b->cfg.vsync = on;
         } else if (SDL_strcasecmp(key, "LinearFilter") == 0) {
@@ -3260,7 +3262,8 @@ bool write_video_ini(const Backend* b) {
     std::vector<std::string> lines = read_ini_lines(path);
     std::vector<const char*> names = {
         "WindowScale", "Fullscreen", "VSync", "LinearFilter",
-        "IntegerScale", "ScreenFilter", "ShowFPS", "TouchButtons", "ControllerAsked"
+        "IntegerScale", "ScreenFilter", "ShowFPS", "TouchButtons", "ControllerAsked",
+        "TouchLayout"
     };
     std::vector<std::string> values = {
         std::to_string(b->scale), b->preferred_fullscreen ? "true" : "false",
@@ -3268,7 +3271,8 @@ bool write_video_ini(const Backend* b) {
         b->integer_scale ? "true" : "false",
         std::to_string(static_cast<int>(b->preferred_screen_filter)),
         b->fps_readout ? "true" : "false",
-        b->touch_buttons ? "true" : "false", b->controller_asked ? "true" : "false"
+        b->touch_buttons ? "true" : "false", b->controller_asked ? "true" : "false",
+        touch_controls_layout()
     };
     for (int i = 0; i < kScreenFilterParamCount; ++i) {
         char text[32];
@@ -4172,6 +4176,7 @@ HostWindow::Events HostWindow::pump() {
             if (touch.fast_forward_pressed && !quit_owns_input)
                 b->turbo_toggle_on = !b->turbo_toggle_on;
             touch_controls_set_fast_forward(b->turbo_toggle_on);
+            if (touch_controls_take_layout_changed()) persist_video(b);
         }
         // Auto Fire: two frames pressed, two released, so the game sees a
         // fresh press every fourth frame. Keyed to the guest frame so the

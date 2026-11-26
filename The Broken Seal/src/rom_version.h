@@ -58,6 +58,9 @@ bool jenna_edition();
 // Kyle the Runner's Brazilian Portuguese Beta 1.01 (a patch of USA/Europe;
 // rom_version() is Usa, addresses as USA). Our menus show in Portuguese.
 bool portuguese();
+// The Polish translation (a patch of USA/Europe; rom_version() is Usa,
+// addresses as USA). Our menus show in Polish.
+bool polish();
 // The unmodified USA/Europe ROM itself (not a language or a patch of it).
 bool usa_europe_rom();
 // Where the loaded ROM keeps plain text (gsr::mods::PlainText), as ROM

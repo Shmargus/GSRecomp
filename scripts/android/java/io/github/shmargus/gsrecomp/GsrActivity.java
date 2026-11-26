@@ -32,6 +32,7 @@ public abstract class GsrActivity extends SDLActivity {
     private static final int REQUEST_CHILD = 1;
     private static final int REQUEST_PICK = 2;
     private static final int REQUEST_FILES = 3;
+    private static final int REQUEST_NOTIFY = 4;
     // If a child exits without reporting a code, use 128 + SIGKILL.
     private static final int KILLED = 137;
 
@@ -132,6 +133,16 @@ public abstract class GsrActivity extends SDLActivity {
     // While a game build runs: keep this process and its compilers at full
     // speed in the background (BuildService). Any thread.
     public void keepAwake(final boolean on) {
+        // Android 13+ shows the build's notification only with permission;
+        // the system asks once (or twice if the first answer is No).
+        if (on && Build.VERSION.SDK_INT >= 33
+            && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+            runOnUiThread(new Runnable() {
+                public void run() {
+                    requestPermissions(new String[] { "android.permission.POST_NOTIFICATIONS" }, REQUEST_NOTIFY);
+                }
+            });
+        }
         Class<?> service = this instanceof SessionActivity ? SessionBuildService.class : BuildService.class;
         Intent intent = new Intent(this, service).putExtra("on", on);
         try {
@@ -142,6 +153,11 @@ public abstract class GsrActivity extends SDLActivity {
             // Not allowed now (Android 12+ from the background): the build
             // runs as before; nothing was started that needs stopping.
         }
+    }
+
+    // The build's step and count for its notification (BuildService). Any thread.
+    public void buildProgress(String step, int done, int total) {
+        BuildService.progress(this, step, done, total);
     }
 
     // Request a display rate that matches the frame rate on Android 11+.

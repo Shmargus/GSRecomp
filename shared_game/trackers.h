@@ -10,27 +10,50 @@
 
 namespace gsr::trackers {
 
+#ifdef GBARECOMP_HAVE_IMGUI
+// The phone's Trackers page: both trackers at once, the Djinn beside the
+// treasure list (above it when the phone is upright). The list scrolls with
+// the finger; the Djinn fill their half.
+inline void draw_page() {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const bool wide = avail.x >= avail.y;
+    const float gap = style.ItemSpacing.x * 2;
+    const ImVec2 djinn(wide ? (avail.x - gap) * 0.5f : avail.x, wide ? avail.y : (avail.y - gap) * 0.5f);
+    ImGui::BeginChild("##DjinnPage", djinn, ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    djinn_tracker::draw_page();
+    ImGui::EndChild();
+    if (wide) ImGui::SameLine(0, gap);
+    else ImGui::Dummy(ImVec2(0, gap - style.ItemSpacing.y * 2));
+    ImGui::BeginChild("##TreasurePage", ImVec2(0, 0));
+    treasure_tracker::draw_page();
+    ImGui::EndChild();
+}
+#endif
+
 // Once at startup, after anything else that installs extra ImGui drawing.
-// Phones have no tracker windows: their screen is the game and its buttons,
-// and the F1 Game page does not list the tracker switches there.
+// A computer shows each tracker in its own window, switched on under F1 >
+// Game. A phone's screen is the game and its buttons, so there both are one
+// page of the menu, always there: menu button, then Trackers.
 inline void install(const djinn_tracker::Game& djinn, const treasure_tracker::Game& treasure,
                     const tracker_text::Config& text) {
-#if defined(__ANDROID__)
-    (void)djinn; (void)treasure; (void)text;
-    return;
-#endif
     tracker_text::config = &text;
     djinn_tracker::install(djinn);
     treasure_tracker::install(treasure);
+#ifdef GBARECOMP_HAVE_IMGUI
+#if defined(__ANDROID__)
+    gbarecomp::config_ui_set_trackers_page(draw_page);
+#else
+    tracker_window::chain(djinn_tracker::window, djinn_tracker::draw);
+    tracker_window::chain(treasure_tracker::window, treasure_tracker::draw);
+#endif
+#endif
 }
 
 // Emulation thread, once per frame.
 inline void sample(const std::uint8_t* ewram, const std::uint8_t* rom, std::size_t rom_size,
                    unsigned (*planned_reward)(unsigned), unsigned (*planned_gift)(unsigned, unsigned)) {
-#if defined(__ANDROID__)
-    (void)ewram; (void)rom; (void)rom_size; (void)planned_reward; (void)planned_gift;
-    return;
-#endif
     if (rom && tracker_text::config && !tracker_text::ready.load(std::memory_order_relaxed)) {
         const auto& text = *tracker_text::config;
         const auto* djinn = djinn_tracker::game;
