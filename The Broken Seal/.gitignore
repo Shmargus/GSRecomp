@@ -196,6 +196,7 @@ BLOG_POST*.html
 !/tools/block_timing.py
 !/tools/build_overlay_toml.py
 !/tools/music_loops.py
+!/tools/verify_rom.py
 /config/usa-main-scan.toml
 /config/usa.toml.example
 /config/usa/overlay-observed-entries.json

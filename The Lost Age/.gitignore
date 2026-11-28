@@ -191,6 +191,7 @@ BLOG_POST*.html
 !/tools/tla_mixer_variants.py
 !/tools/tla_battle_blitters.py
 !/tools/tla_selfpatch_rom.py
+!/tools/tla_rom_revisions.py
 !/tools/slim_corpus.py
 !/tools/block_timing.py
 
