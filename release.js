@@ -66,7 +66,8 @@ fetch("https://api.github.com/repos/Shmargus/GSRecomp/releases?per_page=1")
     if (releaseLine) {
       const assets = release.assets || [];
       const zips = assets.filter(asset => /\.zip$/i.test(asset.name));
-      const linux = zips.find(asset => /linux/i.test(asset.name));
+      // The x64 zip; an ARM64 zip ("-linux-arm64") sorts before it.
+      const linux = zips.find(asset => /linux/i.test(asset.name) && !/arm64/i.test(asset.name));
       const windows = zips.find(asset => /windows/i.test(asset.name)) ||
         zips.find(asset => !/linux/i.test(asset.name));
       const apk = assets.find(asset => /\.apk$/i.test(asset.name));
