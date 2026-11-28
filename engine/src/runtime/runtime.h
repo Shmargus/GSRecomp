@@ -147,9 +147,6 @@ struct RunOptions {
     // Allow the in-game menu to select exact 60/120 Hz host pacing. This is
     // presentation-only, default-off, and forcibly unavailable in strict runs.
     bool enhanced_timing_available = false;
-    // Opt-in host-side native presentation compositor. Forced off for
-    // strict/static and framebuffer-capture runs.
-    bool native_renderer_available = false;
     // >240/160 offers the launcher's fixed expanded-view toggle, mapped to
     // --view-width/--view-height when enabled. 0/240/160 = no expanded
     // surface shown. Games with MULTIPLE extended widths/heights use the

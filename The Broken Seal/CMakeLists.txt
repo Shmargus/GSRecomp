@@ -749,7 +749,6 @@ if(GSR_BUILD_LOCAL_RUNNER)
         src/frame_capture.cpp
         src/map_recorder.cpp
         src/obj_recorder.cpp
-        src/room_buffer.cpp
         "${GBARECOMP_ROOT}/src/field/field_scene.cpp"
         "${GBARECOMP_ROOT}/src/field/field_scene_renderer.cpp"
         src/field_game_profile.cpp
@@ -992,6 +991,10 @@ if(GSR_BUILD_LOCAL_RUNNER)
             # The reverse of Linux: the game library needs the engine
             # plug-in, as the phone's own build links it (player_builder).
             target_link_libraries(GoldenSunGame PRIVATE GoldenSunRecomp)
+            # The phone's own build flags (player_builder/builder_main.cpp),
+            # so build_apk.py --check-games audits the same code.
+            target_compile_options(gsr_game_objects PRIVATE -fno-exceptions
+                -fno-rtti -fno-unwind-tables -fno-asynchronous-unwind-tables)
         else()
         target_link_libraries(GoldenSunRecomp PRIVATE GoldenSunGame)
         # The library is found beside the engine and nowhere else (no build

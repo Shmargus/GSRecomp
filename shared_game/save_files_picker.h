@@ -559,9 +559,39 @@ inline std::uint16_t keyinput(std::uint16_t keys) {
     return g_swallow_a ? static_cast<std::uint16_t>(keys | kKeyA) : keys;
 }
 
+// The red Challenge Mode rows while a picker is up (save_files.h RedRows).
+inline RedRows red_rows(const Game& g) {
+    RedRows red;
+    if (!g_picker.open || !g_picker.window || !extension(g)) return red;
+    gba::GbaBus* b = bus();
+    const int x = b->read16(g_picker.window + 0xC), y = b->read16(g_picker.window + 0xE);
+    const int w = b->read16(g_picker.window + 8), h = b->read16(g_picker.window + 0xA);
+    if (w < 3 || h < 3) return red;
+    red.x0 = x * 8 + 4;
+    red.x1 = (x + w) * 8 - 4;
+    red.y0 = y * 8 + 4;
+    red.y1 = (y + h) * 8 - 4;
+    for (int row = 0; row < kRows; ++row) {
+        const int file = base(g) + row;
+        if (file < kFiles && g_picker.red[file]) red.rows |= static_cast<std::uint8_t>(1u << row);
+    }
+    return red;
+}
+// One pixel of a red row (8-bit RGB as shown): the window's blues become the
+// same shades of red; letters, shadows and the game's own highlight are not
+// blue and stay. The field renderer's resolve pass makes the same test on
+// the card (FieldSceneRenderer::set_window_red); keep the two alike.
+inline void redden(std::uint8_t* p) {
+    if (p[2] <= p[0] + 16 || p[2] <= p[1]) return;
+    const std::uint8_t blue = p[2], green = p[1];
+    p[0] = blue;
+    p[1] = p[2] = static_cast<std::uint8_t>(green / 3);
+}
+
 // The file box's scrollbar, inside its right border, while a picker is up,
 // and Challenge Mode files in red: their row's blue window turns red, the
-// letters stay. `pixel(x, y)` is a native pixel's RGB, null off the picture.
+// letters stay. `pixel(x, y)` is a native pixel's RGB, null off the picture
+// (or always null when the renderer already turned them red).
 template <class Put, class Pixel>
 bool paint(const Game& g, Put& put, Pixel& pixel) {
     if (!g_picker.open || !g_picker.window || !extension(g)) return false;
@@ -569,23 +599,11 @@ bool paint(const Game& g, Put& put, Pixel& pixel) {
     const int x = b->read16(g_picker.window + 0xC), y = b->read16(g_picker.window + 0xE);
     const int w = b->read16(g_picker.window + 8), h = b->read16(g_picker.window + 0xA);
     if (w < 3 || h < 3) return false;
-    // Rows are 16 pixels from 4 inside the window's corner, the border 4
-    // wide (measured in The Broken Seal: window tile (1, 2), rows from y 20). The
-    // window's blues become the same shades of red; letters, shadows and the
-    // game's own highlight are not blue and stay.
-    for (int row = 0; row < kRows; ++row) {
-        const int file = base(g) + row;
-        if (file >= kFiles || !g_picker.red[file]) continue;
-        const int top = y * 8 + 4 + row * 16;
-        const int bottom = std::min(top + 16, (y + h) * 8 - 4);
-        for (int py = top; py < bottom; ++py)
-            for (int px = x * 8 + 4; px < (x + w) * 8 - 4; ++px) {
-                std::uint8_t* p = pixel(px, py);
-                if (!p || p[2] <= p[0] + 16 || p[2] <= p[1]) continue;
-                const std::uint8_t blue = p[2], green = p[1];
-                p[0] = blue;
-                p[1] = p[2] = static_cast<std::uint8_t>(green / 3);
-            }
+    const RedRows red = red_rows(g);
+    for (int py = red.y0; py < red.y1; ++py) {
+        if (((red.rows >> ((py - red.y0) / 16)) & 1u) == 0) continue;
+        for (int px = red.x0; px < red.x1; ++px)
+            if (std::uint8_t* p = pixel(px, py)) redden(p);
     }
     paint_scrollbar(put, (x + w - 1) * 8 + 2, (y + 1) * 8, (h - 2) * 8, base(g));
     return true;

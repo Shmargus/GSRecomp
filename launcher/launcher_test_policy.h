@@ -27,10 +27,11 @@ constexpr LauncherTestDefaults launcher_test_defaults() {
     return {};
 }
 
-// Developer launcher sessions always collect these three performance
-// diagnostics, even when the general test-variable switch is off.
+// Developer launcher sessions always collect these performance diagnostics,
+// even when the general test-variable switch is off.
 inline constexpr const char* developer_performance_options[] = {
-    "GBARECOMP_COST_PROBE", "GBARECOMP_HOST_PROF", "GBARECOMP_PRESENT_CADENCE"};
+    "GBARECOMP_COST_PROBE", "GBARECOMP_HOST_PROF", "GBARECOMP_PRESENT_CADENCE",
+    "GBARECOMP_GPU_TIMING"};
 
 inline constexpr bool is_developer_performance_option(std::string_view environment) {
     for (const char* name : developer_performance_options)

@@ -11,6 +11,7 @@
 
 #include "game_options.h"
 #include "../../shared_game/instant_text.h"
+#include "../../shared_game/save_files.h"
 
 namespace gbarecomp { struct RunOptions; struct HistoryFrame; }
 
@@ -33,7 +34,11 @@ void tla_custom_battle_reset();
 // (one copy with The Broken Seal, shared_game/save_files_picker.h).
 void tla_install_save_files(gbarecomp::RunOptions& options);
 void tla_save_files_on_entry(std::uint32_t pc);
-bool tla_save_files_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
+// The scrollbar goes on `layer`; red Challenge files recolour `picture`,
+// null when the field renderer already did (tla_save_files_red_rows).
+bool tla_save_files_paint(std::uint8_t* layer, std::uint8_t* picture,
+                          std::uint32_t width, std::uint32_t height);
+gsr::save_files::RedRows tla_save_files_red_rows();
 bool tla_save_files_visible();
 // "No autosaved data" on an empty Autosave row (save_files_picker.h).
 bool tla_save_files_text(std::uint32_t text_id, std::string& out);
@@ -42,8 +47,13 @@ bool tla_save_files_text(std::uint32_t text_id, std::string& out);
 void tla_install_retreat_travel(gbarecomp::RunOptions& options);
 bool tla_retreat_travel_on_entry(std::uint32_t pc);
 void tla_retreat_travel_reset();
-bool tla_retreat_travel_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height);
-bool tla_retreat_travel_visible();
+// The destination list goes on `layer`. `keep` is the shown picture, kept
+// and shown again over the native map's own frames; null when the card draws
+// those frames again from the last capture (tla_retreat_hold_frame).
+bool tla_retreat_travel_paint(std::uint8_t* layer, std::uint8_t* keep,
+                              std::uint32_t width, std::uint32_t height);
+// The native map runs unseen: show the last world view again.
+bool tla_retreat_hold_frame();
 
 // Radial Psynergy menu and the L2/R2 field shortcuts (hotkeys; one copy with
 // The Broken Seal, shared_game/radial_psynergy.h).
@@ -250,7 +260,8 @@ void tla_gpu_field_on_entry(std::uint32_t pc);
 bool tla_flat_map_on_entry(std::uint32_t pc);
 bool tla_gpu_field_present(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height,
                            gbarecomp::HistoryFrame& frame, bool synchronous,
-                           bool direct_ok);
+                           bool direct_ok,
+                           const gbarecomp::SceneSnapshot* held = nullptr);
 void tla_rewind_reset();
 void tla_gpu_field_dump(const std::string& path);
 // This frame's capture for the F12 history (null: none); its TLAGPUF2

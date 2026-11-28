@@ -17,6 +17,8 @@ struct LauncherAudioSettings {
     // Skip the ROM check: take a ROM that is not the supported one
     // (engine any_rom.h). Off by default.
     bool any_rom = false;
+    // Android: compile on every core ("--all-cores"). Off by default.
+    bool all_cores_build = false;
 };
 
 inline bool parse_bool_setting(const std::string& value) {
@@ -63,6 +65,8 @@ inline LauncherAudioSettings load_launcher_audio_settings(const fs::path& root) 
             settings.gs_save_import = value;
         } else if (in_launcher && key == "AnyRom") {
             settings.any_rom = value;
+        } else if (in_launcher && key == "AllCoresBuild") {
+            settings.all_cores_build = value;
         }
     }
     if (!settings.gpu_field) settings.gpu_field_only = false;
@@ -99,6 +103,7 @@ inline bool save_launcher_audio_settings(const fs::path& root,
             (key == "CopySessionIdToClipboard" || key == "EnhancedOptions" ||
              key == "GpuFieldRenderer" || key == "GpuFieldOnly" ||
              key == "GoldenSunSaveImport" || key == "AnyRom" ||
+             key == "AllCoresBuild" ||
              key == "PrebuiltRamCode")) continue;
         kept.push_back(line);
     }
@@ -109,7 +114,8 @@ inline bool save_launcher_audio_settings(const fs::path& root,
         "GpuFieldRenderer=" + std::string(settings.gpu_field ? "true" : "false"),
         "GpuFieldOnly=" + std::string(settings.gpu_field_only ? "true" : "false"),
         "GoldenSunSaveImport=" + std::string(settings.gs_save_import ? "true" : "false"),
-        "AnyRom=" + std::string(settings.any_rom ? "true" : "false")};
+        "AnyRom=" + std::string(settings.any_rom ? "true" : "false"),
+        "AllCoresBuild=" + std::string(settings.all_cores_build ? "true" : "false")};
     std::size_t insertion = kept.size();
     bool found_launcher = false;
     for (std::size_t i = 0; i < kept.size(); ++i) {

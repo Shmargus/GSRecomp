@@ -308,6 +308,10 @@ if(TLA_SPLIT_GAME_CODE AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR ANDROID))
         # The reverse of Linux: the game library needs the engine plug-in,
         # as the phone's own build links it (player_builder).
         target_link_libraries(TLAGame PRIVATE TLARecomp)
+        # The phone's own build flags (player_builder/builder_main.cpp),
+        # so build_apk.py --check-games audits the same code.
+        target_compile_options(tla_game_objects PRIVATE -fno-exceptions
+            -fno-rtti -fno-unwind-tables -fno-asynchronous-unwind-tables)
     else()
         target_link_libraries(TLARecomp PRIVATE TLAGame)
         set_target_properties(TLARecomp PROPERTIES
@@ -338,7 +342,8 @@ add_executable(tla_frame_check EXCLUDE_FROM_ALL
     src/world_map_source.cpp
     "${GBARECOMP_ROOT}/src/field/effect_particles.cpp"
     "${GBARECOMP_ROOT}/src/field/effect_burst.cpp"
-    "${GBARECOMP_ROOT}/src/runtime/gpu_surface.cpp")
+    "${GBARECOMP_ROOT}/src/runtime/gpu_surface.cpp"
+    "${GBARECOMP_ROOT}/src/runtime/gpu_timing.cpp")
 target_include_directories(tla_frame_check PRIVATE
     src
     "${GBARECOMP_ROOT}/src/field"

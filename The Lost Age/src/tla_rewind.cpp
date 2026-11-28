@@ -21,8 +21,10 @@
 namespace {
 
 gbarecomp::FrameHistory g_history("tla_rewind_");
-// Phones: the battle HP bar and ">>" over the card's picture when the frame
-// is shown straight from the card (neither painter reads the picture).
+// Phones: what the runner paints (the battle HP bar and ">>", the Quality of
+// Life menu, the Golden Sun save import, the Custom Battle panel, the radial
+// menu, the new-game questions and the notice) over the card's picture when
+// the frame is shown straight from the card (none of them reads the picture).
 gbarecomp::GpuOverlayLayer g_overlay_layer;
 
 bool present(uint8_t* rgb, uint32_t width, uint32_t height) {
@@ -33,29 +35,51 @@ bool present(uint8_t* rgb, uint32_t width, uint32_t height) {
         runtime_current_frame() >= g_history.back(0).guest_frame;
     auto frame = gbarecomp::FrameHistory::capture();
     frame.battle_2x = tla_battle_speed_active();
-    try {
-        frame.scene = tla_gpu_field_snapshot(width, height, &frame.scene_frame);
-    } catch (const std::bad_alloc&) {
-        static bool reported = false;
-        if (!reported) {
-            reported = true;
-            std::fprintf(stderr, "[tla] F12: renderer snapshot allocation failed; keeping images only\n");
+    // A torn spell picture, and Retreat's native map running unseen, show
+    // the last picture again: drawn again on the card from its snapshot, or
+    // copied from the kept picture when the card did not draw it.
+    const bool same_size = have_last && g_history.back(0).width == width &&
+        g_history.back(0).height == height;
+    const bool last_on_card = same_size && g_history.back(0).gpu_drawn &&
+        g_history.back(0).scene;
+    const bool held_frame = same_size &&
+        (last_on_card || !g_history.back(0).rgb.empty()) && tla_battle_spell_setup_frame();
+    const bool retreat_hold = tla_retreat_hold_frame();
+    const bool held_on_card = (held_frame || retreat_hold) && last_on_card;
+    if (held_on_card) {
+        frame.scene = g_history.back(0).scene;
+        frame.scene_frame = g_history.back(0).scene_frame;
+    } else {
+        try {
+            frame.scene = tla_gpu_field_snapshot(width, height, &frame.scene_frame);
+        } catch (const std::bad_alloc&) {
+            static bool reported = false;
+            if (!reported) {
+                reported = true;
+                std::fprintf(stderr, "[tla] F12: renderer snapshot allocation failed; keeping images only\n");
+            }
         }
     }
-    const bool held_frame = have_last && g_history.back(0).width == width &&
-        g_history.back(0).height == height && tla_battle_spell_setup_frame();
-    const bool synchronous = held_frame || tla_settings_page_overlay_visible() ||
-        tla_gs_save_import_visible();
-    // Anything painted on the copied picture below needs it; otherwise a
-    // phone may show the card's picture directly (gpu_present.h). The HP bar
-    // and ">>" go to the overlay layer instead (g_overlay_layer).
-    const bool cpu_paint = synchronous || tla_custom_battle_visible() ||
-        tla_retreat_travel_visible() || tla_radial_psynergy_visible() ||
-        tla_save_files_visible() || tla_new_game_visible() ||
-        g_history.report_notice_showing(runtime_current_frame());
-    bool drawn = tla_gpu_field_present(rgb, width, height, frame, synchronous, !cpu_paint);
+    // When the picture is copied back, held pictures and the menus wait for
+    // the card: the queued copy would show the menus a frame late, and would
+    // alternate a held picture with the one queued before it.
+    const bool synchronous = (held_frame || retreat_hold ||
+                              tla_settings_page_overlay_visible() ||
+                              tla_gs_save_import_visible()) &&
+        !gbarecomp::gpu_present_accepting();
+    // Only painters that read the picture need it copied back from the card.
+    // Everything else goes to the overlay layer (g_overlay_layer), so a phone
+    // can show the card's picture directly (gpu_present.h). Copying back made
+    // the game wait on the GPU for over half its time on an Adreno 619 tablet
+    // (TLA FACTS "Tablet session profile"). The card turns red save files
+    // red itself (FieldSceneRenderer::set_window_red).
+    const bool cpu_paint = (held_frame || retreat_hold) && !held_on_card;
+    bool drawn = tla_gpu_field_present(rgb, width, height, frame, synchronous, !cpu_paint,
+                                       held_on_card ? g_history.back(0).scene.get() : nullptr);
     const bool direct = gbarecomp::gpu_present_current() != nullptr;
-    if (held_frame) {
+    if (held_on_card && drawn && frame.gpu_drawn) {
+        frame.held_frame = true;
+    } else if (held_frame && !g_history.back(0).rgb.empty()) {
         const auto& last = g_history.back(0);
         std::copy(last.rgb.begin(), last.rgb.end(), rgb);
         frame = last;
@@ -63,6 +87,7 @@ bool present(uint8_t* rgb, uint32_t width, uint32_t height) {
         frame.held_frame = true;
         drawn = true;
     }
+    const bool card_drawn = frame.gpu_drawn;  // red save files done on the card
     // The indicator belongs to the delivered picture, not the live guest.
     std::uint8_t* const layer = direct ? g_overlay_layer.begin(width, height) : rgb;
     if (frame.battle_2x) {
@@ -70,15 +95,17 @@ bool present(uint8_t* rgb, uint32_t width, uint32_t height) {
                        gsr::battle_speed_level::indicator(), 5);
         drawn = true;
     }
-    drawn = tla_settings_page_paint(rgb, width, height) || drawn;
-    drawn = tla_gs_save_import_paint(rgb, width, height) || drawn;
+    drawn = tla_settings_page_paint(layer, width, height) || drawn;
+    drawn = tla_gs_save_import_paint(layer, width, height) || drawn;
     drawn = tla_enemy_hp_bar_paint(layer, width, height) || drawn;
-    if (direct) g_overlay_layer.finish();
-    drawn = tla_custom_battle_paint(rgb, width, height) || drawn;
-    drawn = tla_retreat_travel_paint(rgb, width, height) || drawn;
-    drawn = tla_radial_psynergy_paint(rgb, width, height) || drawn;
-    drawn = tla_save_files_paint(rgb, width, height) || drawn;
-    drawn = tla_new_game_paint(rgb, width, height) || drawn;
+    // The Custom Battle panel shades only inside its own window, which it
+    // paints first, so it reads the layer's pixels, never the picture's.
+    drawn = tla_custom_battle_paint(layer, width, height) || drawn;
+    drawn = tla_retreat_travel_paint(layer, direct || card_drawn ? nullptr : rgb,
+                                     width, height) || drawn;
+    drawn = tla_radial_psynergy_paint(layer, width, height) || drawn;
+    drawn = tla_save_files_paint(layer, card_drawn ? nullptr : rgb, width, height) || drawn;
+    drawn = tla_new_game_paint(layer, width, height) || drawn;
     g_history.record(direct ? nullptr : rgb, width, height, std::move(frame));
 
     std::string unpacker_note;
@@ -86,10 +113,11 @@ bool present(uint8_t* rgb, uint32_t width, uint32_t height) {
         gsr::unpacker_guard_capture_due(&unpacker_note) ? &unpacker_note : nullptr);
     // After recording, so the notice is not in the saved frames.
     if (notice != gbarecomp::FrameHistory::ReportNotice::None) {
-        tla_paint_text(rgb, width, height, static_cast<int>(width) / 2 - 9 * 6 / 2,
+        tla_paint_text(layer, width, height, static_cast<int>(width) / 2 - 9 * 6 / 2,
                        4, "F12 SAVED");
         drawn = true;
     }
+    if (direct) g_overlay_layer.finish();
     return drawn;
 }
 

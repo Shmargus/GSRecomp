@@ -8,9 +8,11 @@
 //   - CPU blend: 6.6%
 //
 // A GPU texture is offered when the frame needs no CPU painting and the window
-// accepts direct presentation. These features use the readback path instead:
-// colour grading, screen filters, 2x interpolation, native-scale textures and
-// smooth scaling.
+// accepts direct presentation. Colour profiles are applied on the card here
+// too (a profile used to force the copy back, which made a Galaxy Tab A9+
+// slow in the wider views), and screen filters read the finished picture on
+// the card (gpu_present_finish), smooth scaling as the Bilinear filter. Only
+// 2x interpolation (Original view) still uses the readback path.
 //
 // Desktop builds compile stubs: nothing is ever offered and nothing changes.
 #pragma once
@@ -50,8 +52,20 @@ const GpuPresentFrame* gpu_present_current();
 bool gpu_present_draw(SDL_Renderer* renderer, const GpuPresentFrame& frame,
                       const SDL_Rect& source, const SDL_Rect& dest,
                       int blend_index);
+// Window: the same picture (blend, layer, colours) whole into a texture of
+// the frame's size, RGBA, row 0 the top row as an SDL texture, for a screen
+// filter to read (screen_filter_draw_gl). Use instead of gpu_present_draw,
+// once per frame. 0: not drawn.
+unsigned gpu_present_finish(SDL_Renderer* renderer, const GpuPresentFrame& frame,
+                            int blend_index);
 // Window: forget the blend history (a frame went the copied way).
 void gpu_present_reset_history();
+
+// Window, before each draw: the colour profile's table (color_lut.h
+// table_rgb(): 32768 RGB triples by BGR555), or nullptr for Raw. `id`
+// (ColorLut::id) says when it changed; it is uploaded once per change and
+// applied after the flicker blend, as the copied path does.
+void gpu_present_set_color_table(const unsigned char* table, unsigned id);
 
 // Optional RGBA8 overlay (battle HP bar or speed icon), top row first.
 // Alpha 0 is transparent. Upload only the dirty rectangle (w = 0 skips

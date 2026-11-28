@@ -70,6 +70,13 @@ bool screen_filter_draw(SDL_Renderer* renderer, SDL_Texture* texture,
                         ScreenFilter filter, const float* params,
                         const SDL_Rect& source, int pixel_w, int pixel_h,
                         const SDL_Rect& dest);
+// The same from a GL texture of our own (`texture_w` x `texture_h`, RGBA,
+// row 0 the top row as SDL keeps its textures): the phone's finished
+// picture from the card (gpu_present.h), so a filter needs no copy back.
+bool screen_filter_draw_gl(SDL_Renderer* renderer, unsigned gl_texture,
+                           int texture_w, int texture_h, ScreenFilter filter,
+                           const float* params, const SDL_Rect& source,
+                           int pixel_w, int pixel_h, const SDL_Rect& dest);
 
 // Frees the GL objects. Safe to call at any time, including never-used.
 void screen_filter_shutdown();

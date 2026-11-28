@@ -206,22 +206,24 @@ void tla_retreat_travel_reset() {
     travel::reset(); native_running = native_casting = false;
     world_image.clear(); image_width = image_height = 0;
 }
-bool tla_retreat_travel_paint(std::uint8_t* rgb, std::uint32_t w, std::uint32_t h) {
+bool tla_retreat_travel_paint(std::uint8_t* layer, std::uint8_t* keep,
+                              std::uint32_t w, std::uint32_t h) {
     // Replace the native map's internal frames with the last world view;
     // the destination list is the only travel UI the player sees.
     const auto bytes = std::size_t(w) * h * 3u;
     if (native_running) {
+        if (!keep) return true;  // drawn again on the card
         if (image_width == w && image_height == h && world_image.size() == bytes)
-            std::copy(world_image.begin(), world_image.end(), rgb);
+            std::copy(world_image.begin(), world_image.end(), keep);
         else
-            std::fill(rgb, rgb + bytes, 0u);
+            std::fill(keep, keep + bytes, 0u);
         return true;
     }
     if (!travel::showing && !native_casting) return false;
-    world_image.assign(rgb, rgb + bytes); image_width = w; image_height = h;
+    if (keep) { world_image.assign(keep, keep + bytes); image_width = w; image_height = h; }
     if (!travel::showing) return false;
-    tla_menu_paint_window(rgb, w, h, travel::kTileX, travel::kTileY, travel::kTiles, travel::kRows);
-    auto draw = [&](const std::string& s, int x, int y) { tla_menu_paint_text(rgb, w, h, s, x, y); };
+    tla_menu_paint_window(layer, w, h, travel::kTileX, travel::kTileY, travel::kTiles, travel::kRows);
+    auto draw = [&](const std::string& s, int x, int y) { tla_menu_paint_text(layer, w, h, s, x, y); };
     // Shared painter already supplies Latin-1; tla_menu_text_width accepts
     // the same native strings as the existing Custom Battle panel.
     auto width = [](const std::string& s) { return int(tla_menu_text_width(s)); };
@@ -229,7 +231,4 @@ bool tla_retreat_travel_paint(std::uint8_t* rgb, std::uint32_t w, std::uint32_t 
     return true;
 }
 
-// Whether tla_retreat_travel_paint paints or reads the picture this frame.
-bool tla_retreat_travel_visible() {
-    return native_running || native_casting || travel::showing;
-}
+bool tla_retreat_hold_frame() { return native_running; }

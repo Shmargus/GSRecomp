@@ -31,7 +31,6 @@
 #include "map_recorder.h"
 #include "obj_recorder.h"
 #include "battle_view.h"
-#include "room_buffer.h"
 #include "field_scene.h"
 #include "obj_y_continuity.h"
 #include "effect_capture.h"
@@ -2033,7 +2032,6 @@ void golden_sun_function_entry_observer(std::uint32_t entry_pc) {
         golden_sun_obj_f0_entry_capture(entry_pc);
         golden_sun_obj_staging_handoff(entry_pc);
         gsr::map_recorder_on_entry(entry_pc);
-        gsr::room_buffer_on_entry(entry_pc);
         golden_sun_effect_capture_entry(entry_pc);
         return;
     }
@@ -2104,9 +2102,6 @@ void golden_sun_function_entry_observer(std::uint32_t entry_pc) {
     gsr::map_recorder_on_entry(entry_pc);
     gsr::map_recorder_on_function_args(entry_pc, g_cpu.R[0], g_cpu.R[1],
                                        g_cpu.R[2], g_cpu.R[3]);
-    gsr::room_buffer_on_function_args(entry_pc, g_cpu.R[0], g_cpu.R[1],
-                                      g_cpu.R[2]);
-    gsr::room_buffer_on_entry(entry_pc);
     golden_sun_effect_capture_entry(entry_pc);
 }
 }  // namespace gsr_runner

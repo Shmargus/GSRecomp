@@ -444,7 +444,6 @@ public:
         std::wstring arguments = quote_argument(executable.wstring()) +
             L" --session-game " + (choice ? std::wstring(L"LostAge") : std::wstring(L"BrokenSeal")) +
             L" --collection-play --collection-update-checked --collection-root " + quote_argument(root.wstring());
-        if (settings && settings->direct3d) arguments += L" --direct3d";
         if (seamless_slot >= 0) arguments += L" --seamless-slot " + std::to_wstring(seamless_slot);
 #ifdef GSR_COLLECTION_DEV
         if (settings) {
@@ -609,9 +608,16 @@ void open_build_log(const fs::path& log) {
     SDL_OpenURL(url.c_str());
 }
 
-// Shown under the logo; Jim's note to the players, new every release.
-const std::string kMessageFromJim =
-    "Message from Jim: \"Thank you for all the support so far guys, it's been crazy! Keep the bug reports coming!\"";
+// Shown under the logo: Jim's note to the players. The launcher loads the
+// current one from GitHub (launcher_message.txt at the repository root,
+// gsr_collection::LauncherMessage); this built-in one shows until it arrives
+// and when offline. An empty file shows no message.
+const std::string kBuiltInMessageFromJim =
+    "Hi guys! Massive Android update (with some benefits for PC too!). Thanks again for all the kind words, you rock!";
+
+std::string message_from_jim(const std::string& words) {
+    return words.empty() ? std::string() : "Message from Jim: \"" + words + "\"";
+}
 
 void golden_title(ImDrawList* draw, ImFont* font, float size, float center, float top, const char* text) {
     const auto measured = font->CalcTextSizeA(size, FLT_MAX, 0, text);
@@ -952,6 +958,8 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
     bool tla_custom_battle = false;
     Box settings_box{};
     gsr_collection::ReleaseCheck updates(preview.empty());
+    gsr_collection::LauncherMessage online_message(preview.empty());
+    std::string jim_message = message_from_jim(kBuiltInMessageFromJim);
     // What's New: the newest release's notes, loaded when first opened.
     gsr_collection::ReleaseNotes notes;
     bool notes_open = false, request_notes = false;
@@ -1413,10 +1421,12 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
         const float logo_height = logo_width * logo.height / logo.width;
         const float logo_top = 14 * scale;
         draw->AddImage(reinterpret_cast<ImTextureID>(logo.texture), {center - logo_width / 2, logo_top}, {center + logo_width / 2, logo_top + logo_height});
-        // Message from Jim: a note to the players, changed every release
-        // (kMessageFromJim), between the logo and the heading.
-        wrapped_centered_text(draw, body, 15 * scale, center, 158 * scale, std::min(width - 40 * scale, 760 * scale), 2,
-                              IM_COL32(236, 222, 182, 255), kMessageFromJim);
+        // Message from Jim, between the logo and the heading: the built-in
+        // one until GitHub's arrives.
+        if (std::string fetched; online_message.take(fetched)) jim_message = message_from_jim(fetched);
+        if (!jim_message.empty())
+            wrapped_centered_text(draw, body, 15 * scale, center, 158 * scale, std::min(width - 40 * scale, 760 * scale), 2,
+                                  IM_COL32(236, 222, 182, 255), jim_message);
         golden_title(draw, heading, 24 * scale, center, 186 * scale, "Choose Your Adventure");
         const double seconds = preview.empty() ? elapsed : 1.0;
         const float pulse = gbarecomp::cartridge_art::pulse(seconds);
@@ -1839,16 +1849,6 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 error = "Could not save area music choices.";
             ImGui::TextWrapped("Use the track choices saved under F1 > Music for each area. Works with original music and the Music Mod. Off keeps your choices for later.");
             ImGui::Separator();
-#ifdef _WIN32
-            ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "Graphics");
-            if (ImGui::Checkbox("Use Direct3D", &game.direct3d) && preview.empty() && !gsr_collection::save_settings(root, settings))
-                error = "Could not save graphics settings.";
-            ImGui::TextWrapped("Leave this off. Direct3D is only for computers where the game does not "
-                               "start with OpenGL; some enhancements, screen filters and fixes are "
-                               "unavailable with it.");
-#elif !defined(__ANDROID__)
-            ImGui::TextWrapped("Graphics use OpenGL on Linux.");
-#endif
             auto& view = view_settings[settings_game];
             bool view_changed = ImGui::Combo("View", &view.mode,
                 gbarecomp::kViewModeLabels, gbarecomp::kViewModeCount);
@@ -1885,11 +1885,10 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
 #ifdef _WIN32
             ImGui::TextColored({0.95f, 0.76f, 0.31f, 1}, "Game options");
             auto& preference = preferences[settings_game];
-            ImGui::BeginDisabled(game.direct3d);
             bool preferences_changed = ImGui::Checkbox("Draw the field with the graphics card", &preference.gpu_field);
             ImGui::BeginDisabled(!preference.gpu_field);
             preferences_changed |= ImGui::Checkbox("Graphics card only", &preference.gpu_field_only);
-            ImGui::EndDisabled(); ImGui::EndDisabled();
+            ImGui::EndDisabled();
             if (!preference.gpu_field) preference.gpu_field_only = false;
             preferences_changed |= ImGui::Checkbox("Copy session ID to clipboard", &preference.copy_session_id_to_clipboard);
             if (preferences_changed && preview.empty() &&
@@ -1914,7 +1913,7 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 }
                 if (i == gsr_collection::test_index("TLA_GPU_FIELD_CHECK") &&
                     ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                    ImGui::SetTooltip("Enables the GPU field renderer for this check. Unavailable with Direct3D.");
+                    ImGui::SetTooltip("Enables the GPU field renderer for this check.");
                 ImGui::EndDisabled();
             }
 #endif
@@ -1966,6 +1965,18 @@ int run(SDL_Window* window, SDL_Renderer* renderer, const fs::path& root, const 
                 // has neither (the build would refuse to start).
                 ImGui::Checkbox(text.build_less_resources, &reduced_build);
                 ImGui::TextWrapped("%s", text.build_resource_notice);
+                ImGui::Spacing();
+#else
+                // A phone setting, not a game one: kept the same for both games.
+                if (ImGui::Checkbox(text.build_all_cores, &preferences[confirm_build].all_cores_build) &&
+                    preview.empty()) {
+                    auto& other = preferences[1 - confirm_build];
+                    other.all_cores_build = preferences[confirm_build].all_cores_build;
+                    for (int game = 0; game < 2; ++game)
+                        if (!gsr_session::save_launcher_audio_settings(
+                                gsr_session::game_root(root, game), preferences[game]))
+                            error = "Could not save the build preference.";
+                }
                 ImGui::Spacing();
 #endif
                 // Asked on every build, ticked each time the window opens.

@@ -1,8 +1,8 @@
 # Golden Sun Recompiled
 
 Native PC ports of **Golden Sun** (The Broken Seal) and **Golden Sun: The Lost
-Age** for the Game Boy Advance, made by static recompilation, for Windows and
-Linux (including the Steam Deck). Each game's ARM/Thumb code is translated
+Age** for the Game Boy Advance, made by static recompilation, for Windows,
+Linux (including the Steam Deck) and Android. Each game's ARM/Thumb code is translated
 ahead of time into C++ by the shared engine in `engine/` (an edited copy of
 gbarecomp), then compiled into native code without requiring a GBA BIOS.
 Code first discovered during play can temporarily run through an interpreter
@@ -21,6 +21,8 @@ machine. The launcher checks each ROM's SHA-1 unless you enable
 
 1. Download the Windows or Linux zip from
    [Releases](https://github.com/Shmargus/GSRecomp/releases) and unzip it.
+   On Android 9 or newer, install the `.apk` from the same page instead; the
+   phone app works like the PC launcher and builds the game on the phone.
 2. Start `GoldenSunLauncher` (`GoldenSunLauncher.exe` on Windows), pick The
    Broken Seal or The Lost Age, and choose that game's ROM. It remembers each.
 3. On first start, and after an update, the launcher builds the game code from
@@ -44,6 +46,16 @@ version changed; updating can make the launcher prepare your game code again.
 
 ## Features
 
+- **Languages and romhacks.** English, Spanish, Italian, French and German
+  ROMs, plus the Brazilian Portuguese and Polish fan translations (flags under
+  each cartridge). The **Romhack** button takes Golden Sun Reloaded, Dawn of
+  Djinn, Jenna Edition, Maheo Hack and Polish Balance Age from a patched ROM.
+  Each has its own saves.
+- **Quality of Life.** Pause → Quality of Life: walking speed, encounter rate,
+  battle speed (2x or 4x), view size, Better Psynergy, trackers and more.
+  New Game offers a Randomizer and Challenge Mode.
+- **Import emulator saves** from mGBA, VisualBoyAdvance or RetroArch
+  (launcher, top left).
 - **Wider views.** Wide and Extra Wide show more of each room and the world
   map around the original screen, with effects, weather and scenery carried
   into the extra space.
@@ -77,6 +89,8 @@ version changed; updating can make the launcher prepare your game code again.
   beacon stops short of the top of the wider view.
 - TLA: walking can occasionally stutter; we haven't reproduced it yet.
 - TBS: Kolima's pond scenery doesn't follow the water as it drains.
+- TBS: in the Debug room's "Increase Level and Items" area, talking to the
+  bottom-right NPC freezes the game.
 - Performance is still being worked on for both games, including Turbo speed
   in TLA.
 

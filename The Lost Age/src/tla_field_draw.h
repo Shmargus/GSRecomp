@@ -17,6 +17,7 @@
 #include "tla_alhafra_ship_view.h"
 #include "tla_background_margins.h"
 #include "tla_beacon_margins.h"
+#include "tla_flat_map.h"
 #include "tla_kept_cells.h"
 #include "tla_line_table_margins.h"
 #include "tla_parked_characters.h"
@@ -29,6 +30,7 @@
 #include "tla_world_affine.h"
 #include "world_map_source.h"
 #include "../../shared_game/party_window_fade.h"
+#include "../../shared_game/save_files.h"
 
 // What one frame hands the renderer besides its scene. Pointers may be null
 // where a saved frame has no such section.
@@ -52,6 +54,8 @@ struct TlaFieldFrame {
     bool menu_open = false;
     // Fallen heroes' menu columns (party_window_fade.h).
     gsr::party_window_fade::Fade fade;
+    // Red save-file rows (save_files.h RedRows).
+    gsr::save_files::RedRows red_rows;
     bool reveal_full = false;  // Better Field Psy: Reveal covers the whole view
     // Flicker reduction's weight for sprites shown every other frame
     // (FieldSceneRenderer::set_flicker_smoothing); 0 = off.
@@ -71,6 +75,7 @@ struct TlaFieldFrame {
     int spark_count = 0;
     const std::uint8_t* spark_art = nullptr;
     std::size_t spark_art_bytes = 0;
+    gsr::WorldCompose world_compose;
 };
 
 // Kept from frame to frame by the caller (one per renderer).
@@ -90,6 +95,7 @@ struct TlaFieldDrawReport {
     bool ship_view = false, kept = false, room_known = false;
     bool world_map = false;
     int world_map_agreement = -1, world_map_compared = 0;
+    bool flat_map = false, flat_map_drawn = false;
 };
 
 // Applies every margin rule to `scene` and `margins` (iris already set),
@@ -110,7 +116,8 @@ inline bool tla_field_draw(gsr::FieldSceneRenderer& renderer, gsr::FieldScene& s
     // Characters parked off the room are hidden; effects stay.
     renderer.set_character_objects(tla_character_objects(
         scene, in.ewram, in.ewram_bytes, in.iwram, in.iwram_bytes));
-    tla_weather_sprite_margins(scene, margins, frame_vram, in.menu_open, &state.weather);
+    tla_weather_sprite_margins(scene, margins, frame_vram, in.menu_open,
+                               in.side_picture ? nullptr : &state.weather);
     if (expanded) tla_beacon_margins(scene, margins, frame_vram, first_y);
     tla_tornado_margins(scene, margins,
         expanded && frame_vram.size() >= 0x2800u ? frame_vram.data() : nullptr,
@@ -144,8 +151,10 @@ inline bool tla_field_draw(gsr::FieldSceneRenderer& renderer, gsr::FieldScene& s
     // reused past the screen keep their picture (tla_kept_cells.h).
     const bool battle = in.iwram && in.iwram_bytes >= 0x28u &&
         (in.iwram[0x24] | in.iwram[0x25] | in.iwram[0x26] | in.iwram[0x27]) != 0;
-    const std::vector<std::uint8_t>& vram = tla_kept_cells(scene, margins,
-        r.haze ? state.haze_vram : frame_vram, expanded, battle, state.kept_cells);
+    const std::vector<std::uint8_t>& vram = in.side_picture
+        ? (r.haze ? state.haze_vram : frame_vram)
+        : tla_kept_cells(scene, margins,
+            r.haze ? state.haze_vram : frame_vram, expanded, battle, state.kept_cells);
     renderer.upload_vram(vram.data(), vram.size());
     if (in.room_vram) renderer.upload_room_vram(in.room_vram, in.room_vram_bytes);
     renderer.upload_palette(scene.palette.data(), scene.palette.size());
@@ -154,6 +163,8 @@ inline bool tla_field_draw(gsr::FieldSceneRenderer& renderer, gsr::FieldScene& s
     renderer.set_room_source_enabled(expanded);
     renderer.set_menu_open(in.menu_open);
     gsr::party_window_fade::apply(renderer, in.fade);
+    renderer.set_window_red(in.red_rows.x0, in.red_rows.x1, in.red_rows.y0,
+                            in.red_rows.y1, in.red_rows.rows);
     // Sprites shown on every other frame (sprite_flicker.h).
     renderer.set_flicker_smoothing(in.flicker_weight);
     renderer.set_reveal_full(in.reveal_full);
@@ -247,6 +258,30 @@ inline bool tla_field_draw(gsr::FieldSceneRenderer& renderer, gsr::FieldScene& s
                                            scene, effect_layer);
         }
     }
+    if (in.side_picture) {
+        renderer.set_world_compose({});
+        renderer.set_scene_margins(&margins);
+        const bool ok = renderer.draw_world_margin(scene);
+        renderer.set_scene_margins(nullptr);
+        return ok;
+    }
+    gsr::WorldCompose compose = in.world_compose;
+    if (compose.mode == gsr::WorldComposeMode::None && expanded &&
+        in.rom && in.io && in.ewram &&
+        tla_flat_map::is_map_screen(in.io, 0x400u, in.ewram, in.ewram_bytes)) {
+        std::uint32_t gen = 0;
+        const auto& rows = tla_flat_map::map_rows(in.rom, in.rom_bytes, &gen);
+        if (!rows.empty()) renderer.upload_flat_world_map(rows.data(), gen);
+        compose.mode = gsr::WorldComposeMode::FlatMap;
+        compose.flat_map_trusted = tla_flat_map::is_trusted(
+            scene, in.io, 0x400u, in.ewram, in.ewram_bytes, in.rom, in.rom_bytes);
+        r.flat_map = true;
+        r.flat_map_drawn = compose.flat_map_trusted;
+    }
+    renderer.set_world_compose(compose);
     renderer.set_scene_margins(&margins);
-    return renderer.draw(scene, in.side_picture);
+    const bool ok = renderer.draw(scene);
+    renderer.set_world_compose({});
+    renderer.set_scene_margins(nullptr);
+    return ok;
 }

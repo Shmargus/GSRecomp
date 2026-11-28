@@ -97,78 +97,83 @@ inline const std::vector<std::uint8_t>& tla_kept_cells(
         }
         if (!find(cur, s.tile)) cur.push_back(std::move(s));
     }
-    if (!usable || scene.frame <= st.last_frame) st.reset();
+    // An earlier frame (a state load) starts again. The same frame drawn
+    // again (a held spell picture, tla_rewind.cpp) shows the kept sprites
+    // as they were, without a step.
+    const bool repeat = usable && scene.frame == st.last_frame;
+    if (!usable || scene.frame < st.last_frame) st.reset();
     st.last_frame = scene.frame;
     if (!usable) return vram;
-
-    // Newly reused sprites.
-    for (const Seen& p : st.prev) {
-        if (p.art.empty()) continue;
-        const Seen* c = find(cur, p.tile);
-        if (!c || c->w != p.w || c->h != p.h || c->eight != p.eight) continue;
-        if (std::abs(wrap_x(c->x - p.x)) < p.w && std::abs(wrap_y(c->y - p.y)) < p.h)
-            continue;
-        const std::size_t at = kObjBase + std::size_t(p.tile) * 32u;
-        const std::size_t n = p.art.size();
-        const std::uint8_t* now = vram.data() + at;
-        auto same = [&](const std::vector<std::uint8_t>& a) {
-            return std::equal(a.begin(), a.end(), now);
-        };
-        const std::vector<std::uint8_t>* old = nullptr;
-        if (!same(p.art)) {
-            old = &p.art;
-        } else if (const Seen* q = find(st.prev2, p.tile)) {
-            if (q->art.size() == n && !same(q->art)) old = &q->art;
-        }
-        if (!old) continue;
-        const Seen* best = nullptr;
-        long best_d = 0;
-        for (const Seen& r : st.prev) {
-            if (r.tile == p.tile || r.w != p.w || r.h != p.h) continue;
-            const Seen* rc = find(cur, r.tile);
-            if (!rc || rc->w != r.w || rc->h != r.h ||
-                std::abs(wrap_x(rc->x - r.x)) >= r.w ||
-                std::abs(wrap_y(rc->y - r.y)) >= r.h)
+    if (!repeat) {
+        // Newly reused sprites.
+        for (const Seen& p : st.prev) {
+            if (p.art.empty()) continue;
+            const Seen* c = find(cur, p.tile);
+            if (!c || c->w != p.w || c->h != p.h || c->eight != p.eight) continue;
+            if (std::abs(wrap_x(c->x - p.x)) < p.w && std::abs(wrap_y(c->y - p.y)) < p.h)
                 continue;
-            const long dx = wrap_x(r.x - p.x), dy = wrap_y(r.y - p.y);
-            const long d = dx * dx + dy * dy;
-            if (!best || d < best_d) { best = &r; best_d = d; }
+            const std::size_t at = kObjBase + std::size_t(p.tile) * 32u;
+            const std::size_t n = p.art.size();
+            const std::uint8_t* now = vram.data() + at;
+            auto same = [&](const std::vector<std::uint8_t>& a) {
+                return std::equal(a.begin(), a.end(), now);
+            };
+            const std::vector<std::uint8_t>* old = nullptr;
+            if (!same(p.art)) {
+                old = &p.art;
+            } else if (const Seen* q = find(st.prev2, p.tile)) {
+                if (q->art.size() == n && !same(q->art)) old = &q->art;
+            }
+            if (!old) continue;
+            const Seen* best = nullptr;
+            long best_d = 0;
+            for (const Seen& r : st.prev) {
+                if (r.tile == p.tile || r.w != p.w || r.h != p.h) continue;
+                const Seen* rc = find(cur, r.tile);
+                if (!rc || rc->w != r.w || rc->h != r.h ||
+                    std::abs(wrap_x(rc->x - r.x)) >= r.w ||
+                    std::abs(wrap_y(rc->y - r.y)) >= r.h)
+                    continue;
+                const long dx = wrap_x(r.x - p.x), dy = wrap_y(r.y - p.y);
+                const long d = dx * dx + dy * dy;
+                if (!best || d < best_d) { best = &r; best_d = d; }
+            }
+            if (!best) continue;
+            const gsr::SceneObject* source = nullptr;
+            for (const auto& o : scene.objects)
+                if (o.present && !o.parked && o.tile == p.tile) { source = &o; break; }
+            if (!source) continue;
+            TlaKeptCells::Kept k;
+            k.ref = best->tile;
+            k.dx = wrap_x(p.x - best->x);
+            k.dy = wrap_y(p.y - best->y);
+            k.object = *source;  // palette, priority, flips and blending
+            k.art = *old;
+            st.kept.push_back(std::move(k));
         }
-        if (!best) continue;
-        const gsr::SceneObject* source = nullptr;
-        for (const auto& o : scene.objects)
-            if (o.present && !o.parked && o.tile == p.tile) { source = &o; break; }
-        if (!source) continue;
-        TlaKeptCells::Kept k;
-        k.ref = best->tile;
-        k.dx = wrap_x(p.x - best->x);
-        k.dy = wrap_y(p.y - best->y);
-        k.object = *source;  // palette, priority, flips and blending
-        k.art = *old;
-        st.kept.push_back(std::move(k));
-    }
 
-    // Follow each kept sprite's neighbour.
-    std::vector<TlaKeptCells::Kept> still;
-    for (auto& k : st.kept) {
-        const Seen* r = find(cur, k.ref);
-        if (!r || r->w != k.object.width || r->h != k.object.height) continue;
-        const int x = r->x + k.dx, y = r->y + k.dy;
-        bool taken = false;
-        for (const Seen& c : cur)
-            taken = taken || (c.w == k.object.width && c.h == k.object.height &&
-                              std::abs(wrap_x(c.x - x)) < c.w / 2 &&
-                              std::abs(wrap_y(c.y - y)) < c.h / 2);
-        const bool inside = x >= 0 && x + k.object.width <= 240 &&
-                            y >= 0 && y + k.object.height <= 160;
-        if (taken || inside) continue;
-        k.object.x = x;
-        k.object.y = y;
-        still.push_back(std::move(k));
+        // Follow each kept sprite's neighbour.
+        std::vector<TlaKeptCells::Kept> still;
+        for (auto& k : st.kept) {
+            const Seen* r = find(cur, k.ref);
+            if (!r || r->w != k.object.width || r->h != k.object.height) continue;
+            const int x = r->x + k.dx, y = r->y + k.dy;
+            bool taken = false;
+            for (const Seen& c : cur)
+                taken = taken || (c.w == k.object.width && c.h == k.object.height &&
+                                  std::abs(wrap_x(c.x - x)) < c.w / 2 &&
+                                  std::abs(wrap_y(c.y - y)) < c.h / 2);
+            const bool inside = x >= 0 && x + k.object.width <= 240 &&
+                                y >= 0 && y + k.object.height <= 160;
+            if (taken || inside) continue;
+            k.object.x = x;
+            k.object.y = y;
+            still.push_back(std::move(k));
+        }
+        st.kept = std::move(still);
+        st.prev2 = std::move(st.prev);
+        st.prev = std::move(cur);
     }
-    st.kept = std::move(still);
-    st.prev2 = std::move(st.prev);
-    st.prev = std::move(cur);
     if (st.kept.empty()) return vram;
 
     st.vram.assign(vram.begin(), vram.end());

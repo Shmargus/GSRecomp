@@ -121,9 +121,17 @@ printf '%s\n' '#include "runtime_arm_types.h"' \
 }
 
 if [ "$launcher_only" != 1 ]; then
-[ -f "$tla_corpus/main/dispatch_table.cpp" ] || {
-    echo "Missing $tla_corpus. Prepare The Lost Age Linux corpus first." >&2; exit 1;
+[ -f "$tla_repo/local/tla_linux/main/dispatch_table.cpp" ] || {
+    echo "Missing $tla_repo/local/tla_linux. Prepare The Lost Age Linux corpus first." >&2; exit 1;
 }
+# Rewrite the block-timing copy with the current block_timing.py and prelude,
+# as tla_build.sh does, so it matches the engine being linked (a copy left
+# from an older prelude references engine symbols that no longer exist).
+# Unchanged files are skipped through the tool's cache.
+for part in main reloc; do
+    python3 "$collection_root/scripts/block_timing.py" \
+        "$tla_repo/local/tla_linux/$part" "$tla_corpus/$part"
+done
 fi
 
 # ---- 1. Engine, launcher, builder, translator ------------------------------

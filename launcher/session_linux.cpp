@@ -1024,9 +1024,7 @@ int gsr_session_main(int game, int argc, char** argv) {
     std::string settings_error;
     int seamless_slot = -1;
     for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--direct3d") == 0)
-            settings_error = "Direct3D is not supported on Linux.";
-        else if (std::strcmp(argv[i], "--collection-tests") == 0) {
+        if (std::strcmp(argv[i], "--collection-tests") == 0) {
             if (g_collection_tests_override || i + 1 >= argc ||
                 !gsr_collection::parse_tests(argv[++i], g_collection_settings))
                 settings_error = "Invalid collection test settings.";

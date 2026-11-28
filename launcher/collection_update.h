@@ -50,18 +50,20 @@ inline std::wstring ascii_wide(const char* text) {
     return std::wstring(text, text + std::strlen(text));
 }
 
-inline bool request_releases(std::string& reply) {
+// HTTPS GET of https://<host><path> with the given Accept header.
+inline bool request_get(const char* host, const std::string& path, const char* accept,
+                        std::string& reply) {
     HttpHandle session(WinHttpOpen(ascii_wide(gsr_online::kUserAgent).c_str(),
                                   WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                                   WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
     if (!session.value || !WinHttpSetTimeouts(session.value, kTimeoutMs, kTimeoutMs,
                                              kTimeoutMs, kTimeoutMs)) return false;
     HttpHandle connection(WinHttpConnect(session.value,
-                                        ascii_wide(gsr_online::kReleasesApiHost).c_str(),
+                                        ascii_wide(host).c_str(),
                                         INTERNET_DEFAULT_HTTPS_PORT, 0));
     if (!connection.value) return false;
     HttpHandle request(WinHttpOpenRequest(connection.value, L"GET",
-                                         ascii_wide(gsr_online::kReleasesApiPath).c_str(),
+                                         ascii_wide(path.c_str()).c_str(),
                                          nullptr, WINHTTP_NO_REFERER,
                                          WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE));
     if (!request.value) return false;
@@ -70,7 +72,8 @@ inline bool request_releases(std::string& reply) {
     if (!WinHttpSetOption(request.value, WINHTTP_OPTION_REDIRECT_POLICY,
                           &redirects, sizeof(redirects))) return false;
     const auto started = std::chrono::steady_clock::now();
-    if (!WinHttpSendRequest(request.value, L"Accept: application/vnd.github+json\r\n",
+    const std::wstring headers = L"Accept: " + ascii_wide(accept) + L"\r\n";
+    if (!WinHttpSendRequest(request.value, headers.c_str(),
                             static_cast<DWORD>(-1L), WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
         !WinHttpReceiveResponse(request.value, nullptr)) return false;
     DWORD status = 0;
@@ -92,15 +95,17 @@ inline bool request_releases(std::string& reply) {
 }
 #elif defined(__ANDROID__)
 // Android has no curl: the app's own HTTPS (android_host.h).
-inline bool request_releases(std::string& reply) {
+inline bool request_get(const char* host, const std::string& path, const char* accept,
+                        std::string& reply) {
     const int status = gsr_android::http_request(
-        std::string("https://") + gsr_online::kReleasesApiHost + gsr_online::kReleasesApiPath,
+        std::string("https://") + host + path,
         {std::string("User-Agent: ") + gsr_online::kUserAgent,
-         "Accept: application/vnd.github+json"}, {}, &reply);
+         std::string("Accept: ") + accept}, {}, &reply);
     return status == 200 && reply.size() <= kMaxReply;
 }
 #else
-inline bool request_releases(std::string& reply) {
+inline bool request_get(const char* host, const std::string& path, const char* accept,
+                        std::string& reply) {
     int descriptors[2];
     if (pipe2(descriptors, O_CLOEXEC) != 0) return false;
     posix_spawn_file_actions_t actions;
@@ -117,8 +122,7 @@ inline bool request_releases(std::string& reply) {
     std::vector<std::string> args = {
         "curl", "-sS", "-f", "-L", "-m", "15", "--proto", "=https",
         "--proto-redir", "=https", "-H", std::string("User-Agent: ") + gsr_online::kUserAgent,
-        "-H", "Accept: application/vnd.github+json",
-        std::string("https://") + gsr_online::kReleasesApiHost + gsr_online::kReleasesApiPath};
+        "-H", std::string("Accept: ") + accept, std::string("https://") + host + path};
     std::vector<char*> argv;
     for (auto& arg : args) argv.push_back(arg.data());
     argv.push_back(nullptr);
@@ -170,6 +174,11 @@ inline bool request_releases(std::string& reply) {
     return ok && waited == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 #endif
+
+inline bool request_releases(std::string& reply) {
+    return request_get(gsr_online::kReleasesApiHost, gsr_online::kReleasesApiPath,
+                       "application/vnd.github+json", reply);
+}
 
 } // namespace update_detail
 
@@ -281,6 +290,60 @@ public:
         std::lock_guard<std::mutex> lock(state_->mutex);
         tag = state_->tag;
         text = state_->text;
+    }
+};
+
+// Message from Jim: fetched once at start from the repository's
+// launcher_message.txt (gsr_online::kMessagePath), so it can change without a
+// release. Until it arrives, or when offline, the launcher shows its
+// built-in message.
+class LauncherMessage {
+    struct State {
+        std::atomic<bool> finished{false};
+        std::mutex mutex;
+        std::string text;
+        bool available = false;
+    };
+    std::shared_ptr<State> state_ = std::make_shared<State>();
+
+public:
+    explicit LauncherMessage(bool enabled = true) {
+        if (!enabled) {
+            state_->finished = true;
+            return;
+        }
+        const auto state = state_;
+        try {
+            std::thread([state] {
+                struct MarkDone {
+                    std::shared_ptr<State> state;
+                    ~MarkDone() { state->finished = true; }
+                } done{state};
+                try {
+                    std::string reply;
+                    if (!update_detail::request_get(gsr_online::kMessageHost,
+                                                    gsr_online::kMessagePath,
+                                                    "text/plain", reply)) return;
+                    std::lock_guard<std::mutex> lock(state->mutex);
+                    state->text = gsr_online::clean_message(reply);
+                    state->available = true;
+                } catch (...) {
+                    // Offline or unreadable: the built-in message stays.
+                }
+            }).detach();
+        } catch (...) {
+            state_->finished = true;
+        }
+    }
+
+    // True once, when the fetched message is ready (empty: show none).
+    bool take(std::string& output) {
+        if (!state_->finished.load()) return false;
+        std::lock_guard<std::mutex> lock(state_->mutex);
+        if (!state_->available) return false;
+        output = std::move(state_->text);
+        state_->available = false;
+        return true;
     }
 };
 

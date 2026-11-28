@@ -35,11 +35,13 @@
 // the arithmetic in one place, matching the reference exactly.
 #include "field_scene_renderer.h"
 #include "field_game_profile.h"
+#include "gpu_timing.h"
 #include "world_map_agreement.h"
 #include "world_map_shader.h"
 
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <cstdint>
@@ -65,10 +67,7 @@ constexpr int kPaletteEntries = 512;
 
 // Room buffer addresses: each game's measured field state block, passed in by
 // its FieldGameProfile (field_game_profile.h; the evidence stays beside the
-// values in the game's own profile file). They are restated by the game rather
-// than shared with room_buffer.cpp, whose other work pulls in the live bus and
-// the host config UI, which this renderer and its offline check tool
-// deliberately do not link.
+// values in the game's own profile file).
 // How big our own effect canvas is. Wider and taller than the console's, so a
 // widened view has room for the sparks the game would have clipped; the origin
 // is where console (0,0) sits inside it.
@@ -100,7 +99,8 @@ std::uint16_t ewram_u16(const std::uint8_t* ewram, std::size_t bytes,
                                       (static_cast<unsigned>(ewram[off + 1]) << 8));
 }
 
-// Same "is this a real room" rule as room_buffer.cpp's rect_is_room: reject
+// Same "is this a real room" rule as the archived room_buffer.cpp (Archive/2026-11-27-retire-direct3d)
+// rect_is_room: reject
 // the all-zero between-rooms marker (falls out of max_x<=min_x below) and the
 // world map's constant (0,1,8,256); accept any rect with real 16px extent.
 //
@@ -165,22 +165,35 @@ const char* kBackgroundFragment =
     "uniform usampler2D u_id_grid;\n"   // room buffer: 128x128 metatile ids
     "uniform usampler2D u_atlas;\n"     // room buffer: 4 tile entries per id
     "uniform usampler2D u_row_io;\n"    // this frame's per-row registers
+    "uniform int u_row_io_max;\n"       // last valid row index in u_row_io
+    "uniform usampler2D u_hold_strip;\n"// precomputed hold_edge strip shares (2 x H)
+    "uniform int u_hold_strip_max;\n"   // last valid row index in u_hold_strip
+    "#ifndef GSR_BG_REGULAR_ONLY\n"
     // Each row's own affine reference point, the console's internal
     // accumulator rather than the register file: eight 16-bit halves per row,
     // BG2 x, BG2 y, BG3 x, BG3 y, low half then high half, each biased by
     // 2^29 so the stored number is never negative (see upload_row_affine).
     "uniform usampler2D u_row_affine;\n"
-    "uniform sampler2D u_top_record;\n" // pass 1's result; read only in pass 2
     "uniform int u_affine;\n"           // 1: this layer is an affine background
+    "uniform int u_affine_step_valid;\n"
+    "uniform vec4 u_affine_step_top;\n"
+    "uniform vec4 u_affine_step_bottom;\n"
+    "uniform vec2 u_effect_span;\n"
+    "uniform int u_effect_wrap_canvas;\n"
+    "uniform int u_effect_fill_beyond;\n"
+    "uniform int u_effect_repeats;\n"
+    "#endif\n"
+    "uniform sampler2D u_top_record;\n" // pass 1's result; read only in pass 2
     "uniform int u_row_mode_filter;\n"  // 1: keep only rows whose mode agrees
     "uniform int u_palette_half;\n"     // 0 for backgrounds, 256 for objects
     "uniform vec2 u_camera;\n"          // world offset of the output's origin
     "uniform int u_world_loaded;\n"
     "uniform int u_layer;\n"            // 0-3: this background's window bit
+    "uniform int u_window_on;\n"        // 1: window masks are active this frame
     "uniform int u_layer_striped;\n"    // 1: enable bit varies line by line
     "uniform int u_rest_dy;\n"          // rows from its current region to the rest position
     "uniform int u_compare_top;\n"      // 0 = first pass, 1 = second pass
-    "uniform int u_use_room;\n"         // 1: source this layer from the room
+    "uniform int u_room_auth;\n"        // 0: never, 1: check per-row, 2: all rows
     "uniform int u_room_grid_wrap;\n"
     // The layer's own position from the game's record (room_reference_for):
     // when on, each row's scroll is read as that position plus its offset
@@ -194,9 +207,6 @@ const char* kBackgroundFragment =
     "uniform int u_margin_scroll_first_y;\n"
     "uniform int u_margin_scroll_rows;\n"
     "uniform int u_margin_scroll_sides;\n"
-    "uniform int u_affine_step_valid;\n"
-    "uniform vec4 u_affine_step_top;\n"
-    "uniform vec4 u_affine_step_bottom;\n"
     "uniform vec2 u_room_ref;\n"
     // Rows that jump vertically off the recorded position read it instead
     // (row_split_vertical).
@@ -224,8 +234,6 @@ const char* kBackgroundFragment =
     // Our own spell-effect canvas, drawn host-side from the game's particles
     // because the game clips every spark to a canvas as wide as the console
     // screen, and that limit cannot be widened in place (effect_sources.h).
-    // u_use_effect is 0 on every frame we have not verified, and the path
-    // below is then unchanged.
     "uniform usampler2D u_effect;\n"
     "uniform int u_effect_extra;\n"   // our sparks fill where the game drew nothing
     "uniform vec2 u_effect_size;\n"
@@ -233,32 +241,10 @@ const char* kBackgroundFragment =
     // Our canvas's hold columns: past them, out in the margins, the canvas is
     // read at them (a cut band continues; anything else holds nothing).
     "uniform vec2 u_effect_hold;\n"
-    // Console size divided by output size: the factor that turns a position
-    // in our view into the console position whose canvas pixel belongs
-    // there. Zero disables the remap entirely.
-    "uniform vec2 u_effect_span;\n"
-    // 1 when this effect layer WRAPS and its map shows the game's 128x128
-    // canvas at map (0,0), tile i at (i % 16, i / 16) -- checked on the CPU
-    // (FieldSceneRenderer::analyse_effect_canvas). Ray draws this way.
-    // u_effect_fill is the one value the game's canvas
-    // holds wherever no spark landed (its flashing tint), 0 when there is
-    // no single such value.
-    "uniform int u_effect_wrap_canvas;\n"
     "uniform int u_effect_fill;\n"
-    // 1 when this effect layer is a non-wrapping canvas stretched over the
-    // console's whole width (Thor, Djinn: 128x128 at PA 128, screen x 0..239
-    // on canvas x 0..119): past the canvas, out in the
-    // margins, the picture is the canvas's fill, so the game's flashing tint
-    // reaches the edges. Set per layer by draw().
-    "uniform int u_effect_fill_beyond;\n"
-    // 1 when this effect layer is a wrapping canvas the console itself shows
-    // repeating within one row (Torch): the margins keep
-    // drawing the wrapped map, sparks or not. Set per layer by draw().
-    "uniform int u_effect_repeats;\n"
     // 1 when this effect layer is a REGULAR background whose map shows the
     // game's 128x128 canvas as one 16x16 block of consecutive tiles, whose
     // top-left map pixel is u_effect_canvas_map (Ivan's hit sparks on BG1).
-    // Checked on the CPU like u_effect_wrap_canvas.
     "uniform int u_effect_text_canvas;\n"
     // Hide the game's own effect canvas on this layer (set_effect_hidden):
     // 1 = text layer, the 128x128 block at u_effect_canvas_map draws
@@ -272,8 +258,8 @@ const char* kBackgroundFragment =
     "out vec4 o_colour;\n"
     "\n"
     "uint vram_byte(int address) {\n"
-    "  ivec2 at = ivec2(address % 1024, address / 1024);\n"
-    "  return texelFetch(u_vram, at, 0).r;\n"
+    "  if (uint(address) >= 131072u) return 0u;\n"
+    "  return gsr_raw_fetch(u_vram, ivec2(address & 1023, address >> 10), 0).r;\n"
     "}\n"
     "\n"
     "uint vram_half(int address) {\n"
@@ -290,13 +276,16 @@ const char* kBackgroundFragment =
     "uniform vec2 u_margin_repeat;\n"
     "uniform vec4 u_art_repeat;\n"   // period down, its shift, period across
     "uniform int u_past_room_edge;\n"
+    "#ifndef GSR_BG_REGULAR_ONLY\n"
     // Golden Sun's whole world map as tile indices (world_map_source.h):
     // 512 tiles wide, BG3 in rows 0..511 and BG2 in rows 512..1023. The
     // game's own map is a 512-pixel ring refilled around the camera, and
     // the widened zoom-out reaches past it.
     GBARECOMP_WORLD_MAP_UNIFORMS
+    "#endif\n"
     "uint room_vram_byte(int address) {\n"
-    "  return texelFetch(u_room_vram, ivec2(address % 1024, address / 1024), 0).r;\n"
+    "  if (uint(address) >= 131072u) return 0u;\n"
+    "  return gsr_raw_fetch(u_room_vram, ivec2(address & 1023, address >> 10), 0).r;\n"
     "}\n"
     "\n"
     // The room buffer's colour index at a room pixel, 0 where it has none:
@@ -307,9 +296,9 @@ const char* kBackgroundFragment =
     "  int stx = source.x >> 3;\n"
     "  int sty = source.y >> 3;\n"
     "  if ((stx >> 1) >= 128 || (sty >> 1) >= 128) return 0;\n"
-    "  uint id = texelFetch(u_id_grid, ivec2(stx >> 1, sty >> 1), 0).r;\n"
-    "  uint e = texelFetch(u_atlas, ivec2((sty & 1) * 2 + (stx & 1), int(id)),\n"
-    "                      0).r;\n"
+    "  uint id = gsr_raw_fetch(u_id_grid, ivec2(stx >> 1, sty >> 1), 0).r;\n"
+    "  uint e = gsr_raw_fetch(u_atlas, ivec2((sty & 1) * 2 + (stx & 1), int(id & 4095u)),\n"
+    "                         0).r;\n"
     "  if (e == 0xFFFFu || e == 0xF200u) return 0;\n"
     "  int tx = source.x & 7;\n"
     "  int ty = source.y & 7;\n"
@@ -322,54 +311,14 @@ const char* kBackgroundFragment =
     "  return int(((tx & 1) != 0) ? (two >> 4) : (two & 0xFu));\n"
     "}\n"
     "\n"
-    // Whether a text background draws anything at this map pixel (already
-    // scrolled): the console's own wrapped tilemap fetch, colour 0 or not.
-    "bool text_lit(ivec2 pixel, int screen_base, int char_base, int size_code,\n"
-    "              int eight_bit) {\n"
-    "  int wt = ((size_code & 1) != 0) ? 64 : 32;\n"
-    "  int ht = ((size_code & 2) != 0) ? 64 : 32;\n"
-    "  int tile_x = (pixel.x >> 3) & (wt - 1);\n"
-    "  int tile_y = (pixel.y >> 3) & (ht - 1);\n"
-    "  int block = 0;\n"
-    "  if (wt == 64 && tile_x >= 32) block += 1;\n"
-    "  if (ht == 64 && tile_y >= 32) block += (wt == 64) ? 2 : 1;\n"
-    "  uint entry = vram_half(screen_base + block * 2048\n"
-    "                        + (((tile_y & 31) * 32) + (tile_x & 31)) * 2);\n"
-    "  int tile = int(entry & 0x3FFu);\n"
-    "  int tx = pixel.x & 7;\n"
-    "  int ty = pixel.y & 7;\n"
-    "  if ((entry & 0x400u) != 0u) tx = 7 - tx;\n"
-    "  if ((entry & 0x800u) != 0u) ty = 7 - ty;\n"
-    "  if (eight_bit != 0)\n"
-    "    return vram_byte(char_base + tile * 64 + ty * 8 + tx) != 0u;\n"
-    "  uint two = vram_byte(char_base + tile * 32 + ty * 4 + (tx >> 1));\n"
-    "  return (((tx & 1) != 0) ? (two >> 4) : (two & 0xFu)) != 0u;\n"
-    "}\n"
-    "\n"
-    // The same question for a 256x256 affine background (one tile byte per
-    // entry, 8-bit pixels), at a map pixel that wraps.
-    "uint affine_index(int mx, int my, int screen_base, int char_base) {\n"
-    "  mx &= 255;\n"
-    "  my &= 255;\n"
-    "  int tile = int(vram_byte(screen_base + (my >> 3) * 32 + (mx >> 3)));\n"
-    "  return vram_byte(char_base + tile * 64 + (my & 7) * 8 + (mx & 7));\n"
-    "}\n"
-    "bool affine_lit(int mx, int my, int screen_base, int char_base) {\n"
-    "  return affine_index(mx, my, screen_base, char_base) != 0u;\n"
-    "}\n"
-    "\n"
     // This layer's own HOFS/VOFS, as THIS row's copy of the registers held
     // them -- the same per-scanline read the console does, which is what
-    // lets a frame that rewrites scroll mid-frame draw correctly. A row the
-    // game never captured its own copy of falls back to the frame's
-    // end-of-frame registers (see field_scene.h, `io_bytes`), which is
-    // the single value every row then reads.
+    // lets a frame that rewrites scroll mid-frame draw correctly.
     "uint row_u16(int row, int offset) {\n"
-    "  ivec2 lo = ivec2(offset, row);\n"
-    "  ivec2 hi = ivec2(offset + 1, row);\n"
-    "  return texelFetch(u_row_io, lo, 0).r | (texelFetch(u_row_io, hi, 0).r << 8);\n"
+    "  return gsr_raw_fetch(u_row_io, ivec2(offset >> 1, clamp(row, 0, u_row_io_max)), 0).r;\n"
     "}\n"
     "\n"
+    "#ifndef GSR_BG_REGULAR_ONLY\n"
     // The same read, as the signed 16-bit number the hardware stores: the
     // affine parameters PA/PB/PC/PD are signed Q8.8 (gba_ppu.cpp, read_s16).
     "int row_s16(int row, int offset) {\n"
@@ -382,10 +331,12 @@ const char* kBackgroundFragment =
     // there is no signed integer texture format here, and reinterpreting a
     // uint's top bit as a sign is not something GLSL 1.30 guarantees.
     "int row_affine_ref(int row, int which) {\n"
-    "  int lo = int(texelFetch(u_row_affine, ivec2(which * 2, row), 0).r);\n"
-    "  int hi = int(texelFetch(u_row_affine, ivec2(which * 2 + 1, row), 0).r);\n"
+    "  int r = clamp(row, 0, 159);\n"
+    "  int lo = int(gsr_raw_fetch(u_row_affine, ivec2(which * 2, r), 0).r);\n"
+    "  int hi = int(gsr_raw_fetch(u_row_affine, ivec2(which * 2 + 1, r), 0).r);\n"
     "  return (hi << 16) + lo - 536870912;\n"
     "}\n"
+    "#endif\n"
     "\n"
     // A battle window's rows y1..y2 (WINxV) as the arena band: they start on
     // the console's screen and end in its lower half. True when row `y` is in
@@ -434,35 +385,45 @@ const char* kBackgroundFragment =
     // file menu (the reference draws the logo).
     // Every measured field row has BG2 and BG3 on (DISPCNT 0x0F00 in 222
     // signature rows); the rest were the title and BG0-only fades.
-    "  bool room_row_authorized = u_use_room != 0 &&\n"
+    "  bool room_row_authorized = u_room_auth == 2 || (u_room_auth == 1 &&\n"
     "      (row_dispcnt & 7u) == 0u &&\n"
     "      (row_dispcnt & 0x0C00u) == 0x0C00u &&\n"
     "      (((row_u16(reg_row, 0x0E) >> 8) & 0x1Fu) == 5u) &&\n"
     "      (((row_u16(reg_row, 0x0C) >> 8) & 0x1Fu) == 6u) &&\n"
-    "      (((row_u16(reg_row, 0x0A) >> 8) & 0x1Fu) == 7u);\n"
+    "      (((row_u16(reg_row, 0x0A) >> 8) & 0x1Fu) == 7u));\n"
     "  int bg_char_base = int((bgcnt >> 2) & 3u) * 16384;\n"
     "  int bg_screen_base = int((bgcnt >> 8) & 31u) * 2048;\n"
     "  int bg_size_code = int((bgcnt >> 14) & 3u);\n"
     // An affine background is 8-bit whatever bit 7 says: gba_ppu.cpp's
     // render_affine_bg reads one byte per pixel unconditionally.
+    "#ifdef GSR_BG_REGULAR_ONLY\n"
+    "  int bg_eight_bit = ((bgcnt & 128u) != 0u) ? 1 : 0;\n"
+    "#else\n"
     "  int bg_eight_bit = (u_affine != 0 || (bgcnt & 128u) != 0u) ? 1 : 0;\n"
     "  int bg_wraps = ((bgcnt & 8192u) != 0u) ? 1 : 0;\n"
+    "#endif\n"
     // The sort key:
     // priority first, then background index, smaller wins (GL_LESS).
     "  int bg_key = int(bgcnt & 3u) * 256 + 128 + u_layer;\n"
-    // ...and this row's own DISPCNT enable bit. The draw is issued whenever
-    // ANY row turns this layer on; a row that does not is dropped here,
-    // rather than the whole layer standing or falling on the frame's last
-    // row -- the same read the reference makes, which takes each row's
-    // DISPCNT from that row's own registers.
-    // A layer the game stripes line by line (draw_background's
-    // layer_striped in draw()) carries the stripes into the margins: rows outside
-    // 0..159 take the enable bit of row (y mod 160).
-    "  int enable_row = reg_row;\n"
-    "  if (u_layer_striped != 0 && (console_px.y < 0 || console_px.y > 159))\n"
-    "    enable_row = ((console_px.y % 160) + 160) % 160;\n"
-    "  if (((row_u16(enable_row, 0x00) >> uint(8 + u_layer)) & 1u) == 0u)\n"
+    // ...and this row's own DISPCNT enable bit. Striped layers read (y mod 160);
+    // plain layers reuse row_dispcnt already fetched above.
+    "  if (u_layer_striped != 0) {\n"
+    "    int enable_row = reg_row;\n"
+    "    if (console_px.y < 0 || console_px.y > 159)\n"
+    "      enable_row = ((console_px.y % 160) + 160) % 160;\n"
+    "    if (((row_u16(enable_row, 0x00) >> uint(8 + u_layer)) & 1u) == 0u)\n"
+    "      discard;\n"
+    "  } else if (((row_dispcnt >> uint(8 + u_layer)) & 1u) == 0u) {\n"
     "    discard;\n"
+    "  }\n"
+    // Pass 2: a layer at or in front of pass 1's winner here is dropped
+    // immediately before any tile work (no duplicate check at the bottom).
+    "  if (u_compare_top != 0) {\n"
+    "    vec4 early_top = gsr_raw_fetch(u_top_record, ivec2(gl_FragCoord.xy), 0);\n"
+    "    int early_key = int(round(early_top.b * 255.0))\n"
+    "                  | ((int(round(early_top.a * 255.0)) & 3) << 8);\n"
+    "    if (bg_key <= early_key) discard;\n"
+    "  }\n"
     // A frame that changes video mode part-way down (The Lost Age's
     // world-map wipe: a mode 2 band between mode 0 rows) draws such a layer
     // once per reading, regular and affine (draw_background); each row keeps
@@ -474,7 +435,11 @@ const char* kBackgroundFragment =
     "        (row_mode == 1u && u_layer <= 2) || (row_mode == 2u && u_layer >= 2);\n"
     "    bool row_affine = (row_mode == 1u && u_layer == 2) ||\n"
     "        (row_mode == 2u && u_layer >= 2);\n"
+    "#ifdef GSR_BG_REGULAR_ONLY\n"
+    "    if (!row_has_layer || row_affine) discard;\n"
+    "#else\n"
     "    if (!row_has_layer || row_affine != (u_affine != 0)) discard;\n"
+    "#endif\n"
     "  }\n"
     // BG3's field sky can start its scrolling band on row 1: row 0 still has
     // the room-position scroll, while rows 1 onward carry the sky accumulator.
@@ -618,15 +583,16 @@ const char* kBackgroundFragment =
     "      bool effect = ((bldcnt >> 6) & 3u) == 1u &&\n"
     "                    (bldcnt & (1u << uint(u_layer))) != 0u &&\n"
     "                    ((bgcnt & 3u) == 1u || u_effect_text_canvas != 0);\n"
+    "#ifdef GSR_BG_REGULAR_ONLY\n"
+    "      bool size_ok = (u_layer != 2) || (((bgcnt >> 14) & 3u) == 1u);\n"
+    "      arena_margin = size_ok && !outside_native_v;\n"
+    "#else\n"
     "      bool self_limiting = u_affine != 0 && (bgcnt & 0x2000u) == 0u;\n"
     "      bool size_ok = (u_layer != 2) || (((bgcnt >> 14) & 3u) == 1u)\n"
     "                     || self_limiting;\n"
-    // Above the screen, only the rotated arena carries on, and only when the
-    // band starts at row 0. Its transform is defined there, and a map without
-    // wraparound ends in transparency rather than in a stripe of unrelated
-    // artwork. The regular backdrop's stripe stays excluded.
     "      arena_margin = size_ok && (!outside_native_v ||\n"
     "          (console_px.y < 0 && y1 == 0 && u_affine != 0));\n"
+    "#endif\n"
     "      hold_edge = effect;\n"
     "    }\n"
     "  }\n"
@@ -684,8 +650,12 @@ const char* kBackgroundFragment =
     // Game-authorized regular effects use their live maps in the margins.
     // Masking a negative source x to the map width repeated Air's Rock's
     // tornado at the opposite edge (the first continuation preview).
+    "#ifdef GSR_BG_REGULAR_ONLY\n"
+    "  bool vram_margin = outside_native && u_margin_vram_height != 0;\n"
+    "#else\n"
     "  bool vram_margin = outside_native && u_affine == 0 &&\n"
     "                     u_margin_vram_height != 0;\n"
+    "#endif\n"
     "  if (vram_margin && u_margin_vram_height > 0 && u_margin_vram_clamp == 0) {\n"
     "    ivec2 source = console_px + ivec2(hofs_s, vofs_s);\n"
     "    int map_width = ((bg_size_code & 1) != 0) ? 512 : 256;\n"
@@ -700,6 +670,7 @@ const char* kBackgroundFragment =
     // as 4 px black bars beside the console's screen.
     "  bool drop_pixel = false;\n"
     "  int index;\n"
+    "#ifndef GSR_BG_REGULAR_ONLY\n"
     "  if (u_affine != 0) {\n"
     // Affine background (mode 1's BG2, mode 2's BG2/BG3): the console walks
     // a 2x3 transform from its own reference point, one row and column at a
@@ -804,39 +775,22 @@ const char* kBackgroundFragment =
     // FLAT row: the whole strip one colour (Ray's full-screen tint) carries
     // that colour to the edges, since a uniform colour has nothing to
     // stretch.
+    // Precomputed per-row strip share (see u_hold_strip in draw_background_as):
+    // 254 = flat full row (clamp step to 15), 16 = non-flat full row (discard
+    // past 15), 0..16 = this margin's share of the 16-column unseen strip.
     "    if (hold_edge && outside_native && bg_wraps != 0 &&\n"
     "        u_effect_wrap_canvas == 0 &&\n"
-    "        bg_size_code == 1 && pa == 256 && pc == 0) {\n"
+    "        bg_size_code == 1 && pa == 256 && pc == 0 &&\n"
+    "        (aff_px.x < 0 || aff_px.x >= 240)) {\n"
     "      int base_x = ref_x >> 8;\n"
-    "      int row_y = tex_y & 255;\n"
-    "      int run_right = 0;\n"
-    "      int run_left = 0;\n"
-    "      for (int i = 0; i < 16; ++i) {\n"
-    "        if (!affine_lit(base_x + 240 + i, row_y, bg_screen_base,\n"
-    "                        bg_char_base)) break;\n"
-    "        run_right = i + 1;\n"
-    "      }\n"
-    "      for (int i = 0; i < 16 - run_right; ++i) {\n"
-    "        if (!affine_lit(base_x - 1 - i, row_y, bg_screen_base,\n"
-    "                        bg_char_base)) break;\n"
-    "        run_left = i + 1;\n"
-    "      }\n"
     "      bool right = aff_px.x >= 240;\n"
     "      int step = right ? aff_px.x - 240 : -1 - aff_px.x;\n"
-    "      if (run_right == 16) {\n"
-    "        if (step > 15) {\n"
-    "          uint tint = affine_index(base_x + 240, row_y, bg_screen_base,\n"
-    "                                   bg_char_base);\n"
-    "          for (int i = 1; i < 16; ++i)\n"
-    "            if (affine_index(base_x + 240 + i, row_y, bg_screen_base,\n"
-    "                             bg_char_base) != tint) discard;\n"
-    "          step = 15;\n"
-    "        }\n"
-    "      } else {\n"
-    "        int gap = 16 - run_right - run_left;\n"
-    "        int share = right ? run_right + gap / 2\n"
-    "                          : 16 - (run_right + gap / 2);\n"
-    "        if (step >= share) discard;\n"
+    "      int row_idx = clamp(int(floor(v_screen.y)), 0, u_hold_strip_max);\n"
+    "      int share = int(gsr_raw_fetch(u_hold_strip, ivec2(right ? 0 : 1, row_idx), 0).r);\n"
+    "      if (share == 254) {\n"
+    "        if (step > 15) step = 15;\n"
+    "      } else if (step >= share) {\n"
+    "        discard;\n"
     "      }\n"
     "      tex_x = base_x + (right ? 240 + step : -1 - step);\n"
     "    }\n"
@@ -912,6 +866,9 @@ const char* kBackgroundFragment =
     "      index = 0;\n"
     "    }\n"
     "  } else {\n"
+    "#else\n"
+    "  {\n"
+    "#endif\n"
     // A regular layer showing the spell canvas: the copy of the canvas
     // that reaches the console's screen is the real one; everything past
     // it -- in the margins, where the map would start over -- is our
@@ -978,31 +935,17 @@ const char* kBackgroundFragment =
     "        int vstep = src_px.y < 0 ? -1 - src_px.y : src_px.y - 160;\n"
     "        if (vstep >= vstrip / 2) discard;\n"
     "      }\n"
-    "      int strip = (((bg_size_code & 1) != 0) ? 512 : 256) - 240;\n"
-    "      ivec2 scroll = ivec2(int(hofs_raw) & 0x1FF, int(vofs_raw) & 0x1FF);\n"
-    "      int run_right = 0;\n"
-    "      int run_left = 0;\n"
-    "      for (int i = 0; i < 16; ++i) {\n"
-    "        if (!text_lit(ivec2(240 + i, src_px.y) + scroll, bg_screen_base,\n"
-    "                      bg_char_base, bg_size_code, bg_eight_bit)) break;\n"
-    "        run_right = i + 1;\n"
-    "      }\n"
-    "      for (int i = 0; i < 16 - run_right; ++i) {\n"
-    "        if (!text_lit(ivec2(-1 - i, src_px.y) + scroll, bg_screen_base,\n"
-    "                      bg_char_base, bg_size_code, bg_eight_bit)) break;\n"
-    "        run_left = i + 1;\n"
-    "      }\n"
-    "      bool right = src_px.x >= 240;\n"
-    "      int step = right ? src_px.x - 240 : -1 - src_px.x;\n"
-    "      if (strip != 16 || run_right != 16) {\n"
+    "      if (src_px.x < 0 || src_px.x >= 240) {\n"
+    "        int strip = (((bg_size_code & 1) != 0) ? 512 : 256) - 240;\n"
+    "        bool right = src_px.x >= 240;\n"
+    "        int step = right ? src_px.x - 240 : -1 - src_px.x;\n"
     "        if (strip == 16) {\n"
-    "          int gap = strip - run_right - run_left;\n"
-    "          int share = right ? run_right + gap / 2 : strip - (run_right + gap / 2);\n"
-    "          if (step >= share) discard;\n"
+    "          int row_idx = clamp(int(floor(v_screen.y)), 0, u_hold_strip_max);\n"
+    "          int share = int(gsr_raw_fetch(u_hold_strip, ivec2(right ? 0 : 1, row_idx), 0).r);\n"
+    "          if (share != 255 && step >= share) discard;\n"
     "        } else if (step >= strip / 2) {\n"
     "          discard;\n"
     "        }\n"
-    "        src_px.x = right ? 240 + step : -1 - step;\n"
     "      }\n"
     "    }\n"
     "    ivec2 pixel = src_px + ivec2(int(hofs_raw) & 0x1FF, int(vofs_raw) & 0x1FF);\n"
@@ -1018,22 +961,13 @@ const char* kBackgroundFragment =
     "    int height_tiles = ((bg_size_code & 2) != 0) ? 64 : 32;\n"
     "    int tile_x = (pixel.x >> 3) & (width_tiles - 1);\n"
     "    int tile_y = (pixel.y >> 3) & (height_tiles - 1);\n"
-    // Each 32x32 block of entries is its own 2 KB screenblock.
-    "    int block = 0;\n"
-    "    if (width_tiles == 64 && tile_x >= 32) block += 1;\n"
-    "    if (height_tiles == 64 && tile_y >= 32) block += (width_tiles == 64) ? 2 : 1;\n"
-    "    int entry_address = bg_screen_base + block * 2048\n"
-    "                      + (((tile_y & 31) * 32) + (tile_x & 31)) * 2;\n"
-    // The console's own wrapped tilemap: the correct fallback whenever the
-    // room buffer does not know this pixel, and the whole answer when
-    // u_use_room is 0.
-    "    uint entry = vram_half(entry_address);\n"
+    "    uint entry = 0u;\n"
     "\n"
     // Room buffer: world pixel -> tile -> metatile id -> quadrant -> grid
     // cell -> atlas entry -> tile entry. The room rect/camera bound which
     // pixels are inside the room at all; the layer's own UNMASKED scroll
     // (not the game's camera) gives this layer's source tile, exactly the
-    // rule room_buffer.cpp's render path uses (confirmed in Goma Cave and
+    // rule the retired room-buffer render path used (confirmed in Goma Cave and
     // Tret). u_use_room is always 0 for an affine layer (never reaches this
     // branch), so this stays a field-only path.
     // Only OUTSIDE the console's own 240x160 window. Inside it the console's
@@ -1156,9 +1090,9 @@ const char* kBackgroundFragment =
     "          int gx = stx >> 1;\n"
     "          int gy = sty >> 1;\n"
     "          if (gx >= 0 && gy >= 0 && gx < 128 && gy < 128) {\n"
-    "            uint id = texelFetch(u_id_grid, ivec2(gx, gy), 0).r;\n"
+    "            uint id = gsr_raw_fetch(u_id_grid, ivec2(gx, gy), 0).r;\n"
     "            int sub = (sty & 1) * 2 + (stx & 1);\n"
-    "            uint candidate = texelFetch(u_atlas, ivec2(sub, int(id)), 0).r;\n"
+    "            uint candidate = gsr_raw_fetch(u_atlas, ivec2(sub, int(id & 4095u)), 0).r;\n"
     "            bool unavailable = candidate == 0xFFFFu ||\n"
     "                               candidate == 0xF200u;\n"
     "            if (!unavailable) { entry = candidate; room_supplied = true; }\n"
@@ -1167,30 +1101,17 @@ const char* kBackgroundFragment =
     "      }\n"
     "    }\n"
     "\n"
-    // Outside the console's own 240x160 window, the console's wrapped
-    // tilemap is not a real answer for this pixel -- there is no screen row
-    // there to wrap from, only whatever VRAM happens to hold at that
-    // wrapped address (menu/font art included). Drawing it is noise, not
-    // information, so an unanswered pixel out here discards instead,
-    // leaving the backdrop -- exactly the native path's own default for
-    // "nothing drawn here" (see the two-pass clear colour above). Inside the
-    // native window this changes nothing: the video-memory fallback is
-    // untouched, which is what keeps the native picture pixel-identical.
-    //
-    // The scroll-beyond-map exception is also bounded by the room. A layer
-    // with no place in the map may fill the margin where the margin is still
-    // INSIDE the room; past the room's own edge there is no world at all, and
-    // painting a held boundary column out there is a smear at the top
-    // left (seen on Tret's branches). Measured in a Tret frame: camera x = 0
-    // against a room rect of x 0..1024, so the whole left margin is outside
-    // the room and draws black on 195 of its 240 rows -- while on the 45
-    // sky-accumulator rows this exception held BG3's boundary column and hung
-    // a flat cyan bar in that black (one colour per row, 60 px wide).
-    // Tret frames whose margins must stay filled are not affected: their
-    // camera x is 89..157, at least 60 px past the room's left edge, so the
-    // room covers their whole margin.
     "    if (outside_native && !room_supplied && !arena_margin && !vram_margin &&\n"
     "        !(room_row_authorized && scroll_beyond_map && room_covers)) discard;\n"
+    // Only fetch VRAM map entry when the room buffer did not supply it.
+    "    if (!room_supplied) {\n"
+    "      int block = 0;\n"
+    "      if (width_tiles == 64 && tile_x >= 32) block += 1;\n"
+    "      if (height_tiles == 64 && tile_y >= 32) block += (width_tiles == 64) ? 2 : 1;\n"
+    "      int entry_address = bg_screen_base + block * 2048\n"
+    "                        + (((tile_y & 31) * 32) + (tile_x & 31)) * 2;\n"
+    "      entry = vram_half(entry_address);\n"
+    "    }\n"
     "\n"
     "    int tile    = int(entry & 0x3FFu);\n"
     "    bool hflip  = (entry & 0x400u) != 0u;\n"
@@ -1238,6 +1159,7 @@ const char* kBackgroundFragment =
     "      index = max(index, spark);\n"
     "    }\n"
     "  }\n"
+    "#ifndef GSR_BG_REGULAR_ONLY\n"
     // Add skipped sparks only where the game left the layer empty. The
     // normal window, blend and two-pass peel still apply. Replacing the full
     // layer lost effects that the capture didn't see.
@@ -1252,36 +1174,22 @@ const char* kBackgroundFragment =
     "      index = max(index, int(texelFetch(u_effect, ivec2(at), 0).r));\n"
     "    }\n"
     "  }\n"
+    "#endif\n"
     // Index 0 is the console's transparent colour, in every path.
     "  if (drop_pixel || index == 0) discard;\n"
     "\n"
     // Bits 0-3 of the window control are BG0-3's own enable. An arena pixel
-    // out in the side margin skips this: the game's windows are written in
-    // console coordinates and say nothing about a column that does not exist
-    // on the console, so applying them out here would clip the arena away
-    // again. The emulated path makes the same exemption, and only for these
-    // remapped margin samples (g_ws_bg_sample_provider_ignore_window_layers).
-    "  if (!(outside_native && arena_margin)) {\n"
-    "    int wc = int(round(texelFetch(u_window, ivec2(gl_FragCoord.xy), 0).r"
+    // out in the side margin skips this.
+    "  if (u_window_on != 0 && !(outside_native && arena_margin)) {\n"
+    "    int wc = int(round(gsr_raw_fetch(u_window, ivec2(gl_FragCoord.xy), 0).r"
     " * 255.0));\n"
     "    if (((wc >> u_layer) & 1) == 0) discard;\n"
     "  }\n"
     "\n"
-    "  if (u_compare_top != 0) {\n"
-    "    vec4 top = texelFetch(u_top_record, ivec2(gl_FragCoord.xy), 0);\n"
-    "    int top_key = int(round(top.b * 255.0))\n"
-    "                | ((int(round(top.a * 255.0)) & 3) << 8);\n"
-    "    if (bg_key <= top_key) discard;\n"
-    "  }\n"
-    "\n"
-    "  uint c = texelFetch(u_palette, ivec2(u_palette_half + index,\n"
-    "                                        room_colours ? 1 : world_colour_row), 0).r;\n"
-    // Priority is a per-row value, so the depth the two-layer peel sorts
-    // by cannot come from the quad any more. This reproduces exactly what the
-    // vertex path produced for a quad of depth key/1024: ortho() leaves clip
-    // z equal to that value with w = 1, and the default depth range maps
-    // [-1,1] onto [0,1].
-    "  gl_FragDepth = (float(bg_key) / 1024.0 + 1.0) * 0.5;\n"
+    "  uint c = gsr_raw_fetch(u_palette, ivec2((u_palette_half + index) & 511,\n"
+    "                                            room_colours ? 1 : clamp(world_colour_row, 0, 5)), 0).r;\n"
+    // Depth comes from the strip quad's vertex depth (float(bg_key)/1024),
+    // keeping hardware early-Z rejection active instead of writing gl_FragDepth.
     "  o_colour = vec4(float(int(c) & 0xFF) / 255.0,\n"
     "                  float((int(c) >> 8) & 0xFF) / 255.0,\n"
     "                  float(bg_key & 0xFF) / 255.0,\n"
@@ -1295,6 +1203,20 @@ const char* kBackgroundFragment =
 // are the second half of palette memory. The two mapping modes differ only in
 // how a sprite's tiles are laid out: one after another, or one row of the
 // sprite per 32-tile row of memory.
+//
+// Sprites are drawn in batches (ObjectBatch in draw_frame): each quad's
+// a_tint.x names its record in u_rec, three ivec4 per sprite --
+//   [0] sort key, flags, first tile, palette bank
+//   [1] sprite width and height, drawn box width and height
+//   [2] lift box (console pixels: x0, y0, x1, y1)
+// flags: 1 semi-transparent, 2 lifted copy, 4 held inside the console
+// screen, 8 8-bit colour, 16 h-flip, 32 v-flip, 64 rotated/scaled,
+// 128 margins only, bits 8-12 the transform group (u_transforms).
+// kObjectRecords is how many records one draw holds: 48 * 3 ivec4 plus the
+// 32 transforms and the 4-row matrix is 180 of the 256 vertex uniform
+// vectors OpenGL ES 3.0 guarantees.
+constexpr int kObjectRecords = 48;
+constexpr int kObjectRecordInts = 12;
 const char* kObjectVertex =
     "#version 130\n"
     "in vec2 a_pos;\n"
@@ -1302,9 +1224,20 @@ const char* kObjectVertex =
     "in float a_depth;\n"
     "in vec4 a_tint;\n"
     "uniform mat4 u_transform;\n"
+    "uniform ivec4 u_rec[144];\n"       // kObjectRecords * 3
+    "uniform vec4 u_transforms[32];\n"  // PA, PB, PC, PD per transform group
     "out vec2 v_local;\n"
     "out vec2 v_screen;\n"
+    "flat out ivec4 v_rec0;\n"
+    "flat out ivec4 v_rec1;\n"
+    "flat out ivec4 v_rec2;\n"
+    "flat out vec4 v_pd;\n"
     "void main() {\n"
+    "  int r = int(a_tint.x) * 3;\n"
+    "  v_rec0 = u_rec[r];\n"
+    "  v_rec1 = u_rec[r + 1];\n"
+    "  v_rec2 = u_rec[r + 2];\n"
+    "  v_pd = u_transforms[(v_rec0.y >> 8) & 31];\n"
     // a_uv carries the pixel offset inside the sprite.
     "  v_local = a_uv;\n"
     // a_pos is this vertex's OUTPUT pixel, top-down, the same space the
@@ -1325,22 +1258,29 @@ const char* kObjectSampling =
     "in vec2 v_screen;\n"
     "uniform usampler2D u_vram;\n"
     "uniform usampler2D u_row_io;\n"    // this frame's per-row registers
-    "uniform vec2 u_size;\n"         // sprite size in pixels
-    "uniform int u_tile;\n"          // first tile number
-    "uniform int u_eight_bit;\n"
-    "uniform int u_hflip;\n"
-    "uniform int u_vflip;\n"
-    "uniform int u_affine;\n"        // 0 = plain, 1 = rotated or scaled
-    "uniform vec4 u_transform_pd;\n" // PA, PB, PC, PD, already unscaled
-    "uniform vec2 u_box;\n"          // drawn box, twice the sprite if doubled
     "uniform vec2 u_camera;\n"       // world offset of the output's origin
+    // This sprite's record (see kObjectVertex), under the names the code
+    // below reads.
+    "flat in ivec4 v_rec0;\n"
+    "flat in ivec4 v_rec1;\n"
+    "flat in ivec4 v_rec2;\n"
+    "flat in vec4 v_pd;\n"
+    "#define u_size vec2(v_rec1.xy)\n"     // sprite size in pixels
+    "#define u_tile v_rec0.z\n"            // first tile number
+    "#define u_eight_bit ((v_rec0.y >> 3) & 1)\n"
+    "#define u_hflip ((v_rec0.y >> 4) & 1)\n"
+    "#define u_vflip ((v_rec0.y >> 5) & 1)\n"
+    "#define u_affine ((v_rec0.y >> 6) & 1)\n"  // rotated or scaled
+    "#define u_transform_pd v_pd\n"        // PA, PB, PC, PD, already unscaled
+    "#define u_box vec2(v_rec1.zw)\n"      // drawn box, twice the sprite if doubled
     // Parked objects and their masks stay inside the native screen, as in
     // gba_ppu.cpp's emit_obj.
-    "uniform int u_clip_native;\n"
+    "#define u_clip_native ((v_rec0.y >> 2) & 1)\n"
     "out vec4 o_colour;\n"
     "\n"
     "uint vram_byte(int address) {\n"
-    "  return texelFetch(u_vram, ivec2(address % 1024, address / 1024), 0).r;\n"
+    "  if (uint(address) >= 131072u) return 0u;\n"
+    "  return gsr_raw_fetch(u_vram, ivec2(address & 1023, address >> 10), 0).r;\n"
     "}\n"
     "\n"
     // v_screen is the output pixel in both passes. Adding the camera gives
@@ -1355,8 +1295,7 @@ const char* kObjectSampling =
     "\n"
     "uint object_display_control(ivec2 console_px) {\n"
     "  int row = clamp(console_px.y, 0, 159);\n"
-    "  return texelFetch(u_row_io, ivec2(0, row), 0).r |\n"
-    "         (texelFetch(u_row_io, ivec2(1, row), 0).r << 8);\n"
+    "  return gsr_raw_fetch(u_row_io, ivec2(0, row), 0).r;\n"
     "}\n"
     "\n"
     "int sample_object(ivec2 console_px, uint dispcnt) {\n"
@@ -1424,18 +1363,32 @@ const char* kObjectFragment =
     "uniform usampler2D u_palette;\n"
     "uniform sampler2D u_window;\n"     // this pixel's 6-bit window control
     "uniform sampler2D u_top_record;\n" // pass 1's result; read only in pass 2
-    "uniform int u_bank;\n"             // 4-bit palette bank
-    "uniform int u_key;\n"              // this object's sort key
-    "uniform int u_semi_transparent;\n" // object mode 1 (OBJ blend flag)
     "uniform int u_compare_top;\n"      // 0 = first pass, 1 = second pass
-    "uniform int u_margin_only;\n"
+    "uniform int u_window_on;\n"        // 1: window masks are active this frame
+    "#define u_bank v_rec0.w\n"         // 4-bit palette bank
+    "#define u_key v_rec0.x\n"          // this object's sort key
+    "#define u_semi_transparent (v_rec0.y & 1)\n" // object mode 1 (OBJ blend flag)
+    "#define u_margin_only ((v_rec0.y >> 7) & 1)\n"
     // The lifted copy stays inside the lifting object's box in console pixels.
-    "uniform int u_lift;\n"
-    "uniform vec4 u_lift_box;\n"
+    "#define u_lift ((v_rec0.y >> 1) & 1)\n"
+    "#define u_lift_box vec4(v_rec2)\n"
     "\n"
     "void main() {\n"
     "  ivec2 console_px = object_console_pixel();\n"
     "  if (u_margin_only != 0 && inside_native(console_px)) discard;\n"
+    // Reject pass-2 and window-masked pixels before sampling VRAM tiles.
+    "  if (u_compare_top != 0) {\n"
+    "    vec4 top = gsr_raw_fetch(u_top_record, ivec2(gl_FragCoord.xy), 0);\n"
+    "    int top_low = int(round(top.b * 255.0));\n"
+    "    if (top_low < 128) discard;\n"
+    "    int top_key = top_low | ((int(round(top.a * 255.0)) & 3) << 8);\n"
+    "    if (u_key <= top_key) discard;\n"
+    "  }\n"
+    "  if (u_window_on != 0) {\n"
+    "    int wc = int(round(gsr_raw_fetch(u_window, ivec2(gl_FragCoord.xy), 0).r"
+    " * 255.0));\n"
+    "    if (((wc >> 4) & 1) == 0) discard;\n"
+    "  }\n"
     "  uint dispcnt = object_display_control(console_px);\n"
     "  if (((dispcnt >> 12u) & 1u) == 0u) discard;\n"
     "  if (u_lift != 0) {\n"
@@ -1447,21 +1400,8 @@ const char* kObjectFragment =
     "  int index = sample_object(console_px, dispcnt);\n"
     "  if (u_eight_bit == 0) index += u_bank * 16;\n"
     "\n"
-    // Bit 4 of the window control is the OBJ layer's own enable.
-    "  int wc = int(round(texelFetch(u_window, ivec2(gl_FragCoord.xy), 0).r"
-    " * 255.0));\n"
-    "  if (((wc >> 4) & 1) == 0) discard;\n"
-    "\n"
-    "  if (u_compare_top != 0) {\n"
-    "    vec4 top = texelFetch(u_top_record, ivec2(gl_FragCoord.xy), 0);\n"
-    "    int top_key = int(round(top.b * 255.0))\n"
-    "                | ((int(round(top.a * 255.0)) & 3) << 8);\n"
-    "    if (u_key <= top_key) discard;\n"
-    "    if (int(round(top.b * 255.0)) < 128) discard;\n"
-    "  }\n"
-    "\n"
     // Object colours live in the second half of palette memory.
-    "  uint c = texelFetch(u_palette, ivec2(256 + index, 0), 0).r;\n"
+    "  uint c = gsr_raw_fetch(u_palette, ivec2((256 + index) & 511, 0), 0).r;\n"
     "  int a4 = (u_semi_transparent != 0) ? 4 : 0;\n"
     "  o_colour = vec4(float(int(c) & 0xFF) / 255.0,\n"
     "                  float((int(c) >> 8) & 0xFF) / 255.0,\n"
@@ -1513,11 +1453,17 @@ const char* kResolveFragment =
     "uniform int u_fade_row0;\n"      // first and last tile row
     "uniform int u_fade_row1;\n"
     "uniform float u_fade_opacity;\n"
+    "uniform int u_red_x0;\n"         // set_window_red: the rows' box,
+    "uniform int u_red_x1;\n"         // console pixels, end excluded
+    "uniform int u_red_y0;\n"
+    "uniform int u_red_y1;\n"
+    "uniform int u_red_rows;\n"       // 16-pixel rows from y0, 0 = off
+    "uniform int u_window_on;\n"      // 1: window masks are active this frame
+    "uniform int u_has_second;\n"     // 1: pass 2 ran this frame
     "out vec4 o_colour;\n"
     "\n"
     "uint row_u16(int row, int offset) {\n"
-    "  return texelFetch(u_row_io, ivec2(offset, row), 0).r |\n"
-    "         (texelFetch(u_row_io, ivec2(offset + 1, row), 0).r << 8);\n"
+    "  return gsr_raw_fetch(u_row_io, ivec2(offset >> 1, row), 0).r;\n"
     "}\n"
     "\n"
     "int layer_of(int low) {\n"
@@ -1543,23 +1489,28 @@ const char* kResolveFragment =
     "  int u_eva = min(bldalpha & 0x1F, 16);\n"
     "  int u_evb = min((bldalpha >> 8) & 0x1F, 16);\n"
     "  int u_bldy = min(int(row_u16(reg_row, 0x54)) & 0x1F, 16);\n"
-    "  vec4 t = texelFetch(u_top, ivec2(gl_FragCoord.xy), 0);\n"
-    "  vec4 s = texelFetch(u_second, ivec2(gl_FragCoord.xy), 0);\n"
+    "  vec4 t = gsr_raw_fetch(u_top, ivec2(gl_FragCoord.xy), 0);\n"
     "  int ta = int(round(t.a * 255.0));\n"
-    "  int sa = int(round(s.a * 255.0));\n"
     "  int top_color = int(round(t.r * 255.0)) | (int(round(t.g * 255.0)) << 8);\n"
-    "  int second_color = int(round(s.r * 255.0)) | (int(round(s.g * 255.0)) << 8);\n"
     "  int top_low = int(round(t.b * 255.0));\n"
-    "  int second_low = int(round(s.b * 255.0));\n"
     "  int top_layer = layer_of(top_low);\n"
-    "  int second_layer = layer_of(second_low);\n"
     "  bool top_semi = (ta & 4) != 0;\n"
+    "  int second_color = 0;\n"
+    "  int second_layer = 5;\n"
+    "  if (u_has_second != 0) {\n"
+    "    vec4 s = gsr_raw_fetch(u_second, ivec2(gl_FragCoord.xy), 0);\n"
+    "    second_color = int(round(s.r * 255.0)) | (int(round(s.g * 255.0)) << 8);\n"
+    "    second_layer = layer_of(int(round(s.b * 255.0)));\n"
+    "  }\n"
     // Bit 5 of the window control is blend_enabled(x) -- the reference
     // multiplies it into EVERY target1, backdrop included, which is why it is
     // applied once here rather than baked into a peel record.
-    "  int wc = int(round(texelFetch(u_window, ivec2(gl_FragCoord.xy), 0).r"
+    "  bool blend_ok = true;\n"
+    "  if (u_window_on != 0) {\n"
+    "    int wc = int(round(gsr_raw_fetch(u_window, ivec2(gl_FragCoord.xy), 0).r"
     " * 255.0));\n"
-    "  bool blend_ok = ((wc >> 5) & 1) != 0;\n"
+    "    blend_ok = ((wc >> 5) & 1) != 0;\n"
+    "  }\n"
     // An OBJ is a first target when semi-transparent or when BLDCNT
     // selects the OBJ layer; only a semi-transparent one forces alpha
     // (gba_ppu.cpp). The window's effect bit gates
@@ -1617,6 +1568,20 @@ const char* kResolveFragment =
     "    g6 = int(round(mix(float(sg6), float(g6), a)));\n"
     "    b = int(round(mix(float(sb), float(b), a)));\n"
     "  }\n"
+    // set_window_red: the CPU rule (save_files::redden) on the 8-bit colour
+    // this pixel is stored as.
+    "  int cy = int(floor(v_screen.y + u_camera.y));\n"
+    "  if (u_red_rows != 0 && cx >= u_red_x0 && cx < u_red_x1 &&\n"
+    "      cy >= u_red_y0 && cy < u_red_y1 &&\n"
+    "      ((u_red_rows >> ((cy - u_red_y0) / 16)) & 1) != 0) {\n"
+    "    int pr = int(round(float(r) * 255.0 / 31.0));\n"
+    "    int pg = int(round(float(g6 >> 1) * 255.0 / 31.0));\n"
+    "    int pb = int(round(float(b) * 255.0 / 31.0));\n"
+    "    if (pb > pr + 16 && pb > pg) {\n"
+    "      o_colour = vec4(float(pb) / 255.0, vec2(float(pg / 3) / 255.0), 1.0);\n"
+    "      return;\n"
+    "    }\n"
+    "  }\n"
     "  o_colour = vec4(float(r) / 31.0, float(g6 >> 1) / 31.0,\n"
     "                  float(b) / 31.0, 1.0);\n"
     "}\n";
@@ -1659,12 +1624,11 @@ const char* kWindowFragment =
     "uniform int u_iris;\n"
     "uniform vec2 u_iris_centre;\n"
     "uniform vec2 u_iris_axes;\n"
+    "uniform int u_has_obj_window;\n"  // 1: obj_window_mask was drawn this frame
     "out vec4 o_colour;\n"
     "\n"
     "uint row_u16(int row, int offset) {\n"
-    "  ivec2 lo = ivec2(offset, row);\n"
-    "  ivec2 hi = ivec2(offset + 1, row);\n"
-    "  return texelFetch(u_row_io, lo, 0).r | (texelFetch(u_row_io, hi, 0).r << 8);\n"
+    "  return gsr_raw_fetch(u_row_io, ivec2(offset >> 1, row), 0).r;\n"
     "}\n"
     "\n"
 // GBATEK: WINnV is [Y1,Y2); Y2>160 or Y1>Y2 forces Y2=160.
@@ -1730,47 +1694,43 @@ const char* kWindowFragment =
     "  bool win0_en = ((dispcnt >> 13) & 1u) != 0u;\n"
     "  bool win1_en = ((dispcnt >> 14) & 1u) != 0u;\n"
     "  bool objwin_en = ((dispcnt >> 15) & 1u) != 0u;\n"
-    "  int win0h = int(row_u16(reg_row, 0x40));\n"  // X1 bits 8-15, X2 bits 0-7
-    "  int win1h = int(row_u16(reg_row, 0x42));\n"
-    "  int win0v = int(row_u16(reg_row, 0x44));\n"
-    "  int win1v = int(row_u16(reg_row, 0x46));\n"
-    "  int winin = int(row_u16(reg_row, 0x48));\n"
-    "  int winout = int(row_u16(reg_row, 0x4A));\n"
-    "  int control;\n"
-    "  bool any_window = win0_en || win1_en || objwin_en;\n"
-    // Reveal: WIN0 carves the circle and WIN1 the Psynergy meter, both
-    // showing everything (WININ 0x3F3F), outside only BG0 (WINOUT 0x0001).
-    // Among 6,590 measured frames only Reveal's use it. The circle lies
-    // inside the console's screen,
-    // but WIN0V covers the full height, so the open-edge rule below
-    // would stretch the circle's first row up the top margin and WIN1 (x 0..16)
-    // across the left margin. Outside the 240x160 window it is outside the
-    // circle; with Better Field Psy the circle covers the whole view.
-    // The Lost Age's Reveal writes WINOUT 0x3F01: its high byte is the
-    // object window's, unused with that window off.
-    "  bool reveal = (dispcnt & 7u) == 0u && win0_en && win1_en &&\n"
-    "                !objwin_en && winin == 0x3F3F && (winout & 0xFF) == 0x01;\n"
+    "  if (!win0_en && !win1_en && !objwin_en) {\n"
+    "    o_colour = vec4(float(0x3F) / 255.0, 0.0, 0.0, 1.0);\n"
+    "    return;\n"
+    "  }\n"
     "  bool outside_native = screen.x < 0 || screen.x >= 240 ||\n"
     "                        screen.y < 0 || screen.y >= 160;\n"
-    "  if (reveal && u_reveal_full != 0) {\n"
-    "    control = winin & 0x3F;\n"
-    "  } else if (reveal && outside_native) {\n"
-    "    control = winout & 0x3F;\n"
-    "  } else if (!any_window) {\n"
-    "    control = 0x3F;\n"
-    "  } else if (win0_en && (u_iris == 2 || (u_iris != 0 && outside_native)\n"
+    // Reveal: WIN0 carves the circle and WIN1 the Psynergy meter, both
+    // showing everything (WININ 0x3F3F), outside only BG0 (WINOUT 0x0001).
+    "  if ((dispcnt & 7u) == 0u && win0_en && win1_en && !objwin_en) {\n"
+    "    int winin = int(row_u16(reg_row, 0x48));\n"
+    "    int winout = int(row_u16(reg_row, 0x4A));\n"
+    "    if (winin == 0x3F3F && (winout & 0xFF) == 0x01) {\n"
+    "      if (u_reveal_full != 0) {\n"
+    "        o_colour = vec4(float(winin & 0x3F) / 255.0, 0.0, 0.0, 1.0);\n"
+    "        return;\n"
+    "      }\n"
+    "      if (outside_native) {\n"
+    "        o_colour = vec4(float(winout & 0x3F) / 255.0, 0.0, 0.0, 1.0);\n"
+    "        return;\n"
+    "      }\n"
+    "    }\n"
+    "  }\n"
+    "  int control;\n"
+    "  if (win0_en && (u_iris == 2 || (u_iris != 0 && outside_native)\n"
     "                 ? iris_inside(screen)\n"
-    "                 : (win_v(win0v, screen.y) && win_h(win0h, screen.x)))) {\n"
-    "    control = winin & 0x3F;\n"
-    "  } else if (win1_en && win_v(win1v, screen.y) &&\n"
-    "             win_h(win1h, screen.x)) {\n"
-    "    control = (winin >> 8) & 0x3F;\n"
-    "  } else if (objwin_en &&\n"
-    "             texelFetch(u_obj_window_mask, ivec2(gl_FragCoord.xy), 0).r"
+    "                 : (win_v(int(row_u16(reg_row, 0x44)), screen.y) &&\n"
+    "                    win_h(int(row_u16(reg_row, 0x40)), screen.x)))) {\n"
+    "    control = int(row_u16(reg_row, 0x48)) & 0x3F;\n"
+    "  } else if (win1_en && win_v(int(row_u16(reg_row, 0x46)), screen.y) &&\n"
+    "             win_h(int(row_u16(reg_row, 0x42)), screen.x)) {\n"
+    "    control = (int(row_u16(reg_row, 0x48)) >> 8) & 0x3F;\n"
+    "  } else if (u_has_obj_window != 0 && objwin_en &&\n"
+    "             gsr_raw_fetch(u_obj_window_mask, ivec2(gl_FragCoord.xy), 0).r"
     " > 0.5) {\n"
-    "    control = (winout >> 8) & 0x3F;\n"
+    "    control = (int(row_u16(reg_row, 0x4A)) >> 8) & 0x3F;\n"
     "  } else {\n"
-    "    control = winout & 0x3F;\n"
+    "    control = int(row_u16(reg_row, 0x4A)) & 0x3F;\n"
     "  }\n"
     "  o_colour = vec4(float(control) / 255.0, 0.0, 0.0, 1.0);\n"
     "}\n";
@@ -1796,6 +1756,8 @@ void ortho(float* m, float width, float height) {
 FieldSceneRenderer::~FieldSceneRenderer() {
     if (!surface_) return;
     if (background_) surface_->destroy_program(background_);
+    if (background_regular_) surface_->destroy_program(background_regular_);
+    if (object_) surface_->destroy_program(object_);
     if (resolve_) surface_->destroy_program(resolve_);
     if (solid_) surface_->destroy_program(solid_);
     if (shake_blit_) surface_->destroy_program(shake_blit_);
@@ -1803,14 +1765,27 @@ FieldSceneRenderer::~FieldSceneRenderer() {
     if (flicker_mix_) surface_->destroy_program(flicker_mix_);
     if (flicker_this_) surface_->destroy_texture(flicker_this_);
     if (flicker_other_) surface_->destroy_texture(flicker_other_);
+    if (flat_rows_prog_) surface_->destroy_program(flat_rows_prog_);
+    if (flat_all_prog_) surface_->destroy_program(flat_all_prog_);
+    if (world_compose_prog_) surface_->destroy_program(world_compose_prog_);
+    if (compose_src_) surface_->destroy_texture(compose_src_);
+    if (compose_rows_) surface_->destroy_texture(compose_rows_);
+    if (compose_flat_) surface_->destroy_texture(compose_flat_);
+    if (world_margin_tex_) surface_->destroy_texture(world_margin_tex_);
+    if (flat_world_map_) surface_->destroy_texture(flat_world_map_);
     if (obj_window_) surface_->destroy_program(obj_window_);
     if (window_) surface_->destroy_program(window_);
     if (vram_) surface_->destroy_texture(vram_);
+    if (room_vram_) surface_->destroy_texture(room_vram_);
+    if (effect_canvas_) surface_->destroy_texture(effect_canvas_);
+    if (hold_strip_) surface_->destroy_texture(hold_strip_);
     if (palette_) surface_->destroy_texture(palette_);
     if (id_grid_) surface_->destroy_texture(id_grid_);
     if (atlas_) surface_->destroy_texture(atlas_);
-    if (row_io_) surface_->destroy_texture(row_io_);
-    if (row_affine_) surface_->destroy_texture(row_affine_);
+    for (auto t : row_io_)
+        if (t) surface_->destroy_texture(t);
+    for (auto t : row_affine_)
+        if (t) surface_->destroy_texture(t);
     if (world_map_) surface_->destroy_texture(world_map_);
     if (world_cell_art_) surface_->destroy_texture(world_cell_art_);
     if (world_art_) surface_->destroy_texture(world_art_);
@@ -1837,6 +1812,22 @@ bool FieldSceneRenderer::init(gbarecomp::GpuSurface* surface) {
                      log);
         failure_ = "the background shader did not compile on this driver";
         return false;
+    }
+    // Lean regular-BG variant compiled from the exact same source without
+    // affine / world-map code, reducing GPR pressure on mobile GPUs.
+    {
+        std::string reg_src = kBackgroundFragment;
+        static const char kVer[] = "#version 130\n";
+        if (reg_src.compare(0, sizeof(kVer) - 1, kVer) == 0)
+            reg_src.insert(sizeof(kVer) - 1, "#define GSR_BG_REGULAR_ONLY 1\n");
+        background_regular_ = surface_->create_program(
+            kBackgroundVertex, reg_src.c_str(), log, sizeof log);
+        if (!background_regular_) {
+            std::fprintf(stderr, "field_scene_renderer: regular background shader: %s\n",
+                         log);
+            failure_ = "the regular background shader did not compile on this driver";
+            return false;
+        }
     }
 
     const std::string object_fragment = std::string(kObjectSampling) + kObjectFragment;
@@ -1895,20 +1886,42 @@ bool FieldSceneRenderer::init(gbarecomp::GpuSurface* surface) {
     atlas_ = surface_->create_texture(4, kAtlasIds,
                                       gbarecomp::GpuTextureFormat::R16UI,
                                       false);
-    row_io_ = surface_->create_texture(
-        static_cast<int>(FieldScene::kLineIoBytes),
-        static_cast<int>(FieldScene::kRows),
-        gbarecomp::GpuTextureFormat::R8UI, false);
-    // Eight 16-bit halves per row: BG2 x, BG2 y, BG3 x, BG3 y, low then high.
-    row_affine_ = surface_->create_texture(
-        8, static_cast<int>(FieldScene::kRows),
-        gbarecomp::GpuTextureFormat::R16UI, false);
+    static_assert(FieldScene::kLineIoBytes % 2 == 0,
+                  "kLineIoBytes must be even for R16UI row_io");
+    bool row_tex_ok = true;
+    for (int i = 0; i < kRowRing; ++i) {
+        row_io_[i] = surface_->create_texture(
+            static_cast<int>(FieldScene::kLineIoBytes / 2),
+            static_cast<int>(FieldScene::kRows),
+            gbarecomp::GpuTextureFormat::R16UI, false);
+        // Eight 16-bit halves per row: BG2 x, BG2 y, BG3 x, BG3 y, low then high.
+        row_affine_[i] = surface_->create_texture(
+            8, static_cast<int>(FieldScene::kRows),
+            gbarecomp::GpuTextureFormat::R16UI, false);
+        if (!row_io_[i] || !row_affine_[i]) row_tex_ok = false;
+    }
     // Our spell-effect canvas. Sized for the widest view we present, so the
     // sparks the game clips at its own canvas edge have somewhere to land.
     effect_pixels_.reset(kEffectCanvasWidth, kEffectCanvasHeight);
     effect_canvas_ = surface_->create_texture(
         kEffectCanvasWidth, kEffectCanvasHeight,
         gbarecomp::GpuTextureFormat::R8UI, false);
+    if (effect_canvas_) {
+        surface_->update_texture(effect_canvas_, 0, 0,
+                                 kEffectCanvasWidth, kEffectCanvasHeight,
+                                 effect_pixels_.pixels.data());
+        uploaded_effect_pixels_ = effect_pixels_.pixels;
+    }
+    // Per-row off-screen strip shares for battle hold_edge layers (2 x H R8UI).
+    hold_strip_h_ = 512;
+    hold_strip_ = surface_->create_texture(
+        2, hold_strip_h_, gbarecomp::GpuTextureFormat::R8UI, false);
+    if (hold_strip_) {
+        hold_strip_buf_.assign(static_cast<std::size_t>(hold_strip_h_) * 2u, 0u);
+        surface_->update_texture(hold_strip_, 0, 0, 2, hold_strip_h_,
+                                 hold_strip_buf_.data());
+        uploaded_hold_strip_.clear();
+    }
     // The world map's whole tile layout, both layers (world_map_source.h):
     // the game's side in tiles wide, BG3 then BG2 stacked.
     world_map_ = surface_->create_texture(prof().world_map_side_tiles,
@@ -1923,8 +1936,8 @@ bool FieldSceneRenderer::init(gbarecomp::GpuSurface* surface) {
                                           kWorldArtSets * 0x8000 / kVramTextureWidth,
                                           gbarecomp::GpuTextureFormat::R8UI,
                                           false);
-    if (!vram_ || !palette_ || !id_grid_ || !atlas_ || !row_io_ ||
-        !row_affine_ || !effect_canvas_ || !world_map_ ||
+    if (!vram_ || !palette_ || !id_grid_ || !atlas_ || !row_tex_ok ||
+        !effect_canvas_ || !hold_strip_ || !world_map_ ||
         !world_cell_art_ || !world_art_) {
         failure_ = "could not create the video memory, palette, room "
                   "buffer or per-row register textures";
@@ -1940,13 +1953,26 @@ bool FieldSceneRenderer::set_output_size(int width, int height) {
     if (!ready_ || !surface_) return false;
     if (!surface_->set_target_size(width, height)) return false;
     if (prof().margin_scroll_rows && row_io_rows_ != FieldScene::kRows + height) {
-        const auto texture = surface_->create_texture(
-            static_cast<int>(FieldScene::kLineIoBytes), FieldScene::kRows + height,
-            gbarecomp::GpuTextureFormat::R8UI, false);
-        if (!texture) return false;
-        surface_->destroy_texture(row_io_);
-        row_io_ = texture;
+        gbarecomp::GpuTexture next[kRowRing] = {};
+        bool ok = true;
+        for (int i = 0; i < kRowRing; ++i) {
+            next[i] = surface_->create_texture(
+                static_cast<int>(FieldScene::kLineIoBytes / 2),
+                FieldScene::kRows + height,
+                gbarecomp::GpuTextureFormat::R16UI, false);
+            if (!next[i]) ok = false;
+        }
+        if (!ok) {
+            for (auto t : next)
+                if (t) surface_->destroy_texture(t);
+            return false;
+        }
+        for (int i = 0; i < kRowRing; ++i) {
+            if (row_io_[i]) surface_->destroy_texture(row_io_[i]);
+            row_io_[i] = next[i];
+        }
         row_io_rows_ = FieldScene::kRows + height;
+        uploaded_row_io_.clear();
     }
     if (width != output_w_ || height != output_h_ || !top_ || !second_ ||
         !obj_window_mask_ || !window_control_) {
@@ -1973,10 +1999,55 @@ bool FieldSceneRenderer::set_output_size(int width, int height) {
         if (!top_ || !second_ || !obj_window_mask_ || !window_control_)
             return false;
     }
+    if (height > hold_strip_h_) {
+        const gbarecomp::GpuTexture next = surface_->create_texture(
+            2, height, gbarecomp::GpuTextureFormat::R8UI, false);
+        if (!next) return false;
+        if (hold_strip_) surface_->destroy_texture(hold_strip_);
+        hold_strip_ = next;
+        hold_strip_h_ = height;
+        hold_strip_buf_.assign(static_cast<std::size_t>(hold_strip_h_) * 2u, 0u);
+        surface_->update_texture(hold_strip_, 0, 0, 2, hold_strip_h_,
+                                 hold_strip_buf_.data());
+        uploaded_hold_strip_.clear();
+    }
     output_w_ = width;
     output_h_ = height;
     return true;
 }
+
+namespace {
+// Uploads only the changed row span of a kVramTextureWidth-wide R8UI texture.
+void upload_dirty_vram_rows(gbarecomp::GpuSurface* surface,
+                            gbarecomp::GpuTexture tex,
+                            const std::uint8_t* src, int rows,
+                            std::vector<std::uint8_t>& shadow) {
+    const std::size_t bytes =
+        static_cast<std::size_t>(rows) * static_cast<std::size_t>(kVramTextureWidth);
+    if (shadow.size() != bytes) {
+        surface->update_texture(tex, 0, 0, kVramTextureWidth, rows, src);
+        shadow.assign(src, src + bytes);
+        return;
+    }
+    int first = -1, last = -1;
+    for (int r = 0; r < rows; ++r) {
+        const std::size_t off =
+            static_cast<std::size_t>(r) * static_cast<std::size_t>(kVramTextureWidth);
+        if (std::memcmp(shadow.data() + off, src + off, kVramTextureWidth) != 0) {
+            if (first < 0) first = r;
+            last = r;
+        }
+    }
+    if (first >= 0) {
+        const std::size_t off =
+            static_cast<std::size_t>(first) * static_cast<std::size_t>(kVramTextureWidth);
+        const int span = last - first + 1;
+        surface->update_texture(tex, 0, first, kVramTextureWidth, span, src + off);
+        std::memcpy(shadow.data() + off, src + off,
+                    static_cast<std::size_t>(span) * kVramTextureWidth);
+    }
+}
+}  // namespace
 
 void FieldSceneRenderer::upload_vram(const std::uint8_t* vram,
                                      std::size_t vram_bytes) {
@@ -1984,9 +2055,8 @@ void FieldSceneRenderer::upload_vram(const std::uint8_t* vram,
     const int rows = static_cast<int>(
         std::min<std::size_t>(vram_bytes, kVramBytes) / kVramTextureWidth);
     if (rows > 0) {
-        surface_->update_texture(vram_, 0, 0, kVramTextureWidth, rows, vram);
-        surface_->update_texture(room_vram_, 0, 0, kVramTextureWidth, rows,
-                                 vram);
+        upload_dirty_vram_rows(surface_, vram_, vram, rows, uploaded_vram_);
+        room_vram_mirrors_vram_ = true;
     }
     // Background map blocks only (the first 64 KB): room_layer_agreement()
     // compares the room rule's entries against them.
@@ -2319,9 +2389,12 @@ void FieldSceneRenderer::upload_room_vram(const std::uint8_t* vram,
     if (!ready_ || !vram || vram_bytes == 0) return;
     const int rows = static_cast<int>(
         std::min<std::size_t>(vram_bytes, kVramBytes) / kVramTextureWidth);
-    if (rows > 0)
-        surface_->update_texture(room_vram_, 0, 0, kVramTextureWidth, rows,
-                                 vram);
+    if (rows > 0) {
+        const std::size_t bytes =
+            static_cast<std::size_t>(rows) * static_cast<std::size_t>(kVramTextureWidth);
+        pending_room_vram_.assign(vram, vram + bytes);
+        room_vram_mirrors_vram_ = false;
+    }
 }
 
 void FieldSceneRenderer::upload_palette(const std::uint16_t* palette,
@@ -2329,17 +2402,54 @@ void FieldSceneRenderer::upload_palette(const std::uint16_t* palette,
     if (!ready_ || !palette || entries == 0) return;
     const int width =
         static_cast<int>(std::min<std::size_t>(entries, kPaletteEntries));
-    surface_->update_texture(palette_, 0, 0, width, 1, palette);
-    surface_->update_texture(palette_, 0, 1, width, 1, palette);
+    if (!uploaded_palette_valid_[0] ||
+        std::memcmp(uploaded_palette_[0], palette,
+                    static_cast<std::size_t>(width) * sizeof(std::uint16_t)) != 0) {
+        surface_->update_texture(palette_, 0, 0, width, 1, palette);
+        std::memcpy(uploaded_palette_[0], palette,
+                    static_cast<std::size_t>(width) * sizeof(std::uint16_t));
+        uploaded_palette_valid_[0] = true;
+    }
+    room_palette_mirrors_live_ = true;
+    pending_room_palette_len_ = width;
 }
 
 void FieldSceneRenderer::upload_room_palette(const std::uint16_t* palette,
                                              std::size_t entries) {
     if (!ready_ || !palette || entries == 0) return;
-    surface_->update_texture(
-        palette_, 0, 1,
-        static_cast<int>(std::min<std::size_t>(entries, kPaletteEntries)), 1,
-        palette);
+    const int width =
+        static_cast<int>(std::min<std::size_t>(entries, kPaletteEntries));
+    std::memcpy(pending_room_palette_, palette,
+                static_cast<std::size_t>(width) * sizeof(std::uint16_t));
+    pending_room_palette_len_ = width;
+    room_palette_mirrors_live_ = false;
+}
+
+void FieldSceneRenderer::sync_deferred_uploads() {
+    if (room_vram_mirrors_vram_) {
+        if (!uploaded_vram_.empty()) {
+            const int rows = static_cast<int>(uploaded_vram_.size() / kVramTextureWidth);
+            upload_dirty_vram_rows(surface_, room_vram_, uploaded_vram_.data(), rows,
+                                   uploaded_room_vram_);
+        }
+    } else if (!pending_room_vram_.empty()) {
+        const int rows = static_cast<int>(pending_room_vram_.size() / kVramTextureWidth);
+        upload_dirty_vram_rows(surface_, room_vram_, pending_room_vram_.data(), rows,
+                               uploaded_room_vram_);
+    }
+    const std::uint16_t* pal_src =
+        room_palette_mirrors_live_ ? uploaded_palette_[0] : pending_room_palette_;
+    const int pal_w = pending_room_palette_len_;
+    if (pal_w > 0 && (!room_palette_mirrors_live_ || uploaded_palette_valid_[0])) {
+        if (!uploaded_palette_valid_[1] ||
+            std::memcmp(uploaded_palette_[1], pal_src,
+                        static_cast<std::size_t>(pal_w) * sizeof(std::uint16_t)) != 0) {
+            surface_->update_texture(palette_, 0, 1, pal_w, 1, pal_src);
+            std::memcpy(uploaded_palette_[1], pal_src,
+                        static_cast<std::size_t>(pal_w) * sizeof(std::uint16_t));
+            uploaded_palette_valid_[1] = true;
+        }
+    }
 }
 
 void FieldSceneRenderer::set_room_source_enabled(bool enabled) {
@@ -2417,6 +2527,7 @@ bool FieldSceneRenderer::upload_effect_sparks(const EffectSpark* sparks,
         surface_->destroy_texture(effect_canvas_);
         effect_canvas_ = texture;
         effect_pixels_.reset(width, height);
+        uploaded_effect_pixels_.clear();
     }
     effect_pixels_.clear();
     effect_pixels_.origin_x = origin_x;
@@ -2461,8 +2572,11 @@ bool FieldSceneRenderer::upload_effect_sparks(const EffectSpark* sparks,
         if (hold_left && run_left * 2 >= content) row[0] = row[1];
         if (hold_right && run_right * 2 >= content) row[content + 1] = row[content];
     }
-    surface_->update_texture(effect_canvas_, 0, 0, width, height,
-                             effect_pixels_.pixels.data());
+    if (uploaded_effect_pixels_ != effect_pixels_.pixels) {
+        surface_->update_texture(effect_canvas_, 0, 0, width, height,
+                                 effect_pixels_.pixels.data());
+        uploaded_effect_pixels_ = effect_pixels_.pixels;
+    }
     effect_layer_ = effect_layer;
     effect_have_sparks_ = true;
     static bool said = false;
@@ -2973,11 +3087,19 @@ static const char* kFlickerMixFragment =
     "uniform sampler2D u_this;\n"
     "uniform sampler2D u_other;\n"
     "uniform float u_weight;\n"
+    // Bottom-up GL pixel box [x0, y0, x1, y1) where u_other was rendered.
+    // Outside this box both phases are identical, so u_this passes straight through.
+    "uniform vec4 u_flicker_box;\n"
     "out vec4 o_colour;\n"
     "void main() {\n"
     "  ivec2 i = ivec2(gl_FragCoord.xy);\n"
-    "  vec4 a = texelFetch(u_this, i, 0);\n"
-    "  vec4 b = texelFetch(u_other, i, 0);\n"
+    "  vec4 a = gsr_raw_fetch(u_this, i, 0);\n"
+    "  if (gl_FragCoord.x < u_flicker_box.x || gl_FragCoord.x >= u_flicker_box.z ||\n"
+    "      gl_FragCoord.y < u_flicker_box.y || gl_FragCoord.y >= u_flicker_box.w) {\n"
+    "    o_colour = a;\n"
+    "    return;\n"
+    "  }\n"
+    "  vec4 b = gsr_raw_fetch(u_other, i, 0);\n"
     "  o_colour = (a == b) ? a : mix(a, b, u_weight);\n"
     "}\n";
 
@@ -3014,6 +3136,315 @@ bool FieldSceneRenderer::ensure_flicker_targets() {
         }
     }
     return true;
+}
+
+static const char* kFlatRowsFragment =
+    "#version 130\n"
+    "uniform sampler2D u_src;\n"
+    "uniform sampler2D u_top;\n"
+    "uniform int u_height;\n"
+    "uniform int u_win_x;\n"
+    "uniform int u_win_y;\n"
+    "out vec4 o_colour;\n"
+    "void main() {\n"
+    "  int r = int(gl_FragCoord.x);\n"
+    "  int row_kind = int(gl_FragCoord.y);\n"
+    "  int fyr = u_height - 1 - (u_win_y + r);\n"
+    "  if (row_kind == 0) {\n"
+    // Row 0: uniform background bar colour & flag for ShutterRows.
+    // Ignore object pixels (top.b * 255 < 128) so a world-map sprite on a
+    // Mode-0 battle-flash band (GS1 BG1 priority 1) does not break the bar.
+    "    vec3 bg_colour = vec3(0.0);\n"
+    "    bool have_bg = false;\n"
+    "    bool bg_uniform = true;\n"
+    "    for (int x = 0; x < 240; ++x) {\n"
+    "      ivec2 at = ivec2(u_win_x + x, fyr);\n"
+    "      int top_low = int(round(texelFetch(u_top, at, 0).b * 255.0));\n"
+    "      if (top_low < 128) continue;\n"
+    "      vec3 p = texelFetch(u_src, at, 0).rgb;\n"
+    "      if (!have_bg) {\n"
+    "        bg_colour = p;\n"
+    "        have_bg = true;\n"
+    "      } else if (any(notEqual(p, bg_colour))) {\n"
+    "        bg_uniform = false;\n"
+    "        break;\n"
+    "      }\n"
+    "    }\n"
+    "    o_colour = vec4(bg_colour, (have_bg && bg_uniform) ? 1.0 : 0.0);\n"
+    "  } else {\n"
+    // Row 1: whether all 240 pixels of row r match console (0, 0).
+    "    int fy0 = u_height - 1 - u_win_y;\n"
+    "    vec3 first0 = texelFetch(u_src, ivec2(u_win_x, fy0), 0).rgb;\n"
+    "    float same_all = 1.0;\n"
+    "    for (int x = 0; x < 240; ++x) {\n"
+    "      vec3 p = texelFetch(u_src, ivec2(u_win_x + x, fyr), 0).rgb;\n"
+    "      if (any(notEqual(p, first0))) {\n"
+    "        same_all = 0.0;\n"
+    "        break;\n"
+    "      }\n"
+    "    }\n"
+    "    o_colour = vec4(same_all, 0.0, 0.0, 1.0);\n"
+    "  }\n"
+    "}\n";
+
+static const char* kFlatAllFragment =
+    "#version 130\n"
+    "uniform sampler2D u_rows;\n"
+    "out vec4 o_colour;\n"
+    "void main() {\n"
+    "  float same = 1.0;\n"
+    "  for (int r = 0; r < 160; ++r) {\n"
+    "    if (texelFetch(u_rows, ivec2(r, 1), 0).r < 0.5) {\n"
+    "      same = 0.0;\n"
+    "      break;\n"
+    "    }\n"
+    "  }\n"
+    "  o_colour = vec4(same, 0.0, 0.0, 1.0);\n"
+    "}\n";
+
+static const char* kWorldComposeFragment =
+    "#version 130\n"
+    "in vec2 v_screen;\n"
+    "uniform sampler2D u_src;\n"
+    "uniform sampler2D u_margin;\n"
+    "uniform sampler2D u_flat_rows;\n"
+    "uniform sampler2D u_flat_all;\n"
+    "uniform sampler2D u_top;\n"
+    "uniform usampler2D u_row_io;\n"
+    "uniform usampler2D u_palette;\n"
+    "uniform usampler2D u_flat_map;\n"
+    "uniform int u_mode;\n"
+    "uniform int u_width;\n"
+    "uniform int u_height;\n"
+    "uniform int u_win_x;\n"
+    "uniform int u_win_y;\n"
+    "uniform int u_has_margin;\n"
+    "uniform int u_mixed_modes;\n"
+    "uniform int u_glow;\n"
+    "uniform int u_evb;\n"
+    "uniform int u_shake_x;\n"
+    "uniform int u_shake_y;\n"
+    "uniform int u_flat_map_trusted;\n"
+    "out vec4 o_colour;\n"
+    "\n"
+    "uint row_u16(int row, int offset) {\n"
+    "  return gsr_raw_fetch(u_row_io, ivec2(offset >> 1, row), 0).r;\n"
+    "}\n"
+    "\n"
+    "ivec2 fbo_at(int x, int y) {\n"
+    "  return ivec2(x, u_height - 1 - y);\n"
+    "}\n"
+    "\n"
+    "void main() {\n"
+    "  int tx = clamp(int(floor(v_screen.x)), 0, u_width - 1);\n"
+    "  int ty = clamp(int(floor(v_screen.y)), 0, u_height - 1);\n"
+    "  int cx = tx - u_win_x;\n"
+    "  int cy = ty - u_win_y;\n"
+    "  bool outside = cx < 0 || cx >= 240 || cy < 0 || cy >= 160;\n"
+    "  vec4 base = texelFetch(u_src, fbo_at(tx, ty), 0);\n"
+    "\n"
+    "  if (u_mode == 1) {\n"
+    // ShutterRows: extend uniform non-Mode-2 rows across margins.
+    "    if (!outside) { o_colour = base; return; }\n"
+    "    int r = clamp(cy, 0, 159);\n"
+    "    vec4 bar = texelFetch(u_flat_rows, ivec2(r, 0), 0);\n"
+    "    if ((row_u16(r, 0x00) & 7u) != 2u && bar.a > 0.5) {\n"
+    "      o_colour = vec4(bar.rgb, 1.0);\n"
+    "    } else {\n"
+    "      o_colour = base;\n"
+    "    }\n"
+    "    return;\n"
+    "  }\n"
+    "\n"
+    "  if (u_mode == 2) {\n"
+    // ZoomNative (GS1 R-button map): integer nearest zoom of 240x160.
+    "    bool by_width = u_width * 160 >= u_height * 240;\n"
+    "    int num = by_width ? u_width : u_height;\n"
+    "    int den = by_width ? 240 : 160;\n"
+    "    int ox = (240 * num / den - u_width) / 2;\n"
+    "    int oy = (160 * num / den - u_height) / 2;\n"
+    "    int sx = min((tx + ox) * den / num, 239);\n"
+    "    int sy = min((ty + oy) * den / num, 159);\n"
+    "    o_colour = texelFetch(u_src, fbo_at(u_win_x + sx, u_win_y + sy), 0);\n"
+    "    return;\n"
+    "  }\n"
+    "\n"
+    "  if (u_mode == 3) {\n"
+    // FlatMap (TLA Select world map): 512x384 8bpp map in margins.
+    "    if (!outside) { o_colour = base; return; }\n"
+    "    int reg_row = clamp(cy, 0, 159);\n"
+    "    int hofs = int(row_u16(reg_row, 0x14) & 0x1FFu);\n"
+    "    int vofs = int(row_u16(reg_row, 0x16) & 0x1FFu);\n"
+    "    int map_x = hofs + cx;\n"
+    "    int map_y = vofs + cy;\n"
+    "    if (u_flat_map_trusted == 0 || map_x < 0 || map_x >= 512 || map_y < 0 || map_y >= 384) {\n"
+    "      o_colour = vec4(0.0, 0.0, 0.0, 1.0);\n"
+    "      return;\n"
+    "    }\n"
+    "    int byte_off = (map_y >> 3) * 4096 + (map_x >> 3) * 64 + (map_y & 7) * 8 + (map_x & 7);\n"
+    "    uint index = texelFetch(u_flat_map, ivec2(byte_off & 1023, byte_off >> 10), 0).r;\n"
+    "    int colour = int(texelFetch(u_palette, ivec2(int(index), 0), 0).r);\n"
+    "    int cr = colour & 31;\n"
+    "    int g6 = ((colour >> 4) & 62) | (colour >> 15);\n"
+    "    int cb = (colour >> 10) & 31;\n"
+    "    uint bldcnt = row_u16(reg_row, 0x50);\n"
+    "    uint effect = (bldcnt >> 6u) & 3u;\n"
+    "    int evy = min(int(row_u16(reg_row, 0x54) & 0x1Fu), 16);\n"
+    "    bool target = ((bldcnt >> (index != 0u ? 1u : 5u)) & 1u) != 0u;\n"
+    "    if ((effect == 2u || effect == 3u) && evy != 0 && target) {\n"
+    "      if (effect == 2u) {\n"
+    "        cr += ((31 - cr) * evy + 8) >> 4;\n"
+    "        g6 += ((63 - g6) * evy + 8) >> 4;\n"
+    "        cb += ((31 - cb) * evy + 8) >> 4;\n"
+    "      } else {\n"
+    "        cr -= (cr * evy + 7) >> 4;\n"
+    "        g6 -= (g6 * evy + 7) >> 4;\n"
+    "        cb -= (cb * evy + 7) >> 4;\n"
+    "      }\n"
+    "    }\n"
+    "    o_colour = vec4(float(cr) / 31.0, float(g6 >> 1) / 31.0, float(cb) / 31.0, 1.0);\n"
+    "    return;\n"
+    "  }\n"
+    "\n"
+    // Mode 4: HoldMargins (menus, fades, beam glow, shutter over Mode 0, seamless quakes).
+    "  if (outside && u_mixed_modes != 0) {\n"
+    "    int r = clamp(cy, 0, 159);\n"
+    "    vec4 bar = texelFetch(u_flat_rows, ivec2(r, 0), 0);\n"
+    "    if ((row_u16(r, 0x00) & 7u) != 2u && bar.a > 0.5) {\n"
+    "      o_colour = vec4(bar.rgb, 1.0);\n"
+    "      return;\n"
+    "    }\n"
+    "  }\n"
+    "  if (texelFetch(u_flat_all, ivec2(0, 0), 0).r > 0.5) {\n"
+    "    o_colour = outside ? texelFetch(u_src, fbo_at(u_win_x, u_win_y), 0) : base;\n"
+    "    return;\n"
+    "  }\n"
+    "  if (u_has_margin == 0) {\n"
+    "    o_colour = outside ? vec4(0.0, 0.0, 0.0, 1.0) : base;\n"
+    "    return;\n"
+    "  }\n"
+    "  int sx = clamp(tx + u_shake_x, 0, u_width - 1);\n"
+    "  int sy = clamp(ty + u_shake_y, 0, u_height - 1);\n"
+    "  vec3 m = texelFetch(u_margin, fbo_at(sx, sy), 0).rgb;\n"
+    "  if (u_glow != 0) {\n"
+    "    if (!outside) { o_colour = base; return; }\n"
+    "    ivec3 d8 = ivec3(round(base.rgb * 255.0));\n"
+    "    ivec3 m8 = ivec3(round(m * 255.0));\n"
+    "    ivec3 out8 = min(ivec3(255), d8 + (m8 * u_evb) / 16);\n"
+    "    o_colour = vec4(vec3(out8) / 255.0, 1.0);\n"
+    "    return;\n"
+    "  }\n"
+    "  int top_low = int(round(texelFetch(u_top, fbo_at(tx, ty), 0).b * 255.0));\n"
+    "  bool fg = top_low <= 128;\n"  // 0..127 = OBJ, 128 = BG0 window/text
+    "  bool quake = (u_shake_x != 0 || u_shake_y != 0);\n"
+    "  o_colour = (outside || (quake && !fg)) ? vec4(m, 1.0) : base;\n"
+    "}\n";
+
+bool FieldSceneRenderer::ensure_world_compose() {
+    if (!ready_ || !surface_ || world_compose_failed_ ||
+        output_w_ <= 0 || output_h_ <= 0)
+        return false;
+    char log[1024] = {};
+    if (!flat_rows_prog_) {
+        flat_rows_prog_ = surface_->create_program(
+            kResolveVertex, kFlatRowsFragment, log, sizeof log);
+        if (!flat_rows_prog_) {
+            world_compose_failed_ = true;
+            std::fprintf(stderr, "field_scene_renderer: flat rows shader: %s\n",
+                         log);
+            return false;
+        }
+    }
+    if (!flat_all_prog_) {
+        flat_all_prog_ = surface_->create_program(
+            kResolveVertex, kFlatAllFragment, log, sizeof log);
+        if (!flat_all_prog_) {
+            world_compose_failed_ = true;
+            std::fprintf(stderr, "field_scene_renderer: flat all shader: %s\n",
+                         log);
+            return false;
+        }
+    }
+    if (!world_compose_prog_) {
+        world_compose_prog_ = surface_->create_program(
+            kResolveVertex, kWorldComposeFragment, log, sizeof log);
+        if (!world_compose_prog_) {
+            world_compose_failed_ = true;
+            std::fprintf(stderr, "field_scene_renderer: world compose shader: %s\n",
+                         log);
+            return false;
+        }
+    }
+    if (!compose_src_ || compose_src_w_ != output_w_ ||
+        compose_src_h_ != output_h_) {
+        if (compose_src_) {
+            surface_->destroy_texture(compose_src_);
+            compose_src_ = 0;
+        }
+        compose_src_ = surface_->create_texture(
+            output_w_, output_h_, gbarecomp::GpuTextureFormat::RGBA8, false);
+        compose_src_w_ = output_w_;
+        compose_src_h_ = output_h_;
+        if (!compose_src_) {
+            compose_src_w_ = compose_src_h_ = 0;
+            world_compose_failed_ = true;
+            return false;
+        }
+    }
+    // Drawn with the output-sized viewport; only their own texels land.
+    if (!compose_rows_)
+        compose_rows_ = surface_->create_texture(
+            160, 2, gbarecomp::GpuTextureFormat::RGBA8, false);
+    if (!compose_flat_)
+        compose_flat_ = surface_->create_texture(
+            1, 1, gbarecomp::GpuTextureFormat::RGBA8, false);
+    if (!compose_rows_ || !compose_flat_) {
+        world_compose_failed_ = true;
+        return false;
+    }
+    return true;
+}
+
+void FieldSceneRenderer::upload_flat_world_map(const std::uint8_t* rows_48x4096,
+                                               std::uint32_t generation) {
+    if (!ready_ || !surface_) return;
+    if (!flat_world_map_) {
+        flat_world_map_ = surface_->create_texture(
+            1024, 192, gbarecomp::GpuTextureFormat::R8UI, false);
+        if (!flat_world_map_) return;
+    }
+    if (rows_48x4096 != nullptr && generation != flat_world_map_generation_) {
+        surface_->update_texture(flat_world_map_, 0, 0, 1024, 192, rows_48x4096);
+        flat_world_map_generation_ = generation;
+    }
+}
+
+bool FieldSceneRenderer::draw_world_margin(const FieldScene& scene) {
+    if (!ready_ || !surface_ || output_w_ <= 0 || output_h_ <= 0) {
+        world_margin_valid_ = false;
+        return false;
+    }
+    if (!world_margin_tex_ || world_margin_w_ != output_w_ ||
+        world_margin_h_ != output_h_) {
+        if (world_margin_tex_) {
+            surface_->destroy_texture(world_margin_tex_);
+            world_margin_tex_ = 0;
+        }
+        world_margin_tex_ = surface_->create_texture(
+            output_w_, output_h_, gbarecomp::GpuTextureFormat::RGBA8, false);
+        world_margin_w_ = output_w_;
+        world_margin_h_ = output_h_;
+        world_margin_valid_ = false;
+        if (!world_margin_tex_) {
+            world_margin_w_ = world_margin_h_ = 0;
+            return false;
+        }
+    }
+    const bool ok = draw_frame(scene, FlickerPhase::WorldMargin);
+    world_margin_valid_ = ok;
+    world_margin_w_ = output_w_;
+    world_margin_h_ = output_h_;
+    return ok;
 }
 
 void FieldSceneRenderer::spawn_burst(float view_x, float view_y) {
@@ -3204,15 +3635,21 @@ bool FieldSceneRenderer::upload_room(const std::uint8_t* ewram,
         // of the metatile word are not unused" -- those live above bit 15).
         room_ids_[i] = ewram_u16(ewram, ewram_bytes, addr) & 0x0FFFu;
     }
-    surface_->update_texture(id_grid_, 0, 0, kGridSide, kGridSide,
-                             room_ids_.data());
+    if (uploaded_room_ids_ != room_ids_) {
+        surface_->update_texture(id_grid_, 0, 0, kGridSide, kGridSide,
+                                 room_ids_.data());
+        uploaded_room_ids_ = room_ids_;
+    }
 
     room_atlas_.resize(static_cast<std::size_t>(kAtlasIds) * 4u);
     for (std::size_t i = 0; i < room_atlas_.size(); ++i) {
         const std::uint32_t addr = prof().atlas_addr + static_cast<std::uint32_t>(i) * 2u;
         room_atlas_[i] = ewram_u16(ewram, ewram_bytes, addr);
     }
-    surface_->update_texture(atlas_, 0, 0, 4, kAtlasIds, room_atlas_.data());
+    if (uploaded_room_atlas_ != room_atlas_) {
+        surface_->update_texture(atlas_, 0, 0, 4, kAtlasIds, room_atlas_.data());
+        uploaded_room_atlas_ = room_atlas_;
+    }
 
     room_valid_ = true;
     return true;
@@ -3259,29 +3696,89 @@ gbarecomp::GpuTexture FieldSceneRenderer::output_texture() const {
     return surface_ ? surface_->target_texture() : 0;
 }
 
-bool FieldSceneRenderer::draw(const FieldScene& scene, bool side_picture) {
-    if (side_picture) return draw_frame(scene, FlickerPhase::Plain);
-    // Sprites shown on every other frame: draw the other phase first, then
+bool FieldSceneRenderer::draw(const FieldScene& scene) {
+    // The same frame again (a held picture): as it was drawn, no step.
+    const bool repeat = has_last_drawn_ && scene.frame == last_drawn_frame_;
+    // Sprites shown on every other frame: draw the other phase first (clipped
+    // to the tight bounding box of the alternating sprites when safe), then
     // this frame mixed with it (sprite_flicker.h). Off, or nothing
     // alternating, is the plain single draw.
     bool other_drawn = false;
+    flicker_scissor_on_ = false;
     if (flicker_weight_ > 0.0f && ready_ && output_w_ > 0 && output_h_ > 0 &&
         ensure_flicker_targets()) {
         SceneObjectTable other;
-        if (scene.valid &&
-            sprite_flicker_other_phase(scene.objects, flicker_history_, &other)) {
+        SpriteFlickerBox fbox;
+        std::array<bool, FieldScene::kObjects> changed_slots{};
+        if (repeat) {
+            if (last_other_drawn_ && flicker_scene_) {
+                flicker_scissor_on_ = last_flicker_scissor_on_;
+                flicker_sx0_ = last_flicker_sx0_;
+                flicker_sy0_ = last_flicker_sy0_;
+                flicker_sx1_ = last_flicker_sx1_;
+                flicker_sy1_ = last_flicker_sy1_;
+                other_drawn = draw_frame(*flicker_scene_, FlickerPhase::Other);
+            }
+        } else if (scene.valid &&
+                   sprite_flicker_other_phase(scene.objects, flicker_history_,
+                                              &other, &fbox, &changed_slots)) {
             if (!flicker_scene_) flicker_scene_ = std::make_unique<FieldScene>();
             *flicker_scene_ = scene;
             flicker_scene_->objects = other;
+            // Tight scissor box is safe when no alternating sprite is repeated
+            // into margins or spans the full console width as a strip.
+            bool scissor_ok = fbox.valid;
+            if (scissor_ok) {
+                for (int s = 0; s < FieldScene::kObjects; ++s) {
+                    if (!changed_slots[s]) continue;
+                    if (margins_ && (margins_->object_repeat[s][0] > 0 ||
+                                     margins_->object_repeat[s][1] > 0)) {
+                        scissor_ok = false;
+                        break;
+                    }
+                    const SceneObject& a = scene.objects[s];
+                    const SceneObject& b = other[s];
+                    if ((a.present && (a.x <= 0 || a.x + a.width >= 240)) ||
+                        (b.present && (b.x <= 0 || b.x + b.width >= 240))) {
+                        // Conservative: edge-touching sprites could anchor a strip.
+                        scissor_ok = false;
+                        break;
+                    }
+                }
+            }
+            if (scissor_ok) {
+                const int cam_x = (240 - output_w_) / 2;
+                const int cam_y = (160 - output_h_) / 2;
+                // Pad bottom by 8 px if box extends outside native 240x160 in
+                // case an off-screen character shadow reorders under it.
+                const int pad_y = (fbox.x0 < 0 || fbox.y0 < 0 ||
+                                   fbox.x1 > 240 || fbox.y1 > 160) ? 8 : 0;
+                flicker_sx0_ = std::clamp(fbox.x0 - cam_x, 0, output_w_);
+                flicker_sy0_ = std::clamp(fbox.y0 - cam_y, 0, output_h_);
+                flicker_sx1_ = std::clamp(fbox.x1 - cam_x, 0, output_w_);
+                flicker_sy1_ = std::clamp(fbox.y1 + pad_y - cam_y, 0, output_h_);
+                flicker_scissor_on_ =
+                    (flicker_sx1_ > flicker_sx0_ && flicker_sy1_ > flicker_sy0_);
+            }
             other_drawn = draw_frame(*flicker_scene_, FlickerPhase::Other);
         }
     }
+    repeat_draw_ = repeat;
     const bool ok = draw_frame(
         scene, other_drawn ? FlickerPhase::Mix : FlickerPhase::Plain);
-    if (ok && flicker_weight_ > 0.0f)
-        flicker_history_.push(scene.objects);
-    else
+    repeat_draw_ = false;
+    if (!ok || flicker_weight_ <= 0.0f)
         flicker_history_.reset();
+    else if (!repeat)
+        flicker_history_.push(scene.objects);
+    has_last_drawn_ = ok;
+    last_drawn_frame_ = scene.frame;
+    last_other_drawn_ = other_drawn;
+    last_flicker_scissor_on_ = flicker_scissor_on_;
+    last_flicker_sx0_ = flicker_sx0_;
+    last_flicker_sy0_ = flicker_sy0_;
+    last_flicker_sx1_ = flicker_sx1_;
+    last_flicker_sy1_ = flicker_sy1_;
     return ok;
 }
 
@@ -3367,6 +3864,13 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
     // row: the game's own copy where it captured one (the room-transition
     // iris rewrites WIN0H every scanline), the frame's end-of-frame register
     // file otherwise.
+    // Flush any deferred room_vram / room_palette changes once per draw.
+    sync_deferred_uploads();
+
+    // This frame's per-row registers, packed as 16-bit words into a 3-slot
+    // ring texture (R16UI) so row_u16() needs one fetch instead of two and
+    // frame N never stalls waiting on frame N-1's draw.
+    gbarecomp::GpuTexture cur_row_io = row_io_[row_io_slot_];
     {
         // Game-supplied margin scroll rows follow the 160 captured rows
         // (SceneMarginLayer::scroll; only for a game whose profile says so).
@@ -3380,9 +3884,10 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
                 return false;
             }
         }
+        const int total_rows = FieldScene::kRows + extra_rows;
         std::vector<std::uint8_t> row_bytes(
             static_cast<std::size_t>(FieldScene::kLineIoBytes) *
-            static_cast<std::size_t>(FieldScene::kRows + extra_rows));
+            static_cast<std::size_t>(total_rows));
         for (int y = 0; y < FieldScene::kRows; ++y) {
             const std::uint8_t* src = scene.registers_for_row(y);
             std::memcpy(row_bytes.data() +
@@ -3419,10 +3924,20 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
                 }
             }
         }
-        surface_->update_texture(row_io_, 0, 0,
-                                 static_cast<int>(FieldScene::kLineIoBytes),
-                                 FieldScene::kRows + extra_rows,
-                                 row_bytes.data());
+        constexpr int kRowWords = static_cast<int>(FieldScene::kLineIoBytes / 2);
+        std::vector<std::uint16_t> row_words(
+            static_cast<std::size_t>(kRowWords) * static_cast<std::size_t>(total_rows));
+        for (std::size_t i = 0; i < row_words.size(); ++i) {
+            row_words[i] = static_cast<std::uint16_t>(
+                row_bytes[i * 2] | (static_cast<unsigned>(row_bytes[i * 2 + 1]) << 8));
+        }
+        if (uploaded_row_io_ != row_words) {
+            row_io_slot_ = (row_io_slot_ + 1) % kRowRing;
+            cur_row_io = row_io_[row_io_slot_];
+            surface_->update_texture(cur_row_io, 0, 0, kRowWords, total_rows,
+                                     row_words.data());
+            uploaded_row_io_ = std::move(row_words);
+        }
     }
 
     // Each row's affine reference point for BG2 and BG3 -- the console's own
@@ -3440,6 +3955,7 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
     // integer texture formats here are unsigned. The bias cannot overflow:
     // a reference point is 28-bit signed and 160 scanlines of PB add at most
     // another 2^23.
+    gbarecomp::GpuTexture cur_row_affine = row_affine_[row_affine_slot_];
     {
         constexpr int kBias = 1 << 29;
         std::vector<std::uint16_t> refs(8u * FieldScene::kRows);
@@ -3457,9 +3973,14 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
                 row[k * 4 + 3] = static_cast<std::uint16_t>((ey >> 16) & 0xFFFF);
             }
         }
-        surface_->update_texture(row_affine_, 0, 0, 8,
-                                 static_cast<int>(FieldScene::kRows),
-                                 refs.data());
+        if (uploaded_row_affine_ != refs) {
+            row_affine_slot_ = (row_affine_slot_ + 1) % kRowRing;
+            cur_row_affine = row_affine_[row_affine_slot_];
+            surface_->update_texture(cur_row_affine, 0, 0, 8,
+                                     static_cast<int>(FieldScene::kRows),
+                                     refs.data());
+            uploaded_row_affine_ = std::move(refs);
+        }
     }
 
     // Which layers, if any, may carry the battle arena out into the side
@@ -3502,35 +4023,13 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
     const float clear_b = static_cast<float>(kBackdropKey & 0xFF) / 255.0f;
     const float clear_a = static_cast<float>((kBackdropKey >> 8) & 3) / 255.0f;
 
-    // The clear colour argument is never seen: the resolve pass below always
-    // covers the whole output.
-    surface_->begin_frame(0.0f, 0.0f, 0.0f, 1.0f);
+    // The resolve pass always overwrites the whole output; skipping the
+    // begin_frame clear avoids an empty clear-only render pass on mobile GPUs.
+    surface_->begin_frame(0.0f, 0.0f, 0.0f, 1.0f, /*clear=*/false);
 
     const float camera_x = static_cast<float>((240 - output_w_) / 2);
     const float camera_y = static_cast<float>((160 - output_h_) / 2);
 
-    surface_->set_uniform_mat4(background_, "u_transform", transform);
-    surface_->set_uniform_int(background_, "u_vram", 0);
-    surface_->set_uniform_int(background_, "u_palette", 1);
-    surface_->set_uniform_int(background_, "u_window", 2);
-    surface_->set_uniform_int(background_, "u_id_grid", 3);
-    surface_->set_uniform_int(background_, "u_atlas", 4);
-    surface_->set_uniform_int(background_, "u_effect", 8);
-    surface_->set_uniform_vec2(background_, "u_effect_size",
-                               static_cast<float>(effect_pixels_.width),
-                               static_cast<float>(effect_pixels_.height));
-    surface_->set_uniform_vec2(background_, "u_effect_origin",
-                               static_cast<float>(effect_pixels_.origin_x),
-                               static_cast<float>(effect_pixels_.origin_y));
-    surface_->set_uniform_vec2(background_, "u_effect_hold", 0.0f,
-                               static_cast<float>(effect_hold_right_));
-    surface_->set_uniform_int(background_, "u_row_io", 5);
-    surface_->set_uniform_int(background_, "u_row_affine", 6);
-    surface_->set_uniform_int(background_, "u_top_record", 7);
-    surface_->set_uniform_int(background_, "u_room_vram", 9);
-    surface_->set_uniform_int(background_, "u_world_map", 10);
-    surface_->set_uniform_int(background_, "u_world_side",
-                              prof().world_map_side_tiles);
     // Measured on every recorded frame: 100% on each good world-map frame,
     // 0% on the two pause-menu frames.
     {
@@ -3538,37 +4037,67 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
         world_map_used_ = world_map_valid_ &&
                           (agree < 0 || agree >= kRoomCheckMinAgreement);
     }
-    surface_->set_uniform_int(background_, "u_use_world",
-                              world_map_used_ ? 1 : 0);
-    surface_->set_uniform_int(background_, "u_world_cell_art", 11);
-    surface_->set_uniform_int(background_, "u_world_art", 12);
-    surface_->set_uniform_int(background_, "u_world_art_sets",
-                              world_map_used_ ? world_art_sets_ : 0);
-    surface_->set_uniform_int(background_, "u_palette_half", 0);
-    // The native viewport starts at the console's own origin. A wider output
-    // is centred on it, so the extra width appears on both sides.
-    surface_->set_uniform_vec2(background_, "u_camera", camera_x, camera_y);
-    surface_->set_uniform_int(background_, "u_world_loaded",
-                              world_loaded_ ? 1 : 0);
-    surface_->set_uniform_vec2(background_, "u_room_min",
-                               static_cast<float>(room_min_x_),
-                               static_cast<float>(room_min_y_));
-    surface_->set_uniform_vec2(background_, "u_room_max",
-                               static_cast<float>(room_max_x_),
-                               static_cast<float>(room_max_y_));
-    surface_->set_uniform_vec2(background_, "u_ewram_camera",
-                               static_cast<float>(room_camera_x_),
-                               static_cast<float>(room_camera_y_));
-    static_assert(kKeepOutMax == 2, "u_keep_out's size in the shader");
-    surface_->set_uniform_int(background_, "u_keep_out_count", keep_out_count_);
-    for (int i = 0; i < keep_out_count_; ++i) {
-        const char* name = i == 0 ? "u_keep_out[0]" : "u_keep_out[1]";
-        surface_->set_uniform_vec4(background_, name,
-                                   static_cast<float>(keep_out_[i][0]),
-                                   static_cast<float>(keep_out_[i][1]),
-                                   static_cast<float>(keep_out_[i][2]),
-                                   static_cast<float>(keep_out_[i][3]));
-    }
+    auto set_bg_frame_uniforms = [&](gbarecomp::GpuProgram prog, bool has_affine) {
+        surface_->set_uniform_mat4(prog, "u_transform", transform);
+        surface_->set_uniform_int(prog, "u_vram", 0);
+        surface_->set_uniform_int(prog, "u_palette", 1);
+        surface_->set_uniform_int(prog, "u_window", 2);
+        surface_->set_uniform_int(prog, "u_id_grid", 3);
+        surface_->set_uniform_int(prog, "u_atlas", 4);
+        surface_->set_uniform_int(prog, "u_row_io", 5);
+        surface_->set_uniform_int(prog, "u_row_io_max", row_io_rows_ - 1);
+        surface_->set_uniform_int(prog, "u_top_record", 7);
+        surface_->set_uniform_int(prog, "u_effect", 8);
+        surface_->set_uniform_vec2(prog, "u_effect_size",
+                                   static_cast<float>(effect_pixels_.width),
+                                   static_cast<float>(effect_pixels_.height));
+        surface_->set_uniform_vec2(prog, "u_effect_origin",
+                                   static_cast<float>(effect_pixels_.origin_x),
+                                   static_cast<float>(effect_pixels_.origin_y));
+        surface_->set_uniform_vec2(prog, "u_effect_hold", 0.0f,
+                                   static_cast<float>(effect_hold_right_));
+        surface_->set_uniform_int(prog, "u_room_vram", 9);
+        surface_->set_uniform_int(prog, "u_hold_strip", 13);
+        surface_->set_uniform_int(prog, "u_hold_strip_max",
+                                  std::max(0, hold_strip_h_ - 1));
+        if (has_affine) {
+            surface_->set_uniform_int(prog, "u_row_affine", 6);
+            surface_->set_uniform_int(prog, "u_world_map", 10);
+            surface_->set_uniform_int(prog, "u_world_side",
+                                      prof().world_map_side_tiles);
+            surface_->set_uniform_int(prog, "u_use_world",
+                                      world_map_used_ ? 1 : 0);
+            surface_->set_uniform_int(prog, "u_world_cell_art", 11);
+            surface_->set_uniform_int(prog, "u_world_art", 12);
+            surface_->set_uniform_int(prog, "u_world_art_sets",
+                                      world_map_used_ ? world_art_sets_ : 0);
+        }
+        surface_->set_uniform_int(prog, "u_palette_half", 0);
+        surface_->set_uniform_vec2(prog, "u_camera", camera_x, camera_y);
+        surface_->set_uniform_int(prog, "u_world_loaded",
+                                  world_loaded_ ? 1 : 0);
+        surface_->set_uniform_vec2(prog, "u_room_min",
+                                   static_cast<float>(room_min_x_),
+                                   static_cast<float>(room_min_y_));
+        surface_->set_uniform_vec2(prog, "u_room_max",
+                                   static_cast<float>(room_max_x_),
+                                   static_cast<float>(room_max_y_));
+        surface_->set_uniform_vec2(prog, "u_ewram_camera",
+                                   static_cast<float>(room_camera_x_),
+                                   static_cast<float>(room_camera_y_));
+        static_assert(kKeepOutMax == 2, "u_keep_out's size in the shader");
+        surface_->set_uniform_int(prog, "u_keep_out_count", keep_out_count_);
+        for (int i = 0; i < keep_out_count_; ++i) {
+            const char* name = i == 0 ? "u_keep_out[0]" : "u_keep_out[1]";
+            surface_->set_uniform_vec4(prog, name,
+                                       static_cast<float>(keep_out_[i][0]),
+                                       static_cast<float>(keep_out_[i][1]),
+                                       static_cast<float>(keep_out_[i][2]),
+                                       static_cast<float>(keep_out_[i][3]));
+        }
+    };
+    set_bg_frame_uniforms(background_regular_, false);
+    set_bg_frame_uniforms(background_, true);
 
     surface_->set_uniform_mat4(object_, "u_transform", transform);
     surface_->set_uniform_int(object_, "u_vram", 0);
@@ -3584,6 +4113,13 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
     surface_->set_uniform_int(obj_window_, "u_vram", 0);
     surface_->set_uniform_int(obj_window_, "u_row_io", 1);
     surface_->set_uniform_vec2(obj_window_, "u_camera", camera_x, camera_y);
+    // Every transform group once a frame; a record names its group.
+    surface_->set_uniform_vec4_array(object_, "u_transforms[0]",
+                                     scene.object_transforms[0].data(),
+                                     FieldScene::kTransforms);
+    surface_->set_uniform_vec4_array(obj_window_, "u_transforms[0]",
+                                     scene.object_transforms[0].data(),
+                                     FieldScene::kTransforms);
 
     // WIN0/WIN1/object-window setup for the window pass. The rectangles,
     // WININ/WINOUT and the window-enable bits themselves are read per row
@@ -3603,11 +4139,15 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
         surface_->set_uniform_vec2(window_, "u_iris_axes", iris.a2, iris.b2);
     }
 
-    const gbarecomp::GpuTexture textures2[4] = {
-        vram_, palette_, window_control_, row_io_};
+    // Every sampler2D unit gets a valid RGBA8 texture even on Pass 1 (never
+    // an R8UI/R16UI integer texture like effect_canvas_ or atlas_), because
+    // ES 3.0 leaves mismatched sampler/format bindings undefined and Adreno
+    // faults on them.
+    const gbarecomp::GpuTexture textures2[5] = {
+        vram_, palette_, window_control_, cur_row_io, window_control_};
     const gbarecomp::GpuTexture textures3[5] = {
-        vram_, palette_, window_control_, row_io_, top_};
-    const gbarecomp::GpuTexture window_textures[2] = {obj_window_mask_, row_io_};
+        vram_, palette_, window_control_, cur_row_io, top_};
+    const gbarecomp::GpuTexture window_textures[2] = {obj_window_mask_, cur_row_io};
     // Backgrounds additionally carry the room buffer's id grid and atlas and
     // this frame's per-row registers and affine references, at the fixed
     // units u_id_grid=3/u_atlas=4/u_row_io=5/u_row_affine=6 set above;
@@ -3618,22 +4158,20 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
     // Unit 10 is the world map (upload_world_map), 11 and 12 its cells'
     // other artwork (upload_world_cell_art), bound always for the same
     // reason.
-    const gbarecomp::GpuTexture bg_textures2[13] = {
-        vram_, palette_, window_control_, id_grid_, atlas_, row_io_,
-        row_affine_, effect_canvas_, effect_canvas_, room_vram_, world_map_,
-        world_cell_art_, world_art_};
-    const gbarecomp::GpuTexture bg_textures3[13] = {
-        vram_, palette_, window_control_, id_grid_, atlas_, row_io_,
-        row_affine_, top_, effect_canvas_, room_vram_, world_map_,
-        world_cell_art_, world_art_};
+    const gbarecomp::GpuTexture bg_textures2[14] = {
+        vram_, palette_, window_control_, id_grid_, atlas_, cur_row_io,
+        cur_row_affine, window_control_, effect_canvas_, room_vram_, world_map_,
+        world_cell_art_, world_art_, hold_strip_};
+    const gbarecomp::GpuTexture bg_textures3[14] = {
+        vram_, palette_, window_control_, id_grid_, atlas_, cur_row_io,
+        cur_row_affine, top_, effect_canvas_, room_vram_, world_map_,
+        world_cell_art_, world_art_, hold_strip_};
 
     // The console picks the winning pixel by a sort key: a background's key is
     // its priority times 256 plus 128 plus its layer number, an object's is its
     // priority times 256 plus its slot number, and the smaller key wins
-    // (gba_ppu.cpp). The depth test reproduces that ordering directly, so
-    // unlike a painter's-order draw, these do not need to be issued
-    // back to front -- only every enabled layer and present object drawn once
-    // per pass.
+    // (gba_ppu.cpp). The depth test reproduces that ordering directly, and
+    // drawing front-to-back lets hardware early-Z reject occluded backgrounds.
     // DISPCNT's layer enables, read the way the reference reads them: once
     // per row. `SceneLayer::enabled` is the frame's LAST row's answer, so a
     // layer the game switches on for part of the frame and off by VBlank
@@ -3641,13 +4179,39 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
     // wants the layer; the shader then drops the rows that do not.
     bool objects_on = false;
     bool obj_window_on = false;
+    bool any_window_on = false;
+    bool all_rows_room_sig = true;
+    bool any_rows_room_sig = false;
     for (int y = 0; y < FieldScene::kRows; ++y) {
         const std::uint8_t* io = scene.registers_for_row(y);
         const unsigned dispcnt =
             io[0] | (static_cast<unsigned>(io[1]) << 8);
         if ((dispcnt & 0x1000u) != 0u) objects_on = true;
         if ((dispcnt & 0x8000u) != 0u) obj_window_on = true;
+        if ((dispcnt & 0xE000u) != 0u) any_window_on = true;
+        const bool sig =
+            (dispcnt & 7u) == 0u &&
+            (dispcnt & 0x0C00u) == 0x0C00u &&
+            (io[0x0F] & 0x1Fu) == 5u &&
+            (io[0x0D] & 0x1Fu) == 6u &&
+            (io[0x0B] & 0x1Fu) == 7u;
+        if (sig) any_rows_room_sig = true;
+        else all_rows_room_sig = false;
     }
+    bool has_obj_window_sprites = false;
+    if (obj_window_on) {
+        for (int slot = 0; slot < FieldScene::kObjects; ++slot) {
+            if (scene.objects[slot].present && scene.objects[slot].window) {
+                has_obj_window_sprites = true;
+                break;
+            }
+        }
+    }
+    surface_->set_uniform_int(background_regular_, "u_window_on", any_window_on ? 1 : 0);
+    surface_->set_uniform_int(background_, "u_window_on", any_window_on ? 1 : 0);
+    surface_->set_uniform_int(object_, "u_window_on", any_window_on ? 1 : 0);
+    surface_->set_uniform_int(window_, "u_has_obj_window",
+                              has_obj_window_sprites ? 1 : 0);
     // Draw order within a priority: OAM order (lower slot in front), except
     // for a character's shadow that the console never shows. Every field
     // shadow is a 16x8 8-bit sprite on tile 0, centred under its character
@@ -3835,141 +4399,168 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
         }
     }
 
+    // Partition each enabled background into horizontal strips by (enabled,
+    // priority) so every quad carries its exact vertex depth (no gl_FragDepth
+    // write, keeping hardware early-Z rejection on) and disabled letterbox
+    // bands are not rasterized.
+    std::array<std::vector<gbarecomp::GpuQuad>, 4> bg_quads[4][2];
+    auto build_bg_strips = [&](int bg, bool affine) {
+        const bool striped = layer_striped[bg];
+        int run_start = -1;
+        int run_prio = -1;
+        auto flush_run = [&](int y_end) {
+            if (run_start < 0) return;
+            const float out_y0 = (run_start == 0) ? 0.0f
+                : std::clamp(static_cast<float>(run_start) - camera_y,
+                             0.0f, static_cast<float>(output_h_));
+            const float out_y1 = (y_end == FieldScene::kRows)
+                ? static_cast<float>(output_h_)
+                : std::clamp(static_cast<float>(y_end) - camera_y,
+                             0.0f, static_cast<float>(output_h_));
+            if (out_y1 > out_y0) {
+                gbarecomp::GpuQuad q;
+                q.x = 0.0f;
+                q.y = out_y0;
+                q.w = static_cast<float>(output_w_);
+                q.h = out_y1 - out_y0;
+                q.u0 = 0.0f;
+                q.v0 = out_y0;
+                q.u1 = static_cast<float>(output_w_);
+                q.v1 = out_y1;
+                const int key = run_prio * 256 + 128 + bg;
+                q.depth = static_cast<float>(key) / 1024.0f;
+                bg_quads[bg][affine ? 1 : 0][run_prio].push_back(q);
+            }
+            run_start = -1;
+            run_prio = -1;
+        };
+        for (int y = 0; y < FieldScene::kRows; ++y) {
+            const std::uint8_t* io = scene.registers_for_row(y);
+            const unsigned dispcnt = io[0] | (static_cast<unsigned>(io[1]) << 8);
+            bool on = striped || (((dispcnt >> (8 + bg)) & 1u) != 0u);
+            if (on && row_modes_mixed) {
+                const unsigned mode = dispcnt & 7u;
+                const bool exists = mode == 0u || (mode == 1u && bg <= 2) ||
+                                    (mode == 2u && bg >= 2);
+                const bool row_aff = (mode == 1u && bg == 2) ||
+                                     (mode == 2u && bg >= 2);
+                if (!exists || row_aff != affine) on = false;
+            }
+            const unsigned bgcnt = io[0x08 + bg * 2] |
+                                   (static_cast<unsigned>(io[0x09 + bg * 2]) << 8);
+            const int prio = static_cast<int>(bgcnt & 3u);
+            if (!on) {
+                flush_run(y);
+            } else if (run_start < 0) {
+                run_start = y;
+                run_prio = prio;
+            } else if (prio != run_prio) {
+                flush_run(y);
+                run_start = y;
+                run_prio = prio;
+            }
+        }
+        flush_run(FieldScene::kRows);
+    };
+    for (int bg = 0; bg < 4; ++bg) {
+        if (!layer_wanted[bg]) continue;
+        if (!row_modes_mixed) {
+            build_bg_strips(bg, scene.layers[bg].affine);
+        } else {
+            if (wanted_regular[bg]) build_bg_strips(bg, false);
+            if (wanted_affine[bg]) build_bg_strips(bg, true);
+        }
+    }
+
     // `affine` is this draw's reading of the layer: the frame's own unless
     // the rows mix video modes (see layer_wanted above).
-    auto draw_background_as = [&](int bg, bool second_pass, bool affine) {
+    auto draw_background_as = [&](int bg, bool second_pass, bool affine,
+                                  const std::vector<gbarecomp::GpuQuad>& quads) {
+        const gbarecomp::GpuProgram prog = affine ? background_ : background_regular_;
         const SceneLayer& L = scene.layers[bg];
         static const SceneMarginLayer kNoMargin;
         const SceneMarginLayer& margin = margins_ ? margins_->layers[bg] : kNoMargin;
-        // Only the quad's own depth, which gl_FragDepth overrides per
-        // fragment; kept so the draw still carries a sane value.
-        const int key = L.priority * 256 + 128 + bg;
-        surface_->set_uniform_int(background_, "u_layer", bg);
-        surface_->set_uniform_int(background_, "u_layer_striped",
+        surface_->set_uniform_int(prog, "u_layer", bg);
+        surface_->set_uniform_int(prog, "u_layer_striped",
                                   layer_striped[bg] ? 1 : 0);
-        // Rows from the layer's region to its rest region (upload_room;
-        // at most 32, a larger move resets the rest position there). Field
-        // rooms only, and not a wobble under 4 rows: over the measured
-        // frames the rule then fires only on Altin's drain (map 79), not on map
-        // 188's BG1 (regions 510..513) or the world map's drifting layers.
         const int rest_dy = rest_region_y_[bg] - layer_wrap_[bg].region_y;
         surface_->set_uniform_int(
-            background_, "u_rest_dy",
+            prog, "u_rest_dy",
             margin.rest_clip_y != 0 ? margin.rest_clip_y :
                 (rest_rule_on_ && scene.video_mode == 0 &&
                     std::abs(rest_dy) >= 4 ? rest_dy : 0));
-        surface_->set_uniform_int(background_, "u_compare_top",
+        surface_->set_uniform_int(prog, "u_compare_top",
                                   second_pass ? 1 : 0);
-        surface_->set_uniform_int(background_, "u_affine", affine ? 1 : 0);
-        surface_->set_uniform_int(background_, "u_row_mode_filter",
+        if (affine) surface_->set_uniform_int(prog, "u_affine", 1);
+        surface_->set_uniform_int(prog, "u_row_mode_filter",
                                   row_modes_mixed ? 1 : 0);
-        // The sort key, the tile and map blocks, the size, the colour depth,
-        // the affine wrap flag and the layer's own enable bit are NOT set
-        // here either: all seven live in BGxCNT and DISPCNT, which Golden Sun
-        // rewrites mid-frame, so the shader reads this row's copy of both out
-        // of u_row_io (see kBackgroundFragment). u_affine is one value per
-        // draw; a frame whose rows mix video modes gets one draw per reading.
-        // PA/PB/PC/PD and the reference point are NOT set here: the shader
-        // reads this row's own copy of all six from u_row_io and
-        // u_row_affine. A frame-level value is only ever the last row's.
-        // Scroll is not set here: the shader reads this row's own
-        // HOFS/VOFS from u_row_io (see kBackgroundFragment), keyed by
-        // u_layer, which is what lets a frame that rewrites scroll mid-frame
-        // draw correctly.
-        // The room buffer only ever sources BG1-3 -- BG0 is the lighting
-        // layer and stays on video memory (the room buffer's method cannot
-        // reconstruct it). It is also
-        // never asked to source an affine layer: the room's id grid and
-        // atlas describe a field room's regular map, not a battle arena or
-        // the overworld's affine geometry, and that combination has not
-        // been measured.
-        // Video mode 0 only. The room buffer's rect, camera, id grid and
-        // atlas all describe a FIELD room, and the game leaves them standing
-        // in EWRAM while a battle runs -- so on a battle frame the rect still
-        // covers most of the screen and a regular arena layer would be
-        // answered with tiles from whichever room the player walked out of.
-        // Mode is the reliable test: every measurement behind this path was
-        // taken on mode 0 field frames, battles are mode 1 and the
-        // overworld mode 2.
         bool use_room =
             room_source_enabled_ && room_valid_ && scene.video_mode == 0 &&
             bg != 0 && !affine && margin.vram_height == 0;
-        // A layer whose room rule does not reproduce the console's own
-        // tiles inside the window would fill the margins with the wrong
-        // tiles (patterned strips): leave its margins black instead, the
-        // correct answer.
         bool from_record = false;
         if (use_room && !room_reference_for(scene, bg, &from_record))
             use_room = false;
         const LayerWrap& wrap = layer_wrap_[bg];
-        surface_->set_uniform_int(background_, "u_use_room", use_room ? 1 : 0);
-        surface_->set_uniform_int(background_, "u_room_grid_wrap",
+        const int room_auth = !use_room || !any_rows_room_sig ? 0
+                            : all_rows_room_sig ? 2 : 1;
+        surface_->set_uniform_int(prog, "u_room_auth", room_auth);
+        surface_->set_uniform_int(prog, "u_room_grid_wrap",
                                   prof().room_grid_wrap ? 1 : 0);
-        surface_->set_uniform_int(background_, "u_haze_room",
+        surface_->set_uniform_int(prog, "u_haze_room",
                                   haze_room ? 1 : 0);
-        surface_->set_uniform_int(background_, "u_haze_mirror",
+        surface_->set_uniform_int(prog, "u_haze_mirror",
                                   prof().lamakan_haze ? 1 : 0);
-        surface_->set_uniform_int(background_, "u_margin_scroll_first_y",
+        surface_->set_uniform_int(prog, "u_margin_scroll_first_y",
                                   margin.scroll_first_y);
-        surface_->set_uniform_int(background_, "u_margin_scroll_rows",
+        surface_->set_uniform_int(prog, "u_margin_scroll_rows",
                                   static_cast<int>(margin.scroll.size()));
-        surface_->set_uniform_int(background_, "u_margin_scroll_sides",
+        surface_->set_uniform_int(prog, "u_margin_scroll_sides",
                                   margin.scroll_sides ? 1 : 0);
-        surface_->set_uniform_int(background_, "u_affine_step_valid", margin.affine_step_valid ? 1 : 0);
-        for (int edge = 0; edge < 2; ++edge) {
-            const auto& step = margin.affine_step[edge];
-            surface_->set_uniform_vec4(background_, edge ? "u_affine_step_bottom" : "u_affine_step_top",
-                                       step[0], step[1], step[2], step[3]);
+        if (affine) {
+            surface_->set_uniform_int(prog, "u_affine_step_valid", margin.affine_step_valid ? 1 : 0);
+            for (int edge = 0; edge < 2; ++edge) {
+                const auto& step = margin.affine_step[edge];
+                surface_->set_uniform_vec4(prog, edge ? "u_affine_step_bottom" : "u_affine_step_top",
+                                           step[0], step[1], step[2], step[3]);
+            }
         }
-        surface_->set_uniform_int(background_, "u_margin_vram_height",
+        surface_->set_uniform_int(prog, "u_margin_vram_height",
                                   margin.vram_height);
-        surface_->set_uniform_int(background_, "u_margin_vram_clamp",
+        surface_->set_uniform_int(prog, "u_margin_vram_clamp",
                                   margin.vram_clamp ? 1 : 0);
-        surface_->set_uniform_vec2(background_, "u_margin_repeat",
+        surface_->set_uniform_vec2(prog, "u_margin_repeat",
                                    static_cast<float>(margin.repeat_width),
                                    static_cast<float>(margin.repeat_height));
-        surface_->set_uniform_vec4(background_, "u_art_repeat",
+        surface_->set_uniform_vec4(prog, "u_art_repeat",
                                    static_cast<float>(use_room ? margin.art_repeat_y : 0),
                                    static_cast<float>(margin.art_repeat_shift),
                                    static_cast<float>(use_room ? margin.art_repeat_x : 0),
                                    0.0f);
-        surface_->set_uniform_int(background_, "u_past_room_edge",
+        surface_->set_uniform_int(prog, "u_past_room_edge",
                                   margin.past_room_edge ? 1 : 0);
-        surface_->set_uniform_int(background_, "u_room_ref_on",
+        surface_->set_uniform_int(prog, "u_room_ref_on",
                                   use_room && from_record ? 1 : 0);
-        surface_->set_uniform_vec2(background_, "u_room_ref",
+        surface_->set_uniform_vec2(prog, "u_room_ref",
                                    static_cast<float>(wrap.pos_x),
                                    static_cast<float>(wrap.pos_y));
         const bool split_v = prof().kolima_split_rows && use_room &&
                              row_split_vertical(scene, bg);
-        surface_->set_uniform_int(background_, "u_split_v", split_v ? 1 : 0);
+        surface_->set_uniform_int(prog, "u_split_v", split_v ? 1 : 0);
         int split_x = 0, split_y = 0;
         const bool split_found =
             split_v && split_row_offset(scene, bg, &split_x, &split_y);
-        surface_->set_uniform_int(background_, "u_split_found",
+        surface_->set_uniform_int(prog, "u_split_found",
                                   split_found ? 1 : 0);
-        surface_->set_uniform_vec2(background_, "u_split_offset",
+        surface_->set_uniform_vec2(prog, "u_split_offset",
                                    static_cast<float>(split_x),
                                    static_cast<float>(split_y));
-        surface_->set_uniform_vec4(background_, "u_room_wrap",
+        surface_->set_uniform_vec4(prog, "u_room_wrap",
                                    static_cast<float>(wrap.region_x),
                                    static_cast<float>(wrap.region_y),
                                    static_cast<float>(use_room ? wrap.wrap_x : 0),
                                    static_cast<float>(use_room ? wrap.wrap_y : 0));
-        // Where a parallax layer's art starts: walk up from the console's
-        // top row (centre column, row 0's own scroll) through the expanded
-        // top margin until the room gives the region's filler entry, the one
-        // at the region's origin (the crow's nest: 0x0020 everywhere above
-        // y 776, the sky from 776). Holding the console's
-        // own row 0 instead would streak the clouds upward.
-        // The filler must fill the whole row the console shows: one cloud
-        // tile equal to it in the centre column would hold Jupiter
-        // Lighthouse's clouds (The Lost Age map 263, BG3) and streak their
-        // top rows upward.
         int hold_floor = 0;
         bool hold_top = false;
-        // The sky's filler clamp hides the moon until it reaches the native
-        // window. A measured ripple supplies the water's own margin rows.
         if (use_room && wrap.parallax && room_valid_ && margin.scroll.empty()) {
             const std::uint8_t* io = scene.registers_for_row(0);
             const std::size_t at = 0x10u + static_cast<std::size_t>(bg) * 4u;
@@ -4006,8 +4597,8 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
                 }
             }
         }
-        surface_->set_uniform_int(background_, "u_hold_top", hold_top ? 1 : 0);
-        surface_->set_uniform_int(background_, "u_hold_floor", hold_floor);
+        surface_->set_uniform_int(prog, "u_hold_top", hold_top ? 1 : 0);
+        surface_->set_uniform_int(prog, "u_hold_floor", hold_floor);
         int margin_mode = 0;
         if (battle_frame) {
             if (bg == static_cast<int>(gsr::battle::kBackdropLayer) ||
@@ -4016,39 +4607,20 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
         } else if (affine) {
             margin_mode = 1;
         }
-        surface_->set_uniform_int(background_, "u_margin_mode", margin_mode);
-        // Scale effect sampling by 240 / output width to span the expanded view.
-        // At native width this is 1.
-        //
-        // Off by default. Spanning 360x240 enlarges the same art 1.5x and makes
-        // sparks look blockier. `effect_span_` controls this.
+        surface_->set_uniform_int(prog, "u_margin_mode", margin_mode);
         const bool remap = effect_layer_ == bg && effect_span_ && !L.wraps &&
                            output_w_ > 0 &&
                            output_h_ > 0 &&
                            (output_w_ != 240 || output_h_ != 160);
-        // Two separate things, deliberately: our captured sparks fill where
-        // the game drew nothing, and the span remap stretches its canvas over
-        // the view. The first adds artwork; the second magnifies it. Only the
-        // first is wanted by default.
-        // Hiding the game's slash (set_effect_hidden) applies only to a canvas
-        // we have located (text block or wrapping affine); it also drops our
-        // own stamp overlay and fill, so nothing of the effect is left.
         const bool hide_here = effect_hidden_ && effect_layer_ == bg &&
                                effect_have_sparks_ &&
                                (effect_text_canvas_ || effect_wrap_canvas_);
-        surface_->set_uniform_int(background_, "u_effect_hide",
+        surface_->set_uniform_int(prog, "u_effect_hide",
                                   !hide_here ? 0 : (effect_text_canvas_ ? 1 : 2));
-        surface_->set_uniform_int(
-            background_, "u_effect_extra",
-            (effect_layer_ == bg && effect_have_sparks_ && !hide_here) ? 1 : 0);
-        // A wrapping 128 canvas stretched by less than 2:1 already repeats
-        // inside the console's own screen: Torch's glow at PA 170 spans 158
-        // canvas columns per row, so the console shows it starting over
-        // There the repeat is the effect as designed, and
-        // the margins continue it; swapping in our capture past the canvas
-        // would draw a hard curved edge on the left and nothing on the right.
-        // Decided from the stretch alone, not the offset, so a shaking
-        // 2:1 canvas (Meteor, PA 128: 120 columns) is never caught by it.
+        const bool effect_extra_on =
+            effect_layer_ == bg && effect_have_sparks_ && !hide_here;
+        surface_->set_uniform_int(prog, "u_effect_extra",
+                                  effect_extra_on ? 1 : 0);
         bool repeats_on_screen = false;
         if (effect_layer_ == bg && affine && L.wraps && L.size_code == 0) {
             const int param = 0x20 + (bg - 2) * 0x10;
@@ -4056,22 +4628,18 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
                 const std::uint8_t* io = scene.registers_for_row(y);
                 const int pa = static_cast<std::int16_t>(
                     io[param] | (io[param + 1] << 8));
-                // At 1:1 Drench already shows almost two copies natively;
-                // continuing into the margins adds detached copies.
                 repeats_on_screen = std::abs(pa) != 256 &&
                     ((239 * std::abs(pa)) >> 8) >= 136;
             }
         }
-        surface_->set_uniform_int(
-            background_, "u_effect_wrap_canvas",
-            (effect_layer_ == bg && effect_wrap_canvas_ &&
-             !hide_here && !repeats_on_screen)
-                ? 1 : 0);
-        surface_->set_uniform_int(background_, "u_effect_fill", effect_fill_);
-        // The fill reaches the margins past a non-wrapping canvas only when
-        // the canvas spans the console's whole width on the first and last
-        // rows; at 1:1 a 128-pixel canvas ends inside the screen, where the
-        // console shows nothing past it either.
+        const bool wrap_canvas_on =
+            effect_layer_ == bg && effect_wrap_canvas_ &&
+            !hide_here && !repeats_on_screen;
+        if (affine) {
+            surface_->set_uniform_int(prog, "u_effect_wrap_canvas",
+                                      wrap_canvas_on ? 1 : 0);
+        }
+        surface_->set_uniform_int(prog, "u_effect_fill", effect_fill_);
         bool fill_beyond = false;
         if (effect_layer_ == bg && !hide_here && effect_fill_ > 0 &&
             effect_wrap_canvas_ && !repeats_on_screen && affine &&
@@ -4087,45 +4655,240 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
                     fill_beyond = false;
             }
         }
-        surface_->set_uniform_int(background_, "u_effect_fill_beyond",
-                                  fill_beyond ? 1 : 0);
-        surface_->set_uniform_int(background_, "u_effect_repeats",
-                                  repeats_on_screen && !hide_here ? 1 : 0);
-        surface_->set_uniform_int(
-            background_, "u_effect_text_canvas",
-            (effect_layer_ == bg && effect_have_sparks_ && effect_text_canvas_ &&
-             !hide_here)
-                ? 1 : 0);
-        surface_->set_uniform_vec2(background_, "u_effect_canvas_map",
+        if (affine) {
+            surface_->set_uniform_int(prog, "u_effect_fill_beyond",
+                                      fill_beyond ? 1 : 0);
+            surface_->set_uniform_int(prog, "u_effect_repeats",
+                                      repeats_on_screen && !hide_here ? 1 : 0);
+        }
+        const bool text_canvas_on =
+            effect_layer_ == bg && effect_have_sparks_ && effect_text_canvas_ &&
+            !hide_here;
+        surface_->set_uniform_int(prog, "u_effect_text_canvas",
+                                  text_canvas_on ? 1 : 0);
+        surface_->set_uniform_vec2(prog, "u_effect_canvas_map",
                                    static_cast<float>(effect_canvas_map_x_),
                                    static_cast<float>(effect_canvas_map_y_));
-        surface_->set_uniform_vec2(
-            background_, "u_effect_span",
-            remap ? 240.0f / static_cast<float>(output_w_) : 0.0f,
-            remap ? 160.0f / static_cast<float>(output_h_) : 0.0f);
-        gbarecomp::GpuQuad quad;
-        quad.x = 0;
-        quad.y = 0;
-        quad.w = static_cast<float>(output_w_);
-        quad.h = static_cast<float>(output_h_);
-        // The texture coordinates carry output pixel positions, so the shader
-        // can work in whole pixels.
-        quad.u0 = 0;
-        quad.v0 = 0;
-        quad.u1 = static_cast<float>(output_w_);
-        quad.v1 = static_cast<float>(output_h_);
-        quad.depth = static_cast<float>(key) / 1024.0f;
-        surface_->draw_quads(background_, &quad, 1,
-                             second_pass ? bg_textures3 : bg_textures2, 13);
-    };
-    auto draw_background = [&](int bg, bool second_pass) {
-        if (!layer_wanted[bg]) return;
-        if (!row_modes_mixed) {
-            draw_background_as(bg, second_pass, scene.layers[bg].affine);
-            return;
+        if (affine) {
+            surface_->set_uniform_vec2(
+                prog, "u_effect_span",
+                remap ? 240.0f / static_cast<float>(output_w_) : 0.0f,
+                remap ? 160.0f / static_cast<float>(output_h_) : 0.0f);
         }
-        if (wanted_regular[bg]) draw_background_as(bg, second_pass, false);
-        if (wanted_affine[bg]) draw_background_as(bg, second_pass, true);
+
+        // Precompute per-row 16-column off-screen strip shares on CPU whenever
+        // a battle hold_edge layer needs them (replaces per-pixel 16-iteration
+        // VRAM loops that caused Adreno 619 GPU faults on attack frames).
+        if (margin_mode == 2 && (output_w_ > 240 || output_h_ > 160) &&
+            !uploaded_vram_.empty() &&
+            ((!affine && !text_canvas_on) || (affine && !wrap_canvas_on))) {
+            bool need_strip = false;
+            for (int y = 0; y < FieldScene::kRows && !need_strip; ++y) {
+                const std::uint8_t* io = scene.registers_for_row(y);
+                const unsigned bldcnt = io[0x50] | (static_cast<unsigned>(io[0x51]) << 8);
+                if (((bldcnt >> 6) & 3u) != 1u || (bldcnt & (1u << bg)) == 0u) continue;
+                const unsigned bgcnt = io[0x08 + bg * 2] | (static_cast<unsigned>(io[0x09 + bg * 2]) << 8);
+                if ((bgcnt & 3u) != 1u && !text_canvas_on) continue;
+                if (!affine) {
+                    if ((((bgcnt >> 14) & 3u) & 1u) == 0u) need_strip = true;
+                } else {
+                    const int param = 0x20 + (bg - 2) * 0x10;
+                    const int pa = static_cast<std::int16_t>(io[param] | (io[param + 1] << 8));
+                    const int pc = static_cast<std::int16_t>(io[param + 4] | (io[param + 5] << 8));
+                    if ((bgcnt & 0x2000u) != 0u && ((bgcnt >> 14) & 3u) == 1u &&
+                        pa == 256 && pc == 0)
+                        need_strip = true;
+                }
+            }
+            if (need_strip) {
+                const std::uint8_t* vram = uploaded_vram_.data();
+                const std::size_t vram_sz = uploaded_vram_.size();
+                auto vram_u8 = [&](int addr) -> std::uint8_t {
+                    return (addr >= 0 && static_cast<std::size_t>(addr) < vram_sz)
+                        ? vram[addr] : 0u;
+                };
+                auto vram_u16 = [&](int addr) -> unsigned {
+                    return unsigned(vram_u8(addr)) | (unsigned(vram_u8(addr + 1)) << 8);
+                };
+                hold_strip_buf_.resize(static_cast<std::size_t>(output_h_) * 2u);
+                const int cam_y_i = (160 - output_h_) / 2;
+                for (int out_y = 0; out_y < output_h_; ++out_y) {
+                    const int console_y = out_y + cam_y_i;
+                    const int reg_row = std::clamp(console_y, 0, 159);
+                    const std::uint8_t* io = scene.registers_for_row(reg_row);
+                    const unsigned bgcnt = io[0x08 + bg * 2] |
+                                           (static_cast<unsigned>(io[0x09 + bg * 2]) << 8);
+                    const int char_base = static_cast<int>((bgcnt >> 2) & 3u) * 16384;
+                    const int screen_base = static_cast<int>((bgcnt >> 8) & 31u) * 2048;
+                    const int size_code = static_cast<int>((bgcnt >> 14) & 3u);
+                    if (!affine) {
+                        if ((size_code & 1) != 0) {
+                            hold_strip_buf_[static_cast<std::size_t>(out_y) * 2u + 0] = 255;
+                            hold_strip_buf_[static_cast<std::size_t>(out_y) * 2u + 1] = 255;
+                            continue;
+                        }
+                        const bool eight_bit = (bgcnt & 128u) != 0u;
+                        const int ht = (size_code & 2) ? 64 : 32;
+                        const int hofs = (io[0x10 + bg * 4] | (static_cast<int>(io[0x11 + bg * 4]) << 8)) & 0x1FF;
+                        const int vofs = (io[0x12 + bg * 4] | (static_cast<int>(io[0x13 + bg * 4]) << 8)) & 0x1FF;
+                        const int py = console_y + vofs;
+                        const int tile_y = (py >> 3) & (ht - 1);
+                        const int block_y = (ht == 64 && tile_y >= 32) ? 1 : 0;
+                        const int row_base = screen_base + block_y * 2048 + ((tile_y & 31) * 32) * 2;
+                        auto text_lit_cpu = [&](int px) -> bool {
+                            const int tile_x = (px >> 3) & 31;
+                            const unsigned entry = vram_u16(row_base + tile_x * 2);
+                            const int tile = static_cast<int>(entry & 0x3FFu);
+                            int tx = px & 7;
+                            int ty = py & 7;
+                            if (entry & 0x400u) tx = 7 - tx;
+                            if (entry & 0x800u) ty = 7 - ty;
+                            if (eight_bit)
+                                return vram_u8(char_base + tile * 64 + ty * 8 + tx) != 0u;
+                            const std::uint8_t two = vram_u8(char_base + tile * 32 + ty * 4 + (tx >> 1));
+                            return ((tx & 1) ? (two >> 4) : (two & 0xFu)) != 0u;
+                        };
+                        int run_right = 0, run_left = 0;
+                        for (int i = 0; i < 16; ++i) {
+                            if (!text_lit_cpu(240 + i + hofs)) break;
+                            run_right = i + 1;
+                        }
+                        for (int i = 0; i < 16 - run_right; ++i) {
+                            if (!text_lit_cpu(-1 - i + hofs)) break;
+                            run_left = i + 1;
+                        }
+                        if (run_right == 16) {
+                            hold_strip_buf_[static_cast<std::size_t>(out_y) * 2u + 0] = 255;
+                            hold_strip_buf_[static_cast<std::size_t>(out_y) * 2u + 1] = 255;
+                        } else {
+                            const int gap = 16 - run_right - run_left;
+                            const int sr = run_right + gap / 2;
+                            hold_strip_buf_[static_cast<std::size_t>(out_y) * 2u + 0] = static_cast<std::uint8_t>(sr);
+                            hold_strip_buf_[static_cast<std::size_t>(out_y) * 2u + 1] = static_cast<std::uint8_t>(16 - sr);
+                        }
+                    } else {
+                        const int param = 0x20 + (bg - 2) * 0x10;
+                        const int pa = static_cast<std::int16_t>(io[param] | (io[param + 1] << 8));
+                        const int pc = static_cast<std::int16_t>(io[param + 4] | (io[param + 5] << 8));
+                        if ((bgcnt & 0x2000u) == 0u || size_code != 1 || pa != 256 || pc != 0) {
+                            hold_strip_buf_[static_cast<std::size_t>(out_y) * 2u + 0] = 16;
+                            hold_strip_buf_[static_cast<std::size_t>(out_y) * 2u + 1] = 16;
+                            continue;
+                        }
+                        const auto [rx, ry] = scene.affine_reference_for_row(reg_row, bg);
+                        const int rows_past = console_y - reg_row;
+                        int base_x, row_y;
+                        if (rows_past == 0) {
+                            base_x = rx >> 8;
+                            row_y = (ry >> 8) & 255;
+                        } else {
+                            const int far_row = console_y < 0 ? 16 : 143;
+                            const auto [frx, fry] = scene.affine_reference_for_row(far_row, bg);
+                            const float run = static_cast<float>(rows_past) /
+                                              static_cast<float>(reg_row - far_row);
+                            float ex = static_cast<float>(rx) + run * static_cast<float>(rx - frx);
+                            float ey = static_cast<float>(ry) + run * static_cast<float>(ry - fry);
+                            if (margin.affine_step_valid) {
+                                const auto& st = margin.affine_step[console_y < 0 ? 0 : 1];
+                                const float past = static_cast<float>(rows_past);
+                                ex = static_cast<float>(rx) + past * st[0];
+                                ey = static_cast<float>(ry) + past * st[1];
+                            }
+                            base_x = static_cast<int>(std::floor(ex)) >> 8;
+                            row_y = static_cast<int>(std::floor(ey / 256.0f)) & 255;
+                        }
+                        auto aff_idx = [&](int mx) -> std::uint8_t {
+                            mx &= 255;
+                            const int tile = vram_u8(screen_base + (row_y >> 3) * 32 + (mx >> 3));
+                            return vram_u8(char_base + tile * 64 + (row_y & 7) * 8 + (mx & 7));
+                        };
+                        int run_right = 0, run_left = 0;
+                        for (int i = 0; i < 16; ++i) {
+                            if (aff_idx(base_x + 240 + i) == 0u) break;
+                            run_right = i + 1;
+                        }
+                        for (int i = 0; i < 16 - run_right; ++i) {
+                            if (aff_idx(base_x - 1 - i) == 0u) break;
+                            run_left = i + 1;
+                        }
+                        if (run_right == 16) {
+                            const std::uint8_t tint = aff_idx(base_x + 240);
+                            bool flat = true;
+                            for (int i = 1; i < 16; ++i)
+                                if (aff_idx(base_x + 240 + i) != tint) { flat = false; break; }
+                            const std::uint8_t code = flat ? 254u : 16u;
+                            hold_strip_buf_[static_cast<std::size_t>(out_y) * 2u + 0] = code;
+                            hold_strip_buf_[static_cast<std::size_t>(out_y) * 2u + 1] = code;
+                        } else {
+                            const int gap = 16 - run_right - run_left;
+                            const int sr = run_right + gap / 2;
+                            hold_strip_buf_[static_cast<std::size_t>(out_y) * 2u + 0] = static_cast<std::uint8_t>(sr);
+                            hold_strip_buf_[static_cast<std::size_t>(out_y) * 2u + 1] = static_cast<std::uint8_t>(16 - sr);
+                        }
+                    }
+                }
+                if (uploaded_hold_strip_ != hold_strip_buf_) {
+                    surface_->update_texture(hold_strip_, 0, 0, 2, output_h_,
+                                             hold_strip_buf_.data());
+                    uploaded_hold_strip_ = hold_strip_buf_;
+                }
+            }
+        }
+
+        surface_->draw_quads(prog, quads.data(), quads.size(),
+                             second_pass ? bg_textures3 : bg_textures2, 14);
+    };
+
+    // Sprites go to the card in batches (records: kObjectVertex). A record
+    // holds what were the sprite's own uniforms; a batch is drawn when a
+    // priority's sprites are done (before that priority's backgrounds) or
+    // when it holds kObjectRecords records. Quads keep the order they were
+    // added in, which is the order the depth test settles equal keys by.
+    using ObjectRecord = std::array<int, kObjectRecordInts>;
+    gbarecomp::GpuProgram object_batch_program = 0;
+    const gbarecomp::GpuTexture* object_batch_textures = nullptr;
+    std::size_t object_batch_texture_count = 0;
+    object_records_.clear();
+    object_quads_.clear();
+    auto flush_objects = [&]() {
+        if (!object_quads_.empty()) {
+            surface_->set_uniform_ivec4_array(
+                object_batch_program, "u_rec[0]", object_records_.data(),
+                static_cast<int>(object_records_.size() / 4));
+            surface_->draw_quads(object_batch_program, object_quads_.data(),
+                                 object_quads_.size(), object_batch_textures,
+                                 object_batch_texture_count);
+        }
+        object_records_.clear();
+        object_quads_.clear();
+    };
+    // The record index for a quad's a_tint.x: the last record when it is the
+    // same, else a new one (drawing the batch first when it is full).
+    auto object_use_record = [&](const ObjectRecord& rec) -> float {
+        const std::size_t n = object_records_.size() / kObjectRecordInts;
+        if (n > 0 && std::equal(rec.begin(), rec.end(),
+                                object_records_.end() - kObjectRecordInts))
+            return static_cast<float>(n - 1);
+        if (n >= static_cast<std::size_t>(kObjectRecords)) flush_objects();
+        object_records_.insert(object_records_.end(), rec.begin(), rec.end());
+        return static_cast<float>(object_records_.size() / kObjectRecordInts - 1);
+    };
+    // The shape part of a record, shared by visible sprites and the object
+    // window mask: flags for colour depth, flips, rotation and its group,
+    // the native-screen hold, and the sprite and drawn-box sizes.
+    auto object_shape = [&](const SceneObject& O, bool clip_native) {
+        ObjectRecord rec{};
+        const int g = (O.affine_index >= 0 &&
+                       O.affine_index < FieldScene::kTransforms)
+                      ? O.affine_index : 0;
+        rec[1] = (clip_native ? 4 : 0) | (O.palette < 0 ? 8 : 0) |
+                 (O.hflip ? 16 : 0) | (O.vflip ? 32 : 0) |
+                 (O.affine ? 64 | (g << 8) : 0);
+        rec[4] = O.width;
+        rec[5] = O.height;
+        rec[6] = O.affine && O.double_size ? O.width * 2 : O.width;
+        rec[7] = O.affine && O.double_size ? O.height * 2 : O.height;
+        return rec;
     };
 
     // `lifter` >= 0 draws the object's lifted copy: the console gives an
@@ -4166,17 +4929,6 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
         const int key = L ? L->priority * 256 + 127
                       : extra ? O.priority * 256 + 126
                               : O.priority * 256 + object_rank[slot];
-        surface_->set_uniform_int(object_, "u_key", key);
-        surface_->set_uniform_int(object_, "u_semi_transparent",
-                                  (L ? L->blended : O.blended) ? 1 : 0);
-        surface_->set_uniform_int(object_, "u_lift", L ? 1 : 0);
-        if (L)
-            surface_->set_uniform_vec4(
-                object_, "u_lift_box", static_cast<float>(L->x),
-                static_cast<float>(L->y), static_cast<float>(L->x + L->width),
-                static_cast<float>(L->y + L->height));
-        surface_->set_uniform_int(object_, "u_compare_top",
-                                  second_pass ? 1 : 0);
         // Only a PARKED slot is held inside the authentic window -- the same
         // rule gba_ppu.cpp's emit_obj uses. Clipping every object the
         // providers could not authenticate would cut every battle monster and
@@ -4195,40 +4947,12 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
         const bool menu_sprite =
             menu_open_ && scene.video_mode == 0 && O.priority == 0;
         if (extra && menu_sprite) return;
-        surface_->set_uniform_int(object_, "u_clip_native",
-                                  (O.parked || menu_sprite) ? 1 : 0);
-        surface_->set_uniform_int(object_, "u_margin_only", extra ? 1 : 0);
-        surface_->set_uniform_vec2(object_, "u_size",
-                                   static_cast<float>(O.width),
-                                   static_cast<float>(O.height));
-        surface_->set_uniform_int(object_, "u_tile", static_cast<int>(O.tile));
-        surface_->set_uniform_int(object_, "u_bank",
-                                  O.palette < 0 ? 0 : O.palette);
-        surface_->set_uniform_int(object_, "u_eight_bit", O.palette < 0 ? 1 : 0);
-        surface_->set_uniform_int(object_, "u_hflip", O.hflip ? 1 : 0);
-        surface_->set_uniform_int(object_, "u_vflip", O.vflip ? 1 : 0);
 
-        // A rotated object is drawn over a box, not over the sprite: the same
-        // size normally, twice it when the object asks for the room to rotate
-        // into. That box is what the position refers to.
         const float box_w = static_cast<float>(
             O.affine && O.double_size ? O.width * 2 : O.width);
         const float box_h = static_cast<float>(
             O.affine && O.double_size ? O.height * 2 : O.height);
-        surface_->set_uniform_int(object_, "u_affine", O.affine ? 1 : 0);
-        surface_->set_uniform_vec2(object_, "u_box", box_w, box_h);
-        if (O.affine) {
-            const int g = (O.affine_index >= 0 &&
-                           O.affine_index < FieldScene::kTransforms)
-                          ? O.affine_index : 0;
-            const auto& t = scene.object_transforms[g];
-            surface_->set_uniform_vec4(object_, "u_transform_pd",
-                                       t[0], t[1], t[2], t[3]);
-        }
-
         gbarecomp::GpuQuad quad;
-        // Object positions are in the console's own 240x160 space; a wider
-        // output shifts them by the same camera the backgrounds use.
         quad.x = static_cast<float>(O.x) - camera_x;
         quad.y = static_cast<float>(O.y) - camera_y;
         quad.w = box_w;
@@ -4237,47 +4961,80 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
         quad.v0 = 0;
         quad.u1 = box_w;
         quad.v1 = box_h;
+        // During scissor-clipped FlickerPhase::Other, skip plain objects whose
+        // bounding box lies wholly outside the alternating-sprite scissor rect.
+        const bool has_repeat = !L && !O.parked && !menu_sprite && margins_ &&
+            (output_w_ != 240 || output_h_ != 160) &&
+            ((extra ? margins_->margin_object_period[0] : margins_->object_repeat[slot][0]) > 0 ||
+             (extra ? margins_->margin_object_period[1] : margins_->object_repeat[slot][1]) > 0);
+        const bool has_strip = !L && !extra &&
+            (strip[static_cast<std::size_t>(slot)].left ||
+             strip[static_cast<std::size_t>(slot)].right ||
+             strip[static_cast<std::size_t>(slot)].up ||
+             strip[static_cast<std::size_t>(slot)].down);
+        if (phase == FlickerPhase::Other && flicker_scissor_on_ &&
+            !has_repeat && !has_strip &&
+            (quad.x + box_w <= static_cast<float>(flicker_sx0_) ||
+             quad.x >= static_cast<float>(flicker_sx1_) ||
+             quad.y + box_h <= static_cast<float>(flicker_sy0_) ||
+             quad.y >= static_cast<float>(flicker_sy1_))) {
+            return;
+        }
+        ObjectRecord rec = object_shape(O, O.parked || menu_sprite);
+        rec[0] = key;
+        rec[1] |= ((L ? L->blended : O.blended) ? 1 : 0) | (L ? 2 : 0) |
+                  (extra ? 128 : 0);
+        rec[2] = static_cast<int>(O.tile);
+        rec[3] = O.palette < 0 ? 0 : O.palette;
+        if (L) {
+            rec[8] = L->x;
+            rec[9] = L->y;
+            rec[10] = L->x + L->width;
+            rec[11] = L->y + L->height;
+        }
+
         quad.depth = static_cast<float>(key) / 1024.0f;
-        surface_->draw_quads(object_, &quad, 1,
-                             second_pass ? textures3 : textures2,
-                             second_pass ? 5 : 4);
+        quad.tint[0] = object_use_record(rec);
+        object_quads_.push_back(quad);
         // The game supplies the canvas continuation period, never an inferred
         // sprite kind. Copies keep the same artwork, phase, blend and order;
-        // the fragment guard leaves every native pixel to the original draw.
-        if (!L && !O.parked && !menu_sprite && margins_) {
+        // batch all repeated quads into one draw call.
+        if (has_repeat) {
             const auto& period = extra ? margins_->margin_object_period
                                        : margins_->object_repeat[slot];
-            if ((period[0] > 0 || period[1] > 0) &&
-                (output_w_ != 240 || output_h_ != 160)) {
-                const float x0 = quad.x, y0 = quad.y;
-                surface_->set_uniform_int(object_, "u_margin_only", 1);
-                const int left = period[0] > 0 ? static_cast<int>(std::floor((-x0 - box_w) / period[0])) + 1 : 0;
-                const int right = period[0] > 0 ? static_cast<int>(std::ceil((output_w_ - x0) / period[0])) : 1;
-                const int top = period[1] > 0 ? static_cast<int>(std::floor((-y0 - box_h) / period[1])) + 1 : 0;
-                const int bottom = period[1] > 0 ? static_cast<int>(std::ceil((output_h_ - y0) / period[1])) : 1;
-                // The console's window in output pixels (as camera_x/y).
-                const float win_x = -camera_x, win_y = -camera_y;
-                for (int y = top; y < bottom; ++y)
-                    for (int x = left; x < right; ++x) {
-                        if (x == 0 && y == 0) continue;
-                        quad.x = x0 + x * period[0];
-                        quad.y = y0 + y * period[1];
-                        if (margins_->object_repeat_whole &&
-                            quad.x < win_x + 240.0f && quad.x + box_w > win_x &&
-                            quad.y < win_y + 160.0f && quad.y + box_h > win_y)
-                            continue;
-                        surface_->draw_quads(object_, &quad, 1,
-                            second_pass ? textures3 : textures2, second_pass ? 5 : 4);
-                    }
-                quad.x = x0;
-                quad.y = y0;
-                surface_->set_uniform_int(object_, "u_margin_only", 0);
+            const float x0 = quad.x, y0 = quad.y;
+            const int left = period[0] > 0 ? static_cast<int>(std::floor((-x0 - box_w) / period[0])) + 1 : 0;
+            const int right = period[0] > 0 ? static_cast<int>(std::ceil((output_w_ - x0) / period[0])) : 1;
+            const int top = period[1] > 0 ? static_cast<int>(std::floor((-y0 - box_h) / period[1])) + 1 : 0;
+            const int bottom = period[1] > 0 ? static_cast<int>(std::ceil((output_h_ - y0) / period[1])) : 1;
+            const float win_x = -camera_x, win_y = -camera_y;
+            repeat_quads_.clear();
+            for (int y = top; y < bottom; ++y)
+                for (int x = left; x < right; ++x) {
+                    if (x == 0 && y == 0) continue;
+                    gbarecomp::GpuQuad rq = quad;
+                    rq.x = x0 + x * period[0];
+                    rq.y = y0 + y * period[1];
+                    if (margins_->object_repeat_whole &&
+                        rq.x < win_x + 240.0f && rq.x + box_w > win_x &&
+                        rq.y < win_y + 160.0f && rq.y + box_h > win_y)
+                        continue;
+                    repeat_quads_.push_back(rq);
+                }
+            if (!repeat_quads_.empty()) {
+                ObjectRecord margin_rec = rec;
+                margin_rec[1] |= 128;
+                const float at = object_use_record(margin_rec);
+                for (gbarecomp::GpuQuad& rq : repeat_quads_) {
+                    rq.tint[0] = at;
+                    object_quads_.push_back(rq);
+                }
             }
         }
-        if (L || extra) return;
-        // A full-width strip carries on to the view's edges (see `strip`).
+        if (!has_strip) return;
+        // A full-width strip carries on to the view's edges (see `strip`),
+        // batched into one draw call.
         const StripReach& reach = strip[static_cast<std::size_t>(slot)];
-        if (!(reach.left || reach.right || reach.up || reach.down)) return;
         const float x0 = quad.x, y0 = quad.y;
         const float view_w = static_cast<float>(output_w_);
         const float view_h = static_cast<float>(output_h_);
@@ -4290,15 +5047,21 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
             for (float y = y0 - box_h; y + box_h > 0.0f; y -= box_h) ys.push_back(y);
         if (reach.down)
             for (float y = y0 + box_h; y < view_h; y += box_h) ys.push_back(y);
+        repeat_quads_.clear();
         for (const float y : ys)
             for (const float x : xs) {
                 if (x == x0 && y == y0) continue;
-                quad.x = x;
-                quad.y = y;
-                surface_->draw_quads(object_, &quad, 1,
-                                     second_pass ? textures3 : textures2,
-                                     second_pass ? 5 : 4);
+                gbarecomp::GpuQuad sq = quad;
+                sq.x = x;
+                sq.y = y;
+                repeat_quads_.push_back(sq);
             }
+        if (repeat_quads_.empty()) return;
+        const float at = object_use_record(rec);
+        for (gbarecomp::GpuQuad& sq : repeat_quads_) {
+            sq.tint[0] = at;
+            object_quads_.push_back(sq);
+        }
     };
 
     // A mode-2 object's box, drawn into the mask texture the window pass
@@ -4310,31 +5073,10 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
         const SceneObject& O = scene.objects[slot];
         if (!O.present || !O.window) return;
         // Same parked-slot confinement as draw_object above.
-        surface_->set_uniform_int(obj_window_, "u_clip_native",
-                                  O.parked ? 1 : 0);
-        surface_->set_uniform_vec2(obj_window_, "u_size",
-                                   static_cast<float>(O.width),
-                                   static_cast<float>(O.height));
-        surface_->set_uniform_int(obj_window_, "u_tile", static_cast<int>(O.tile));
-        surface_->set_uniform_int(obj_window_, "u_eight_bit",
-                                  O.palette < 0 ? 1 : 0);
-        surface_->set_uniform_int(obj_window_, "u_hflip", O.hflip ? 1 : 0);
-        surface_->set_uniform_int(obj_window_, "u_vflip", O.vflip ? 1 : 0);
-
-        const float box_w = static_cast<float>(
-            O.affine && O.double_size ? O.width * 2 : O.width);
-        const float box_h = static_cast<float>(
-            O.affine && O.double_size ? O.height * 2 : O.height);
-        surface_->set_uniform_int(obj_window_, "u_affine", O.affine ? 1 : 0);
-        surface_->set_uniform_vec2(obj_window_, "u_box", box_w, box_h);
-        if (O.affine) {
-            const int g = (O.affine_index >= 0 &&
-                           O.affine_index < FieldScene::kTransforms)
-                          ? O.affine_index : 0;
-            const auto& t = scene.object_transforms[g];
-            surface_->set_uniform_vec4(obj_window_, "u_transform_pd",
-                                       t[0], t[1], t[2], t[3]);
-        }
+        ObjectRecord rec = object_shape(O, O.parked);
+        rec[2] = static_cast<int>(O.tile);
+        const float box_w = static_cast<float>(rec[6]);
+        const float box_h = static_cast<float>(rec[7]);
 
         gbarecomp::GpuQuad quad;
         quad.x = static_cast<float>(O.x) - camera_x;
@@ -4345,84 +5087,151 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
         quad.v0 = 0;
         quad.u1 = box_w;
         quad.v1 = box_h;
-        const gbarecomp::GpuTexture mask_textures[2] = {vram_, row_io_};
-        surface_->draw_quads(obj_window_, &quad, 1, mask_textures, 2);
+        quad.tint[0] = object_use_record(rec);
+        object_quads_.push_back(quad);
     };
 
+    // Draw front-to-back by priority (objects first, then backgrounds of that
+    // priority) so hardware early-Z rejects occluded lower-priority layers.
     auto draw_pass = [&](bool second_pass) {
-        for (int bg = 0; bg < 4; ++bg) draw_background(bg, second_pass);
-        if (!objects_on) return;
-        for (int slot = 0; slot < FieldScene::kObjects; ++slot) {
-            draw_object(slot, second_pass, -1, nullptr);
-            const SceneObject& O = scene.objects[slot];
-            if (!O.present || O.window) continue;
-            // Unrotated lifters only: a rotated one lifts only where its
-            // transform lands inside the sprite, which a box cannot say.
-            for (int j = slot + 1; j < FieldScene::kObjects; ++j) {
-                const SceneObject& L = scene.objects[j];
-                if (!L.present || L.window || L.affine ||
-                    L.priority >= O.priority) continue;
-                const int ow = O.affine && O.double_size ? O.width * 2 : O.width;
-                const int oh = O.affine && O.double_size ? O.height * 2 : O.height;
-                if (L.x >= O.x + ow || O.x >= L.x + L.width ||
-                    L.y >= O.y + oh || O.y >= L.y + L.height) continue;
-                draw_object(slot, second_pass, j, nullptr);
+        object_batch_program = object_;
+        object_batch_textures = second_pass ? textures3 : textures2;
+        object_batch_texture_count = 5;
+        if (objects_on)
+            surface_->set_uniform_int(object_, "u_compare_top", second_pass ? 1 : 0);
+        for (int prio = 0; prio < 4; ++prio) {
+            if (objects_on) {
+                for (int slot = 0; slot < FieldScene::kObjects; ++slot) {
+                    const SceneObject& O = scene.objects[slot];
+                    if (!O.present || O.window) continue;
+                    if (O.priority == prio)
+                        draw_object(slot, second_pass, -1, nullptr);
+                    // Unrotated lifters only: a rotated one lifts only where its
+                    // transform lands inside the sprite, which a box cannot say.
+                    for (int j = slot + 1; j < FieldScene::kObjects; ++j) {
+                        const SceneObject& L = scene.objects[j];
+                        if (!L.present || L.window || L.affine ||
+                            L.priority != prio || L.priority >= O.priority) continue;
+                        const int ow = O.affine && O.double_size ? O.width * 2 : O.width;
+                        const int oh = O.affine && O.double_size ? O.height * 2 : O.height;
+                        if (L.x >= O.x + ow || O.x >= L.x + L.width ||
+                            L.y >= O.y + oh || O.y >= L.y + L.height) continue;
+                        draw_object(slot, second_pass, j, nullptr);
+                    }
+                }
+                if (margins_ && (output_w_ != 240 || output_h_ != 160))
+                    for (const SceneObject& O : margins_->margin_objects)
+                        if (O.priority == prio)
+                            draw_object(-1, second_pass, -1, &O);
+                // This priority's sprites go before its backgrounds.
+                if (!second_pass && !object_quads_.empty())
+                    gbarecomp::gpu_timing_switch(gbarecomp::GpuTimingStep::FrontSprites);
+                flush_objects();
+            }
+            for (int bg = 0; bg < 4; ++bg) {
+                if (!second_pass &&
+                    (!bg_quads[bg][0][prio].empty() || !bg_quads[bg][1][prio].empty()))
+                    gbarecomp::gpu_timing_switch(static_cast<gbarecomp::GpuTimingStep>(
+                        static_cast<int>(gbarecomp::GpuTimingStep::FrontBg0) + bg));
+                if (!bg_quads[bg][0][prio].empty())
+                    draw_background_as(bg, second_pass, false, bg_quads[bg][0][prio]);
+                if (!bg_quads[bg][1][prio].empty())
+                    draw_background_as(bg, second_pass, true, bg_quads[bg][1][prio]);
             }
         }
-        if (margins_ && (output_w_ != 240 || output_h_ != 160))
-            for (const SceneObject& O : margins_->margin_objects)
-                draw_object(-1, second_pass, -1, &O);
-        surface_->set_uniform_int(object_, "u_lift", 0);
     };
 
-    // The object window mask and the window control texture are both
-    // computed once, ahead of the peel passes that read layer/blend
-    // visibility from them and the resolve pass that reads blend_enabled(x).
-    surface_->set_depth_enabled(false);
-    surface_->bind_color_target(obj_window_mask_);
-    surface_->clear_color_target(0.0f, 0.0f, 0.0f, 0.0f);
-    if (obj_window_on) {
-        for (int slot = 0; slot < FieldScene::kObjects; ++slot)
-            draw_object_window_mask(slot);
+    // The object window mask and the window control texture are computed only
+    // when at least one row enables a GBA window (WIN0, WIN1, or OBJWIN).
+    // Skipping empty clear-only FBO passes also avoids Adreno's tile-timer bug
+    // and redundant GMEM flushes.
+    struct BackToGame {
+        gbarecomp::GpuSurface* surface;
+        bool scissor;
+        ~BackToGame() {
+            if (scissor) surface->clear_scissor();
+            gbarecomp::gpu_timing_switch(gbarecomp::GpuTimingStep::Game);
+        }
+    } back_to_game{surface_, phase == FlickerPhase::Other && flicker_scissor_on_};
+    if (back_to_game.scissor) {
+        surface_->set_scissor(flicker_sx0_, flicker_sy0_,
+                              flicker_sx1_ - flicker_sx0_,
+                              flicker_sy1_ - flicker_sy0_);
     }
+    if (any_window_on) {
+        gbarecomp::gpu_timing_switch(gbarecomp::GpuTimingStep::Masks);
+        surface_->set_depth_enabled(false);
+        if (has_obj_window_sprites) {
+            surface_->bind_color_target(obj_window_mask_);
+            surface_->clear_color_target(0.0f, 0.0f, 0.0f, 0.0f);
+            const gbarecomp::GpuTexture mask_textures[2] = {vram_, cur_row_io};
+            object_batch_program = obj_window_;
+            object_batch_textures = mask_textures;
+            object_batch_texture_count = 2;
+            for (int slot = 0; slot < FieldScene::kObjects; ++slot)
+                draw_object_window_mask(slot);
+            flush_objects();
+        }
 
-    surface_->bind_color_target(window_control_);
-    surface_->clear_color_target(0.0f, 0.0f, 0.0f, 0.0f);
-    {
-        gbarecomp::GpuQuad full_window;
-        full_window.x = 0;
-        full_window.y = 0;
-        full_window.w = static_cast<float>(output_w_);
-        full_window.h = static_cast<float>(output_h_);
-        full_window.u0 = 0;
-        full_window.v0 = 0;
-        full_window.u1 = static_cast<float>(output_w_);
-        full_window.v1 = static_cast<float>(output_h_);
-        surface_->draw_quads(window_, &full_window, 1, window_textures, 2);
+        surface_->bind_color_target(window_control_);
+        surface_->clear_color_target(0.0f, 0.0f, 0.0f, 0.0f);
+        {
+            gbarecomp::GpuQuad full_window;
+            full_window.x = 0;
+            full_window.y = 0;
+            full_window.w = static_cast<float>(output_w_);
+            full_window.h = static_cast<float>(output_h_);
+            full_window.u0 = 0;
+            full_window.v0 = 0;
+            full_window.u1 = static_cast<float>(output_w_);
+            full_window.v1 = static_cast<float>(output_h_);
+            surface_->draw_quads(window_, &full_window, 1, window_textures, 2);
+        }
     }
 
     // Pass 1: the frontmost candidate at every pixel.
+    gbarecomp::gpu_timing_switch(gbarecomp::GpuTimingStep::FrontPass);
     surface_->set_depth_enabled(true);
-    surface_->bind_color_target(top_);
+    surface_->bind_color_target(top_, /*with_depth=*/true);
     surface_->clear_color_target(clear_r, clear_g, clear_b, clear_a);
     surface_->clear_depth(1.0f);
     draw_pass(false);
+    surface_->discard_depth();  // pass 2 clears it; nothing else reads it
 
     // Pass 2: the runner-up. Identical geometry, but each fragment discards
-    // itself unless it beats what pass 1 already recorded at its own pixel
-    // (the "top" texture, sampled directly -- no depth texture is needed for
-    // that comparison, only the depth test that then picks the best of what
-    // survives).
-    surface_->bind_color_target(second_);
-    surface_->clear_color_target(clear_r, clear_g, clear_b, clear_a);
-    surface_->clear_depth(1.0f);
-    draw_pass(true);
+    // itself unless it beats what pass 1 already recorded at its own pixel.
+    // Skipped completely (no target bind, no clear, no resolve read) when no
+    // row uses alpha blend, no sprite is semi-transparent, and no window fades.
+    bool needs_second = fade_columns_ != 0;
+    for (int y = 0; y < FieldScene::kRows && !needs_second; ++y) {
+        const std::uint8_t* io = scene.registers_for_row(y);
+        needs_second = ((io[0x50] >> 6) & 3) == 1;
+    }
+    if (!needs_second && objects_on) {
+        const auto see_through = [](const SceneObject& O) {
+            return O.present && O.blended && !O.window;
+        };
+        for (const SceneObject& O : scene.objects)
+            if (see_through(O)) { needs_second = true; break; }
+        if (!needs_second && margins_)
+            for (const SceneObject& O : margins_->margin_objects)
+                if (see_through(O)) { needs_second = true; break; }
+    }
+    if (needs_second) {
+        gbarecomp::gpu_timing_switch(gbarecomp::GpuTimingStep::SecondPass);
+        surface_->bind_color_target(second_, /*with_depth=*/true);
+        surface_->clear_color_target(clear_r, clear_g, clear_b, clear_a);
+        surface_->clear_depth(1.0f);
+        draw_pass(true);
+        surface_->discard_depth();
+    }
 
     // Resolve: one full-screen quad turns the two records into the finished
     // picture, exactly as the reference does at the end of a scanline. The
     // depth test is switched off first -- this quad's own depth is the
     // default 0, which could otherwise lose to pass 2's leftover depth buffer
     // at some pixels and leave them undrawn.
+    gbarecomp::gpu_timing_switch(gbarecomp::GpuTimingStep::Finish);
     surface_->set_depth_enabled(false);
     // While the screen shakes the resolve output goes to a scratch target
     // (its shader reads pass textures at gl_FragCoord, so moving its quad
@@ -4431,9 +5240,17 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
                          shake_target_w_ == output_w_ &&
                          shake_target_h_ == output_h_;
     const gbarecomp::GpuTexture destination = shaking ? shake_target_ : 0;
-    surface_->bind_color_target(phase == FlickerPhase::Other ? flicker_other_
-                                : phase == FlickerPhase::Mix ? flicker_this_
-                                                             : destination);
+    const bool composing =
+        (phase == FlickerPhase::Plain || phase == FlickerPhase::Mix) &&
+        world_compose_.mode != WorldComposeMode::None &&
+        (output_w_ > 240 || output_h_ > 160) &&
+        ensure_world_compose();
+    surface_->bind_color_target(
+        phase == FlickerPhase::Other         ? flicker_other_
+        : phase == FlickerPhase::WorldMargin ? world_margin_tex_
+        : phase == FlickerPhase::Mix         ? flicker_this_
+        : composing                          ? compose_src_
+                                             : destination);
     surface_->set_uniform_mat4(resolve_, "u_transform", transform);
     surface_->set_uniform_int(resolve_, "u_top", 0);
     surface_->set_uniform_int(resolve_, "u_second", 1);
@@ -4446,8 +5263,15 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
     surface_->set_uniform_int(resolve_, "u_fade_row0", fade_row0_);
     surface_->set_uniform_int(resolve_, "u_fade_row1", fade_row1_);
     surface_->set_uniform_float(resolve_, "u_fade_opacity", fade_opacity_);
+    surface_->set_uniform_int(resolve_, "u_red_rows", static_cast<int>(red_rows_ & 0xFFu));
+    surface_->set_uniform_int(resolve_, "u_red_x0", red_x0_);
+    surface_->set_uniform_int(resolve_, "u_red_x1", red_x1_);
+    surface_->set_uniform_int(resolve_, "u_red_y0", red_y0_);
+    surface_->set_uniform_int(resolve_, "u_red_y1", red_y1_);
+    surface_->set_uniform_int(resolve_, "u_window_on", any_window_on ? 1 : 0);
+    surface_->set_uniform_int(resolve_, "u_has_second", needs_second ? 1 : 0);
     const gbarecomp::GpuTexture resolve_textures[4] = {
-        top_, second_, window_control_, row_io_};
+        top_, second_, window_control_, cur_row_io};
     gbarecomp::GpuQuad full;
     full.x = 0;
     full.y = 0;
@@ -4455,15 +5279,114 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
     full.h = static_cast<float>(output_h_);
     surface_->draw_quads(resolve_, &full, 1, resolve_textures, 4);
     if (phase == FlickerPhase::Other) return true;
+    if (phase == FlickerPhase::WorldMargin) {
+        // Hand the main target back: the next begin_frame binds and clears
+        // whatever target is current, which would wipe the margin picture
+        // to black just before the world compose reads it.
+        surface_->bind_color_target(0);
+        surface_->end_frame();
+        return true;
+    }
     if (phase == FlickerPhase::Mix) {
-        surface_->bind_color_target(destination);
+        surface_->bind_color_target(composing ? compose_src_ : destination);
         surface_->set_uniform_mat4(flicker_mix_, "u_transform", transform);
         surface_->set_uniform_int(flicker_mix_, "u_this", 0);
         surface_->set_uniform_int(flicker_mix_, "u_other", 1);
         surface_->set_uniform_float(flicker_mix_, "u_weight", flicker_weight_);
+        if (flicker_scissor_on_) {
+            surface_->set_uniform_vec4(
+                flicker_mix_, "u_flicker_box",
+                static_cast<float>(flicker_sx0_),
+                static_cast<float>(output_h_ - flicker_sy1_),
+                static_cast<float>(flicker_sx1_),
+                static_cast<float>(output_h_ - flicker_sy0_));
+        } else {
+            surface_->set_uniform_vec4(
+                flicker_mix_, "u_flicker_box",
+                0.0f, 0.0f,
+                static_cast<float>(output_w_),
+                static_cast<float>(output_h_));
+        }
         const gbarecomp::GpuTexture mix_textures[2] = {flicker_this_,
                                                        flicker_other_};
         surface_->draw_quads(flicker_mix_, &full, 1, mix_textures, 2);
+    }
+    if (composing) {
+        const int win_x = (output_w_ - 240) / 2;
+        const int win_y = (output_h_ - 160) / 2;
+        if (world_compose_.mode == WorldComposeMode::ShutterRows ||
+            world_compose_.mode == WorldComposeMode::HoldMargins) {
+            surface_->bind_color_target(compose_rows_);
+            surface_->set_uniform_mat4(flat_rows_prog_, "u_transform", transform);
+            surface_->set_uniform_int(flat_rows_prog_, "u_src", 0);
+            surface_->set_uniform_int(flat_rows_prog_, "u_top", 1);
+            surface_->set_uniform_int(flat_rows_prog_, "u_height", output_h_);
+            surface_->set_uniform_int(flat_rows_prog_, "u_win_x", win_x);
+            surface_->set_uniform_int(flat_rows_prog_, "u_win_y", win_y);
+            const gbarecomp::GpuTexture flat_rows_textures[2] = {compose_src_, top_};
+            gbarecomp::GpuQuad rows_quad;
+            rows_quad.x = 0.0f;
+            rows_quad.y = static_cast<float>(output_h_ - 2);
+            rows_quad.w = 160.0f;
+            rows_quad.h = 2.0f;
+            surface_->draw_quads(flat_rows_prog_, &rows_quad, 1, flat_rows_textures, 2);
+        }
+        if (world_compose_.mode == WorldComposeMode::HoldMargins) {
+            surface_->bind_color_target(compose_flat_);
+            surface_->set_uniform_mat4(flat_all_prog_, "u_transform", transform);
+            surface_->set_uniform_int(flat_all_prog_, "u_rows", 0);
+            gbarecomp::GpuQuad all_quad;
+            all_quad.x = 0.0f;
+            all_quad.y = static_cast<float>(output_h_ - 1);
+            all_quad.w = 1.0f;
+            all_quad.h = 1.0f;
+            surface_->draw_quads(flat_all_prog_, &all_quad, 1, &compose_rows_, 1);
+        }
+        const bool has_valid_margin =
+            world_compose_.has_margin && world_margin_valid_ &&
+            world_margin_tex_ != 0 && world_margin_w_ == output_w_ &&
+            world_margin_h_ == output_h_;
+        surface_->bind_color_target(destination);
+        surface_->set_uniform_mat4(world_compose_prog_, "u_transform", transform);
+        surface_->set_uniform_int(world_compose_prog_, "u_src", 0);
+        surface_->set_uniform_int(world_compose_prog_, "u_margin", 1);
+        surface_->set_uniform_int(world_compose_prog_, "u_flat_rows", 2);
+        surface_->set_uniform_int(world_compose_prog_, "u_flat_all", 3);
+        surface_->set_uniform_int(world_compose_prog_, "u_top", 4);
+        surface_->set_uniform_int(world_compose_prog_, "u_row_io", 5);
+        surface_->set_uniform_int(world_compose_prog_, "u_palette", 6);
+        surface_->set_uniform_int(world_compose_prog_, "u_flat_map", 7);
+        surface_->set_uniform_int(world_compose_prog_, "u_mode",
+                                  static_cast<int>(world_compose_.mode));
+        surface_->set_uniform_int(world_compose_prog_, "u_width", output_w_);
+        surface_->set_uniform_int(world_compose_prog_, "u_height", output_h_);
+        surface_->set_uniform_int(world_compose_prog_, "u_win_x", win_x);
+        surface_->set_uniform_int(world_compose_prog_, "u_win_y", win_y);
+        surface_->set_uniform_int(world_compose_prog_, "u_has_margin",
+                                  has_valid_margin ? 1 : 0);
+        surface_->set_uniform_int(world_compose_prog_, "u_mixed_modes",
+                                  world_compose_.mixed_modes ? 1 : 0);
+        surface_->set_uniform_int(world_compose_prog_, "u_glow",
+                                  world_compose_.glow ? 1 : 0);
+        surface_->set_uniform_int(world_compose_prog_, "u_evb",
+                                  world_compose_.evb);
+        surface_->set_uniform_int(world_compose_prog_, "u_shake_x",
+                                  world_compose_.shake_x);
+        surface_->set_uniform_int(world_compose_prog_, "u_shake_y",
+                                  world_compose_.shake_y);
+        surface_->set_uniform_int(world_compose_prog_, "u_flat_map_trusted",
+                                  world_compose_.flat_map_trusted ? 1 : 0);
+        const gbarecomp::GpuTexture compose_textures[8] = {
+            compose_src_,
+            has_valid_margin ? world_margin_tex_ : compose_src_,
+            compose_rows_,
+            compose_flat_,
+            top_,
+            cur_row_io,
+            palette_,
+            flat_world_map_ ? flat_world_map_ : vram_,
+        };
+        surface_->draw_quads(world_compose_prog_, &full, 1, compose_textures, 8);
     }
 
     // The shake, applied to the burst quads too: about the view centre,
@@ -4536,10 +5459,12 @@ bool FieldSceneRenderer::draw_frame(const FieldScene& scene,
                                  0);
         }
         surface_->set_blend_mode(gbarecomp::GpuBlendMode::Off);
-        burst_.step();
-        trail_.step();
+        if (!repeat_draw_) {
+            burst_.step();
+            trail_.step();
+        }
     }
-    shake_.step();
+    if (!repeat_draw_) shake_.step();
 
     surface_->end_frame();
     return true;

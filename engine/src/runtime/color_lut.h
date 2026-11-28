@@ -96,11 +96,19 @@ public:
     void map_rgb888(const uint8_t* src, uint8_t* dst,
                     int width, int height) const;
 
+    // The table as 32768 {R,G,B} byte triples indexed by BGR555, for the
+    // phone's direct present (gpu_present.h), which grades on the card.
+    const uint8_t* table_rgb() const { return (*table_)[0].data(); }
+    // Unique per built table, so a rebuilt one is never mistaken for the
+    // last one uploaded.
+    unsigned id() const { return id_; }
+
 private:
     bool fill(const ColorSettings& settings);
     // table_[bgr555] = {R,G,B}.
     std::unique_ptr<std::array<std::array<uint8_t, 3>, 32768>> table_;
     bool passthrough_ = false;
+    unsigned id_ = 0;
 };
 
 }  // namespace gbarecomp::runtime

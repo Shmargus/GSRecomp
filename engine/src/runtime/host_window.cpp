@@ -70,6 +70,8 @@
 #include "gl_platform.h"
 #include "touch_controls.h"
 #include "gpu_present.h"
+#include "gpu_fault_watch.h"
+#include "gpu_timing.h"
 
 namespace gbarecomp {
 
@@ -394,7 +396,6 @@ struct Backend {
     // only, no viewports): see host_config_ui.h.
     bool          renderer_is_opengl = false;
     SDL_Texture*  texture  = nullptr;
-    SDL_Texture*  native_texture = nullptr;
     SDL_AudioDeviceID audio_dev = 0;
     int            audio_channels = 1;
     // Callback-driven clock-domain bridge (replaces SDL queue push).
@@ -432,14 +433,6 @@ struct Backend {
     bool screen_filters_on = false;
     bool resize_driven_view = false;
     bool linear_filter = false;
-    bool native_renderer = false;
-    bool native_renderer_game_allowed = false;
-    int native_scale = 2;
-    std::vector<uint8_t> native_fb;
-    std::vector<uint8_t> native_graded_fb;
-    bool native_scene_pending = false;
-    int native_scene_w = 0;
-    int native_scene_h = 0;
 
     // VFX-FLICKER-02/03: temporal frame blend ("LCD ghosting").
     // Fields:
@@ -555,6 +548,7 @@ struct Backend {
     // hiding them when a controller first connected ([Video] TouchButtons,
     // ControllerAsked).
     bool         touch_buttons = true;
+    bool         touch_fast_forward = true;  // the >> button ([Video] TouchFastForward)
     bool         controller_asked = false;
     std::string  title;                 // base window title (readout restores it)
     Uint64       fps_window_start = 0;
@@ -618,52 +612,10 @@ void age_emulation_speed(Backend* b, std::uint64_t now_ns) {
     b->cfg.emulation_speed_percent = b->emulation_speed.age(now_ns);
 }
 
-int native_scale_from_env() {
-    const char* e = std::getenv("GBARECOMP_NATIVE_RENDER_SCALE");
-    if (!e || !*e) return 2;
-    return std::clamp(std::atoi(e), 1, 10);
-}
-
-void destroy_native_texture(Backend* b) {
-    if (!b) return;
-    if (b->native_texture) {
-        SDL_DestroyTexture(b->native_texture);
-        b->native_texture = nullptr;
-    }
-    b->native_fb.clear();
-    b->native_graded_fb.clear();
-}
-
-bool ensure_native_texture(Backend* b) {
-    if (!b || !b->renderer || !b->native_renderer) return false;
-    const int w = b->base_w * b->native_scale;
-    const int h = b->base_h * b->native_scale;
-    if (b->native_texture &&
-        b->native_fb.size() == static_cast<std::size_t>(w) * h * 3u)
-        return true;
-    destroy_native_texture(b);
-    b->native_texture = SDL_CreateTexture(
-        b->renderer, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STREAMING,
-        w, h);
-    if (!b->native_texture) {
-        std::fprintf(stderr, "host_window: native texture failed: %s\n",
-                     SDL_GetError());
-        return false;
-    }
-    SDL_SetTextureScaleMode(b->native_texture, SDL_ScaleModeNearest);
-    b->native_fb.resize(static_cast<std::size_t>(w) * h * 3u);
-    return true;
-}
-
-void set_native_window_mode(Backend* b, bool enabled) {
+void restore_logical_size(Backend* b) {
     if (!b || !b->window || !b->renderer) return;
-    if (enabled) {
-        // SDL's logical-size transform reports the fixed 240x160 target to
-        // RendererOutputSize. Native presentation must see the actual
-        // drawable so a small window can downsample the high-resolution scene.
-        SDL_RenderSetLogicalSize(b->renderer, 0, 0);
-    } else if (!b->expanded_view && !b->resize_driven_view &&
-               !b->aspect_view_available) {
+    if (!b->expanded_view && !b->resize_driven_view &&
+        !b->aspect_view_available) {
         SDL_RenderSetLogicalSize(b->renderer, b->base_w, b->base_h);
         SDL_RenderSetIntegerScale(
             b->renderer, b->integer_scale ? SDL_TRUE : SDL_FALSE);
@@ -699,26 +651,6 @@ void apply_aspect_window_size(Backend* b) {
                       b->base_h * b->scale);
     SDL_SetWindowPosition(b->window, SDL_WINDOWPOS_CENTERED,
                           SDL_WINDOWPOS_CENTERED);
-}
-
-void native_upscale_nearest(const uint8_t* src, int src_w, int src_h,
-                            int scale, std::vector<uint8_t>& dst) {
-    const int dst_w = src_w * scale;
-    const std::size_t src_row_bytes = static_cast<std::size_t>(src_w) * 3u;
-    const std::size_t dst_row_bytes = static_cast<std::size_t>(dst_w) * 3u;
-    for (int y = 0; y < src_h; ++y) {
-        const uint8_t* src_row = src + static_cast<std::size_t>(y) * src_row_bytes;
-        uint8_t* dst_row = dst.data() + static_cast<std::size_t>(y * scale) * dst_row_bytes;
-        for (int x = 0; x < src_w; ++x) {
-            const uint8_t* px = src_row + static_cast<std::size_t>(x) * 3u;
-            for (int dx = 0; dx < scale; ++dx)
-                std::memcpy(dst_row + static_cast<std::size_t>(x * scale + dx) * 3u,
-                            px, 3u);
-        }
-        for (int dy = 1; dy < scale; ++dy)
-            std::memcpy(dst_row + static_cast<std::size_t>(dy) * dst_row_bytes,
-                        dst_row, dst_row_bytes);
-    }
 }
 
 // GBA KEYINPUT bit order: 0=A 1=B 2=Sel 3=Sta 4=Right 5=Left 6=Up 7=Down 8=R 9=L.
@@ -1025,7 +957,6 @@ void rebuild_color_lut(Backend* b) {
     b->applied_custom = custom_colors_of(b->cfg);
     if (b->color_lut->is_passthrough()) {
         b->graded_fb.clear();
-        b->native_graded_fb.clear();
     } else {
         b->graded_fb.resize(static_cast<std::size_t>(b->base_w) *
                             b->base_h * 3u);
@@ -1134,9 +1065,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     b->resize_driven_view = resize_driven_view;
     b->linear_filter = linear_filter;
     b->scale = scale;
-    b->native_scale = native_scale_from_env();
     b->strict_static = env_flag("GBARECOMP_STRICT_STATIC");
-    b->native_renderer = env_flag("GBARECOMP_NATIVE_RENDERER", b->native_renderer);
     b->title = title ? title : "gbarecomp";
     // Gamepad. A host-side convenience: if it fails to come up the emulator
     // runs exactly as before, just without pad input. (The config UI is
@@ -1175,14 +1104,7 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     const int win_w = shown_width(b, base_w, base_h) * scale;
     const int win_h = base_h * scale;
     // Keep the host window user-resizable for both canonical and enhanced
-    // presentations. Canonical mode still preserves a 240x160 logical image;
-    // native mode removes that SDL logical-size constraint and fits its
-    // supersampled texture to the live drawable below.
-#if defined(_WIN32)
-    const bool direct3d_compat = env_flag("GSR_DIRECT3D_COMPAT");
-#else
-    const bool direct3d_compat = false;
-#endif
+    // presentations.
     Uint32 window_flags = SDL_WINDOW_SHOWN |
         static_cast<Uint32>(SDL_WINDOW_RESIZABLE);
 #if defined(__ANDROID__)
@@ -1196,15 +1118,11 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     // is the only backend among the ones we ship with viewport support
     // (imgui_impl_sdlrenderer2 has none upstream). The renderer driver
     // selection below tries "opengl" first and falls back to the historical
-    // d3d11/software chain on the same window if that fails. Compatibility
-    // startup omits this flag to avoid initializing OpenGL in window creation.
-    if (!direct3d_compat)
-        window_flags |= static_cast<Uint32>(SDL_WINDOW_OPENGL);
+    // d3d11/software chain on the same window if that fails.
+    window_flags |= static_cast<Uint32>(SDL_WINDOW_OPENGL);
 #endif
     if (window_flags & SDL_WINDOW_OPENGL) {
         std::fprintf(stderr, "[host-window] graphics-startup=opengl\n");
-    } else if (direct3d_compat) {
-        std::fprintf(stderr, "[host-window] graphics-startup=direct3d\n");
     }
     std::fflush(stderr);
     if (s_given_window) {
@@ -1255,56 +1173,34 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     // config_ui_init() below detects which driver actually won and routes
     // to the matching ImGui backend (docking-only, no viewports) at runtime,
     // not via a compile-time driver choice.
-    if (!direct3d_compat) {
-        SDL_SetHintWithPriority(SDL_HINT_RENDER_DRIVER, gl_sdl_render_driver(),
-                                SDL_HINT_DEFAULT);
-        b->renderer = SDL_CreateRenderer(b->window, -1, renderer_flags);
-        if (!b->renderer) {
-            std::fprintf(stderr,
-                         "host_window: opengl renderer unavailable, falling "
-                         "back (no multi-viewport UI): %s\n", SDL_GetError());
-        }
+    SDL_SetHintWithPriority(SDL_HINT_RENDER_DRIVER, gl_sdl_render_driver(),
+                            SDL_HINT_DEFAULT);
+    b->renderer = SDL_CreateRenderer(b->window, -1, renderer_flags);
+    if (!b->renderer) {
+        std::fprintf(stderr,
+                     "host_window: opengl renderer unavailable, falling "
+                     "back (no multi-viewport UI): %s\n", SDL_GetError());
     }
 #endif
-    // Explicit indices keep compatibility startup out of SDL's automatic
-    // driver fallback, which can otherwise choose OpenGL after D3D fails.
-    const auto renderer_index = [](const char* name) {
-        for (int i = 0; i < SDL_GetNumRenderDrivers(); ++i) {
-            SDL_RendererInfo info{};
-            if (SDL_GetRenderDriverInfo(i, &info) == 0 && info.name &&
-                std::strcmp(info.name, name) == 0) return i;
-        }
-        return -1;
-    };
     if (!b->renderer) {
 #if defined(_WIN32)
         SDL_SetHintWithPriority(SDL_HINT_RENDER_DRIVER, "direct3d11",
-                                direct3d_compat ? SDL_HINT_OVERRIDE
-                                                : SDL_HINT_DEFAULT);
+                                SDL_HINT_DEFAULT);
 #endif
-        const int driver = direct3d_compat ? renderer_index("direct3d11") : -1;
-        if (!direct3d_compat || driver >= 0)
-            b->renderer = SDL_CreateRenderer(b->window, driver, renderer_flags);
+        b->renderer = SDL_CreateRenderer(b->window, -1, renderer_flags);
     }
     if (!b->renderer && want_vsync) {
         std::fprintf(stderr,
                      "host_window: synchronized renderer unavailable; "
                      "falling back to unsynchronized presentation: %s\n",
                      SDL_GetError());
-        const int driver = direct3d_compat ? renderer_index("direct3d11") : -1;
-        if (!direct3d_compat || driver >= 0)
-            b->renderer = SDL_CreateRenderer(
-                b->window, driver, SDL_RENDERER_ACCELERATED);
+        b->renderer = SDL_CreateRenderer(
+            b->window, -1, SDL_RENDERER_ACCELERATED);
     }
     if (!b->renderer) {
         // Fall back to software renderer if accelerated path is
         // unavailable (headless Windows, RDP, etc.).
-        if (direct3d_compat)
-            SDL_SetHintWithPriority(SDL_HINT_RENDER_DRIVER, "software",
-                                    SDL_HINT_OVERRIDE);
-        const int driver = direct3d_compat ? renderer_index("software") : -1;
-        if (!direct3d_compat || driver >= 0)
-            b->renderer = SDL_CreateRenderer(b->window, driver, SDL_RENDERER_SOFTWARE);
+        b->renderer = SDL_CreateRenderer(b->window, -1, SDL_RENDERER_SOFTWARE);
     }
     if (!b->renderer) {
         std::fprintf(stderr, "host_window: SDL_CreateRenderer failed: %s\n",
@@ -1353,8 +1249,6 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
     b->cfg.debug_overlay_state.cost_probe =
         env_flag("GBARECOMP_COST_PROBE");
     b->cfg.debug_overlay_state.present_cadence = b->cadence.verbose;
-    b->cfg.debug_overlay_state.ram_churn_probe =
-        env_flag("GSR_RAM_CHURN_PROBE");
     b->obj_record_frame_marker = env_flag("GSR_OBJ_RECORD");
     b->screen_filters_on =
         env_flag("GSR_SCREEN_FILTERS") && b->renderer_is_opengl;
@@ -1403,7 +1297,6 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
         b->cfg.vsync = b->vsync;
         b->cfg.linear_filter = b->linear_filter;
         b->cfg.integer_scale = b->integer_scale;
-        b->cfg.native_scale = b->native_scale;
         b->cadence.dwm_refresh_now(&b->display_refresh_hz);
         if (!(b->display_refresh_hz > 0.0)) {
             const int display = SDL_GetWindowDisplayIndex(b->window);
@@ -1563,6 +1456,7 @@ void HostWindow::close() {
     if (!impl_) { open_ = false; return; }
     auto* b = static_cast<Backend*>(impl_);
     b->cadence.dump();  // flush the cadence ring (verbose only)
+    gbarecomp::gpu_timing_flush();
     if (s_current_audio_backend == b) s_current_audio_backend = nullptr;
     b->local_music.shutdown();
     if (b->audio_dev) SDL_CloseAudioDevice(b->audio_dev);  // stops the callback first
@@ -1583,7 +1477,6 @@ void HostWindow::close() {
     }
     notify_frame_present_shutdown();
     if (b->texture)   SDL_DestroyTexture(b->texture);
-    destroy_native_texture(b);
     screen_filter_shutdown();
     release_cover_art();
     if (b->renderer)  SDL_DestroyRenderer(b->renderer);
@@ -1622,11 +1515,10 @@ bool HostWindow::set_surface_size(int base_w, int base_h) {
     // bottom-right and clipping it. Adaptive view owns its surface size and
     // already runs without a logical transform, so leave that path alone.
     if (!b->resize_driven_view) {
-        if (b->aspect_view_available ||
-            (b->expanded_view && !b->native_renderer)) {
+        if (b->aspect_view_available || b->expanded_view) {
             SDL_RenderSetLogicalSize(b->renderer, 0, 0);
         } else {
-            set_native_window_mode(b, b->native_renderer);
+            restore_logical_size(b);
         }
     }
 
@@ -1642,7 +1534,6 @@ bool HostWindow::set_surface_size(int base_w, int base_h) {
         SDL_SetWindowPosition(b->window, SDL_WINDOWPOS_CENTERED,
                               SDL_WINDOWPOS_CENTERED);
     }
-    destroy_native_texture(b);
     if (b->color_lut && !b->color_lut->is_passthrough())
         b->graded_fb.resize(static_cast<std::size_t>(base_w) * base_h * 3u);
     return true;
@@ -1859,17 +1750,14 @@ void set_screen_veil(bool covered, bool immediately) {
 bool screen_veil_covered() { return g_veil_permille.load() >= 1000; }
 
 void HostWindow::present(const uint8_t* rgb888) {
-    if (!open_ || !impl_) return;
+    if (!open_ || !impl_ || !rgb888) return;
     auto* b = static_cast<Backend*>(impl_);
-    const bool supplied_native = b->native_scene_pending &&
-        !b->native_fb.empty() && b->native_scene_w > 0 && b->native_scene_h > 0;
-    if (!rgb888 && !supplied_native) return;
 
     // Phones: the graphics card's picture straight from its texture
     // (gpu_present.h), when this window shows the frame as it comes: no
-    // colour grading, screen filter, 2x in-between frames, native-scale
-    // texture, smooth scaling or diagnostic marker. Published for the
-    // runner's next frame; this frame uses a texture only if one is on offer.
+    // colour grading, screen filter, 2x in-between frames, smooth scaling or
+    // diagnostic marker. Published for the runner's next frame; this frame
+    // uses a texture only if one is on offer.
     const bool interpolation_on =
         b->cfg.frame_interpolation_available && b->cfg.frame_interpolation_2x;
 #if defined(__ANDROID__)
@@ -1882,31 +1770,38 @@ void HostWindow::present(const uint8_t* rgb888) {
         }
     }
 #endif
-    const bool can_take_texture = touch_controls_enabled() && !b->native_renderer &&
-        (!b->color_lut || b->color_lut->is_passthrough()) &&
-        b->screen_filter == ScreenFilter::Off && !interpolation_on &&
-        !b->obj_record_frame_marker && !b->linear_filter;
+    // Colour profiles, screen filters and smooth scaling work on the card
+    // (gpu_present.h). 2x interpolation builds its in-between frame from the
+    // console picture (Original view only) and the frame marker paints it.
+    const bool can_take_texture = touch_controls_enabled() &&
+        !interpolation_on && !b->obj_record_frame_marker;
     gbarecomp::gpu_present_set_accepting(can_take_texture);
+    {
+        const bool graded = b->color_lut && !b->color_lut->is_passthrough();
+        gbarecomp::gpu_present_set_color_table(
+            graded ? b->color_lut->table_rgb() : nullptr,
+            graded ? b->color_lut->id() : 0u);
+    }
     const gbarecomp::GpuPresentFrame* direct = nullptr;
-    if (can_take_texture && !supplied_native) {
+    if (can_take_texture) {
         direct = gbarecomp::gpu_present_current();
         if (direct && (direct->width != b->base_w || direct->height != b->base_h))
             direct = nullptr;
     }
     if (!direct) gbarecomp::gpu_present_reset_history();
+    // "To the screen" for the GPU timing option (gpu_timing.h): from here to
+    // the hand-over below.
+    gbarecomp::gpu_timing_begin(gbarecomp::GpuTimingStep::Screen);
 
     // VFX-FLICKER-02: temporal frame blend ("LCD ghosting"), selectable in
     // the F1 menu (default: Flicker only, Strong). It runs first, directly on
     // the PPU frame and before colour grading and scaling, like the pixels
     // blending on a real GBA screen.
     //
-    // It is skipped in two cases:
-    //   - The native-compositor path. supplied_native is a separately scaled
-    //     buffer that this feature does not reach.
-    //   - While 2x scene interpolation is on. Interpolation sends a
-    //     synthesized midpoint frame and the real frame through this function
-    //     every guest frame, and it cannot tell them apart, so blending them
-    //     would smear the picture.
+    // It is skipped while 2x scene interpolation is on. Interpolation sends a
+    // synthesized midpoint frame and the real frame through this function
+    // every guest frame, and it cannot tell them apart, so blending them
+    // would smear the picture.
     //
     // Turbo/frameskip need no handling: present() is only called for frames
     // the turbo present decimator chose to present, so temporal_blend_prev
@@ -1918,7 +1813,7 @@ void HostWindow::present(const uint8_t* rgb888) {
                                            gbarecomp::kTemporalBlendItemCount - 1);
         gbarecomp::set_flicker_reduction_index(blend_index);
         // A texture frame blends on the card (gpu_present_draw).
-        const bool blend_engaged = !supplied_native && rgb888 != nullptr &&
+        const bool blend_engaged =
             blend_index != 0 && !interpolation_engaged && !direct;
         if (blend_engaged) {
             const bool selective =
@@ -1964,16 +1859,16 @@ void HostWindow::present(const uint8_t* rgb888) {
                 ++b->temporal_blend_history_count;
             if (did_blend) rgb888 = b->temporal_blend_out.data();
         } else {
-            // Not blending this frame (Off, interpolation, native path): drop
-            // history so a later re-enable does not blend against stale or
-            // differently sized frames.
+            // Not blending this frame (Off, interpolation): drop history so a
+            // later re-enable does not blend against stale or differently
+            // sized frames.
             b->temporal_blend_history_count = 0;
         }
     }
 
     // Present-time color grading (opt-in). Raw is passthrough: the raw
     // PPU frame is uploaded untouched, so verify/frame-hash are unaffected.
-    if (!supplied_native && !direct && b->color_lut && !b->color_lut->is_passthrough() &&
+    if (!direct && b->color_lut && !b->color_lut->is_passthrough() &&
         b->graded_fb.size() == static_cast<std::size_t>(b->base_w) * b->base_h * 3u) {
         b->color_lut->map_rgb888(rgb888, b->graded_fb.data(), b->base_w, b->base_h);
         rgb888 = b->graded_fb.data();
@@ -1982,18 +1877,14 @@ void HostWindow::present(const uint8_t* rgb888) {
     // domain. This is intentionally gated by the existing Record sprite
     // placement switch; normal captures and gameplay remain unchanged.
     const uint8_t* diagnostic_rgb888 = rgb888;
-    const uint8_t* diagnostic_native = nullptr;
-    int diagnostic_w = b->base_w;
-    int diagnostic_h = b->base_h;
     if (b->obj_record_frame_marker) {
-        const uint8_t* source = supplied_native ? b->native_fb.data() : rgb888;
-        diagnostic_w = supplied_native ? b->native_scene_w : b->base_w;
-        diagnostic_h = supplied_native ? b->native_scene_h : b->base_h;
-        if (source && diagnostic_w > 0 && diagnostic_h > 0) {
+        const int diagnostic_w = b->base_w;
+        const int diagnostic_h = b->base_h;
+        if (diagnostic_w > 0 && diagnostic_h > 0) {
             const std::size_t bytes = static_cast<std::size_t>(diagnostic_w) *
                 diagnostic_h * 3u;
             b->diagnostic_fb.resize(bytes);
-            std::memcpy(b->diagnostic_fb.data(), source, bytes);
+            std::memcpy(b->diagnostic_fb.data(), rgb888, bytes);
             char label[64];
             std::snprintf(label, sizeof(label), "GUEST %llu",
                           static_cast<unsigned long long>(b->cfg.guest_frame));
@@ -2002,54 +1893,46 @@ void HostWindow::present(const uint8_t* rgb888) {
                          4, 4, text_w + 8, 16, 0, 0, 0, 220);
             overlay_text(b->diagnostic_fb.data(), diagnostic_w, diagnostic_h,
                          8, 8, label, 255, 220, 64);
-            if (supplied_native)
-                diagnostic_native = b->diagnostic_fb.data();
-            else
-                diagnostic_rgb888 = b->diagnostic_fb.data();
+            diagnostic_rgb888 = b->diagnostic_fb.data();
         }
     }
-    const bool use_native = b->native_renderer && ensure_native_texture(b);
-    SDL_Texture* frame_texture = b->texture;
-    int frame_w = b->base_w;
-    int frame_h = b->base_h;
-    if (use_native) {
-        if (supplied_native) {
-            frame_w = b->native_scene_w;
-            frame_h = b->native_scene_h;
-        } else {
-            native_upscale_nearest(diagnostic_rgb888, b->base_w, b->base_h,
-                                   b->native_scale, b->native_fb);
-            frame_w *= b->native_scale;
-            frame_h *= b->native_scale;
-        }
-        frame_texture = b->native_texture;
-        const uint8_t* native_upload = supplied_native && diagnostic_native
-            ? diagnostic_native : b->native_fb.data();
-        if (supplied_native && b->color_lut &&
-            !b->color_lut->is_passthrough()) {
-            const std::size_t bytes = static_cast<std::size_t>(frame_w) *
-                frame_h * 3u;
-            b->native_graded_fb.resize(bytes);
-            b->color_lut->map_rgb888(native_upload,
-                                     b->native_graded_fb.data(),
-                                     frame_w, frame_h);
-            native_upload = b->native_graded_fb.data();
-        }
-        SDL_UpdateTexture(b->native_texture, nullptr, native_upload,
-                          frame_w * 3);
-    } else if (!direct) {
+    SDL_Texture* const frame_texture = b->texture;
+    const int frame_w = b->base_w;
+    const int frame_h = b->base_h;
+    if (!direct) {
         SDL_UpdateTexture(b->texture, nullptr, diagnostic_rgb888,
                           b->base_w * 3);
     }
     const int direct_blend = std::clamp(b->temporal_blend_index, 0,
                                         gbarecomp::kTemporalBlendItemCount - 1);
+    // A screen filter reads the uploaded picture, or, shown straight from the
+    // card, the card's finished picture (no copy back). If the filter then
+    // cannot draw, the direct draw below shows the frame unfiltered.
+    // Smooth scaling on the card is the Bilinear filter over that picture.
+    const ScreenFilter card_filter = b->screen_filter != ScreenFilter::Off
+        ? b->screen_filter
+        : (direct && b->linear_filter ? ScreenFilter::Bilinear : ScreenFilter::Off);
+    const auto draw_filtered = [&](const SDL_Rect& src, int pixel_w, int pixel_h,
+                                   const SDL_Rect& dst) {
+        if (card_filter == ScreenFilter::Off) return false;
+        if (!direct)
+            return screen_filter_draw(b->renderer, frame_texture, b->screen_filter,
+                                      b->screen_filter_params.data(), src, pixel_w,
+                                      pixel_h, dst);
+        const unsigned finished =
+            gbarecomp::gpu_present_finish(b->renderer, *direct, direct_blend);
+        return finished != 0 &&
+               screen_filter_draw_gl(b->renderer, finished, frame_w, frame_h,
+                                     card_filter, b->screen_filter_params.data(),
+                                     src, pixel_w, pixel_h, dst);
+    };
     SDL_RenderClear(b->renderer);
     if (!b->aspect_view_available && !b->expanded_view &&
-        !b->resize_driven_view && !use_native) {
+        !b->resize_driven_view) {
         // Native 240x160: SDL's logical size scales this copy. A filter draws
         // with raw GL in output pixels, so it is placed by the same layout.
         bool filtered = false;
-        if (b->screen_filter != ScreenFilter::Off) {
+        if (card_filter != ScreenFilter::Off) {
             int out_w = 0, out_h = 0;
             SDL_GetRendererOutputSize(b->renderer, &out_w, &out_h);
             const PresentationLayout layout = compute_presentation_layout(
@@ -2060,11 +1943,7 @@ void HostWindow::present(const uint8_t* rgb888) {
             const SDL_Rect destination = {
                 layout.x, layout.y, layout.width, layout.height};
             filtered = layout.width > 0 && layout.height > 0 &&
-                       screen_filter_draw(b->renderer, frame_texture,
-                                          b->screen_filter,
-                                          b->screen_filter_params.data(),
-                                          whole, b->base_w, b->base_h,
-                                          destination);
+                       draw_filtered(whole, b->base_w, b->base_h, destination);
         }
         if (!filtered && direct) {
             // The texture is drawn in output pixels by the same layout.
@@ -2090,12 +1969,9 @@ void HostWindow::present(const uint8_t* rgb888) {
         // live client dimensions that selected its logical width, so the
         // texture and destination cannot disagree on backends whose renderer
         // output stays pinned to the original streaming target.
-        int logical_w = 0;
-        int logical_h = 0;
-        SDL_RenderGetLogicalSize(b->renderer, &logical_w, &logical_h);
         if (b->aspect_view_available) {
             drawable_size(&drawable_w, &drawable_h);
-        } else if (b->resize_driven_view || (use_native && logical_w > 0)) {
+        } else if (b->resize_driven_view) {
             SDL_GetWindowSize(b->window, &drawable_w, &drawable_h);
         } else if (SDL_GetRendererOutputSize(
                        b->renderer, &drawable_w, &drawable_h) != 0) {
@@ -2117,33 +1993,14 @@ void HostWindow::present(const uint8_t* rgb888) {
                                  : (b->aspect_view_available
                                     ? ScalingMode::RoundedAspectFit : ScalingMode::AspectFill));
         if (layout.width > 0 && layout.height > 0) {
-            if (use_native && b->native_texture) {
-                // Native scale is an off-screen quality setting, not a window
-                // resize setting. Use the filtered sampler for every native
-                // factor above 1x: otherwise 2x-9x enlarge with nearest while
-                // 10x downsamples with linear, which makes the intermediate
-                // factors show hard scanline/edge artifacts.
-                const bool downsampling = layout.width < shown_w ||
-                    layout.height < frame_h;
-                const bool native_filter = b->native_scale > 1 && !sharp_fill;
-                SDL_SetTextureScaleMode(
-                    b->native_texture,
-                    (b->linear_filter || native_filter || downsampling)
-                        ? SDL_ScaleModeLinear : SDL_ScaleModeNearest);
-            }
             const SDL_Rect destination = {
                 layout.x, layout.y, layout.width, layout.height};
             const SDL_Rect source = {(frame_w - shown_w) / 2, 0, shown_w,
                                      frame_h};
             // Test-only screen filter; falls back to the plain copy below
             // whenever it cannot draw.
-            const bool filtered =
-                b->screen_filter != ScreenFilter::Off &&
-                screen_filter_draw(b->renderer, frame_texture,
-                                   b->screen_filter,
-                                   b->screen_filter_params.data(), source,
-                                   shown_width(b, b->base_w, b->base_h),
-                                   b->base_h, destination);
+            const bool filtered = draw_filtered(
+                source, shown_width(b, b->base_w, b->base_h), b->base_h, destination);
             const bool drawn_direct = !filtered && direct &&
                 gbarecomp::gpu_present_draw(
                     b->renderer, *direct,
@@ -2228,7 +2085,10 @@ void HostWindow::present(const uint8_t* rgb888) {
             }
         }
     }
+    gbarecomp::gpu_timing_end(gbarecomp::GpuTimingStep::Screen);
     SDL_RenderPresent(b->renderer);
+    gbarecomp::gpu_timing_frame_done();
+    gbarecomp::gpu_fault_watch_frame();
     b->cadence.record(cad_qpc0, SDL_GetPerformanceCounter(), b->fullscreen);
 
     // Count only completed SDL_RenderPresent calls. Turbo guest frames that
@@ -2304,6 +2164,8 @@ void HostWindow::load_input_config(const char* dir) {
             b->cfg.show_fps = on;
         } else if (SDL_strcasecmp(key, "TouchButtons") == 0) {
             b->touch_buttons = on;
+        } else if (SDL_strcasecmp(key, "TouchFastForward") == 0) {
+            b->touch_fast_forward = on;
         } else if (SDL_strcasecmp(key, "ControllerAsked") == 0) {
             b->controller_asked = on;
         } else if (SDL_strcasecmp(key, "TouchLayout") == 0) {
@@ -2560,6 +2422,8 @@ void HostWindow::load_input_config(const char* dir) {
     apply_vsync(b, b->cfg.vsync);
     b->cfg.touch_buttons = b->touch_buttons;
     touch_controls_set_buttons_shown(b->touch_buttons);
+    b->cfg.touch_fast_forward = b->touch_fast_forward;
+    touch_controls_set_fast_forward_shown(b->touch_fast_forward);
     if (b->pad) ask_about_touch_buttons(b);  // connected before the game started
     b->linear_filter = b->cfg.linear_filter;
     SDL_SetTextureScaleMode(b->texture, b->linear_filter ? SDL_ScaleModeLinear
@@ -2791,19 +2655,6 @@ bool HostWindow::saved_enhanced_timing() const {
     return open_ && impl_;
 }
 
-void HostWindow::set_native_renderer_available(bool on) {
-    if (!open_ || !impl_) return;
-    auto* b = static_cast<Backend*>(impl_);
-    b->native_renderer_game_allowed = on;
-    b->cfg.native_renderer_available = on;
-    if (!on) {
-        b->native_renderer = false;
-        b->cfg.native_renderer = false;
-        destroy_native_texture(b);
-        set_native_window_mode(b, false);
-    }
-}
-
 void HostWindow::push_audio_samples_stereo(const int16_t* samples,
                                             std::size_t count) {
     if (!open_ || !impl_ || !samples || count == 0) return;
@@ -2872,54 +2723,6 @@ void HostWindow::set_local_music_paused(bool paused) {
     if (!open_ || !impl_) return;
     auto* b = static_cast<Backend*>(impl_);
     b->local_music.set_host_paused(paused);
-}
-
-void HostWindow::present_native(const uint8_t* rgb888, int width, int height) {
-    if (!open_ || !impl_ || !rgb888 || width <= 0 || height <= 0) return;
-    auto* b = static_cast<Backend*>(impl_);
-    if (!b->native_renderer || width != b->base_w * b->native_scale ||
-        height != b->base_h * b->native_scale) {
-        return;
-    }
-    // Establish the texture before copying the supplied scene. The texture
-    // creation path clears/reallocates native_fb; doing this after the copy
-    // would blank the first native frame.
-    if (!ensure_native_texture(b)) return;
-    const std::size_t bytes = static_cast<std::size_t>(width) * height * 3u;
-    b->native_fb.assign(rgb888, rgb888 + bytes);
-    b->native_scene_w = width;
-    b->native_scene_h = height;
-    b->native_scene_pending = true;
-    present(nullptr);
-    b->native_scene_pending = false;
-}
-
-void HostWindow::set_native_renderer_enabled(bool on) {
-    if (!open_ || !impl_) return;
-    auto* b = static_cast<Backend*>(impl_);
-    b->native_renderer = on && b->native_renderer_game_allowed;
-    b->cfg.native_renderer = b->native_renderer;
-    set_native_window_mode(b, b->native_renderer);
-    if (!b->native_renderer) destroy_native_texture(b);
-}
-
-void HostWindow::set_native_renderer_scale(int scale) {
-    if (!open_ || !impl_) return;
-    auto* b = static_cast<Backend*>(impl_);
-    b->native_scale = std::clamp(scale, 1, 10);
-    b->cfg.native_scale = b->native_scale;
-    // Texture dimensions are tied to the selected render resolution.
-    destroy_native_texture(b);
-}
-
-bool HostWindow::native_renderer_enabled() const {
-    if (!open_ || !impl_) return false;
-    return static_cast<const Backend*>(impl_)->native_renderer;
-}
-
-int HostWindow::native_renderer_scale() const {
-    if (!open_ || !impl_) return 1;
-    return static_cast<const Backend*>(impl_)->native_scale;
 }
 
 void HostWindow::set_fixed_view_modes(bool on, const FixedViewMode* modes,
@@ -2996,7 +2799,7 @@ void HostWindow::set_aspect_view_available(bool on) {
     if (b->aspect_view_available) {
         SDL_RenderSetLogicalSize(b->renderer, 0, 0);
     } else {
-        set_native_window_mode(b, b->native_renderer);
+        restore_logical_size(b);
     }
     if (b->aspect_view_available && b->widescreen && b->aspect == ViewAspectMinimalSharpPixels) {
         b->integer_scale = true;
@@ -3263,7 +3066,7 @@ bool write_video_ini(const Backend* b) {
     std::vector<const char*> names = {
         "WindowScale", "Fullscreen", "VSync", "LinearFilter",
         "IntegerScale", "ScreenFilter", "ShowFPS", "TouchButtons", "ControllerAsked",
-        "TouchLayout"
+        "TouchLayout", "TouchFastForward"
     };
     std::vector<std::string> values = {
         std::to_string(b->scale), b->preferred_fullscreen ? "true" : "false",
@@ -3272,7 +3075,7 @@ bool write_video_ini(const Backend* b) {
         std::to_string(static_cast<int>(b->preferred_screen_filter)),
         b->fps_readout ? "true" : "false",
         b->touch_buttons ? "true" : "false", b->controller_asked ? "true" : "false",
-        touch_controls_layout()
+        touch_controls_layout(), b->touch_fast_forward ? "true" : "false"
     };
     for (int i = 0; i < kScreenFilterParamCount; ++i) {
         char text[32];
@@ -3785,7 +3588,6 @@ HostWindow::Events HostWindow::pump() {
         b->cfg.integer_scale = b->integer_scale;
         b->cfg.screen_kind = static_cast<int>(b->screen_kind);
         b->cfg.aspect = b->aspect;
-        b->cfg.native_scale = b->native_scale;
         b->cfg.screen_filters_available = b->screen_filters_on;
         b->cfg.screen_filter = static_cast<int>(b->preferred_screen_filter);
         b->cfg.screen_filter_params = b->screen_filter_params;
@@ -4246,6 +4048,7 @@ HostWindow::Events HostWindow::pump() {
                 b->cfg.fullscreen != b->fullscreen || b->cfg.scale != b->scale ||
                 b->cfg.show_fps != b->fps_readout || b->cfg.vsync != b->vsync ||
                 b->cfg.touch_buttons != b->touch_buttons ||
+                b->cfg.touch_fast_forward != b->touch_fast_forward ||
                 b->cfg.linear_filter != b->linear_filter ||
                 b->cfg.integer_scale != b->integer_scale ||
                 b->cfg.screen_filter != static_cast<int>(b->preferred_screen_filter) ||
@@ -4261,6 +4064,11 @@ HostWindow::Events HostWindow::pump() {
             apply_vsync(b, b->cfg.vsync);
             b->touch_buttons = b->cfg.touch_buttons;
             touch_controls_set_buttons_shown(b->touch_buttons);
+            // Hiding >> also stops a fast forward it started, so the
+            // player is not left without a way to turn it off.
+            if (b->touch_fast_forward && !b->cfg.touch_fast_forward) b->turbo_toggle_on = false;
+            b->touch_fast_forward = b->cfg.touch_fast_forward;
+            touch_controls_set_fast_forward_shown(b->touch_fast_forward);
             if (b->cfg.linear_filter != b->linear_filter) {
                 b->linear_filter = b->cfg.linear_filter;
                 SDL_SetTextureScaleMode(b->texture,
@@ -4329,10 +4137,6 @@ HostWindow::Events HostWindow::pump() {
                     std::fprintf(stderr, "host_window: could not write %s/config.ini\n",
                                  b->config_dir.c_str());
             }
-            if (b->cfg.native_renderer != b->native_renderer)
-                set_native_renderer_enabled(b->cfg.native_renderer);
-            if (b->cfg.native_scale != b->native_scale)
-                set_native_renderer_scale(b->cfg.native_scale);
             b->cfg.video_changed = false;
         }
         if (b->cfg.audio_changed) {
@@ -4575,7 +4379,6 @@ bool HostWindow::drawable_size(int* /*width*/, int* /*height*/) const {
 }
 
 void HostWindow::present(const uint8_t* /*rgb888*/) {}
-void HostWindow::present_native(const uint8_t* /*rgb888*/, int /*width*/, int /*height*/) {}
 
 void HostWindow::load_input_config(const char* /*dir*/) {}
 void HostWindow::set_fullscreen(bool /*on*/) {}
@@ -4592,11 +4395,6 @@ void HostWindow::set_frame_interpolation_enabled(bool) {}
 void HostWindow::set_enhanced_timing_available(bool) {}
 void HostWindow::set_enhanced_timing_enabled(bool) {}
 bool HostWindow::saved_enhanced_timing() const { return false; }
-void HostWindow::set_native_renderer_available(bool) {}
-void HostWindow::set_native_renderer_enabled(bool) {}
-void HostWindow::set_native_renderer_scale(int) {}
-bool HostWindow::native_renderer_enabled() const { return false; }
-int HostWindow::native_renderer_scale() const { return 1; }
 void HostWindow::set_fixed_view_modes(bool, const FixedViewMode*, int, int) {}
 int HostWindow::fixed_view_mode() const { return 0; }
 void HostWindow::set_aspect_view_available(bool) {}

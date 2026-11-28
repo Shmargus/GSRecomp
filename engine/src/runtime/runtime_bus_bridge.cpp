@@ -8,6 +8,7 @@
 #include "../armv4t/runtime_arm.h"
 #include "env_flag.h"
 #include "game_exit.h"
+#include "gpu_timing.h"
 #include "../armv4t/arm_ir.h"
 #include "../armv4t/env_flag.h"
 #include "../armv4t/symbol_lookup.h"
@@ -32,6 +33,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <string>
 #include <map>
@@ -277,17 +279,25 @@ extern "C" unsigned long long g_runtime_shadow_cycles = 0;
 
 // Memory timing table (runtime_mem_cycles below), indexed
 // [region][width == 4][sequential]. It is exported so the block-timing game
-// code (scripts/block_timing.py) can read it inline instead of calling
-// runtime_mem_cycles.
-//   - g_runtime_mem_cost_key is the WAITCNT value the table was built for
-//     (0xFFFFFFFF: not built).
-//   - g_runtime_waitcnt_live points at the active bus's live WAITCNT bytes
-//     (null without a bus).
-// A reader uses the table only when the live value equals the key. Otherwise
-// it calls runtime_mem_cycles, which rebuilds the table.
-extern "C" uint8_t g_runtime_mem_cost[16][2][2] = {};
-extern "C" uint32_t g_runtime_mem_cost_key = 0xFFFFFFFFu;
-extern "C" const uint8_t* g_runtime_waitcnt_live = nullptr;
+// code (player_builder/block_timing_prelude.inc) can read it inline instead
+// of calling runtime_mem_cycles. It is always current: set_active_bus builds
+// it and installs a GbaIo hook that rebuilds it whenever WAITCNT is written
+// or a savestate is restored. Without a bus every entry is 1, like
+// runtime_mem_cycles. g_runtime_mem_cost_key is the WAITCNT value it was
+// built for (0xFFFFFFFF: not built for a bus).
+#define GSR_MEM_COST_ONES_2 {1, 1}
+#define GSR_MEM_COST_ONES_REGION {GSR_MEM_COST_ONES_2, GSR_MEM_COST_ONES_2}
+extern "C" uint8_t g_runtime_mem_cost[16][2][2] = {
+    GSR_MEM_COST_ONES_REGION, GSR_MEM_COST_ONES_REGION, GSR_MEM_COST_ONES_REGION,
+    GSR_MEM_COST_ONES_REGION, GSR_MEM_COST_ONES_REGION, GSR_MEM_COST_ONES_REGION,
+    GSR_MEM_COST_ONES_REGION, GSR_MEM_COST_ONES_REGION, GSR_MEM_COST_ONES_REGION,
+    GSR_MEM_COST_ONES_REGION, GSR_MEM_COST_ONES_REGION, GSR_MEM_COST_ONES_REGION,
+    GSR_MEM_COST_ONES_REGION, GSR_MEM_COST_ONES_REGION, GSR_MEM_COST_ONES_REGION,
+    GSR_MEM_COST_ONES_REGION};
+#undef GSR_MEM_COST_ONES_REGION
+#undef GSR_MEM_COST_ONES_2
+static uint32_t g_runtime_mem_cost_key = 0xFFFFFFFFu;
+static void rebuild_mem_cost(const gba::GbaBus& bus, uint16_t waitcnt);
 
 namespace gbarecomp {
 
@@ -801,10 +811,19 @@ void sync_bios_access() {
 }
 
 void set_active_bus(gba::GbaBus* bus) {
+    if (g_active_bus && g_active_bus != bus)
+        g_active_bus->io().set_waitcnt_changed_hook(nullptr);
     g_active_bus = bus;
-    // WAITCNT is the u16 at IO offset 0x204 (gba_io.h, IoReg::WAITCNT).
-    g_runtime_waitcnt_live = bus ? bus->io().raw() + 0x204u : nullptr;
-    g_runtime_mem_cost_key = 0xFFFFFFFFu;
+    if (bus) {
+        rebuild_mem_cost(*bus, bus->io().waitcnt());
+        bus->io().set_waitcnt_changed_hook(+[]() {
+            if (g_active_bus)
+                rebuild_mem_cost(*g_active_bus, g_active_bus->io().waitcnt());
+        });
+    } else {
+        std::memset(g_runtime_mem_cost, 1, sizeof g_runtime_mem_cost);
+        g_runtime_mem_cost_key = 0xFFFFFFFFu;
+    }
     g_runtime_bios_open_bus_hook = bus
         ? +[](uint32_t value) {
               if (g_active_bus) g_active_bus->set_bios_open_bus(value);
@@ -848,6 +867,8 @@ void set_frame_present_override_hook(
 bool invoke_frame_present_override_hook(std::uint8_t* rgb, std::uint32_t width,
                                         std::uint32_t height) {
     if (!g_frame_present_override_hook) return false;
+    // The game's own drawing, for the GPU timing option (gpu_timing.h).
+    GpuTimingScope timing(GpuTimingStep::Game);
     return g_frame_present_override_hook(rgb, width, height);
 }
 

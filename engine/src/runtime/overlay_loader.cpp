@@ -23,7 +23,6 @@
 #include "game_exit.h"
 #include "overlay_compile.h"      // overlay_compile_one, HealBackend, heal_backend_name
 #include "hot_queue_policy.h"
-#include "game_ram_layout.h"      // g_game_ram_layout
 #include "runtime_arm.h"          // g_cpu, g_runtime_*, every runtime/bus/arm fn
 #include "runtime_bus_bridge.h"   // active_bus
 #include "host_prof_phase.h"      // host profiler phase marker
@@ -389,373 +388,6 @@ bool                           s_frame_events_enabled = false;
 std::string                    s_frame_events_path;
 std::vector<FrameEventCounts>  s_frame_events;
 std::vector<BridgeMissEvent>   s_bridge_miss_events;
-
-// RAM churn is deliberately a separate probe from the existing frame
-// aggregates. It records only sparse, coalesced event rows, so a hot RAM
-// dispatch cannot turn diagnostics into per-event I/O or an unbounded vector.
-// The ring bounds retained history to the latest 16,384 guest frames and each
-// frame to 64 unique PC/mode pairs. Rows are keyed by event + PC + mode + the
-// small identity/cache labels below; counts, never guest bytes, are emitted.
-struct RamChurnRow {
-    uint32_t pc = 0;
-    bool thumb = false;
-    const char* event = nullptr;
-    const char* identity = nullptr;
-    const char* cache_kind = nullptr;
-    uint32_t addr = 0;
-    uint32_t pointer_target = 0;
-    bool pointer_thumb = false;
-    uint64_t count = 0;
-};
-struct RamChurnFrame {
-    uint64_t frame = 0;
-    std::vector<RamChurnRow> rows;
-    bool pc_cap_reported = false;
-    bool row_cap_reported = false;
-};
-constexpr std::size_t kRamChurnMaxFrames = 16384;
-constexpr std::size_t kRamChurnMaxPcsPerFrame = 64;
-constexpr std::size_t kRamChurnMaxRowsPerFrame = 256;
-bool                           s_ram_churn_probe_enabled = false;
-std::string                    s_ram_churn_path;
-std::deque<RamChurnFrame>      s_ram_churn_frames;
-uint64_t                       s_ram_churn_current_frame = 0;
-uint64_t                       s_ram_churn_dropped_frames = 0;
-uint64_t                       s_ram_churn_dropped_pcs = 0;
-uint64_t                       s_ram_churn_dropped_rows = 0;
-
-// Lifecycle evidence for the one measured RAM image (g_game_ram_layout). This is kept
-// separate from the sparse churn rows because each exact DMA completion is a
-// distinct generation. CPU-writer completion and first dispatch are emitted
-// as bounded metadata rows. No guest bytes are retained.
-struct RamImageLifecycleRow {
-    uint64_t generation = 0;
-    uint64_t frame = 0;
-    const char* event = nullptr;
-    uint32_t writer_pc = 0;
-    bool writer_thumb = false;
-    uint32_t source = 0;
-    uint32_t dest = 0;
-    uint32_t size = 0;
-    uint32_t crc32 = 0;
-    uint32_t channel = 0;
-    uint64_t first_dispatch_frame = 0;
-    uint32_t first_dispatch_pc = 0;
-    bool first_dispatch_thumb = false;
-    uint32_t cpu_writer_first_pc = 0;
-    uint32_t cpu_writer_last_pc = 0;
-    bool cpu_writer_thumb = false;
-    uint32_t cpu_writer_first_addr = 0;
-    uint32_t cpu_writer_last_end = 0;
-    uint32_t cpu_writer_stores = 0;
-    uint32_t early_dispatches = 0;
-    uint32_t late_writes = 0;
-};
-constexpr std::size_t kRamImageLifecycleMaxRows = 4096;
-constexpr std::size_t kNoRamImageLifecycleRow = static_cast<std::size_t>(-1);
-std::string                    s_ram_image_lifecycle_path;
-std::deque<RamImageLifecycleRow> s_ram_image_lifecycle_rows;
-uint64_t                       s_ram_image_generation = 0;
-std::size_t                    s_ram_image_dma_row = kNoRamImageLifecycleRow;
-std::size_t                    s_ram_image_writer_row = kNoRamImageLifecycleRow;
-uint32_t                       s_ram_image_writer_call_depth = 0;
-bool                           s_ram_image_writer_started = false;
-std::size_t                    s_ram_image_pending_row = kNoRamImageLifecycleRow;
-
-const char* ram_churn_outcome_name(OverlayRequestOutcome outcome) {
-    switch (outcome) {
-    case OverlayRequestOutcome::Alias:    return "alias";
-    case OverlayRequestOutcome::Queued:   return "queued";
-    case OverlayRequestOutcome::Inflight: return "inflight";
-    case OverlayRequestOutcome::Failed:   return "failed";
-    }
-    return "unknown";
-}
-
-RamChurnFrame& ram_churn_frame_bucket(uint64_t frame) {
-    if (s_ram_churn_frames.empty() || s_ram_churn_frames.back().frame != frame) {
-        s_ram_churn_frames.push_back({});
-        s_ram_churn_frames.back().frame = frame;
-        if (s_ram_churn_frames.size() > kRamChurnMaxFrames) {
-            s_ram_churn_frames.pop_front();
-            ++s_ram_churn_dropped_frames;
-        }
-    }
-    return s_ram_churn_frames.back();
-}
-
-void ram_churn_record_fields(uint64_t frame, const char* event, uint32_t pc,
-                             bool thumb, const char* identity,
-                             const char* cache_kind, uint32_t addr,
-                             uint32_t pointer_target, bool pointer_thumb) {
-    if (!s_ram_churn_probe_enabled) return;
-    RamChurnFrame& bucket = ram_churn_frame_bucket(frame);
-    for (RamChurnRow& row : bucket.rows) {
-        if (row.pc == pc && row.thumb == thumb && row.event == event &&
-            row.identity == identity && row.cache_kind == cache_kind &&
-            row.addr == addr && row.pointer_target == pointer_target &&
-            row.pointer_thumb == pointer_thumb) {
-            ++row.count;
-            return;
-        }
-    }
-
-    bool known_pc = false;
-    for (const RamChurnRow& row : bucket.rows) {
-        if (row.pc == pc && row.thumb == thumb) {
-            known_pc = true;
-            break;
-        }
-    }
-    if (!known_pc) {
-        std::size_t unique = 0;
-        for (std::size_t i = 0; i < bucket.rows.size(); ++i) {
-            bool first = true;
-            for (std::size_t j = 0; j < i; ++j) {
-                if (bucket.rows[j].pc == bucket.rows[i].pc &&
-                    bucket.rows[j].thumb == bucket.rows[i].thumb) {
-                    first = false;
-                    break;
-                }
-            }
-            if (first) ++unique;
-        }
-        if (unique >= kRamChurnMaxPcsPerFrame) {
-            ++s_ram_churn_dropped_pcs;
-            if (!bucket.pc_cap_reported) {
-                bucket.pc_cap_reported = true;
-                std::fprintf(stderr,
-                    "[ram-churn] frame=%llu unique-pc cap=%zu; "
-                    "additional PCs are coalesced\n",
-                    static_cast<unsigned long long>(frame),
-                    kRamChurnMaxPcsPerFrame);
-            }
-            return;
-        }
-    }
-    if (bucket.rows.size() >= kRamChurnMaxRowsPerFrame) {
-        ++s_ram_churn_dropped_rows;
-        if (!bucket.row_cap_reported) {
-            bucket.row_cap_reported = true;
-            std::fprintf(stderr,
-                "[ram-churn] frame=%llu row cap=%zu; additional event "
-                "kinds are coalesced\n",
-                static_cast<unsigned long long>(frame),
-                kRamChurnMaxRowsPerFrame);
-        }
-        return;
-    }
-    bucket.rows.push_back({pc, thumb, event, identity, cache_kind,
-                           addr, pointer_target, pointer_thumb, 1});
-}
-
-void ram_churn_record(uint64_t frame, const char* event, uint32_t pc,
-                      bool thumb, const char* identity,
-                      const char* cache_kind) {
-    ram_churn_record_fields(frame, event, pc, thumb, identity, cache_kind,
-                            0u, 0u, false);
-}
-
-void ram_churn_record_ram_pointer_write(
-    uint64_t frame, uint32_t dest, uint32_t writer_pc, uint8_t writer_thumb,
-    uint32_t pointer_target, uint8_t pointer_thumb) {
-    ram_churn_record_fields(frame, "ram_pointer_write", writer_pc,
-                            writer_thumb != 0u, "target-image", "pointer",
-                            dest, pointer_target, pointer_thumb != 0u);
-}
-
-// The measured transient RAM image comes from g_game_ram_layout; an empty
-// window records nothing.
-inline uint32_t ram_image_start() { return g_game_ram_layout.ram_image_start; }
-inline uint32_t ram_image_end() { return g_game_ram_layout.ram_image_end; }
-
-void ram_image_lifecycle_drop_oldest() {
-    if (s_ram_image_lifecycle_rows.empty()) return;
-    s_ram_image_lifecycle_rows.pop_front();
-    auto adjust = [](std::size_t& index) {
-        if (index == kNoRamImageLifecycleRow) return;
-        index = index == 0u ? kNoRamImageLifecycleRow : index - 1u;
-    };
-    adjust(s_ram_image_dma_row);
-    adjust(s_ram_image_writer_row);
-    adjust(s_ram_image_pending_row);
-}
-
-std::size_t ram_image_lifecycle_append(const RamImageLifecycleRow& row) {
-    if (s_ram_image_lifecycle_rows.size() >= kRamImageLifecycleMaxRows)
-        ram_image_lifecycle_drop_oldest();
-    s_ram_image_lifecycle_rows.push_back(row);
-    return s_ram_image_lifecycle_rows.size() - 1u;
-}
-
-uint32_t ram_image_lifecycle_crc32() {
-    const uint32_t start = ram_image_start();
-    std::vector<uint8_t> image(
-        ram_image_end() > start ? ram_image_end() - start : 0u);
-    for (std::size_t i = 0; i < image.size(); ++i)
-        image[i] = bus_read_u8(start + static_cast<uint32_t>(i));
-    return gba::crc32(image.data(), image.size());
-}
-
-void ram_image_lifecycle_dma(
-    uint64_t frame, uint8_t completed, uint32_t source, uint32_t dest,
-    uint32_t size, uint32_t writer_pc, uint8_t writer_thumb, uint32_t crc32,
-    uint32_t channel) {
-    if (!s_ram_churn_probe_enabled) return;
-    if (!completed) {
-        ++s_ram_image_generation;
-        s_ram_image_dma_row = ram_image_lifecycle_append({
-            s_ram_image_generation, frame, "trigger", writer_pc,
-            writer_thumb != 0u, source, dest, size, 0u, channel,
-            0u, 0u, false});
-        s_ram_image_writer_row = kNoRamImageLifecycleRow;
-        s_ram_image_writer_call_depth = 0;
-        s_ram_image_writer_started = false;
-        s_ram_image_pending_row = kNoRamImageLifecycleRow;
-        return;
-    }
-    if (s_ram_image_dma_row == kNoRamImageLifecycleRow) return;
-    s_ram_image_writer_row = ram_image_lifecycle_append({
-        s_ram_image_generation, frame, "complete", writer_pc,
-        writer_thumb != 0u, source, dest, size, crc32, channel,
-        0u, 0u, false});
-    s_ram_image_writer_started = false;
-    s_ram_image_pending_row = kNoRamImageLifecycleRow;
-}
-
-void ram_image_lifecycle_write(uint64_t frame, uint32_t pc, uint8_t thumb,
-                               uint32_t addr, uint32_t width) {
-    if (!s_ram_churn_probe_enabled) return;
-    if (s_ram_image_writer_row == kNoRamImageLifecycleRow) {
-        if (s_ram_image_pending_row != kNoRamImageLifecycleRow) {
-            RamImageLifecycleRow& row =
-                s_ram_image_lifecycle_rows[s_ram_image_pending_row];
-            if (row.late_writes != UINT32_MAX) ++row.late_writes;
-            s_ram_image_pending_row = kNoRamImageLifecycleRow;
-        }
-        return;
-    }
-    RamImageLifecycleRow& row =
-        s_ram_image_lifecycle_rows[s_ram_image_writer_row];
-    if (!row.event || std::strcmp(row.event, "complete") != 0) return;
-    if (!s_ram_image_writer_started) {
-        s_ram_image_writer_started = true;
-        s_ram_image_writer_call_depth = runtime_call_stack_depth();
-        row.cpu_writer_first_pc = pc;
-        row.cpu_writer_thumb = thumb != 0u;
-        row.cpu_writer_first_addr = addr;
-    }
-    row.cpu_writer_last_pc = pc;
-    row.cpu_writer_last_end = addr + width;
-    if (row.cpu_writer_stores != UINT32_MAX) ++row.cpu_writer_stores;
-    (void)frame;
-}
-
-void ram_image_lifecycle_boundary(uint8_t outer, uint32_t return_pc,
-                                  uint32_t call_stack_depth) {
-    if (!s_ram_churn_probe_enabled || !s_ram_image_writer_started ||
-        s_ram_image_writer_row == kNoRamImageLifecycleRow) return;
-    if (outer == 0u &&
-        (s_ram_image_writer_call_depth == 0u ||
-         call_stack_depth >= s_ram_image_writer_call_depth)) return;
-
-    RamImageLifecycleRow& complete =
-        s_ram_image_lifecycle_rows[s_ram_image_writer_row];
-    RamImageLifecycleRow final = complete;
-    final.event = "writer_complete";
-    final.frame = s_ram_churn_current_frame;
-    final.crc32 = ram_image_lifecycle_crc32();
-    final.first_dispatch_frame = 0u;
-    final.first_dispatch_pc = 0u;
-    final.first_dispatch_thumb = false;
-    final.late_writes = 0u;
-    s_ram_image_pending_row = ram_image_lifecycle_append(final);
-    s_ram_image_writer_row = kNoRamImageLifecycleRow;
-    s_ram_image_dma_row = kNoRamImageLifecycleRow;
-    s_ram_image_writer_started = false;
-    s_ram_image_writer_call_depth = 0u;
-    (void)return_pc;
-}
-
-void ram_image_lifecycle_dispatch(uint64_t frame, uint32_t pc,
-                                  uint8_t thumb) {
-    if (!s_ram_churn_probe_enabled ||
-        pc < ram_image_start() || pc >= ram_image_end()) {
-        return;
-    }
-    if (s_ram_image_writer_row != kNoRamImageLifecycleRow) {
-        ++s_ram_image_lifecycle_rows[s_ram_image_writer_row].early_dispatches;
-        return;
-    }
-    if (s_ram_image_pending_row == kNoRamImageLifecycleRow) return;
-    RamImageLifecycleRow& row =
-        s_ram_image_lifecycle_rows[s_ram_image_pending_row];
-    row.first_dispatch_frame = frame;
-    row.first_dispatch_pc = pc;
-    row.first_dispatch_thumb = thumb != 0u;
-    s_ram_image_pending_row = kNoRamImageLifecycleRow;
-}
-
-void dump_ram_image_lifecycle() {
-    if (!s_ram_churn_probe_enabled || s_ram_image_lifecycle_path.empty()) return;
-    std::FILE* f = std::fopen(s_ram_image_lifecycle_path.c_str(), "w");
-    if (!f) return;
-    std::fprintf(f,
-        "generation,frame,event,writer_pc,writer_mode,source,dest,size,"
-        "crc32,channel,first_dispatch_frame,first_dispatch_pc,"
-        "first_dispatch_mode,cpu_writer_first_pc,cpu_writer_last_pc,"
-        "cpu_writer_mode,cpu_writer_first_addr,cpu_writer_last_end,"
-        "cpu_writer_stores,early_dispatches,late_writes\n");
-    for (const RamImageLifecycleRow& row : s_ram_image_lifecycle_rows) {
-        std::fprintf(f, "%llu,%llu,%s,%08X,%s,%08X,%08X,%u,%08X,%u,%llu,"
-                        "%08X,%s,%08X,%08X,%s,%08X,%08X,%u,%u,%u\n",
-            static_cast<unsigned long long>(row.generation),
-            static_cast<unsigned long long>(row.frame), row.event,
-            row.writer_pc, row.writer_thumb ? "thumb" : "arm", row.source,
-            row.dest, row.size, row.crc32, row.channel,
-            static_cast<unsigned long long>(row.first_dispatch_frame),
-            row.first_dispatch_pc,
-            row.first_dispatch_thumb ? "thumb" : "arm",
-            row.cpu_writer_first_pc, row.cpu_writer_last_pc,
-            row.cpu_writer_thumb ? "thumb" : "arm",
-            row.cpu_writer_first_addr, row.cpu_writer_last_end,
-            row.cpu_writer_stores, row.early_dispatches, row.late_writes);
-    }
-    std::fclose(f);
-    std::fprintf(stderr, "[ram-image-lifecycle] dumped %zu rows -> %s\n",
-                 s_ram_image_lifecycle_rows.size(),
-                 s_ram_image_lifecycle_path.c_str());
-    std::fflush(stderr);
-}
-
-void dump_ram_churn() {
-    if (!s_ram_churn_probe_enabled || s_ram_churn_path.empty()) return;
-    std::FILE* f = std::fopen(s_ram_churn_path.c_str(), "w");
-    if (!f) return;
-    std::fprintf(f, "frame,event,pc,mode,count,identity_kind,cache_kind,"
-                    "dest,pointer_target,pointer_mode\n");
-    uint64_t rows = 0;
-    for (const RamChurnFrame& bucket : s_ram_churn_frames) {
-        for (const RamChurnRow& row : bucket.rows) {
-            std::fprintf(f, "%llu,%s,%08X,%s,%llu,%s,%s,%08X,%08X,%s\n",
-                static_cast<unsigned long long>(bucket.frame), row.event,
-                row.pc, row.thumb ? "thumb" : "arm",
-                static_cast<unsigned long long>(row.count), row.identity,
-                row.cache_kind, row.addr, row.pointer_target,
-                row.pointer_thumb ? "thumb" : "arm");
-            ++rows;
-        }
-    }
-    std::fclose(f);
-    std::fprintf(stderr,
-        "[ram-churn] dumped %llu rows -> %s (dropped_frames=%llu "
-        "dropped_pcs=%llu dropped_rows=%llu)\n",
-        static_cast<unsigned long long>(rows), s_ram_churn_path.c_str(),
-        static_cast<unsigned long long>(s_ram_churn_dropped_frames),
-        static_cast<unsigned long long>(s_ram_churn_dropped_pcs),
-        static_cast<unsigned long long>(s_ram_churn_dropped_rows));
-    std::fflush(stderr);
-}
 
 FrameEventCounts& frame_event_bucket() {
     if (s_frame_events.empty()) s_frame_events.push_back({});
@@ -1554,39 +1186,6 @@ void overlay_loader_init(const std::string& cache_root,
     const char* fe_env = std::getenv("GBARECOMP_FRAME_EVENTS");
     s_frame_events_enabled = fe_env && fe_env[0] != '\0';
     s_frame_events_path = s_frame_events_enabled ? fe_env : std::string();
-    const char* churn_env = std::getenv("GSR_RAM_CHURN_PROBE");
-    s_ram_churn_probe_enabled = churn_env && churn_env[0] != '\0' &&
-        std::strcmp(churn_env, "0") != 0 &&
-        std::strcmp(churn_env, "false") != 0 &&
-        std::strcmp(churn_env, "off") != 0;
-    s_ram_churn_path = s_ram_churn_probe_enabled
-        ? (s_frame_events_path.empty()
-            ? std::string("ram-churn.csv")
-            : s_frame_events_path + ".ram-churn.csv")
-        : std::string();
-    s_ram_image_lifecycle_path = s_ram_churn_probe_enabled
-        ? s_ram_churn_path + ".lifecycle.csv" : std::string();
-    s_ram_churn_frames.clear();
-    s_ram_churn_current_frame = 0;
-    s_ram_churn_dropped_frames = 0;
-    s_ram_churn_dropped_pcs = 0;
-    s_ram_churn_dropped_rows = 0;
-    s_ram_image_lifecycle_rows.clear();
-    s_ram_image_generation = 0;
-    s_ram_image_dma_row = kNoRamImageLifecycleRow;
-    s_ram_image_writer_row = kNoRamImageLifecycleRow;
-    s_ram_image_writer_call_depth = 0;
-    s_ram_image_writer_started = false;
-    s_ram_image_pending_row = kNoRamImageLifecycleRow;
-    if (s_ram_churn_probe_enabled)
-        g_runtime_ram_pointer_write_probe =
-            &ram_churn_record_ram_pointer_write;
-    if (s_ram_churn_probe_enabled) {
-        g_runtime_ram_image_dma_probe = &ram_image_lifecycle_dma;
-        g_runtime_ram_image_write_probe = &ram_image_lifecycle_write;
-        g_runtime_ram_image_boundary_probe = &ram_image_lifecycle_boundary;
-        g_runtime_ram_image_dispatch_probe = &ram_image_lifecycle_dispatch;
-    }
     // Acceptance/CI mode: prove that the linked static corpus is sufficient.
     // Do not even inspect the overlay cache, because a warm shard would hide a
     // missing generated dispatch entry before runtime_dispatch_miss can fail.
@@ -1699,8 +1298,6 @@ void overlay_loader_shutdown() {
     // them at exit. Drain any last results so counters/banner are accurate.
     overlay_drain_ready();
     dump_frame_events();
-    dump_ram_churn();
-    dump_ram_image_lifecycle();
     g_runtime_ram_pointer_write_probe = nullptr;
     g_runtime_ram_image_dma_probe = nullptr;
     g_runtime_ram_image_write_probe = nullptr;
@@ -1745,22 +1342,9 @@ void overlay_loader_reset_state_for_test() {
     s_relocatable_alias_hits = 0;
     s_relocatable_alias_misses = 0;
     // The test reset models a fresh loader session in the same process. Keep
-    // diagnostic sidecars session-local too; otherwise frame-events from
-    // earlier cycles outlive the RAM-churn ring and the two CSVs disagree.
+    // diagnostic sidecars session-local too.
     s_frame_events.clear();
     s_bridge_miss_events.clear();
-    s_ram_churn_frames.clear();
-    s_ram_churn_current_frame = 0;
-    s_ram_churn_dropped_frames = 0;
-    s_ram_churn_dropped_pcs = 0;
-    s_ram_churn_dropped_rows = 0;
-    s_ram_image_lifecycle_rows.clear();
-    s_ram_image_generation = 0;
-    s_ram_image_dma_row = kNoRamImageLifecycleRow;
-    s_ram_image_writer_row = kNoRamImageLifecycleRow;
-    s_ram_image_writer_call_depth = 0;
-    s_ram_image_writer_started = false;
-    s_ram_image_pending_row = kNoRamImageLifecycleRow;
     s_lru_tick = 0;
     {
         std::lock_guard<std::mutex> lk(s_work_mtx);
@@ -1915,10 +1499,6 @@ OverlayRequestOutcome overlay_request_compile(uint32_t pc, bool thumb) {
     // is installed at a frame boundary (overlay_drain_ready). First hit
     // enqueues; it does not compile.
     if (s_frame_events_enabled) ++frame_event_bucket().compile_enqueued;
-    ram_churn_record(s_ram_churn_current_frame, "compile_enqueued", pc,
-                     thumb,
-                     is_ram_addr(pc) ? "ram-snapshot" : "immutable-image",
-                     "worker");
     s_inflight.insert(request);
     {
         std::lock_guard<std::mutex> lk(s_work_mtx);
@@ -1998,10 +1578,6 @@ void overlay_drain_ready() {
             }
             heal_slot_promote(g_healed[r.key], h);
             if (s_frame_events_enabled) ++frame_event_bucket().heal_installed;
-            ram_churn_record(
-                s_ram_churn_current_frame, "heal_install", h.addr, h.thumb,
-                h.ram_backed ? "ram-crc" : "immutable-image",
-                h.relocatable ? "relocatable-overlay" : "fixed-overlay");
         } else {
             if (r.has_request) s_failed.insert(r.request);
         }
@@ -2115,35 +1691,31 @@ void overlay_relocatable_alias_counters(uint64_t* hits, uint64_t* misses) {
 bool overlay_was_enabled() { return s_ever_active; }
 
 void overlay_note_frame(uint64_t frame) {
-    s_ram_churn_current_frame = frame;
-    if (!s_frame_events_enabled && !s_ram_churn_probe_enabled) return;
-    if (s_frame_events_enabled) {
-        if (s_frame_events.empty() || s_frame_events.back().frame != frame) {
-            s_frame_events.push_back({});
-            s_frame_events.back().frame = frame;
-        }
-        FrameEventCounts& c = s_frame_events.back();
-        c.ready_pending_at_frame = static_cast<uint32_t>(std::max(
-            0, s_ready_pending.load(std::memory_order_acquire)));
-        c.ready_pending_after_drain = c.ready_pending_at_frame;
-        c.warm_load_done = s_warm_load_done.load(std::memory_order_acquire)
-            ? 1u : 0u;
+    if (!s_frame_events_enabled) return;
+    if (s_frame_events.empty() || s_frame_events.back().frame != frame) {
+        s_frame_events.push_back({});
+        s_frame_events.back().frame = frame;
     }
+    FrameEventCounts& c = s_frame_events.back();
+    c.ready_pending_at_frame = static_cast<uint32_t>(std::max(
+        0, s_ready_pending.load(std::memory_order_acquire)));
+    c.ready_pending_after_drain = c.ready_pending_at_frame;
+    c.warm_load_done = s_warm_load_done.load(std::memory_order_acquire)
+        ? 1u : 0u;
 }
 
 void overlay_note_dispatch_miss(uint32_t pc, bool thumb,
                                 OverlayRequestOutcome outcome) {
+    (void)pc;
+    (void)thumb;
+    (void)outcome;
     if (s_frame_events_enabled) ++frame_event_bucket().dispatch_miss;
-    ram_churn_record(
-        s_ram_churn_current_frame, "dispatch_miss", pc, thumb,
-        is_ram_addr(pc) ? "ram-request" : "immutable-pc",
-        ram_churn_outcome_name(outcome));
 }
 
 void overlay_note_smc_fallback(uint32_t pc, bool thumb) {
+    (void)pc;
+    (void)thumb;
     if (s_frame_events_enabled) ++frame_event_bucket().ram_smc_fallback;
-    ram_churn_record(s_ram_churn_current_frame, "ram_smc_fallback", pc,
-                     thumb, "static-guard-crc", "aot-guard");
 }
 
 void overlay_note_bridge_miss(uint32_t pc, bool thumb, uint64_t ns,
@@ -2159,11 +1731,6 @@ void overlay_note_bridge_miss(uint32_t pc, bool thumb, uint64_t ns,
     e.interpreted_insns = interpreted_insns;
     e.outcome = outcome;
     s_bridge_miss_events.push_back(e);
-}
-
-void overlay_note_ram_crc_mismatch(uint32_t pc, bool thumb) {
-    ram_churn_record(s_ram_churn_current_frame, "ram_crc_mismatch", pc,
-                     thumb, "resident-crc", "ram-variant");
 }
 
 }  // namespace gbarecomp
@@ -2236,7 +1803,6 @@ extern "C" void (*overlay_resolve(uint32_t pc, int thumb))(void) {
         ++gbarecomp::s_ram_crc_mismatches;
         if (gbarecomp::s_frame_events_enabled)
             ++gbarecomp::frame_event_bucket().ram_crc_mismatch;
-        gbarecomp::overlay_note_ram_crc_mismatch(pc, thumb != 0);
         // crc is the incumbent's resident value, the one that just failed to
         // match the live bytes. Compare it with the crc on the [ram-compile]
         // line this triggers, to see whether the recompile rediscovers the

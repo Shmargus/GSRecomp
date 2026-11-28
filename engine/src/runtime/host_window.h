@@ -132,11 +132,6 @@ public:
     void set_enhanced_timing_available(bool on);
     void set_enhanced_timing_enabled(bool on);
     bool saved_enhanced_timing() const;
-    void set_native_renderer_available(bool on);
-    void set_native_renderer_enabled(bool on);
-    void set_native_renderer_scale(int scale);
-    bool native_renderer_enabled() const;
-    int native_renderer_scale() const;
     // Advertise the fixed logical modes available to the in-game Visual page
     // and seed it with the mode currently active in the runtime. Strict and
     // capture callers pass false, which forces Native 240x160.
@@ -162,12 +157,6 @@ public:
     // Upload one base_w x base_h RGB888 frame (the dimensions passed to open())
     // and present.
     void present(const uint8_t* rgb888);
-
-    // Present a scene already rendered at native supersampled dimensions. The
-    // call is accepted only while the opt-in native renderer is enabled; an
-    // inactive/mismatched call is ignored so callers can keep canonical
-    // fallback selection explicit.
-    void present_native(const uint8_t* rgb888, int width, int height);
 
     // Push `count` int16_t mono samples from the canonical GBA mixer into the
     // audio output queue. Backend converts to the host device's format and

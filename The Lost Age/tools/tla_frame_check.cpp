@@ -320,16 +320,9 @@ int main(int argc, char** argv) {
                 }
                 out->resize(static_cast<std::size_t>(w) * h * 3);
                 surface.read_texture_rgb(renderer.output_texture(), w, h, out->data());
-                // The flat map's margins, as tla_gpu_field.cpp's world-map
-                // hold paints them (needs the ROM argument).
-                if (room && !saved.legacy && !rom.empty() &&
-                    tla_flat_map::is_map_screen(io_bytes, ewram_bytes)) {
-                    const bool drawn = tla_flat_map::paint_margins(out->data(),
-                        std::uint32_t(w), std::uint32_t(h), saved_scene, io_bytes,
-                        ewram_bytes, pal_bytes, rom.data(), rom.size());
+                if (report.flat_map)
                     std::printf("%s: flat map margins %s\n", name.c_str(),
-                                drawn ? "drawn" : "black");
-                }
+                                report.flat_map_drawn ? "drawn" : "black");
                 write_ppm(prefix + "_" + name + ".ppm", out->data(), w, h);
                 return true;
             };

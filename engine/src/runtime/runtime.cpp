@@ -1651,92 +1651,6 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     // from. Diagnostic-only. Declared ahead of pump_idle, which uses it.
     static const bool cost_probe_on = gbarecomp::env_flag("GBARECOMP_COST_PROBE");
 
-    // -- GBARECOMP_HEADROOM_PROBE ---------------------------------------
-    // Measures per-frame CPU headroom: the only direct measure of how much of
-    // a frame the guest has to spare. (The Overclock setting is a pinned
-    // Off/On; nothing adjusts it automatically.)
-    //
-    // Each frame, the guest either finishes its work and HALTs until the next
-    // VBlank, or it never gets there. Never getting there means it needs more
-    // cycles than the frame has. This is measured, not inferred: pump_idle
-    // below is the single door every halted cycle goes through. Summing its
-    // chunks per frame gives exactly how much of the frame the guest spent
-    // asleep.
-    //
-    // The output is only the raw series: frame, idle cycles, frame length and
-    // the overclock factor in force. It does not log only the frames that
-    // already cross a threshold picked in advance, because that would bake an
-    // answer into the data.
-    //
-    // Off by default and gated like the cost probe above: one cached bool,
-    // no getenv on any hot path.
-    static const bool headroom_probe_on = gbarecomp::env_flag("GBARECOMP_HEADROOM_PROBE");
-    std::uint64_t headroom_idle_cycles = 0;
-    std::uint64_t headroom_last_frame = ~std::uint64_t{0};
-
-    std::string headroom_buf;
-    std::size_t headroom_rows = 0;
-    bool headroom_header_written = false;
-    std::string headroom_path;
-    bool headroom_write_failed = false;
-    auto headroom_flush = [&]() {
-        if (headroom_buf.empty()) return;
-        if (headroom_path.empty()) {
-            std::error_code ec;
-            std::filesystem::create_directories("logs", ec);
-            char stamp[32];
-            const std::time_t now = std::time(nullptr);
-            std::tm tm_buf{};
-#if defined(_WIN32)
-            localtime_s(&tm_buf, &now);
-#else
-            localtime_r(&now, &tm_buf);
-#endif
-            std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S", &tm_buf);
-            headroom_path = std::string("logs/headroom_") + stamp + ".csv";
-        }
-        if (FILE* f = std::fopen(headroom_path.c_str(), "a")) {
-            std::fwrite(headroom_buf.data(), 1, headroom_buf.size(), f);
-            std::fclose(f);
-        } else if (!headroom_write_failed) {
-            // Sticky, once: a silently lost capture is the whole reason this
-            // probe exists.
-            headroom_write_failed = true;
-            std::fprintf(stderr, "[headroom] WRITE FAILED: %s\n",
-                         headroom_path.c_str());
-        }
-        headroom_buf.clear();
-        headroom_rows = 0;
-    };
-    // Called once per emulated frame from step_once. Flushes every 64 rows
-    // (about a second of play), so an abandoned session loses at most that.
-    // Announced once, on the first frame, so a session log answers "did the
-    // launcher checkbox actually reach the game?" without guesswork.
-    auto headroom_note_frame = [&](std::uint64_t frame) {
-        if (!headroom_probe_on) return;
-        static bool announced = false;
-        if (!announced) {
-            announced = true;
-            std::fprintf(stderr, "[headroom] recording per-frame idle cycles"
-                                 " to logs/headroom_<timestamp>.csv\n");
-        }
-        if (!headroom_header_written) {
-            headroom_buf += "frame,idle_cycles,frame_cycles,overclock,overclock_q8\n";
-            headroom_header_written = true;
-        }
-        char line[128];
-        const int n = std::snprintf(
-            line, sizeof(line), "%llu,%llu,%u,%u,%u\n",
-            static_cast<unsigned long long>(frame),
-            static_cast<unsigned long long>(headroom_idle_cycles),
-            static_cast<unsigned>(gba::GbaPpu::kCyclesPerFrame),
-            runtime_get_overclock_factor(),
-            runtime_get_overclock_factor_q8());
-        if (n > 0) headroom_buf.append(line, static_cast<std::size_t>(n));
-        headroom_idle_cycles = 0;
-        if (++headroom_rows >= 64) headroom_flush();
-    };
-
     // Bounded per-presented-frame attribution for the same top-level
     // runtime_dispatch spans already timed by Cost Probe. This is deliberately
     // local to the runner: no generated code or shared ABI sees it, and no
@@ -1785,7 +1699,6 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         runtime_tick_realtime(chunk);
         cycles_elapsed += chunk;
         last_step_cycles += chunk;
-        headroom_idle_cycles += chunk;
         if (cost_probe_on) {
             g_cost_pump_idle_ns += static_cast<unsigned long long>(
                 std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -1869,23 +1782,6 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     };
 
     auto step_once = [&]() -> bool {
-        // Emulated-frame boundary. Deliberately NOT the present hook: a
-        // presented frame is optional (turbo skips them, pacing defers them,
-        // a headless run has none), while every guest frame passes here.
-        {
-            const std::uint64_t fc = ppu.frame_count();
-            if (fc != headroom_last_frame) {
-                if (headroom_last_frame != ~std::uint64_t{0}) {
-                    // The probe consumes and clears the accumulator once per
-                    // emulated frame; otherwise clear it directly.
-                    if (headroom_probe_on)
-                        headroom_note_frame(headroom_last_frame);
-                    else
-                        headroom_idle_cycles = 0;
-                }
-                headroom_last_frame = fc;
-            }
-        }
         last_step_cycles = 0;
         // Game-thread-only: fold any worker-finished native overlays into the
         // dispatch table so the next runtime_dispatch can use them. Cheap when
@@ -2271,11 +2167,6 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     HostWindow win;
     std::vector<uint8_t> live_fb;
     std::vector<uint8_t> paused_fb;  // paused_overlay's copy
-    std::vector<uint8_t> native_scene_fb;
-    unsigned long long native_scene_verified_frames = 0;
-    unsigned long long native_scene_degraded_frames = 0;
-    int native_scene_first_mismatch_x = -1;
-    int native_scene_first_mismatch_y = -1;
     // Frame dump: per-present dump of the exact composed bytes handed to
     // SDL (`live_fb`). Gated by GBARECOMP_FRAMEDUMP_DIR; START = first guest
     // frame to capture, COUNT = how many; quits after COUNT are written. This
@@ -2293,7 +2184,6 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     bool enhanced_timing_requested = false;
     bool enhanced_timing_env_present = false;
     bool enhanced_timing_env_requested = false;
-    bool native_renderer_requested = false;
     bool fast_forward_active = false;
     bool turbo_uncapped_active = false;
     float turbo_multiplier_active = 4.0f;
@@ -2354,24 +2244,6 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         if (enhanced_timing_env_requested && !enhanced_timing_allowed) {
             std::fprintf(stderr,
                 "[enhanced-timing] requested but forced OFF by %s\n",
-                strict_requested ? "strict-static acceptance"
-                                 : "frame capture or game policy");
-        }
-    }
-    // Native supersampling presents its own buffer and returns before the
-    // game's present-override hook, which owns the game's composition,
-    // painted menus and rewind recording; a game with a hook must see every
-    // frame, so the two never run together.
-    const bool native_renderer_allowed =
-        opts.native_renderer_available && !strict_requested &&
-        !gbarecomp::has_frame_present_override_hook() &&
-        !(framedump_dir && framedump_dir[0]);
-    if (std::getenv("GBARECOMP_NATIVE_RENDERER")) {
-        const bool requested = gbarecomp::env_flag("GBARECOMP_NATIVE_RENDERER");
-        native_renderer_requested = native_renderer_allowed && requested;
-        if (requested && !native_renderer_allowed) {
-            std::fprintf(stderr,
-                "[native-renderer] requested but forced OFF by %s\n",
                 strict_requested ? "strict-static acceptance"
                                  : "frame capture or game policy");
         }
@@ -2894,8 +2766,6 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         win.set_frame_interpolation_enabled(frame_interpolation_requested);
         win.set_enhanced_timing_available(enhanced_timing_allowed);
         win.set_enhanced_timing_enabled(enhanced_timing_requested);
-        win.set_native_renderer_available(native_renderer_allowed);
-        win.set_native_renderer_enabled(native_renderer_requested);
         const FrameTimingRates timing =
             frame_timing_rates(enhanced_timing_requested);
         if (enhanced_timing_requested) {
@@ -2911,13 +2781,6 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
                 "[frame-interpolation] 2x ON via environment "
                 "(guest=%.4fHz present=%.4fHz)\n",
                 timing.guest_hz, timing.interpolation_hz);
-        }
-        if (native_renderer_requested) {
-            const char* scale = std::getenv("GBARECOMP_NATIVE_RENDER_SCALE");
-            std::fprintf(stderr,
-                "[native-renderer] ON via environment: crisp %sx upscale; "
-                "canonical guest framebuffer retained\n",
-                scale && *scale ? scale : "2");
         }
         sync_resize_driven_view();
         if (live_fb.empty()) live_fb.assign(ppu.render_bytes(), 0);
@@ -3257,101 +3120,15 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
     auto present_first = [&](uint64_t frame, bool view_changed) -> bool {
         view_changed = view_changed || view_redraw_pending;
         view_redraw_pending = false;
-        // Stage-2 native compositor: render the final guest register/memory
-        // state directly into a supersampled scene and upload it without the
-        // canonical 240px intermediate. Keep this opt-in and conservative:
-        // interpolation, widened views, and explicit view changes continue to
-        // use the canonical path so their state/fallback guarantees remain
-        // unchanged.
-        const bool native_scene = win.native_renderer_enabled() &&
-            !frame_interpolation_requested && !ppu.view_expanded() &&
-            !view_changed;
-        if (native_scene) {
-            const int scale = std::clamp(win.native_renderer_scale(), 1, 10);
-            const int native_width = static_cast<int>(ppu.kScreenWidth * scale);
-            const int native_height = static_cast<int>(ppu.kScreenHeight * scale);
-            const std::size_t bytes = static_cast<std::size_t>(native_width) *
-                native_height * 3u;
-            native_scene_fb.resize(bytes);
-            const bool used_latched_state = ppu.render_native_latched(
-                native_scene_fb.data(), static_cast<uint32_t>(scale));
-            if (!used_latched_state) {
-                // Before the first VBlank snapshot (cold boot), retain the
-                // live-state fallback; subsequent scrolling frames use the
-                // same VBlank-latched inputs as canonical rendering.
-                ppu.render_native(native_scene_fb.data(),
-                                  static_cast<uint32_t>(scale),
-                                  bus.io().read16(0x000), bus.io().raw(),
-                                  bus.vram_ptr(), bus.oam_ptr(), bus.pal_ptr());
+        if (ppu.native_raster_enabled()) {
+            if (ppu.has_latched_framebuffer() && !view_changed) {
+                std::memcpy(live_fb.data(), ppu.latched_framebuffer(),
+                            ppu.render_bytes());
+            } else {
+                ppu.render(live_fb.data(), bus.io().read16(0x000),
+                           bus.io().raw(), bus.vram_ptr(), bus.oam_ptr(),
+                           bus.pal_ptr());
             }
-            // A native sample at the top-left of every scale group must equal
-            // the corresponding canonical hardware pixel. This keeps affine
-            // subpixel detail while proving that final-state composition did
-            // not lose a per-scanline window/blend/scroll/matrix change. On a
-            // mismatch retain stage 1 (crisp nearest scaling) for this frame.
-            bool endpoint_ok = used_latched_state &&
-                ppu.has_latched_framebuffer();
-            if (endpoint_ok) {
-                const uint8_t* canonical = ppu.latched_framebuffer();
-                const std::size_t native_stride =
-                    static_cast<std::size_t>(native_width) * 3u;
-                for (uint32_t y = 0; endpoint_ok && y < ppu.kScreenHeight; ++y) {
-                    const uint8_t* native_row = native_scene_fb.data() +
-                        static_cast<std::size_t>(y) * scale * native_stride;
-                    const uint8_t* canonical_row = canonical +
-                        static_cast<std::size_t>(y) * ppu.kScreenWidth * 3u;
-                    for (uint32_t x = 0; x < ppu.kScreenWidth; ++x) {
-                        if (std::memcmp(native_row +
-                                            static_cast<std::size_t>(x) *
-                                                scale * 3u,
-                                        canonical_row +
-                                            static_cast<std::size_t>(x) * 3u,
-                                        3u) != 0) {
-                            if (native_scene_first_mismatch_x < 0) {
-                                native_scene_first_mismatch_x =
-                                    static_cast<int>(x);
-                                native_scene_first_mismatch_y =
-                                    static_cast<int>(y);
-                            }
-                            endpoint_ok = false;
-                            break;
-                        }
-                    }
-                }
-            }
-            if (!endpoint_ok) {
-                ++native_scene_degraded_frames;
-                if (ppu.has_latched_framebuffer()) {
-                    std::memcpy(live_fb.data(), ppu.latched_framebuffer(),
-                                ppu.render_bytes());
-                } else {
-                    ppu.render(live_fb.data(), bus.io().read16(0x000),
-                               bus.io().raw(), bus.vram_ptr(), bus.oam_ptr(),
-                               bus.pal_ptr());
-                }
-                pay_present_pace();
-                {
-                    gbarecomp::HostProfPhaseScope _hp_present(gbarecomp::kHpPresent);
-                    win.present(live_fb.data());
-                }
-                return false;
-            }
-            ++native_scene_verified_frames;
-            pay_present_pace();
-            {
-                gbarecomp::HostProfPhaseScope _hp_present(gbarecomp::kHpPresent);
-                win.present_native(native_scene_fb.data(),
-                                   native_width, native_height);
-            }
-            return false;
-        }
-        if (ppu.has_latched_framebuffer() && !view_changed) {
-            std::memcpy(live_fb.data(), ppu.latched_framebuffer(),
-                        ppu.render_bytes());
-        } else {
-            ppu.render(live_fb.data(), bus.io().read16(0x000),
-                       bus.io().raw(), bus.vram_ptr(), bus.oam_ptr(),
-                       bus.pal_ptr());
         }
         // A host renderer disables native_raster_enabled(). Interpolation
         // requires the console compositor's captured frames, so it stays off
@@ -3361,6 +3138,11 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         // frame; otherwise interpolation proceeds on the untouched image.
         const bool overridden = gbarecomp::invoke_frame_present_override_hook(
             live_fb.data(), ppu.render_width(), ppu.render_height());
+        if (!ppu.native_raster_enabled() && !overridden) {
+            ppu.render(live_fb.data(), bus.io().read16(0x000),
+                       bus.io().raw(), bus.vram_ptr(), bus.oam_ptr(),
+                       bus.pal_ptr());
+        }
         const bool active = frame_interpolation_requested && !overridden &&
                             !fast_forward_active && !view_changed &&
                             !ppu.view_expanded() &&
@@ -3834,6 +3616,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         // re-present, ~100 Hz idle). Applies to windowed play only.
         while ((host_paused || quit_confirmation_pending) && !host_quit && args.window &&
                g_requested_exit_code.load() < 0) {
+            const auto pause_loop_start = std::chrono::steady_clock::now();
             pump_host_input();
             sync_resize_driven_view();
             if (view_redraw_pending) {
@@ -3856,7 +3639,16 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
             } else {
                 win.present(live_fb.data());
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            // Idle at most 10 ms per loop, counting the present: with vsync
+            // the present already waits for the display, and a further fixed
+            // 10 ms made each loop miss a refresh whenever the menu took
+            // over 6.7 ms to draw (Galaxy Tab A9+: about 45 fps with the
+            // phone menu open, 27 Nov 2026).
+            const auto pause_loop_used =
+                std::chrono::steady_clock::now() - pause_loop_start;
+            if (pause_loop_used < std::chrono::milliseconds(10))
+                std::this_thread::sleep_for(std::chrono::milliseconds(10) -
+                                            pause_loop_used);
         }
         if (g_requested_exit_code.load() >= 0) host_quit = true;
         if (host_quit) break;
@@ -4058,16 +3850,6 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
         std::fprintf(stderr,
                      "[turbo-present] presented=%llu skipped=%llu\n",
                      turbo_presented_frames, turbo_skipped_frames);
-    }
-
-    if (native_scene_verified_frames || native_scene_degraded_frames) {
-        std::fprintf(stderr,
-                     "[native-renderer] verified=%llu degraded=%llu "
-                     "first_mismatch=(%d,%d)\n",
-                     native_scene_verified_frames,
-                     native_scene_degraded_frames,
-                     native_scene_first_mismatch_x,
-                     native_scene_first_mismatch_y);
     }
 
     bool save_ok = flush_save();

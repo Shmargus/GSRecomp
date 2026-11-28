@@ -89,6 +89,12 @@ public:
                           float x, float y, float z, float w);
     // Column-major 4x4, the layout GL expects.
     void set_uniform_mat4(GpuProgram p, const char* name, const float* m);
+    // Arrays of ivec4 / vec4 from element 0 (`name` is the array's name,
+    // e.g. "u_rec[0]"); `count` elements, 4 values each. Not cached.
+    void set_uniform_ivec4_array(GpuProgram p, const char* name,
+                                 const int* values, int count);
+    void set_uniform_vec4_array(GpuProgram p, const char* name,
+                                const float* values, int count);
 
     // Read back the values a diagnostic needs without rebinding the program.
     bool get_uniform_int(GpuProgram p, const char* name, int* value);
@@ -110,8 +116,12 @@ public:
     GpuTexture target_texture() const { return target_tex_; }
 
     // Begins drawing into the offscreen target, saving the GL state that SDL
-    // and ImGui rely on. Every begin must be matched by an end.
-    void begin_frame(float clear_r, float clear_g, float clear_b, float clear_a);
+    // and ImGui rely on. Every begin must be matched by an end. Pass
+    // `clear = false` when the caller immediately switches to another target
+    // and overwrites the main target later (avoids an empty clear pass on
+    // mobile tiled GPUs).
+    void begin_frame(float clear_r, float clear_g, float clear_b, float clear_a,
+                     bool clear = true);
     void end_frame();
 
     // Blending: Off, Alpha (src alpha, one minus src alpha) or Additive (src
@@ -128,11 +138,10 @@ public:
                     const GpuTexture* textures, std::size_t texture_count);
 
     // Redirects the framebuffer's colour attachment to a texture the caller
-    // owns, for multi-pass rendering into scratch targets without a second
-    // framebuffer object. Pass 0 to point back at the surface's own target
-    // texture. Only valid between begin_frame and end_frame; the depth
-    // attachment, if any, is left exactly as it was.
-    void bind_color_target(GpuTexture texture);
+    // owns. Pass 0 to point back at the surface's own target texture. Only
+    // targets that pass `with_depth = true` get the shared depth renderbuffer
+    // attached, so depth-free passes do not load/store depth on tiled GPUs.
+    void bind_color_target(GpuTexture texture, bool with_depth = false);
 
     // Clears whichever texture is currently the colour attachment. Separate
     // from begin_frame's own clear because a multi-pass caller redirects the
@@ -152,6 +161,17 @@ public:
     // Clears the depth buffer. A no-op before set_depth_enabled(true) has ever
     // run, since there is then nothing to clear.
     void clear_depth(float value = 1.0f);
+    // Tells the driver the bound target's depth contents are no longer needed,
+    // so a tiled phone GPU does not write them back to memory at the end of
+    // the pass. Call once a pass's drawing is done and before its depth would
+    // be read again only after a clear_depth. Phone (GLES) builds only;
+    // elsewhere a no-op.
+    void discard_depth();
+
+    // Restricts clears and draws to a top-down rectangle in target pixels
+    // (between begin_frame and end_frame). clear_scissor() disables clipping.
+    void set_scissor(int x, int y, int width, int height);
+    void clear_scissor();
 
     // Draws the finished target into the currently bound framebuffer, scaled to
     // the given rectangle in pixels. Used to put the frame on screen.
@@ -219,7 +239,7 @@ private:
     // fbo_ stays the main target's own.
     struct Targets;
     Targets* targets_ = nullptr;
-    unsigned framebuffer_for(GpuTexture texture);
+    unsigned framebuffer_for(GpuTexture texture, bool with_depth);
 
     // Saved GL state, restored by end_frame.
     struct SavedState;

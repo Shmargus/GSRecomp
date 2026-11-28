@@ -94,16 +94,42 @@ private:
     int count_ = 0;
 };
 
+// Tight console-pixel bounding box [x0, y0, x1, y1) of all alternating sprites
+// dropped from `now` or put back from `prev1`. Pixels outside this box are
+// guaranteed identical between both phases.
+struct SpriteFlickerBox {
+    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    bool valid = false;
+    void include(const SceneObject& o) {
+        const int ox1 = o.x + o.width;
+        const int oy1 = o.y + o.height;
+        if (!valid) {
+            x0 = o.x; y0 = o.y; x1 = ox1; y1 = oy1;
+            valid = true;
+        } else {
+            if (o.x < x0) x0 = o.x;
+            if (o.y < y0) y0 = o.y;
+            if (ox1 > x1) x1 = ox1;
+            if (oy1 > y1) y1 = oy1;
+        }
+    }
+};
+
 // Builds the other phase's object table into `out`. Returns false (out
-// untouched) when nothing alternates.
+// untouched) when nothing alternates. When `box` is non-null, writes the
+// console-pixel bounding box of the alternating sprites. When `changed_slots`
+// is non-null, marks every slot in `now` or `out` that was dropped or added.
 //
 // A sprite alternates when it is present two frames back and gone from the
 // previous frame and from three frames back. That is four frames of a steady
 // every-other-frame pattern, so a sprite that appears, disappears or blinks
 // once is left alone.
-inline bool sprite_flicker_other_phase(const SceneObjectTable& now,
-                                       const SpriteFlickerHistory& history,
-                                       SceneObjectTable* out) {
+inline bool sprite_flicker_other_phase(
+    const SceneObjectTable& now,
+    const SpriteFlickerHistory& history,
+    SceneObjectTable* out,
+    SpriteFlickerBox* box = nullptr,
+    std::array<bool, FieldScene::kObjects>* changed_slots = nullptr) {
     if (!history.ready()) return false;
     const SceneObjectTable& prev1 = history.back(1);
     const SceneObjectTable& prev2 = history.back(2);
@@ -134,9 +160,16 @@ inline bool sprite_flicker_other_phase(const SceneObjectTable& now,
     }
     if (!any) return false;
 
+    SpriteFlickerBox bounds;
+    if (changed_slots) changed_slots->fill(false);
     *out = now;
-    for (int s = 0; s < FieldScene::kObjects; ++s)
-        if (drop[s]) (*out)[s].present = false;
+    for (int s = 0; s < FieldScene::kObjects; ++s) {
+        if (drop[s]) {
+            bounds.include(now[s]);
+            if (changed_slots) (*changed_slots)[s] = true;
+            (*out)[s].present = false;
+        }
+    }
     // Last frame's sprites go back in their own slots, because slot order is
     // draw order. One whose slot is taken goes in the next free slot.
     for (int s = 0; s < FieldScene::kObjects; ++s) {
@@ -148,7 +181,10 @@ inline bool sprite_flicker_other_phase(const SceneObjectTable& now,
         }
         if (slot < 0) break;
         (*out)[slot] = prev1[s];
+        bounds.include(prev1[s]);
+        if (changed_slots) (*changed_slots)[slot] = true;
     }
+    if (box) *box = bounds;
     return true;
 }
 

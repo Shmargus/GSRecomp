@@ -292,6 +292,8 @@ add_library(gbarecomp_runtime STATIC
     src/runtime/host_config_ui.cpp
     src/runtime/touch_controls.cpp
     src/runtime/gpu_present.cpp
+    src/runtime/gpu_timing.cpp
+    src/runtime/gpu_fault_watch.cpp
     src/runtime/frame_timing.cpp
     src/runtime/frame_interpolation.cpp
     src/runtime/color_lut.cpp

@@ -198,6 +198,7 @@ void GbaIo::deserialize(gbarecomp::debug::SnapshotReader& r) {
     for (int i = 0; i < 4; ++i) timer_accum_[i]     = r.u32();
     for (int i = 0; i < 4; ++i) dma_next_source_[i] = r.u32();
     for (int i = 0; i < 4; ++i) dma_next_dest_[i]   = r.u32();
+    if (waitcnt_changed_hook_) waitcnt_changed_hook_();
 }
 
 GbaIo::GbaIo() {
@@ -824,6 +825,9 @@ void GbaIo::write8(uint32_t off, uint8_t v) {
     }
     io_[off] = v;
     notify_affine_reference_write(off, 1);
+    if ((off == IoReg::WAITCNT || off == IoReg::WAITCNT + 1u) &&
+        waitcnt_changed_hook_)
+        waitcnt_changed_hook_();
 }
 
 void GbaIo::write16(uint32_t off, uint16_t v) {
@@ -965,6 +969,10 @@ void GbaIo::write16(uint32_t off, uint16_t v) {
     }
     store_u16(&io_[off], v);
     notify_affine_reference_write(off, 2);
+    // Any halfword overlapping 0x204..0x205 (an unaligned one included).
+    if (off + 1u >= IoReg::WAITCNT && off <= IoReg::WAITCNT + 1u &&
+        waitcnt_changed_hook_)
+        waitcnt_changed_hook_();
 }
 
 void GbaIo::write32(uint32_t off, uint32_t v) {

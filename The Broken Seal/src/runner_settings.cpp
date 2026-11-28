@@ -31,7 +31,6 @@
 #include "map_recorder.h"
 #include "obj_recorder.h"
 #include "battle_view.h"
-#include "room_buffer.h"
 #include "field_scene.h"
 #include "obj_y_continuity.h"
 #include "effect_capture.h"

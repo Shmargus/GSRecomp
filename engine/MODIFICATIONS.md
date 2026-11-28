@@ -69,9 +69,11 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
   code the deferred count is 0.
 - **Memory timing table.** `runtime_mem_cycles` (`runtime_bus_bridge.cpp`)
   answers from a table of `GbaBus::access_cycles` per region x width x S/N,
-  rebuilt when WAITCNT changes, unless the bus's prefetch adjustment applies.
-  Exported as `g_runtime_mem_cost`, `g_runtime_mem_cost_key` and
-  `g_runtime_waitcnt_live`.
+  unless the bus's prefetch adjustment applies. Exported as
+  `g_runtime_mem_cost`. `set_active_bus` builds it and installs a `GbaIo`
+  hook (`set_waitcnt_changed_hook`) that rebuilds it whenever WAITCNT is
+  written or a savestate is restored, so block-timed code reads it with no
+  check; without a bus every entry is 1.
 - **Fast IWRAM store observer gated inline.** `g_runtime_fast_iwram_watch[8]`
   is a 512-bit bitmap over IWRAM at 64-byte granularity. The inline
   `bus_write_u32/16/8_inline` stores call the installed observer only when a
@@ -287,7 +289,7 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
 - **Screen filters** (`runtime/screen_filter.{h,cpp}`). LCD3x, xBR, CRT Lottes,
   ScaleFX (multi-stage), bilinear and sharp bilinear GLSL filters at the final
   present on the OpenGL renderer, behind `GSR_SCREEN_FILTERS` (set by every
-  launcher except under Direct3D). Nothing runs when it is off. Each filter's
+  launcher). Nothing runs when it is off. Each filter's
   main values are F1 sliders saved in config.ini `[Video]`, from the one
   `kScreenFilterParams` table.
 - **Release badge and cover cartridge.** The host reads `edition_badge.txt`
@@ -362,9 +364,6 @@ overview and build instructions are in the root `README.md` and `BUILDING.md`.
   which pays each frame's waits exactly once and drops them only when
   interpolation really presented twice. Present-in-place frames reached
   inside a guest IRQ still present there and pace after iret.
-- **Native supersampling yields to the game's picture.** It is refused for a
-  session in which a game has installed a present-override hook, because its
-  output bypasses that hook.
 
 - **F1 preferences.** `host_window.cpp` reads and writes `[Video]` window
   scale, fullscreen, V-Sync, linear/integer scaling, screen filter and FPS
@@ -626,6 +625,17 @@ All null or off by default and installed by the game's runner. `RunOptions`:
   time with the other phase's sprites and mixed in at the F1 Flicker
   reduction weight, as the GBA's LCD blended them. Off with Flicker
   reduction Off.
+- **Red save-file rows on the card** (`field_scene_renderer.*`
+  `set_window_red`, resolve shader): inside a box of the console's pixels,
+  in chosen 16-pixel rows, blue window pixels turn red with the same 8-bit
+  rule as the games' CPU painter (`shared_game/save_files_picker.h`
+  `redden`), so the save-file screen needs no copy back from the card.
+- **World-map composition on the card** (`field_scene_renderer.*`
+  `set_world_compose`, `draw_world_margin`, `upload_flat_world_map`): live
+  world-map borders behind menus and spells, mixed-mode shutter and battle-flash
+  bars, flat-colour fades, Lighthouse beam glow, seamless world-map quakes, the
+  zoomed R-button map and the 512x384 Select map are composed on the GPU for
+  both PC and phones without copying pictures back to the CPU.
 
 ## What was left out of this copy
 

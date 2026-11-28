@@ -9,7 +9,7 @@ namespace gsr_player {
 
 // Bump this when a build or link change is outside build_inputs_sha1.
 // Libraries built under another version are rebuilt.
-inline constexpr char kBuilderVersion[] = "2";
+inline constexpr char kBuilderVersion[] = "3";
 
 struct BuildRecord {
     std::string rom_sha1, builder, engine_sha1;

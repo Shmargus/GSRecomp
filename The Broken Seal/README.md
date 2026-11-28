@@ -42,7 +42,7 @@ playable from the start to the ending credits.
 - Seamless mode: after the ending, choose the slot for the Clear Data and go
   straight on to The Lost Age, which imports that slot.
 - In-game settings for walking speed, encounter rate, screen size and
-  slowdown removal, plus 2x battle speed (Select in battle). Walk Speed does
+  slowdown removal, plus 2x or 4x battle speed (Select in battle). Walk Speed does
   not apply in the Colosso trials, on purpose.
 - **Hard Mode:** enemies have 1.5x HP and 1.25x Attack and Defence. Asked
   once when starting a new game, changeable in the settings screen, and

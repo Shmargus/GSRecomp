@@ -114,7 +114,6 @@ struct DebugOverlayState {
     bool self_heal_ram = false;
     bool cost_probe = false;
     bool present_cadence = false;
-    bool ram_churn_probe = false;
     bool additional_debug_logging = false;
 
     bool audio_status_available = false;
@@ -184,6 +183,7 @@ struct ConfigUiState {
     // button stays either way. `controller_prompt`: the window asks to open
     // the "controller connected" question in the menu.
     bool  touch_buttons = true;
+    bool  touch_fast_forward = true;  // the >> button shown
     bool  controller_prompt = false;
 
     // --- audio --------------------------------------------------------------
@@ -201,9 +201,6 @@ struct ConfigUiState {
     bool  frame_interpolation_2x = false;
     bool  enhanced_timing_available = false;
     bool  enhanced_timing = false;
-    bool  native_renderer_available = false;
-    bool  native_renderer = false;
-    int   native_scale = 2;          // native scene resolution, 1x..10x
     // Fixed logical view modes. The host only exposes these when the runtime
     // has explicitly authorized them; strict and capture runs force Native.
     bool  fixed_view_modes_available = false;

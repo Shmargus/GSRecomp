@@ -20,6 +20,8 @@
 #include "runtime_arm.h"
 #include "runtime_bus_bridge.h"
 
+extern "C" uint8_t g_runtime_mem_cost[16][2][2];  // runtime_bus_bridge.cpp
+
 namespace {
 
 int failures = 0;
@@ -419,6 +421,63 @@ void test_waitcnt_updates_game_pak_cycles() {
              -2);
 }
 
+// The runtime's memory timing table (g_runtime_mem_cost), which block-timed
+// game code reads with no check, must match GbaBus::access_cycles after
+// every way WAITCNT can change.
+bool mem_cost_matches(const gba::GbaBus& bus) {
+    for (uint32_t region = 0; region < 16u; ++region)
+        for (uint32_t w = 0; w < 2u; ++w)
+            for (uint32_t s = 0; s < 2u; ++s)
+                if (g_runtime_mem_cost[region][w][s] !=
+                    bus.access_cycles(region << 24, w ? 4 : 2, s != 0u))
+                    return false;
+    return true;
+}
+
+void test_mem_cost_table_tracks_waitcnt() {
+    gba::GbaBus bus;
+    bus.write16(0x04000204u, 0x4014u);  // before attaching
+    gbarecomp::set_active_bus(&bus);
+    check_bool("mem_cost", "attach", mem_cost_matches(bus), true);
+    check_eq("mem_cost", "attach_rom_n16", g_runtime_mem_cost[8][0][0], 4u);
+
+    bus.write16(0x04000204u, 0x0000u);
+    check_bool("mem_cost", "write16", mem_cost_matches(bus), true);
+    check_eq("mem_cost", "write16_rom_n16", g_runtime_mem_cost[8][0][0], 5u);
+
+    bus.write8(0x04000204u, 0x14u);
+    check_bool("mem_cost", "write8_low", mem_cost_matches(bus), true);
+    bus.write8(0x04000205u, 0x40u);
+    check_bool("mem_cost", "write8_high", mem_cost_matches(bus), true);
+    bus.write32(0x04000204u, 0x00000017u);
+    check_bool("mem_cost", "write32", mem_cost_matches(bus), true);
+
+    // A savestate restore brings back the saved WAITCNT.
+    gbarecomp::debug::SnapshotWriter writer;
+    bus.io().serialize(writer);
+    bus.write16(0x04000204u, 0x0000u);
+    gbarecomp::debug::SnapshotReader reader(writer.buffer().data(),
+                                            writer.buffer().size());
+    bus.io().deserialize(reader);
+    check_eq("mem_cost", "restored_waitcnt", bus.io().waitcnt(), 0x0017u);
+    check_bool("mem_cost", "deserialize", mem_cost_matches(bus), true);
+
+    // Detached: every entry is 1, as runtime_mem_cycles answers, and the old
+    // bus no longer updates the table.
+    gbarecomp::set_active_bus(nullptr);
+    bool ones = true;
+    for (uint32_t region = 0; region < 16u; ++region)
+        for (uint32_t w = 0; w < 2u; ++w)
+            for (uint32_t s = 0; s < 2u; ++s)
+                ones = ones && g_runtime_mem_cost[region][w][s] == 1u;
+    bus.write16(0x04000204u, 0x4014u);
+    for (uint32_t region = 0; region < 16u; ++region)
+        for (uint32_t w = 0; w < 2u; ++w)
+            for (uint32_t s = 0; s < 2u; ++s)
+                ones = ones && g_runtime_mem_cost[region][w][s] == 1u;
+    check_bool("mem_cost", "detached_ones", ones, true);
+}
+
 struct EwramObserverEvent {
     uint32_t addr = 0;
     uint32_t width = 0;
@@ -597,6 +656,7 @@ int main() {
     test_eeprom_8k_read_write();
     test_eeprom_persistence_bytes_and_dirty();
     test_waitcnt_updates_game_pak_cycles();
+    test_mem_cost_table_tracks_waitcnt();
     test_fast_ewram_write_observer();
     test_ram_image_common_bus_writer();
     if (failures) {

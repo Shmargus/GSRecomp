@@ -306,114 +306,6 @@ void test_affine_hidden_state_roundtrip() {
     expect_pixel(line5, 0, 0, 255, "affine hidden-state roundtrip");
 }
 
-void test_native_scene_supersampling() {
-    Fixture f;
-    // A deterministic 256-colour BG0 with a red/blue checker at hardware
-    // pixel granularity. Native output must keep each logical sample crisp,
-    // while the affine-capable compositor is exercised at a wider stride.
-    const uint16_t dispcnt = 0x0100;
-    store16(&f.io[0x08], 0x0180); // BG0 256-colour, screen base 1.
-    store16(&f.vram[0x800], 0);
-    for (unsigned i = 0; i < 64; ++i)
-        f.vram[i] = static_cast<uint8_t>((i & 1u) ? 2u : 1u);
-    store16(&f.pal[0], 0);
-    store16(&f.pal[2], 0x001F); // red
-    store16(&f.pal[4], 0x7C00); // blue
-
-    std::vector<uint8_t> native(
-        static_cast<std::size_t>(gba::GbaPpu::kScreenWidth * 2u) *
-        (gba::GbaPpu::kScreenHeight * 2u) * 3u, 0);
-    f.ppu.render_native(native.data(), 2, dispcnt, f.io.data(), f.vram.data(),
-                        f.oam.data(), f.pal.data());
-    const std::size_t native_stride =
-        static_cast<std::size_t>(gba::GbaPpu::kScreenWidth * 2u) * 3u;
-    // Every pair of native samples maps to one logical source pixel for a
-    // regular BG. Check two distinct source colours and both row/column
-    // bounds, which also catches a 960px compositor-buffer overrun.
-    const uint8_t* p0 = native.data() + 0 * 3u;
-    const uint8_t* p1 = native.data() + 1 * 3u;
-    const uint8_t* p2 = native.data() + 2 * 3u;
-    expect_pixel(p0, 255, 0, 0, "native BG sample 0");
-    expect_pixel(p1, 255, 0, 0, "native BG horizontal duplicate");
-    expect_pixel(p2, 0, 0, 255, "native BG sample 1");
-    for (unsigned y = 0; y < 8; ++y) {
-        for (unsigned x = 0; x < 8; ++x)
-            f.vram[y * 8u + x] = static_cast<uint8_t>((y & 1u) ? 2u : 1u);
-    }
-    f.ppu.render_native(native.data(), 2, dispcnt, f.io.data(), f.vram.data(),
-                        f.oam.data(), f.pal.data());
-    expect_pixel(native.data(), 255, 0, 0, "native BG vertical sample 0");
-    expect_pixel(native.data() + native_stride, 255, 0, 0,
-                 "native BG vertical duplicate");
-    expect_pixel(native.data() + 2u * native_stride, 0, 0, 255,
-                 "native BG vertical sample 1");
-    f.ppu.latch_native_scene_state(dispcnt, f.io.data(), f.vram.data(),
-                                   f.oam.data(), f.pal.data());
-    f.vram[0] = 2; // Live memory changes after the VBlank boundary.
-    std::fill(native.begin(), native.end(), 0);
-    if (!f.ppu.render_native_latched(native.data(), 2)) {
-        std::fprintf(stderr, "native latch was not available\n");
-        std::exit(1);
-    }
-    expect_pixel(native.data(), 255, 0, 0,
-                 "native render ignored VBlank-latched source");
-    const uint8_t* last = native.data() +
-        (gba::GbaPpu::kScreenHeight * 2u - 1u) * native_stride +
-        (gba::GbaPpu::kScreenWidth * 2u - 1u) * 3u;
-    expect_pixel(last, 0, 0, 255, "native BG bottom-right");
-
-    // Scale 4 uses the separate native/compositor width envelope rather than
-    // widening the established 480px view limit.
-    std::vector<uint8_t> native4(
-        static_cast<std::size_t>(gba::GbaPpu::kScreenWidth * 4u) *
-        (gba::GbaPpu::kScreenHeight * 4u) * 3u, 0);
-    f.ppu.render_native(native4.data(), 4, dispcnt, f.io.data(), f.vram.data(),
-                        f.oam.data(), f.pal.data());
-    const uint8_t* last4 = native4.data() +
-        (static_cast<std::size_t>(gba::GbaPpu::kScreenHeight * 4u) - 1u) *
-            gba::GbaPpu::kScreenWidth * 4u * 3u +
-        (gba::GbaPpu::kScreenWidth * 4u - 1u) * 3u;
-    expect_pixel(last4, 0, 0, 255, "native 4x BG bottom-right");
-
-    std::vector<uint8_t> native10(
-        static_cast<std::size_t>(gba::GbaPpu::kScreenWidth * 10u) *
-        (gba::GbaPpu::kScreenHeight * 10u) * 3u, 0);
-    f.ppu.render_native(native10.data(), 10, dispcnt, f.io.data(), f.vram.data(),
-                        f.oam.data(), f.pal.data());
-    const uint8_t* last10 = native10.data() +
-        (static_cast<std::size_t>(gba::GbaPpu::kScreenHeight * 10u) - 1u) *
-            gba::GbaPpu::kScreenWidth * 10u * 3u +
-        (gba::GbaPpu::kScreenWidth * 10u - 1u) * 3u;
-    expect_pixel(last10, 0, 0, 255, "native 10x BG bottom-right");
-
-    // Preserve per-scanline register effects in the native snapshot. A
-    // final-state-only compositor would apply line 1's darken setting to both
-    // lines and fail this check.
-    Fixture raster;
-    store16(&raster.pal[0], 0x001F); // red backdrop
-    store16(&raster.io[0x50], 0x00A0); // brighten backdrop
-    store16(&raster.io[0x54], 16);
-    raster.ppu.render_scanline(0, 0, raster.io.data(), raster.vram.data(),
-                               raster.oam.data(), raster.pal.data());
-    store16(&raster.io[0x50], 0x00E0); // darken backdrop
-    raster.ppu.render_scanline(1, 0, raster.io.data(), raster.vram.data(),
-                               raster.oam.data(), raster.pal.data());
-    raster.ppu.latch_native_scene_state(0, raster.io.data(),
-                                        raster.vram.data(), raster.oam.data(),
-                                        raster.pal.data());
-    std::vector<uint8_t> raster_native(
-        static_cast<std::size_t>(gba::GbaPpu::kScreenWidth * 2u) *
-        (gba::GbaPpu::kScreenHeight * 2u) * 3u, 0);
-    if (!raster.ppu.render_native_latched(raster_native.data(), 2)) {
-        std::fprintf(stderr, "native raster latch was not available\n");
-        std::exit(1);
-    }
-    expect_pixel(raster_native.data(), 255, 255, 255,
-                 "native per-line register row 0");
-    expect_pixel(raster_native.data() + 2u * native_stride, 0, 0, 0,
-                 "native per-line register row 1");
-}
-
 void test_extended_view_geometry_and_clamp() {
     gba::GbaPpu ppu;
     ppu.set_view_margins(24, 24, 0, 0);
@@ -1613,7 +1505,6 @@ int main() {
     test_brightness_native_domain_and_green_precision();
     test_hblank_affine_reference_reload();
     test_affine_hidden_state_roundtrip();
-    test_native_scene_supersampling();
     test_extended_view_geometry_and_clamp();
     test_extended_view_capability_policy();
     test_resize_driven_view_policy();

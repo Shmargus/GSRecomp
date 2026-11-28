@@ -13,8 +13,8 @@ struct TrackerOption { const char* key; bool TrackerSettings::*value; const char
 inline constexpr TrackerOption kTrackerOptions[] = {
     {"DjinnTracker", &TrackerSettings::djinn, "Djinn Tracker",
      "A window with every Djinni, counted per element. Djinn you have not found are question marks; "
-     "point at one to see where it is, click an element to fold it. With OpenGL it is its own window "
-     "you can drag anywhere; with Direct3D it stays inside the game. Also in game under F1 > Game."},
+     "point at one to see where it is, click an element to fold it. Its own window "
+     "you can drag anywhere. Also in game under F1 > Game."},
     {"DjinnTrackerShowAll", &TrackerSettings::djinn_show_all, "Djinn Tracker: show all Djinn",
      "Djinn you have not found yet keep their name and picture, dimmed, in their element instead of "
      "hiding as question marks."},

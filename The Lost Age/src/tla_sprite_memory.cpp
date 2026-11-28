@@ -23,8 +23,8 @@
 // renderer gets bit 10 back from the sprite's record
 // (tla_sprite_memory_tile).
 //
-// Inert in the console's 240x160 view, with the CPU renderer (Direct3D
-// compatibility mode), and with the launcher's "Console sprite memory".
+// Inert in the console's 240x160 view, on the console compositor, and with
+// the launcher's "Console sprite memory".
 //
 // Custom Battle Mode's crowded fights (in the Broken Seal, big monsters plus
 // the party fill the 32 KB). A fighter request that the console cannot grant

@@ -120,14 +120,6 @@ constexpr std::uint32_t kClearFlag = 0x0200044Fu;
 constexpr unsigned kBossIds[] = {0x7D, 0x7A, 0x1D, 0x93, 0x7B, 0x4E, 0x83, 0x59,
                                  0x79, 0x8D, 0x91, 0x92, 0x7C, 0x7E, 0x94, 0x95};
 
-// Each room's earliest guide section (adventure_walkthrough_data.h).
-unsigned room_section(unsigned room) {
-    unsigned best = ~0u;
-    for (const auto& scope : adventure::walkthrough::locations)
-        if (scope.room == room) best = std::min(best, scope.section);
-    return best;
-}
-
 // Room rows whose first set never fights: no bit 15, and no F0 tile in the
 // room's map (original map decompression, every encounter room checked).
 struct SilentRow { unsigned room, first; };
@@ -199,7 +191,7 @@ void catalogue(Rom rom, std::vector<Monster>* out) {
         for (const auto& row : kSilentRows)
             silent |= !(flag & kAllTilesBit) && row.room == room && row.first == unsigned(first);
         if (silent) continue;
-        const unsigned section = room_section(room);
+        const unsigned section = story_progress::room_section(room);
         place_set(unsigned(first), section);
         if (section != ~0u) {
             auto& s = first_set_section[unsigned(first)];
@@ -215,7 +207,7 @@ void catalogue(Rom rom, std::vector<Monster>* out) {
         for (unsigned i = 0; i < 8; ++i)
             if ((fight.index < 0 && set_has(rom, fight.set, i)) || int(i) == fight.index)
                 place(set_formation(rom, fight.set, i),
-                      fight.section ? fight.section : room_section(fight.room));
+                      fight.section ? fight.section : story_progress::room_section(fight.room));
     for (auto& [id, m] : found) {
         m.boss = std::find(std::begin(kBossIds), std::end(kBossIds), id) != std::end(kBossIds);
         out->push_back(m);
@@ -229,17 +221,7 @@ unsigned reached_section() {
     if (bus_read_u8(kClearFlag) == 1u) return ~0u;
     auto* bus = gbarecomp::active_bus();
     if (!bus) return 0;
-    using namespace adventure::walkthrough;
-    using story_progress::evaluate;
-    using story_progress::Truth;
-    const unsigned char* ram = bus->ewram_ptr();
-    unsigned reached = 0;
-    for (const auto& section : sections)
-        for (unsigned i = section.first; i < section.end; ++i)
-            if (evaluate(entries[i].done, ram) == Truth::Yes ||
-                evaluate(entries[i].milestone, ram) == Truth::Yes)
-                reached = std::max(reached, section.id);
-    return reached;
+    return story_progress::reached_section(bus->ewram_ptr());
 }
 
 const Game kGame = {

@@ -44,6 +44,10 @@ constexpr const char* kReleasesPage = "https://github.com/" GSR_RELEASE_REPOSITO
 constexpr const char* kReportHost = GSR_REPORT_HOST;
 constexpr const char* kReportPath = "/report";
 constexpr const char* kUserAgent = "GoldenSunLauncher";
+// Message from Jim, editable on GitHub without a release (launcher_message.txt
+// at the repository root, main branch).
+constexpr const char* kMessageHost = "raw.githubusercontent.com";
+constexpr const char* kMessagePath = "/" GSR_RELEASE_REPOSITORY "/main/launcher_message.txt";
 
 // A development build ("dev") never offers updates.
 inline bool update_checks_enabled() {
@@ -368,6 +372,47 @@ inline std::string notes_to_plain_text(const std::string& markdown) {
     if (first == std::string::npos) return std::string();
     const std::size_t last = collapsed.find_last_not_of(" \n");
     return collapsed.substr(first, last - first + 1);
+}
+
+// ---------------------------------------------------------------- message
+
+// launcher_message.txt as one line of text: a UTF-8 byte-order mark and
+// lines starting with '#' (notes for whoever edits it) are dropped, line
+// breaks and tabs become spaces, other control characters go, runs of spaces
+// collapse, and both ends are trimmed. Kept to 400 bytes (cut at a character
+// boundary): the launcher shows two lines and ends a longer one with "...",
+// re-measuring it every frame, so the limit only keeps that cheap.
+inline std::string clean_message(const std::string& file) {
+    std::string text = file.compare(0, 3, "\xEF\xBB\xBF") == 0 ? file.substr(3) : file;
+    std::string out;
+    std::size_t pos = 0;
+    while (pos < text.size()) {
+        std::size_t end = text.find('\n', pos);
+        if (end == std::string::npos) end = text.size();
+        const std::string line = text.substr(pos, end - pos);
+        pos = end + 1;
+        const std::size_t first = line.find_first_not_of(" \t\r");
+        if (first == std::string::npos || line[first] == '#') continue;
+        for (char c : line) {
+            const unsigned char u = static_cast<unsigned char>(c);
+            const bool space = u == ' ' || u == '\t' || u == '\r';
+            if (!space && (u < 0x20 || u == 0x7F)) continue;
+            if (space) {
+                if (!out.empty() && out.back() != ' ') out.push_back(' ');
+            } else {
+                out.push_back(c);
+            }
+        }
+        if (!out.empty() && out.back() != ' ') out.push_back(' ');
+    }
+    while (!out.empty() && out.back() == ' ') out.pop_back();
+    if (out.size() > 400) {
+        std::size_t cut = 400;
+        while (cut > 0 && (static_cast<unsigned char>(out[cut]) & 0xC0) == 0x80) --cut;
+        out.resize(cut);
+        while (!out.empty() && out.back() == ' ') out.pop_back();
+    }
+    return out;
 }
 
 // ---------------------------------------------------------------- reports

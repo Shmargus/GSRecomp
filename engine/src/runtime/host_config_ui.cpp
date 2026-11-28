@@ -952,11 +952,15 @@ void draw_controls_page(ConfigUiState* st) {
         if (setting_checkbox("Show on-screen buttons", &st->touch_buttons))
             st->video_changed = true;
         caption("The menu button stays either way.");
+        if (setting_checkbox("Show speed-up button", &st->touch_fast_forward))
+            st->video_changed = true;
+        caption("The >> button switches Fast Forward on and off.");
         if (native_button("Place on-screen buttons")) {
             touch_controls_begin_placing();
             config_ui_set_visible(false);
         }
-        caption("Drag each button where you want it, then tap Done.");
+        caption("Drag each button where you want it, then tap Done. Tap a button and use "
+                "Smaller or Bigger to resize it; tick All buttons to resize them all.");
     }
     section("Buttons");
     // Phones have no keyboard, so there is no keyboard column.
@@ -1748,8 +1752,7 @@ void draw_debug_overlay(const ConfigUiState* st) {
     if (!st || !st->debug_overlay || g_visible) return;
     const DebugOverlayState& d = st->debug_overlay_state;
     const bool any_test = d.self_heal_ram || d.cost_probe ||
-        d.present_cadence || d.ram_churn_probe ||
-        d.additional_debug_logging;
+        d.present_cadence || d.additional_debug_logging;
     const bool any_audio = d.audio_status_available ||
         d.turbo_audio_muted || d.turbo_audio_uncapped;
 
@@ -1788,7 +1791,6 @@ void draw_debug_overlay(const ConfigUiState* st) {
             if (d.self_heal_ram) ImGui::TextUnformatted("Self-heal RAM: on");
             if (d.cost_probe) ImGui::TextUnformatted("Cost Probe: on");
             if (d.present_cadence) ImGui::TextUnformatted("Present Cadence: on");
-            if (d.ram_churn_probe) ImGui::TextUnformatted("RAM Churn Probe: on");
             if (d.additional_debug_logging)
                 ImGui::TextUnformatted("Additional Debug Logging: on");
         }

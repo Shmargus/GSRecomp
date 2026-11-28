@@ -32,7 +32,6 @@
 #include "map_recorder.h"
 #include "obj_recorder.h"
 #include "battle_view.h"
-#include "room_buffer.h"
 #include "field_scene.h"
 #include "obj_y_continuity.h"
 #include "parked_characters_tbs.h"
@@ -109,6 +108,7 @@
 #include "runner_shared.h"
 #include "../../shared_game/quality_of_life.h"
 #include "../../shared_game/world_margin_live.h"
+#include "../../shared_game/gpu_field_context.h"
 
 
 namespace {
@@ -173,23 +173,6 @@ struct GoldenSunBattleBackdrop {
     bool backdrop_margin_allowed = true;
 };
 GoldenSunBattleBackdrop g_golden_sun_battle_backdrop_state;
-bool g_golden_sun_mode0_field = false;
-bool g_golden_sun_mode0_split_scroll = false;
-gsr::widescreen::GoldenSunFieldAuthoredMap g_golden_sun_field_authored;
-enum class GoldenSunFieldAuthScene : std::uint8_t { None, EqualScroll, SplitScroll };
-GoldenSunFieldAuthScene g_golden_sun_field_auth_scene =
-    GoldenSunFieldAuthScene::None;
-bool g_golden_sun_expanded_obj_scene = false;
-gsr::widescreen::GoldenSunMode0SplitScrollFrame
-    g_golden_sun_mode0_split_scroll_frame;
-// Terrain-only Mode0ScrollMismatch field (non-Palace split scroll): see
-// gsr::widescreen::golden_sun_field_terrain_bg. Deliberately separate from
-// g_golden_sun_mode0_field/g_golden_sun_mode0_split_scroll above so it
-// cannot change BG0 suppression or the OBJ scene gate (g_golden_sun_
-// expanded_obj_scene) that those two already-authenticated flags drive; it
-// only widens the BG margin tilemap provider below, and only for the one
-// field layer whose own raw scroll is trusted directly.
-bool g_golden_sun_mode0_terrain_field = false;
 
 // Declared here because the diagnostics-only B328 candidate table is defined
 // before the staging-record helpers below.
@@ -810,21 +793,6 @@ std::uint64_t g_golden_sun_obj_y_edge_alias_activations = 0;
 unsigned g_golden_sun_obj_y_jump_logs_in_epoch = 0;
 std::uint64_t g_golden_sun_obj_y_jump_logs_dropped = 0;
 std::uint64_t g_golden_sun_field_auth_epoch = 0;
-std::array<std::uint8_t, 0x20> g_golden_sun_wide_line_io{};
-bool g_golden_sun_wide_line_io_valid = false;
-std::uint16_t g_golden_sun_wide_line_dispcnt = 0;
-std::vector<std::uint64_t> g_golden_sun_wide_scene_signatures;
-
-constexpr std::size_t kGoldenSunFieldMapOffset = 0x10000u;
-constexpr std::size_t kGoldenSunFieldMapBytes = 128u * 128u * 4u;
-constexpr std::size_t kGoldenSunFieldRawOffset = 0x20000u;
-constexpr std::size_t kGoldenSunFieldRawBytes = 4096u * 8u;
-constexpr std::uint32_t kGoldenSunFieldMapAddress = 0x02010000u;
-constexpr std::uint32_t kGoldenSunFieldRawAddress = 0x02020000u;
-constexpr unsigned kGoldenSunWidePolicyTransitionLimit = 16u;
-constexpr unsigned kGoldenSunWidePolicySampleLimit = 16u;
-constexpr unsigned kGoldenSunFieldTableCpuLogLimitPerEpoch = 64u;
-constexpr unsigned kGoldenSunFieldTableDmaLogLimitPerEpoch = 32u;
 constexpr unsigned kGoldenSunObjYProvenanceLogLimitPerEpoch = 128u;
 constexpr unsigned kGoldenSunObjYAliasLogLimitPerEpoch = 64u;
 constexpr unsigned kGoldenSunObjYJumpLogLimitPerEpoch = 64u;
@@ -836,8 +804,6 @@ constexpr unsigned kGoldenSunObjYCullDecisionPerStagingLimit = 4u;
 // dedupe window each guest frame (see trace_golden_sun_obj_y_cull_decision).
 constexpr unsigned kGoldenSunObjYCullDecisionLogLimitPerFrame =
     kGoldenSunObjYCorrelationLogLimitPerEpoch;
-constexpr unsigned kGoldenSunFieldMapIdAttributionLimit = 32u;
-constexpr unsigned kGoldenSunPalaceMarginSampleLimit = 96u;
 // Payload-free production seam census. These counters distinguish a missing
 // fast-IWRAM callback from a writer-identity or source-identity rejection in
 // a normal Enhanced run without enabling the full recorder.
@@ -849,108 +815,8 @@ std::uint64_t g_golden_sun_obj_f0_considered = 0;
 std::uint64_t g_golden_sun_obj_f0_placed = 0;
 std::uint64_t g_golden_sun_obj_f0_placed_prev_frame = 0;
 
-const char* golden_sun_field_margin_region(int hw_x, int screen_y,
-                                           std::size_t* out_region);
 bool golden_sun_experimental_fixes_enabled();
 bool golden_sun_expanded_obj_view_active();
-
-enum class GoldenSunPalaceMarginOutcome : std::uint8_t {
-    AcceptedNativeSeed = 0,
-    AcceptedConnected,
-    RejectedFill,
-    RejectedMask,
-    RejectedRaw,
-    RejectedLookup,
-    Count,
-};
-
-const char* golden_sun_palace_margin_outcome_name(
-    GoldenSunPalaceMarginOutcome outcome) {
-    switch (outcome) {
-        case GoldenSunPalaceMarginOutcome::AcceptedNativeSeed:
-            return "accepted-native-seed";
-        case GoldenSunPalaceMarginOutcome::AcceptedConnected:
-            return "accepted-connected";
-        case GoldenSunPalaceMarginOutcome::RejectedFill:
-            return "rejected-fill";
-        case GoldenSunPalaceMarginOutcome::RejectedMask:
-            return "rejected-mask";
-        case GoldenSunPalaceMarginOutcome::RejectedRaw:
-            return "rejected-raw";
-        case GoldenSunPalaceMarginOutcome::RejectedLookup:
-            return "rejected-lookup";
-        case GoldenSunPalaceMarginOutcome::Count:
-            break;
-    }
-    return "unknown";
-}
-
-struct GoldenSunPalaceMarginSample {
-    std::uint8_t bg = 0;
-    std::uint8_t region = 0;
-    GoldenSunPalaceMarginOutcome outcome =
-        GoldenSunPalaceMarginOutcome::RejectedLookup;
-    std::int16_t hw_x = 0;
-    std::int16_t screen_y = 0;
-    std::uint16_t map_x = 0;
-    std::uint16_t map_y = 0;
-    std::uint16_t map_id = 0;
-    bool metadata_valid = false;
-};
-
-struct GoldenSunPalaceMarginDiagnostics {
-    static constexpr std::size_t kBgCount = 3u;
-    static constexpr std::size_t kRegionCount = 4u;
-    static constexpr std::size_t kOutcomeCount = static_cast<std::size_t>(
-        GoldenSunPalaceMarginOutcome::Count);
-
-    std::array<std::array<std::array<std::uint64_t, kOutcomeCount>,
-                          kRegionCount>, kBgCount>
-        counts{};
-    std::array<std::array<std::array<bool, kOutcomeCount>, kRegionCount>,
-               kBgCount>
-        sample_seen{};
-    std::array<GoldenSunPalaceMarginSample,
-               kGoldenSunPalaceMarginSampleLimit>
-        samples{};
-    std::size_t sample_count = 0;
-    std::uint64_t samples_dropped = 0;
-
-    void reset() {
-        counts = {};
-        sample_seen = {};
-        sample_count = 0;
-        samples_dropped = 0;
-    }
-
-    void record(int bg, int hw_x, int screen_y,
-                GoldenSunPalaceMarginOutcome outcome,
-                const gsr::widescreen::GoldenSunFieldTilemapMetadata& metadata,
-                bool metadata_valid) {
-        if (bg < 1 || bg > 3) return;
-        std::size_t region = 0;
-        golden_sun_field_margin_region(hw_x, screen_y, &region);
-        const std::size_t bg_index = static_cast<std::size_t>(bg - 1);
-        const std::size_t outcome_index = static_cast<std::size_t>(outcome);
-        ++counts[bg_index][region][outcome_index];
-        if (sample_seen[bg_index][region][outcome_index]) return;
-        sample_seen[bg_index][region][outcome_index] = true;
-        if (sample_count >= samples.size()) {
-            ++samples_dropped;
-            return;
-        }
-        auto& sample = samples[sample_count++];
-        sample.bg = static_cast<std::uint8_t>(bg);
-        sample.region = static_cast<std::uint8_t>(region);
-        sample.outcome = outcome;
-        sample.hw_x = static_cast<std::int16_t>(hw_x);
-        sample.screen_y = static_cast<std::int16_t>(screen_y);
-        sample.map_x = static_cast<std::uint16_t>(metadata.map_x);
-        sample.map_y = static_cast<std::uint16_t>(metadata.map_y);
-        sample.map_id = metadata.map_id;
-        sample.metadata_valid = metadata_valid;
-    }
-};
 
 enum class GoldenSunObjYOutcome : std::uint8_t {
     CoordinateRejected = 0,
@@ -1197,9 +1063,8 @@ GoldenSunObjYTransitionReason classify_golden_sun_obj_y_transition(
 }
 
 bool golden_sun_obj_y_steady_state() {
-    return golden_sun_wide_diagnostics_enabled() && g_ws_active &&
-           g_golden_sun_expanded_obj_scene &&
-           (g_golden_sun_mode0_field || g_golden_sun_mode0_split_scroll);
+    return golden_sun_wide_diagnostics_enabled() &&
+           golden_sun_expanded_obj_view_active();
 }
 
 void record_golden_sun_obj_y_outcome(int slot, int raw_y,
@@ -3674,8 +3539,6 @@ void trace_golden_sun_obj_y_edge_alias(
                      g_golden_sun_obj_y_edge_alias_activations));
 }
 
-void begin_golden_sun_field_auth_epoch();
-
 }  // namespace
 namespace gsr_runner {
 // GBARECOMP_VRAM_MAP_TRACE enables this payload-free map and sprite
@@ -3699,426 +3562,7 @@ bool golden_sun_experimental_fixes_enabled() {
     return enabled;
 }
 
-struct GoldenSunFieldMapCensus {
-    std::uint64_t auth_epoch = 0;
-    std::uint32_t map_crc = 0;
-    std::uint32_t raw_crc = 0;
-};
-std::vector<GoldenSunFieldMapCensus> g_golden_sun_wide_field_map_census;
-std::uint64_t g_golden_sun_wide_field_map_trace_frame = UINT64_MAX;
-bool g_golden_sun_palace_table_authorized = false;
-bool g_golden_sun_palace_table_invalidated = false;
-bool g_golden_sun_palace_table_auth_attempted = false;
-gsr::widescreen::GoldenSunPalaceActiveRegion
-    g_golden_sun_palace_active_region;
-std::array<std::uint16_t, 6> g_golden_sun_palace_region_scroll{};
-bool g_golden_sun_palace_region_scroll_valid = false;
-bool g_golden_sun_palace_region_build_attempted = false;
 unsigned g_golden_sun_obj_y_provenance_logs_in_epoch = 0;
-using GoldenSunWidePolicyReason = gsr::widescreen::GoldenSunWidePolicyReason;
-
-void invalidate_golden_sun_palace_table_authorization();
-bool refresh_golden_sun_palace_table_authorization();
-
-void reset_golden_sun_palace_active_region() {
-    if (g_golden_sun_palace_region_scroll_valid ||
-        g_golden_sun_palace_region_build_attempted) {
-        g_golden_sun_palace_active_region.reset();
-    }
-    g_golden_sun_palace_region_scroll_valid = false;
-    g_golden_sun_palace_region_build_attempted = false;
-}
-
-// Payload-free provider accounting separates a missing/invalid atlas source
-// from a successful replacement. The existing map census proves which table
-// image was resident, while these counters prove what the PPU actually did
-// with margin requests; neither path retains or prints guest tile bytes.
-struct GoldenSunFieldProviderTrace {
-    std::uint64_t calls = 0;
-    std::uint64_t equal_scroll_calls = 0;
-    std::uint64_t split_scroll_calls = 0;
-    std::uint64_t replacements = 0;
-    std::uint64_t unavailable = 0;
-    std::uint64_t precondition_rejects = 0;
-    std::uint64_t boundary_rejects = 0;
-    std::uint64_t palace_region_rejects = 0;
-    std::uint64_t raw_unavailable = 0;
-    std::uint64_t lookup_misses = 0;
-    std::int32_t min_x = INT32_MAX;
-    std::int32_t max_x = INT32_MIN;
-    std::int32_t min_y = INT32_MAX;
-    std::int32_t max_y = INT32_MIN;
-};
-std::array<GoldenSunFieldProviderTrace, 4>
-    g_golden_sun_field_provider_trace{};
-GoldenSunPalaceMarginDiagnostics g_golden_sun_palace_margin_diagnostics{};
-
-struct GoldenSunFieldMapIdAttribution {
-    std::uint16_t map_id = 0;
-    std::uint64_t replacements = 0;
-};
-
-// A bounded top-of-observed set per layer and margin region. This records no
-// map/table payload and avoids a 4x4x4096 hot-path counter matrix.
-std::array<std::array<std::array<GoldenSunFieldMapIdAttribution,
-                                  kGoldenSunFieldMapIdAttributionLimit>, 4>, 4>
-    g_golden_sun_field_map_id_attribution{};
-std::array<std::array<std::uint64_t, 4>, 4>
-    g_golden_sun_field_map_id_attribution_overflow{};
-GoldenSunWidePolicyReason g_golden_sun_wide_policy_last_reason =
-    GoldenSunWidePolicyReason::UnsupportedMode;
-bool g_golden_sun_wide_policy_seen = false;
-std::uint64_t g_golden_sun_wide_policy_transition_count = 0;
-std::uint64_t g_golden_sun_wide_policy_logged_transitions = 0;
-std::uint64_t g_golden_sun_wide_policy_sample_count = 0;
-unsigned g_golden_sun_wide_policy_last_flags =
-    gsr::widescreen::kPillarboxAll;
-std::uint64_t g_golden_sun_wide_policy_sample_frame = UINT64_MAX;
-std::uint64_t g_golden_sun_wide_policy_sample_end_frame = UINT64_MAX;
-std::uint64_t g_golden_sun_wide_policy_sample_transition = 0;
-unsigned g_golden_sun_wide_policy_samples_in_window = 0;
-
-// The PPU-side margin observer reports only counters and layer/source
-// categories. Keep a cumulative copy for the bounded exit summary while also
-// emitting a sparse per-frame line that can identify the side of a seam.
-std::uint64_t g_golden_sun_margin_diagnostic_callbacks = 0;
-std::uint64_t g_golden_sun_margin_diagnostic_logged = 0;
-std::uint64_t g_golden_sun_margin_diagnostic_last_log_frame = UINT64_MAX;
-gba::WsMarginDiagnostics g_golden_sun_margin_diagnostic_total{};
-gba::WsMarginDiagnostics g_golden_sun_margin_diagnostic_last{};
-
-void accumulate_golden_sun_margin_diagnostics(
-    gba::WsMarginDiagnostics& total, const gba::WsMarginDiagnostics& sample) {
-    total.margin_pixels += sample.margin_pixels;
-    total.left_margin_pixels += sample.left_margin_pixels;
-    total.right_margin_pixels += sample.right_margin_pixels;
-    total.top_margin_pixels += sample.top_margin_pixels;
-    total.bottom_margin_pixels += sample.bottom_margin_pixels;
-    for (std::size_t bg = 0; bg < total.provider_results.size(); ++bg) {
-        for (std::size_t result = 0;
-             result < total.provider_results[bg].size(); ++result) {
-            total.provider_results[bg][result] +=
-                sample.provider_results[bg][result];
-        }
-    }
-    for (std::size_t layer = 0;
-         layer < total.final_selected.size(); ++layer) {
-        for (std::size_t source = 0;
-             source < total.final_selected[layer].size(); ++source) {
-            total.final_selected[layer][source] +=
-                sample.final_selected[layer][source];
-        }
-    }
-    for (std::size_t side = 0;
-         side < total.horizontal_final_selected.size(); ++side) {
-        for (std::size_t layer = 0;
-             layer < total.horizontal_final_selected[side].size(); ++layer) {
-            for (std::size_t source = 0;
-                 source < total.horizontal_final_selected[side][layer].size();
-                 ++source) {
-                total.horizontal_final_selected[side][layer][source] +=
-                    sample.horizontal_final_selected[side][layer][source];
-            }
-        }
-    }
-}
-
-const char* golden_sun_wide_policy_reason_name(
-    GoldenSunWidePolicyReason reason) {
-    switch (reason) {
-        case GoldenSunWidePolicyReason::AuthorizedMode2:
-            return "authorized-mode2";
-        case GoldenSunWidePolicyReason::AuthorizedMode0:
-            return "authorized-mode0";
-        case GoldenSunWidePolicyReason::AuthorizedMode0SplitScroll:
-            return "authorized-mode0-split-scroll";
-        case GoldenSunWidePolicyReason::MissingIo:
-            return "missing-io";
-        case GoldenSunWidePolicyReason::ForcedBlank:
-            return "forced-blank";
-        case GoldenSunWidePolicyReason::WindowControl:
-            return "window-control";
-        case GoldenSunWidePolicyReason::UnsupportedMode:
-            return "unsupported-mode";
-        case GoldenSunWidePolicyReason::Mode2Layers:
-            return "mode2-layers";
-        case GoldenSunWidePolicyReason::Mode2Geometry:
-            return "mode2-geometry";
-        case GoldenSunWidePolicyReason::Mode0Layers:
-            return "mode0-layers";
-        case GoldenSunWidePolicyReason::Mode0Geometry:
-            return "mode0-geometry";
-        case GoldenSunWidePolicyReason::Mode0ScrollMismatch:
-            return "mode0-scroll-mismatch";
-        case GoldenSunWidePolicyReason::Mode0SplitLayers:
-            return "mode0-split-layers";
-        case GoldenSunWidePolicyReason::Mode0SplitGeometry:
-            return "mode0-split-geometry";
-        case GoldenSunWidePolicyReason::Mode0SplitScrollMismatch:
-            return "mode0-split-scroll-mismatch";
-    }
-    return "unknown";
-}
-
-void report_golden_sun_margin_diagnostic_sample(
-    std::uint64_t frame, const char* reason,
-    const gba::WsMarginDiagnostics& sample) {
-    const auto final = [&](std::size_t layer, std::size_t source) {
-        return sample.final_selected[layer][source];
-    };
-    const auto horizontal = [&](std::size_t side, std::size_t layer,
-                                std::size_t source) {
-        return sample.horizontal_final_selected[side][layer][source];
-    };
-    const auto provider = [&](std::size_t bg, std::size_t result) {
-        return sample.provider_results[bg][result];
-    };
-    const auto u64 = [](std::uint64_t value) {
-        return static_cast<unsigned long long>(value);
-    };
-    std::fprintf(
-        stderr,
-        "[wide-margin] frame=%llu auth_epoch=%llu reason=%s "
-        "pixels=%llu left=%llu right=%llu top=%llu bottom=%llu "
-        "provider=bg0:%llu/%llu/%llu,bg1:%llu/%llu/%llu,bg2:%llu/%llu/%llu,bg3:%llu/%llu/%llu "
-        "final_bg0=%llu/%llu/%llu final_bg1=%llu/%llu/%llu "
-        "final_bg2=%llu/%llu/%llu final_bg3=%llu/%llu/%llu "
-        "final_obj=%llu final_backdrop=%llu final_pillarbox=%llu "
-        "final_forced_blank=%llu "
-        "left_bg0=%llu/%llu/%llu left_bg1=%llu/%llu/%llu "
-        "left_bg2=%llu/%llu/%llu left_bg3=%llu/%llu/%llu "
-        "right_bg0=%llu/%llu/%llu right_bg1=%llu/%llu/%llu "
-        "right_bg2=%llu/%llu/%llu right_bg3=%llu/%llu/%llu "
-        "right_obj=%llu right_backdrop=%llu right_pillarbox=%llu\n",
-        u64(frame), u64(g_golden_sun_field_auth_epoch), reason,
-        u64(sample.margin_pixels), u64(sample.left_margin_pixels),
-        u64(sample.right_margin_pixels), u64(sample.top_margin_pixels),
-        u64(sample.bottom_margin_pixels),
-        u64(provider(0, gba::kWsMarginProviderReplace)),
-        u64(provider(0, gba::kWsMarginProviderKeepWrapped)),
-        u64(provider(0, gba::kWsMarginProviderUnavailable)),
-        u64(provider(1, gba::kWsMarginProviderReplace)),
-        u64(provider(1, gba::kWsMarginProviderKeepWrapped)),
-        u64(provider(1, gba::kWsMarginProviderUnavailable)),
-        u64(provider(2, gba::kWsMarginProviderReplace)),
-        u64(provider(2, gba::kWsMarginProviderKeepWrapped)),
-        u64(provider(2, gba::kWsMarginProviderUnavailable)),
-        u64(provider(3, gba::kWsMarginProviderReplace)),
-        u64(provider(3, gba::kWsMarginProviderKeepWrapped)),
-        u64(provider(3, gba::kWsMarginProviderUnavailable)),
-        u64(final(gba::kWsMarginTraceBg0, gba::kWsMarginSourceWrapped)),
-        u64(final(gba::kWsMarginTraceBg0,
-                  gba::kWsMarginSourceProviderReplace)),
-        u64(final(gba::kWsMarginTraceBg0,
-                  gba::kWsMarginSourceProviderKeepWrapped)),
-        u64(final(gba::kWsMarginTraceBg1, gba::kWsMarginSourceWrapped)),
-        u64(final(gba::kWsMarginTraceBg1,
-                  gba::kWsMarginSourceProviderReplace)),
-        u64(final(gba::kWsMarginTraceBg1,
-                  gba::kWsMarginSourceProviderKeepWrapped)),
-        u64(final(gba::kWsMarginTraceBg2, gba::kWsMarginSourceWrapped)),
-        u64(final(gba::kWsMarginTraceBg2,
-                  gba::kWsMarginSourceProviderReplace)),
-        u64(final(gba::kWsMarginTraceBg2,
-                  gba::kWsMarginSourceProviderKeepWrapped)),
-        u64(final(gba::kWsMarginTraceBg3, gba::kWsMarginSourceWrapped)),
-        u64(final(gba::kWsMarginTraceBg3,
-                  gba::kWsMarginSourceProviderReplace)),
-        u64(final(gba::kWsMarginTraceBg3,
-                  gba::kWsMarginSourceProviderKeepWrapped)),
-        u64(final(gba::kWsMarginTraceObj, gba::kWsMarginSourceObj)),
-        u64(final(gba::kWsMarginTraceBackdrop, gba::kWsMarginSourceBackdrop)),
-        u64(final(gba::kWsMarginTracePillarbox,
-                  gba::kWsMarginSourcePillarbox)),
-        u64(final(gba::kWsMarginTraceForcedBlank,
-                  gba::kWsMarginSourceForcedBlank)),
-        u64(horizontal(0, gba::kWsMarginTraceBg0,
-                        gba::kWsMarginSourceWrapped)),
-        u64(horizontal(0, gba::kWsMarginTraceBg0,
-                        gba::kWsMarginSourceProviderReplace)),
-        u64(horizontal(0, gba::kWsMarginTraceBg0,
-                        gba::kWsMarginSourceProviderKeepWrapped)),
-        u64(horizontal(0, gba::kWsMarginTraceBg1,
-                        gba::kWsMarginSourceWrapped)),
-        u64(horizontal(0, gba::kWsMarginTraceBg1,
-                        gba::kWsMarginSourceProviderReplace)),
-        u64(horizontal(0, gba::kWsMarginTraceBg1,
-                        gba::kWsMarginSourceProviderKeepWrapped)),
-        u64(horizontal(0, gba::kWsMarginTraceBg2,
-                        gba::kWsMarginSourceWrapped)),
-        u64(horizontal(0, gba::kWsMarginTraceBg2,
-                        gba::kWsMarginSourceProviderReplace)),
-        u64(horizontal(0, gba::kWsMarginTraceBg2,
-                        gba::kWsMarginSourceProviderKeepWrapped)),
-        u64(horizontal(0, gba::kWsMarginTraceBg3,
-                        gba::kWsMarginSourceWrapped)),
-        u64(horizontal(0, gba::kWsMarginTraceBg3,
-                        gba::kWsMarginSourceProviderReplace)),
-        u64(horizontal(0, gba::kWsMarginTraceBg3,
-                        gba::kWsMarginSourceProviderKeepWrapped)),
-        u64(horizontal(1, gba::kWsMarginTraceBg0,
-                        gba::kWsMarginSourceWrapped)),
-        u64(horizontal(1, gba::kWsMarginTraceBg0,
-                        gba::kWsMarginSourceProviderReplace)),
-        u64(horizontal(1, gba::kWsMarginTraceBg0,
-                        gba::kWsMarginSourceProviderKeepWrapped)),
-        u64(horizontal(1, gba::kWsMarginTraceBg1,
-                        gba::kWsMarginSourceWrapped)),
-        u64(horizontal(1, gba::kWsMarginTraceBg1,
-                        gba::kWsMarginSourceProviderReplace)),
-        u64(horizontal(1, gba::kWsMarginTraceBg1,
-                        gba::kWsMarginSourceProviderKeepWrapped)),
-        u64(horizontal(1, gba::kWsMarginTraceBg2,
-                        gba::kWsMarginSourceWrapped)),
-        u64(horizontal(1, gba::kWsMarginTraceBg2,
-                        gba::kWsMarginSourceProviderReplace)),
-        u64(horizontal(1, gba::kWsMarginTraceBg2,
-                        gba::kWsMarginSourceProviderKeepWrapped)),
-        u64(horizontal(1, gba::kWsMarginTraceBg3,
-                        gba::kWsMarginSourceWrapped)),
-        u64(horizontal(1, gba::kWsMarginTraceBg3,
-                        gba::kWsMarginSourceProviderReplace)),
-        u64(horizontal(1, gba::kWsMarginTraceBg3,
-                        gba::kWsMarginSourceProviderKeepWrapped)),
-        u64(horizontal(1, gba::kWsMarginTraceObj, gba::kWsMarginSourceObj)),
-        u64(horizontal(1, gba::kWsMarginTraceBackdrop,
-                        gba::kWsMarginSourceBackdrop)),
-        u64(horizontal(1, gba::kWsMarginTracePillarbox,
-                        gba::kWsMarginSourcePillarbox)));
-}
-
-void golden_sun_wide_margin_diagnostics_callback(
-    const gba::WsMarginDiagnostics& sample) {
-    if (!golden_sun_wide_diagnostics_enabled()) return;
-    ++g_golden_sun_margin_diagnostic_callbacks;
-    g_golden_sun_margin_diagnostic_last = sample;
-    accumulate_golden_sun_margin_diagnostics(
-        g_golden_sun_margin_diagnostic_total, sample);
-    const std::uint64_t frame = runtime_current_frame();
-    if (g_golden_sun_margin_diagnostic_logged >= 32u ||
-        (g_golden_sun_margin_diagnostic_last_log_frame != UINT64_MAX &&
-         frame < g_golden_sun_margin_diagnostic_last_log_frame + 120u)) {
-        return;
-    }
-    ++g_golden_sun_margin_diagnostic_logged;
-    g_golden_sun_margin_diagnostic_last_log_frame = frame;
-    report_golden_sun_margin_diagnostic_sample(frame, "frame", sample);
-}
-
-struct GoldenSunFieldTableStats {
-    std::uint64_t writes = 0;
-    std::uint64_t bytes = 0;
-    std::uint64_t first_frame = UINT64_MAX;
-    std::uint64_t last_frame = UINT64_MAX;
-    std::uint32_t first_pc = 0;
-    std::uint32_t last_pc = 0;
-};
-GoldenSunFieldTableStats g_golden_sun_field_map_writes;
-GoldenSunFieldTableStats g_golden_sun_field_raw_writes;
-GoldenSunFieldTableStats g_golden_sun_field_map_dma_writes;
-GoldenSunFieldTableStats g_golden_sun_field_raw_dma_writes;
-
-// The detailed per-store trace is intentionally capped at 64 records per
-// authentication epoch. That cap hid raw-table producers when map stores
-// arrived first, so keep a separate payload-free histogram/range summary keyed
-// by writer PC. It is bounded, reset per epoch, and diagnostics-only.
-constexpr std::size_t kGoldenSunFieldProducerLimit = 32u;
-struct GoldenSunFieldProducerStats {
-    bool used = false;
-    std::uint32_t pc = 0;
-    std::uint64_t writes = 0;
-    std::uint64_t bytes = 0;
-    std::uint64_t first_frame = UINT64_MAX;
-    std::uint64_t last_frame = UINT64_MAX;
-    std::uint32_t min_address = UINT32_MAX;
-    std::uint32_t max_end = 0;
-};
-std::array<GoldenSunFieldProducerStats, kGoldenSunFieldProducerLimit>
-    g_golden_sun_field_map_producers{};
-std::array<GoldenSunFieldProducerStats, kGoldenSunFieldProducerLimit>
-    g_golden_sun_field_raw_producers{};
-unsigned g_golden_sun_field_map_producer_overflow = 0;
-unsigned g_golden_sun_field_raw_producer_overflow = 0;
-
-void reset_golden_sun_field_producers() {
-    g_golden_sun_field_map_producers = {};
-    g_golden_sun_field_raw_producers = {};
-    g_golden_sun_field_map_producer_overflow = 0;
-    g_golden_sun_field_raw_producer_overflow = 0;
-}
-
-void record_golden_sun_field_producer(
-    std::array<GoldenSunFieldProducerStats, kGoldenSunFieldProducerLimit>&
-        producers,
-    unsigned* overflow, std::uint32_t pc, std::uint32_t address,
-    std::uint32_t size, std::uint64_t bytes, std::uint64_t frame) {
-    if (!overflow || size == 0u || bytes == 0u) return;
-    GoldenSunFieldProducerStats* producer = nullptr;
-    for (auto& candidate : producers) {
-        if (candidate.used && candidate.pc == pc) {
-            producer = &candidate;
-            break;
-        }
-    }
-    if (!producer) {
-        for (auto& candidate : producers) {
-            if (!candidate.used) {
-                candidate = {};
-                candidate.used = true;
-                candidate.pc = pc;
-                producer = &candidate;
-                break;
-            }
-        }
-    }
-    if (!producer) {
-        ++*overflow;
-        return;
-    }
-    const std::uint64_t end = static_cast<std::uint64_t>(address) + size;
-    ++producer->writes;
-    producer->bytes += bytes;
-    producer->first_frame = std::min(producer->first_frame, frame);
-    producer->last_frame = producer->writes == 1u
-        ? frame : std::max(producer->last_frame, frame);
-    producer->min_address = std::min(producer->min_address, address);
-    producer->max_end = static_cast<std::uint32_t>(std::min<std::uint64_t>(
-        end, UINT32_MAX));
-}
-
-void report_golden_sun_field_producers(const char* reason) {
-    if (!golden_sun_wide_diagnostics_enabled() || !reason) return;
-    const auto report = [&](const char* table,
-                            const auto& producers, unsigned overflow) {
-        for (const auto& producer : producers) {
-            if (!producer.used) continue;
-            std::fprintf(
-                stderr,
-                "[wide-field-producer] auth_epoch=%llu reason=%s "
-                "table=%s writer_pc=0x%08x writes=%llu bytes=%llu "
-                "addr=0x%08x..0x%08x frames=%llu..%llu\n",
-                static_cast<unsigned long long>(g_golden_sun_field_auth_epoch),
-                reason, table, producer.pc,
-                static_cast<unsigned long long>(producer.writes),
-                static_cast<unsigned long long>(producer.bytes),
-                producer.min_address, producer.max_end,
-                static_cast<unsigned long long>(producer.first_frame),
-                static_cast<unsigned long long>(producer.last_frame));
-        }
-        if (overflow != 0u) {
-            std::fprintf(stderr,
-                         "[wide-field-producer-overflow] auth_epoch=%llu "
-                         "reason=%s table=%s producers=%u\n",
-                         static_cast<unsigned long long>(
-                             g_golden_sun_field_auth_epoch),
-                         reason, table, overflow);
-        }
-    };
-    report("map", g_golden_sun_field_map_producers,
-           g_golden_sun_field_map_producer_overflow);
-    report("raw", g_golden_sun_field_raw_producers,
-           g_golden_sun_field_raw_producer_overflow);
-}
 
 // WIDE-01 entity-producer census: bounded IWRAM write census for the 0x38-stride
 // object staging records at 0x03002000..0x030022E0. The commit identity rule
@@ -4466,106 +3910,6 @@ void report_golden_sun_obj_commit_order(const char* reason) {
     }
 }
 
-std::uint64_t g_golden_sun_field_epoch_map_writes = 0;
-std::uint64_t g_golden_sun_field_epoch_raw_writes = 0;
-std::uint64_t g_golden_sun_field_epoch_map_dma_writes = 0;
-std::uint64_t g_golden_sun_field_epoch_raw_dma_writes = 0;
-unsigned g_golden_sun_field_table_cpu_logs_in_epoch = 0;
-unsigned g_golden_sun_field_table_dma_logs_in_epoch = 0;
-
-bool golden_sun_field_table_overlap(std::uint32_t address,
-                                    std::uint32_t size,
-                                    std::uint32_t table_start,
-                                    std::uint32_t table_end,
-                                    std::uint64_t* out_bytes) {
-    if (size == 0u || !out_bytes) return false;
-    const std::uint64_t first = address;
-    const std::uint64_t last = first + size;
-    const std::uint64_t lo = std::max<std::uint64_t>(first, table_start);
-    const std::uint64_t hi = std::min<std::uint64_t>(last, table_end);
-    if (hi <= lo) return false;
-    *out_bytes = hi - lo;
-    return true;
-}
-
-void invalidate_golden_sun_palace_table_authorization() {
-    g_golden_sun_palace_table_authorized = false;
-    g_golden_sun_palace_table_invalidated = true;
-    reset_golden_sun_palace_active_region();
-}
-
-void invalidate_golden_sun_palace_table_if_overlapping(
-    std::uint32_t address, std::uint32_t size) {
-    std::uint64_t overlap = 0;
-    if (golden_sun_field_table_overlap(
-            address, size, kGoldenSunFieldMapAddress,
-            kGoldenSunFieldMapAddress + 0x10000u, &overlap) ||
-        golden_sun_field_table_overlap(
-            address, size, kGoldenSunFieldRawAddress,
-            kGoldenSunFieldRawAddress + 0x8000u, &overlap)) {
-        invalidate_golden_sun_palace_table_authorization();
-    }
-}
-
-void record_golden_sun_field_table_write(std::uint32_t address,
-                                         std::uint32_t size) {
-    if (!golden_sun_wide_diagnostics_enabled() || size == 0u) return;
-    const std::uint64_t frame = runtime_current_frame();
-    const std::uint32_t pc = runtime_current_pc();
-    const auto record = [&](const char* table_name,
-                            std::uint32_t table_start,
-                            std::uint32_t table_end,
-                            GoldenSunFieldTableStats* stats,
-                            std::uint64_t* epoch_writes) {
-        std::uint64_t bytes = 0;
-        if (!golden_sun_field_table_overlap(
-                address, size, table_start, table_end, &bytes)) {
-            return;
-        }
-        ++stats->writes;
-        stats->bytes += bytes;
-        if (stats->first_frame == UINT64_MAX) {
-            stats->first_frame = frame;
-            stats->first_pc = pc;
-        }
-        stats->last_frame = frame;
-        stats->last_pc = pc;
-        ++*epoch_writes;
-        if (table_start == kGoldenSunFieldMapAddress) {
-            record_golden_sun_field_producer(
-                g_golden_sun_field_map_producers,
-                &g_golden_sun_field_map_producer_overflow, pc, address,
-                size, bytes, frame);
-        } else {
-            record_golden_sun_field_producer(
-                g_golden_sun_field_raw_producers,
-                &g_golden_sun_field_raw_producer_overflow, pc, address,
-                size, bytes, frame);
-        }
-        if (g_golden_sun_field_table_cpu_logs_in_epoch >=
-                kGoldenSunFieldTableCpuLogLimitPerEpoch) {
-            return;
-        }
-        ++g_golden_sun_field_table_cpu_logs_in_epoch;
-        std::fprintf(
-            stderr,
-            "[wide-field-table] frame=%llu auth_epoch=%llu table=%s "
-            "writer_pc=0x%08x addr=0x%08x size=%u overlap=%llu reason=%s\n",
-            static_cast<unsigned long long>(frame),
-            static_cast<unsigned long long>(g_golden_sun_field_auth_epoch),
-            table_name, pc, address, size,
-            static_cast<unsigned long long>(bytes),
-            golden_sun_wide_policy_reason_name(
-                g_golden_sun_wide_policy_last_reason));
-    };
-    record("map", kGoldenSunFieldMapAddress,
-           kGoldenSunFieldMapAddress + 0x10000u,
-           &g_golden_sun_field_map_writes, &g_golden_sun_field_epoch_map_writes);
-    record("raw", kGoldenSunFieldRawAddress,
-           kGoldenSunFieldRawAddress + 0x8000u,
-           &g_golden_sun_field_raw_writes, &g_golden_sun_field_epoch_raw_writes);
-}
-
 bool golden_sun_dma_destination_bounds(std::uint32_t destination,
                                        std::uint32_t bytes,
                                        std::uint16_t control,
@@ -4784,434 +4128,12 @@ void golden_sun_wide_dma_descriptor_observer(
                 g_golden_sun_obj_visible_provenance[slot]);
         }
     }
-    std::uint32_t first = 0;
-    std::uint32_t span = 0;
-    if (!golden_sun_dma_destination_bounds(
-            destination, bytes, control, &first, &span)) return;
-    // A DMA copy is still a table write for Palace authorization, even when
-    // diagnostics are disabled and no authored-cell bits are changed.
-    invalidate_golden_sun_palace_table_if_overlapping(first, span);
-    if (!golden_sun_wide_diagnostics_enabled()) return;
-    const std::uint64_t frame = runtime_current_frame();
-    const auto record = [&](const char* table_name,
-                            std::uint32_t table_start,
-                            std::uint32_t table_end,
-                            GoldenSunFieldTableStats* stats,
-                            std::uint64_t* epoch_writes) {
-        std::uint64_t overlap = 0;
-        if (!golden_sun_field_table_overlap(
-                first, span, table_start, table_end, &overlap)) return;
-        ++stats->writes;
-        stats->bytes += overlap;
-        if (stats->first_frame == UINT64_MAX) {
-            stats->first_frame = frame;
-            stats->first_pc = pc;
-        }
-        stats->last_frame = frame;
-        stats->last_pc = pc;
-        ++*epoch_writes;
-        if (g_golden_sun_field_table_dma_logs_in_epoch >=
-                kGoldenSunFieldTableDmaLogLimitPerEpoch) return;
-        ++g_golden_sun_field_table_dma_logs_in_epoch;
-        std::fprintf(
-            stderr,
-            "[wide-field-table-dma] frame=%llu auth_epoch=%llu table=%s "
-            "writer_pc=0x%08x src=0x%08x dst=0x%08x size=%u "
-            "overlap=%llu channel=%d start_mode=%d cnt_h=0x%04x "
-            "reason=%s authored_cells=%u\n",
-            static_cast<unsigned long long>(frame),
-            static_cast<unsigned long long>(g_golden_sun_field_auth_epoch),
-            table_name, pc, source, destination, bytes,
-            static_cast<unsigned long long>(overlap), channel, start_mode,
-            control, golden_sun_wide_policy_reason_name(
-                         g_golden_sun_wide_policy_last_reason),
-            g_golden_sun_field_authored.authored_count());
-    };
-    record("map", kGoldenSunFieldMapAddress,
-           kGoldenSunFieldMapAddress + 0x10000u,
-           &g_golden_sun_field_map_dma_writes,
-           &g_golden_sun_field_epoch_map_dma_writes);
-    record("raw", kGoldenSunFieldRawAddress,
-           kGoldenSunFieldRawAddress + 0x8000u,
-           &g_golden_sun_field_raw_dma_writes,
-           &g_golden_sun_field_epoch_raw_dma_writes);
 }
 
-std::uint32_t golden_sun_field_table_crc(const std::uint8_t* ewram,
-                                         std::size_t offset,
-                                         std::size_t bytes) {
-    return ewram ? gba::crc32(ewram + offset, bytes) : 0u;
-}
-
-bool refresh_golden_sun_palace_table_authorization() {
-    if (!g_golden_sun_mode0_split_scroll) {
-        g_golden_sun_palace_table_authorized = false;
-        return false;
-    }
-    if (g_golden_sun_palace_table_invalidated ||
-        g_golden_sun_palace_table_auth_attempted) {
-        return g_golden_sun_palace_table_authorized;
-    }
-    // Fingerprint once after a complete clean split-scroll frame. Subsequent
-    // scanlines rely on the CPU/DMA table-write invalidation observers; CRC is
-    // deliberately not part of the per-scanline provider path.
-    g_golden_sun_palace_table_auth_attempted = true;
-    const gba::GbaBus* bus = gbarecomp::active_bus();
-    if (!bus) {
-        g_golden_sun_palace_table_authorized = false;
-        return false;
-    }
-    const std::uint8_t* ewram = bus->ewram_ptr();
-    const std::uint32_t map_crc = golden_sun_field_table_crc(
-        ewram, kGoldenSunFieldMapOffset, kGoldenSunFieldMapBytes);
-    const std::uint32_t raw_crc = golden_sun_field_table_crc(
-        ewram, kGoldenSunFieldRawOffset, kGoldenSunFieldRawBytes);
-    const bool fingerprint_match =
-        gsr::widescreen::golden_sun_palace_table_fingerprint_matches(
-            map_crc, raw_crc);
-    g_golden_sun_palace_table_authorized = fingerprint_match;
-    if (!fingerprint_match) {
-        // A mismatch is evidence that this is not the measured Palace table.
-        // Latch the failure for this scene/authentication epoch.
-        g_golden_sun_palace_table_invalidated = true;
-    }
-    return g_golden_sun_palace_table_authorized;
-}
-
-bool prepare_golden_sun_palace_active_region(
-    const gba::GbaBus* bus, const std::uint8_t* io) {
-    if (!bus || !io || !g_golden_sun_mode0_split_scroll ||
-        !g_golden_sun_palace_table_authorized) {
-        return false;
-    }
-    const std::array<std::uint16_t, 6> scroll{{
-        gsr::widescreen::read_io16(io, 0x14u),
-        gsr::widescreen::read_io16(io, 0x16u),
-        gsr::widescreen::read_io16(io, 0x18u),
-        gsr::widescreen::read_io16(io, 0x1Au),
-        gsr::widescreen::read_io16(io, 0x1Cu),
-        gsr::widescreen::read_io16(io, 0x1Eu),
-    }};
-    if (!g_golden_sun_palace_region_scroll_valid ||
-        g_golden_sun_palace_region_scroll != scroll) {
-        g_golden_sun_palace_active_region.reset();
-        g_golden_sun_palace_region_scroll = scroll;
-        g_golden_sun_palace_region_scroll_valid = true;
-        g_golden_sun_palace_region_build_attempted = false;
-    }
-    if (!g_golden_sun_palace_region_build_attempted) {
-        g_golden_sun_palace_region_build_attempted = true;
-        g_golden_sun_palace_active_region.build(
-            g_golden_sun_wide_line_dispcnt, io, 0x20u, bus->ewram_ptr(),
-            256u * 1024u, true,
-            std::max(g_golden_sun_wide_extra_left, g_golden_sun_wide_extra_right),
-            std::max(g_golden_sun_wide_extra_top, g_golden_sun_wide_extra_bottom));
-    }
-    return true;
-}
-
-void trace_golden_sun_field_map(const std::uint8_t* ewram) {
-    if (!golden_sun_wide_diagnostics_enabled() ||
-        !ewram || g_golden_sun_wide_field_map_census.size() >= 16u) return;
-    const std::uint64_t frame = runtime_current_frame();
-    if (g_golden_sun_wide_field_map_trace_frame == frame) return;
-    g_golden_sun_wide_field_map_trace_frame = frame;
-    const std::uint32_t map_crc = golden_sun_field_table_crc(
-        ewram, kGoldenSunFieldMapOffset, kGoldenSunFieldMapBytes);
-    const std::uint32_t raw_crc = golden_sun_field_table_crc(
-        ewram, kGoldenSunFieldRawOffset, kGoldenSunFieldRawBytes);
-    for (const auto& census : g_golden_sun_wide_field_map_census) {
-        if (census.auth_epoch == g_golden_sun_field_auth_epoch &&
-            census.map_crc == map_crc && census.raw_crc == raw_crc) {
-            return;
-        }
-    }
-    g_golden_sun_wide_field_map_census.push_back(
-        {g_golden_sun_field_auth_epoch, map_crc, raw_crc});
-    std::array<std::uint16_t, 4096> counts{};
-    for (std::size_t i = 0; i < 128u * 128u; ++i) {
-        const std::size_t off = kGoldenSunFieldMapOffset + i * 4u;
-        const std::uint16_t id = static_cast<std::uint16_t>(
-            (static_cast<std::uint16_t>(ewram[off]) |
-             static_cast<std::uint16_t>(ewram[off + 1u] << 8)) & 0x0FFFu);
-        ++counts[id];
-    }
-    std::array<std::uint16_t, 4> top_ids{};
-    for (std::uint16_t id = 0; id < counts.size(); ++id) {
-        for (std::size_t rank = 0; rank < top_ids.size(); ++rank) {
-            if (counts[id] > counts[top_ids[rank]]) {
-                for (std::size_t j = top_ids.size() - 1u; j > rank; --j)
-                    top_ids[j] = top_ids[j - 1u];
-                top_ids[rank] = id;
-                break;
-            }
-        }
-    }
-    std::fprintf(stderr,
-        "[wide-field-map] frame=%llu auth_epoch=%llu auth_cells=%u "
-        "map_crc=%08x raw_crc=%08x top=%03x:%u,%03x:%u,%03x:%u,%03x:%u\n",
-        frame, static_cast<unsigned long long>(g_golden_sun_field_auth_epoch),
-        g_golden_sun_field_authored.authored_count(), map_crc, raw_crc,
-        top_ids[0], counts[top_ids[0]], top_ids[1], counts[top_ids[1]],
-        top_ids[2], counts[top_ids[2]], top_ids[3], counts[top_ids[3]]);
-}
-
-void trace_golden_sun_wide_scene(std::uint16_t dispcnt,
-                                 const std::uint8_t* io,
-                                 unsigned flags) {
-    if (!golden_sun_wide_diagnostics_enabled() || !g_ws_active || !io ||
-        g_golden_sun_wide_scene_signatures.size() >= 64u)
-        return;
-    std::uint64_t hash = 1469598103934665603ull;
-    const auto mix = [&](std::uint16_t value) {
-        hash ^= value;
-        hash *= 1099511628211ull;
-    };
-    // Deduplicate scene evidence by raster configuration and coarse camera
-    // position (low 5 scroll bits dropped). Raw scroll changes every frame
-    // while walking and would exhaust the 64-entry bound before a later scene.
-    mix(dispcnt);
-    mix(static_cast<std::uint16_t>(flags));
-    for (std::size_t off = 0x08u; off <= 0x0Eu; off += 2u)
-        mix(gsr::widescreen::read_io16(io, off));
-    for (std::size_t off = 0x14u; off <= 0x1Eu; off += 2u)
-        mix(static_cast<std::uint16_t>(
-            gsr::widescreen::read_io16(io, off) & ~0x001Fu));
-    if (std::find(g_golden_sun_wide_scene_signatures.begin(),
-                  g_golden_sun_wide_scene_signatures.end(), hash) !=
-        g_golden_sun_wide_scene_signatures.end()) {
-        return;
-    }
-    g_golden_sun_wide_scene_signatures.push_back(hash);
-    std::fprintf(stderr,
-        "[wide-scene] frame=%llu dispcnt=%04x flags=%x "
-        "bgcnt=%04x/%04x/%04x/%04x scroll=%04x,%04x/%04x,%04x/%04x,%04x\n",
-        runtime_current_frame(), dispcnt, flags,
-        gsr::widescreen::read_io16(io, 0x08u),
-        gsr::widescreen::read_io16(io, 0x0Au),
-        gsr::widescreen::read_io16(io, 0x0Cu),
-        gsr::widescreen::read_io16(io, 0x0Eu),
-        gsr::widescreen::read_io16(io, 0x14u),
-        gsr::widescreen::read_io16(io, 0x16u),
-        gsr::widescreen::read_io16(io, 0x18u),
-        gsr::widescreen::read_io16(io, 0x1Au),
-        gsr::widescreen::read_io16(io, 0x1Cu),
-        gsr::widescreen::read_io16(io, 0x1Eu));
-}
-
-void trace_golden_sun_wide_policy_sample(
-    std::uint64_t frame, std::uint16_t dispcnt, const std::uint8_t* io,
-    unsigned flags, GoldenSunWidePolicyReason reason) {
-    if (!golden_sun_wide_diagnostics_enabled() ||
-        g_golden_sun_wide_policy_sample_end_frame == UINT64_MAX ||
-        frame > g_golden_sun_wide_policy_sample_end_frame ||
-        g_golden_sun_wide_policy_samples_in_window >=
-            kGoldenSunWidePolicySampleLimit ||
-        g_golden_sun_wide_policy_sample_frame == frame) {
-        return;
-    }
-    g_golden_sun_wide_policy_sample_frame = frame;
-    ++g_golden_sun_wide_policy_samples_in_window;
-    ++g_golden_sun_wide_policy_sample_count;
-    const auto read = [&](std::size_t offset) -> std::uint16_t {
-        return io ? gsr::widescreen::read_io16(io, offset) : 0u;
-    };
-    const std::uint16_t bg1_hofs = read(0x14u);
-    const std::uint16_t bg1_vofs = read(0x16u);
-    const std::uint16_t bg2_hofs = read(0x18u);
-    const std::uint16_t bg2_vofs = read(0x1Au);
-    const std::uint16_t bg3_hofs = read(0x1Cu);
-    const std::uint16_t bg3_vofs = read(0x1Eu);
-    std::uint32_t map_crc = 0;
-    std::uint32_t raw_crc = 0;
-    if (const gba::GbaBus* bus = gbarecomp::active_bus()) {
-        const std::uint8_t* ewram = bus->ewram_ptr();
-        map_crc = golden_sun_field_table_crc(
-            ewram, kGoldenSunFieldMapOffset, kGoldenSunFieldMapBytes);
-        raw_crc = golden_sun_field_table_crc(
-            ewram, kGoldenSunFieldRawOffset, kGoldenSunFieldRawBytes);
-        // Reuse the existing bounded census/top-ID trace. It records no map
-        // bytes and deduplicates by auth epoch plus both table CRCs.
-        trace_golden_sun_field_map(ewram);
-    }
-    std::fprintf(
-        stderr,
-        "[wide-policy-sample] frame=%llu transition=%llu sample=%u "
-        "reason=%s flags=%x dispcnt=%04x "
-        "bgcnt=%04x/%04x/%04x/%04x "
-        "raw_scroll=%04x,%04x/%04x,%04x/%04x,%04x "
-        "effective_scroll=%03x,%03x/%03x,%03x/%03x,%03x "
-        "auth_epoch=%llu auth_cells=%u map_crc=%08x raw_crc=%08x "
-        "map_writes=%llu raw_writes=%llu epoch_map_writes=%llu "
-        "epoch_raw_writes=%llu epoch_map_dma=%llu epoch_raw_dma=%llu\n",
-        static_cast<unsigned long long>(frame),
-        static_cast<unsigned long long>(g_golden_sun_wide_policy_sample_transition),
-        g_golden_sun_wide_policy_samples_in_window,
-        golden_sun_wide_policy_reason_name(reason), flags, dispcnt,
-        read(0x08u), read(0x0Au), read(0x0Cu), read(0x0Eu),
-        bg1_hofs, bg1_vofs, bg2_hofs, bg2_vofs, bg3_hofs, bg3_vofs,
-        bg1_hofs & 0x01FFu, bg1_vofs & 0x01FFu,
-        bg2_hofs & 0x01FFu, bg2_vofs & 0x01FFu,
-        bg3_hofs & 0x01FFu, bg3_vofs & 0x01FFu,
-        static_cast<unsigned long long>(g_golden_sun_field_auth_epoch),
-        g_golden_sun_field_authored.authored_count(), map_crc, raw_crc,
-        static_cast<unsigned long long>(g_golden_sun_field_map_writes.writes),
-        static_cast<unsigned long long>(g_golden_sun_field_raw_writes.writes),
-        static_cast<unsigned long long>(g_golden_sun_field_epoch_map_writes),
-        static_cast<unsigned long long>(g_golden_sun_field_epoch_raw_writes),
-        static_cast<unsigned long long>(
-            g_golden_sun_field_epoch_map_dma_writes),
-        static_cast<unsigned long long>(
-            g_golden_sun_field_epoch_raw_dma_writes));
-}
-
-void trace_golden_sun_wide_policy(std::uint16_t dispcnt,
-                                  const std::uint8_t* io,
-                                  unsigned flags,
-                                  GoldenSunWidePolicyReason reason) {
-    if (!golden_sun_wide_diagnostics_enabled()) return;
-    const std::uint64_t frame = runtime_current_frame();
-    const bool changed = !g_golden_sun_wide_policy_seen ||
-        g_golden_sun_wide_policy_last_flags != flags ||
-        g_golden_sun_wide_policy_last_reason != reason;
-    if (changed) {
-        const char* previous = g_golden_sun_wide_policy_seen
-            ? golden_sun_wide_policy_reason_name(
-                  g_golden_sun_wide_policy_last_reason)
-            : "none";
-        ++g_golden_sun_wide_policy_transition_count;
-        g_golden_sun_wide_policy_last_flags = flags;
-        g_golden_sun_wide_policy_last_reason = reason;
-        g_golden_sun_wide_policy_seen = true;
-        if (g_golden_sun_wide_policy_logged_transitions <
-                kGoldenSunWidePolicyTransitionLimit) {
-            ++g_golden_sun_wide_policy_logged_transitions;
-            g_golden_sun_wide_policy_sample_transition =
-                g_golden_sun_wide_policy_transition_count;
-            g_golden_sun_wide_policy_sample_frame = UINT64_MAX;
-            g_golden_sun_wide_policy_samples_in_window = 0;
-            g_golden_sun_wide_policy_sample_end_frame =
-                frame + kGoldenSunWidePolicySampleLimit - 1u;
-            const auto read = [&](std::size_t offset) -> std::uint16_t {
-                return io ? gsr::widescreen::read_io16(io, offset) : 0u;
-            };
-            std::fprintf(
-                stderr,
-                "[wide-policy] frame=%llu transition=%llu from=%s to=%s "
-                "flags=%x dispcnt=%04x bgcnt=%04x/%04x/%04x/%04x "
-                "raw_scroll=%04x,%04x/%04x,%04x/%04x,%04x "
-                "effective_scroll=%03x,%03x/%03x,%03x/%03x,%03x "
-                "auth_epoch=%llu\n",
-                static_cast<unsigned long long>(frame),
-                static_cast<unsigned long long>(
-                    g_golden_sun_wide_policy_transition_count), previous,
-                golden_sun_wide_policy_reason_name(reason), flags, dispcnt,
-                read(0x08u), read(0x0Au), read(0x0Cu), read(0x0Eu),
-                read(0x14u), read(0x16u), read(0x18u), read(0x1Au),
-                read(0x1Cu), read(0x1Eu), read(0x14u) & 0x01FFu,
-                read(0x16u) & 0x01FFu, read(0x18u) & 0x01FFu,
-                read(0x1Au) & 0x01FFu, read(0x1Cu) & 0x01FFu,
-                read(0x1Eu) & 0x01FFu,
-                static_cast<unsigned long long>(g_golden_sun_field_auth_epoch));
-        } else {
-            g_golden_sun_wide_policy_sample_end_frame = UINT64_MAX;
-        }
-    }
-    trace_golden_sun_wide_policy_sample(
-        frame, dispcnt, io, flags, reason);
-}
-
-void report_golden_sun_field_provider_trace(std::uint64_t frame,
-                                            const char* reason);
-void report_golden_sun_palace_margin_diagnostics(std::uint64_t frame,
-                                                 const char* reason);
 void report_golden_sun_obj_y_steady_state_diagnostics(std::uint64_t frame,
                                                      const char* reason);
 void report_golden_sun_obj_y_transition_diagnostics(std::uint64_t frame,
                                                     const char* reason);
-
-const char* golden_sun_field_margin_region(int hw_x, int screen_y,
-                                           std::size_t* out_region) {
-    std::size_t region = 3u; // bottom (the normal provider margin case)
-    const char* name = "bottom";
-    // Vertical rows span the whole output width, so classify them before the
-    // horizontal sides; corners remain attributable to their vertical row.
-    if (screen_y < 0) {
-        region = 2u;
-        name = "top";
-    } else if (screen_y >= static_cast<int>(gsr::widescreen::kNativeHeight)) {
-        region = 3u;
-        name = "bottom";
-    } else if (hw_x < 0) {
-        region = 0u;
-        name = "left";
-    } else if (hw_x >= static_cast<int>(gsr::widescreen::kNativeWidth)) {
-        region = 1u;
-        name = "right";
-    }
-    if (out_region) *out_region = region;
-    return name;
-}
-
-void record_golden_sun_field_map_id_attribution(
-    int bg, int hw_x, int screen_y,
-    const gsr::widescreen::GoldenSunFieldTilemapMetadata& metadata) {
-    if (!golden_sun_wide_diagnostics_enabled() || bg < 0 || bg >= 4 ||
-        !metadata.has_raw_entry) return;
-    std::size_t region = 0;
-    golden_sun_field_margin_region(hw_x, screen_y, &region);
-    auto& entries = g_golden_sun_field_map_id_attribution[
-        static_cast<std::size_t>(bg)][region];
-    for (auto& entry : entries) {
-        if (entry.replacements != 0u && entry.map_id == metadata.map_id) {
-            ++entry.replacements;
-            return;
-        }
-    }
-    for (auto& entry : entries) {
-        if (entry.replacements == 0u) {
-            entry.map_id = metadata.map_id;
-            entry.replacements = 1u;
-            return;
-        }
-    }
-    ++g_golden_sun_field_map_id_attribution_overflow[
-        static_cast<std::size_t>(bg)][region];
-}
-
-void report_golden_sun_field_map_id_attribution(std::uint64_t frame,
-                                                const char* reason) {
-    if (!golden_sun_wide_diagnostics_enabled()) return;
-    static constexpr const char* kRegions[] = {
-        "left", "right", "top", "bottom"};
-    for (std::size_t bg = 0; bg < 4u; ++bg) {
-        for (std::size_t region = 0; region < 4u; ++region) {
-            const auto& entries = g_golden_sun_field_map_id_attribution[bg][region];
-            bool any = g_golden_sun_field_map_id_attribution_overflow[bg][region] != 0u;
-            for (const auto& entry : entries) any |= entry.replacements != 0u;
-            if (!any) continue;
-            std::fprintf(stderr,
-                         "[wide-field-map-id] frame=%llu auth_epoch=%llu "
-                         "reason=%s bg=%zu region=%s overflow=%llu ids=",
-                         static_cast<unsigned long long>(frame),
-                         static_cast<unsigned long long>(g_golden_sun_field_auth_epoch),
-                         reason, bg, kRegions[region],
-                         static_cast<unsigned long long>(
-                             g_golden_sun_field_map_id_attribution_overflow[bg][region]));
-            bool first = true;
-            for (const auto& entry : entries) {
-                if (entry.replacements == 0u) continue;
-                std::fprintf(stderr, "%s%03x:%llu", first ? "" : ",",
-                             entry.map_id,
-                             static_cast<unsigned long long>(entry.replacements));
-                first = false;
-            }
-            std::fputc('\n', stderr);
-        }
-    }
-}
-
-void write_golden_sun_wide_scroll_trace_csv();
 
 void report_golden_sun_wide_diagnostics_at_exit() {
     if (golden_sun_experimental_fixes_enabled()) {
@@ -5244,16 +4166,6 @@ void report_golden_sun_wide_diagnostics_at_exit() {
             g_golden_sun_func1dc8_writer_identity_mismatch),
         static_cast<unsigned long long>(
             g_golden_sun_func1dc8_writer_unknown_variant));
-    if (g_golden_sun_margin_diagnostic_callbacks != 0u) {
-        std::fprintf(
-            stderr,
-            "[wide-margin-summary] callbacks=%llu logged=%llu\n",
-            static_cast<unsigned long long>(
-                g_golden_sun_margin_diagnostic_callbacks),
-            static_cast<unsigned long long>(g_golden_sun_margin_diagnostic_logged));
-        report_golden_sun_margin_diagnostic_sample(
-            runtime_current_frame(), "summary", g_golden_sun_margin_diagnostic_total);
-    }
     gba::vram_trace::OamShadowTraceStats oam_shadow{};
     gba::vram_trace::OamDmaTraceStats oam_dma{};
     gba::vram_trace::get_oam_shadow_trace_stats(&oam_shadow);
@@ -5313,159 +4225,12 @@ void report_golden_sun_wide_diagnostics_at_exit() {
             static_cast<unsigned long long>(g.cycle));
     }
     std::fputc('\n', stderr);
-    std::fprintf(
-        stderr,
-        "[wide-policy-summary] frame=%llu transitions=%llu logged=%llu "
-        "samples=%llu auth_epoch=%llu final_reason=%s final_flags=%x\n",
-        static_cast<unsigned long long>(runtime_current_frame()),
-        static_cast<unsigned long long>(g_golden_sun_wide_policy_transition_count),
-        static_cast<unsigned long long>(g_golden_sun_wide_policy_logged_transitions),
-        static_cast<unsigned long long>(g_golden_sun_wide_policy_sample_count),
-        static_cast<unsigned long long>(g_golden_sun_field_auth_epoch),
-        golden_sun_wide_policy_reason_name(g_golden_sun_wide_policy_last_reason),
-        g_golden_sun_wide_policy_last_flags);
-    report_golden_sun_field_provider_trace(runtime_current_frame(), "exit");
-    report_golden_sun_palace_margin_diagnostics(runtime_current_frame(), "exit");
     report_golden_sun_obj_b328_diagnostics(runtime_current_frame(), "exit");
     report_golden_sun_obj_y_transition_diagnostics(runtime_current_frame(), "exit");
     report_golden_sun_obj_y_steady_state_diagnostics(runtime_current_frame(), "exit");
-    report_golden_sun_field_map_id_attribution(runtime_current_frame(), "exit");
-    report_golden_sun_field_producers("exit");
     report_golden_sun_obj_record_census("exit");
     report_golden_sun_obj_record_values("exit");
     report_golden_sun_obj_commit_order("exit");
-    write_golden_sun_wide_scroll_trace_csv();
-    std::fprintf(
-        stderr,
-        "[wide-field-table-summary] map_writes=%llu map_bytes=%llu "
-        "map_first_frame=%llu map_first_pc=0x%08x map_last_frame=%llu "
-        "map_last_pc=0x%08x raw_writes=%llu raw_bytes=%llu "
-        "raw_first_frame=%llu raw_first_pc=0x%08x raw_last_frame=%llu "
-        "raw_last_pc=0x%08x auth_cells=%u\n",
-        static_cast<unsigned long long>(g_golden_sun_field_map_writes.writes),
-        static_cast<unsigned long long>(g_golden_sun_field_map_writes.bytes),
-        static_cast<unsigned long long>(g_golden_sun_field_map_writes.first_frame),
-        g_golden_sun_field_map_writes.first_pc,
-        static_cast<unsigned long long>(g_golden_sun_field_map_writes.last_frame),
-        g_golden_sun_field_map_writes.last_pc,
-        static_cast<unsigned long long>(g_golden_sun_field_raw_writes.writes),
-        static_cast<unsigned long long>(g_golden_sun_field_raw_writes.bytes),
-        static_cast<unsigned long long>(g_golden_sun_field_raw_writes.first_frame),
-        g_golden_sun_field_raw_writes.first_pc,
-        static_cast<unsigned long long>(g_golden_sun_field_raw_writes.last_frame),
-        g_golden_sun_field_raw_writes.last_pc,
-        g_golden_sun_field_authored.authored_count());
-    std::fprintf(
-        stderr,
-        "[wide-field-table-dma-summary] map_writes=%llu map_bytes=%llu "
-        "raw_writes=%llu raw_bytes=%llu epoch_map_writes=%llu "
-        "epoch_raw_writes=%llu authored_cells=%u\n",
-        static_cast<unsigned long long>(
-            g_golden_sun_field_map_dma_writes.writes),
-        static_cast<unsigned long long>(
-            g_golden_sun_field_map_dma_writes.bytes),
-        static_cast<unsigned long long>(
-            g_golden_sun_field_raw_dma_writes.writes),
-        static_cast<unsigned long long>(
-            g_golden_sun_field_raw_dma_writes.bytes),
-        static_cast<unsigned long long>(
-            g_golden_sun_field_epoch_map_dma_writes),
-        static_cast<unsigned long long>(
-            g_golden_sun_field_epoch_raw_dma_writes),
-        g_golden_sun_field_authored.authored_count());
-}
-
-void report_golden_sun_field_provider_trace(std::uint64_t frame,
-                                             const char* reason) {
-    if (!golden_sun_wide_diagnostics_enabled()) return;
-    for (std::size_t bg = 0; bg < g_golden_sun_field_provider_trace.size();
-         ++bg) {
-        const GoldenSunFieldProviderTrace& stat =
-            g_golden_sun_field_provider_trace[bg];
-        const std::int32_t min_x = stat.calls != 0u ? stat.min_x : 0;
-        const std::int32_t max_x = stat.calls != 0u ? stat.max_x : 0;
-        const std::int32_t min_y = stat.calls != 0u ? stat.min_y : 0;
-        const std::int32_t max_y = stat.calls != 0u ? stat.max_y : 0;
-        std::fprintf(
-            stderr,
-            "[wide-field-provider] frame=%llu auth_epoch=%llu reason=%s "
-            "bg=%zu calls=%llu equal=%llu split=%llu replacements=%llu "
-            "unavailable=%llu precondition=%llu boundary=%llu raw=%llu "
-            "palace_region=%llu lookup_miss=%llu coord=%d..%d,%d..%d\n",
-            static_cast<unsigned long long>(frame),
-            static_cast<unsigned long long>(g_golden_sun_field_auth_epoch),
-            reason, bg, static_cast<unsigned long long>(stat.calls),
-            static_cast<unsigned long long>(stat.equal_scroll_calls),
-            static_cast<unsigned long long>(stat.split_scroll_calls),
-            static_cast<unsigned long long>(stat.replacements),
-            static_cast<unsigned long long>(stat.unavailable),
-            static_cast<unsigned long long>(stat.precondition_rejects),
-            static_cast<unsigned long long>(stat.boundary_rejects),
-            static_cast<unsigned long long>(stat.raw_unavailable),
-            static_cast<unsigned long long>(stat.palace_region_rejects),
-            static_cast<unsigned long long>(stat.lookup_misses), min_x,
-            max_x, min_y, max_y);
-    }
-}
-
-void report_golden_sun_palace_margin_diagnostics(std::uint64_t frame,
-                                                 const char* reason) {
-    if (!golden_sun_wide_diagnostics_enabled()) return;
-    static constexpr const char* kRegions[] = {
-        "left", "right", "top", "bottom"};
-    const auto& diagnostic = g_golden_sun_palace_margin_diagnostics;
-    for (std::size_t bg = 0; bg < GoldenSunPalaceMarginDiagnostics::kBgCount;
-         ++bg) {
-        for (std::size_t region = 0;
-             region < GoldenSunPalaceMarginDiagnostics::kRegionCount;
-             ++region) {
-            for (std::size_t outcome = 0;
-                 outcome < GoldenSunPalaceMarginDiagnostics::kOutcomeCount;
-                 ++outcome) {
-                const std::uint64_t count =
-                    diagnostic.counts[bg][region][outcome];
-                if (count == 0u) continue;
-                std::fprintf(
-                    stderr,
-                    "[wide-palace-margin] frame=%llu auth_epoch=%llu "
-                    "reason=%s bg=%zu region=%s outcome=%s count=%llu\n",
-                    static_cast<unsigned long long>(frame),
-                    static_cast<unsigned long long>(
-                        g_golden_sun_field_auth_epoch),
-                    reason, bg + 1u, kRegions[region],
-                    golden_sun_palace_margin_outcome_name(
-                        static_cast<GoldenSunPalaceMarginOutcome>(outcome)),
-                    static_cast<unsigned long long>(count));
-            }
-        }
-    }
-    for (std::size_t i = 0; i < diagnostic.sample_count; ++i) {
-        const auto& sample = diagnostic.samples[i];
-        static constexpr const char* kSampleRegions[] = {
-            "left", "right", "top", "bottom"};
-        std::fprintf(
-            stderr,
-            "[wide-palace-margin-sample] frame=%llu auth_epoch=%llu "
-            "reason=%s bg=%u region=%s outcome=%s hw_x=%d screen_y=%d "
-            "metadata=%u map_x=%u map_y=%u map_id=0x%03x\n",
-            static_cast<unsigned long long>(frame),
-            static_cast<unsigned long long>(g_golden_sun_field_auth_epoch),
-            reason, static_cast<unsigned>(sample.bg),
-            kSampleRegions[sample.region],
-            golden_sun_palace_margin_outcome_name(sample.outcome),
-            static_cast<int>(sample.hw_x), static_cast<int>(sample.screen_y),
-            sample.metadata_valid ? 1u : 0u,
-            static_cast<unsigned>(sample.map_x),
-            static_cast<unsigned>(sample.map_y),
-            static_cast<unsigned>(sample.map_id));
-    }
-    std::fprintf(stderr,
-                 "[wide-palace-margin-summary] frame=%llu auth_epoch=%llu "
-                 "reason=%s samples=%zu dropped=%llu\n",
-                 static_cast<unsigned long long>(frame),
-                 static_cast<unsigned long long>(g_golden_sun_field_auth_epoch),
-                 reason, diagnostic.sample_count,
-                 static_cast<unsigned long long>(diagnostic.samples_dropped));
 }
 
 void report_golden_sun_obj_y_transition_diagnostics(std::uint64_t frame,
@@ -5603,139 +4368,8 @@ void report_golden_sun_obj_y_steady_state_diagnostics(std::uint64_t frame,
                      g_golden_sun_obj_y_edge_alias_activations));
 }
 
-// Parallax capture: does each BG layer's scroll hold a constant offset/ratio
-// to the gameplay layer within a room, readable from the hardware scroll
-// registers alone? Written to wide_scroll_trace.csv at exit. Gated by
-// GBARECOMP_VRAM_MAP_TRACE like the rest of this file. One row per authentic
-// visible frame (the margin-policy callback fires once per raster line). A
-// ring keeps the last kGoldenSunWideScrollTraceCap frames (~5.5 minutes at
-// 60 fps); older rows are dropped.
-constexpr std::size_t kGoldenSunWideScrollTraceCap = 20000u;
-
-struct GoldenSunWideScrollTraceRow {
-    std::uint64_t frame = 0;
-    std::uint16_t dispcnt = 0;
-    std::uint16_t bg0cnt = 0;
-    std::uint16_t bg1cnt = 0;
-    std::uint16_t bg2cnt = 0;
-    std::uint16_t bg3cnt = 0;
-    std::uint16_t bg0_hofs = 0;
-    std::uint16_t bg0_vofs = 0;
-    std::uint16_t bg1_hofs = 0;
-    std::uint16_t bg1_vofs = 0;
-    std::uint16_t bg2_hofs = 0;
-    std::uint16_t bg2_vofs = 0;
-    std::uint16_t bg3_hofs = 0;
-    std::uint16_t bg3_vofs = 0;
-    std::uint8_t margin_reason = 0;
-    std::uint8_t split_reason = 0;
-    std::uint8_t flags = 0;
-    std::uint32_t map_crc = 0;
-    std::uint32_t raw_crc = 0;
-    std::uint64_t auth_epoch = 0;
-};
-std::array<GoldenSunWideScrollTraceRow, kGoldenSunWideScrollTraceCap>
-    g_golden_sun_wide_scroll_trace{};
-std::uint64_t g_golden_sun_wide_scroll_trace_count = 0;
-std::uint64_t g_golden_sun_wide_scroll_trace_last_frame = UINT64_MAX;
-
-// Record at most one row per frame. The map/raw CRCs use the same
-// golden_sun_field_table_crc and EWRAM offsets as trace_golden_sun_field_map.
-void trace_golden_sun_wide_scroll_row(std::uint16_t dispcnt,
-                                      const std::uint8_t* io,
-                                      GoldenSunWidePolicyReason reason,
-                                      GoldenSunWidePolicyReason split_reason,
-                                      unsigned flags) {
-    if (!golden_sun_wide_diagnostics_enabled() || !io) return;
-    const std::uint64_t frame = runtime_current_frame();
-    if (frame == g_golden_sun_wide_scroll_trace_last_frame) return;
-    g_golden_sun_wide_scroll_trace_last_frame = frame;
-    std::uint32_t map_crc = 0;
-    std::uint32_t raw_crc = 0;
-    if (const gba::GbaBus* bus = gbarecomp::active_bus()) {
-        const std::uint8_t* ewram = bus->ewram_ptr();
-        map_crc = golden_sun_field_table_crc(
-            ewram, kGoldenSunFieldMapOffset, kGoldenSunFieldMapBytes);
-        raw_crc = golden_sun_field_table_crc(
-            ewram, kGoldenSunFieldRawOffset, kGoldenSunFieldRawBytes);
-    }
-    GoldenSunWideScrollTraceRow row{};
-    row.frame = frame;
-    row.dispcnt = dispcnt;
-    row.bg0cnt = gsr::widescreen::read_io16(io, 0x08u);
-    row.bg1cnt = gsr::widescreen::read_io16(io, 0x0Au);
-    row.bg2cnt = gsr::widescreen::read_io16(io, 0x0Cu);
-    row.bg3cnt = gsr::widescreen::read_io16(io, 0x0Eu);
-    row.bg0_hofs = gsr::widescreen::read_io16(io, 0x10u);
-    row.bg0_vofs = gsr::widescreen::read_io16(io, 0x12u);
-    row.bg1_hofs = gsr::widescreen::read_io16(io, 0x14u);
-    row.bg1_vofs = gsr::widescreen::read_io16(io, 0x16u);
-    row.bg2_hofs = gsr::widescreen::read_io16(io, 0x18u);
-    row.bg2_vofs = gsr::widescreen::read_io16(io, 0x1Au);
-    row.bg3_hofs = gsr::widescreen::read_io16(io, 0x1Cu);
-    row.bg3_vofs = gsr::widescreen::read_io16(io, 0x1Eu);
-    row.margin_reason = static_cast<std::uint8_t>(reason);
-    row.split_reason = static_cast<std::uint8_t>(split_reason);
-    row.flags = static_cast<std::uint8_t>(flags);
-    row.map_crc = map_crc;
-    row.raw_crc = raw_crc;
-    row.auth_epoch = g_golden_sun_field_auth_epoch;
-    g_golden_sun_wide_scroll_trace[
-        g_golden_sun_wide_scroll_trace_count % kGoldenSunWideScrollTraceCap] =
-        row;
-    ++g_golden_sun_wide_scroll_trace_count;
-}
-
-// Flush the ring once at exit (metadata only, no map bytes), the same way
-// hang_trace.csv is written in engine/src/runtime/runtime_bus_bridge.cpp.
-void write_golden_sun_wide_scroll_trace_csv() {
-    if (!golden_sun_wide_diagnostics_enabled() ||
-        g_golden_sun_wide_scroll_trace_count == 0u) return;
-    FILE* f = std::fopen("wide_scroll_trace.csv", "w");
-    if (!f) return;
-    std::fprintf(f,
-        "frame,dispcnt,bg0cnt,bg1cnt,bg2cnt,bg3cnt,"
-        "bg0_hofs,bg0_vofs,bg1_hofs,bg1_vofs,bg2_hofs,bg2_vofs,"
-        "bg3_hofs,bg3_vofs,margin_reason,split_reason,flags,"
-        "map_crc,raw_crc,auth_epoch\n");
-    const std::uint64_t count = std::min<std::uint64_t>(
-        g_golden_sun_wide_scroll_trace_count, kGoldenSunWideScrollTraceCap);
-    const std::uint64_t start = g_golden_sun_wide_scroll_trace_count > count
-        ? g_golden_sun_wide_scroll_trace_count % kGoldenSunWideScrollTraceCap
-        : 0u;
-    for (std::uint64_t i = 0; i < count; ++i) {
-        const auto& row = g_golden_sun_wide_scroll_trace[
-            (start + i) % kGoldenSunWideScrollTraceCap];
-        std::fprintf(f,
-            "%llu,0x%04x,0x%04x,0x%04x,0x%04x,0x%04x,"
-            "0x%04x,0x%04x,0x%04x,0x%04x,0x%04x,0x%04x,0x%04x,0x%04x,"
-            "%s,%s,0x%x,0x%08x,0x%08x,%llu\n",
-            static_cast<unsigned long long>(row.frame), row.dispcnt,
-            row.bg0cnt, row.bg1cnt, row.bg2cnt, row.bg3cnt,
-            row.bg0_hofs, row.bg0_vofs, row.bg1_hofs, row.bg1_vofs,
-            row.bg2_hofs, row.bg2_vofs, row.bg3_hofs, row.bg3_vofs,
-            golden_sun_wide_policy_reason_name(
-                static_cast<GoldenSunWidePolicyReason>(row.margin_reason)),
-            golden_sun_wide_policy_reason_name(
-                static_cast<GoldenSunWidePolicyReason>(row.split_reason)),
-            row.flags, row.map_crc, row.raw_crc,
-            static_cast<unsigned long long>(row.auth_epoch));
-    }
-    std::fclose(f);
-    std::fprintf(stderr,
-        "[wide-scroll-trace] wrote wide_scroll_trace.csv (%llu of %llu "
-        "frame rows, ring cap %zu)\n",
-        static_cast<unsigned long long>(count),
-        static_cast<unsigned long long>(g_golden_sun_wide_scroll_trace_count),
-        kGoldenSunWideScrollTraceCap);
-}
-
-void maybe_report_golden_sun_cull_trace();
-
-// Decide once per rendered row whether this is a battle frame and where its
-// live scene band starts and ends. The per-pixel provider below extends the
-// enabled arena layers through the side margins; the native rows remain on
-// the normal streaming path.
+// Refresh battle backdrop state once per rendered row so the OBJ providers
+// know when a battle frame is active.
 
 void golden_sun_update_battle_backdrop(std::uint16_t dispcnt,
                                        const std::uint8_t* io) {
@@ -5804,20 +4438,6 @@ void golden_sun_update_battle_backdrop(std::uint16_t dispcnt,
         }
     }
     g_golden_sun_battle_backdrop_state = next;
-    const unsigned layers = next.active
-        ? (static_cast<unsigned>(dispcnt >> 8) & 0x0Fu) : 0u;
-    gba::g_ws_bg_sample_provider_layers = layers;
-    const unsigned arena_layers =
-        (next.backdrop_margin_allowed
-             ? (1u << gsr::battle::kBackdropLayer) : 0u) |
-        (next.affine_margin_allowed
-             ? (1u << gsr::battle::kArenaAffineLayer) : 0u);
-    // Only remapped arena margin samples bypass the guest window. Native
-    // center samples keep the ordinary WIN0/WIN1/OBJ-window and blend
-    // decisions; the affine renderer explicitly retains that behavior for
-    // provider no-ops on native columns.
-    gba::g_ws_bg_sample_provider_ignore_window_layers =
-        next.active ? (layers & arena_layers) : 0u;
     // No vertical remap is used, so every native row stays on the normal
     // streaming path for battle and field frames alike.
     gba::g_ws_defer_native_rows = 0;
@@ -5826,6 +4446,8 @@ void golden_sun_update_battle_backdrop(std::uint16_t dispcnt,
     // g_ws_row_state_dump_mode): what this rule decided, once per frame.
     // Without it a capture shows what the game did but not what we did about it.
     if (gba::g_ws_row_state_dump_mode >= 0) {
+        const unsigned layers = next.active
+            ? (static_cast<unsigned>(dispcnt >> 8) & 0x0Fu) : 0u;
         static std::uint64_t last_frame = ~std::uint64_t{0};
         static unsigned long long lines = 0;
         const std::uint64_t frame = runtime_current_frame();
@@ -5851,341 +4473,10 @@ void golden_sun_update_battle_backdrop(std::uint16_t dispcnt,
     }
 }
 
-// Keep the native battle composition in the centre. Enabled battle BG layers
-// answer side-margin samples only inside the live WIN0V scene band; menus and
-// every other layer remain suppressed outside the authentic
-// 240x160 rectangle.
-int golden_sun_battle_bg_sample_provider(int bg, int output_x, int screen_y,
-                                         int* out_hw_x, int* out_hw_y) {
-    const GoldenSunBattleBackdrop& st = g_golden_sun_battle_backdrop_state;
-    if (!st.active || out_hw_x == nullptr || out_hw_y == nullptr) return 0;
-    const int native_w = static_cast<int>(gsr::widescreen::kNativeWidth);
-    const int native_h = static_cast<int>(gsr::widescreen::kNativeHeight);
-    const int out_x =
-        output_x - static_cast<int>(g_golden_sun_wide_extra_left);
-    const bool side_margin = out_x < 0 || out_x >= native_w;
-    const bool native_row = screen_y >= 0 && screen_y < native_h;
-
-    if (!side_margin) return 0;
-    if ((bg == static_cast<int>(gsr::battle::kBackdropLayer) &&
-         st.backdrop_margin_allowed) ||
-        (bg == static_cast<int>(gsr::battle::kArenaAffineLayer) &&
-         st.affine_margin_allowed)) {
-        if (!native_row) return -1;
-        if (screen_y < st.band_top || screen_y >= st.band_bottom) return -1;
-        *out_hw_x = out_x;
-        *out_hw_y = screen_y;
-        return 1;
-    }
-    // BG0 menus and any other BG remain inside the native rectangle. Returning
-    // -1 prevents the generic wrapped margin fetch while leaving each center
-    // pixel on the hardware compositor's normal path.
-    return -1;
-}
-
-unsigned golden_sun_room_buffer_margin_policy(std::uint16_t dispcnt,
-                                              const std::uint8_t* io) {
+unsigned golden_sun_margin_policy(std::uint16_t dispcnt,
+                                  const std::uint8_t* io) {
     golden_sun_update_battle_backdrop(dispcnt, io);
-    if (g_golden_sun_battle_backdrop_state.active) {
-        // Battle keeps the established rule: its arena layers are placed by
-        // the sample provider, which already bypasses the guest window, and
-        // the remaining battle layers must not be let into the margins.
-        gba::g_ws_authored_margin_layers = 0;
-        return gsr::widescreen::kPillarboxVertical;
-    }
-    // Outside battle the room buffer owns the margins, so an expanded column
-    // lies outside every WIN0/WIN1 rectangle the game set for the authentic
-    // 240 and WINOUT controls it -- the same contract the PPU documents for a
-    // room provider. Without this the renderer blanks the WHOLE margin on
-    // every row whose window does not span all 240 authentic columns
-    // (black_nonuniform_window_margins). Measured in the Tret approach: the
-    // drawn strip is exactly 240 columns wide across an 81-row band
-    // (authentic rows 40..120), both margins black, which is that rule firing
-    // for the light window the game runs there.
-    gba::g_ws_authored_margin_layers = 1;
     return 0u;
-}
-
-unsigned golden_sun_wide_margin_policy_callback(
-    std::uint16_t dispcnt, const std::uint8_t* io) {
-    golden_sun_update_battle_backdrop(dispcnt, io);
-    maybe_report_golden_sun_cull_trace();
-    const GoldenSunWidePolicyReason reason =
-        gsr::widescreen::golden_sun_wide_margin_policy_reason(dispcnt, io);
-    const GoldenSunWidePolicyReason split_reason =
-        gsr::widescreen::golden_sun_mode0_split_scroll_policy_reason(
-            dispcnt, io);
-    const unsigned generic_flags =
-        gsr::widescreen::golden_sun_wide_margin_policy(
-        dispcnt, io);
-    const bool split_row = split_reason ==
-        GoldenSunWidePolicyReason::AuthorizedMode0SplitScroll;
-    // The runtime calls this policy once for each authentic visible raster
-    // line. Signed top/bottom rows are synthesized later from the latched
-    // edge state and must not make a clean guest frame impossible to complete.
-    const std::uint32_t expected_rows = gsr::widescreen::kNativeHeight;
-    const bool split_frame_authorized =
-        g_golden_sun_mode0_split_scroll_frame.observe(
-            runtime_current_frame(), split_row, expected_rows);
-    // Terrain-only Mode0ScrollMismatch field (non-Palace split scroll): a
-    // direct per-row classification, not a multi-frame stability gate. No
-    // cross-layer offset is trusted, only the terrain layer's own live
-    // register (see golden_sun_field_terrain_bg / golden_sun_wide_tilemap_provider).
-    const bool terrain_field_row =
-        !split_frame_authorized &&
-        reason == GoldenSunWidePolicyReason::Mode0ScrollMismatch;
-    g_golden_sun_mode0_terrain_field = terrain_field_row;
-    const unsigned flags =
-        g_golden_sun_battle_backdrop_state.active
-            ? gsr::widescreen::kPillarboxVertical
-            : (split_frame_authorized || terrain_field_row) ? 0u
-                                                              : generic_flags;
-    trace_golden_sun_wide_scene(dispcnt, io, flags);
-    if (io) {
-        std::memcpy(g_golden_sun_wide_line_io.data(), io,
-                    g_golden_sun_wide_line_io.size());
-        g_golden_sun_wide_line_io_valid = true;
-        g_golden_sun_wide_line_dispcnt = dispcnt;
-    } else {
-        g_golden_sun_wide_line_io_valid = false;
-        g_golden_sun_wide_line_dispcnt = 0;
-    }
-    // The BG X-provider has no IO arguments, so publish this per-scanline
-    // scene bit just before the PPU invokes it; invalid/transition frames
-    // then cannot inherit Mode 0 cutoff behaviour.
-    // Equal-scroll field/object authorization stays separate from the
-    // complete-frame Palace split-scroll authorization: a split-scroll frame
-    // must not inherit the equal-scroll object's culls.
-    g_golden_sun_mode0_field =
-        reason == GoldenSunWidePolicyReason::AuthorizedMode0;
-    g_golden_sun_mode0_split_scroll = split_frame_authorized;
-    if (!split_frame_authorized) {
-        const bool had_palace_cache =
-            g_golden_sun_palace_table_authorized ||
-            g_golden_sun_palace_region_scroll_valid ||
-            g_golden_sun_palace_region_build_attempted;
-        g_golden_sun_palace_table_authorized = false;
-        if (had_palace_cache) reset_golden_sun_palace_active_region();
-    } else {
-        refresh_golden_sun_palace_table_authorization();
-    }
-    // The metatile table's "authored" bitmap is keyed to this exact scene
-    // signal. Clear it on every field/split/non-field transition so restored
-    // contents cannot authorize a new scene.
-    const GoldenSunFieldAuthScene auth_scene =
-        g_golden_sun_mode0_field
-            ? GoldenSunFieldAuthScene::EqualScroll
-            : split_row ? GoldenSunFieldAuthScene::SplitScroll
-                        : GoldenSunFieldAuthScene::None;
-    if (auth_scene != g_golden_sun_field_auth_scene) {
-        g_golden_sun_field_authored.reset();
-        begin_golden_sun_field_auth_epoch();
-        g_golden_sun_field_auth_scene = auth_scene;
-    }
-    // Func_b168 is measured in both the equal-scroll field and the two stable
-    // Palace intervals. Keep object authorization narrower than generic Mode 0
-    // by sharing only these authenticated map classes.
-    g_golden_sun_expanded_obj_scene = g_golden_sun_mode0_field ||
-        g_golden_sun_mode0_split_scroll;
-    const GoldenSunWidePolicyReason effective_reason = split_frame_authorized
-        ? split_reason : reason;
-    trace_golden_sun_wide_policy(dispcnt, io, flags, effective_reason);
-    trace_golden_sun_wide_scroll_row(dispcnt, io, reason, split_reason, flags);
-    return flags;
-}
-
-int golden_sun_wide_tilemap_provider(int bg, int hw_x, int screen_y,
-                                     std::uint16_t* out_entry) {
-    const gba::GbaBus* bus = gbarecomp::active_bus();
-    const bool equal_scroll_field = g_golden_sun_mode0_field;
-    const bool split_scroll_palace = g_golden_sun_mode0_split_scroll &&
-        g_golden_sun_palace_table_authorized;
-    // Terrain-only non-Palace split-scroll field; see
-    // golden_sun_field_terrain_bg. Already exclusive with the Palace path
-    // (g_golden_sun_mode0_terrain_field is set only when
-    // split_frame_authorized is false); the check is kept explicit.
-    const bool terrain_field =
-        g_golden_sun_mode0_terrain_field && !split_scroll_palace;
-    const int terrain_bg = terrain_field
-        ? gsr::widescreen::golden_sun_field_terrain_bg(
-              g_golden_sun_wide_line_dispcnt)
-        : 0;
-
-    GoldenSunFieldProviderTrace* trace = nullptr;
-    if (golden_sun_wide_diagnostics_enabled() && bg >= 0 && bg < 4) {
-        trace = &g_golden_sun_field_provider_trace[
-            static_cast<std::size_t>(bg)];
-        ++trace->calls;
-        if (equal_scroll_field) ++trace->equal_scroll_calls;
-        else if (split_scroll_palace) ++trace->split_scroll_calls;
-        trace->min_x = std::min(trace->min_x,
-                                static_cast<std::int32_t>(hw_x));
-        trace->max_x = std::max(trace->max_x,
-                                static_cast<std::int32_t>(hw_x));
-        trace->min_y = std::min(trace->min_y,
-                                static_cast<std::int32_t>(screen_y));
-        trace->max_y = std::max(trace->max_y,
-                                static_cast<std::int32_t>(screen_y));
-    }
-    const auto reject = [&](bool precondition, bool boundary, bool raw,
-                            bool lookup_miss) {
-        if (trace) {
-            ++trace->unavailable;
-            if (precondition) ++trace->precondition_rejects;
-            if (boundary) ++trace->boundary_rejects;
-            if (raw) ++trace->raw_unavailable;
-            if (lookup_miss) ++trace->lookup_misses;
-        }
-        return gba::kWsTilemapUnavailable;
-    };
-    const auto replace = [&] {
-        if (trace) ++trace->replacements;
-        return gba::kWsTilemapReplace;
-    };
-    if (!g_ws_active ||
-        (!equal_scroll_field && !split_scroll_palace && !terrain_field) ||
-        !g_golden_sun_wide_line_io_valid) {
-        return reject(true, false, false, false);
-    }
-    // The terrain-only field draws margins solely from its own gameplay
-    // layer; every other BG index contributes nothing outside the native
-    // canvas rather than guessing a cross-layer position for it.
-    if (terrain_field && bg != terrain_bg) {
-        return reject(false, true, false, false);
-    }
-    // This is a presentation-time read of the already-active EWRAM image.
-    // It does not use bus_read_* and therefore cannot mutate guest timing or
-    // device state while the PPU is compositing the scanline.
-    if (!bus) {
-        return reject(true, false, false, false);
-    }
-    trace_golden_sun_field_map(bus->ewram_ptr());
-    if (split_scroll_palace) {
-        // The active-region cache is constructed only after the exact Palace
-        // table fingerprint has authorized this scene.  A missing seed or a
-        // stale cache therefore fails closed for every Palace layer.
-        prepare_golden_sun_palace_active_region(
-            bus, g_golden_sun_wide_line_io.data());
-    }
-
-    if (equal_scroll_field) {
-        // BG3 remains the cross-layer boundary oracle for equal-scroll field
-        // maps. Authored ownership is intentionally not required here because
-        // restored tables may have no post-restore bitmap bits.
-        std::uint16_t boundary_entry = 0;
-        gsr::widescreen::GoldenSunFieldTilemapMetadata boundary_metadata;
-        const bool boundary_resolved =
-            gsr::widescreen::golden_sun_field_tilemap_entry(
-                g_golden_sun_wide_line_dispcnt,
-                g_golden_sun_wide_line_io.data(),
-                g_golden_sun_wide_line_io.size(), bus->ewram_ptr(),
-                256u * 1024u, 3, hw_x, screen_y, &boundary_entry,
-                &boundary_metadata, nullptr, false, false, false,
-                g_golden_sun_wide_extra_left, g_golden_sun_wide_extra_right,
-                g_golden_sun_wide_extra_top, g_golden_sun_wide_extra_bottom);
-        if (gsr::widescreen::golden_sun_field_atlas_unavailable(
-                boundary_metadata)) {
-            return reject(false, true, true, false);
-        }
-
-        if (bg == 3) {
-            if (boundary_resolved) *out_entry = boundary_entry;
-            if (boundary_resolved)
-                record_golden_sun_field_map_id_attribution(
-                    bg, hw_x, screen_y, boundary_metadata);
-            return boundary_resolved ? replace()
-                                     : reject(false, false, false, true);
-        }
-    }
-
-    // The terrain layer (when active) and every equal-scroll/Palace layer
-    // read their own live raw scroll register; no cross-layer reconstruction.
-    gsr::widescreen::GoldenSunFieldTilemapMetadata metadata;
-    const bool resolved = gsr::widescreen::golden_sun_field_tilemap_entry(
-                g_golden_sun_wide_line_dispcnt,
-                g_golden_sun_wide_line_io.data(),
-                g_golden_sun_wide_line_io.size(), bus->ewram_ptr(),
-                256u * 1024u, bg, hw_x, screen_y, out_entry, &metadata,
-                nullptr, false, split_scroll_palace, terrain_field,
-                g_golden_sun_wide_extra_left, g_golden_sun_wide_extra_right,
-                g_golden_sun_wide_extra_top, g_golden_sun_wide_extra_bottom);
-    const auto record_palace = [&](GoldenSunPalaceMarginOutcome outcome) {
-        if (split_scroll_palace)
-            g_golden_sun_palace_margin_diagnostics.record(
-                bg, hw_x, screen_y, outcome, metadata,
-                resolved || metadata.has_raw_entry);
-    };
-    // Equal-scroll BG3 is the cross-layer boundary oracle above. Palace's
-    // split-scroll class deliberately does not use BG3 for BG1/BG2; every
-    // layer still rejects its own measured unavailable source and bad bounds.
-    if (gsr::widescreen::golden_sun_field_atlas_unavailable(metadata)) {
-        if (split_scroll_palace)
-            record_palace(metadata.map_id == gsr::widescreen::kGoldenSunPalaceNoMapId
-                              ? GoldenSunPalaceMarginOutcome::RejectedFill
-                              : GoldenSunPalaceMarginOutcome::RejectedRaw);
-        return reject(false, false, true, false);
-    }
-    if (split_scroll_palace &&
-        !g_golden_sun_palace_active_region.reachable(
-            bg, metadata.map_x, metadata.map_y)) {
-        record_palace(metadata.map_id == gsr::widescreen::kGoldenSunPalaceNoMapId
-                          ? GoldenSunPalaceMarginOutcome::RejectedFill
-                          : GoldenSunPalaceMarginOutcome::RejectedMask);
-        if (trace) ++trace->palace_region_rejects;
-        return reject(false, true, false, false);
-    }
-    if (split_scroll_palace && resolved) {
-        record_palace(g_golden_sun_palace_active_region.seeded(
-                          bg, metadata.map_x, metadata.map_y)
-                          ? GoldenSunPalaceMarginOutcome::AcceptedNativeSeed
-                          : GoldenSunPalaceMarginOutcome::AcceptedConnected);
-    } else if (split_scroll_palace) {
-        record_palace(GoldenSunPalaceMarginOutcome::RejectedLookup);
-    }
-    if (resolved)
-        record_golden_sun_field_map_id_attribution(
-            bg, hw_x, screen_y, metadata);
-    return resolved ? replace() : reject(false, false, false, true);
-}
-
-int golden_sun_wide_bg_x_provider(
-    int bg, int output_x,
-    int screen_y,  // Arrives in hardware space from the PPU: native rows are
-                   // 0..159, margins are negative (top) or >=160 (bottom).
-    int*) {
-    // This provider is only for the expanded output. The runtime leaves
-    // game-owned hooks installed across a live toggle, so avoid touching the
-    // native/supersampled path while the view is back at 240 pixels.
-    if (!g_ws_active) return 0;
-    // golden_sun_suppress_bg0_margin expects canvas-space Y (0..extra_top +
-    // 160 + extra_bottom, native window at [extra_top, extra_top+160)) to
-    // match output_x's canvas space, so shift hardware-space screen_y here.
-    const int canvas_y =
-        screen_y + static_cast<int>(g_golden_sun_wide_extra_top);
-    if (gsr::widescreen::golden_sun_suppress_bg0_margin(
-            bg, output_x, canvas_y, g_golden_sun_wide_extra_left,
-            g_golden_sun_wide_extra_right, g_golden_sun_wide_extra_top,
-            g_golden_sun_wide_extra_bottom)) {
-        return -1;
-    }
-    return 0;
-}
-
-int golden_sun_wide_obj_x_provider(int raw_x, int* out_x) {
-    // The GBA OBJ X field is nine bits and normally decodes 0x100..0x1FF as
-    // -256..-1.  Golden Sun's town field is already scene-authenticated by
-    // the margin policy; reinterpret only the raw values needed to cover the
-    // widened right edge: raw X from 0x100 up to 240 plus the right margin.
-    // Values outside that envelope keep the hardware signed decode, and
-    // non-field scenes never opt into this hook.
-    if (!g_ws_active || !out_x ||
-        !gsr::widescreen::golden_sun_field_obj_x_authorized(
-            g_golden_sun_expanded_obj_scene, raw_x,
-            g_golden_sun_wide_extra_right)) {
-        return 0;
-    }
-    *out_x = raw_x;
-    return 1;
 }
 
 void clear_golden_sun_obj_y_provenance() {
@@ -6254,7 +4545,7 @@ GoldenSunObjStagingProvenance* allocate_golden_sun_obj_staging(
 // stores screen space verbatim. So each record pattern is also compared
 // against the captured value with the camera's integer pixel position added
 // and subtracted, covering both world-to-screen sign conventions. The camera
-// (x then y) is read once per sample as room_buffer.cpp decodes it: the high
+// (x then y) is read once per sample as the room tables store it: the high
 // 16 bits of each 32-bit field, read unsigned via bus_read_u16.
 constexpr std::uint32_t kGoldenSunObjPositionProbeWindowBytes = 0x38u;
 enum GoldenSunObjPositionProbeEncoding {
@@ -6787,7 +5078,7 @@ void trace_golden_sun_obj_y_attempt(std::uint32_t instruction_pc,
                  static_cast<unsigned long long>(g_golden_sun_field_auth_epoch),
                  reason, instruction_pc, g_cpu.R[7], address,
                  address_valid ? 1u : 0u, slot, candidate_y,
-                 g_golden_sun_expanded_obj_scene ? 1u : 0u,
+                 golden_sun_expanded_obj_view_active() ? 1u : 0u,
                  g_ws_active ? 1u : 0u, g_golden_sun_wide_extra_top,
                  g_golden_sun_wide_extra_bottom);
 }
@@ -7278,7 +5569,7 @@ constexpr int kGoldenSunWorldSideFirstRawY = 128;
 //   focus actor     [[0x03001EBC] + 0x1E0]
 // dz = actor z - focus z: positive is below the player on screen (town 162.2 at
 // frame 0086 -> raw 206; 72.7 at 0087 -> raw 116), negative is above.
-// The same block-number test as world_map_margin_hold() decides "world map".
+// The same block-number test as world_map_blocks() decides "world map".
 const std::uint32_t kGoldenSunActorContextPtr = gs::ram(0x03001EBCu);
 constexpr std::uint32_t kGoldenSunActorTableOffset = 0x14u;
 constexpr std::uint32_t kGoldenSunActorFocusOffset = 0x1E0u;
@@ -8200,8 +6491,6 @@ std::array<GoldenSunCullTrace, 10> g_golden_sun_cull_trace{{
     {gs::rom(0x0800C6FAu)}, {gs::rom(0x0800C702u)}, {gs::rom(0x0800C708u)},
 }};
 
-std::uint64_t g_golden_sun_cull_last_report_frame = UINT64_MAX;
-
 void report_golden_sun_cull_trace(std::uint64_t frame,
                                   const char* reason) {
     if (!golden_sun_wide_diagnostics_enabled()) return;
@@ -8223,90 +6512,6 @@ void report_golden_sun_cull_trace(std::uint64_t frame,
             static_cast<unsigned long long>(stat.inactive_rejects), min_coord,
             max_coord);
     }
-}
-
-void begin_golden_sun_field_auth_epoch() {
-    if (golden_sun_wide_diagnostics_enabled()) {
-        report_golden_sun_cull_trace(runtime_current_frame(),
-                                     "auth-epoch-end");
-        report_golden_sun_field_provider_trace(runtime_current_frame(),
-                                               "auth-epoch-end");
-        report_golden_sun_palace_margin_diagnostics(runtime_current_frame(),
-                                                    "auth-epoch-end");
-        report_golden_sun_obj_b328_diagnostics(runtime_current_frame(),
-                                               "auth-epoch-end");
-        report_golden_sun_obj_y_transition_diagnostics(
-            runtime_current_frame(), "auth-epoch-end");
-        report_golden_sun_obj_y_steady_state_diagnostics(runtime_current_frame(),
-                                                         "auth-epoch-end");
-        report_golden_sun_field_map_id_attribution(runtime_current_frame(),
-                                                   "auth-epoch-end");
-        report_golden_sun_field_producers("auth-epoch-end");
-        report_golden_sun_obj_record_census("auth-epoch-end");
-        report_golden_sun_obj_record_values("auth-epoch-end");
-        report_golden_sun_obj_commit_order("auth-epoch-end");
-    }
-    clear_golden_sun_obj_y_provenance();
-    g_golden_sun_obj_y_provenance_logs_in_epoch = 0;
-    reset_golden_sun_obj_y_alias_diagnostics();
-    reset_golden_sun_field_producers();
-    reset_golden_sun_obj_record_census();
-    reset_golden_sun_obj_record_value_events();
-    reset_golden_sun_obj_commit_order();
-    g_golden_sun_field_provider_trace = {};
-    g_golden_sun_palace_margin_diagnostics.reset();
-    g_golden_sun_obj_y_slot_diagnostics = {};
-    g_golden_sun_field_map_id_attribution = {};
-    g_golden_sun_field_map_id_attribution_overflow = {};
-    for (auto& stat : g_golden_sun_cull_trace) {
-        const std::uint32_t pc = stat.pc;
-        stat = {};
-        stat.pc = pc;
-    }
-    ++g_golden_sun_field_auth_epoch;
-    g_golden_sun_palace_table_authorized = false;
-    g_golden_sun_palace_table_invalidated = false;
-    g_golden_sun_palace_table_auth_attempted = false;
-    reset_golden_sun_palace_active_region();
-    g_golden_sun_field_epoch_map_writes = 0;
-    g_golden_sun_field_epoch_raw_writes = 0;
-    g_golden_sun_field_epoch_map_dma_writes = 0;
-    g_golden_sun_field_epoch_raw_dma_writes = 0;
-    g_golden_sun_field_table_cpu_logs_in_epoch = 0;
-    g_golden_sun_field_table_dma_logs_in_epoch = 0;
-    const bool vram_rearmed = gba::vram_trace::rearm_bounded_window();
-    // OAM ATTR0 provenance is window-local just like the VRAM writer trace;
-    // do not let a prior authenticated scene contaminate the next handoff.
-    gba::vram_trace::reset_oam_trace_window();
-    if (golden_sun_wide_diagnostics_enabled()) {
-        std::fprintf(stderr,
-                     "[wide-auth-epoch] frame=%llu auth_epoch=%llu "
-                     "vram_trace_rearmed=%u\n",
-                     static_cast<unsigned long long>(runtime_current_frame()),
-                     static_cast<unsigned long long>(
-                         g_golden_sun_field_auth_epoch),
-                     vram_rearmed ? 1u : 0u);
-        // CRASH-03 provenance: re-CRC the pool-LDM stack window at every
-        // auth-epoch boundary so a stale-since-load window is visible in
-        // session logs without retaining guest bytes.
-        runtime_note_pool_ldm_epoch_crc();
-    }
-}
-
-void maybe_report_golden_sun_cull_trace() {
-    if (!golden_sun_wide_diagnostics_enabled()) return;
-    const std::uint64_t frame = runtime_current_frame();
-    // This callback runs once per scanline.  The object-scene bit can change
-    // between scanlines as DISPCNT transitions, so using it as an immediate
-    // report trigger floods stderr during map transitions and stalls the
-    // game thread.  Cull evidence is diagnostic only; sample it periodically.
-    if (g_golden_sun_cull_last_report_frame == UINT64_MAX) {
-        g_golden_sun_cull_last_report_frame = frame;
-        return;
-    }
-    if (frame < g_golden_sun_cull_last_report_frame + 120u) return;
-    report_golden_sun_cull_trace(frame, "periodic");
-    g_golden_sun_cull_last_report_frame = frame;
 }
 
 void report_golden_sun_cull_trace_at_exit() {
@@ -8703,16 +6908,10 @@ namespace {
 void golden_sun_wide_ewram_write_observer(std::uint32_t address,
                                           std::uint32_t size) {
     // DMA has descriptor-level provenance and must not be misreported as a
-    // CPU store or establish authored-cell identity one copied unit at a time.
+    // CPU store.
     if (gba::vram_trace::dma_active()) return;
     record_golden_sun_obj_ewram_write(address, size);
     record_golden_sun_obj_boulder_field_write(address, size);
-    invalidate_golden_sun_palace_table_if_overlapping(address, size);
-    // A loaded savestate can contain a populated table before any post-load
-    // CPU store repopulates the bitmap; the provider stays fail-closed until
-    // current-epoch CPU ownership is observed.
-    g_golden_sun_field_authored.mark_write(address, size);
-    record_golden_sun_field_table_write(address, size);
     // The room-load EWRAM write recorder (GSR_MAP_RECORD) needs the same
     // every-store feed to recover the room-bounds struct offsets. One cheap
     // branch when the recorder is disabled.
@@ -8829,65 +7028,19 @@ void install_golden_sun_widescreen(std::uint32_t extra_left,
     g_golden_sun_wide_extra_top = extra_top;
     g_golden_sun_wide_extra_bottom = extra_bottom;
     // Geometry changes do not change the room or the identities of its
-    // sprites. Keep their tracking; only the bounded Palace reach depends
-    // on the extent of the newly visible margins.
-    if (gba::g_ws_tilemap_provider == golden_sun_wide_tilemap_provider) {
-        reset_golden_sun_palace_active_region();
+    // sprites; keep their tracking across aspect/view switches.
+    if (gba::g_ws_margin_policy == golden_sun_margin_policy) {
         return;
     }
-    g_golden_sun_mode0_field = false;
-    g_golden_sun_mode0_split_scroll = false;
-    g_golden_sun_mode0_split_scroll_frame.reset();
-    g_golden_sun_expanded_obj_scene = false;
     clear_golden_sun_obj_y_provenance();
     reset_golden_sun_func1dc8_writer_diagnostics();
     g_golden_sun_obj_y_provenance_logs_in_epoch = 0;
     reset_golden_sun_obj_y_alias_diagnostics();
-    g_golden_sun_wide_line_io_valid = false;
-    g_golden_sun_wide_line_dispcnt = 0;
-    g_golden_sun_field_authored.reset();
-    g_golden_sun_field_auth_scene = GoldenSunFieldAuthScene::None;
-    g_golden_sun_wide_field_map_census.clear();
-    g_golden_sun_wide_field_map_trace_frame = UINT64_MAX;
     g_golden_sun_field_auth_epoch = 0;
-    g_golden_sun_palace_table_authorized = false;
-    g_golden_sun_palace_table_invalidated = false;
-    g_golden_sun_palace_table_auth_attempted = false;
-    reset_golden_sun_palace_active_region();
-    g_golden_sun_field_map_writes = {};
-    g_golden_sun_field_raw_writes = {};
-    g_golden_sun_field_map_dma_writes = {};
-    g_golden_sun_field_raw_dma_writes = {};
-    g_golden_sun_field_provider_trace = {};
-    g_golden_sun_field_map_id_attribution = {};
-    g_golden_sun_field_map_id_attribution_overflow = {};
-    reset_golden_sun_field_producers();
     reset_golden_sun_obj_record_census();
     reset_golden_sun_obj_record_value_events();
     reset_golden_sun_obj_commit_order();
-    g_golden_sun_field_epoch_map_writes = 0;
-    g_golden_sun_field_epoch_raw_writes = 0;
-    g_golden_sun_field_epoch_map_dma_writes = 0;
-    g_golden_sun_field_epoch_raw_dma_writes = 0;
-    g_golden_sun_field_table_cpu_logs_in_epoch = 0;
-    g_golden_sun_field_table_dma_logs_in_epoch = 0;
     gba::vram_trace::reset_oam_trace_window();
-    g_golden_sun_wide_policy_seen = false;
-    g_golden_sun_wide_policy_last_flags = gsr::widescreen::kPillarboxAll;
-    g_golden_sun_wide_policy_last_reason =
-        GoldenSunWidePolicyReason::UnsupportedMode;
-    g_golden_sun_wide_policy_transition_count = 0;
-    g_golden_sun_wide_policy_logged_transitions = 0;
-    g_golden_sun_wide_policy_sample_count = 0;
-    g_golden_sun_wide_policy_sample_frame = UINT64_MAX;
-    g_golden_sun_wide_policy_sample_end_frame = UINT64_MAX;
-    g_golden_sun_wide_policy_sample_transition = 0;
-    g_golden_sun_wide_policy_samples_in_window = 0;
-    g_golden_sun_margin_diagnostic_callbacks = 0;
-    g_golden_sun_margin_diagnostic_logged = 0;
-    g_golden_sun_margin_diagnostic_last_log_frame = UINT64_MAX;
-    g_golden_sun_margin_diagnostic_total = {};
-    g_golden_sun_margin_diagnostic_last = {};
     static bool cull_report_armed = false;
     if (!cull_report_armed) {
         cull_report_armed = true;
@@ -8898,28 +7051,11 @@ void install_golden_sun_widescreen(std::uint32_t extra_left,
         wide_report_armed = true;
         gbarecomp::at_game_exit(report_golden_sun_wide_diagnostics_at_exit);
     }
-    // The margin policy is a survivor of the old widescreen implementation:
-    // it classifies each raster line and pillarboxes (blacks) the margins
-    // whenever it cannot vouch for what would be drawn there. That made sense
-    // when margin content was invented per pixel. With the room buffer it is
-    // actively wrong -- it blacked Goma Cave Entrance out entirely while
-    // towns, which its heuristics happen to accept, drew fine. The buffer
-    // blanks per sample when it has no answer, which is the same
-    // protection without the guesswork.
-    // NOT nullptr: the PPU reads a null policy as "use the legacy
-    // pillarbox globals" (margin_is_pillarboxed's use_legacy_pillarbox),
-    // so removing the policy switches an older blanking path ON. Install a
-    // policy that pillarboxes nothing instead.
-    gba::g_ws_margin_policy = gsr::room_buffer_rendering()
-        ? golden_sun_room_buffer_margin_policy
-        : golden_sun_wide_margin_policy_callback;
-    gba::g_ws_margin_diagnostics = golden_sun_wide_diagnostics_enabled()
-        ? golden_sun_wide_margin_diagnostics_callback : nullptr;
-    gba::g_ws_tilemap_provider = golden_sun_wide_tilemap_provider;
-    gba::g_ws_bg_x_provider = golden_sun_wide_bg_x_provider;
-    // Armed per row by golden_sun_update_battle_backdrop; the mask is limited
-    // to battle BG layers, so the field path never pays for this hook.
-    gba::g_ws_bg_sample_provider = golden_sun_battle_bg_sample_provider;
+    gba::g_ws_margin_policy = golden_sun_margin_policy;
+    gba::g_ws_margin_diagnostics = nullptr;
+    gba::g_ws_tilemap_provider = nullptr;
+    gba::g_ws_bg_x_provider = nullptr;
+    gba::g_ws_bg_sample_provider = nullptr;
     gba::g_ws_bg_sample_provider_layers = 0u;
     gba::g_ws_bg_sample_provider_ignore_window_layers = 0u;
     gba::g_ws_defer_native_rows = 0;
@@ -9137,15 +7273,16 @@ bool gpu_field_capture_valid() { return g_gpu_field_capture && g_gpu_field_captu
 struct GpuPresentation {
     std::shared_ptr<const gsr::GpuFieldCapture> capture;
     gbarecomp::HistoryFrame frame;
-    bool world_source_ok = false;
 };
 gbarecomp::TextureReadbackQueue<GpuPresentation> g_gpu_readback;
-std::shared_ptr<const gsr::GpuFieldCapture> g_world_settled_capture;
+// The settled world-map view held in the margins under menus (see below).
+gsr::WorldMarginHold<gsr::GpuFieldCapture> g_world_hold;
 
 bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
                             const gsr::GpuFieldCapture& capture,
                             std::uint32_t width, std::uint32_t height,
-                            bool side_picture = false);
+                            bool side_picture = false,
+                            const gsr::WorldCompose& compose = {});
 
 // ---- World-map margin hold ------------------------------------------------
 //
@@ -9155,142 +7292,26 @@ bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
 // BG2CNT 0xAA0E, BG3CNT 0xA80A). The widened margins are only sourced from
 // the world map in mode 2, so they would go black for as long as the menu was
 // open. The camera cannot move while a menu is open, so the margins of the
-// last world-map frame before it are still the right picture: keep them,
-// and paint them back around the live native picture on menu frames.
-std::vector<std::uint8_t> g_world_margin_rgb;
-std::uint32_t g_world_margin_w = 0;
-std::uint32_t g_world_margin_h = 0;
+// last settled world-map frame before it are still the right picture: keep the
+// capture and render it into the renderer's margin target on menu frames.
 // True when this frame's margins were drawn from the decoded, checked world
 // map (set where upload_world_map is called). A mode 2 frame without it has
 // scrambled margins, and holding one would keep that garbage on screen for the
 // whole menu.
 bool g_world_map_source_ok = false;
-// The background palette (BGR555) when the margins were saved, and for each
-// distinct saved margin colour the palette index it was drawn from, so the
-// held margins can follow a palette effect started after the save: the
-// world map's Psynergy tint turns the whole palette red (average 18,4,4
-// against 10,18,20) while the held
-// margins stayed green.
-gsr::HeldPaletteEffect g_world_palette_effect;
 
 bool world_map_blocks(const std::vector<std::uint8_t>& io) {
     if (io.size() < 0x10) return false;
     return world_map_blocks_raw(io.data());
 }
 
-// The colour the console draws across row `y` from its four text layers,
-// when all 240 pixels come out the same (the battle flash's band, see
-// world_map_margin_hold). False for anything else, and for a row with
-// windows or alpha blending, which this does not model. Objects are not
-// drawn. `regs` is the row's register copy (FieldScene::row_io).
-bool text_row_single_colour(const std::uint8_t* regs, int y,
-                            const std::vector<std::uint8_t>& vram,
-                            const std::vector<std::uint8_t>& pal,
-                            std::uint8_t rgb_out[3]) {
-    auto reg = [&](int o) { return unsigned(regs[o] | (regs[o + 1] << 8)); };
-    const unsigned dispcnt = reg(0x00);
-    if ((dispcnt & 7u) != 0u || (dispcnt & 0xE000u) != 0u) return false;
-    if (vram.size() < 0x10000u || pal.size() < 512u) return false;
-    const unsigned bldcnt = reg(0x50);
-    const unsigned effect = (bldcnt >> 6) & 3u;
-    if (effect == 1u) return false;
-    const unsigned evy = std::min(16u, reg(0x54) & 31u);
-    int first = -1;
-    for (int x = 0; x < 240; ++x) {
-        int best_prio = 4, target = 5;  // 5 = backdrop
-        unsigned index = 0;
-        for (int bg = 0; bg < 4; ++bg) {
-            if (!((dispcnt >> (8 + bg)) & 1u)) continue;
-            const unsigned cnt = reg(0x08 + 2 * bg);
-            const int prio = static_cast<int>(cnt & 3u);
-            if (prio >= best_prio) continue;
-            const unsigned chars = ((cnt >> 2) & 3u) * 0x4000u;
-            const unsigned map = ((cnt >> 8) & 31u) * 0x800u;
-            const int w = (cnt & 0x4000u) ? 512 : 256;
-            const int h = (cnt & 0x8000u) ? 512 : 256;
-            const int tx = (x + static_cast<int>(reg(0x10 + 4 * bg) & 0x1FFu)) & (w - 1);
-            const int ty = (y + static_cast<int>(reg(0x12 + 4 * bg) & 0x1FFu)) & (h - 1);
-            const unsigned at = map +
-                (unsigned(tx >> 8) + unsigned(ty >> 8) * unsigned(w >> 8)) * 0x800u +
-                unsigned(((ty & 255) >> 3) * 32 + ((tx & 255) >> 3)) * 2u;
-            if (at + 1u >= vram.size()) continue;
-            const unsigned e = vram[at] | (vram[at + 1] << 8);
-            const int px = (e & 0x400u) ? 7 - (tx & 7) : (tx & 7);
-            const int py = (e & 0x800u) ? 7 - (ty & 7) : (ty & 7);
-            unsigned i = 0;
-            if (cnt & 0x80u) {
-                const unsigned a = chars + (e & 0x3FFu) * 64u + unsigned(py * 8 + px);
-                if (a >= 0x10000u) continue;
-                i = vram[a];
-            } else {
-                const unsigned a = chars + (e & 0x3FFu) * 32u + unsigned(py * 4 + px / 2);
-                if (a >= 0x10000u) continue;
-                i = (px & 1) ? (vram[a] >> 4) : (vram[a] & 15u);
-                if (i) i += (e >> 12) * 16u;
-            }
-            if (!i) continue;
-            best_prio = prio;
-            target = bg;
-            index = i;
-        }
-        unsigned c = pal[index * 2] | (pal[index * 2 + 1] << 8);
-        if ((effect == 2u || effect == 3u) && ((bldcnt >> target) & 1u)) {
-            unsigned out = 0;
-            for (int k = 0; k < 3; ++k) {
-                const unsigned v = (c >> (5 * k)) & 31u;
-                const unsigned nv = effect == 2u ? v + (31u - v) * evy / 16u
-                                                 : v - v * evy / 16u;
-                out |= nv << (5 * k);
-            }
-            c = out;
-        }
-        if (first < 0) first = static_cast<int>(c);
-        else if (static_cast<int>(c) != first) return false;
-    }
-    for (int k = 0; k < 3; ++k)
-        rgb_out[k] = static_cast<std::uint8_t>(((first >> (5 * k)) & 31) * 255 / 31);
-    return true;
-}
-
-// A world-map frame worth holding: no menu yet, and no screen fade under way
-// (BLDCNT brightness effect with a non-zero BLDY), or the "held" margins
-// would be a darkened copy.
+// A world-map frame worth holding: no menu yet, no screen fade under way
+// (gsr::world_map_fading: the "held" margins would be a darkened copy), and
+// margins drawn from the checked world map.
 bool world_map_settled(const gsr::GpuFieldCapture& capture, bool world_source_ok) {
-    const std::vector<std::uint8_t>& io = capture.io;
-    const unsigned bldcnt = io[0x50] | (static_cast<unsigned>(io[0x51]) << 8);
-    const bool fading = ((bldcnt >> 6) & 3u) >= 2u && (io[0x54] & 0x1Fu) != 0u;
-    return !fading && !capture.window_open && world_source_ok && capture.pal.size() >= 512;
-}
-
-// Whether world_map_margin_hold paints on this frame's copied picture: a
-// menu (mode 0) or a transition mixing modes on the world map's blocks. The
-// plain sailing view (mode 2 throughout) paints nothing, so a phone may show
-// it straight from the card (world_map_remember_settled).
-bool world_map_needs_cpu(const gsr::GpuFieldCapture& capture) {
-    if (!world_map_blocks(capture.io)) return false;
-    if ((capture.io[0] & 7u) != 2u) return true;
-    const gsr::FieldScene& sc = capture.scene;
-    for (int y = 0; y < gsr::FieldScene::kRows; ++y)
-        if (sc.row_io_valid[y] && (sc.row_io[y][0] & 7u) != 2u) return true;
-    return false;
-}
-
-// A frame shown straight from the card has no copied picture to hold: keep
-// the settled capture, and the first menu frame redraws the held margins
-// from it (world_map_margin_hold's other-size branch, as after a resize).
-void world_map_remember_settled(const std::shared_ptr<const gsr::GpuFieldCapture>& shared,
-                                bool world_source_ok) {
-    const gsr::GpuFieldCapture& capture = *shared;
-    if (!world_map_blocks(capture.io)) {
-        g_world_margin_rgb.clear();
-        g_world_settled_capture = {};
-        return;
-    }
-    if (!world_map_settled(capture, world_source_ok)) return;
-    g_world_margin_rgb.clear();
-    g_world_margin_w = g_world_margin_h = 0;
-    g_world_settled_capture = shared;
-    g_world_palette_effect.save(capture.pal);
+    if (capture.io.size() < 0x58u) return false;
+    return !gsr::world_map_fading(capture.io) && !capture.window_open &&
+           world_source_ok && capture.pal.size() >= 512;
 }
 
 // The R-button map over the world map: mode 0 with BG1 in 256 colours, BG2 and BG3 off, no window,
@@ -9308,184 +7329,6 @@ bool r_button_map_screen(const gsr::GpuFieldCapture& capture) {
     const unsigned bg1cnt = io[0x0A] | (unsigned(io[0x0B]) << 8);
     return (dispcnt & 7u) == 0u && (dispcnt & 0x0200u) && !(dispcnt & 0x0C00u) &&
            !(dispcnt & 0xE000u) && (bg1cnt & 0x80u);
-}
-
-// Enlarges the centred 240x160 picture to cover all of `rgb` (nearest
-// pixel), by the larger of the two axis ratios; the other axis is cropped
-// evenly.
-void zoom_native_to_fill(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height) {
-    const std::uint32_t x0 = (width - 240u) / 2u, y0 = (height - 160u) / 2u;
-    static std::vector<std::uint8_t> native(240u * 160u * 3u);
-    for (std::uint32_t y = 0; y < 160u; ++y)
-        std::memcpy(native.data() + std::size_t{y} * 720u,
-                    rgb + (std::size_t{y0 + y} * width + x0) * 3u, 720u);
-    const bool by_width = std::uint64_t{width} * 160u >= std::uint64_t{height} * 240u;
-    const std::uint64_t num = by_width ? width : height;
-    const std::uint64_t den = by_width ? 240u : 160u;
-    const std::uint64_t ox = (240u * num / den - width) / 2u;
-    const std::uint64_t oy = (160u * num / den - height) / 2u;
-    for (std::uint32_t y = 0; y < height; ++y) {
-        const std::uint64_t sy = std::min<std::uint64_t>((y + oy) * den / num, 159u);
-        const std::uint8_t* src = native.data() + sy * 720u;
-        std::uint8_t* dst = rgb + std::size_t{y} * width * 3u;
-        for (std::uint32_t x = 0; x < width; ++x, dst += 3) {
-            const std::uint64_t sx = std::min<std::uint64_t>((x + ox) * den / num, 239u);
-            std::memcpy(dst, src + sx * 3u, 3);
-        }
-    }
-}
-
-void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
-                           std::uint32_t height,
-                           gsr::FieldSceneRenderer& renderer,
-                           gbarecomp::GpuSurface& surface,
-                           const std::shared_ptr<const gsr::GpuFieldCapture>& shared,
-                           bool world_source_ok) {
-    const gsr::GpuFieldCapture& capture = *shared;
-    const std::vector<std::uint8_t>& io = capture.io;
-    const unsigned mode = io.empty() ? 0xFFu : (io[0] & 7u);
-    const bool world = world_map_blocks(io);
-    const bool native_size = width == 240 && height == 160;
-    if (!world) {
-        g_world_margin_rgb.clear();  // anywhere else: the saved view is stale
-        g_world_settled_capture = {};
-        return;
-    }
-    if (mode == 2u) {
-        // The battle flash: rows switched to mode 0 for a band of the
-        // game's solid fill layer (BG1, tile 0x7F, palette 15), every other
-        // frame, growing from the middle. The graphics card draws a frame in one mode, so those
-        // rows came out as world map; paint them, across the margins too,
-        // in the one colour the console draws there.
-        const gsr::FieldScene& sc = capture.scene;
-        const std::uint32_t band_y0 = (height - 160u) / 2u;
-        bool mixed = false;
-        for (int y = 0; y < gsr::FieldScene::kRows; ++y) {
-            if (!sc.row_io_valid[y] || (sc.row_io[y][0] & 7u) == 2u) continue;
-            mixed = true;
-            std::uint8_t colour[3];
-            if (!text_row_single_colour(sc.row_io[y].data(), y,
-                                        capture.vram,
-                                        capture.pal, colour))
-                continue;
-            std::uint8_t* row = rgb + (std::size_t{band_y0} + y) * width * 3u;
-            for (std::uint32_t x = 0; x < width; ++x)
-                std::memcpy(row + std::size_t{x} * 3u, colour, 3);
-        }
-        if (mixed) return;  // a transition, not a view to hold
-        if (world_map_settled(capture, world_source_ok)) {
-            g_world_margin_rgb.assign(rgb, rgb + std::size_t{width} * height * 3u);
-            g_world_margin_w = width;
-            g_world_margin_h = height;
-            g_world_settled_capture = shared;
-            g_world_palette_effect.save(capture.pal);
-        }
-        return;
-    }
-    if (mode != 0u) return;
-    // Mode 0 on the world map's blocks: the menu's view of the world map.
-    if (native_size) return;
-    if (r_button_map_screen(capture)) {
-        zoom_native_to_fill(rgb, width, height);
-        return;
-    }
-    const std::uint32_t x0 = (width - 240u) / 2u;
-    const std::uint32_t y0 = (height - 160u) / 2u;
-    // A flat picture -- the battle flash fading from white to black, the
-    // game's fill layer over the whole screen -- is no menu over the map: the margins take its colour.
-    {
-        std::uint8_t flat[3];
-        std::memcpy(flat, rgb + (std::size_t{y0} * width + x0) * 3u, 3);
-        bool is_flat = true;
-        for (std::uint32_t y = y0; y < y0 + 160u && is_flat; ++y) {
-            const std::uint8_t* p = rgb + (std::size_t{y} * width + x0) * 3u;
-            for (std::uint32_t x = 0; x < 240u; ++x, p += 3)
-                if (p[0] != flat[0] || p[1] != flat[1] || p[2] != flat[2]) {
-                    is_flat = false;
-                    break;
-                }
-        }
-        if (is_flat) {
-            for (std::uint32_t y = 0; y < height; ++y) {
-                const bool native_row = y >= y0 && y < y0 + 160u;
-                std::uint8_t* p = rgb + std::size_t{y} * width * 3u;
-                for (std::uint32_t x = 0; x < width; ++x, p += 3) {
-                    if (native_row && x == x0) { x += 239u; p += 239u * 3u; continue; }
-                    std::memcpy(p, flat, 3);
-                }
-            }
-            return;
-        }
-    }
-    // The held margins were saved at another output size: redraw the settled
-    // capture at this size and hold that instead.
-    if ((g_world_margin_w != width || g_world_margin_h != height) &&
-        g_world_settled_capture && g_world_settled_capture->valid &&
-        draw_gpu_field_capture(renderer, *g_world_settled_capture, width, height, true)) {
-        std::vector<std::uint8_t> resized(std::size_t{width} * height * 3u);
-        if (!surface.read_texture_rgb(renderer.output_texture(),
-                                      static_cast<int>(width), static_cast<int>(height),
-                                      resized.data())) return;
-        g_world_margin_rgb.swap(resized);
-        g_world_margin_w = width;
-        g_world_margin_h = height;
-        g_world_palette_effect.reset_indices();
-    }
-    // No settled world-map frame to hold, as when a Djinn event switches to
-    // mode 0 straight away (Flint's Djinn event): the
-    // margins would show the world map's rotation-layer data read as text
-    // layers, which is scrambled tiles. Black instead.
-    if (g_world_margin_w != width || g_world_margin_h != height ||
-        g_world_margin_rgb.empty()) {
-        for (std::uint32_t y = 0; y < height; ++y) {
-            std::uint8_t* dst = rgb + std::size_t{y} * width * 3u;
-            if (y < y0 || y >= y0 + 160u) {
-                std::memset(dst, 0, std::size_t{width} * 3u);
-                continue;
-            }
-            std::memset(dst, 0, std::size_t{x0} * 3u);
-            std::memset(dst + std::size_t{x0 + 240u} * 3u, 0,
-                        std::size_t{width - x0 - 240u} * 3u);
-        }
-        return;
-    }
-    // LIVE margins (shared_game/world_margin_live.h): the flat picture only
-    // covers the console's screen, so the margins draw the settled world map
-    // through the main renderer every frame with this frame's sprites.
-    static std::vector<std::uint8_t> live_margins;
-    static gsr::GpuFieldCapture mix;
-    const std::vector<std::uint8_t>* margin_src = &g_world_margin_rgb;
-    // F12 frames.csv: this picture's margins come from remembered scenery.
-    gbarecomp::frame_trace_note_held_scene(
-        capture.scene.frame,
-        g_world_settled_capture ? g_world_settled_capture->scene.frame : 0u);
-    if (g_world_settled_capture &&
-        gsr::live_world_margin_capture(*g_world_settled_capture, capture, mix,
-                                       g_world_palette_effect.changes_background(capture.pal))) {
-        live_margins.resize(std::size_t{width} * height * 3u);
-        if (draw_gpu_field_capture(renderer, mix, width, height, true) &&
-            surface.read_texture_rgb(renderer.output_texture(),
-                                     static_cast<int>(width),
-                                     static_cast<int>(height),
-                                     live_margins.data()))
-            margin_src = &live_margins;
-    }
-    for (std::uint32_t y = 0; y < height; ++y) {
-        const bool native_row = y >= y0 && y < y0 + 160u;
-        std::uint8_t* dst = rgb + std::size_t{y} * width * 3u;
-        const std::uint8_t* src =
-            margin_src->data() + std::size_t{y} * width * 3u;
-        if (!native_row) {
-            std::memcpy(dst, src, std::size_t{width} * 3u);
-            continue;
-        }
-        std::memcpy(dst, src, std::size_t{x0} * 3u);
-        const std::uint32_t right = x0 + 240u;
-        std::memcpy(dst + std::size_t{right} * 3u, src + std::size_t{right} * 3u,
-                    std::size_t{width - right} * 3u);
-    }
-    if (margin_src == &g_world_margin_rgb)
-        g_world_palette_effect.apply(rgb, width, height, *margin_src, capture.pal);
 }
 
 
@@ -9625,6 +7468,7 @@ void gpu_field_capture_hook() {
     capture->pal.assign(bus->pal_ptr(), bus->pal_ptr() + 1024);
     capture->window_open = game_window_open();
     capture->fade = gsr::party_window_fade::find(*bus);
+    capture->red_rows = gsr::save_files::tbs::red_rows();
     capture->valid = true;
     g_gpu_field_capture = capture;
 }
@@ -9672,7 +7516,8 @@ bool gpu_field_paint_refused(std::uint8_t* rgb, std::uint32_t width,
 bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
                             const gsr::GpuFieldCapture& capture,
                             std::uint32_t width, std::uint32_t height,
-                            bool side_picture) {
+                            bool side_picture,
+                            const gsr::WorldCompose& compose) {
     if (!renderer.set_output_size(static_cast<int>(width),
                                   static_cast<int>(height))) return false;
     renderer.upload_vram(capture.vram.data(),
@@ -9773,6 +7618,8 @@ bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
     }
     renderer.set_menu_open(capture.window_open);
     gsr::party_window_fade::apply(renderer, capture.fade);
+    renderer.set_window_red(capture.red_rows.x0, capture.red_rows.x1, capture.red_rows.y0,
+                            capture.red_rows.y1, capture.red_rows.rows);
     // The title flare's halos alternate frame by frame (sprite_flicker.h).
     renderer.set_flicker_smoothing(gbarecomp::temporal_blend_weight_for_index(
         gbarecomp::flicker_reduction_index()));
@@ -9792,7 +7639,15 @@ bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
         capture.scene, margins, capture.ewram.data(), capture.ewram.size(),
         static_cast<int>(width), static_cast<int>(height));
     renderer.set_scene_margins(rain || backdrop ? &margins : nullptr);
-    const bool drawn = renderer.draw(capture.scene, side_picture);
+    bool drawn = false;
+    if (side_picture) {
+        renderer.set_world_compose({});
+        drawn = renderer.draw_world_margin(capture.scene);
+    } else {
+        renderer.set_world_compose(compose);
+        drawn = renderer.draw(capture.scene);
+        renderer.set_world_compose({});
+    }
     renderer.set_scene_margins(nullptr);
     return drawn;
 }
@@ -9801,13 +7656,16 @@ bool draw_gpu_field_capture(gsr::FieldSceneRenderer& renderer,
 // its owned scene and presentation metadata. Live guest state is untouched.
 // `direct_ok`: nothing paints on the CPU picture this frame, so a phone may
 // show the card's texture directly (gpu_present.h) instead of copying it.
+// `held`: draw this earlier capture again instead of this frame's (a torn
+// spell picture held on the last good one).
 bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
                                 std::uint32_t height,
                                 gbarecomp::HistoryFrame& frame, bool synchronous,
-                                bool direct_ok) {
+                                bool direct_ok,
+                                std::shared_ptr<const gsr::GpuFieldCapture> held = nullptr) {
     gbarecomp::gpu_present_withdraw();
     if (!gpu_field_enabled()) { g_gpu_readback.invalidate(); return false; }
-    if (!gpu_field_capture_valid()) {
+    if (!held && !gpu_field_capture_valid()) {
         g_gpu_readback.invalidate();
         if (gpu_field_only_enabled())
             return gpu_field_paint_refused(rgb, width, height,
@@ -9815,31 +7673,12 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
         return false;
     }
 
-    // Lazily created the first time this is actually needed, from present
-    // time, where the window's GL context is the one already current --
-    // never from gpu_field_capture_hook() above. gpu_surface.h attaches to
-    // that existing context rather than creating one of its own.
-    struct Context {
-        gbarecomp::GpuSurface surface;
-        gsr::FieldSceneRenderer renderer;
-    };
-    static std::unique_ptr<Context> context;
-    static bool init_attempted = false;
-    static bool init_ok = false;
-    if (!context) {
-        context = std::make_unique<Context>();
-        gbarecomp::set_frame_present_shutdown_hook([] {
-            g_gpu_readback.invalidate();
-            context.reset();  // renderer, then PBOs/fences, before the GL window
-            init_attempted = init_ok = false;
-        });
-    }
-    auto& surface = context->surface;
-    auto& renderer = context->renderer;
-    if (!init_attempted) {
-        init_attempted = true;
-        init_ok = surface.init() && renderer.init(&surface);
-        if (init_ok) {
+    // Never created from gpu_field_capture_hook() above: only here, at
+    // present time (gpu_field_context.h).
+    struct NoExtra {};
+    auto* const context = gsr::gpu_field_context<NoExtra>(
+        [] { g_gpu_readback.invalidate(); },
+        [](gsr::FieldSceneRenderer& renderer) {
             // Room-sourced backgrounds always come on with this toggle
             // (there is no separate control for it); see field_scene.h's
             // header comment on why BG0, the lighting layer, never uses it
@@ -9849,20 +7688,16 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
             const bool host_effects = gbarecomp::env_flag("GSR_HOST_EFFECTS");
             renderer.set_effect_renderer_enabled(host_effects);
             gsr::effect_capture_set_enabled(host_effects);
-        } else {
-            std::fprintf(stderr,
-                "[gsr] GPU field renderer unavailable (%s); staying on the "
-                "emulated hardware path\n",
-                !surface.ready() ? surface.failure() : renderer.failure());
-        }
-    }
-    if (!init_ok) {
+        });
+    if (!context) {
         g_gpu_readback.invalidate();
         if (gpu_field_only_enabled())
             return gpu_field_paint_refused(rgb, width, height,
                                            "the renderer could not start");
         return false;
     }
+    auto& surface = context->surface;
+    auto& renderer = context->renderer;
 
     if (!renderer.set_output_size(static_cast<int>(width),
                                   static_cast<int>(height))) {
@@ -9872,8 +7707,37 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
                                            "the output size was refused");
         return false;
     }
-    const std::shared_ptr<const gsr::GpuFieldCapture> capture = g_gpu_field_capture;
-    if (!draw_gpu_field_capture(renderer, *capture, width, height)) {
+    const std::shared_ptr<const gsr::GpuFieldCapture> capture =
+        held ? std::move(held) : g_gpu_field_capture;
+    const bool world = world_map_blocks(capture->io);
+    const bool expanded = width > 240u || height > 160u;
+    gsr::WorldCompose compose{};
+    bool mixed = false;
+    if (!world) {
+        g_world_hold.forget();
+        renderer.clear_world_margin();
+    } else {
+        const unsigned mode = capture->io.empty() ? 0xFFu : (capture->io[0] & 7u);
+        mixed = gsr::world_rows_mixed(capture->scene);
+        if (expanded && mode == 2u && mixed) {
+            compose.mode = gsr::WorldComposeMode::ShutterRows;
+        } else if (expanded && mode == 0u) {
+            if (r_button_map_screen(*capture)) {
+                compose.mode = gsr::WorldComposeMode::ZoomNative;
+            } else {
+                compose.mode = gsr::WorldComposeMode::HoldMargins;
+                compose.has_margin = g_world_hold.draw_margin(*capture,
+                    g_world_hold.changes_background(capture->pal),
+                    [&](const gsr::GpuFieldCapture& c) {
+                        return draw_gpu_field_capture(renderer, c, width, height, true);
+                    },
+                    renderer.has_world_margin(static_cast<int>(width),
+                                              static_cast<int>(height)));
+                compose.mixed_modes = mixed;
+            }
+        }
+    }
+    if (!draw_gpu_field_capture(renderer, *capture, width, height, false, compose)) {
         g_gpu_readback.invalidate();
         // Say once why the card declined. Without this the log cannot tell a
         // path that never ran from one that ran and handed every frame back.
@@ -9888,6 +7752,11 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
             return gpu_field_paint_refused(rgb, width, height, reason);
         return false;
     }
+    if (world && !capture->io.empty() && (capture->io[0] & 7u) == 2u && !mixed) {
+        const bool source_ok = g_world_map_source_ok && renderer.world_map_used();
+        if (world_map_settled(*capture, source_ok))
+            g_world_hold.remember(capture);
+    }
     static bool announced = false;
     if (!announced) {
         announced = true;
@@ -9896,16 +7765,12 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
     }
 
     const bool battle = frame.battle_2x;
-    const bool source_ok = g_world_map_source_ok && renderer.world_map_used();
     // Phones: the card's picture straight to the window, no copy back
-    // (gpu_present.h). Also on the world map's sailing view; its menus and
-    // transitions paint on the copied picture (world_map_needs_cpu).
-    if (direct_ok && !synchronous && gbarecomp::gpu_present_accepting() &&
-        !world_map_needs_cpu(*capture)) {
+    // (gpu_present.h).
+    if (direct_ok && !synchronous && gbarecomp::gpu_present_accepting()) {
         g_gpu_readback.invalidate();
         gbarecomp::gpu_present_offer({static_cast<unsigned>(renderer.output_texture()),
                                       static_cast<int>(width), static_cast<int>(height)});
-        world_map_remember_settled(capture, source_ok);
         frame.battle_2x = battle;
         frame.gpu_drawn = true;
         frame.scene = capture;
@@ -9915,7 +7780,7 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
     auto delivered = g_gpu_readback.present(surface, renderer.output_texture(),
         static_cast<int>(width), static_cast<int>(height), rgb,
         runtime_current_frame(),
-        GpuPresentation{capture, std::move(frame), source_ok}, synchronous);
+        GpuPresentation{capture, std::move(frame)}, synchronous);
     if (!delivered) {
         g_gpu_readback.invalidate();
         frame = gbarecomp::FrameHistory::capture();
@@ -9923,8 +7788,6 @@ bool gpu_field_present_override(std::uint8_t* rgb, std::uint32_t width,
         return gpu_field_only_enabled()
             ? gpu_field_paint_refused(rgb, width, height, "GPU readback failed") : false;
     }
-    world_map_margin_hold(rgb, width, height, renderer, surface,
-                          delivered->capture, delivered->world_source_ok);
     frame = std::move(delivered->frame);
     frame.gpu_drawn = true;
     frame.scene = delivered->capture;
@@ -10017,9 +7880,11 @@ void paint_enemy_hp_bar(std::uint8_t* rgb, std::uint32_t width,
 
 // The battle ">>" go over whatever picture was
 // going to be shown, the GPU renderer's or the emulated hardware's.
-// Phones: the battle HP bar and speed sign as a layer over the graphics
-// card's picture when the frame is shown straight from the card
-// (gpu_present.h GpuOverlayLayer; neither painter reads the picture).
+// Phones: what the runner paints (the battle HP bar and speed sign, the
+// Custom Battle panel, the Quality of Life, travel and radial menus, the
+// new-game questions and the report notice) as a layer over the graphics card's picture when
+// the frame is shown straight from the card (gpu_present.h GpuOverlayLayer;
+// none of them reads the picture).
 gbarecomp::GpuOverlayLayer g_overlay_layer;
 
 bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
@@ -10027,34 +7892,44 @@ bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
     auto frame = gbarecomp::FrameHistory::capture();
     frame.battle_2x = battle_speed_indicator_visible();
     const gba::GbaPpu* ppu = gbarecomp::active_ppu();
-    const bool held = ppu && g_history.count() && !g_history.back(0).rgb.empty() &&
+    // A torn spell picture shows the last one again: drawn again on the card
+    // from its capture (the history's scene), or copied from its picture
+    // when the card did not draw it.
+    const std::shared_ptr<const gsr::GpuFieldCapture> last_scene = g_history.count()
+        ? std::dynamic_pointer_cast<const gsr::GpuFieldCapture>(g_history.back(0).scene)
+        : nullptr;
+    const bool held = ppu && g_history.count() &&
+        (!g_history.back(0).rgb.empty() || (last_scene && g_history.back(0).gpu_drawn)) &&
         runtime_current_frame() >= g_history.back(0).guest_frame &&
         g_history.back(0).width == width && g_history.back(0).height == height &&
         bus_read_u32(gsr::battle_speed::kBattleHeapSlot) != 0u &&
         (gbarecomp::spell_setup_torn_frame(*ppu) ||
          battle_spell_position_pending(*ppu));
-    // A torn spell picture and the Quality of Life menu form explicit
-    // synchronous boundaries.
-    // Anything the runner paints on the picture below needs the copied
-    // picture; otherwise a phone may show the card's texture directly.
-    // The battle HP bar and speed sign are not in the list: on a phone they
-    // go to the overlay layer (GpuOverlayLayer).
-    const bool cpu_paint = held || gsr::qol::menu.showing ||
-        gsr::custom_battle::panel_view().open ||
-        gsr::save_files::tbs::g_picker.open || gsr::retreat_travel::showing ||
-        [] {
-            std::lock_guard<std::mutex> guard(gsr::radial_psynergy::lock);
-            return gsr::radial_psynergy::open;
-        }() || g_hard_prompt_open ||
-        g_history.report_notice_showing(runtime_current_frame());
+    const bool held_on_card = held && last_scene && g_history.back(0).gpu_drawn &&
+        gpu_field_enabled();
+    // A torn spell picture is an explicit synchronous boundary. So is the
+    // Quality of Life menu when the picture is copied back (the queued copy
+    // would show it a frame late); shown straight from the card it is not.
+    // Only painters that read the picture need it copied back from the card;
+    // the rest go to the overlay layer (GpuOverlayLayer), so a phone can show
+    // the card's texture directly. Copying back made the game wait on the GPU
+    // for over half its time on an Adreno 619 tablet (TLA FACTS "Tablet
+    // session profile"). The card turns red save files red itself
+    // (FieldSceneRenderer::set_window_red).
+    const bool synchronous = (held || gsr::qol::menu.showing) &&
+        !gbarecomp::gpu_present_accepting();
+    const bool cpu_paint = held && !held_on_card;
     bool drawn = gpu_field_present_override(rgb, width, height, frame,
-                                            held || gsr::qol::menu.showing, !cpu_paint);
+                                            synchronous, !cpu_paint,
+                                            held_on_card ? last_scene : nullptr);
     const bool direct = gbarecomp::gpu_present_current() != nullptr;
     if (!frame.scene && gpu_field_capture_valid()) {
         frame.scene = g_gpu_field_capture;
         frame.scene_frame = g_gpu_field_capture->scene.frame;
     }
-    if (held) {
+    if (held && held_on_card && frame.gpu_drawn) {
+        frame.held_frame = true;
+    } else if (held && !g_history.back(0).rgb.empty()) {
         const auto& last = g_history.back(0);
         std::copy(last.rgb.begin(), last.rgb.end(), rgb);
         frame = last;
@@ -10063,6 +7938,7 @@ bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
         drawn = true;
     }
     const bool battle = frame.battle_2x;
+    const bool card_drawn = frame.gpu_drawn;  // red save files done on the card
     std::uint8_t* const layer = direct ? g_overlay_layer.begin(width, height) : rgb;
     if (battle) paint_battle_speed_indicator(layer, width, height);
     g_history.record(direct ? nullptr : rgb, width, height, std::move(frame));
@@ -10075,20 +7951,22 @@ bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
     gsr::enemy_hp_bar::Bar enemy_bar;
     const bool hp_bar = gsr::enemy_hp_bar::bar(&enemy_bar);
     if (hp_bar) paint_enemy_hp_bar(layer, width, height, enemy_bar);
-    if (direct) g_overlay_layer.finish();
+    // The panel shades only inside its own window, which it paints first.
     const auto panel = gsr::custom_battle::panel_view();
-    if (panel.open) paint_custom_battle_panel(rgb, width, height, panel);
+    if (panel.open) paint_custom_battle_panel(layer, width, height, panel);
     // Nine save files: the file box's scrollbar and red Challenge files.
     const bool files = gsr::save_files::tbs::g_picker.open;
     if (files) {
-        auto put = window_pixel_painter(rgb, width, height);
+        auto put = window_pixel_painter(layer, width, height);
         auto pixel = native_pixel_at(rgb, width, height);
-        gsr::save_files::tbs::paint(put, pixel);
+        auto none = [](int, int) -> std::uint8_t* { return nullptr; };
+        if (card_drawn) gsr::save_files::tbs::paint(put, none);
+        else gsr::save_files::tbs::paint(put, pixel);
     }
     const bool quality = gsr::qol::menu.showing;
     if (quality) {
         namespace qm = gsr::qol_menu;
-        menu_window_paint(rgb, width, height, qm::kTileX, qm::kTileY, qm::kTiles, qm::kRows,
+        menu_window_paint(layer, width, height, qm::kTileX, qm::kTileY, qm::kTiles, qm::kRows,
             [](auto& draw, auto& text_width, int x, int y, auto&) {
                 gsr::qol_menu::paint(gsr::qol::menu, draw, text_width, x, y);
             });
@@ -10097,14 +7975,14 @@ bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
     const bool travel = gsr::retreat_travel::showing;
     if (travel) {
         namespace rt = gsr::retreat_travel;
-        menu_window_paint(rgb, width, height, rt::kTileX, rt::kTileY, rt::kTiles, rt::kRows,
+        menu_window_paint(layer, width, height, rt::kTileX, rt::kTileY, rt::kTiles, rt::kRows,
             [](auto& draw, auto& text_width, int x, int y, auto&) {
                 gsr::retreat_travel::paint(draw, text_width, x, y);
             });
     }
-    const bool radial = gsr::radial_psynergy::paint(rgb, width, height,
+    const bool radial = gsr::radial_psynergy::paint(layer, width, height,
         [&](int tile_x, int tile_y, int tiles, int rows, auto content) {
-            menu_window_paint(rgb, width, height, tile_x, tile_y, tiles, rows,
+            menu_window_paint(layer, width, height, tile_x, tile_y, tiles, rows,
                 [&](auto& draw, auto& text_width, int x, int y, auto&) {
                     content(draw, text_width, x, y);
                 });
@@ -10112,12 +7990,13 @@ bool golden_sun_present_override(std::uint8_t* rgb, std::uint32_t width,
     using ReportNotice = gbarecomp::FrameHistory::ReportNotice;
     const bool notice = report_notice != ReportNotice::None;
     if (notice) {
-        gsr::paint_bug_report_notice(rgb, width, height, report_notice == ReportNotice::Automatic
+        gsr::paint_bug_report_notice(layer, width, height, report_notice == ReportNotice::Automatic
             ? "CRASH CAUGHT REPORT SAVED" : "BUG REPORT SAVED");
     }
     // The new-game questions, over the running game.
     const bool question = g_hard_prompt_open;
-    if (question) cheat_menu_paint(rgb, width, height);
+    if (question) cheat_menu_paint(layer, width, height);
+    if (direct) g_overlay_layer.finish();
     return drawn || battle || hp_bar || panel.open || files || travel || radial || notice || question;
 }
 
@@ -11109,9 +8988,6 @@ int main(int argc, char** argv) {
     // Independent of the map recorder: its own env flag, its own session
     // directory, no shared state. See obj_recorder.h.
     gsr::obj_recorder_init();
-    // After the recorder, for the same extra-draw chaining reason: each of
-    // these captures whatever the previous one installed.
-    gsr::room_buffer_init();
     gsr::trackers::install(gsr::djinn_tracker::tbs::kGame, gsr::treasure_tracker::tbs::kGame,
                            gsr::trackers::tbs::kText);
     gsr::retreat_travel::tbs::install(
@@ -11134,10 +9010,7 @@ int main(int argc, char** argv) {
         gsr::intro_music::music.update(true);
         g_gpu_readback.invalidate();
         g_history.clear();
-        g_world_settled_capture = {};
-        g_world_margin_rgb.clear();
-        g_world_margin_w = g_world_margin_h = 0;
-        g_world_palette_effect.reset_indices();
+        g_world_hold.forget();
         g_gpu_field_capture.reset();
         g_settings_open.store(false);
         g_settings_screen_text = false;
@@ -11162,7 +9035,6 @@ int main(int argc, char** argv) {
     options.aspect_view = true;
     options.frame_interpolation_available = true;
     options.enhanced_timing_available = true;
-    options.native_renderer_available = true;
     options.max_resize_view_width = 240;
     options.resize_driven_view = false;
     options.extended_view_init = install_golden_sun_widescreen;

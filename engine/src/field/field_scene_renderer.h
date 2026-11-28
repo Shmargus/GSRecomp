@@ -46,6 +46,24 @@
 
 namespace gsr {
 
+enum class WorldComposeMode {
+    None,
+    ShutterRows,  // mixed Mode 2 + non-Mode-2 rows: extend uniform non-Mode-2 rows across margins
+    ZoomNative,   // GS1 R-button map: nearest-neighbour zoom of centred 240x160 to fill output
+    FlatMap,      // TLA Select flat map: 512x384 8bpp map in margins with per-row BLDCNT/BLDY
+    HoldMargins,  // world-map Mode 0 menu/dialogue/Psynergy/fade/glow/quake margins
+};
+
+struct WorldCompose {
+    WorldComposeMode mode = WorldComposeMode::None;
+    bool has_margin = false;
+    bool mixed_modes = false;
+    bool glow = false;
+    int evb = 0;
+    int shake_x = 0, shake_y = 0;
+    bool flat_map_trusted = false;
+};
+
 class FieldSceneRenderer {
 public:
     FieldSceneRenderer() = default;
@@ -196,6 +214,13 @@ public:
         fade_columns_ = columns; fade_row0_ = row0; fade_row1_ = row1;
         fade_opacity_ = opacity;
     }
+    // Red save-file rows (shared_game/save_files_picker.h RedRows): inside
+    // the console's x0..x1, y0..y1 (end excluded), in the 16-pixel rows whose
+    // bit is set in `rows`, blue window pixels turn red (save_files::redden,
+    // on the shown 8-bit colour). rows 0 = off.
+    void set_window_red(int x0, int x1, int y0, int y1, unsigned rows) {
+        red_x0_ = x0; red_x1_ = x1; red_y0_ = y0; red_y1_ = y1; red_rows_ = rows;
+    }
     // Better Field Psy (settings page two): Reveal's circle opens to the
     // whole view instead of blacking out everything around it.
     void set_reveal_full(bool full) { reveal_full_ = full; }
@@ -295,13 +320,24 @@ public:
     // something this renderer cannot reproduce, having drawn nothing. The
     // caller must then use the emulated hardware path for the WHOLE frame,
     // because there is no correct way to draw part of it.
-    //
-    // `side_picture` marks an extra draw in the same frame (the world map's
-    // live margins). It is drawn plain and kept out of the flicker history.
-    // If it were counted, the difference between its sprites and the frame's
-    // own would look like every-other-frame flicker, and the frame's sprites
-    // would come out half see-through.
-    bool draw(const FieldScene& scene, bool side_picture = false);
+    bool draw(const FieldScene& scene);
+
+    // GPU world-map margin composition: menus, shutter bars, flat map, zoom
+    // and quakes.
+    void set_world_compose(const WorldCompose& compose) { world_compose_ = compose; }
+    // The world map's margin picture under a menu: an extra draw in the same
+    // frame, into its own target, before draw(). Drawn plain and kept out of
+    // the flicker history: counted, the difference between its sprites and
+    // the frame's own would look like every-other-frame flicker, and the
+    // frame's sprites would come out half see-through.
+    bool draw_world_margin(const FieldScene& scene);
+    void clear_world_margin() { world_margin_valid_ = false; }
+    bool has_world_margin(int width, int height) const {
+        return world_margin_valid_ && world_margin_tex_ != 0 &&
+               world_margin_w_ == width && world_margin_h_ == height;
+    }
+    void upload_flat_world_map(const std::uint8_t* rows_48x4096,
+                               std::uint32_t generation);
 
     // The finished picture, for presenting or for comparison.
     gbarecomp::GpuTexture output_texture() const;
@@ -318,6 +354,7 @@ private:
     const char* declined_ = nullptr;
 
     gbarecomp::GpuProgram background_ = 0;
+    gbarecomp::GpuProgram background_regular_ = 0;
     gbarecomp::GpuProgram object_ = 0;
     gbarecomp::GpuProgram resolve_ = 0;
     // Two more one-purpose passes windows need: one marks where the mode-2
@@ -335,19 +372,32 @@ private:
     // textures below.
     gbarecomp::GpuTexture id_grid_ = 0;
     gbarecomp::GpuTexture atlas_ = 0;
-    // This frame's per-row registers (FieldScene::kLineIoBytes bytes x
-    // FieldScene::kRows), uploaded fresh every draw() call. The background
-    // and window shaders read window and scroll state through this instead
-    // of a frame-level uniform, which is what lets a frame that rewrites a
-    // register mid-frame (the room-transition iris rewrites WIN0H every
-    // scanline) draw correctly instead of being refused.
-    gbarecomp::GpuTexture row_io_ = 0;
-    // This frame's per-row affine reference points (8 halves x
-    // FieldScene::kRows): the console's internal accumulator for BG2 and BG3,
-    // which its register file does not hold. An affine layer is sampled
-    // through this, never through a frame-level reference -- the overworld
-    // and every battle arena rewrite the transform per scanline.
-    gbarecomp::GpuTexture row_affine_ = 0;
+    // Per-row registers (FieldScene::kLineIoBytes/2 uint16_t words x rows) and
+    // affine references (8 uint16_t halves x rows). A 3-slot ring lets frame N
+    // upload without stalling on frame N-1 still reading the previous slot on
+    // mobile GPUs, and unchanged frames skip the upload entirely.
+    static constexpr int kRowRing = 3;
+    gbarecomp::GpuTexture row_io_[kRowRing] = {};
+    gbarecomp::GpuTexture row_affine_[kRowRing] = {};
+    int row_io_slot_ = 0;
+    int row_affine_slot_ = 0;
+    std::vector<std::uint16_t> uploaded_row_io_;
+    std::vector<std::uint16_t> uploaded_row_affine_;
+    // Shadow copies of uploaded textures so unchanged frames (or unchanged
+    // VRAM rows) skip glTexSubImage2D, and upload_vram + upload_room_vram
+    // never uploads room_vram_ twice in one frame.
+    std::vector<std::uint8_t> uploaded_vram_;
+    std::vector<std::uint8_t> uploaded_room_vram_;
+    std::vector<std::uint8_t> pending_room_vram_;
+    bool room_vram_mirrors_vram_ = true;
+    std::uint16_t uploaded_palette_[2][512] = {};
+    bool uploaded_palette_valid_[2] = {false, false};
+    std::uint16_t pending_room_palette_[512] = {};
+    int pending_room_palette_len_ = 0;
+    bool room_palette_mirrors_live_ = true;
+    std::vector<std::uint16_t> uploaded_room_ids_;
+    std::vector<std::uint16_t> uploaded_room_atlas_;
+    void sync_deferred_uploads();
     gbarecomp::GpuTexture world_map_ = 0;
     bool world_map_valid_ = false;
     bool world_map_used_ = false;
@@ -364,6 +414,14 @@ private:
     // layer (if any) the next draw() should take from it.
     gbarecomp::GpuTexture effect_canvas_ = 0;
     EffectCanvas effect_pixels_;
+    std::vector<std::uint8_t> uploaded_effect_pixels_;
+    // Precomputed per-row off-screen strip shares for battle hold_edge layers
+    // (2 x hold_strip_h_ R8UI: column 0 = right share, column 1 = left share).
+    // Replaces two 16-iteration VRAM loops per margin pixel in kBackgroundFragment.
+    gbarecomp::GpuTexture hold_strip_ = 0;
+    int hold_strip_h_ = 0;
+    std::vector<std::uint8_t> hold_strip_buf_;
+    std::vector<std::uint8_t> uploaded_hold_strip_;
     bool effect_enabled_ = false;
     int effect_layer_ = -1;
     bool effect_span_ = false;
@@ -385,6 +443,8 @@ private:
     std::uint32_t fade_columns_ = 0;
     int fade_row0_ = 0, fade_row1_ = 0;
     float fade_opacity_ = 1.0f;
+    int red_x0_ = 0, red_x1_ = 0, red_y0_ = 0, red_y1_ = 0;
+    unsigned red_rows_ = 0;
     bool reveal_full_ = false;
     std::bitset<FieldScene::kObjects> character_objects_;
     // Rows in the per-row register texture: FieldScene::kRows, plus the output
@@ -415,12 +475,50 @@ private:
     // Plain draws normally; Other resolves the other phase into
     // flicker_other_ and stops; Mix resolves into flicker_this_, mixes the
     // two into the normal destination and carries on.
-    enum class FlickerPhase { Plain, Other, Mix };
+    enum class FlickerPhase { Plain, Other, Mix, WorldMargin };
     bool draw_frame(const FieldScene& scene, FlickerPhase phase);
     bool ensure_flicker_targets();
+    bool ensure_world_compose();
+    WorldCompose world_compose_{};
+    gbarecomp::GpuProgram flat_rows_prog_ = 0;
+    gbarecomp::GpuProgram flat_all_prog_ = 0;
+    gbarecomp::GpuProgram world_compose_prog_ = 0;
+    bool world_compose_failed_ = false;
+    gbarecomp::GpuTexture compose_src_ = 0;
+    int compose_src_w_ = 0, compose_src_h_ = 0;
+    // The compose pass's own flags: per console row, the uniform bar colour
+    // (row 0) and "row is one colour" (row 1); and "whole screen is one
+    // colour" (1x1). Their own textures, never the pass targets.
+    gbarecomp::GpuTexture compose_rows_ = 0;
+    gbarecomp::GpuTexture compose_flat_ = 0;
+    gbarecomp::GpuTexture world_margin_tex_ = 0;
+    int world_margin_w_ = 0, world_margin_h_ = 0;
+    bool world_margin_valid_ = false;
+    gbarecomp::GpuTexture flat_world_map_ = 0;
+    std::uint32_t flat_world_map_generation_ = 0;
     float flicker_weight_ = 0.0f;
     SpriteFlickerHistory flicker_history_;
     std::unique_ptr<FieldScene> flicker_scene_;
+    // The last frame draw() drew (not a side picture). The same frame drawn
+    // again (a held picture) reuses its flicker phase (`flicker_scene_`
+    // when `last_other_drawn_`) and leaves the flicker history and the
+    // burst, trail and shake steps as they are.
+    std::uint64_t last_drawn_frame_ = 0;
+    bool has_last_drawn_ = false;
+    bool last_other_drawn_ = false;
+    bool repeat_draw_ = false;
+    // Output-pixel scissor rectangle [x0, y0, x1, y1) for FlickerPhase::Other
+    // and kFlickerMixFragment (top-down); when flicker_scissor_on_ is true,
+    // Other only renders inside this tight box around alternating sprites.
+    bool flicker_scissor_on_ = false;
+    int flicker_sx0_ = 0, flicker_sy0_ = 0, flicker_sx1_ = 0, flicker_sy1_ = 0;
+    bool last_flicker_scissor_on_ = false;
+    int last_flicker_sx0_ = 0, last_flicker_sy0_ = 0, last_flicker_sx1_ = 0, last_flicker_sy1_ = 0;
+    std::vector<gbarecomp::GpuQuad> repeat_quads_;
+    // The sprite batch draw_frame fills: records (kObjectRecordInts ints
+    // each, layout in kObjectVertex) and the quads that name them.
+    std::vector<int> object_records_;
+    std::vector<gbarecomp::GpuQuad> object_quads_;
     gbarecomp::GpuProgram flicker_mix_ = 0;
     gbarecomp::GpuTexture flicker_this_ = 0;
     gbarecomp::GpuTexture flicker_other_ = 0;

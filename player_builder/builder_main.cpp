@@ -39,6 +39,7 @@
 #include <windows.h>
 #else
 #include <fcntl.h>
+#include <sched.h>
 #include <signal.h>
 #include <sys/prctl.h>
 #include <sys/wait.h>
@@ -365,21 +366,71 @@ int run_process(const fs::path& exe, const std::vector<std::string>& args,
 }
 #endif
 
+#ifdef __ANDROID__
+// "Use all cores" (--all-cores): each worker thread keeps to one core, and
+// the compilers it starts inherit that. Without it Android's scheduler put
+// all 8 compilers of an app build on the 2 fast cores of a Galaxy Tab A9+
+// and left its 6 slow cores ~90% idle. Measured there (40 files, 8 workers):
+// on the 2 fast cores 104 s, one worker per core 82 s.
+// Fastest cores first: worker 0 takes the first (largest) task, and a slow
+// core there made the Broken Seal translation 15 s -> 43 s in a real build.
+bool g_pin_workers = false;
+
+void pin_worker(int index) {
+    cpu_set_t allowed;
+    CPU_ZERO(&allowed);
+    if (!g_pin_workers || sched_getaffinity(0, sizeof(allowed), &allowed) != 0) return;
+    std::vector<std::pair<long, int>> cpus;  // (-max kHz, cpu)
+    for (int c = 0; c < CPU_SETSIZE; ++c) {
+        if (!CPU_ISSET(c, &allowed)) continue;
+        long khz = 0;
+        std::ifstream("/sys/devices/system/cpu/cpu" + std::to_string(c) +
+                      "/cpufreq/cpuinfo_max_freq") >> khz;
+        cpus.push_back({-khz, c});
+    }
+    if (cpus.empty()) return;
+    std::stable_sort(cpus.begin(), cpus.end());
+    cpu_set_t one;
+    CPU_ZERO(&one);
+    CPU_SET(cpus[static_cast<std::size_t>(index) % cpus.size()].second, &one);
+    sched_setaffinity(0, sizeof(one), &one);  // 0: this thread
+}
+#endif
+
 // Run `tasks` on `jobs` threads, reporting progress; stops handing out new
 // tasks after the first failure and returns its message.
 bool run_parallel(const std::vector<std::function<bool(std::string*)>>& tasks,
                   int jobs, std::string* error) {
-    std::atomic<std::size_t> next{0};
+    const int workers = std::max(1, jobs);
+#ifdef __ANDROID__
+    // Pinned workers: worker t (fastest core first) takes task t first, so
+    // the first, largest tasks never go to whichever slow core wins the race.
+    // A real Lost Age build lost 44 s when a slow core took the main program.
+    const bool fixed_start = g_pin_workers;
+#else
+    const bool fixed_start = false;
+#endif
+    std::atomic<std::size_t> next{fixed_start ? std::size_t(workers) : 0};
     std::atomic<std::size_t> done{0};
     std::atomic<bool> failed{false};
     std::mutex err_mutex;
     const std::size_t total = tasks.size();
     emit("@progress 0 %zu", total);
-    auto worker = [&] {
+    auto worker = [&](int index) {
+#ifdef __ANDROID__
+        pin_worker(index);
+#else
+        (void)index;
+#endif
+        bool first = fixed_start;
         for (;;) {
             if (failed) return;
-            const std::size_t i = next++;
-            if (i >= total) return;
+            const std::size_t i = first ? std::size_t(index) : next++;
+            first = false;
+            if (i >= total) {
+                if (i < std::size_t(workers)) continue;  // fewer tasks than workers
+                return;
+            }
             std::string e;
             if (!tasks[i](&e)) {
                 std::lock_guard<std::mutex> lock(err_mutex);
@@ -390,7 +441,7 @@ bool run_parallel(const std::vector<std::function<bool(std::string*)>>& tasks,
         }
     };
     std::vector<std::thread> threads;
-    for (int t = 0; t < std::max(1, jobs); ++t) threads.emplace_back(worker);
+    for (int t = 0; t < workers; ++t) threads.emplace_back(worker, t);
     for (auto& t : threads) t.join();
     return !failed;
 }
@@ -1086,17 +1137,23 @@ bool compile_and_link(const Setup& s, const std::string& rom_sha1,
         return false;
     }
 #ifdef __ANDROID__
-    // Android: the app's own Clang, with the flags the NDK's clang++ uses
-    // for the engine (scripts/android/build_apk.py).
+    // Android: the app's own Clang. Game code throws nothing and needs no
+    // unwind tables or per-function sections (gba_recompile --slim already
+    // drops dead functions); leaving them out cut a shard's compile time and
+    // object size on the tablet. Keep -fstack-protector-strong: without it
+    // some dispatch tail calls compile to bl + ret (scripts/
+    // tail_jump_audit.py). The same flags are on the game objects in each
+    // game's CMakeLists.txt (if(ANDROID)), which build_apk.py --check-games
+    // audits.
     const fs::path gxx = s.llvm;
     const fs::path sysroot = s.toolchain / "sysroot";
     std::vector<std::string> base = {
         "clang++", "--target=" + std::string(kAndroidTarget),
         "--sysroot=" + sysroot.string(),
         "-resource-dir=" + android_resource_dir(s).string(),
-        "-fdata-sections", "-ffunction-sections", "-funwind-tables",
-        "-fstack-protector-strong", "-D_FORTIFY_SOURCE=2",
-        "-O2", "-DNDEBUG", "-std=c++20", "-Og", "-g0",
+        "-fno-exceptions", "-fno-rtti", "-fno-unwind-tables",
+        "-fno-asynchronous-unwind-tables", "-fstack-protector-strong",
+        "-DNDEBUG", "-std=c++20", "-Og", "-g0",
         "-ferror-limit=20",
         "-DGBARECOMP_OUTLINE_BUS=1",
         "-fPIC", "-fno-semantic-interposition",
@@ -1146,16 +1203,51 @@ bool compile_and_link(const Setup& s, const std::string& rom_sha1,
         }
     }
 
-    emit("@stage Compiling the game (%zu files)", sources.size());
     std::vector<fs::path> objects;
     std::vector<std::function<bool(std::string*)>> tasks;
+    // Android: the main shards all start with runtime_arm.h and recompiled.h
+    // (5 MB for The Broken Seal); parse them once into a precompiled header.
+    // Measured on the tablet: 1.6 s to build, 0.8 s saved per main shard on
+    // a fast core. Overlays gained nothing from it.
+    fs::path main_pch;
+#ifdef __ANDROID__
+    if (fs::exists(gen / "main" / "recompiled.h")) {
+        const fs::path pch_h = obj / "main_pch.h";
+        main_pch = obj / "main_pch.pch";
+        const fs::path pch_log = logs_dir(s) / "cc_main_pch.log";
+        std::vector<std::string> args = base;
+        args.insert(args.end(), {"-x", "c++-header", pch_h.string(), "-o",
+                                 main_pch.string()});
+        std::error_code ec;
+        fs::remove(pch_log, ec);
+        if (!write_text(pch_h, "#include <cstdint>\n#include \"runtime_arm.h\"\n"
+                               "#include \"recompiled.h\"\n")) {
+            *error = "cannot write " + pch_h.string();
+            return false;
+        }
+        emit("@stage Preparing the game headers");
+        const int rc = run_process(gxx, args, pch_log);
+        if (rc != 0) {
+            log_tail(pch_log);
+            *error = "compiling the main header failed (" + std::to_string(rc) +
+                     "); see " + pch_log.string();
+            return false;
+        }
+        fs::remove(pch_log, ec);
+    }
+#endif
+    emit("@stage Compiling the game (%zu files)", sources.size());
     for (const fs::path& src : sources) {
         const std::string name = src.parent_path().filename().string() + "__" +
                                  src.stem().string();
         const fs::path o = obj / (name + ".o");
         objects.push_back(o);
-        tasks.push_back([&s, base, gxx, src, o, name](std::string* e) {
+        const bool use_pch = !main_pch.empty() &&
+                             src.parent_path().filename() == "main" &&
+                             has_prefix(src.filename().string(), "recompiled");
+        tasks.push_back([&s, base, gxx, src, o, name, use_pch, main_pch](std::string* e) {
             std::vector<std::string> args = base;
+            if (use_pch) args.insert(args.end(), {"-include-pch", main_pch.string()});
             args.insert(args.end(), {"-c", src.string(), "-o", o.string()});
             const fs::path log = logs_dir(s) / ("cc_" + name + ".log");
             std::error_code ec;
@@ -1171,6 +1263,24 @@ bool compile_and_link(const Setup& s, const std::string& rom_sha1,
             return true;
         });
     }
+#ifdef __ANDROID__
+    // All cores: largest files first (the link keeps `objects` in order), so
+    // no big file starts last on a slow core. A real Broken Seal build spent
+    // its last ~160 s waiting on 1-3 such files.
+    if (g_pin_workers) {
+        std::vector<std::pair<std::uintmax_t, std::size_t>> by_size;
+        for (std::size_t i = 0; i < sources.size(); ++i) {
+            std::error_code ec;
+            const auto bytes = fs::file_size(sources[i], ec);
+            by_size.push_back({ec ? 0 : bytes, i});
+        }
+        std::stable_sort(by_size.begin(), by_size.end(),
+                         [](const auto& a, const auto& b) { return a.first > b.first; });
+        std::vector<std::function<bool(std::string*)>> sorted;
+        for (const auto& entry : by_size) sorted.push_back(std::move(tasks[entry.second]));
+        tasks = std::move(sorted);
+    }
+#endif
     if (!run_parallel(tasks, s.jobs, error)) return false;
 
     emit("@stage Linking %s", kGameLibrary);
@@ -1202,12 +1312,12 @@ bool compile_and_link(const Setup& s, const std::string& rom_sha1,
     const std::vector<std::string> link = {
         "ld.lld", "-EL", "--fix-cortex-a53-843419", "-z", "now", "-z", "relro",
         "-z", "max-page-size=16384", "--no-rosegment", "--use-android-relr-tags",
-        "--pack-dyn-relocs=relr", "--hash-style=gnu", "--eh-frame-hdr",
+        "--pack-dyn-relocs=relr", "--hash-style=gnu",
         "-m", "aarch64linux", "-shared", "-soname", kGameLibrary,
         "-o", dll_tmp.string(), (api / "crtbegin_so.o").string(),
         "-L" + (android_resource_dir(s) / "lib" / "linux" / "aarch64").string(),
         "-L" + api.string(), "-L" + libs.string(),
-        "@" + rsp.string(), "-Bsymbolic", "--gc-sections",
+        "@" + rsp.string(), "-Bsymbolic",
         s.engine_library.string(),
         "-lc++_shared", "-lm", builtins.string(), "-l:libunwind.a", "-ldl", "-lc",
         builtins.string(), "-l:libunwind.a", "-ldl", (api / "crtend_so.o").string()};
@@ -1277,7 +1387,11 @@ int usage() {
         "%s --rom <Golden Sun ROM> [--out <dir>] [--work <dir>]\n"
         "            [--data <dir>] [--engine <dir>] [--toolchain <dir>]\n"
         "            [--recompiler <gba_recompile.exe>] [--jobs N]\n"
-        "            [--keep-work] [--generate-only] [--low-resources]\n", kBuilderName);
+        "            [--keep-work] [--generate-only] [--low-resources]\n"
+#ifdef __ANDROID__
+        "            [--all-cores]\n"
+#endif
+        , kBuilderName);
     return 2;
 }
 
@@ -1380,6 +1494,7 @@ int main(int argc, char** cargv) {
 #ifdef __ANDROID__
         else if (a == "--llvm") s.llvm = next();
         else if (a == "--engine-library") s.engine_library = next();
+        else if (a == "--all-cores") g_pin_workers = true;
 #endif
         else if (a == "--jobs" && i + 1 < argv.size()) s.jobs = std::stoi(argv[++i]);
         else if (a == "--keep-work") s.keep_work = true;

@@ -72,10 +72,9 @@ inline void add_common_environment(ChildEnvironmentPlan& plan, const CommonEnvir
     plan.put("GBARECOMP_AUDIO_STEREO", "1");
     plan.put("GBARECOMP_HEAL_CACHE", c.heal_cache);
     if (!c.heal_toolchain.empty()) plan.put("GBARECOMP_HEAL_TOOLCHAIN", c.heal_toolchain);
-    // Enhanced Options (expanded-view fixes, room-buffer drawing and host
-    // spell effects) are part of every launch.
+    // Enhanced Options (expanded-view fixes and host spell effects) are part of
+    // every launch.
     plan.put("GBARECOMP_EXPERIMENTAL_FIXES", "1");
-    plan.put("GSR_ROOM_BUFFER_RENDER", "1");
     plan.put("GSR_HOST_EFFECTS", "1");
     plan.put("GSR_GPU_FIELD", c.gpu_field ? "1" : "0");
     plan.put("GSR_GPU_FIELD_ONLY", c.gpu_field_only ? "1" : "0");

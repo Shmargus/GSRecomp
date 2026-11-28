@@ -217,9 +217,12 @@ Needs Android 9 and OpenGL ES 3.1. The app icon is made from
 
 ## Player releases
 
-**Before every release, ask Jimmy for this release's "Message from Jim"**
-(the line under the launcher logo, `kMessageFromJim` in
-`launcher/collection_main.cpp`) and update it before packaging.
+**"Message from Jim"** (the line under the launcher logo) is loaded from
+`launcher_message.txt` on GitHub's `main` branch each time the launcher
+starts, so it changes without a release: edit that file and push. The
+built-in copy (`kBuiltInMessageFromJim` in `launcher/collection_main.cpp`)
+shows until it arrives and when offline; before a release, ask Jimmy whether
+it should change.
 
 Open Build Studio's **Releases** page and select any combination of Windows x64,
 Linux x64, Linux ARM64 and Android. The page shows the active build stage,

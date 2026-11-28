@@ -35,14 +35,19 @@ void touch_controls_set_buttons_shown(bool shown);
 
 // Whether fast forward is running, for the >> button's look.
 void touch_controls_set_fast_forward(bool on);
+// Show or hide the >> button ([Video] TouchFastForward; shown by default).
+void touch_controls_set_fast_forward_shown(bool shown);
 
 // Placing: the player drags the GBA buttons, with Done and Reset at the
-// top; the game gets no input. Done (or opening the menu) ends it.
+// top; the game gets no input. Smaller and Bigger resize the last button
+// touched (the menu and >> buttons too), or every button while "All buttons"
+// is ticked. Done (or opening the menu) ends it.
 void touch_controls_begin_placing();
 bool touch_controls_placing();
 // True once after placing ends: save touch_controls_layout() then.
 bool touch_controls_take_layout_changed();
-// The saved places, for config.ini [Video] TouchLayout ("": the defaults).
+// The saved places and sizes, for config.ini [Video] TouchLayout ("": the
+// defaults). One item per button, ';' between: "x,y" or "-", then "*size".
 std::string touch_controls_layout();
 void touch_controls_set_layout(const char* text);
 

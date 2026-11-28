@@ -6,6 +6,7 @@
 
 #include "color_lut.h"
 
+#include <atomic>
 #include <cmath>
 
 namespace gbarecomp::runtime {
@@ -250,7 +251,11 @@ bool color_vision_from_name(std::string_view name, ColorVision& out) {
 }
 
 ColorLut::ColorLut(const ColorSettings& settings) {
-    table_ = std::make_unique<std::array<std::array<uint8_t, 3>, 32768>>();
+    static_assert(sizeof(std::array<std::array<uint8_t, 3>, 32768>) == 32768u * 3u,
+                  "table_rgb() hands out the table as packed triples");
+    static std::atomic<unsigned> next_id{1};
+    id_ = next_id.fetch_add(1);
+    table_ =std::make_unique<std::array<std::array<uint8_t, 3>, 32768>>();
     passthrough_ = fill(settings);
     if (settings.vision != ColorVision::Normal) {
         passthrough_ = false;

@@ -15,9 +15,10 @@
 //   * Video memory (96 KB) and its tile art. Copying it every frame would cost
 //     more than it saves. The renderer keeps it on the graphics card and
 //     refreshes it when the game writes, which is a renderer concern.
-//   * The room's reconstructed map. `room_buffer.cpp` already owns that and
-//     rebuilds it on room entry. The scene only says WHICH room, so the
-//     renderer knows whether what it already uploaded is still current.
+//   * The room's map. The renderer uploads the game's own room tables
+//     (upload_room) and rebuilds it on room entry. The scene only says WHICH
+//     room, so the renderer knows whether what it already uploaded is still
+//     current.
 //
 // What IS copied is small and changes every frame, about 3 KB in total:
 //

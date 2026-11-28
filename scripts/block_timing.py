@@ -22,9 +22,9 @@ once per block (engine/src/armv4t/runtime_arm.h, "Block timing"):
   * `runtime_mem_cycles(A, W, 0u|1u)` becomes `gsr_bt_mem_cycles(...)` and
     `runtime_insn_fetch(` becomes `gsr_bt_insn_fetch(`. Both read the
     engine's memory timing table inline (runtime_bus_bridge.cpp,
-    g_runtime_mem_cost) and call runtime_mem_cycles only when WAITCNT differs
-    from the value the table was built for. The numbers are the same, but
-    there is no call into the engine. With the rewrites above applied, these
+    g_runtime_mem_cost), which the engine rebuilds whenever WAITCNT changes,
+    and a constant address folds to a literal or one table load. The numbers
+    are the same, but there is no call into the engine. With the rewrites above applied, these
     calls were ~23% of the heaviest Ragnarok frames (host
     profile). Data-access costs (third
     argument 2u) keep calling the engine, because they can take the prefetch
@@ -33,7 +33,7 @@ once per block (engine/src/armv4t/runtime_arm.h, "Block timing"):
     condition table inline. runtime_arm.cpp's version is out of line, so each
     conditional instruction made a call into the engine (4.2% of the heaviest
     Ragnarok frames in the same profile). Every call site passes a constant,
-    so the inline version folds to a flag test.
+    so the macro folds to a flag test in the front end.
 
 The player build does the same rewrite in C++ (player_builder/
 block_timing.cpp), which must give byte-for-byte the same output; change

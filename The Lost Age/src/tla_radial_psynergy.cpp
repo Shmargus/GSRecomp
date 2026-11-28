@@ -28,7 +28,23 @@ bool a_acts() {
     if (target != -1 && (target > 0x3F || radial::guest(TLA_ROM(0x080CCE94u), target))) return true;
     return radial::guest(TLA_ROM(0x080CC54Cu)) != 0;
 }
+// Both searches walk the whole table on every call (85 records on the world
+// map), and auto_word asks per known Psynergy and category. Measured: with 4+
+// Psynergy known on the world map (about 16 in a town) the searches run past
+// the frame and that frame's A press is lost, ship boarding included. Both
+// only ever return a record with type 5 (word & 0xF) whose ability, byte 1 of
+// the word (getter 0x080AF43C), has field kind +6 == kind (0x080CE4C2..D8,
+// 0x080CE384..96). So a room without one is answered here, without them.
+bool room_reacts_to(gba::GbaBus& b, unsigned kind) {
+    for (std::uint32_t at = b.read32(b.read32(0x0300006Cu) + 0x10u);; at += 12u) {
+        const std::uint32_t word = b.read32(at);
+        if (word == 0xFFFFFFFFu) return false;
+        if ((word & 0xFu) == 5u && b.read8(radial::ability((word >> 8) & 0xFFu) + 6u) == kind)
+            return true;
+    }
+}
 std::uint32_t find(std::uint32_t category, unsigned kind) {
+    if (!room_reacts_to(*gbarecomp::active_bus(), kind)) return 0;
     const std::uint32_t target = radial::guest(TLA_ROM(0x080CE31Cu), kind);
     return radial::guest(TLA_ROM(0x080CE458u), category, kind, target);
 }

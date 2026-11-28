@@ -196,6 +196,10 @@ public:
     int cosim_dump(char* out, int cap) const;
     void reset_unmapped_count() { unmapped_count_ = 0; }
     const uint8_t* raw() const { return io_.data(); }
+    // Called after anything may have changed WAITCNT (0x204..0x205): an 8- or
+    // 16-bit write touching it (32-bit writes and DMA go through write16) and
+    // deserialize. The runtime keeps its memory timing table current with it.
+    void set_waitcnt_changed_hook(void (*fn)()) { waitcnt_changed_hook_ = fn; }
     std::size_t dma_runs(int ch) const { return dma_runs_[ch]; }
     std::size_t dma_words(int ch) const { return dma_words_[ch]; }
 
@@ -254,6 +258,7 @@ private:
     GbaPpu*       ppu_   = nullptr;
     armv4t::Bus*  bus_   = nullptr;
     GbaAudio*     audio_ = nullptr;
+    void        (*waitcnt_changed_hook_)() = nullptr;
 
     // Flat backing for the 1 KB IO region. Anything not specially
     // handled is just read/written here.

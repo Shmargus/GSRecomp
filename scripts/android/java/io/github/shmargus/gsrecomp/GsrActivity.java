@@ -161,13 +161,23 @@ public abstract class GsrActivity extends SDLActivity {
     }
 
     // Request a display rate that matches the frame rate on Android 11+.
-    // On resume, reapply it to the new surface.
+    // FIXED_SOURCE + CHANGE_FRAME_RATE_ALWAYS lets non-seamless 90 Hz LCD
+    // panels (such as Galaxy Tab A9+) switch cleanly to 60 Hz instead of
+    // staying at 90 Hz with 45/90 judder. On resume, host_window reapplies it.
     public void setFrameRate(float hz) {
         if (Build.VERSION.SDK_INT < 30) return;
         try {
             android.view.Surface surface = getNativeSurface();
-            if (surface != null && surface.isValid())
-                surface.setFrameRate(hz, android.view.Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
+            if (surface != null && surface.isValid()) {
+                if (Build.VERSION.SDK_INT >= 31) {
+                    surface.setFrameRate(hz,
+                        android.view.Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
+                        android.view.Surface.CHANGE_FRAME_RATE_ALWAYS);
+                } else {
+                    surface.setFrameRate(hz,
+                        android.view.Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
+                }
+            }
         } catch (Throwable ignored) {
         }
     }

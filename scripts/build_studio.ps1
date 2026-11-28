@@ -458,6 +458,7 @@ function Save-Settings {
                 <TextBlock DockPanel.Dock="Top" Text="Android app" FontSize="15" FontWeight="SemiBold"/>
                 <Button x:Name="RunAndroid" DockPanel.Dock="Bottom" Style="{StaticResource Primary}" Content="Build app" HorizontalAlignment="Left" Margin="0,18,0,0"/>
                 <CheckBox x:Name="AndroidCheckOnly" DockPanel.Dock="Bottom" Content="Only check the Android tools" Margin="0,14,0,0"/>
+                <CheckBox x:Name="AndroidProfiling" DockPanel.Dock="Bottom" Content="Profiling app (cost probe and frame timing in every game)" Margin="0,14,0,0"/>
                 <TextBlock Style="{StaticResource Hint}" Margin="0,6,0,0" Text="Sideload test copy in Releases\android. Use Releases for one to share."/>
               </DockPanel>
             </Border>
@@ -507,10 +508,14 @@ $window.Add_SourceInitialized({
     [void][Gsr.Dwm]::DwmSetWindowAttribute($hwnd, 20, [ref]$on, 4)
 })
 # Started hidden (no console), and Windows applies that to our first window too:
-# show it again explicitly and bring it to the front.
+# show it again explicitly and bring it to the front. Windows refuses focus to a
+# script started in the background, so Activate alone leaves the window buried
+# under whatever is open; a brief Topmost lifts it above them without focus.
 $window.Add_ContentRendered({
     $hwnd = [Windows.Interop.WindowInteropHelper]::new($window).Handle
     [void][Gsr.Dwm]::ShowWindow($hwnd, 5)
+    $window.Topmost = $true
+    $window.Topmost = $false
     [void]$window.Activate()
 })
 
@@ -587,7 +592,7 @@ function Update-Controls {
     $idle = $null -eq $script:job
     foreach ($b in 'RunGames', 'RunRegen', 'RunRelease', 'RunLauncher', 'RunAndroid') { $ui[$b].IsEnabled = $idle }
     foreach ($c in 'GameBoth', 'GameBrokenSeal', 'GameLostAge', 'RegenBoth', 'RegenBrokenSeal', 'RegenLostAge',
-                   'Light', 'GamesCheckOnly', 'Version', 'LauncherOnly', 'AndroidCheckOnly') { $ui[$c].IsEnabled = $idle }
+                   'Light', 'GamesCheckOnly', 'Version', 'LauncherOnly', 'AndroidCheckOnly', 'AndroidProfiling') { $ui[$c].IsEnabled = $idle }
     $ui.Light.IsEnabled = $idle -and -not $ui.GamesCheckOnly.IsChecked
     foreach ($key in $platforms.Keys) {
         $ui["Plat$key"].IsEnabled = $idle -and ($haveWsl -or $key -notin @('Linux', 'Arm64')) -and
@@ -816,6 +821,7 @@ $ui.RunLauncher.Add_Click({
 $ui.RunAndroid.Add_Click({
     $apk = Quote (Join-Path $PSScriptRoot 'android/build_apk.py')
     if ($ui.AndroidCheckOnly.IsChecked) { Start-Build 'Android tool check' "python $apk --check-tools" }
+    elseif ($ui.AndroidProfiling.IsChecked) { Start-Build 'Android profiling app' "python $apk --profiling" }
     else { Start-Build 'Android app' "python $apk" }
 })
 

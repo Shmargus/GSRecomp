@@ -49,12 +49,20 @@ JDK = ANDROID_DIR / "jdk-21"
 SDL2_SOURCE = ANDROID_DIR / "SDL2-2.32.10"
 LLVM_SOURCE = ANDROID_DIR / "llvm"            # llvm-project 21.1.8 (llvm, clang, lld)
 LLVM_BUILD = ANDROID_DIR / "llvm-build"
+# The phone's Clang and lld, built with ThinLTO and without stack protectors
+# or unwind tables in the compiler itself (the NDK adds both by default).
+# The plain Release build (llvm-build/android) is kept for comparison.
+PHONE_LLVM_BUILD = LLVM_BUILD / "android-lto"
 MIN_SDK = 28   # player_builder kAndroidApi; posix_spawn in bionic
 TARGET_SDK = 35
 ABI = "arm64-v8a"
 PACKAGE = "io.github.shmargus.gsrecomp"
 LABEL = "Golden Sun Recompiled"
 OUTPUT = ROOT / "Releases" / "android" / "GoldenSunRecompiled.apk"
+# --profiling: the developer launcher (GSR_LINUX_DEV_LAUNCHER), so every game
+# session runs the cost probe and present cadence and writes the frame
+# timing CSVs beside its log (session_linux.cpp). Debuggable, for simpleperf.
+PROFILING_OUTPUT = ROOT / "Releases" / "android" / "GoldenSunRecompiled-profiling.apk"
 # Test builds let adb read the app's own files (run-as) and logs; set False
 # for an APK that is shared.
 DEBUGGABLE = True
@@ -144,7 +152,7 @@ def build_phone_llvm() -> Path:
     """One program (LLVM's multi-tool driver) holding Clang and lld, built
     for the phone from the LLVM 21.1.8 source. Tablegen runs on this PC, so
     it is built first with this PC's MinGW GCC."""
-    android = LLVM_BUILD / "android"
+    android = PHONE_LLVM_BUILD
     llvm = android / "bin" / "llvm"
     if llvm.exists() and (android / "lib" / "clang").is_dir():
         return llvm
@@ -179,7 +187,11 @@ def build_phone_llvm() -> Path:
              "-DCLANG_ENABLE_ARCMT=OFF", "-DCLANG_ENABLE_STATIC_ANALYZER=OFF",
              "-DCLANG_BUILD_TOOLS=OFF", "-DLLVM_BUILD_TOOLS=OFF",
              "-DLLVM_ENABLE_TERMINFO=OFF", "-DLLVM_ENABLE_LIBEDIT=OFF",
-             "-DLLVM_ENABLE_LIBPFM=OFF", "-DLLVM_ENABLE_PIC=ON", *common])
+             "-DLLVM_ENABLE_LIBPFM=OFF", "-DLLVM_ENABLE_PIC=ON",
+             "-DLLVM_ENABLE_LTO=Thin", "-DLLVM_PARALLEL_LINK_JOBS=1",
+             "-DCMAKE_C_FLAGS=-fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables",
+             "-DCMAKE_CXX_FLAGS=-fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables",
+             *common])
     print("Building Clang and lld for the phone (long, the first time) ...")
     run([ninja(), "-C", android, "llvm-driver", "clang-resource-headers"])
     # The driver build "links" every tool name to the program; Windows makes
@@ -215,7 +227,7 @@ def release_settings(version: str | None) -> list[str]:
     return [f"-DGSR_RELEASE_VERSION={version}", f"-DGSR_REPORT_HOST={host}"]
 
 
-def build_native(check_games: bool, version: str | None) -> None:
+def build_native(check_games: bool, version: str | None, profiling: bool = False) -> None:
     tbs_corpus = corpus(TBS / "local" / "gs011_block", "main/dispatch_table.cpp")
     tla_corpus = corpus(TLA / "local" / "tla_block", "main/dispatch_table.cpp")
     android_cmake(TBS, TBS_BUILD, [
@@ -224,7 +236,9 @@ def build_native(check_games: bool, version: str | None) -> None:
         f"-DGSR_GAME_CODE_ROOT={tbs_corpus}", f"-DGSR_GENERATED_DIR={tbs_corpus / 'main'}",
         f"-DGSR_OVERLAY_ROOT={tbs_corpus}", f"-DGSR_STAMPS_DIR={tbs_corpus / 'stamps'}"])
     # Every build: the release settings may have changed since configuring.
-    run(["cmake", "-S", TBS, "-B", TBS_BUILD, *release_settings(version)],
+    # The profiling switch too: the build folder keeps it between runs.
+    run(["cmake", "-S", TBS, "-B", TBS_BUILD, *release_settings(version),
+         f"-DGSR_LINUX_DEV_LAUNCHER={'ON' if profiling else 'OFF'}"],
         stdout=subprocess.DEVNULL)
     android_cmake(TLA, TLA_BUILD, [
         "-DTLA_SPLIT_GAME_CODE=ON", "-DTLA_ENABLE_LTO=OFF",
@@ -476,7 +490,11 @@ def main() -> None:
     parser.add_argument("--version", help="release version the launcher reports (default: the last release's)")
     parser.add_argument("--release", action="store_true",
                         help="an APK to share: not open to adb's debugging (make_release.ps1 -Android)")
+    parser.add_argument("--profiling", action="store_true",
+                        help="developer launcher: cost probe, present cadence and frame timing CSVs in every session")
     args = parser.parse_args()
+    if args.profiling and (args.release or args.package_only):
+        fail("--profiling builds the launcher; it cannot be used with --release or --package-only")
     missing = missing_tools()
     if args.check_tools:
         for path in missing:
@@ -486,7 +504,9 @@ def main() -> None:
         return
     if missing:
         fail(f"missing Android tool: {missing[0]}")
-    global DEBUGGABLE, APP_VERSION
+    global DEBUGGABLE, APP_VERSION, OUTPUT
+    if args.profiling:
+        OUTPUT = PROFILING_OUTPUT
     if args.release:
         DEBUGGABLE = False
     if args.version and args.version != "dev":
@@ -496,9 +516,9 @@ def main() -> None:
         llvm = build_phone_llvm()
         if args.release_progress:
             print("@release-stage Android: building the launcher and both games", flush=True)
-        build_native(args.check_games, args.version)
+        build_native(args.check_games, args.version, args.profiling)
     else:
-        llvm = LLVM_BUILD / "android" / "bin" / "llvm"
+        llvm = PHONE_LLVM_BUILD / "bin" / "llvm"
     if args.release_progress:
         print("@release-stage Android: packing and signing the APK", flush=True)
     apk = package(llvm)

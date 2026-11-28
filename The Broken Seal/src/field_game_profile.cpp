@@ -34,9 +34,8 @@ const FieldGameProfile& field_game_profile() {
         p.obj_park_raw_y = widescreen::kGoldenSunObjParkRawY;
         p.world_map_side_tiles = 512;       // WorldMapSource::kSideTiles
         p.layer_wrap_y_shift = 0;
-        // A field frame is only drawable when the room buffer actually holds
-        // this room.
-        p.room_source_ready = &room_buffer_rendering;
+        // CPU room-buffer path retired; GPU field renderer owns the field.
+        p.room_source_ready = nullptr;
 
         p.kolima_split_rows = true;
         p.lamakan_haze = true;

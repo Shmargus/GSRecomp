@@ -10,7 +10,7 @@ namespace gsr_collection {
 // Seal, bit 1 The Lost Age) greys out an option the game cannot use yet.
 // Frame rewind, screen filters and the unpacker catcher are always on.
 struct TestOption { const char* label; const char* environment; unsigned games; bool default_selected; };
-inline constexpr std::array<TestOption, 12> test_options{{
+inline constexpr std::array<TestOption, 13> test_options{{
     {"Self-heal RAM", "GBARECOMP_SELFHEAL_RAM", 3, true},
     {"Sprite recorder", "GSR_OBJ_RECORD", 1, false},
     {"Map recorder", "GSR_MAP_RECORD", 1, false},
@@ -27,6 +27,8 @@ inline constexpr std::array<TestOption, 12> test_options{{
     // (src/tla_sprite_memory.cpp); this keeps the console's 32 KB only.
     {"Console sprite memory", "TLA_CONSOLE_SPRITE_MEMORY", 2, false},
     {"Sprite memory trace", "TLA_SPRITE_MEMORY_TRACE", 2, false},
+    // Graphics-card time per frame step, once a minute (engine gpu_timing.h).
+    {"GPU timing", "GBARECOMP_GPU_TIMING", 3, false},
 }};
 constexpr std::size_t test_index(std::string_view environment) {
     for (std::size_t i = 0; i < test_options.size(); ++i)
@@ -39,7 +41,6 @@ constexpr std::array<bool, test_options.size()> defaults() {
     return values;
 }
 struct GameSettings {
-    bool direct3d = false;
     bool english_save_test = false;
     bool test_variables = false;
     std::array<bool, test_options.size()> tests = defaults();
@@ -68,8 +69,6 @@ inline CollectionSettings load_settings(const std::filesystem::path& root) {
     std::ifstream file(root / "local" / "collection-launcher.ini");
     std::string line;
     while (std::getline(file, line)) {
-        if (line == "broken_seal_direct3d=1") settings[0].direct3d = true;
-        if (line == "lost_age_direct3d=1") settings[1].direct3d = true;
         if (line == "broken_seal_english_save_test=1") settings[0].english_save_test = true;
         if (line == "lost_age_english_save_test=1") settings[1].english_save_test = true;
     }
@@ -80,9 +79,7 @@ inline bool save_settings(const std::filesystem::path& root, const CollectionSet
     std::filesystem::create_directories(root / "local", error);
     if (error) return false;
     std::ofstream file(root / "local" / "collection-launcher.ini", std::ios::trunc);
-    file << "broken_seal_direct3d=" << settings[0].direct3d << '\n'
-         << "lost_age_direct3d=" << settings[1].direct3d << '\n'
-         << "broken_seal_english_save_test=" << settings[0].english_save_test << '\n'
+    file << "broken_seal_english_save_test=" << settings[0].english_save_test << '\n'
          << "lost_age_english_save_test=" << settings[1].english_save_test << '\n';
     return bool(file);
 }

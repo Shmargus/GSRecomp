@@ -15,7 +15,6 @@
 #include "crash_handler.h"
 #include "launcher_replay_policy.h"
 #include "launcher_session_id.h"
-#include "launcher_graphics_retry.h"
 #include "launcher_test_policy.h"
 #include "session_environment.h"
 #include "launcher_input_record_policy.h"
@@ -72,7 +71,6 @@ constexpr bool kReleaseLauncher = false;
 namespace {
 
 // One activation from the collection selector; never a saved preference.
-bool g_collection_direct3d = false;
 bool g_collection_tests_supplied = false;
 gsr_collection::GameSettings g_collection_tests;
 fs::path g_english_test_base;
@@ -1224,9 +1222,7 @@ void offer_bug_report(const std::vector<fs::path>& reports, bool crashed, bool u
     if (launcher_quit) PostQuitMessage(launcher_exit_code);
 }
 
-int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window,
-             bool direct3d_compat = false) {
-    direct3d_compat = direct3d_compat || g_collection_direct3d;
+int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window) {
     const bool collection_gpu_check = g_collection_tests_supplied &&
         gsr_collection::test_enabled(g_collection_tests, "TLA_GPU_FIELD_CHECK", session_game_index);
     if (g_collection_tests_supplied) {
@@ -1335,7 +1331,7 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
     }
 
     // The variables both platforms set the same way (session_environment.h);
-    // what differs on Windows is passed in. Direct3D compatibility, the frame
+    // what differs on Windows is passed in. The frame
     // timing files and the input recording follow below.
     gsr::ChildEnvironmentPlan plan;
     gsr::CommonEnvironment common;
@@ -1477,27 +1473,6 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
         if (!child_environment.contains(L"GBARECOMP_FRAME_PHASE"))
             child_environment.set(L"GBARECOMP_FRAME_PHASE",
                                   phase_path.wstring());
-    }
-
-    // Apply Direct3D compatibility last so normal settings cannot override it.
-    child_environment.unset(L"GSR_DIRECT3D_COMPAT");
-    if (direct3d_compat) {
-        child_environment.set(L"GSR_DIRECT3D_COMPAT", L"1");
-        child_environment.set(L"SDL_RENDER_DRIVER", L"direct3d11");
-        child_environment.set(L"GSR_GPU_FIELD", L"0");
-        child_environment.set(L"GSR_GPU_FIELD_ONLY", L"0");
-        child_environment.set(L"GSR_SCREEN_FILTERS", L"0");
-        child_environment.unset(L"TLA_GPU_FIELD_CHECK");
-        launcher_log(L"Direct3D compatibility: GSR_DIRECT3D_COMPAT=1, SDL_RENDER_DRIVER=direct3d11, "
-                     L"GSR_GPU_FIELD=0, GSR_GPU_FIELD_ONLY=0, GSR_SCREEN_FILTERS=0.");
-        if (logging) {
-            const std::string line =
-                "[launcher] graphics=direct3d11 compatibility=ON GPU_FIELD=0 GPU_FIELD_ONLY=0 SCREEN_FILTERS=0 TLA_GPU_FIELD_CHECK=OFF\r\n";
-            DWORD written = 0;
-            WriteFile(log_file, line.data(), static_cast<DWORD>(line.size()),
-                      &written, nullptr);
-            FlushFileBuffers(log_file);
-        }
     }
 
     std::wstring command = L"\"" + game.wstring() + L"\"";
@@ -1694,36 +1669,6 @@ int run_game(const fs::path& root, const std::wstring& selected_rom, HWND window
         if (program_waits) gbarecomp::handover::quit();
         if (saves_synced && exit_code == gbarecomp::soft_reset::kExitCode)
             g_session_exit_code = static_cast<int>(exit_code);
-        if (!direct3d_compat && exit_code != 0 &&
-            exit_code != gbarecomp::soft_reset::kExitCode &&
-            gsr::should_offer_direct3d_retry(direct3d_compat, exit_code, crashed,
-                                           read_text(log_path), read_text(crash_report))) {
-            const int answer = MessageBoxW(nullptr,
-                L"OpenGL graphics could not start.\n\n"
-                L"Would you like to try Direct3D instead?\n\n"
-                L"Some visual enhancements and screen filters will be unavailable for this run.",
-                session_game().title_w, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON1 | MB_SETFOREGROUND);
-            if (answer == IDYES) {
-                const auto reports = make_bug_report(root, game.parent_path(), crash_dir, rom,
-                                                     log_path, new_rewinds, crashed, exit_code);
-                if (reports.empty() || reports.front().extension() != L".zip") {
-                    launcher_log(L"OpenGL startup crash archive could not be created; preserving loose evidence before retry.");
-                    const std::wstring stem = fs::path(log_path).stem().wstring();
-                    if (crashed) for (const wchar_t* file : {L"crash_report.txt", L"crash_dump.dmp",
-                                                L"crash_memory.bin", L"crash_trail.csv", L"crash_context.txt"}) {
-                        std::error_code copy_ec;
-                        const fs::path preserved = logs_dir / (stem + L"." + file);
-                        fs::copy_file(crash_dir / file, preserved,
-                                      fs::copy_options::none, copy_ec);
-                        if (!copy_ec) launcher_log(L"OpenGL crash evidence: " + preserved.wstring());
-                    }
-                } else {
-                    for (const auto& report : reports)
-                        launcher_log(L"OpenGL startup crash archived: " + report.wstring());
-                }
-                return run_game(root, rom, nullptr, true);
-            }
-        }
         if (kReleaseLauncher) {
             std::vector<fs::path> reports;
             if (!new_rewinds.empty() || crashed || unpacker)
@@ -2697,8 +2642,6 @@ int gsr_session_main(int game, int, char**) {
                 collection_play = true;
             else if (std::wcscmp(arguments[i], L"--collection-update-checked") == 0)
                 g_collection_update_checked = true;
-            else if (std::wcscmp(arguments[i], L"--direct3d") == 0)
-                g_collection_direct3d = true;
             else if (std::wcscmp(arguments[i], L"--seamless-slot") == 0) {
                 // Slot 0..2 of The Broken Seal's save, from the collection window.
                 if (++i < argument_count)

@@ -197,9 +197,10 @@ bool tla_save_files_text(std::uint32_t text_id, std::string& out) {
     return sf::autosave_line(text_id, out);
 }
 
-bool tla_save_files_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height) {
+bool tla_save_files_paint(std::uint8_t* layer, std::uint8_t* picture,
+                          std::uint32_t width, std::uint32_t height) {
     if (!sf::g_picker.open) return false;
-    auto put = tla_menu_pixel_writer(rgb, width, height);
+    auto put = tla_menu_pixel_writer(layer, width, height);
     // A native pixel of the shown picture (the view's margins around it).
     int ox = 0, oy = 0;
     if (const gba::GbaPpu* ppu = gbarecomp::active_ppu()) {
@@ -207,13 +208,16 @@ bool tla_save_files_paint(std::uint8_t* rgb, std::uint32_t width, std::uint32_t 
         oy = static_cast<int>(ppu->view_extra_top());
     }
     auto pixel = [=](int x, int y) -> std::uint8_t* {
+        if (!picture) return nullptr;
         x += ox;
         y += oy;
         if (x < 0 || y < 0 || x >= static_cast<int>(width) || y >= static_cast<int>(height))
             return nullptr;
-        return rgb + (static_cast<std::size_t>(y) * width + x) * 3u;
+        return picture + (static_cast<std::size_t>(y) * width + x) * 3u;
     };
     return sf::paint(game(), put, pixel);
 }
+
+sf::RedRows tla_save_files_red_rows() { return sf::red_rows(game()); }
 
 bool tla_save_files_visible() { return sf::g_picker.open; }

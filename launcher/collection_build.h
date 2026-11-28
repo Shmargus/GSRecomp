@@ -589,6 +589,9 @@ class CollectionBuild {
             "--out", root.string(),
             "--llvm", (lib / "libllvm.so").string(),
             "--engine-library", (lib / gsr_launcher::kGames[choice].engine).string()};
+        // "Use all cores" in the build window (collection_main.cpp).
+        if (gsr_session::load_launcher_audio_settings(root).all_cores_build)
+            android_args.push_back("--all-cores");
         std::vector<char*> android_argv;
         for (auto& argument : android_args) android_argv.push_back(argument.data());
         android_argv.push_back(nullptr);
@@ -693,7 +696,13 @@ public:
                 // Compared only with builds of the same game, kind and limits.
                 times_file_ = collection / "local" / (std::string("build-times-") +
                     (choice ? "the-lost-age" : "the-broken-seal") + (player ? "-player" : "-developer") +
-                    (reduced ? "-limited" : "") + ".txt");
+                    (reduced ? "-limited" : "") +
+#ifdef __ANDROID__
+                    // "Use all cores" builds take a different time.
+                    (gsr_session::load_launcher_audio_settings(root).all_cores_build
+                         ? "-all-cores" : "") +
+#endif
+                    ".txt");
                 previous_ = load_build_times(times_file_); current_ = {};
                 state_.last_total = previous_.total;
                 started_ = step_started_ = last_output_ = last_cpu_ = last_sample_ = last_other_check_ = Clock::now();

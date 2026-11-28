@@ -27,6 +27,10 @@ struct Overlay {
     bool visible = false;
 } g_overlay;
 
+// The colour table as the window last set it.
+const unsigned char* g_grade_table = nullptr;
+unsigned g_grade_id = 0;
+
 // GL draw state and two frames of flicker history.
 struct State {
     bool tried = false;
@@ -34,8 +38,14 @@ struct State {
     GLuint program = 0, vao = 0, vbo = 0, fbo_read = 0, fbo_draw = 0;
     GLint u_cur = -1, u_prev = -1, u_prev2 = -1, u_mode = -1, u_weight = -1;
     GLint u_source = -1, u_size = -1, u_overlay = -1, u_overlay_on = -1;
+    GLint u_top_down = -1;
+    GLint u_grade = -1, u_grade_on = -1;
+    GLuint grade = 0;           // 256x128 RGB8: the colour table by BGR555
+    unsigned grade_id = 0;      // ColorLut::id last uploaded (0: none)
     GLuint overlay = 0;
     int overlay_w = 0, overlay_h = 0;
+    GLuint finished = 0, fbo_finished = 0;  // gpu_present_finish's picture
+    int finished_w = 0, finished_h = 0;
     GLuint history[2] = {0, 0};  // [0] frame N-1, [1] frame N-2
     int history_w = 0, history_h = 0;
     int history_count = 0;       // real previous frames held (0..2)
@@ -64,15 +74,18 @@ const char* kFragment =
     "uniform float u_weight;\n"
     "uniform vec4 u_source;\n"  // x0, y0, x1, y1 in frame pixels, top-down
     "uniform ivec2 u_size;\n"
+    "uniform int u_top_down;\n"  // 1: u_cur keeps row 0 on top (the finished picture)
     "uniform sampler2D u_overlay;\n"  // rows top-down
     "uniform int u_overlay_on;\n"
+    "uniform sampler2D u_grade;\n"  // color_lut.h table, 256 wide, by BGR555
+    "uniform int u_grade_on;\n"
     "in vec2 v_uv;\n"
     "out vec4 o_colour;\n"
     "void main() {\n"
     "  vec2 p = mix(u_source.xy, u_source.zw, v_uv);\n"
     "  ivec2 t = clamp(ivec2(floor(p)), ivec2(0), u_size - 1);\n"
     "  ivec2 top_down = t;\n"
-    "  t.y = u_size.y - 1 - t.y;\n"  // GL rows are bottom-up
+    "  if (u_top_down == 0) t.y = u_size.y - 1 - t.y;\n"  // GL rows are bottom-up
     "  vec3 c = texelFetch(u_cur, t, 0).rgb;\n"
     "  if (u_mode == 1) {\n"
     "    vec3 a = texelFetch(u_prev, t, 0).rgb;\n"
@@ -85,6 +98,12 @@ const char* kFragment =
     "  if (u_overlay_on != 0) {\n"
     "    vec4 o = texelFetch(u_overlay, top_down, 0);\n"
     "    c = mix(c, o.rgb, o.a);\n"
+    "  }\n"
+    // Same index as ColorLut::map_rgb888: each channel's top 5 bits.
+    "  if (u_grade_on != 0) {\n"
+    "    ivec3 v = ivec3(clamp(c, 0.0, 1.0) * 255.0 + 0.5) >> 3;\n"
+    "    int i = v.r | (v.g << 5) | (v.b << 10);\n"
+    "    c = texelFetch(u_grade, ivec2(i & 255, i >> 8), 0).rgb;\n"
     "  }\n"
     "  o_colour = vec4(c, 1.0);\n"
     "}\n";
@@ -110,7 +129,11 @@ bool init() {
     g.tried = true;
     const GLuint vs = compile(GL_VERTEX_SHADER, kVertex);
     const GLuint fs = compile(GL_FRAGMENT_SHADER, kFragment);
-    if (!vs || !fs) return false;
+    if (!vs || !fs) {
+        if (vs) glDeleteShader(vs);
+        if (fs) glDeleteShader(fs);
+        return false;
+    }
     g.program = glCreateProgram();
     glAttachShader(g.program, vs);
     glAttachShader(g.program, fs);
@@ -121,6 +144,8 @@ bool init() {
     glGetProgramiv(g.program, GL_LINK_STATUS, &ok);
     if (!ok) {
         std::fprintf(stderr, "[gpu-present] program failed to link\n");
+        glDeleteProgram(g.program);
+        g.program = 0;
         return false;
     }
     g.u_cur = glGetUniformLocation(g.program, "u_cur");
@@ -132,6 +157,9 @@ bool init() {
     g.u_size = glGetUniformLocation(g.program, "u_size");
     g.u_overlay = glGetUniformLocation(g.program, "u_overlay");
     g.u_overlay_on = glGetUniformLocation(g.program, "u_overlay_on");
+    g.u_grade = glGetUniformLocation(g.program, "u_grade");
+    g.u_grade_on = glGetUniformLocation(g.program, "u_grade_on");
+    g.u_top_down = glGetUniformLocation(g.program, "u_top_down");
 
     GLint previous_vao = 0, previous_buffer = 0;
     glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &previous_vao);
@@ -187,6 +215,11 @@ void gpu_present_withdraw() { g_offered = false; }
 const GpuPresentFrame* gpu_present_current() { return g_offered ? &g_frame : nullptr; }
 
 void gpu_present_reset_history() { g.history_count = 0; }
+
+void gpu_present_set_color_table(const unsigned char* table, unsigned id) {
+    g_grade_table = table;
+    g_grade_id = table ? id : 0;
+}
 
 void gpu_present_set_overlay(const unsigned char* rgba, int width, int height,
                              int dirty_x, int dirty_y, int dirty_w, int dirty_h,
@@ -258,28 +291,103 @@ bool upload_overlay(int w, int h) {
     }
     return true;
 }
-}  // namespace
 
-bool gpu_present_draw(SDL_Renderer* renderer, const GpuPresentFrame& frame,
-                      const SDL_Rect& source, const SDL_Rect& dest, int blend_index) {
+// The colour table's texture, uploaded when the profile changed. The caller
+// has the unit it samples from active. False: Raw, nothing to apply.
+bool upload_grade() {
+    if (!g_grade_table || g_grade_id == 0) return false;
+    if (!g.grade) {
+        glGenTextures(1, &g.grade);
+        glBindTexture(GL_TEXTURE_2D, g.grade);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGB8, 256, 128);
+        g.grade_id = 0;
+    } else {
+        glBindTexture(GL_TEXTURE_2D, g.grade);
+    }
+    if (g.grade_id != g_grade_id) {
+        GLint row_length = 0, skip_rows = 0, skip_pixels = 0, alignment = 4, unpack = 0;
+        glGetIntegerv(GL_UNPACK_ROW_LENGTH, &row_length);
+        glGetIntegerv(GL_UNPACK_SKIP_ROWS, &skip_rows);
+        glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &skip_pixels);
+        glGetIntegerv(GL_UNPACK_ALIGNMENT, &alignment);
+        glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &unpack);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+        glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+        glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 128, GL_RGB, GL_UNSIGNED_BYTE,
+                        g_grade_table);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, row_length);
+        glPixelStorei(GL_UNPACK_SKIP_ROWS, skip_rows);
+        glPixelStorei(GL_UNPACK_SKIP_PIXELS, skip_pixels);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, alignment);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>(unpack));
+        g.grade_id = g_grade_id;
+    }
+    return true;
+}
+// The finished picture (blend, layer and colours) at frame size, row 0 the
+// top row as SDL keeps its textures, for a screen filter to read.
+bool ensure_finished(int w, int h) {
+    if (g.finished && g.finished_w == w && g.finished_h == h) return true;
+    GLint previous = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous);
+    if (g.finished) glDeleteTextures(1, &g.finished);
+    glGenTextures(1, &g.finished);
+    glBindTexture(GL_TEXTURE_2D, g.finished);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, w, h);
+    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previous));
+    if (!g.fbo_finished) glGenFramebuffers(1, &g.fbo_finished);
+    GLint prev_draw = 0;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prev_draw);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, g.fbo_finished);
+    glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           g.finished, 0);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(prev_draw));
+    g.finished_w = w;
+    g.finished_h = h;
+    return g.finished != 0;
+}
+
+// One frame through the present shader: to the window's framebuffer at
+// `dest` (`to_finished` false), or whole into the finished texture. The
+// blend history moves on either way, so call one of them once per frame.
+bool render(SDL_Renderer* renderer, const GpuPresentFrame& frame,
+            const SDL_Rect& source, const SDL_Rect& dest, bool to_finished,
+            int blend_index) {
     if (!renderer || dest.w <= 0 || dest.h <= 0) return false;
     int out_w = 0, out_h = 0;
     if (SDL_GetRendererOutputSize(renderer, &out_w, &out_h) != 0 || out_h <= 0) return false;
     // Flush SDL's queued draws and make its GL context current.
     SDL_RenderFlush(renderer);
     if (!init()) return false;
-    if (!ensure_history(frame.width, frame.height)) return false;
+    const int index = std::clamp(blend_index, 0, kTemporalBlendItemCount - 1);
+    if (index != 0 && !ensure_history(frame.width, frame.height)) return false;
+    // The blend, overlay and colours run once per frame pixel into the
+    // finished picture; the window then only scales it. Running them per
+    // window pixel did the same work 16 times over at 1920x1200 (measured on
+    // the Galaxy Tab A9+: "to the screen" 4.3-4.9 ms with no filter).
+    if (!ensure_finished(frame.width, frame.height)) return false;
 
     // Restore GL state on exit because SDL caches it.
     GLint program = 0, vao = 0, active = 0, viewport[4] = {};
-    GLint draw_fbo = 0, read_fbo = 0, unit_tex[4] = {};
+    GLint draw_fbo = 0, read_fbo = 0, unit_tex[5] = {};
     glGetIntegerv(GL_CURRENT_PROGRAM, &program);
     glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
     glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
     glGetIntegerv(GL_VIEWPORT, viewport);
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw_fbo);
     glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read_fbo);
-    for (int u = 0; u < 4; ++u) {
+    for (int u = 0; u < 5; ++u) {
         glActiveTexture(GL_TEXTURE0 + u);
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &unit_tex[u]);
     }
@@ -287,7 +395,6 @@ bool gpu_present_draw(SDL_Renderer* renderer, const GpuPresentFrame& frame,
     const GLboolean blend = glIsEnabled(GL_BLEND);
     const GLboolean depth = glIsEnabled(GL_DEPTH_TEST);
 
-    const int index = std::clamp(blend_index, 0, kTemporalBlendItemCount - 1);
     const bool selective = temporal_blend_index_is_selective(index);
     const int required = selective ? 2 : 1;
     int mode = 0;
@@ -298,7 +405,15 @@ bool gpu_present_draw(SDL_Renderer* renderer, const GpuPresentFrame& frame,
     glDisable(GL_DEPTH_TEST);
     glUseProgram(g.program);
     glBindVertexArray(g.vao);
-    const GLuint textures[3] = {frame.texture, g.history[0], g.history[1]};
+    // Every sampler2D unit must hold a valid normalised RGBA8 texture, never
+    // a leftover integer texture (R8UI/R16UI) from FieldSceneRenderer: ES 3.0
+    // leaves mismatched sampler/format bindings undefined, and Adreno faults
+    // on them (IOCTL_KGSL_GPU_COMMAND errno 71).
+    const GLuint textures[3] = {
+        frame.texture,
+        (mode != 0 && g.history[0]) ? g.history[0] : frame.texture,
+        (mode == 1 && g.history[1]) ? g.history[1] : frame.texture,
+    };
     for (int u = 0; u < 3; ++u) {
         glActiveTexture(GL_TEXTURE0 + u);
         glBindTexture(GL_TEXTURE_2D, textures[u]);
@@ -311,16 +426,43 @@ bool gpu_present_draw(SDL_Renderer* renderer, const GpuPresentFrame& frame,
     glUniform2i(g.u_size, frame.width, frame.height);
     glActiveTexture(GL_TEXTURE3);
     const bool overlay = g_overlay.visible && upload_overlay(frame.width, frame.height);
+    if (!overlay) glBindTexture(GL_TEXTURE_2D, frame.texture);
     glUniform1i(g.u_overlay, 3);
     glUniform1i(g.u_overlay_on, overlay ? 1 : 0);
+    glActiveTexture(GL_TEXTURE4);
+    const bool grade = upload_grade();
+    if (!grade) glBindTexture(GL_TEXTURE_2D, frame.texture);
+    glUniform1i(g.u_grade, 4);
+    glUniform1i(g.u_grade_on, grade ? 1 : 0);
+    glUniform1i(g.u_top_down, 0);
 
-    // Draw to the window framebuffer.
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(draw_fbo));
-    glViewport(dest.x, out_h - (dest.y + dest.h), dest.w, dest.h);
-    glUniform4f(g.u_source, static_cast<float>(source.x), static_cast<float>(source.y),
-                static_cast<float>(source.x + source.w),
-                static_cast<float>(source.y + source.h));
+    // Whole frame, rows flipped so GL row 0 is the top row (an SDL texture's
+    // layout): viewport row j samples frame row j.
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, g.fbo_finished);
+    glViewport(0, 0, frame.width, frame.height);
+    glUniform4f(g.u_source, 0.0f, static_cast<float>(frame.height),
+                static_cast<float>(frame.width), 0.0f);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    if (!to_finished) {
+        // Scale the finished picture into the window: the same shader with
+        // nothing left to do but pick each window pixel's frame pixel, so the
+        // nearest-pixel rule is the one the single pass used.
+        for (int u = 0; u < 5; ++u) {
+            glActiveTexture(GL_TEXTURE0 + u);
+            glBindTexture(GL_TEXTURE_2D, g.finished);
+        }
+        glUniform1i(g.u_mode, 0);
+        glUniform1i(g.u_overlay_on, 0);
+        glUniform1i(g.u_grade_on, 0);
+        glUniform1i(g.u_top_down, 1);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(draw_fbo));
+        glViewport(dest.x, out_h - (dest.y + dest.h), dest.w, dest.h);
+        glUniform4f(g.u_source, static_cast<float>(source.x), static_cast<float>(source.y),
+                    static_cast<float>(source.x + source.w),
+                    static_cast<float>(source.y + source.h));
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
 
     // History for the blend: N-1 becomes N-2, this frame becomes N-1, kept
     // as drawn by the renderer (unblended), as the copied path does.
@@ -341,7 +483,7 @@ bool gpu_present_draw(SDL_Renderer* renderer, const GpuPresentFrame& frame,
 
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, static_cast<GLuint>(draw_fbo));
     glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(read_fbo));
-    for (int u = 3; u >= 0; --u) {
+    for (int u = 4; u >= 0; --u) {
         glActiveTexture(GL_TEXTURE0 + u);
         glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(unit_tex[u]));
     }
@@ -353,6 +495,18 @@ bool gpu_present_draw(SDL_Renderer* renderer, const GpuPresentFrame& frame,
     if (blend) glEnable(GL_BLEND);
     if (depth) glEnable(GL_DEPTH_TEST);
     return true;
+}
+}  // namespace
+
+bool gpu_present_draw(SDL_Renderer* renderer, const GpuPresentFrame& frame,
+                      const SDL_Rect& source, const SDL_Rect& dest, int blend_index) {
+    return render(renderer, frame, source, dest, false, blend_index);
+}
+
+unsigned gpu_present_finish(SDL_Renderer* renderer, const GpuPresentFrame& frame,
+                            int blend_index) {
+    const SDL_Rect whole = {0, 0, frame.width, frame.height};
+    return render(renderer, frame, whole, whole, true, blend_index) ? g.finished : 0u;
 }
 
 }  // namespace gbarecomp
@@ -367,7 +521,9 @@ void gpu_present_withdraw() {}
 const GpuPresentFrame* gpu_present_current() { return nullptr; }
 bool gpu_present_draw(SDL_Renderer*, const GpuPresentFrame&, const SDL_Rect&,
                       const SDL_Rect&, int) { return false; }
+unsigned gpu_present_finish(SDL_Renderer*, const GpuPresentFrame&, int) { return 0; }
 void gpu_present_reset_history() {}
+void gpu_present_set_color_table(const unsigned char*, unsigned) {}
 void gpu_present_set_overlay(const unsigned char*, int, int, int, int, int, int, bool) {}
 }  // namespace gbarecomp
 

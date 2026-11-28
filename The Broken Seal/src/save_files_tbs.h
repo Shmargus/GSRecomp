@@ -185,5 +185,6 @@ using save_files::keyinput;
 using save_files::g_picker;
 template <class Put, class Pixel>
 void paint(Put& put, Pixel& pixel) { save_files::paint(game(), put, pixel); }
+inline RedRows red_rows() { return save_files::red_rows(game()); }
 
 }  // namespace gsr::save_files::tbs

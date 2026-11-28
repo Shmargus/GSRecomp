@@ -219,21 +219,6 @@ public:
                 const uint8_t* oam,
                 const uint8_t* pal) const;
 
-    // Render an opt-in native scene at an integer supersampling scale. This
-    // uses the same BG/OBJ/window/blend compositor as the canonical path, but
-    // evaluates affine backgrounds at each output sample instead of first
-    // reducing them to 240 hardware pixels. `scale` is clamped by the caller
-    // to 1..10 and the output is (240*scale)x(160*scale) RGB888.
-    void render_native(uint8_t* rgb,
-                       uint32_t scale,
-                       uint16_t dispcnt,
-                       const uint8_t* io,
-                       const uint8_t* vram,
-                       const uint8_t* oam,
-                       const uint8_t* pal) const;
-    // Native presentation must use the same VBlank boundary as the canonical
-    // framebuffer. Returns false until the first VBlank snapshot exists.
-    bool render_native_latched(uint8_t* rgb, uint32_t scale) const;
     // Render a read-only, VBlank-captured presentation state. `line_io`
     // contains 160 consecutive kLineIoBytes records and `affine_line_refs`
     // contains four hidden BG2/BG3 reference coordinates per line.

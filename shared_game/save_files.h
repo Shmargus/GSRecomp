@@ -19,6 +19,17 @@ constexpr int kFiles = 9;      // what the player sees
 constexpr int kRows = 3;       // the game's box, and the files the cartridge holds
 constexpr int kLastBase = kFiles - kRows;
 
+// Challenge Mode files' rows in the file box, in native pixels: the window
+// inside its 4-pixel border, x0..x1 and y0..y1 (end excluded); row n is
+// y0 + 16n onwards (measured in The Broken Seal: window tile (1, 2), rows
+// from y 20). Bit n of `rows`: that row's file is red. rows 0: none.
+// save_files_picker.h red_rows() fills it; the frame captures carry it to
+// the field renderer (FieldSceneRenderer::set_window_red).
+struct RedRows {
+    int x0 = 0, x1 = 0, y0 = 0, y1 = 0;
+    std::uint8_t rows = 0;
+};
+
 // Autosave uses stored slot 9 and appears first. Manual saves use slots
 // 1-8. Convert the displayed row with stored_file(shown) before saving.
 constexpr int kAutosaveFile = kFiles - 1;

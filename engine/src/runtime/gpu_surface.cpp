@@ -93,6 +93,8 @@ constexpr GLenum kConditionSatisfied   = 0x911C;
     X(void,    Uniform2f,       (GLint, GLfloat, GLfloat))                     \
     X(void,    Uniform4f,       (GLint, GLfloat, GLfloat, GLfloat, GLfloat))   \
     X(void,    UniformMatrix4fv,(GLint, GLsizei, GLboolean, const GLfloat*))   \
+    X(void,    Uniform4iv,      (GLint, GLsizei, const GLint*))                \
+    X(void,    Uniform4fv,      (GLint, GLsizei, const GLfloat*))              \
     X(void,    GenVertexArrays, (GLsizei, GLuint*))                            \
     X(void,    BindVertexArray, (GLuint))                                      \
     X(void,    DeleteVertexArrays,(GLsizei, const GLuint*))                    \
@@ -133,17 +135,21 @@ bool load_all() {
 
 // GLX hands out a pointer for any name, supported or not, so the context's
 // version decides whether an optional group is used, not the lookup alone.
+// OpenGL ES prefixes its version string with "OpenGL ES ", so scan to the
+// first digit before parsing major.minor.
 bool gl_version_at_least(int want_major, int want_minor) {
-    int major = 0, minor = 0;
     const char* version = reinterpret_cast<const char*>(glGetString(GL_VERSION));
-    return version && std::sscanf(version, "%d.%d", &major, &minor) == 2 &&
+    if (!version) return false;
+    while (*version && (*version < '0' || *version > '9')) ++version;
+    int major = 0, minor = 0;
+    return std::sscanf(version, "%d.%d", &major, &minor) == 2 &&
            (major > want_major || (major == want_major && minor >= want_minor));
 }
 
 // Optional: set a uniform without binding its program (OpenGL 4.1 /
-// ARB_separate_shader_objects). Without them the setters fall back to
-// binding the program around the set.
-#define GPU_GL_PROGRAM_UNIFORM_FUNCTIONS(X)                                        X(void,    ProgramUniform1i, (GLuint, GLint, GLint))                           X(void,    ProgramUniform1f, (GLuint, GLint, GLfloat))                         X(void,    ProgramUniform2f, (GLuint, GLint, GLfloat, GLfloat))                X(void,    ProgramUniform4f, (GLuint, GLint, GLfloat, GLfloat, GLfloat, GLfloat))     X(void,    ProgramUniformMatrix4fv,(GLuint, GLint, GLsizei, GLboolean, const GLfloat*))
+// ARB_separate_shader_objects, or OpenGL ES 3.1+ core). Without them the
+// setters fall back to binding the program around the set.
+#define GPU_GL_PROGRAM_UNIFORM_FUNCTIONS(X)                                        X(void,    ProgramUniform1i, (GLuint, GLint, GLint))                           X(void,    ProgramUniform1f, (GLuint, GLint, GLfloat))                         X(void,    ProgramUniform2f, (GLuint, GLint, GLfloat, GLfloat))                X(void,    ProgramUniform4f, (GLuint, GLint, GLfloat, GLfloat, GLfloat, GLfloat))     X(void,    ProgramUniformMatrix4fv,(GLuint, GLint, GLsizei, GLboolean, const GLfloat*))     X(void,    ProgramUniform4iv, (GLuint, GLint, GLsizei, const GLint*))          X(void,    ProgramUniform4fv, (GLuint, GLint, GLsizei, const GLfloat*))
 
 // Optional: asynchronous readback (OpenGL 3.2 sync objects). GLsync is an
 // opaque pointer; Windows' 1.1 headers do not declare it.
@@ -159,21 +165,29 @@ bool g_program_uniforms = false;
 bool g_async_readback = false;
 
 bool load_program_uniforms() {
+#if defined(GBARECOMP_GLES)
+    if (!gl_version_at_least(3, 1)) return false;
+#else
     const char* extensions =
         reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
     if (!gl_version_at_least(4, 1) &&
         !(extensions && std::strstr(extensions, "GL_ARB_separate_shader_objects")))
         return false;
+#endif
     bool ok = true;
     GPU_GL_PROGRAM_UNIFORM_FUNCTIONS(GPU_LOAD)
     return ok;
 }
 
 bool load_async_readback() {
+#if defined(GBARECOMP_GLES)
+    return false;
+#else
     if (!gl_version_at_least(3, 2)) return false;
     bool ok = true;
     GPU_GL_READBACK_FUNCTIONS(GPU_LOAD)
     return ok;
+#endif
 }
 #undef GPU_LOAD
 
@@ -301,6 +315,7 @@ struct GpuSurface::SavedState {
     GLint vertex_array = 0;
     GLint active_texture = 0;
     GLint viewport[4] = {0, 0, 0, 0};
+    GLint scissor_box[4] = {0, 0, 0, 0};
     GLboolean blend = GL_FALSE;
     GLboolean depth_test = GL_FALSE;
     GLboolean scissor = GL_FALSE;
@@ -321,8 +336,18 @@ struct GpuSurface::UniformSlot {
 
 struct GpuSurface::Targets {
     std::unordered_map<GLuint, GLuint> framebuffer_of;  // by colour texture
+    std::unordered_map<GLuint, bool> depth_of;          // whether FBO wants depth_rb_
+    std::unordered_map<GLuint, GpuTextureFormat> format_of;  // avoids format query on upload
     GLuint current = 0;      // what begin_frame binds; 0 = the main target's
     GLuint main_carries = 0; // the texture attached to the main framebuffer
+    bool main_has_depth = false;
+    // Per-frame GL binding cache (reset in begin_frame) to avoid redundant
+    // glBindVertexArray / glUseProgram / glBindTexture across consecutive sprites.
+    static constexpr std::size_t kTrackedUnits = 16;
+    bool vao_bound = false;
+    GLuint bound_program = 0;
+    GLuint bound_tex[kTrackedUnits] = {};
+    bool tex_known[kTrackedUnits] = {};
     std::vector<float> vertices;  // draw_quads' corner data, kept between calls
 };
 
@@ -398,6 +423,30 @@ bool GpuSurface::init() {
         failure_ = "could not create the vertex array, buffer or framebuffer";
         release();
         return false;
+    }
+    // Configure the VAO's attribute layout once for vbo_; glBufferData later
+    // updates storage without invalidating these bindings.
+    {
+        GLint prev_vao = 0, prev_vbo = 0;
+        glGetIntegerv(kVertexArrayBinding, &prev_vao);
+        glGetIntegerv(kArrayBufferBinding, &prev_vbo);
+        glBindVertexArray(vao_);
+        glBindBuffer(kArrayBuffer, vbo_);
+        const GLsizei stride = kFloatsPerVertex * sizeof(float);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride,
+                              reinterpret_cast<const void*>(0));
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride,
+                              reinterpret_cast<const void*>(2 * sizeof(float)));
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, stride,
+                              reinterpret_cast<const void*>(4 * sizeof(float)));
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, stride,
+                              reinterpret_cast<const void*>(5 * sizeof(float)));
+        glBindVertexArray(static_cast<GLuint>(prev_vao));
+        glBindBuffer(kArrayBuffer, static_cast<GLuint>(prev_vbo));
     }
 
     char log[1024] = {};
@@ -490,6 +539,7 @@ GpuTexture GpuSurface::create_texture(int width, int height,
         glDeleteTextures(1, &tex);
         return 0;
     }
+    if (targets_) targets_->format_of[tex] = format;
     return tex;
 }
 
@@ -528,15 +578,28 @@ void GpuSurface::update_texture(GpuTexture texture, int x, int y,
     glPixelStorei(kUnpackImageHeight, 0);
     glPixelStorei(kUnpackSkipImages, 0);
     if (prev_unpack_buffer) glBindBuffer(kPixelUnpackBuffer, 0);
-    // The format is recovered from the texture's own storage, so callers do
-    // not have to repeat it and cannot contradict it.
-    GLint internal = 0;
-    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT,
-                             &internal);
-    if (internal == static_cast<GLint>(kR8UI)) {
+    // Use the format recorded at create_texture time rather than querying GL
+    // synchronously on every upload.
+    GpuTextureFormat fmt = GpuTextureFormat::RGBA8;
+    bool known_fmt = false;
+    if (targets_) {
+        auto it = targets_->format_of.find(texture);
+        if (it != targets_->format_of.end()) {
+            fmt = it->second;
+            known_fmt = true;
+        }
+    }
+    if (!known_fmt) {
+        GLint internal = 0;
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT,
+                                 &internal);
+        if (internal == static_cast<GLint>(kR8UI)) fmt = GpuTextureFormat::R8UI;
+        else if (internal == static_cast<GLint>(kR16UI)) fmt = GpuTextureFormat::R16UI;
+    }
+    if (fmt == GpuTextureFormat::R8UI) {
         glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, kRedInteger,
                         GL_UNSIGNED_BYTE, pixels);
-    } else if (internal == static_cast<GLint>(kR16UI)) {
+    } else if (fmt == GpuTextureFormat::R16UI) {
         glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, kRedInteger,
                         GL_UNSIGNED_SHORT, pixels);
     } else {
@@ -560,9 +623,12 @@ void GpuSurface::destroy_texture(GpuTexture texture) {
     // Its framebuffer goes with it: the driver may give the next texture the
     // same name.
     if (targets_) {
+        targets_->format_of.erase(texture);
+        std::memset(targets_->tex_known, 0, sizeof(targets_->tex_known));
         auto it = targets_->framebuffer_of.find(texture);
         if (it != targets_->framebuffer_of.end()) {
             if (targets_->current == it->second) targets_->current = 0;
+            targets_->depth_of.erase(it->second);
             glDeleteFramebuffers(1, &it->second);
             targets_->framebuffer_of.erase(it);
         }
@@ -627,6 +693,7 @@ GpuProgram GpuSurface::create_program(const char* vertex_source,
 
 void GpuSurface::destroy_program(GpuProgram program) {
     forget_program_uniforms(program);
+    if (targets_ && targets_->bound_program == program) targets_->bound_program = 0;
     if (program) glDeleteProgram(program);
 }
 
@@ -719,6 +786,20 @@ void GpuSurface::set_uniform_mat4(GpuProgram p, const char* name,
     if (g_program_uniforms)
         glProgramUniformMatrix4fv(p, s->location, 1, GL_FALSE, m);
     else GPU_WITH_PROGRAM(p, glUniformMatrix4fv(s->location, 1, GL_FALSE, m));
+}
+void GpuSurface::set_uniform_ivec4_array(GpuProgram p, const char* name,
+                                         const int* values, int count) {
+    UniformSlot* s = uniform_slot(p, name);
+    if (!s || !values || count <= 0) return;
+    if (g_program_uniforms) glProgramUniform4iv(p, s->location, count, values);
+    else GPU_WITH_PROGRAM(p, glUniform4iv(s->location, count, values));
+}
+void GpuSurface::set_uniform_vec4_array(GpuProgram p, const char* name,
+                                        const float* values, int count) {
+    UniformSlot* s = uniform_slot(p, name);
+    if (!s || !values || count <= 0) return;
+    if (g_program_uniforms) glProgramUniform4fv(p, s->location, count, values);
+    else GPU_WITH_PROGRAM(p, glUniform4fv(s->location, count, values));
 }
 #undef GPU_WITH_PROGRAM
 
@@ -819,7 +900,7 @@ bool GpuSurface::set_target_size(int width, int height) {
     return true;
 }
 
-void GpuSurface::begin_frame(float r, float g, float b, float a) {
+void GpuSurface::begin_frame(float r, float g, float b, float a, bool clear) {
     if (!ready_ || !target_tex_ || in_frame_) return;
     // SDL's renderer batches its own drawing and ImGui assumes the state it
     // left behind. Save everything we are about to change.
@@ -829,6 +910,7 @@ void GpuSurface::begin_frame(float r, float g, float b, float a) {
     glGetIntegerv(kVertexArrayBinding, &saved_->vertex_array);
     glGetIntegerv(kActiveTextureEnum, &saved_->active_texture);
     glGetIntegerv(GL_VIEWPORT, saved_->viewport);
+    glGetIntegerv(GL_SCISSOR_BOX, saved_->scissor_box);
     saved_->blend = glIsEnabled(GL_BLEND);
     saved_->depth_test = glIsEnabled(GL_DEPTH_TEST);
     saved_->scissor = glIsEnabled(GL_SCISSOR_TEST);
@@ -849,8 +931,13 @@ void GpuSurface::begin_frame(float r, float g, float b, float a) {
     // red levels.
     glDisable(GL_BLEND);
     glDisable(GL_DEPTH_TEST);
-    glClearColor(r, g, b, a);
-    glClear(GL_COLOR_BUFFER_BIT);
+    if (clear) {
+        glClearColor(r, g, b, a);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
+    targets_->vao_bound = false;
+    targets_->bound_program = 0;
+    std::memset(targets_->tex_known, 0, sizeof(targets_->tex_known));
     in_frame_ = true;
 }
 
@@ -863,6 +950,8 @@ void GpuSurface::end_frame() {
     glActiveTexture(static_cast<GLenum>(saved_->active_texture));
     glViewport(saved_->viewport[0], saved_->viewport[1],
                saved_->viewport[2], saved_->viewport[3]);
+    glScissor(saved_->scissor_box[0], saved_->scissor_box[1],
+              saved_->scissor_box[2], saved_->scissor_box[3]);
     if (saved_->blend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
     if (saved_->depth_test) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     if (saved_->scissor) glEnable(GL_SCISSOR_TEST); else glDisable(GL_SCISSOR_TEST);
@@ -892,10 +981,36 @@ void GpuSurface::set_blend_alpha(bool enabled) {
     set_blend_mode(enabled ? GpuBlendMode::Alpha : GpuBlendMode::Off);
 }
 
-unsigned GpuSurface::framebuffer_for(GpuTexture texture) {
-    if (!texture || texture == target_tex_) return fbo_;
+unsigned GpuSurface::framebuffer_for(GpuTexture texture, bool with_depth) {
+    if (!texture || texture == target_tex_) {
+        if (with_depth && !targets_->main_has_depth) {
+            targets_->main_has_depth = true;
+            if (depth_rb_) {
+                GLint previous_fbo = 0;
+                glGetIntegerv(kFramebufferBinding, &previous_fbo);
+                glBindFramebuffer(kFramebuffer, fbo_);
+                glFramebufferRenderbuffer(kFramebuffer, kDepthAttachment,
+                                          kRenderbuffer, depth_rb_);
+                glBindFramebuffer(kFramebuffer, static_cast<GLuint>(previous_fbo));
+            }
+        }
+        return fbo_;
+    }
     auto it = targets_->framebuffer_of.find(texture);
-    if (it != targets_->framebuffer_of.end()) return it->second;
+    if (it != targets_->framebuffer_of.end()) {
+        if (with_depth && !targets_->depth_of[it->second]) {
+            targets_->depth_of[it->second] = true;
+            if (depth_rb_) {
+                GLint previous_fbo = 0;
+                glGetIntegerv(kFramebufferBinding, &previous_fbo);
+                glBindFramebuffer(kFramebuffer, it->second);
+                glFramebufferRenderbuffer(kFramebuffer, kDepthAttachment,
+                                          kRenderbuffer, depth_rb_);
+                glBindFramebuffer(kFramebuffer, static_cast<GLuint>(previous_fbo));
+            }
+        }
+        return it->second;
+    }
     GLuint framebuffer = 0;
     glGenFramebuffers(1, &framebuffer);
     if (!framebuffer) return fbo_;
@@ -904,18 +1019,21 @@ unsigned GpuSurface::framebuffer_for(GpuTexture texture) {
     glBindFramebuffer(kFramebuffer, framebuffer);
     glFramebufferTexture2D(kFramebuffer, kColorAttachment0, GL_TEXTURE_2D,
                            texture, 0);
-    // Every target shares the one depth buffer.
-    if (depth_rb_)
+    // Attach the shared depth buffer only to targets that actually use depth,
+    // so depth-free passes do not load/store a 24-bit depth buffer on mobile
+    // tiled GPUs.
+    if (with_depth && depth_rb_)
         glFramebufferRenderbuffer(kFramebuffer, kDepthAttachment, kRenderbuffer,
                                   depth_rb_);
     glBindFramebuffer(kFramebuffer, static_cast<GLuint>(previous_fbo));
     targets_->framebuffer_of.emplace(texture, framebuffer);
+    targets_->depth_of[framebuffer] = with_depth;
     return framebuffer;
 }
 
-void GpuSurface::bind_color_target(GpuTexture texture) {
+void GpuSurface::bind_color_target(GpuTexture texture, bool with_depth) {
     if (!ready_) return;
-    const GLuint framebuffer = framebuffer_for(texture);
+    const GLuint framebuffer = framebuffer_for(texture, with_depth);
     const GLuint tex = texture ? texture : target_tex_;
     if (framebuffer == fbo_ && targets_->main_carries != tex) {
         // A texture that no framebuffer of its own could be made for (or the
@@ -973,10 +1091,13 @@ void GpuSurface::set_depth_enabled(bool enabled) {
 
             GLint previous_fbo = 0;
             glGetIntegerv(kFramebufferBinding, &previous_fbo);
-            glBindFramebuffer(kFramebuffer, fbo_);
-            glFramebufferRenderbuffer(kFramebuffer, kDepthAttachment,
-                                      kRenderbuffer, depth_rb_);
+            if (targets_->main_has_depth) {
+                glBindFramebuffer(kFramebuffer, fbo_);
+                glFramebufferRenderbuffer(kFramebuffer, kDepthAttachment,
+                                          kRenderbuffer, depth_rb_);
+            }
             for (auto& [texture, framebuffer] : targets_->framebuffer_of) {
+                if (!targets_->depth_of[framebuffer]) continue;
                 glBindFramebuffer(kFramebuffer, framebuffer);
                 glFramebufferRenderbuffer(kFramebuffer, kDepthAttachment,
                                           kRenderbuffer, depth_rb_);
@@ -1002,6 +1123,31 @@ void GpuSurface::clear_depth(float value) {
 #endif
     glDepthMask(GL_TRUE);
     glClear(GL_DEPTH_BUFFER_BIT);
+}
+
+void GpuSurface::discard_depth() {
+#if defined(GBARECOMP_GLES)
+    if (!ready_ || !depth_rb_ || !in_frame_) return;
+    const GLenum attachment = kDepthAttachment;
+    glInvalidateFramebuffer(kFramebuffer, 1, &attachment);
+#endif
+}
+
+void GpuSurface::set_scissor(int x, int y, int width, int height) {
+    if (!ready_ || !in_frame_) return;
+    if (width <= 0 || height <= 0) {
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(0, 0, 0, 0);
+        return;
+    }
+    const int gl_y = target_h_ - (y + height);
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(x, gl_y, width, height);
+}
+
+void GpuSurface::clear_scissor() {
+    if (!ready_ || !in_frame_) return;
+    glDisable(GL_SCISSOR_TEST);
 }
 
 void GpuSurface::draw_quads(GpuProgram program, const GpuQuad* quads,
@@ -1035,8 +1181,11 @@ void GpuSurface::draw_quads(GpuProgram program, const GpuQuad* quads,
         }
     }
 
-    glBindVertexArray(vao_);
-    glBindBuffer(kArrayBuffer, vbo_);
+    if (!in_frame_ || !targets_->vao_bound) {
+        glBindVertexArray(vao_);
+        glBindBuffer(kArrayBuffer, vbo_);
+        if (in_frame_) targets_->vao_bound = true;
+    }
     // New storage each time (the streaming idiom): writing into the buffer
     // an earlier draw of this frame still uses made the phone's driver copy
     // the buffer first (measured: glBufferSubData took 4.5% of the game
@@ -1045,27 +1194,25 @@ void GpuSurface::draw_quads(GpuProgram program, const GpuQuad* quads,
     glBufferData(kArrayBuffer, static_cast<ptrdiff_t>(bytes), vertices.data(),
                  kStreamDraw);
 
-    const GLsizei stride = kFloatsPerVertex * sizeof(float);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride,
-                          reinterpret_cast<const void*>(0));
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, stride,
-                          reinterpret_cast<const void*>(2 * sizeof(float)));
-    glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, stride,
-                          reinterpret_cast<const void*>(4 * sizeof(float)));
-    glEnableVertexAttribArray(3);
-    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, stride,
-                          reinterpret_cast<const void*>(5 * sizeof(float)));
-
+    bool changed_active = false;
     for (std::size_t i = 0; i < texture_count; ++i) {
+        if (in_frame_ && i < Targets::kTrackedUnits &&
+            targets_->tex_known[i] && targets_->bound_tex[i] == textures[i])
+            continue;
         glActiveTexture(static_cast<GLenum>(kTexture0 + i));
         glBindTexture(GL_TEXTURE_2D, textures[i]);
+        changed_active = true;
+        if (in_frame_ && i < Targets::kTrackedUnits) {
+            targets_->bound_tex[i] = textures[i];
+            targets_->tex_known[i] = true;
+        }
     }
-    glActiveTexture(kTexture0);
+    if (changed_active) glActiveTexture(kTexture0);
 
-    glUseProgram(program);
+    if (!in_frame_ || targets_->bound_program != program) {
+        glUseProgram(program);
+        if (in_frame_) targets_->bound_program = program;
+    }
     glDrawArrays(GL_TRIANGLES, 0,
                  static_cast<GLsizei>(count * kVerticesPerQuad));
 }

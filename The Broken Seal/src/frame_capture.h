@@ -9,6 +9,7 @@
 #include "field_scene.h"
 #include "frame_history.h"
 #include "../../shared_game/party_window_fade.h"
+#include "../../shared_game/save_files.h"
 
 namespace gsr {
 
@@ -60,6 +61,8 @@ struct GpuFieldCapture : gbarecomp::SceneSnapshot {
     bool window_open = false;
     // Fallen heroes' menu columns at this frame (party_window_fade.h).
     gsr::party_window_fade::Fade fade;
+    // Red save-file rows at this frame (save_files.h RedRows).
+    gsr::save_files::RedRows red_rows;
 };
 
 std::string gpu_field_dump_bytes(const GpuFieldCapture& capture);

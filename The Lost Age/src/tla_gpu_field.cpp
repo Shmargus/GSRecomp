@@ -55,6 +55,7 @@
 #include "tla.h"
 #include "../../shared_game/quality_of_life.h"
 #include "../../shared_game/world_margin_live.h"
+#include "../../shared_game/gpu_field_context.h"
 #include "tla_world_map.h"
 #include "../../shared_game/autosave.h"
 #include "../../shared_game/held_palette_effect.h"
@@ -90,6 +91,7 @@ struct Capture {
     std::vector<std::uint16_t> room_palette;
     bool window_open = false;
     gsr::party_window_fade::Fade fade;  // fallen heroes' menu columns
+    gsr::save_files::RedRows red_rows;  // red save files (save_files.h)
     unsigned ripple_phase = 0;
     // The iris wipe the frame shows (iris_window), or none.
     gsr::IrisWindow iris;
@@ -107,7 +109,6 @@ gbarecomp::SnapshotPool<Capture> g_capture_pool;
 std::shared_ptr<const Capture> g_capture;
 bool capture_valid() { return g_capture && g_capture->valid; }
 struct GpuPresentation {
-    std::shared_ptr<const Capture> capture;
     gbarecomp::HistoryFrame frame;
 };
 gbarecomp::TextureReadbackQueue<GpuPresentation> g_readback;
@@ -391,8 +392,9 @@ void capture() {
             ppu->latched_native_line_io_valid()))
         std::memcpy(io.data(), row, gsr::FieldScene::kLineIoBytes);
 
-    // Diagnostic capture alone must not enable placement overrides in the
-    // console/Direct3D path; retain the existing renderer-owned hook behavior.
+    // Diagnostic capture alone must not enable placement overrides on the
+    // console compositor path; retain the existing renderer-owned hook
+    // behaviour.
     const bool window_open = game_window_open(bus, io);
     if (g_enabled) tla_widescreen_frame(window_open);
     gsr::FieldScene scene{};
@@ -433,6 +435,7 @@ void capture() {
         gba::GbaBus::kNativeVram + (bus->obj_extra() ? gba::GbaBus::kObjExtraVram : 0));
     capture->window_open = window_open;
     capture->fade = gsr::party_window_fade::find(*bus);
+    capture->red_rows = tla_save_files_red_rows();
     const bool field =
         scene.video_mode == 0 && bus->read32(kTlaBattleSlot) == 0u;
     build_room_vram(capture->vram, field, bus->read16(kTlaMapIdAddr),
@@ -526,55 +529,33 @@ void check_against_console(const std::uint8_t* console, const std::uint8_t* gpu,
     }
 }
 
-bool draw_capture(const std::shared_ptr<const Capture>& owned, std::uint8_t* rgb,
-                  std::uint32_t width, std::uint32_t height,
-                  const char** refusal = nullptr,
-                  gbarecomp::HistoryFrame* frame = nullptr,
-                  bool synchronous = true,
-                  std::shared_ptr<const Capture>* delivered_capture = nullptr,
-                  bool side_picture = false, bool direct = false) {
-    const Capture& capture = *owned;
-    gsr::FieldScene scene = capture.scene;
-    gsr::SceneMargins margins;  // margin data lives outside the scene
-    margins.iris = capture.iris;
-    // Created on first use, at present time, where the window's GL context
-    // is current; gpu_surface attaches to it.
-    struct Context {
-        gbarecomp::GpuSurface surface;
-        gsr::FieldSceneRenderer renderer;
-        TlaFieldDrawState draw;  // what the renderer has been handed
-    };
-    static std::unique_ptr<Context> context;
-    static bool init_attempted = false;
-    static bool init_ok = false;
-    if (!context) {
-        context = std::make_unique<Context>();
-        gbarecomp::set_frame_present_shutdown_hook([] {
-            g_readback.invalidate();
-            context.reset();  // renderer, then PBOs/fences, before the GL window
-            init_attempted = init_ok = false;
-        });
-    }
-    auto& surface = context->surface;
-    auto& renderer = context->renderer;
-    if (!init_attempted) {
-        init_attempted = true;
-        init_ok = surface.init() && renderer.init(&surface);
-        if (!init_ok)
-            std::fprintf(stderr,
-                         "[gpu-field] renderer unavailable (%s); staying on the "
-                         "console compositor\n",
-                         !surface.ready() ? surface.failure() : renderer.failure());
-    }
-    if (!init_ok) {
-        if (refusal) *refusal = "the renderer could not start";
-        return false;
-    }
-    if (!renderer.set_output_size(int(width), int(height))) {
-        if (refusal) *refusal = "the output size was refused";
-        return false;
-    }
+// ---- World-map margin hold ------------------------------------------------
+//
+// A menu over the world map switches the screen from the world map's mode 2
+// to mode 0 text layers on the same map blocks (BG2 block 10, BG3 block 8;
+// measured: DISPCNT 0x1F40, BG2CNT 0xAA0F, BG3CNT 0xA80B, as in Golden Sun 1).
+// The margins are only drawn from the world map in mode 2, so they went black
+// for as long as the menu was open.
+// The camera cannot move while a menu is open, so the margins of the last
+// settled world-map frame are still the right picture. We keep that capture
+// and render it into the renderer's margin target on menu frames.
+gsr::WorldMarginHold<Capture> g_world_hold;
 
+bool world_map_blocks(const std::vector<std::uint8_t>& io) {
+    if (io.size() < 0x10) return false;
+    const unsigned bg2 = io[0x0C] | (static_cast<unsigned>(io[0x0D]) << 8);
+    const unsigned bg3 = io[0x0E] | (static_cast<unsigned>(io[0x0F]) << 8);
+    return ((bg3 >> 8) & 0x1Fu) == 8u && ((bg2 >> 8) & 0x1Fu) == 10u;
+}
+
+bool on_world_map(const Capture& capture) {
+    return capture.io.size() >= 0x58u && capture.ewram.size() >= 0x42Au &&
+           tla_world_map(unsigned(capture.ewram[0x428]) |
+                         (unsigned(capture.ewram[0x429]) << 8)) &&
+           world_map_blocks(capture.io);
+}
+
+TlaFieldFrame make_tla_field_frame(const Capture& capture, bool side_picture) {
     TlaFieldFrame in;
     in.vram = &capture.vram;
     in.ewram = capture.ewram.data();
@@ -594,6 +575,7 @@ bool draw_capture(const std::shared_ptr<const Capture>& owned, std::uint8_t* rgb
     }
     in.menu_open = capture.window_open;
     in.fade = capture.fade;
+    in.red_rows = capture.red_rows;
     in.reveal_full = tla_field_psy_reveal();
     in.flicker_weight = gbarecomp::temporal_blend_weight_for_index(
         gbarecomp::flicker_reduction_index());
@@ -609,11 +591,100 @@ bool draw_capture(const std::shared_ptr<const Capture>& owned, std::uint8_t* rgb
     in.spark_count = int(capture.effects.stamps.size());
     in.spark_art = capture.effects.artwork.data();
     in.spark_art_bytes = capture.effects.artwork.size();
+    return in;
+}
+
+bool draw_world_margin_capture(gsr::FieldSceneRenderer& renderer,
+                               TlaFieldDrawState& draw_state,
+                               const Capture& m,
+                               std::uint32_t width, std::uint32_t height) {
+    gsr::FieldScene scene_copy = m.scene;
+    gsr::SceneMargins margins;
+    margins.iris = m.iris;
+    const TlaFieldFrame in = make_tla_field_frame(m, true);
+    return tla_field_draw(renderer, scene_copy, margins, in,
+                          int(width), int(height), draw_state);
+}
+
+bool draw_capture(const std::shared_ptr<const Capture>& owned, std::uint8_t* rgb,
+                  std::uint32_t width, std::uint32_t height,
+                  const char** refusal = nullptr,
+                  gbarecomp::HistoryFrame* frame = nullptr,
+                  bool synchronous = true,
+                  bool direct = false) {
+    const Capture& capture = *owned;
+    gsr::FieldScene scene = capture.scene;
+    gsr::SceneMargins margins;  // margin data lives outside the scene
+    margins.iris = capture.iris;
+    // Extra: what the renderer has been handed (TlaFieldDrawState).
+    auto* const context = gsr::gpu_field_context<TlaFieldDrawState>(
+        [] { g_readback.invalidate(); }, nullptr);
+    if (!context) {
+        if (refusal) *refusal = "the renderer could not start";
+        return false;
+    }
+    auto& surface = context->surface;
+    auto& renderer = context->renderer;
+    if (!renderer.set_output_size(int(width), int(height))) {
+        if (refusal) *refusal = "the output size was refused";
+        return false;
+    }
+
+    const bool world = on_world_map(capture);
+    const bool expanded = width > 240u || height > 160u;
+    gsr::WorldCompose compose{};
+    bool mixed = false;
+    if (!world) {
+        g_world_hold.forget();
+        renderer.clear_world_margin();
+    } else {
+        const unsigned mode = capture.io[0] & 7u;
+        mixed = gsr::world_rows_mixed(capture.scene);
+        if (expanded && mode == 2u && mixed) {
+            compose.mode = gsr::WorldComposeMode::ShutterRows;
+        } else if (expanded && mode == 0u &&
+                   !tla_flat_map::is_map_screen(capture.io.data(), capture.io.size(),
+                                                capture.ewram.data(), capture.ewram.size())) {
+            const bool glow_candidate = tla_beam_glow_frame(
+                capture.io.data(),
+                unsigned(capture.ewram[0x428]) | (unsigned(capture.ewram[0x429]) << 8));
+            const bool has_margin = g_world_hold.draw_margin(capture,
+                !glow_candidate && g_world_hold.changes_background(capture.pal),
+                [&](const Capture& c) {
+                    return draw_world_margin_capture(renderer, context->extra, c,
+                                                     width, height);
+                },
+                renderer.has_world_margin(int(width), int(height)));
+            int shake_x = 0, shake_y = 0;
+            const unsigned dispcnt = capture.io[0] | (unsigned(capture.io[1]) << 8);
+            if ((dispcnt & 0x0200u) && (capture.io[0x0A] & 0x80u)) {
+                const auto offset = [&](unsigned at) {
+                    const int v = int((capture.io[at] | (unsigned(capture.io[at + 1]) << 8)) & 0x1FFu);
+                    return v >= 0x100 ? v - 0x200 : v;
+                };
+                shake_x = offset(0x14);
+                shake_y = offset(0x16);
+            }
+            const int evb = std::min<int>(capture.io[0x53] & 0x1Fu, 16);
+            compose.mode = gsr::WorldComposeMode::HoldMargins;
+            compose.has_margin = has_margin;
+            compose.mixed_modes = mixed;
+            compose.glow = has_margin && glow_candidate;
+            compose.evb = evb;
+            compose.shake_x = shake_x;
+            compose.shake_y = shake_y;
+        }
+    }
+
+    TlaFieldFrame in = make_tla_field_frame(capture, false);
+    in.world_compose = compose;
     if (!tla_field_draw(renderer, scene, margins, in, int(width), int(height),
-                        context->draw)) {
+                        context->extra)) {
         if (refusal) *refusal = renderer.declined_reason();
         return false;
     }
+    if (world && (capture.io[0] & 7u) == 2u && !mixed && !gsr::world_map_fading(capture.io))
+        g_world_hold.remember(owned);
     if (frame && direct) {
         // Phones: the card's picture straight to the window, no copy back
         // (gpu_present.h); `frame` stays this frame's.
@@ -626,10 +697,9 @@ bool draw_capture(const std::shared_ptr<const Capture>& owned, std::uint8_t* rgb
     if (frame) {
         const bool battle = frame->battle_2x;
         frame->gpu_drawn = true;
-        // The present queue holds this frame's shared capture, not a copy.
         auto delivered = g_readback.present(surface, renderer.output_texture(),
             int(width), int(height), rgb, runtime_current_frame(),
-            GpuPresentation{owned, std::move(*frame)}, synchronous);
+            GpuPresentation{std::move(*frame)}, synchronous);
         if (!delivered) {
             *frame = gbarecomp::FrameHistory::capture();
             frame->battle_2x = battle;
@@ -638,333 +708,25 @@ bool draw_capture(const std::shared_ptr<const Capture>& owned, std::uint8_t* rgb
             return false;
         }
         *frame = std::move(delivered->frame);
-        *delivered_capture = std::move(delivered->capture);
-    } else {
-        // Redrawing a settled world-map view for a resize is synchronous;
-        // it does not participate in the live presentation queue.
-        return surface.read_texture_rgb(renderer.output_texture(), int(width), int(height), rgb);
     }
     return true;
 }
 
-// ---- World-map margin hold (Golden Sun 1's world_map_margin_hold) --------
-//
-// A menu over the world map switches the screen from the world map's mode 2
-// to mode 0 text layers on the same map blocks (BG2 block 10, BG3 block 8;
-// measured: DISPCNT 0x1F40, BG2CNT 0xAA0F, BG3CNT 0xA80B, as in Golden Sun 1).
-// The margins are only drawn from the world map in mode 2, so they went black
-// for as long as the menu was open.
-// The camera cannot move while a menu is open, so the margins of the last
-// settled world-map frame are still the right picture. We keep them and paint
-// them around the live picture on menu frames.
-std::vector<std::uint8_t> g_world_margin;
-std::shared_ptr<const Capture> g_world_settled;
-gsr::HeldPaletteEffect g_world_palette_effect;
-std::uint32_t g_world_margin_w = 0, g_world_margin_h = 0;
-
-bool world_map_blocks(const std::vector<std::uint8_t>& io) {
-    if (io.size() < 0x10) return false;
-    const unsigned bg2 = io[0x0C] | (static_cast<unsigned>(io[0x0D]) << 8);
-    const unsigned bg3 = io[0x0E] | (static_cast<unsigned>(io[0x0F]) << 8);
-    return ((bg3 >> 8) & 0x1Fu) == 8u && ((bg2 >> 8) & 0x1Fu) == 10u;
-}
-
-// Entering a town, black bars close in from the top and bottom of the world
-// map. The game switches those rows to mode 0 while the rest stay mode 2
-// (measured: rows 0..k and 159-k..159 at DISPCNT 0x1F40, the rest 0x1F42).
-// A bar row's margins, and the rows above the first row and below the last,
-// take the bar's colour so the bars cross the whole screen.
-// True for any frame mixing mode 2 with other rows.
-bool paint_shutter_rows(std::uint8_t* rgb, std::uint32_t width,
-                        std::uint32_t height, const gsr::FieldScene& sc) {
-    constexpr int kRows = gsr::FieldScene::kRows;
-    bool has_world = false, has_other = false;
-    for (int y = 0; y < kRows; ++y) {
-        if (!sc.row_io_valid[y]) continue;
-        ((sc.row_io[y][0] & 7u) == 2u ? has_world : has_other) = true;
-    }
-    if (!has_world || !has_other) return false;
-    const std::uint32_t x0 = (width - 240u) / 2u, y0 = (height - 160u) / 2u;
-    bool bar[kRows] = {};
-    for (int r = 0; r < kRows; ++r) {
-        if (!sc.row_io_valid[r] || (sc.row_io[r][0] & 7u) == 2u) continue;
-        const std::uint8_t* p = rgb + (std::size_t{y0 + r} * width + x0) * 3u;
-        bar[r] = true;
-        for (std::uint32_t x = 1; x < 240u && bar[r]; ++x)
-            bar[r] = std::memcmp(p, p + x * 3u, 3) == 0;
-    }
-    for (std::uint32_t y = 0; y < height; ++y) {
-        const bool native_row = y >= y0 && y < y0 + 160u;
-        const int r = y < y0 ? 0 : native_row ? int(y - y0) : kRows - 1;
-        if (!bar[r]) continue;
-        std::uint8_t colour[3];
-        std::memcpy(colour, rgb + (std::size_t{y0 + r} * width + x0) * 3u, 3);
-        std::uint8_t* dst = rgb + std::size_t{y} * width * 3u;
-        for (std::uint32_t x = 0; x < width; ++x) {
-            if (native_row && x >= x0 && x < x0 + 240u) continue;
-            std::memcpy(dst + x * 3u, colour, 3);
-        }
-    }
-    return true;
-}
-
-// True when BG0, as a text layer, has an opaque pixel at console (x, y).
-bool bg0_opaque(const std::vector<std::uint8_t>& io,
-                const std::vector<std::uint8_t>& vram, int x, int y) {
-    const unsigned dispcnt = io[0] | (unsigned(io[1]) << 8);
-    if (!(dispcnt & 0x0100u)) return false;
-    const unsigned cnt = io[8] | (unsigned(io[9]) << 8);
-    const unsigned char_base = ((cnt >> 2) & 3u) * 0x4000u;
-    const unsigned screen_base = ((cnt >> 8) & 0x1Fu) * 0x800u;
-    const bool colours256 = (cnt & 0x80u) != 0;
-    const unsigned w = (cnt & 0x4000u) ? 512u : 256u;
-    const unsigned h = (cnt & 0x8000u) ? 512u : 256u;
-    const unsigned mx = unsigned(x + int((io[0x10] | (unsigned(io[0x11]) << 8)) & 0x1FFu)) % w;
-    const unsigned my = unsigned(y + int((io[0x12] | (unsigned(io[0x13]) << 8)) & 0x1FFu)) % h;
-    const unsigned block = (my / 256u) * (w / 256u) + mx / 256u;
-    const unsigned at = screen_base + block * 0x800u +
-                        ((my % 256u) / 8u * 32u + (mx % 256u) / 8u) * 2u;
-    if (at + 1u >= vram.size()) return false;
-    const unsigned entry = vram[at] | (unsigned(vram[at + 1u]) << 8);
-    const unsigned tile = entry & 0x3FFu;
-    const unsigned px = (entry & 0x400u) ? 7u - (mx & 7u) : mx & 7u;
-    const unsigned py = (entry & 0x800u) ? 7u - (my & 7u) : my & 7u;
-    if (colours256) {
-        const unsigned p = char_base + tile * 64u + py * 8u + px;
-        return p < 0x10000u && p < vram.size() && vram[p] != 0u;
-    }
-    const unsigned p = char_base + tile * 32u + py * 4u + px / 2u;
-    if (p >= 0x10000u || p >= vram.size()) return false;
-    return ((px & 1u) ? vram[p] >> 4 : vram[p] & 0xFu) != 0u;
-}
-
-// A quake scrolls BG1, the 240x160 snapshot of the map, by -3..3 pixels. The
-// console then shows BG1 past the snapshot (wrapped columns, other video
-// memory) in a strip along the edges it moves away from. On the console that
-// strip is the screen's edge. In the expanded view it outlined the native
-// window on every shake:
-//   - offsets (-3,-3) gave a noise column on the left and a repeated strip on
-//     top,
-//   - (+2,0) gave a column on the right,
-//   - (0,+3) gave a line at the bottom.
-// Those pixels take the held map at the same shake, as the margins do, unless
-// the text box (BG0) or a sprite's box covers them.
-void cover_shake_strips(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height,
-                        const Capture& capture, const std::vector<std::uint8_t>& map,
-                        int shake_x, int shake_y) {
-    if (capture.io.size() < 0x400u) return;
-    const int x0 = int(width - 240u) / 2, y0 = int(height - 160u) / 2;
-    for (int ny = 0; ny < 160; ++ny) {
-        const bool row_strip = ny + shake_y < 0 || ny + shake_y >= 160;
-        for (int nx = 0; nx < 240; ++nx) {
-            if (!row_strip && nx + shake_x >= 0 && nx + shake_x < 240) continue;
-            if (bg0_opaque(capture.io, capture.vram, nx, ny)) continue;
-            bool sprite = false;
-            for (const gsr::SceneObject& o : capture.scene.objects) {
-                if (!o.present || o.parked || o.window) continue;
-                const int w = o.double_size ? 2 * o.width : o.width;
-                const int h = o.double_size ? 2 * o.height : o.height;
-                if (nx >= o.x && nx < o.x + w && ny >= o.y && ny < o.y + h) {
-                    sprite = true;
-                    break;
-                }
-            }
-            if (sprite) continue;
-            const int sx = std::clamp(x0 + nx + shake_x, 0, int(width) - 1);
-            const int sy = std::clamp(y0 + ny + shake_y, 0, int(height) - 1);
-            std::memcpy(rgb + (std::size_t(y0 + ny) * width + std::size_t(x0 + nx)) * 3u,
-                        map.data() + (std::size_t(sy) * width + std::size_t(sx)) * 3u, 3);
-        }
-    }
-}
-
-bool on_world_map(const Capture& capture) {
-    return capture.ewram.size() >= 0x42Au &&
-           tla_world_map(unsigned(capture.ewram[0x428]) |
-                         (unsigned(capture.ewram[0x429]) << 8)) &&
-           world_map_blocks(capture.io);
-}
-
-// A brightness fade under way: holding that view would keep it darkened.
-bool world_map_fading(const std::vector<std::uint8_t>& io) {
-    const unsigned bldcnt = io[0x50] | (static_cast<unsigned>(io[0x51]) << 8);
-    return ((bldcnt >> 6) & 3u) >= 2u && (io[0x54] & 0x1Fu) != 0u;
-}
-
-// Whether world_map_margin_hold paints on this frame's copied picture: a
-// menu or the flat map (mode 0), or the town shutter mixing modes. The plain
-// sailing view (mode 2 throughout) paints nothing, so a phone may show it
-// straight from the card (world_map_remember_settled).
-bool world_map_needs_cpu(const Capture& capture) {
-    if (!on_world_map(capture)) return false;
-    if ((capture.io[0] & 7u) != 2u) return true;
-    const gsr::FieldScene& sc = capture.scene;
-    for (int y = 0; y < gsr::FieldScene::kRows; ++y)
-        if (sc.row_io_valid[y] && (sc.row_io[y][0] & 7u) != 2u) return true;
-    return false;
-}
-
-// A frame shown straight from the card has no copied picture to hold: keep
-// the settled capture, and the first menu frame redraws the held margins
-// from it (world_map_margin_hold's other-size branch, as after a resize).
-void world_map_remember_settled(const std::shared_ptr<const Capture>& shared) {
-    const Capture& capture = *shared;
-    if (!on_world_map(capture)) {
-        g_world_margin.clear();
-        g_world_settled = {};
-        return;
-    }
-    if (world_map_fading(capture.io)) return;
-    g_world_settled = shared;
-    g_world_margin.clear();
-    g_world_margin_w = g_world_margin_h = 0;
-    g_world_palette_effect.save(capture.pal);
-}
-
-void world_map_margin_hold(std::uint8_t* rgb, std::uint32_t width,
-                           std::uint32_t height,
-                           const std::shared_ptr<const Capture>& shared) {
-    if (!shared || !on_world_map(*shared)) {
-        g_world_margin.clear();  // anywhere else: the saved view is stale
-        g_world_settled = {};
-        return;
-    }
-    const Capture& capture = *shared;
-    const std::vector<std::uint8_t>& io = capture.io;
-    const unsigned mode = io[0] & 7u;
-    const std::uint32_t x0 = (width - 240u) / 2u, y0 = (height - 160u) / 2u;
-    if (mode == 2u) {
-        // Only a settled frame: every row in mode 2, no brightness fade.
-        if (paint_shutter_rows(rgb, width, height, capture.scene)) return;
-        if (!world_map_fading(io)) {
-            try {
-                std::vector<std::uint8_t> margin(rgb, rgb + std::size_t{width} * height * 3u);
-                g_world_settled = shared;
-                g_world_margin = std::move(margin);
-                g_world_margin_w = width;
-                g_world_margin_h = height;
-                g_world_palette_effect.save(capture.pal);
-            } catch (const std::bad_alloc&) {
-                g_world_margin.clear();
-                g_world_settled = {};
-            }
-        }
-        return;
-    }
-    if (mode != 0u) return;
-    // The flat map (Select map) is no menu over the sailing view: its margins
-    // show more of the map (tla_flat_map.h). The held view stays for the
-    // menus shown after the map closes; the camera has not moved.
-    if (tla_flat_map::is_map_screen(io, capture.ewram)) {
-        tla_flat_map::paint_margins(rgb, width, height, capture.scene, io, capture.ewram,
-                                    capture.pal, capture.rom, capture.rom_bytes);
-        return;
-    }
-    // A flat picture (a fade to one colour) is no menu: the margins take
-    // its colour.
-    const std::uint8_t* first = rgb + (std::size_t{y0} * width + x0) * 3u;
-    bool flat = true;
-    for (std::uint32_t y = y0; y < y0 + 160u && flat; ++y) {
-        const std::uint8_t* p = rgb + (std::size_t{y} * width + x0) * 3u;
-        for (std::uint32_t x = 0; x < 240u; ++x, p += 3)
-            if (std::memcmp(p, first, 3) != 0) { flat = false; break; }
-    }
-    std::uint8_t colour[3] = {0, 0, 0};
-    if (flat) std::memcpy(colour, first, 3);
-    if (!flat && g_world_settled && g_world_settled->valid &&
-        (g_world_margin_w != width || g_world_margin_h != height)) {
-        try {
-            std::vector<std::uint8_t> resized(std::size_t(width) * height * 3u);
-            if (draw_capture(g_world_settled, resized.data(), width, height, nullptr,
-                             nullptr, true, nullptr, true)) {
-                g_world_margin = std::move(resized);
-                g_world_margin_w = width;
-                g_world_margin_h = height;
-                g_world_palette_effect.reset_indices();
-            }
-        } catch (const std::bad_alloc&) {
-            // Existing no-held-frame colour is the allocation fallback.
-        }
-    }
-    const bool held = !flat && g_world_margin_w == width &&
-                      g_world_margin_h == height && !g_world_margin.empty();
-    const bool glow = held && tla_beam_glow_frame(io.data(),
-        unsigned(capture.ewram[0x428]) | (unsigned(capture.ewram[0x429]) << 8));
-    // LIVE margins (shared_game/world_margin_live.h): the settled world map
-    // drawn every frame with this frame's sprites; the held photo is the
-    // fallback.
-    static std::vector<std::uint8_t> live_margins;
-    static const auto mix = std::make_shared<Capture>();
-    const std::vector<std::uint8_t>* margin_src = &g_world_margin;
-    // This picture's margins come from remembered scenery (noted in the frame trace).
-    if (held)
-        gbarecomp::frame_trace_note_held_scene(
-            capture.scene.frame, g_world_settled ? g_world_settled->scene.frame : 0u);
-    if (held && g_world_settled &&
-        gsr::live_world_margin_capture(*g_world_settled, capture, *mix,
-            !glow && g_world_palette_effect.changes_background(capture.pal))) {
-        live_margins.resize(std::size_t(width) * height * 3u);
-        if (draw_capture(mix, live_margins.data(), width, height, nullptr, nullptr, true,
-                         nullptr, true))
-            margin_src = &live_margins;
-    }
-    // A quake shakes the map picture by scrolling BG1, the 256-colour layer
-    // that holds it on these screens (measured:
-    // BG1CNT 0x0682, offsets -1..2 every frame; the edges meet the picture
-    // only at 0,0). The held edges move with it.
-    int shake_x = 0, shake_y = 0;
-    const unsigned dispcnt = io[0] | (static_cast<unsigned>(io[1]) << 8);
-    if ((dispcnt & 0x0200u) && (io[0x0A] & 0x80u)) {
-        const auto offset = [&](unsigned at) {
-            const int v = int((io[at] | (unsigned(io[at + 1]) << 8)) & 0x1FFu);
-            return v >= 0x100 ? v - 0x200 : v;
-        };
-        shake_x = offset(0x14);
-        shake_y = offset(0x16);
-    }
-    // A lighthouse beam: the margins already hold BG0's glow added to the
-    // black backdrop (tla_field_draw.h), so add the held map beneath it the
-    // way the console adds the snapshot (second target, weight EVB/16; EVB
-    // 16 in every beam frame measured).
-    const unsigned evb = std::min(io[0x53] & 0x1Fu, 16u);
-    for (std::uint32_t y = 0; y < height; ++y) {
-        const bool native_row = y >= y0 && y < y0 + 160u;
-        std::uint8_t* dst = rgb + std::size_t{y} * width * 3u;
-        const int sy = std::clamp(int(y) + shake_y, 0, int(height) - 1);
-        const std::uint8_t* src =
-            held ? margin_src->data() + std::size_t(sy) * width * 3u : nullptr;
-        for (std::uint32_t x = 0; x < width; ++x) {
-            if (native_row && x >= x0 && x < x0 + 240u) continue;
-            const int sx = std::clamp(int(x) + shake_x, 0, int(width) - 1);
-            if (glow) {
-                const std::uint8_t* h = src + std::size_t(sx) * 3u;
-                for (int c = 0; c < 3; ++c)
-                    dst[x * 3u + c] = std::uint8_t(
-                        std::min(255u, dst[x * 3u + c] + h[c] * evb / 16u));
-                continue;
-            }
-            // No settled frame to hold: black rather than the world map's
-            // rotation-layer data read as text layers.
-            std::memcpy(dst + x * 3u, held ? src + std::size_t(sx) * 3u : colour, 3);
-        }
-    }
-    if (held && !glow && (shake_x || shake_y))
-        cover_shake_strips(rgb, width, height, capture, *margin_src, shake_x, shake_y);
-    if (held && !glow && margin_src == &g_world_margin)
-        g_world_palette_effect.apply(rgb, width, height, *margin_src, capture.pal);
-    paint_shutter_rows(rgb, width, height, capture.scene);
-}
+// The capture inside one of tla_gpu_field_snapshot's snapshots, or null.
+std::shared_ptr<const Capture> snapshot_capture(const gbarecomp::SceneSnapshot* snapshot);
 
 }  // namespace
 
 // The present hook calls this first (tla_rewind.cpp). True means `rgb`
-// contains the rendered frame or the refusal colour.
+// contains the rendered frame or the refusal colour. `held`: an earlier
+// frame's snapshot to draw again instead of this frame's capture.
 bool tla_gpu_field_present(std::uint8_t* rgb, std::uint32_t width,
                            std::uint32_t height,
                            gbarecomp::HistoryFrame& frame, bool synchronous,
-                           bool direct_ok) {
+                           bool direct_ok, const gbarecomp::SceneSnapshot* held) {
     gbarecomp::gpu_present_withdraw();
     if (!g_enabled) { g_readback.invalidate(); return false; }
+    const std::shared_ptr<const Capture> held_capture = snapshot_capture(held);
     ++g_presented;
     if (g_check && g_presented % 300u == 0u)
         std::fprintf(stderr,
@@ -972,34 +734,34 @@ bool tla_gpu_field_present(std::uint8_t* rgb, std::uint32_t width,
                      "%llu presented, %llu drawn, %llu differ\n",
                      g_captured, g_undescribed, g_presented, g_tally.drawn,
                      g_tally.differing);
-    if (!capture_valid()) {
+    if (!held_capture && !capture_valid()) {
         g_readback.invalidate();
         return g_only ? paint_refused(rgb, width, height,
                                       "nothing was captured this frame")
                       : false;
     }
+    const std::shared_ptr<const Capture> source = held_capture ? held_capture : g_capture;
 
     const bool expanded = width > 240u || height > 160u;
     if (gsr::effect_capture_enabled() != expanded)
         gsr::effect_capture_set_enabled(expanded);
     const char* reason = nullptr;
-    bool drawn = false, direct = false;
-    std::shared_ptr<const Capture> delivered;
+    bool drawn = false;
     try {
         if (g_check && !g_only) {
             std::vector<std::uint8_t> gpu(std::size_t(width) * height * 3u);
-            drawn = draw_capture(g_capture, gpu.data(), width, height, &reason,
-                                 &frame, true, &delivered);
+            drawn = draw_capture(source, gpu.data(), width, height, &reason,
+                                 &frame, true);
             if (drawn) {
-                check_against_console(rgb, gpu.data(), width, height, g_capture->scene.frame);
+                check_against_console(rgb, gpu.data(), width, height, source->scene.frame);
                 std::memcpy(rgb, gpu.data(), gpu.size());
             }
         } else {
             // `direct_ok`: the caller paints nothing on the CPU picture.
-            direct = direct_ok && !synchronous && !g_check &&
-                     gbarecomp::gpu_present_accepting() && !world_map_needs_cpu(*g_capture);
-            drawn = draw_capture(g_capture, rgb, width, height, &reason,
-                                 &frame, synchronous || g_check, &delivered, false, direct);
+            const bool direct = direct_ok && !synchronous && !g_check &&
+                                gbarecomp::gpu_present_accepting();
+            drawn = draw_capture(source, rgb, width, height, &reason,
+                                 &frame, synchronous || g_check, direct);
         }
     } catch (const std::bad_alloc&) {
         g_readback.invalidate();
@@ -1011,7 +773,7 @@ bool tla_gpu_field_present(std::uint8_t* rgb, std::uint32_t width,
         if (reason && reason != said) {
             said = reason;
             std::fprintf(stderr, "[gpu-field] declined frame %llu: %s\n",
-                         static_cast<unsigned long long>(g_capture->scene.frame), reason);
+                         static_cast<unsigned long long>(source->scene.frame), reason);
         }
         return g_only ? paint_refused(rgb, width, height, reason) : false;
     }
@@ -1020,8 +782,6 @@ bool tla_gpu_field_present(std::uint8_t* rgb, std::uint32_t width,
         announced = true;
         std::fprintf(stderr, "[gpu-field] drawing at %ux%u\n", width, height);
     }
-    if (direct) world_map_remember_settled(g_capture);
-    else world_map_margin_hold(rgb, width, height, delivered);
     return true;
 }
 
@@ -1075,6 +835,11 @@ struct Snapshot final : gbarecomp::SceneSnapshot {
     std::uint32_t width = 0, height = 0;
     std::string bytes() const override { return snapshot_bytes(*capture, width, height); }
 };
+
+std::shared_ptr<const Capture> snapshot_capture(const gbarecomp::SceneSnapshot* snapshot) {
+    const auto* own = dynamic_cast<const Snapshot*>(snapshot);
+    return own ? own->capture : nullptr;
+}
 }  // namespace
 
 std::shared_ptr<const gbarecomp::SceneSnapshot> tla_gpu_field_snapshot(
@@ -1141,9 +906,7 @@ void tla_install_gpu_field() {
         tla_rewind_reset();
         reset_room_copy();
         g_capture = {};
-        g_world_settled = {};
-        g_world_margin.clear();
-        g_world_margin_w = g_world_margin_h = 0;
+        g_world_hold.forget();
         tla_local_music_on_savestate_load();
         tla_custom_battle_reset();
         tla_retreat_travel_reset();

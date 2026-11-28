@@ -1,0 +1,6 @@
+# Message from Jim: shown under the logo in every launcher (0.9.2 and newer),
+# loaded from GitHub each time the launcher starts. Edit the line below on
+# GitHub; players see it the next time they start the launcher (GitHub can take
+# a few minutes to serve the new text). Lines starting with # are ignored.
+# Leave no other lines to show no message. Two lines fit; longer ends in "...".
+Hi guys! Massive Android update (with some benefits for PC too!). Thanks again for all the kind words, you rock!

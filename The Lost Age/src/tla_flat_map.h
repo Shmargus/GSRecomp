@@ -35,8 +35,6 @@
 //   - an alpha blend is over BG1 (not measured).
 // Outside the map the margins are black.
 
-#include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -80,27 +78,38 @@ inline bool past_table(const std::uint8_t* rom, std::size_t rom_bytes, unsigned 
 
 // File 0x24's 48 rows, unpacked once per ROM; empty when any row fails.
 inline const std::vector<std::uint8_t>& map_rows(const std::uint8_t* rom,
-                                                 std::size_t rom_bytes) {
+                                                 std::size_t rom_bytes,
+                                                 std::uint32_t* out_generation = nullptr) {
     static const std::uint8_t* for_rom = nullptr;
     static std::size_t for_bytes = 0;
     static std::vector<std::uint8_t> rows;
-    if (rom == for_rom && rom_bytes == for_bytes) return rows;
-    for_rom = rom;
-    for_bytes = rom_bytes;
-    rows.clear();
-    std::size_t at = 0;
-    if (!tla_rom::asset_offset(rom, rom_bytes, kFile, &at)) return rows;
-    std::vector<std::uint8_t> out(std::size_t(kRows) * kRowBytes), row;
-    for (int r = 0; r < kRows; ++r) {
-        std::uint32_t piece = 0;
-        if (!tla_rom::word(rom, rom_bytes, std::uint32_t(0x08000000u + at + 4u + r * 4u), &piece) ||
-            piece >= rom_bytes - at ||
-            !gsr::rom_unpack(rom + at + piece, rom_bytes - at - piece, &row, kRowBytes) ||
-            row.size() != kRowBytes)
-            return rows;
-        std::copy(row.begin(), row.end(), out.begin() + std::size_t(r) * kRowBytes);
+    static std::uint32_t generation = 0;
+    if (rom != for_rom || rom_bytes != for_bytes) {
+        for_rom = rom;
+        for_bytes = rom_bytes;
+        rows.clear();
+        std::size_t at = 0;
+        if (tla_rom::asset_offset(rom, rom_bytes, kFile, &at)) {
+            std::vector<std::uint8_t> out(std::size_t(kRows) * kRowBytes), row;
+            bool ok = true;
+            for (int r = 0; r < kRows; ++r) {
+                std::uint32_t piece = 0;
+                if (!tla_rom::word(rom, rom_bytes, std::uint32_t(0x08000000u + at + 4u + r * 4u), &piece) ||
+                    piece >= rom_bytes - at ||
+                    !gsr::rom_unpack(rom + at + piece, rom_bytes - at - piece, &row, kRowBytes) ||
+                    row.size() != kRowBytes) {
+                    ok = false;
+                    break;
+                }
+                std::copy(row.begin(), row.end(), out.begin() + std::size_t(r) * kRowBytes);
+            }
+            if (ok) {
+                rows = std::move(out);
+                ++generation;
+            }
+        }
     }
-    rows = std::move(out);
+    if (out_generation) *out_generation = rows.empty() ? 0u : generation;
     return rows;
 }
 
@@ -111,95 +120,45 @@ inline unsigned reg16(const std::uint8_t* io, unsigned at) {
 // The map screen's registers: mode 0, BG1 on in 256 colours, BG2 and BG3
 // off, no window, on the world map (EWRAM+0x428 == 2). Ordinary world-map
 // menus (DISPCNT 0x1F40) have BG2 and BG3 on.
-inline bool is_map_screen(const std::vector<std::uint8_t>& io,
-                          const std::vector<std::uint8_t>& ewram) {
-    if (io.size() < 0x58u || ewram.size() < 0x40000u) return false;
-    if (reg16(ewram.data(), 0x428u) != 2u) return false;
-    const unsigned dispcnt = reg16(io.data(), 0);
+inline bool is_map_screen(const std::uint8_t* io, std::size_t io_bytes,
+                          const std::uint8_t* ewram, std::size_t ewram_bytes) {
+    if (!io || !ewram || io_bytes < 0x58u || ewram_bytes < 0x40000u) return false;
+    if (reg16(ewram, 0x428u) != 2u) return false;
+    const unsigned dispcnt = reg16(io, 0);
     return (dispcnt & 7u) == 0u && (dispcnt & 0x0200u) && !(dispcnt & 0x0C00u) &&
-           !(dispcnt & 0xE000u) && (reg16(io.data(), 0x0A) & 0x80u);
+           !(dispcnt & 0xE000u) && (reg16(io, 0x0Au) & 0x80u);
 }
 
-// Paints every pixel of `rgb` outside the centred 240x160 picture from the
-// map at the game's own BG1 scroll (each row's registers; the rows above and
-// below the picture use its first and last row). Black when the map cannot
-// be trusted this frame. Returns true when the map was drawn.
-inline bool paint_margins(std::uint8_t* rgb, std::uint32_t width, std::uint32_t height,
-                          const gsr::FieldScene& scene, const std::vector<std::uint8_t>& io,
-                          const std::vector<std::uint8_t>& ewram,
-                          const std::vector<std::uint8_t>& pal,
-                          const std::uint8_t* rom, std::size_t rom_bytes) {
-    if (width < 240u || height < 160u) return false;
-    const std::uint32_t x0 = (width - 240u) / 2u, y0 = (height - 160u) / 2u;
-    const auto row_io = [&](int y) -> const std::uint8_t* {
-        y = std::clamp(y, 0, gsr::FieldScene::kRows - 1);
-        return scene.row_io_valid[y] ? scene.row_io[y].data() : io.data();
-    };
-    const std::vector<std::uint8_t>& rows = map_rows(rom, rom_bytes);
-    bool trusted = !rows.empty() && pal.size() >= 0x200u && io.size() >= 0x58u &&
-                   ewram.size() >= kRing + kRingSlots * kRowBytes &&
-                   reg16(ewram.data(), kFileSwitch) == 0u;
-    // The rows on the console's own screen must be the game's own rows.
-    for (int y = 0; y < gsr::FieldScene::kRows && trusted; ++y) {
-        const std::uint8_t* r = row_io(y);
-        const unsigned bldcnt = reg16(r, 0x50);
-        if ((reg16(r, 0) & 0xE000u) || (((bldcnt >> 6) & 3u) == 1u && (bldcnt & 2u))) {
-            trusted = false;
-            break;
-        }
-        const int map_y = int(reg16(r, 0x16) & 0x1FFu) + y;
+inline bool is_map_screen(const std::vector<std::uint8_t>& io,
+                          const std::vector<std::uint8_t>& ewram) {
+    return is_map_screen(io.data(), io.size(), ewram.data(), ewram.size());
+}
+
+// True when the rows on the console's own screen match the unpacked map and
+// no window, file 0x23, or alpha blend over BG1 invalidates the margins.
+inline bool is_trusted(const gsr::FieldScene& scene,
+                       const std::uint8_t* io, std::size_t io_bytes,
+                       const std::uint8_t* ewram, std::size_t ewram_bytes,
+                       const std::uint8_t* rom, std::size_t rom_bytes,
+                       std::uint32_t* out_generation = nullptr) {
+    const std::vector<std::uint8_t>& rows = map_rows(rom, rom_bytes, out_generation);
+    if (rows.empty() || !io || !ewram || scene.palette.size() < 256u ||
+        io_bytes < 0x58u || ewram_bytes < kRing + kRingSlots * kRowBytes ||
+        reg16(ewram, kFileSwitch) != 0u)
+        return false;
+    for (int y = 0; y < gsr::FieldScene::kRows; ++y) {
+        const std::uint8_t* r = scene.row_io_valid[y] ? scene.row_io[y].data() : io;
+        const unsigned bldcnt = reg16(r, 0x50u);
+        if ((reg16(r, 0) & 0xE000u) || (((bldcnt >> 6) & 3u) == 1u && (bldcnt & 2u)))
+            return false;
+        const int map_y = int(reg16(r, 0x16u) & 0x1FFu) + y;
         if (map_y >= kHeight) continue;
         const int tile_row = map_y / 8;
-        if (std::memcmp(ewram.data() + kRing + std::size_t(tile_row % kRingSlots) * kRowBytes,
+        if (std::memcmp(ewram + kRing + std::size_t(tile_row % kRingSlots) * kRowBytes,
                         rows.data() + std::size_t(tile_row) * kRowBytes, kRowBytes) != 0)
-            trusted = false;
+            return false;
     }
-    std::array<std::uint8_t, 256> to8{};
-    for (int v = 0; v < 32; ++v) to8[v] = std::uint8_t((v * 255 + 15) / 31);
-    for (std::uint32_t y = 0; y < height; ++y) {
-        const int sy = int(y) - int(y0);
-        const std::uint8_t* r = row_io(sy);
-        const int hofs = int(reg16(r, 0x14) & 0x1FFu), vofs = int(reg16(r, 0x16) & 0x1FFu);
-        const unsigned bldcnt = reg16(r, 0x50);
-        const unsigned effect = (bldcnt >> 6) & 3u;
-        const int evy = std::min<int>(r[0x54] & 0x1Fu, 16);
-        const bool native_row = sy >= 0 && sy < 160;
-        const int map_y = vofs + sy;
-        std::uint8_t* dst = rgb + std::size_t(y) * width * 3u;
-        for (std::uint32_t x = 0; x < width; ++x, dst += 3) {
-            if (native_row && x >= x0 && x < x0 + 240u) continue;
-            const int map_x = hofs + int(x) - int(x0);
-            if (!trusted || map_x < 0 || map_x >= kWidth || map_y < 0 || map_y >= kHeight) {
-                dst[0] = dst[1] = dst[2] = 0;
-                continue;
-            }
-            const unsigned index = rows[std::size_t(map_y / 8) * kRowBytes +
-                                        std::size_t(map_x / 8) * 64u +
-                                        std::size_t(map_y % 8) * 8u + std::size_t(map_x % 8)];
-            // Index 0 is the backdrop (palette 0), as on the console.
-            const unsigned colour = reg16(pal.data(), index * 2u);
-            int cr = int(colour & 31u);
-            int g6 = int(((colour >> 4) & 62u) | (colour >> 15));
-            int cb = int((colour >> 10) & 31u);
-            // The graphics card's brightness step (field_scene_renderer.cpp).
-            const bool target = (bldcnt >> (index ? 1u : 5u)) & 1u;
-            if ((effect == 2u || effect == 3u) && evy != 0 && target) {
-                if (effect == 2u) {
-                    cr += ((31 - cr) * evy + 8) >> 4;
-                    g6 += ((63 - g6) * evy + 8) >> 4;
-                    cb += ((31 - cb) * evy + 8) >> 4;
-                } else {
-                    cr -= (cr * evy + 7) >> 4;
-                    g6 -= (g6 * evy + 7) >> 4;
-                    cb -= (cb * evy + 7) >> 4;
-                }
-            }
-            dst[0] = to8[cr];
-            dst[1] = to8[g6 >> 1];
-            dst[2] = to8[cb];
-        }
-    }
-    return trusted;
+    return true;
 }
 
 }  // namespace tla_flat_map

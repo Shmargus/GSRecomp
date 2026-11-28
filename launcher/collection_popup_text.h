@@ -25,6 +25,7 @@ struct CollectionPopupText {
     const char* build_less_resources;
     const char* build_resource_notice;
     const char* build_play_after;
+    const char* build_all_cores;  // Android only
 };
 
 inline constexpr CollectionPopupText kCollectionPopupText[] = {
@@ -43,7 +44,8 @@ inline constexpr CollectionPopupText kCollectionPopupText[] = {
         "Build or rebuild {game}?", "Build game", "Cancel",
         "Use fewer system resources",
         "Limits the build to 50% of CPU and RAM.\nBuilding may take longer.\nOther apps use additional resources.",
-        "Start the game when the build finishes"
+        "Start the game when the build finishes",
+        "Use all cores for faster building, uses more battery"
     },
     {
         "Preparar el juego",
@@ -61,7 +63,8 @@ inline constexpr CollectionPopupText kCollectionPopupText[] = {
         "¿Preparar o volver a preparar {game}?", "Preparar", "Cancelar",
         "Usar menos recursos del sistema",
         "Limita la preparación al 50% de CPU y RAM.\nPuede tardar más.\nLas otras aplicaciones usan recursos adicionales.",
-        "Iniciar el juego al terminar la preparación"
+        "Iniciar el juego al terminar la preparación",
+        "Usar todos los núcleos para preparar más rápido (gasta más batería)"
     },
     {
         "Prepara il gioco",
@@ -78,7 +81,8 @@ inline constexpr CollectionPopupText kCollectionPopupText[] = {
         "Preparare o ricreare {game}?", "Prepara", "Annulla",
         "Usa meno risorse di sistema",
         "Limita la preparazione al 50% di CPU e RAM.\nPotrebbe richiedere più tempo.\nLe altre applicazioni usano risorse aggiuntive.",
-        "Avvia il gioco al termine della preparazione"
+        "Avvia il gioco al termine della preparazione",
+        "Usa tutti i core per preparare più in fretta (consuma più batteria)"
     },
     {
         "Préparer le jeu",
@@ -96,7 +100,8 @@ inline constexpr CollectionPopupText kCollectionPopupText[] = {
         "Préparer ou recréer {game} ?", "Préparer", "Annuler",
         "Utiliser moins de ressources",
         "Limite la préparation à 50% du CPU et de la RAM.\nElle peut prendre plus de temps.\nLes autres applications utilisent aussi des ressources.",
-        "Lancer le jeu une fois la préparation terminée"
+        "Lancer le jeu une fois la préparation terminée",
+        "Utiliser tous les cœurs pour préparer plus vite (consomme plus de batterie)"
     },
     {
         "Spiel erstellen",
@@ -113,7 +118,8 @@ inline constexpr CollectionPopupText kCollectionPopupText[] = {
         "{game} erstellen oder neu erstellen?", "Erstellen", "Abbrechen",
         "Weniger Systemressourcen nutzen",
         "Begrenzt den Build auf 50% CPU und RAM.\nDas Erstellen kann länger dauern.\nAndere Programme nutzen zusätzliche Ressourcen.",
-        "Spiel nach dem Erstellen starten"
+        "Spiel nach dem Erstellen starten",
+        "Alle Kerne für schnelleres Erstellen nutzen (verbraucht mehr Akku)"
     }
 };
 

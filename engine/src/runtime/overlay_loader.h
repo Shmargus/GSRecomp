@@ -157,13 +157,6 @@ void overlay_note_bridge_miss(uint32_t pc, bool thumb, uint64_t ns,
                               uint64_t interpreted_insns,
                               OverlayRequestOutcome outcome);
 
-// RAM churn probe (GSR_RAM_CHURN_PROBE=1). It writes a sparse, bounded CSV at
-// clean shutdown, beside the GBARECOMP_FRAME_EVENTS path if set, else as
-// ram-churn.csv. It is independent of the frame aggregate CSV and has no
-// dispatch or cache behavior of its own.
-// overlay_note_ram_crc_mismatch records one stale-RAM detection.
-void overlay_note_ram_crc_mismatch(uint32_t pc, bool thumb);
-
 // True if healing started this session. Remains true after shutdown for
 // the exit coverage report.
 bool overlay_was_enabled();

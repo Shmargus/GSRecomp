@@ -62,6 +62,7 @@ constexpr GLenum kActiveTextureEnum  = 0x84E0;
 constexpr GLenum kVertexArrayBinding = 0x85B5;
 constexpr GLenum kCurrentProgram     = 0x8B8D;
 constexpr GLenum kClampToBorder      = 0x812D;
+constexpr GLenum kClampToEdge        = 0x812F;
 constexpr GLenum kFramebuffer        = 0x8D40;
 constexpr GLenum kReadFramebuffer    = 0x8CA8;
 constexpr GLenum kDrawFramebuffer    = 0x8CA9;
@@ -457,7 +458,15 @@ void main()
 //     black, as upstream's clamp-to-border wrap does.
 //   - TextureSize == InputSize here, so the upstream size ratios in main()
 //     are 1.
-const char* kLottesFragment = R"GLSL(
+const char* kCrtLottesCommon = R"GLSL(
+// x: output width, y: margin columns each side, z: rows texture width,
+// w: source height (see kCrtRowsFragment).
+uniform vec4 CrtLayout;
+#ifdef GL_ES
+#define CRT_MED mediump
+#else
+#define CRT_MED
+#endif
 #define hardScan (-Params[0])
 #define hardPix -3.0
 #define warpX (0.031 * Params[1] * 0.01)
@@ -479,260 +488,201 @@ const char* kLottesFragment = R"GLSL(
 
 // ------------- //
 
-// sRGB to Linear.
-// Assuming using sRGB typed textures this should not be needed.
-float ToLinear1(float c)
+// sRGB to linear (with brightBoost) is done once per source pixel by
+// kCrtLinearFragment into a half-float texture, which Texture is here: each
+// output pixel reads 42 source pixels, and converting them here cost three
+// pow() each (on an Adreno 619 at 1920x1200 that alone sank the frame rate).
+
+// Linear to sRGB (branchless vector form, half-float on ES).
+CRT_MED vec3 ToSrgb(CRT_MED vec3 c)
 {
-    if (scaleInLinearGamma == 0.) 
-        return c;
-    
-    return(c<=0.04045) ? c/12.92 : pow((c + 0.055)/1.055, 2.4);
+    CRT_MED vec3 clamped = max(c, vec3(0.0));
+    return mix(clamped * 12.92,
+               1.055 * pow(clamped, vec3(0.41666)) - 0.055,
+               step(vec3(0.0031308), clamped));
 }
 
-vec3 ToLinear(vec3 c)
+// Nearest emulated sample on source line `row_v` (already centred in 0..1)
+// at integer column `px`. Off-screen columns return black (clamp-to-border).
+CRT_MED vec3 FetchRow(float px, float row_v, float inv_w)
 {
-    if (scaleInLinearGamma==0.) 
-        return c;
-    
-    return vec3(ToLinear1(c.r), ToLinear1(c.g), ToLinear1(c.b));
-}
-
-// Linear to sRGB.
-// Assuming using sRGB typed textures this should not be needed.
-float ToSrgb1(float c)
-{
-    if (scaleInLinearGamma == 0.) 
-        return c;
-    
-    return(c<0.0031308 ? c*12.92 : 1.055*pow(c, 0.41666) - 0.055);
-}
-
-vec3 ToSrgb(vec3 c)
-{
-    if (scaleInLinearGamma == 0.) 
-        return c;
-    
-    return vec3(ToSrgb1(c.r), ToSrgb1(c.g), ToSrgb1(c.b));
-}
-
-// Nearest emulated sample given floating point position and texel offset.
-// Also zero's off screen.
-vec3 Fetch(vec2 pos,vec2 off){
-  vec2 px = floor(pos*SourceSize+off);
-  // Upstream's texture wrap is clamp-to-border (black): off-screen reads are black.
-  if (px.x < 0.0 || px.y < 0.0 || px.x >= SourceSize.x || px.y >= SourceSize.y)
-    return vec3(0.0);
-  return ToLinear(brightBoost * src_texel(px).rgb);
+    if (px < 0.0 || px >= SourceSize.x) return vec3(0.0);
+    return texture(Texture, vec2((px + 0.5) * inv_w, row_v)).rgb;
 }
 
 // Distance in emulated pixels to nearest texel.
 vec2 Dist(vec2 pos)
 {
     pos = pos*SourceSize;
-    
     return -((pos - floor(pos)) - vec2(0.5));
 }
-    
-// 1D Gaussian.
-float Gaus(float pos, float scale)
+
+// 1D Gaussian (pow(abs(pos), 2.0) as a multiply).
+CRT_MED float Gaus(CRT_MED float pos, CRT_MED float scale)
 {
-    return exp2(scale*pow(abs(pos), shape));
+    return exp2(scale*(pos*pos));
 }
 
 // 3-tap Gaussian filter along horz line.
-vec3 Horz3(vec2 pos, float off)
+CRT_MED vec3 Horz3(float base_x, CRT_MED float dst, float row_v, float inv_w)
 {
-    vec3 b    = Fetch(pos, vec2(-1.0, off));
-    vec3 c    = Fetch(pos, vec2( 0.0, off));
-    vec3 d    = Fetch(pos, vec2( 1.0, off));
-    float dst = Dist(pos).x;
+    CRT_MED vec3 b = FetchRow(base_x - 1.0, row_v, inv_w);
+    CRT_MED vec3 c = FetchRow(base_x,       row_v, inv_w);
+    CRT_MED vec3 d = FetchRow(base_x + 1.0, row_v, inv_w);
 
-    // Convert distance to weight.
-    float scale = hardPix;
-    float wb = Gaus(dst-1.0,scale);
-    float wc = Gaus(dst+0.0,scale);
-    float wd = Gaus(dst+1.0,scale);
-
-    // Return filtered sample.
-    return (b*wb+c*wc+d*wd)/(wb+wc+wd);
+    CRT_MED float scale = hardPix;
+    CRT_MED float wb = Gaus(dst - 1.0, scale);
+    CRT_MED float wc = Gaus(dst,       scale);
+    CRT_MED float wd = Gaus(dst + 1.0, scale);
+    return (b*wb + c*wc + d*wd) / (wb + wc + wd);
 }
 
 // 5-tap Gaussian filter along horz line.
-vec3 Horz5(vec2 pos,float off){
-    vec3 a = Fetch(pos,vec2(-2.0, off));
-    vec3 b = Fetch(pos,vec2(-1.0, off));
-    vec3 c = Fetch(pos,vec2( 0.0, off));
-    vec3 d = Fetch(pos,vec2( 1.0, off));
-    vec3 e = Fetch(pos,vec2( 2.0, off));
-    
-    float dst = Dist(pos).x;
-    // Convert distance to weight.
-    float scale = hardPix;
-    float wa = Gaus(dst - 2.0, scale);
-    float wb = Gaus(dst - 1.0, scale);
-    float wc = Gaus(dst + 0.0, scale);
-    float wd = Gaus(dst + 1.0, scale);
-    float we = Gaus(dst + 2.0, scale);
-    
-    // Return filtered sample.
-    return (a*wa+b*wb+c*wc+d*wd+e*we)/(wa+wb+wc+wd+we);
+CRT_MED vec3 Horz5(float base_x, CRT_MED float dst, float row_v, float inv_w)
+{
+    CRT_MED vec3 a = FetchRow(base_x - 2.0, row_v, inv_w);
+    CRT_MED vec3 b = FetchRow(base_x - 1.0, row_v, inv_w);
+    CRT_MED vec3 c = FetchRow(base_x,       row_v, inv_w);
+    CRT_MED vec3 d = FetchRow(base_x + 1.0, row_v, inv_w);
+    CRT_MED vec3 e = FetchRow(base_x + 2.0, row_v, inv_w);
+
+    CRT_MED float scale = hardPix;
+    CRT_MED float wa = Gaus(dst - 2.0, scale);
+    CRT_MED float wb = Gaus(dst - 1.0, scale);
+    CRT_MED float wc = Gaus(dst,       scale);
+    CRT_MED float wd = Gaus(dst + 1.0, scale);
+    CRT_MED float we = Gaus(dst + 2.0, scale);
+    return (a*wa + b*wb + c*wc + d*wd + e*we) / (wa + wb + wc + wd + we);
 }
-  
+
 // 7-tap Gaussian filter along horz line.
-vec3 Horz7(vec2 pos,float off)
+CRT_MED vec3 Horz7(float base_x, CRT_MED float dst, float row_v, float inv_w)
 {
-    vec3 a = Fetch(pos, vec2(-3.0, off));
-    vec3 b = Fetch(pos, vec2(-2.0, off));
-    vec3 c = Fetch(pos, vec2(-1.0, off));
-    vec3 d = Fetch(pos, vec2( 0.0, off));
-    vec3 e = Fetch(pos, vec2( 1.0, off));
-    vec3 f = Fetch(pos, vec2( 2.0, off));
-    vec3 g = Fetch(pos, vec2( 3.0, off));
+    CRT_MED vec3 a = FetchRow(base_x - 3.0, row_v, inv_w);
+    CRT_MED vec3 b = FetchRow(base_x - 2.0, row_v, inv_w);
+    CRT_MED vec3 c = FetchRow(base_x - 1.0, row_v, inv_w);
+    CRT_MED vec3 d = FetchRow(base_x,       row_v, inv_w);
+    CRT_MED vec3 e = FetchRow(base_x + 1.0, row_v, inv_w);
+    CRT_MED vec3 f = FetchRow(base_x + 2.0, row_v, inv_w);
+    CRT_MED vec3 g = FetchRow(base_x + 3.0, row_v, inv_w);
 
-    float dst = Dist(pos).x;
-    // Convert distance to weight.
-    float scale = hardBloomPix;
-    float wa = Gaus(dst - 3.0, scale);
-    float wb = Gaus(dst - 2.0, scale);
-    float wc = Gaus(dst - 1.0, scale);
-    float wd = Gaus(dst + 0.0, scale);
-    float we = Gaus(dst + 1.0, scale);
-    float wf = Gaus(dst + 2.0, scale);
-    float wg = Gaus(dst + 3.0, scale);
-
-    // Return filtered sample.
-    return (a*wa+b*wb+c*wc+d*wd+e*we+f*wf+g*wg)/(wa+wb+wc+wd+we+wf+wg);
-}
-  
-// Return scanline weight.
-float Scan(vec2 pos, float off)
-{
-    float dst = Dist(pos).y;
-
-    return Gaus(dst + off, hardScan);
-}
-  
-// Return scanline weight for bloom.
-float BloomScan(vec2 pos, float off)
-{
-    float dst = Dist(pos).y;
-    
-    return Gaus(dst + off, hardBloomScan);
+    CRT_MED float scale = hardBloomPix;
+    CRT_MED float wa = Gaus(dst - 3.0, scale);
+    CRT_MED float wb = Gaus(dst - 2.0, scale);
+    CRT_MED float wc = Gaus(dst - 1.0, scale);
+    CRT_MED float wd = Gaus(dst,       scale);
+    CRT_MED float we = Gaus(dst + 1.0, scale);
+    CRT_MED float wf = Gaus(dst + 2.0, scale);
+    CRT_MED float wg = Gaus(dst + 3.0, scale);
+    return (a*wa + b*wb + c*wc + d*wd + e*we + f*wf + g*wg) / (wa + wb + wc + wd + we + wf + wg);
 }
 
-// Allow nearest three lines to effect pixel.
-vec3 Tri(vec2 pos)
-{
-    vec3 a = Horz3(pos,-1.0);
-    vec3 b = Horz5(pos, 0.0);
-    vec3 c = Horz3(pos, 1.0);
-    
-    float wa = Scan(pos,-1.0); 
-    float wb = Scan(pos, 0.0);
-    float wc = Scan(pos, 1.0);
-    
-    return a*wa + b*wb + c*wc;
-}
-  
-// Small bloom.
-vec3 Bloom(vec2 pos)
-{
-    vec3 a = Horz5(pos,-2.0);
-    vec3 b = Horz7(pos,-1.0);
-    vec3 c = Horz7(pos, 0.0);
-    vec3 d = Horz7(pos, 1.0);
-    vec3 e = Horz5(pos, 2.0);
-
-    float wa = BloomScan(pos,-2.0);
-    float wb = BloomScan(pos,-1.0); 
-    float wc = BloomScan(pos, 0.0);
-    float wd = BloomScan(pos, 1.0);
-    float we = BloomScan(pos, 2.0);
-
-    return a*wa+b*wb+c*wc+d*wd+e*we;
-}
-  
 // Distortion of scanlines, and end of screen alpha.
 vec2 Warp(vec2 pos)
 {
-    pos  = pos*2.0-1.0;    
+    pos  = pos*2.0-1.0;
     pos *= vec2(1.0 + (pos.y*pos.y)*warpX, 1.0 + (pos.x*pos.x)*warpY);
-    
     return pos*0.5 + 0.5;
 }
-  
-// Shadow mask.
-vec3 Mask(vec2 pos)
+
+// Stretched VGA style shadow mask (shadowMask == 3.0).
+CRT_MED vec3 Mask(vec2 pos)
 {
-    vec3 mask = vec3(maskDark, maskDark, maskDark);
-  
-    // Very compressed TV style shadow mask.
-    if (shadowMask == 1.0) 
-    {
-        float line = maskLight;
-        float odd = 0.0;
-        
-        if (fract(pos.x*0.166666666) < 0.5) odd = 1.0;
-        if (fract((pos.y + odd) * 0.5) < 0.5) line = maskDark;  
-        
-        pos.x = fract(pos.x*0.333333333);
-
-        if      (pos.x < 0.333) mask.r = maskLight;
-        else if (pos.x < 0.666) mask.g = maskLight;
-        else                    mask.b = maskLight;
-        mask*=line;  
-    } 
-
-    // Aperture-grille.
-    else if (shadowMask == 2.0) 
-    {
-        pos.x = fract(pos.x*0.333333333);
-
-        if      (pos.x < 0.333) mask.r = maskLight;
-        else if (pos.x < 0.666) mask.g = maskLight;
-        else                    mask.b = maskLight;
-    } 
-
-    // Stretched VGA style shadow mask (same as prior shaders).
-    else if (shadowMask == 3.0) 
-    {
-        pos.x += pos.y*3.0;
-        pos.x  = fract(pos.x*0.166666666);
-
-        if      (pos.x < 0.333) mask.r = maskLight;
-        else if (pos.x < 0.666) mask.g = maskLight;
-        else                    mask.b = maskLight;
-    }
-
-    // VGA style shadow mask.
-    else if (shadowMask == 4.0) 
-    {
-        pos.xy  = floor(pos.xy*vec2(1.0, 0.5));
-        pos.x  += pos.y*3.0;
-        pos.x   = fract(pos.x*0.166666666);
-
-        if      (pos.x < 0.333) mask.r = maskLight;
-        else if (pos.x < 0.666) mask.g = maskLight;
-        else                    mask.b = maskLight;
-    }
-
+    CRT_MED vec3 mask = vec3(maskDark);
+    CRT_MED float m = fract((pos.x + pos.y * 3.0) * 0.166666666);
+    if      (m < 0.333) mask.r = maskLight;
+    else if (m < 0.666) mask.g = maskLight;
+    else                mask.b = maskLight;
     return mask;
+}
+
+)GLSL";
+
+// CRT Lottes, step 1 ("rows"): every source line filtered sideways once, at
+// the output's horizontal resolution. Upstream does this inside every output
+// pixel (42 reads each, ~100 million a frame at 1920x1200, which held an
+// Adreno 619 near 10 fps); the main pass now reads 3 (Glow 0) or 8 of these.
+// Texture is the linear step's output. Rows texel (i, band * H + r) holds
+// source line r filtered at pos.x = (i + 0.5 - margin) / output width, band 0
+// with Horz3, 1 with Horz5, 2 with Horz7 (skipped when Glow is 0).
+const char* kCrtRowsFragment = R"GLSL(
+void main()
+{
+    float i = floor(gl_FragCoord.x);
+    float t = floor(gl_FragCoord.y);
+    float band = floor(t / CrtLayout.w);
+    float row = t - band * CrtLayout.w;
+    float px = ((i + 0.5 - CrtLayout.y) / CrtLayout.x) * SourceSize.x;
+    float base_x = floor(px);
+    CRT_MED float dst = -(px - base_x - 0.5);
+    float row_v = (row + 0.5) / SourceSize.y;
+    float inv_w = 1.0 / SourceSize.x;
+    CRT_MED vec3 c = band < 0.5 ? Horz3(base_x, dst, row_v, inv_w)
+                   : band < 1.5 ? Horz5(base_x, dst, row_v, inv_w)
+                                : Horz7(base_x, dst, row_v, inv_w);
+    FragColor = vec4(c, 1.0);
+}
+)GLSL";
+
+// CRT Lottes, main pass: Texture is the rows texture (linear filtering, so a
+// curved pos.x between two of its columns blends them).
+const char* kLottesFragment = R"GLSL(
+// Source line `row` filtered with `band`'s kernel at rows-texture x `x`.
+// Lines outside the picture are black, as upstream's Fetch.
+CRT_MED vec3 Row(float band, float row, float x, float inv_rows_h)
+{
+    if (row < 0.0 || row >= CrtLayout.w) return vec3(0.0);
+    return texture(Texture, vec2(x, (band * CrtLayout.w + row + 0.5) * inv_rows_h)).rgb;
 }
 
 void main()
 {
-    // TextureSize == InputSize here, so the upstream size ratios are 1.
-    vec2 pos = Warp(v_uv);
-    vec3 outColor = Tri(pos);
+    vec2 pos = Params[1] > 0.0 ? Warp(v_uv) : v_uv;
+    float x = (pos.x * CrtLayout.x + CrtLayout.y) / CrtLayout.z;
+    float sy = pos.y * SourceSize.y;
+    float r = floor(sy);
+    CRT_MED float dy = -(sy - r - 0.5);
+    float inv_rows_h = 1.0 / (3.0 * CrtLayout.w);
 
-    //Add Bloom
-    outColor.rgb += Bloom(pos)*bloomAmount;
+    // Tri(): the nearest three lines.
+    CRT_MED float hs = hardScan;
+    CRT_MED vec3 outColor = Row(0.0, r - 1.0, x, inv_rows_h) * Gaus(dy - 1.0, hs)
+                          + Row(1.0, r,       x, inv_rows_h) * Gaus(dy,       hs)
+                          + Row(0.0, r + 1.0, x, inv_rows_h) * Gaus(dy + 1.0, hs);
 
-    if (shadowMask > 0.0)
-        outColor.rgb *= Mask(gl_FragCoord.xy * 1.000001);
-    
-    FragColor = vec4(ToSrgb(outColor.rgb), 1.0);
-} 
+    // Bloom(): five lines, skipped completely when Glow is 0.
+    CRT_MED float ba = bloomAmount;
+    if (ba > 0.0) {
+        CRT_MED float hbs = hardBloomScan;
+        CRT_MED vec3 bloom = Row(1.0, r - 2.0, x, inv_rows_h) * Gaus(dy - 2.0, hbs)
+                           + Row(2.0, r - 1.0, x, inv_rows_h) * Gaus(dy - 1.0, hbs)
+                           + Row(2.0, r,       x, inv_rows_h) * Gaus(dy,       hbs)
+                           + Row(2.0, r + 1.0, x, inv_rows_h) * Gaus(dy + 1.0, hbs)
+                           + Row(1.0, r + 2.0, x, inv_rows_h) * Gaus(dy + 2.0, hbs);
+        outColor += bloom * ba;
+    }
+
+    if (Params[2] > 0.0)
+        outColor *= Mask(gl_FragCoord.xy * 1.000001);
+
+    FragColor = vec4(ToSrgb(outColor), 1.0);
+}
+)GLSL";
+
+// CRT Lottes, step 0: the shown region at 1x, brightBoost applied and
+// converted sRGB to linear once per source pixel (upstream's Fetch did this
+// for every one of its 42 reads per output pixel). Written to a half-float
+// texture, so values boosted past 1.0 survive.
+const char* kCrtLinearFragment = R"GLSL(
+float crt_to_linear(float c)
+{
+    return (c <= 0.04045) ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);
+}
+void main()
+{
+    vec3 c = (Params[3] * 0.01) * src_texel(v_uv * SourceSize).rgb;
+    FragColor = vec4(crt_to_linear(c.r), crt_to_linear(c.g), crt_to_linear(c.b), 1.0);
+}
 )GLSL";
 
 // ScaleFX -- the licence notice below is reproduced verbatim from the upstream
@@ -1105,6 +1055,7 @@ struct Program {
     GLint  u_texture_size = -1;  // ScaleFX passes
     GLint  u_input_size = -1;    // ScaleFX passes
     GLint  u_params = -1;        // Params[] (slider values)
+    GLint  u_crt_layout = -1;    // CRT Lottes' CrtLayout
 };
 
 // ScaleFX, exactly as libretro's scalefx.glslp: five passes, all nearest, scale
@@ -1151,6 +1102,20 @@ struct State {
     GLuint      sfx_tex[5] = {0, 0, 0, 0, 0};
     int         sfx_w = 0;           // 1x size the textures are allocated for
     int         sfx_h = 0;
+    // CRT Lottes' linear step (kCrtLinearFragment) and rows step
+    // (kCrtRowsFragment)
+    bool        crt_failed = false;
+    Program     crt_linear;
+    Program     crt_rows;
+    GLuint      crt_linear_fbo = 0;
+    GLuint      crt_rows_fbo = 0;
+    GLuint      crt_tex = 0;
+    int         crt_w = 0;
+    int         crt_h = 0;
+    GLuint      crt_rows_tex = 0;
+    int         crt_rows_w = 0;
+    int         crt_rows_h = 0;
+    float       crt_layout[4] = {0, 0, 0, 0};  // CrtLayout for the main pass
 };
 
 State& state() {
@@ -1237,16 +1202,17 @@ GLuint compile(GLenum type, const char* const* sources, GLsizei count,
 // the program as tried so it is never rebuilt.
 void build_program(Program* p, const char* fragment_body, const char* name,
                    const char* vertex = kVertexSource,
-                   const char* common = kFragmentCommon) {
+                   const char* common = kFragmentCommon,
+                   const char* shared = nullptr) {
     p->tried = true;
     const char* vs_sources[1] = {vertex};
-    const char* fs_sources[2] = {common, fragment_body};
+    const char* fs_sources[3] = {common, shared ? shared : "", fragment_body};
     char what[64];
     std::snprintf(what, sizeof(what), "%s vertex shader", name);
     GLuint vs = compile(kVertexShader, vs_sources, 1, what);
     if (!vs) return;
     std::snprintf(what, sizeof(what), "%s fragment shader", name);
-    GLuint fs = compile(kFragmentShader, fs_sources, 2, what);
+    GLuint fs = compile(kFragmentShader, fs_sources, 3, what);
     if (!fs) { glDeleteShader(vs); return; }
     GLuint program = glCreateProgram();
     if (!program) { glDeleteShader(vs); glDeleteShader(fs); return; }
@@ -1273,6 +1239,7 @@ void build_program(Program* p, const char* fragment_body, const char* name,
     p->u_texture_size = glGetUniformLocation(program, "TextureSize");
     p->u_input_size = glGetUniformLocation(program, "InputSize");
     p->u_params = glGetUniformLocation(program, "Params");
+    p->u_crt_layout = glGetUniformLocation(program, "CrtLayout");
 }
 
 // Two triangles covering clip space. Each vertex: x, y, u, v with (u,v) = 0,0
@@ -1330,8 +1297,10 @@ bool ensure_sfx_chain(State* s, int w, int h, GLint unit_index) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, static_cast<GLint>(kClampToBorder));
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, static_cast<GLint>(kClampToBorder));
         const GLenum format = i == 0 ? kRgba8 : kSfxPasses[i - 1].format;
+        // OpenGL ES takes a half-float texture only with a float type (an
+        // unsigned-byte one is refused there, leaving no texture).
         glTexImage2D(GL_TEXTURE_2D, 0, static_cast<GLint>(format), w, h, 0, GL_RGBA,
-                     GL_UNSIGNED_BYTE, nullptr);
+                     format == kRgba16f ? GL_FLOAT : GL_UNSIGNED_BYTE, nullptr);
     }
     s->sfx_w = w;
     s->sfx_h = h;
@@ -1406,13 +1375,122 @@ bool run_scalefx(State* s, GLint unit, GLint src_unit, GLint aux_unit,
     return true;
 }
 
-}  // namespace
+// (Re)allocates a w x h half-float texture and attaches it once to its own
+// FBO on the active unit when its size changed. Deleting and recreating on
+// resize avoids mutating an in-flight texture handle while attached.
+bool ensure_crt_target(GLuint* fbo, GLuint* tex, int* tex_w, int* tex_h,
+                       int w, int h, GLint filter, const char* what) {
+    if (*fbo && *tex && *tex_w == w && *tex_h == h) return true;
+    if (*tex) { glDeleteTextures(1, tex); *tex = 0; }
+    glGenTextures(1, tex);
+    if (!*tex) return false;
+    glBindTexture(GL_TEXTURE_2D, *tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, static_cast<GLint>(kClampToEdge));
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, static_cast<GLint>(kClampToEdge));
+    glTexImage2D(GL_TEXTURE_2D, 0, static_cast<GLint>(kRgba16f), w, h, 0, GL_RGBA,
+                 GL_FLOAT, nullptr);
+    if (!*fbo) glGenFramebuffers(1, fbo);
+    if (!*fbo) return false;
+    glBindFramebuffer(kFramebuffer, *fbo);
+    glFramebufferTexture2D(kFramebuffer, kColorAttachment0, GL_TEXTURE_2D, *tex, 0);
+    if (glCheckFramebufferStatus(kFramebuffer) != kFramebufferComplete) {
+        std::fprintf(stderr, "screen_filter: CRT %s target refused; CRT off\n", what);
+        *tex_w = *tex_h = 0;
+        return false;
+    }
+    *tex_w = w;
+    *tex_h = h;
+    return true;
+}
 
-bool screen_filter_draw(SDL_Renderer* renderer, SDL_Texture* texture,
-                        ScreenFilter filter, const float* params,
-                        const SDL_Rect& source, int pixel_w, int pixel_h,
-                        const SDL_Rect& dest) {
-    if (filter == ScreenFilter::Off || !renderer || !texture) return false;
+// CRT Lottes' two steps before the main pass. `unit` (a GL_TEXTUREn value)
+// holds the source region at `rect` in its coordinates; `dst_unit` is a unit
+// index besides it, which is left holding the rows texture for the main pass.
+//   1. linear: the region at 1x, brightBoost and sRGB to linear applied, into
+//      crt_tex.
+//   2. rows: crt_tex's lines filtered sideways at `out_w` columns (plus a
+//      margin each side for the curvature), into crt_rows_tex. When Glow is 0,
+//      only bands 0 and 1 (2 * pixel_h rows) are drawn, skipping Horz7.
+// Fills crt_layout. The caller rebinds its framebuffer. False when it cannot
+// (CRT then not drawn).
+bool run_crt_steps(State* s, GLint unit, GLint dst_unit, const float rect[4],
+                   int pixel_w, int pixel_h, int out_w, const float* params,
+                   int param_count) {
+    if (s->crt_failed) return false;
+    if (!s->crt_linear.tried) {
+        build_program(&s->crt_linear, kCrtLinearFragment, "CRT linear", kVertexSourceFbo);
+        build_program(&s->crt_rows, kCrtRowsFragment, "CRT rows", kVertexSourceFbo,
+                      kFragmentCommon, kCrtLottesCommon);
+    }
+    if (!s->crt_linear.id || !s->crt_rows.id) { s->crt_failed = true; return false; }
+    // Curvature (up to 200%) moves the picture's corners out by 3.1% of its
+    // width, 15 source pixels at 480; 16 source pixels of margin covers it.
+    // When curvature is off, no side margin is needed.
+    const bool warp_on = param_count > 1 && params[1] > 0.0f;
+    const int margin = warp_on ? (16 * out_w + pixel_w - 1) / pixel_w : 0;
+    const int rows_w = out_w + 2 * margin;
+    const int rows_h = 3 * pixel_h;
+    const bool bloom_on = param_count > 4 && params[4] > 0.0f;
+    glActiveTexture(kTexture0 + static_cast<GLenum>(dst_unit));
+    const bool targets =
+        ensure_crt_target(&s->crt_linear_fbo, &s->crt_tex, &s->crt_w, &s->crt_h,
+                          pixel_w, pixel_h, GL_NEAREST, "linear") &&
+        ensure_crt_target(&s->crt_rows_fbo, &s->crt_rows_tex, &s->crt_rows_w,
+                          &s->crt_rows_h, rows_w, rows_h, GL_LINEAR, "rows");
+    if (!targets) { s->crt_failed = true; return false; }
+    s->crt_layout[0] = static_cast<float>(out_w);
+    s->crt_layout[1] = static_cast<float>(margin);
+    s->crt_layout[2] = static_cast<float>(rows_w);
+    s->crt_layout[3] = static_cast<float>(pixel_h);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_BLEND);
+    glBindVertexArray(s->vao);
+    const float fw = static_cast<float>(pixel_w), fh = static_cast<float>(pixel_h);
+
+    // 1. linear, reading `unit`.
+    glActiveTexture(static_cast<GLenum>(unit));
+    const Program& lin = s->crt_linear;
+    glUseProgram(lin.id);
+    glUniform1i(lin.u_texture, unit - static_cast<GLint>(kTexture0));
+    glUniform2f(lin.u_source_size, fw, fh);
+    glUniform4f(lin.u_tex_rect, rect[0], rect[1], rect[2], rect[3]);
+    glUniform2f(lin.u_output_size, fw, fh);
+    set_params(lin, params, param_count);
+    glBindFramebuffer(kFramebuffer, s->crt_linear_fbo);
+    glViewport(0, 0, pixel_w, pixel_h);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    // 2. rows, reading crt_tex on dst_unit.
+    glActiveTexture(kTexture0 + static_cast<GLenum>(dst_unit));
+    glBindTexture(GL_TEXTURE_2D, s->crt_tex);
+    const Program& rows = s->crt_rows;
+    glUseProgram(rows.id);
+    glUniform1i(rows.u_texture, dst_unit);
+    glUniform2f(rows.u_source_size, fw, fh);
+    glUniform4f(rows.u_tex_rect, 0.0f, 0.0f, 1.0f, 1.0f);
+    const int draw_rows_h = bloom_on ? rows_h : 2 * pixel_h;
+    glUniform2f(rows.u_output_size, static_cast<float>(rows_w), static_cast<float>(draw_rows_h));
+    glUniform4f(rows.u_crt_layout, s->crt_layout[0], s->crt_layout[1], s->crt_layout[2], s->crt_layout[3]);
+    set_params(rows, params, param_count);
+    glBindFramebuffer(kFramebuffer, s->crt_rows_fbo);
+    glViewport(0, 0, rows_w, draw_rows_h);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    glBindTexture(GL_TEXTURE_2D, s->crt_rows_tex);
+    glActiveTexture(static_cast<GLenum>(unit));
+    return true;
+}
+
+// Either SDL's `texture`, or a GL texture of our own (`gl_texture`,
+// `gl_w` x `gl_h`, rows top-down as SDL keeps them).
+bool filter_draw(SDL_Renderer* renderer, SDL_Texture* texture,
+                 GLuint gl_texture, int gl_w, int gl_h,
+                 ScreenFilter filter, const float* params,
+                 const SDL_Rect& source, int pixel_w, int pixel_h,
+                 const SDL_Rect& dest) {
+    if (filter == ScreenFilter::Off || !renderer || (!texture && !gl_texture)) return false;
     if (pixel_w < 1 || pixel_h < 1 || source.w < 1 || source.h < 1 ||
         dest.w < 1 || dest.h < 1)
         return false;
@@ -1437,10 +1515,10 @@ bool screen_filter_draw(SDL_Renderer* renderer, SDL_Texture* texture,
     if (SDL_GetRendererOutputSize(renderer, &out_w, &out_h) != 0 ||
         out_w < 1 || out_h < 1)
         return false;
-    int tex_w = 0, tex_h = 0;
-    if (SDL_QueryTexture(texture, nullptr, nullptr, &tex_w, &tex_h) != 0 ||
-        tex_w < 1 || tex_h < 1)
+    int tex_w = gl_w, tex_h = gl_h;
+    if (texture && SDL_QueryTexture(texture, nullptr, nullptr, &tex_w, &tex_h) != 0)
         return false;
+    if (tex_w < 1 || tex_h < 1) return false;
 
     // Commit SDL's batched draws first (and make its GL context current):
     // everything below talks to GL directly.
@@ -1460,18 +1538,23 @@ bool screen_filter_draw(SDL_Renderer* renderer, SDL_Texture* texture,
         }
     }
     if (s.context && s.context != context) return false;
-    if (sfx && !s.fbo_loaded) {
+    // CRT Lottes draws a linear step into a texture of its own first.
+    const bool crt = filter == ScreenFilter::CrtLottes;
+    const bool chain = sfx || crt;  // uses framebuffers and a second unit
+    if (chain && !s.fbo_loaded) {
         s.fbo_loaded = true;
         s.fbo_ok = load_fbo();
         if (!s.fbo_ok) {
             s.sfx_failed = true;
+            s.crt_failed = true;
             std::fprintf(stderr,
                          "screen_filter: framebuffer functions unavailable; "
-                         "ScaleFX disabled\n");
+                         "ScaleFX and CRT disabled\n");
             std::fflush(stderr);
         }
     }
     if (sfx && s.sfx_failed) return false;
+    if (crt && s.crt_failed) return false;
 
     // Back up everything touched, the way imgui_impl_opengl3 does: SDL's
     // renderer caches its own GL state and would not notice a change.
@@ -1489,7 +1572,7 @@ bool screen_filter_draw(SDL_Renderer* renderer, SDL_Texture* texture,
     // ScaleFX also moves the framebuffer bindings and uses two more texture
     // units, so back up those too (units 0-2 cover any pair besides SDL's).
     GLint prev_draw_fbo = 0, prev_read_fbo = 0, prev_unit_tex[3] = {0, 0, 0};
-    if (sfx) {
+    if (chain) {
         glGetIntegerv(kDrawFramebufferBinding, &prev_draw_fbo);
         glGetIntegerv(kReadFramebufferBinding, &prev_read_fbo);
         for (int u = 0; u < 3; ++u) {
@@ -1500,7 +1583,11 @@ bool screen_filter_draw(SDL_Renderer* renderer, SDL_Texture* texture,
     }
 
     float texw = 1.0f, texh = 1.0f;
-    if (SDL_GL_BindTexture(texture, &texw, &texh) != 0) return false;
+    if (texture) {
+        if (SDL_GL_BindTexture(texture, &texw, &texh) != 0) return false;
+    } else {
+        glBindTexture(GL_TEXTURE_2D, gl_texture);
+    }
     GLint unit = 0;
     glGetIntegerv(kActiveTextureEnum, &unit);
     GLint prev_min = 0, prev_mag = 0;
@@ -1521,7 +1608,8 @@ bool screen_filter_draw(SDL_Renderer* renderer, SDL_Texture* texture,
                 build_scalefx(&s);
             else
                 build_program(&prog, kOnePass[one_pass].fragment,
-                              kOnePass[one_pass].name);
+                              kOnePass[one_pass].name, kVertexSource,
+                              kFragmentCommon, crt ? kCrtLottesCommon : nullptr);
         }
         if (sfx) {
             if (prog.id && s.geometry_ready && !s.sfx_failed) {
@@ -1537,25 +1625,41 @@ bool screen_filter_draw(SDL_Renderer* renderer, SDL_Texture* texture,
                 glActiveTexture(static_cast<GLenum>(unit));
             }
         } else if (prog.id && s.geometry_ready) {
-            const float u0 = static_cast<float>(source.x) / tex_w * texw;
-            const float v0 = static_cast<float>(source.y) / tex_h * texh;
-            const float u1 = static_cast<float>(source.x + source.w) / tex_w * texw;
-            const float v1 = static_cast<float>(source.y + source.h) / tex_h * texh;
-
+            float rect[4] = {
+                static_cast<float>(source.x) / tex_w * texw,
+                static_cast<float>(source.y) / tex_h * texh,
+                static_cast<float>(source.x + source.w) / tex_w * texw,
+                static_cast<float>(source.y + source.h) / tex_h * texh};
+            GLint read_unit = unit - static_cast<GLint>(kTexture0);
+            bool ready = true;
+            if (crt) {
+                // The rows texture, on a unit besides SDL's; the main pass
+                // then reads it whole.
+                const GLint crt_unit = read_unit == 0 ? 1 : 0;
+                ready = run_crt_steps(&s, unit, crt_unit, rect, pixel_w, pixel_h,
+                                      dest.w, values, value_count);
+                glBindFramebuffer(kFramebuffer, static_cast<GLuint>(prev_draw_fbo));
+                read_unit = crt_unit;
+                rect[0] = rect[1] = 0.0f;
+                rect[2] = rect[3] = 1.0f;
+            }
+            if (ready) {
             glViewport(dest.x, out_h - (dest.y + dest.h), dest.w, dest.h);
             glDisable(GL_SCISSOR_TEST);
             glDisable(GL_BLEND);
             glUseProgram(prog.id);
-            glUniform1i(prog.u_texture, unit - static_cast<GLint>(kTexture0));
+            glUniform1i(prog.u_texture, read_unit);
             glUniform2f(prog.u_source_size, static_cast<float>(pixel_w),
                         static_cast<float>(pixel_h));
-            glUniform4f(prog.u_tex_rect, u0, v0, u1, v1);
+            glUniform4f(prog.u_tex_rect, rect[0], rect[1], rect[2], rect[3]);
             glUniform2f(prog.u_output_size, static_cast<float>(dest.w),
                         static_cast<float>(dest.h));
             set_params(prog, values, value_count);
+            if (crt) glUniform4f(prog.u_crt_layout, s.crt_layout[0], s.crt_layout[1], s.crt_layout[2], s.crt_layout[3]);
             glBindVertexArray(s.vao);
             glDrawArrays(GL_TRIANGLES, 0, 6);
             drawn = true;
+            }
         }
     }
 
@@ -1563,7 +1667,7 @@ bool screen_filter_draw(SDL_Renderer* renderer, SDL_Texture* texture,
     // it is still bound.
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, prev_min);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, prev_mag);
-    if (sfx) {
+    if (chain) {
         glBindFramebuffer(kDrawFramebuffer, static_cast<GLuint>(prev_draw_fbo));
         glBindFramebuffer(kReadFramebuffer, static_cast<GLuint>(prev_read_fbo));
     }
@@ -1574,10 +1678,10 @@ bool screen_filter_draw(SDL_Renderer* renderer, SDL_Texture* texture,
                prev_viewport[3]);
     if (prev_scissor) glEnable(GL_SCISSOR_TEST); else glDisable(GL_SCISSOR_TEST);
     if (prev_blend) glEnable(GL_BLEND); else glDisable(GL_BLEND);
-    SDL_GL_UnbindTexture(texture);
+    if (texture) SDL_GL_UnbindTexture(texture);
     glActiveTexture(static_cast<GLenum>(unit));
     glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(prev_texture));
-    if (sfx) {
+    if (chain) {
         for (int u = 0; u < 3; ++u) {
             glActiveTexture(kTexture0 + static_cast<GLenum>(u));
             glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(prev_unit_tex[u]));
@@ -1585,6 +1689,25 @@ bool screen_filter_draw(SDL_Renderer* renderer, SDL_Texture* texture,
     }
     glActiveTexture(static_cast<GLenum>(prev_active));
     return drawn;
+}
+
+}  // namespace
+
+bool screen_filter_draw(SDL_Renderer* renderer, SDL_Texture* texture,
+                        ScreenFilter filter, const float* params,
+                        const SDL_Rect& source, int pixel_w, int pixel_h,
+                        const SDL_Rect& dest) {
+    return filter_draw(renderer, texture, 0, 0, 0, filter, params, source,
+                       pixel_w, pixel_h, dest);
+}
+
+bool screen_filter_draw_gl(SDL_Renderer* renderer, unsigned gl_texture,
+                           int texture_w, int texture_h, ScreenFilter filter,
+                           const float* params, const SDL_Rect& source,
+                           int pixel_w, int pixel_h, const SDL_Rect& dest) {
+    return filter_draw(renderer, nullptr, static_cast<GLuint>(gl_texture),
+                       texture_w, texture_h, filter, params, source, pixel_w,
+                       pixel_h, dest);
 }
 
 void screen_filter_shutdown() {
@@ -1602,7 +1725,13 @@ void screen_filter_shutdown() {
             for (GLuint t : s.sfx_tex)
                 if (t) glDeleteTextures(1, &t);
             if (s.sfx_fbo) glDeleteFramebuffers(1, &s.sfx_fbo);
+            if (s.crt_tex) glDeleteTextures(1, &s.crt_tex);
+            if (s.crt_rows_tex) glDeleteTextures(1, &s.crt_rows_tex);
+            if (s.crt_linear_fbo) glDeleteFramebuffers(1, &s.crt_linear_fbo);
+            if (s.crt_rows_fbo) glDeleteFramebuffers(1, &s.crt_rows_fbo);
         }
+        if (s.crt_linear.id) glDeleteProgram(s.crt_linear.id);
+        if (s.crt_rows.id) glDeleteProgram(s.crt_rows.id);
         if (s.vbo) glDeleteBuffers(1, &s.vbo);
         if (s.vao) glDeleteVertexArrays(1, &s.vao);
     }
@@ -1618,6 +1747,12 @@ namespace gbarecomp {
 bool screen_filter_draw(SDL_Renderer*, SDL_Texture*, ScreenFilter,
                         const float*, const SDL_Rect&, int, int,
                         const SDL_Rect&) {
+    return false;
+}
+
+bool screen_filter_draw_gl(SDL_Renderer*, unsigned, int, int, ScreenFilter,
+                           const float*, const SDL_Rect&, int, int,
+                           const SDL_Rect&) {
     return false;
 }
 
